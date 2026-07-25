@@ -52,9 +52,10 @@ export async function initializeProject(
 ): Promise<ResolvedProject> {
   const absoluteRoot = path.resolve(root);
   const directory = projectDirectory(absoluteRoot);
-  // The process umask decides the mode, exactly like `git init`: a project tier
-  // may be committed, and a mode 1667 asserted would not survive the clone.
-  await mkdir(directory, { recursive: true });
+  // 1667 creates this directory, so it keeps it private — the same 0700 the
+  // lock repairs on every open. Git carries no modes, so a clone that arrives
+  // as 0755 is repaired rather than refused.
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   const gitignore = path.join(directory, PROJECT_GITIGNORE_FILE);
   await writeFile(gitignore, projectGitignoreContent(), { flag: "wx" })
     .catch((error: unknown) => {

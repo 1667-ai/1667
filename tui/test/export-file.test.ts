@@ -43,7 +43,7 @@ describe("markdown export files", () => {
   test("a title becomes a safe bounded filename", () => {
     expect(exportFileBase("Chapter 1: The/Door\\Home")).toBe("Chapter 1- The-Door-Home");
     expect(exportFileBase("   ")).toBe("story");
-    expect(exportFileBase("*".repeat(400)).length).toBeLessThanOrEqual(120);
+    expect(exportFileBase("*".repeat(400)).length).toBe(120);
   });
 });
 

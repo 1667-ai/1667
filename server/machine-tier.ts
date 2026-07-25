@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { chmod, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import {
   inspectPrivatePosixDirectory,
@@ -48,6 +48,11 @@ async function prepareOverride(
   // A canonical path is what the privacy inspection compares against, and
   // temporary roots are commonly reached through a symlinked ancestor.
   const canonical = await realpath(configured);
-  if (platform !== "win32") await inspectPrivatePosixDirectory(canonical);
+  if (platform === "win32") return canonical;
+  // This directory holds the keys, so 1667 makes it private rather than
+  // refusing an override that merely arrived with a wider mode. Ownership is
+  // still asserted by the inspection below.
+  await chmod(canonical, 0o700);
+  await inspectPrivatePosixDirectory(canonical);
   return canonical;
 }

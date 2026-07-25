@@ -22,7 +22,9 @@ import { attachHttpServer } from "./http-attach.js";
 import { runStoryExport } from "./export-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
+import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
+import { adoptDataDirectory } from "../../server/project-adoption.js";
 import {
   initializeProject,
   PROJECT_DIRECTORY_NAME,
@@ -60,7 +62,7 @@ Stories live in .1667/ beside your writing, found by walking up from the
 current directory the way git finds .git.
 
 Usage: 1667 [options]
-       1667 init
+       1667 init [--adopt [--from <legacy-data-dir>]]
        1667 export [--story <id>] [--force]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>]
@@ -263,14 +265,38 @@ async function printStartupDiagnostic(args: Arguments): Promise<void> {
 }
 
 async function runProjectInit(argv: readonly string[]): Promise<void> {
-  for (const argument of argv) {
-    if (argument === "--adopt") {
-      usageError("init --adopt is not available yet");
-    }
-    usageError(`unknown init option: ${argument}`);
+  let adopt = false;
+  let from: string | null = null;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (argument === "--adopt") adopt = true;
+    else if (argument.startsWith("--from=")) from = requiredInlineValue(argument, "--from");
+    else if (argument === "--from") {
+      from = requiredSeparatedValue(argv, index, "--from");
+      index += 1;
+    } else usageError(`unknown init option: ${argument}`);
   }
-  const project = await initializeProject(process.cwd());
-  process.stdout.write(`1667 story project: ${project.directory}\n`);
+  if (from !== null && !adopt) usageError("--from requires --adopt");
+  if (!adopt) {
+    const project = await initializeProject(process.cwd());
+    process.stdout.write(`1667 story project: ${project.directory}\n`);
+    return;
+  }
+  const adoption = await adoptDataDirectory({
+    source: from ?? resolvePlatformDataDirectory({ packaged: true }),
+    projectRoot: process.cwd(),
+    machineDir: await resolveMachineTierRoot()
+  });
+  process.stdout.write(`1667 story project: ${adoption.project.directory}\n`);
+  process.stdout.write(
+    `adopted ${adoption.movedEntries.length} entries from ${adoption.source}\n`
+  );
+  if (adoption.relocatedSecretIds.length > 0) {
+    process.stdout.write(
+      `moved ${adoption.relocatedSecretIds.length} provider secret(s) `
+        + "into the machine tier\n"
+    );
+  }
 }
 
 function projectRequest(

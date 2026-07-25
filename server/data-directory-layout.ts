@@ -39,8 +39,12 @@ export const PROVIDER_SECRETS_NEXT_SCRATCH =
 export const LEGACY_PREVIEW_DATA_MARKER_TEXT =
   '{"format":"1667-lock-aware-data","version":1}\n';
 
-/** Control/residue entries never copied from a legacy source migration. */
-export const DATA_DIRECTORY_MIGRATION_EXCLUDED_ENTRY_NAMES = Object.freeze([
+/**
+ * Entries 1667 owns as control state rather than as the user's writing, in
+ * both current and pre-ADR007 names. Provider secrets belong here because they
+ * live in the machine tier now, never beside the stories.
+ */
+export const PROJECT_CONTROL_ENTRY_NAMES = Object.freeze([
   DATA_DIRECTORY_LOCK,
   DATA_DIRECTORY_OWNER_MARKER,
   DATA_DIRECTORY_OWNER_MARKER_NEXT,
@@ -52,10 +56,20 @@ export const DATA_DIRECTORY_MIGRATION_EXCLUDED_ENTRY_NAMES = Object.freeze([
   LEGACY_PROCESS_OWNER_LOCK,
   LEGACY_HARDENED_PROCESS_LOCK,
   LEGACY_PREVIEW_DATA_MARKER,
-  SETTINGS_STATE_V2_FILE,
-  SETTINGS_STATE_V2_NEXT_FILE,
-  SETTINGS_STATE_V2_NEXT_SCRATCH,
   PROVIDER_SECRETS_FILE,
   PROVIDER_SECRETS_NEXT_FILE,
   PROVIDER_SECRETS_NEXT_SCRATCH
+] as const);
+
+/**
+ * Also excluded when copying a legacy v1 source: format-2 settings state
+ * belongs to the generation of the directory that wrote it, and a v1 migration
+ * initializes its own. Adoption instead carries the settings across, which is
+ * why it excludes only PROJECT_CONTROL_ENTRY_NAMES.
+ */
+export const DATA_DIRECTORY_MIGRATION_EXCLUDED_ENTRY_NAMES = Object.freeze([
+  ...PROJECT_CONTROL_ENTRY_NAMES,
+  SETTINGS_STATE_V2_FILE,
+  SETTINGS_STATE_V2_NEXT_FILE,
+  SETTINGS_STATE_V2_NEXT_SCRATCH
 ] as const);

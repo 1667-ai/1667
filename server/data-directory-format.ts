@@ -123,7 +123,7 @@ export async function writeInitialDataDirectoryFormat(
     await requireInitialSettingsPathsAbsent(dataDir);
   }
 
-  await resumeInitialOwnerMarker(dataDir, dataFormat);
+  await publishDataDirectoryOwnerMarker(dataDir, dataFormat);
 }
 
 export function parseDataDirectoryOwnerMarkerBytes(
@@ -197,7 +197,12 @@ async function validateSettingsStateV2(dataDir: string): Promise<void> {
   }
 }
 
-async function resumeInitialOwnerMarker(
+/**
+ * Publish only the owner marker, resuming an interrupted attempt. Adoption uses
+ * this to carry a legacy directory's format across without letting the
+ * initializer touch the settings state it just moved.
+ */
+export async function publishDataDirectoryOwnerMarker(
   dataDir: string,
   dataFormat: DataDirectoryFormat
 ): Promise<void> {
