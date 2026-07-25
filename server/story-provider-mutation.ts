@@ -27,6 +27,12 @@ import {
 import { requireExpectedStoryVersion } from "./story-aggregate-state.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import {
+  captureStoryBaseline,
+  deriveStoryDelta,
+  rebaseStoryDelta,
+  type StoryBaseline
+} from "./story-generation-rebase.js";
+import {
   ScopedProviderStoryRuntime,
   type ProviderStoryRuntime
 } from "./story-mutation-runtime.js";
@@ -92,7 +98,7 @@ export class StoryProviderMutationStore {
 
       const opened = await this.open(storyId, request, method, receipt, replayValue);
       if (opened.kind === "replayed") return opened.commit;
-      const { story } = opened;
+      const { story, baseline } = opened;
       const runtime = new ScopedProviderStoryRuntime(story);
       let started: StartedMutationRecord | null = null;
       const startProvider = async (): Promise<void> => {
@@ -103,7 +109,15 @@ export class StoryProviderMutationStore {
       try {
         value = await work(runtime, startProvider);
       } catch (error) {
-        await this.recordFailure(storyId, request, method, started, runtime, error);
+        await this.recordFailure(
+          storyId,
+          request,
+          method,
+          started,
+          runtime,
+          baseline,
+          error
+        );
         throw error;
       }
       if (started === null && runtime.didSave) await startProvider();
@@ -116,17 +130,36 @@ export class StoryProviderMutationStore {
       }
       if (!runtime.didSave) throw providerOutcomeUnknown(request.mutationId);
       const terminal = started;
-      const result = await this.stories.withAggregateSession(
-        storyId,
-        async (session) => await this.commitTerminal(
-          session,
-          request,
-          method,
-          terminal,
-          runtime,
-          "success"
-        )
-      );
+      let result: Extract<MutationResult, { kind: "story" }>;
+      try {
+        result = await this.stories.withAggregateSession(
+          storyId,
+          async (session) => await this.commitTerminal(
+            session,
+            request,
+            method,
+            terminal,
+            runtime,
+            baseline,
+            "success"
+          )
+        );
+      } catch (error) {
+        if (error instanceof ProviderError) {
+          await this.stories.withAggregateSession(storyId, async (session) => {
+            await this.commitTerminal(
+              session,
+              request,
+              method,
+              terminal,
+              runtime,
+              baseline,
+              "error"
+            );
+          });
+        }
+        throw error;
+      }
       return { story, result, value };
     });
   }
@@ -140,7 +173,7 @@ export class StoryProviderMutationStore {
     replayValue: () => Value
   ): Promise<
     | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }
-    | { kind: "open"; story: Story }
+    | { kind: "open"; story: Story; baseline: StoryBaseline }
   > {
     return await this.stories.withAggregateSession(storyId, async (session) => {
       await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
@@ -171,7 +204,12 @@ export class StoryProviderMutationStore {
         session.snapshot,
         request.expectedAggregateVersion
       );
-      return { kind: "open", story: await session.loadLive() };
+      const story = await session.loadLive();
+      return {
+        kind: "open",
+        story,
+        baseline: captureStoryBaseline(story)
+      };
     });
   }
 
@@ -227,12 +265,21 @@ export class StoryProviderMutationStore {
     method: ProviderMutationMethod,
     started: StartedMutationRecord | null,
     runtime: ScopedProviderStoryRuntime,
+    baseline: StoryBaseline,
     error: unknown
   ): Promise<void> {
     if (started !== null) {
       if (!isDefinitiveProviderFailure(error)) return;
       await this.stories.withAggregateSession(storyId, async (session) => {
-        await this.commitTerminal(session, request, method, started, runtime, "error");
+        await this.commitTerminal(
+          session,
+          request,
+          method,
+          started,
+          runtime,
+          baseline,
+          "error"
+        );
       });
       return;
     }
@@ -260,15 +307,22 @@ export class StoryProviderMutationStore {
     method: ProviderMutationMethod,
     started: StartedMutationRecord,
     runtime: ScopedProviderStoryRuntime,
+    baseline: StoryBaseline,
     outcome: "success" | "error"
   ): Promise<Extract<MutationResult, { kind: "story" }>> {
     const oldStateHash = session.snapshot.manifestHash;
     const draft = outcome === "success"
       ? await runtime.loadForMutation(storyIdFromScope(request.scope))
       : null;
-    const replacement = draft === null
+    const rebased = draft === null
       ? null
-      : await session.prepareContent(draft);
+      : rebaseStoryDelta(
+        await session.loadLive(),
+        deriveStoryDelta(baseline, draft)
+      );
+    const replacement = rebased === null
+      ? null
+      : await session.prepareContent(rebased);
     const provider = {
       mutationId: request.mutationId,
       fingerprintHash: request.fingerprint

@@ -150,6 +150,9 @@ export function rebaseStoryDelta(current: Story, delta: StoryDelta): Story {
       merged.instruction = rewritten.node.instruction;
       merged.role = rewritten.node.role;
       merged.chapterBreakId = rewritten.node.chapterBreakId;
+      merged.coveredExtent = rewritten.node.coveredExtent;
+      merged.madeAt = rewritten.node.madeAt;
+      merged.editedByUser = rewritten.node.editedByUser;
     }
     // The writer's navigation wins: adopt the generation's link only where the
     // writer has not moved it themselves.
