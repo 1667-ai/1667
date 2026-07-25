@@ -1,17 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import {
-  PROVIDER_SECRETS_FILE,
-  PROVIDER_SECRETS_NEXT_FILE,
-  PROVIDER_SECRETS_NEXT_SCRATCH
-} from "./data-directory-layout.js";
+import { PROVIDER_SECRET_VALUE_ENTRY_NAMES } from "./data-directory-layout.js";
 import { ServiceError } from "./errors.js";
-
-const SECRET_ENTRY_NAMES = Object.freeze([
-  PROVIDER_SECRETS_FILE,
-  PROVIDER_SECRETS_NEXT_FILE,
-  PROVIDER_SECRETS_NEXT_SCRATCH
-] as const);
 
 /**
  * ADR007: a plaintext key must never sit in a folder the user may commit or
@@ -23,7 +13,7 @@ export async function assertNoProjectTierSecrets(
   machineDir: string
 ): Promise<void> {
   if (await sameDirectory(projectDir, machineDir)) return;
-  for (const entry of SECRET_ENTRY_NAMES) {
+  for (const entry of PROVIDER_SECRET_VALUE_ENTRY_NAMES) {
     const file = path.join(projectDir, entry);
     if (!await exists(file)) continue;
     throw new ServiceError(

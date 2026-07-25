@@ -28,8 +28,6 @@ export async function readBoundedRegularFile(
   try {
     const pathInfo = await lstat(file);
     requireBoundedRegularFile(pathInfo, file, maxBytes, policy);
-    if (policy.requirePrivate) {
-    }
     handle = await open(file, constants.O_RDONLY | noFollowFlag());
     const before = await handle.stat();
     requireBoundedRegularFile(before, file, maxBytes, policy);
@@ -88,8 +86,6 @@ export async function readBoundedMutableAuthorityFile(
     try {
       const pathInfo = await lstat(file);
       requireBoundedRegularFile(pathInfo, file, maxBytes, linkedPolicy);
-      if (linkedPolicy.requirePrivate) {
-      }
       handle = await open(file, constants.O_RDONLY | noFollowFlag());
       const before = await handle.stat();
       requireBoundedRegularFile(before, file, maxBytes, openedPolicy);

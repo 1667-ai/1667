@@ -52,11 +52,19 @@ export async function runStoryExport(
   const outcome = await resolveProject(projectRequest(command));
   if (outcome.kind === "absent") {
     throw new Error(
-      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent. `
-        + "Run '1667 init', or use --global."
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent, `
+        + "so there is nothing to export. Run '1667 init' first."
     );
   }
   const project = outcome.project;
+  // Exporting a project that does not exist would create one and then export
+  // the starter stories it had just invented.
+  if (!project.exists) {
+    throw new Error(
+      `${project.directory} is not a 1667 story project yet, so there is `
+        + "nothing to export. Run '1667 init' there first."
+    );
+  }
   const backend = await createWorkerStoryApi({ dataDir: project.directory });
   try {
     const stories = [...await backend.api.listStories()].sort(
@@ -85,8 +93,6 @@ export async function runStoryExport(
 function projectRequest(command: ExportCommand): ProjectRequest {
   return {
     cwd: process.cwd(),
-    // Exporting never creates a project: there would be nothing to write.
-    create: false,
     ...(command.data === null ? {} : { data: command.data }),
     ...(command.global ? { global: true } : {})
   };

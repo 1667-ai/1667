@@ -2,22 +2,23 @@ import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import {
-  adoptLockedDataDirectoryMarker,
-  assertRetainedDataDirectory,
-  type DataDirectoryFormatSource
-} from "./data-directory-marker-adoption.js";
-import {
   type DataDirectoryFormat,
   DATA_DIRECTORY_LOCK
 } from "./data-directory-layout.js";
 import {
+  discardOwnerMarkerNextResidue,
   hasDataDirectoryFormatMarker,
-  writeInitialDataDirectoryFormat
+  readDataDirectoryFormatSource,
+  writeInitialDataDirectoryFormat,
+  type DataDirectoryFormatSource
 } from "./data-directory-format.js";
+import {
+  assertRetainedDataDirectory
+} from "./retained-directory-identity.js";
 import { ServiceError } from "./errors.js";
 import { lockedDataDirectoryError } from "./data-directory-errors.js";
 import { assertLockingFilesystem } from "./lock-capability-probe.js";
-import { lockFile, type OsFileLock } from "./os-file-lock.js";
+import { isLockContention, lockFile, type OsFileLock } from "./os-file-lock.js";
 import { readProjectRunRecord } from "./project-run-record.js";
 import {
   migrateSettingsFormatV1ToV2UnderLock,
@@ -118,10 +119,7 @@ export class DataDirectoryLock {
         canonicalDir,
         this.options.initializeDataFormat ?? 2
       );
-      const adoption = await adoptLockedDataDirectoryMarker(
-        canonicalDir,
-        dataDirectoryHandle
-      );
+      const adoption = await adoptMarker(canonicalDir, dataDirectoryHandle);
       this.lock = lock;
       this.lockHandle = lockHandle;
       this.dataDirectoryHandle = dataDirectoryHandle;
@@ -169,12 +167,12 @@ export class DataDirectoryLock {
     await migrateSettingsFormatV1ToV2UnderLock(
       canonicalDir,
       options,
-      () => assertRetainedDataDirectory(canonicalDir, dataDirectoryHandle)
+      async () => void await assertRetainedDataDirectory(
+        canonicalDir,
+        dataDirectoryHandle
+      )
     );
-    const adoption = await adoptLockedDataDirectoryMarker(
-      canonicalDir,
-      dataDirectoryHandle
-    );
+    const adoption = await adoptMarker(canonicalDir, dataDirectoryHandle);
     if (adoption.dataFormat !== 2 || adoption.source !== "owner-marker") {
       throw new Error("Settings format migration did not activate the canonical format-2 marker");
     }
@@ -204,6 +202,27 @@ export class DataDirectoryLock {
       }
     }
   }
+}
+
+/**
+ * Read the format this project declares while its lock is held, and clear the
+ * one residue an interrupted marker publication can leave. The lock is held by
+ * the time this runs, so a single read is authoritative.
+ */
+async function adoptMarker(
+  canonicalDir: string,
+  dataDirectoryHandle: FileHandle
+): Promise<{
+  readonly dataFormat: DataDirectoryFormat;
+  readonly source: DataDirectoryFormatSource;
+}> {
+  await assertRetainedDataDirectory(canonicalDir, dataDirectoryHandle);
+  const adopted = await readDataDirectoryFormatSource(canonicalDir);
+  if (adopted.source === "owner-marker") {
+    await discardOwnerMarkerNextResidue(canonicalDir);
+    await assertRetainedDataDirectory(canonicalDir, dataDirectoryHandle);
+  }
+  return adopted;
 }
 
 export async function hasLockAwareDataMarker(dataDir: string): Promise<boolean> {
@@ -257,7 +276,3 @@ function noFollowFlag(): number {
   return process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
 }
 
-function isLockContention(error: unknown): boolean {
-  return error instanceof Error && "code" in error
-    && ["EACCES", "EAGAIN", "EBUSY", "EWOULDBLOCK", "ELOCKED"].includes(String(error.code));
-}

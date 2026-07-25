@@ -64,12 +64,15 @@ export async function runAuthShow(
   if (authFile === null && origin === null) {
     throw new Error("auth show requires --url <base-url> or --auth-file <path>");
   }
+  const target: { origin: string } | { file: string } = authFile === null
+    ? { origin: origin as string }
+    : { file: authFile };
   if (output.isTTY !== true) {
     throw new Error("auth show refuses to print a capability to non-TTY output");
   }
-  const selected = authFile === null
-    ? await readHttpAuthRecord(origin!)
-    : await readHttpAuthRecordFile(authFile);
+  const selected = "origin" in target
+    ? await readHttpAuthRecord(target.origin)
+    : await readHttpAuthRecordFile(target.file);
   const attach = await attachHttpServer(selected.record.origin, selected.paths.final);
   output.write(`1667 instance: ${attach.authRecord.instanceId}\n`);
   output.write(`${scope} capability: ${attach.authRecord.capabilities[scope]}\n`);
@@ -114,7 +117,6 @@ async function runLegacyServe(argv: string[]): Promise<void> {
     } else if (argument.startsWith("--data=")) {
       dataDir = requiredInlineValue(argument, "--data");
     } else if (argument.startsWith("--port=")) {
-      requiredInlineValue(argument, "--port");
       portSupplied = true;
     } else {
       throw new Error(`unknown serve option: ${argument}`);

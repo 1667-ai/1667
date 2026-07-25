@@ -8,6 +8,7 @@ import {
   PROJECT_RUN_RECORD_FILE
 } from "../server/data-directory-layout.js";
 import {
+  createProjectTier,
   findProjectRoot,
   initializeProject,
   resolveProject
@@ -43,7 +44,7 @@ test("initialization is idempotent and ignores what it must not commit", async (
   const first = await initializeProject(root);
   assert.equal(first.root, root);
   assert.equal(first.directory, await realpath(projectDirectory(root)));
-  assert.equal(first.source, "created");
+  assert.equal(first.source, "explicit");
 
   const ignored = await readFile(
     path.join(first.directory, PROJECT_GITIGNORE_FILE),
@@ -75,7 +76,7 @@ test("a project reached through a symlink resolves to its real path", async (t) 
   assert.equal(outcome.project.directory, await realpath(projectDirectory(real)));
 });
 
-test("an explicit project root is created without asking", async (t) => {
+test("an explicit project root names its tier, absent or not", async (t) => {
   const cwd = await temporaryDirectory(t, "1667-project-explicit-");
 
   const outcome = await resolveProject({ cwd, data: "book" });
@@ -84,7 +85,7 @@ test("an explicit project root is created without asking", async (t) => {
   assert.equal(outcome.project.root, path.join(cwd, "book"));
   assert.equal(
     outcome.project.directory,
-    await realpath(path.join(cwd, "book", PROJECT_DIRECTORY_NAME))
+    path.join(cwd, "book", PROJECT_DIRECTORY_NAME)
   );
 });
 
@@ -99,9 +100,11 @@ test("--global opens the machine tier's own project", async (t) => {
   if (outcome.kind !== "project") throw new Error("expected the global project");
   assert.equal(outcome.project.source, "global");
   assert.equal(outcome.project.root, await realpath(machineRoot));
+  // Resolution prepares the machine tier but not the project inside it.
+  assert.equal(outcome.project.exists, false);
   assert.equal(
     outcome.project.directory,
-    await realpath(path.join(machineRoot, "global"))
+    path.join(await realpath(machineRoot), "global")
   );
   // The global project is inside the machine tier, not a .1667 beside anything.
   assert.equal(outcome.project.directory.includes(PROJECT_DIRECTORY_NAME), false);
@@ -112,17 +115,43 @@ test("--global opens the machine tier's own project", async (t) => {
   );
 });
 
-test("a read-only resolution reports a project without creating it", async (t) => {
+test("resolution never creates a project, and says whether one exists", async (t) => {
   const cwd = await temporaryDirectory(t, "1667-project-report-");
 
-  const outcome = await resolveProject({ cwd, data: "book", create: false });
-  if (outcome.kind !== "project") throw new Error("expected a reported project");
-  assert.equal(outcome.project.root, path.join(cwd, "book"));
+  const reported = await resolveProject({ cwd, data: "book" });
+  if (reported.kind !== "project") throw new Error("expected a reported project");
+  assert.equal(reported.project.root, path.join(cwd, "book"));
   assert.equal(
-    outcome.project.directory,
+    reported.project.directory,
     path.join(cwd, "book", PROJECT_DIRECTORY_NAME)
   );
+  assert.equal(reported.project.exists, false);
   assert.equal(await findProjectRoot(cwd), null);
+
+  await createProjectTier(reported.project.directory);
+  const opened = await resolveProject({ cwd, data: "book" });
+  if (opened.kind !== "project") throw new Error("expected an existing project");
+  assert.equal(opened.project.exists, true);
+  assert.equal(await findProjectRoot(path.join(cwd, "book")), path.join(cwd, "book"));
+});
+
+test("every creator writes the gitignore that keeps secrets out of a commit", async (t) => {
+  const parent = await temporaryDirectory(t, "1667-project-ignore-");
+  const machineRoot = path.join(parent, "state");
+  const explicit = await initializeProject(path.join(parent, "book"));
+  const global = await resolveProject({ cwd: parent, global: true, machineRoot });
+  if (global.kind !== "project") throw new Error("expected the global project");
+  const globalDirectory = await createProjectTier(global.project.directory);
+
+  for (const directory of [explicit.directory, globalDirectory]) {
+    const ignored = (await readFile(
+      path.join(directory, PROJECT_GITIGNORE_FILE),
+      "utf8"
+    )).split("\n");
+    for (const name of [PROVIDER_SECRETS_FILE, PROJECT_RUN_RECORD_FILE]) {
+      assert.equal(ignored.includes(name), true, `${directory} must ignore ${name}`);
+    }
+  }
 });
 
 async function temporaryDirectory(t: TestContext, prefix: string): Promise<string> {

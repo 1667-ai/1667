@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   LEGACY_DATA_OWNER_MARKER,
   LEGACY_PREVIEW_DATA_MARKER,
+  LEGACY_PREVIEW_DATA_MARKER_TEXT,
   LEGACY_PROCESS_OWNER_LOCK,
   PROJECT_CONTROL_ENTRY_NAMES,
   PROVIDER_SECRETS_FILE,
@@ -16,7 +17,9 @@ import {
   publishDataDirectoryOwnerMarker
 } from "./data-directory-format.js";
 import { readBoundedRegularFile } from "./data-directory-file-read.js";
+import { loadGenerationSettingsV1 } from "./settings-v1-store.js";
 import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
+import { syncDirectory } from "./story-lifecycle.js";
 import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import { ServiceError } from "./errors.js";
 import { lockFile } from "./os-file-lock.js";
@@ -58,9 +61,7 @@ export async function adoptDataDirectory(options: {
     );
     const project = await requireEmptyProject(options.projectRoot);
     const relocatedSecretIds = await relocateSecrets(source, options.machineDir);
-    for (const entry of payload) {
-      await movePath(path.join(source, entry), path.join(project.directory, entry));
-    }
+    await movePayload(source, project.directory, payload);
     // Publishing the marker last is what makes the adopted directory a project.
     // Only the marker: the settings state, stories, and receipts that just
     // arrived are the adopted data, and no initializer may rewrite them.
@@ -90,7 +91,19 @@ async function requireReadableSettings(
   source: string,
   dataFormat: DataDirectoryFormat
 ): Promise<void> {
-  if (dataFormat !== 2) return;
+  if (dataFormat === 1) {
+    // The next ordinary open migrates v1 settings to v2. If they cannot be read
+    // that migration fails after the source has already been emptied.
+    try {
+      await loadGenerationSettingsV1(source);
+    } catch (error) {
+      throw refused(
+        `${source} holds settings this build cannot read `
+          + `(${error instanceof Error ? error.message : String(error)})`
+      );
+    }
+    return;
+  }
   const file = path.join(source, SETTINGS_STATE_V2_FILE);
   if (!await exists(file)) {
     throw refused(`${file} is missing, so its settings cannot be adopted`);
@@ -144,7 +157,7 @@ async function relocateSecrets(
 }
 
 async function requireEmptyProject(projectRoot: string): Promise<ResolvedProject> {
-  const project = await initializeProject(projectRoot, "created");
+  const project = await initializeProject(projectRoot);
   const existing = (await readdir(project.directory)).filter(
     (entry) => !CONTROL_NAMES.has(entry) && entry !== ".gitignore"
   );
@@ -170,7 +183,21 @@ async function legacyDataFormat(source: string): Promise<DataDirectoryFormat> {
     );
     return parseDataDirectoryOwnerMarkerBytes(bytes, marker).dataFormat;
   }
-  if (await exists(path.join(source, LEGACY_PREVIEW_DATA_MARKER))) return 1;
+  const legacyPreview = path.join(source, LEGACY_PREVIEW_DATA_MARKER);
+  if (await exists(legacyPreview)) {
+    const bytes = await readBoundedRegularFile(
+      legacyPreview,
+      MAX_DATA_DIRECTORY_OWNER_MARKER_BYTES
+    ).catch(() => null);
+    if (bytes === null
+      || !bytes.equals(Buffer.from(LEGACY_PREVIEW_DATA_MARKER_TEXT, "utf8"))) {
+      throw refused(
+        `${legacyPreview} is not a 1667 legacy-preview marker, so this `
+          + "directory cannot be adopted"
+      );
+    }
+    return 1;
+  }
   throw refused(
     `${source} carries no 1667 owner marker, so there is nothing to adopt`
   );
@@ -198,6 +225,39 @@ async function lockLegacySource(source: string): Promise<() => Promise<void>> {
       `${source} is open in another 1667 process. Stop it, then adopt again`
     );
   }
+}
+
+/**
+ * Move the payload, or leave both directories as they were.
+ *
+ * A half-moved adoption is the worst outcome available: the source has lost
+ * data, the target is not yet a project, and a retry refuses because the target
+ * is no longer empty. So a failure walks the completed moves back before
+ * rethrowing, and the moves that did land are made durable before the marker
+ * that claims them is published.
+ */
+async function movePayload(
+  source: string,
+  projectDirectory: string,
+  payload: readonly string[]
+): Promise<void> {
+  const moved: string[] = [];
+  try {
+    for (const entry of payload) {
+      await movePath(path.join(source, entry), path.join(projectDirectory, entry));
+      moved.push(entry);
+    }
+  } catch (error) {
+    for (const entry of moved.reverse()) {
+      await movePath(
+        path.join(projectDirectory, entry),
+        path.join(source, entry)
+      ).catch(() => undefined);
+    }
+    throw error;
+  }
+  await syncDirectory(projectDirectory);
+  await syncDirectory(source);
 }
 
 /** Rename where the filesystem allows it; copy and remove across devices. */

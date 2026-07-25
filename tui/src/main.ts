@@ -26,9 +26,11 @@ import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
 import { adoptDataDirectory } from "../../server/project-adoption.js";
 import {
+  createProjectTier,
   initializeProject,
   PROJECT_DIRECTORY_NAME,
   resolveProject,
+  type ProjectOutcome,
   type ProjectRequest,
   type ResolvedProject
 } from "../../server/project-discovery.js";
@@ -238,7 +240,7 @@ async function printStartupDiagnostic(args: Arguments): Promise<void> {
     packaged: AI_1667_BUILD_IDENTITY.artifactTarget !== "source"
   };
   try {
-    const outcome = await resolveProject(projectRequest(args, { create: false }));
+    const outcome = await resolveProject(projectRequest(args));
     process.stdout.write(`${JSON.stringify({
       ...base,
       project: outcome.kind === "absent"
@@ -246,7 +248,8 @@ async function printStartupDiagnostic(args: Arguments): Promise<void> {
         : {
             source: outcome.project.source,
             root: outcome.project.root,
-            directory: outcome.project.directory
+            directory: outcome.project.directory,
+            exists: outcome.project.exists
           }
     })}\n`);
   } catch (error) {
@@ -299,13 +302,9 @@ async function runProjectInit(argv: readonly string[]): Promise<void> {
   }
 }
 
-function projectRequest(
-  args: Arguments,
-  options: { readonly create: boolean }
-): ProjectRequest {
+function projectRequest(args: Arguments): ProjectRequest {
   return {
     cwd: process.cwd(),
-    create: options.create,
     ...(args.dataDir === null ? {} : { data: args.dataDir }),
     ...(args.global ? { global: true } : {})
   };
@@ -318,17 +317,14 @@ function projectRequest(
  */
 async function attachOrigin(args: Arguments): Promise<string> {
   if (args.url !== null) return args.url;
-  const outcome = await resolveProject(projectRequest(args, { create: false }));
-  if (outcome.kind === "absent") {
-    throw new Error(
-      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent, `
-        + "so --url has no server to read. Pass --url <base-url>."
-    );
-  }
-  const record = await readProjectRunRecord(outcome.project.directory);
+  const project = requireExistingProject(
+    await resolveProject(projectRequest(args)),
+    "attach to"
+  );
+  const record = await readProjectRunRecord(project.directory);
   if (record?.url == null) {
     throw new Error(
-      `no 1667 server is recorded for ${outcome.project.directory}. `
+      `no 1667 server is recorded for ${project.directory}. `
         + "Start one with 1667 serve, or pass --url <base-url>."
     );
   }
@@ -340,8 +336,16 @@ async function attachOrigin(args: Arguments): Promise<string> {
  * Returns null when the person declines, which is not an error.
  */
 async function openProject(args: Arguments): Promise<ResolvedProject | null> {
-  const outcome = await resolveProject(projectRequest(args, { create: true }));
-  if (outcome.kind === "project") return outcome.project;
+  const outcome = await resolveProject(projectRequest(args));
+  if (outcome.kind === "project") {
+    // An explicitly named project — `--data` or `--global` — is explicit intent
+    // to have one, so it is created. Discovery only ever finds existing ones.
+    if (!outcome.project.exists) {
+      await createProjectTier(outcome.project.directory);
+      return { ...outcome.project, exists: true };
+    }
+    return outcome.project;
+  }
   const streams = { input: process.stdin, output: process.stdout };
   if (!canPromptForProject(streams)) {
     throw new Error(
@@ -357,6 +361,26 @@ async function openProject(args: Arguments): Promise<ResolvedProject | null> {
     return null;
   }
   return await initializeProject(outcome.cwd);
+}
+
+/** Attaching and exporting read an existing project; neither invents one. */
+function requireExistingProject(
+  outcome: ProjectOutcome,
+  action: string
+): ResolvedProject {
+  if (outcome.kind === "absent") {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any `
+        + `parent, so there is nothing to ${action}. Run '1667 init' first.`
+    );
+  }
+  if (!outcome.project.exists) {
+    throw new Error(
+      `${outcome.project.directory} is not a 1667 story project yet, so there `
+        + `is nothing to ${action}. Run '1667 init' there first.`
+    );
+  }
+  return outcome.project;
 }
 
 function serviceErrorCode(error: unknown): string {

@@ -6,7 +6,7 @@ import { ServiceError } from "./errors.js";
  * offers to break the lock.
  */
 export function lockedDataDirectoryError(
-  holder: { readonly pid: number } | null = null
+  holder: { readonly pid: number } | null
 ): ServiceError {
   const held = holder === null
     ? "another 1667 process"

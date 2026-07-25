@@ -30,7 +30,8 @@ import { startHttpListener, type HttpListener } from "./http-listener.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { announceProjectServer } from "./project-run-record.js";
 import { StoryService } from "./story-service.js";
-import { resolveDataDirectory } from "./data-directory.js";
+import { createProjectTier, resolveProject } from "./project-discovery.js";
+import { PROJECT_DIRECTORY_NAME } from "./project-layout.js";
 
 interface IpcProcess extends NodeJS.Process {
   send?: (message: ChildToSupervisorMessage) => boolean;
@@ -45,7 +46,21 @@ export async function runSupervisedServeChild(
     throw new Error("Supervised child requires a private IPC channel");
   }
   const configuredDataDir = optionalValueAfter(argv, "--data");
-  const dataDir = resolveDataDirectory(configuredDataDir ?? undefined);
+  // ADR007: `--data` names a project root here exactly as it does for the TUI,
+  // so a served project and an opened project are the same lock.
+  const outcome = await resolveProject({
+    cwd: process.cwd(),
+    ...(configuredDataDir === null ? {} : { data: configuredDataDir })
+  });
+  if (outcome.kind === "absent") {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any `
+        + "parent. Run '1667 init' there first, or pass --data <project-root>."
+    );
+  }
+  const dataDir = outcome.project.exists
+    ? outcome.project.directory
+    : await createProjectTier(outcome.project.directory);
   const port = Number(valueAfter(argv, "--port"));
   const secretFd = Number(valueAfter(argv, "--secret-fd"));
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {

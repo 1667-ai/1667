@@ -2,9 +2,7 @@ import path from "node:path";
 import {
   DATA_DIRECTORY_LOCK,
   PROJECT_RUN_RECORD_FILE,
-  PROVIDER_SECRETS_FILE,
-  PROVIDER_SECRETS_NEXT_FILE,
-  PROVIDER_SECRETS_NEXT_SCRATCH
+  PROVIDER_SECRET_ENTRY_NAMES
 } from "./data-directory-layout.js";
 
 /** ADR007: 1667 finds its stories the way git finds its objects. */
@@ -23,9 +21,7 @@ export function projectDirectory(projectRoot: string): string {
  */
 export function projectGitignoreContent(): string {
   const ignored = [
-    PROVIDER_SECRETS_FILE,
-    PROVIDER_SECRETS_NEXT_FILE,
-    PROVIDER_SECRETS_NEXT_SCRATCH,
+    ...PROVIDER_SECRET_ENTRY_NAMES,
     DATA_DIRECTORY_LOCK,
     PROJECT_RUN_RECORD_FILE
   ];

@@ -105,12 +105,18 @@ export class SettingsV2Store {
   private readonly validateCandidate: (settings: GenerationSettings) => Promise<boolean>;
   private readonly activationMode: SettingsActivationMode;
   private readonly secretsDir: string;
+  private readonly prunesSecrets: boolean;
 
   constructor(
     private readonly dataDir: string,
     options: SettingsV2StoreOptions = {}
   ) {
     this.secretsDir = options.secretsDir ?? dataDir;
+    // A shared machine tier holds every project's keys, and this store only
+    // knows the IDs one project references. Pruning against that view would
+    // delete another project's credentials, so garbage collection is confined
+    // to the case where the secret store belongs to this directory alone.
+    this.prunesSecrets = this.secretsDir === dataDir;
     this.coordinator = options.coordinator ?? createMutationCoordinator();
     this.ledger = options.ledger ?? new MutationLedgerStore(dataDir);
     this.environment = { ...(options.environment ?? process.env) };
@@ -123,8 +129,10 @@ export class SettingsV2Store {
     await this.ledger.init();
     let state = await this.recoverReceiptTransaction();
     state = await this.recoverActivation(state);
-    await removeProviderSecretsScratch(this.secretsDir);
-    await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
+    if (this.prunesSecrets) {
+      await removeProviderSecretsScratch(this.secretsDir);
+      await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
+    }
     assertRuntimeDocumentSupported(activeSettingsDocument(state));
     settingsViewFromState(state);
   }
@@ -374,10 +382,7 @@ export class SettingsV2Store {
           this.timestamp()
         );
         await this.ledger.writeUserRecord(prepared);
-        await pruneProviderSecrets(
-          this.secretsDir,
-          storedSecretIdsInState(current)
-        );
+        await this.pruneUnreferencedSecrets(current);
         await this.ledger.writeUserRecord(
           completeSettingsMutation(prepared, this.timestamp())
         );
@@ -425,12 +430,14 @@ export class SettingsV2Store {
       throw error;
     }
     await publishStagedSettingsState(this.dataDir);
-    await pruneProviderSecrets(
-      this.secretsDir,
-      storedSecretIdsInState(next)
-    );
+    await this.pruneUnreferencedSecrets(next);
     await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
     return settingsResult(prepared);
+  }
+
+  private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {
+    if (!this.prunesSecrets) return;
+    await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
   }
 
   /** Final is always authoritative. A valid reserved `.next` is either an

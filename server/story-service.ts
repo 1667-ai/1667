@@ -227,6 +227,9 @@ export class StoryService extends StoryServiceRuntime {
       if (chapter.number === 1 && chapter.title === "") return prose;
       return `## ${chapter.title === "" ? `Chapter ${chapter.number}` : chapter.title}\n\n${prose}`;
     });
+    // Deliberately narrower than the on-disk name (`exportFileBase`): this one
+    // goes into a Content-Disposition quoted-string, so it stays ASCII and
+    // punctuation-free rather than needing RFC 5987 encoding.
     const filename = `${story.title.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "story"}.md`;
     return {
       filename,

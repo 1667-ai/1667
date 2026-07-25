@@ -30,6 +30,8 @@ export const SETTINGS_STATE_V2_FILE = "settings.v2.state.json";
 export const SETTINGS_STATE_V2_NEXT_FILE = "settings.v2.state.json.next";
 export const PROVIDER_SECRETS_FILE = "secrets.json";
 export const PROVIDER_SECRETS_NEXT_FILE = "secrets.json.next";
+/** Serializes read-modify-write publication of the machine-wide secrets file. */
+export const PROVIDER_SECRETS_LOCK_FILE = "secrets.lock";
 export const DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH =
   privatePublicationScratchPath(DATA_DIRECTORY_OWNER_MARKER_NEXT);
 export const SETTINGS_STATE_V2_NEXT_SCRATCH =
@@ -44,6 +46,27 @@ export const LEGACY_PREVIEW_DATA_MARKER_TEXT =
  * both current and pre-ADR007 names. Provider secrets belong here because they
  * live in the machine tier now, never beside the stories.
  */
+/**
+ * Names that can hold a plaintext key. The project-tier fence refuses these,
+ * because one of them inside a folder the user may commit is the loss ADR007
+ * exists to prevent.
+ */
+export const PROVIDER_SECRET_VALUE_ENTRY_NAMES = Object.freeze([
+  PROVIDER_SECRETS_FILE,
+  PROVIDER_SECRETS_NEXT_FILE,
+  PROVIDER_SECRETS_NEXT_SCRATCH
+] as const);
+
+/**
+ * Every name the machine-tier secret store owns, including the empty lock file,
+ * which carries no key and so is ignored rather than refused. Defined once so
+ * the `.gitignore` and the control-entry list cannot drift from each other.
+ */
+export const PROVIDER_SECRET_ENTRY_NAMES = Object.freeze([
+  ...PROVIDER_SECRET_VALUE_ENTRY_NAMES,
+  PROVIDER_SECRETS_LOCK_FILE
+] as const);
+
 export const PROJECT_CONTROL_ENTRY_NAMES = Object.freeze([
   DATA_DIRECTORY_LOCK,
   DATA_DIRECTORY_OWNER_MARKER,
@@ -56,9 +79,7 @@ export const PROJECT_CONTROL_ENTRY_NAMES = Object.freeze([
   LEGACY_PROCESS_OWNER_LOCK,
   LEGACY_HARDENED_PROCESS_LOCK,
   LEGACY_PREVIEW_DATA_MARKER,
-  PROVIDER_SECRETS_FILE,
-  PROVIDER_SECRETS_NEXT_FILE,
-  PROVIDER_SECRETS_NEXT_SCRATCH
+  ...PROVIDER_SECRET_ENTRY_NAMES
 ] as const);
 
 /**
