@@ -95,6 +95,24 @@ test("macOS state root is isolated beneath Application Support", async (t) => {
   assert.equal((await lstat(root)).mode & 0o777, 0o700);
 });
 
+// The test above creates Application Support first, which is why nothing caught
+// a resolver that only ever required it. A fixture HOME, a fresh account, and a
+// sandboxed environment all lack it.
+test("macOS state root creates Application Support when the account lacks it", async (t) => {
+  const home = await temporaryDirectory(t, "1667-macos-bare-home-");
+
+  const root = await resolvePrivatePlatformStateRoot({
+    platform: "darwin",
+    accountHomeDirectory: () => home
+  });
+
+  assert.equal(
+    root,
+    path.join(home, "Library", "Application Support", "1667", "State")
+  );
+  assert.equal((await lstat(root)).mode & 0o777, 0o700);
+});
+
 test("Windows state root fails closed without DACL/reparse support", async () => {
   await assert.rejects(
     resolvePrivatePlatformStateRoot({ platform: "win32" }),
