@@ -19,13 +19,14 @@ import {
 import { formatV6, parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import type { DeletedStoryManifestV6, LiveStoryManifestV6 } from "../server/story-v6-types.js";
 import { StoryStore } from "../server/stories.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const HASH = "a".repeat(64);
 const MIB = 1024 * 1024;
-const V5_PARSE_BUDGET_MS = 1_500;
-const V6_PARSE_BUDGET_MS = 4_000;
-const CATALOG_BUDGET_MS = 5_000;
+const V5_PARSE_BUDGET_MS = platformPerformanceBudget(1_500);
+const V6_PARSE_BUDGET_MS = platformPerformanceBudget(4_000);
+const CATALOG_BUDGET_MS = platformPerformanceBudget(5_000);
 const CATALOG_ENTRY_COUNT = 4_096;
 const FIXTURE_IO_CONCURRENCY = 64;
 

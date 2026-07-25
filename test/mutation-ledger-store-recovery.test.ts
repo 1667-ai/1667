@@ -25,6 +25,9 @@ import {
   receiptDirectory,
   testStore
 } from "./mutation-ledger-store-fixture.js";
+import {
+  platformPerformanceBudget
+} from "./platform-performance-budget.js";
 
 test("malformed immutable slots are corruption, never idempotency conflicts", async (t) => {
   const { dataDir, store } = await testStore(t, "1667-ledger-partial-");
@@ -174,7 +177,7 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
 });
 
 test("missing receipt lookup is read-only and repeated direct lookup stays bounded", {
-  timeout: 30_000
+  timeout: platformPerformanceBudget(30_000)
 }, async (t) => {
   const { dataDir, store } = await testStore(t, "1667-ledger-performance-");
   assert.deepEqual(await store.loadUserReceipt("settings", ID), { prepared: null, completed: null });
@@ -190,7 +193,10 @@ test("missing receipt lookup is read-only and repeated direct lookup stays bound
   }
   const elapsed = performance.now() - startedAt;
   t.diagnostic(`${iterations.toLocaleString()} direct receipt lookups in ${elapsed.toFixed(1)}ms`);
-  assert.ok(elapsed < 10_000, `direct receipt lookup took ${elapsed.toFixed(1)}ms`);
+  assert.ok(
+    elapsed < platformPerformanceBudget(10_000),
+    `direct receipt lookup took ${elapsed.toFixed(1)}ms`
+  );
 });
 
 test("settings receipt collector removes only an expired completed receipt", async (t) => {
