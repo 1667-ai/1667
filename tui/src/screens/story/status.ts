@@ -1,3 +1,4 @@
+import { AI_1667_PRODUCT_VERSION } from "../../../../shared/build-identity.js";
 import { lineName } from "../../../../shared/loom-model.js";
 import type { Bookmark } from "../../../../shared/types.js";
 import { bookmarkGlyph, bookmarkRole } from "../../bookmark-presentation.js";
@@ -16,6 +17,10 @@ import {
   type FrameLine,
   type FrameSegment
 } from "./frame.js";
+
+/** The running build, short enough to live in a corner. `--version` and the
+ *  key reference carry the full identity. */
+export const VERSION_TAG = `v${AI_1667_PRODUCT_VERSION}`;
 
 export function renderStatus(
   state: StoryScreenState,
@@ -108,8 +113,17 @@ export function renderStatus(
             ? { kind: "settings-row", row: "provider" }
             : undefined
         ),
-        segment(`${centered} `, "chrome")
+        segment(centered, "chrome"),
+        // Which build is running, in the corner where it stays out of the way.
+        // It is reference rather than status, so it yields its cells before the
+        // story's own identity does; `?` carries it where this line cannot.
+        segment(` · ${VERSION_TAG} `, "chrome")
       ];
+  // Slack only: the tag never buys its cells from the story's own title, line
+  // name, location, or word count, all of which outrank it.
+  if (!narrow && visibleWidth(plainLine(left)) + visibleWidth(plainLine(right)) > width) {
+    right.splice(-1, 1, segment(" ", "chrome"));
+  }
   const rightWidth = visibleWidth(plainLine(right));
   if (rightWidth >= width) return fitLine(right, width);
   const leftWidth = width - rightWidth;
