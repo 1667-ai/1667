@@ -63,6 +63,11 @@ export class StoryProviderMutationStore {
     private readonly hooks: StoryMutationHooks = {}
   ) {}
 
+  /** ADR 006 holds the story scope for the whole call, so no other mutation
+   * interleaves. The aggregate session is a separate lock that serializes
+   * story file I/O against readers, so it is released across the provider
+   * round-trip and reacquired to commit; otherwise every read of the story
+   * waits out the generation. */
   async run<Value>(
     input: unknown,
     method: ProviderMutationMethod,
@@ -74,7 +79,7 @@ export class StoryProviderMutationStore {
   ): Promise<ProviderStoryMutationCommit<Value>> {
     return await this.coordinator.runStory(input, async (request) => {
       const storyId = storyIdFromScope(request.scope);
-      let receipt = await this.ledger.loadStoryReceipt(
+      const receipt = await this.ledger.loadStoryReceipt(
         request.scope,
         request.mutationId
       );
@@ -84,135 +89,168 @@ export class StoryProviderMutationStore {
         throw providerOutcomeAcknowledged(request.mutationId);
       }
       requireMatchingProviderReceipt(receipt, request, method);
-      return await this.stories.withAggregateSession(storyId, async (session) => {
-        await this.recovery.finalizeAggregateTransaction(
-          session,
-          request.mutationId
-        );
-        const terminal = await this.recovery.recover(
-          session,
-          request,
-          receipt
-        );
-        if (terminal !== null) {
-          return {
-            story: await session.loadLive(),
-            result: terminal,
-            value: replayValue()
-          };
-        }
-        receipt = await this.ledger.loadStoryReceipt(
-          request.scope,
-          request.mutationId
-        );
-        requireMatchingProviderReceipt(receipt, request, method);
-        const unresolved = session.snapshot.manifest.unresolvedProvider;
-        if (unresolved !== null) {
-          throw providerOutcomeUnknown(unresolved.mutationId);
-        }
-        if (receipt.started !== null) {
-          throw providerOutcomeUnknown(request.mutationId);
-        }
-        requireExpectedStoryVersion(
-          session.snapshot,
-          request.expectedAggregateVersion
-        );
-        const story = await session.loadLive();
-        const runtime = new ScopedProviderStoryRuntime(story, session);
-        let started: StartedMutationRecord | null = null;
-        const provider = {
-          mutationId: request.mutationId,
-          fingerprintHash: request.fingerprint
-        } as const;
-        const startProvider = async (): Promise<void> => {
-          if (started !== null) return;
-          const oldStateHash = session.snapshot.manifestHash;
-          const record: StartedMutationRecord = {
-            schema: 1,
-            kind: "started",
-            aggregateKey: request.scope,
-            mutationId: request.mutationId,
-            fingerprintHash: request.fingerprint,
-            method,
-            oldStateHash,
-            createdAt: timestamp(this.now)
-          };
-          const manifest = reduceStoryV6({
-            kind: "present",
-            manifest: session.snapshot.manifest,
-            manifestHash: oldStateHash
-          }, {
-            kind: "provider-started",
-            expectedManifestHash: oldStateHash,
-            provider
-          });
-          if (manifest === null) {
-            throw new Error("Provider start removed its story aggregate");
-          }
-          await session.stageManifest(manifest);
-          try {
-            await this.ledger.writeStoryRecord(record);
-          } catch (error) {
-            await session.discardStagedManifest().catch(() => undefined);
-            throw error;
-          }
-          await session.publishStagedManifest();
-          started = record;
-        };
 
-        let value: Value;
-        try {
-          value = await work(runtime, startProvider);
-        } catch (error) {
-          if (started !== null && isDefinitiveProviderFailure(error)) {
-            await this.commitTerminal(
-              session,
-              request,
-              method,
-              started,
-              runtime,
-              "error"
-            );
-          } else if (started === null) {
-            const code = receiptOnlyProviderError(error);
-            if (code !== null) {
-              await commitReceiptOnlyStoryTransaction(
-                this.ledger,
-                prepareReceiptOnlyStoryError(
-                  method,
-                  request,
-                  session,
-                  code,
-                  timestamp(this.now)
-                ),
-                this.now,
-                this.hooks
-              );
-            }
-          }
-          throw error;
-        }
-        if (started === null && runtime.didSave) {
-          await startProvider();
-        }
-        if (started === null) {
-          return {
-            story,
-            result: storyResult(session.snapshot.manifest),
-            value
-          };
-        }
-        if (!runtime.didSave) throw providerOutcomeUnknown(request.mutationId);
-        const result = await this.commitTerminal(
+      const opened = await this.open(storyId, request, method, receipt, replayValue);
+      if (opened.kind === "replayed") return opened.commit;
+      const { story } = opened;
+      const runtime = new ScopedProviderStoryRuntime(story);
+      let started: StartedMutationRecord | null = null;
+      const startProvider = async (): Promise<void> => {
+        if (started === null) started = await this.publishStarted(storyId, request, method);
+      };
+
+      let value: Value;
+      try {
+        value = await work(runtime, startProvider);
+      } catch (error) {
+        await this.recordFailure(storyId, request, method, started, runtime, error);
+        throw error;
+      }
+      if (started === null && runtime.didSave) await startProvider();
+      if (started === null) {
+        const result = await this.stories.withAggregateSession(
+          storyId,
+          async (session) => storyResult(session.snapshot.manifest)
+        );
+        return { story, result, value };
+      }
+      if (!runtime.didSave) throw providerOutcomeUnknown(request.mutationId);
+      const terminal = started;
+      const result = await this.stories.withAggregateSession(
+        storyId,
+        async (session) => await this.commitTerminal(
           session,
           request,
           method,
-          started,
+          terminal,
           runtime,
           "success"
-        );
-        return { story, result, value };
+        )
+      );
+      return { story, result, value };
+    });
+  }
+
+  /** Recovery, idempotency and version admission, all before provider bytes. */
+  private async open<Value>(
+    storyId: string,
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    method: ProviderMutationMethod,
+    receipt: StoryMutationReceipt,
+    replayValue: () => Value
+  ): Promise<
+    | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }
+    | { kind: "open"; story: Story }
+  > {
+    return await this.stories.withAggregateSession(storyId, async (session) => {
+      await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
+      const terminal = await this.recovery.recover(session, request, receipt);
+      if (terminal !== null) {
+        return {
+          kind: "replayed",
+          commit: {
+            story: await session.loadLive(),
+            result: terminal,
+            value: replayValue()
+          }
+        };
+      }
+      const current = await this.ledger.loadStoryReceipt(
+        request.scope,
+        request.mutationId
+      );
+      requireMatchingProviderReceipt(current, request, method);
+      const unresolved = session.snapshot.manifest.unresolvedProvider;
+      if (unresolved !== null) {
+        throw providerOutcomeUnknown(unresolved.mutationId);
+      }
+      if (current.started !== null) {
+        throw providerOutcomeUnknown(request.mutationId);
+      }
+      requireExpectedStoryVersion(
+        session.snapshot,
+        request.expectedAggregateVersion
+      );
+      return { kind: "open", story: await session.loadLive() };
+    });
+  }
+
+  /** ADR 006 installs the unresolved-provider pointer durably before network
+   * bytes, so this reacquires the session for exactly that publication. */
+  private async publishStarted(
+    storyId: string,
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    method: ProviderMutationMethod
+  ): Promise<StartedMutationRecord> {
+    return await this.stories.withAggregateSession(storyId, async (session) => {
+      const oldStateHash = session.snapshot.manifestHash;
+      const record: StartedMutationRecord = {
+        schema: 1,
+        kind: "started",
+        aggregateKey: request.scope,
+        mutationId: request.mutationId,
+        fingerprintHash: request.fingerprint,
+        method,
+        oldStateHash,
+        createdAt: timestamp(this.now)
+      };
+      const manifest = reduceStoryV6({
+        kind: "present",
+        manifest: session.snapshot.manifest,
+        manifestHash: oldStateHash
+      }, {
+        kind: "provider-started",
+        expectedManifestHash: oldStateHash,
+        provider: {
+          mutationId: request.mutationId,
+          fingerprintHash: request.fingerprint
+        }
       });
+      if (manifest === null) {
+        throw new Error("Provider start removed its story aggregate");
+      }
+      await session.stageManifest(manifest);
+      try {
+        await this.ledger.writeStoryRecord(record);
+      } catch (error) {
+        await session.discardStagedManifest().catch(() => undefined);
+        throw error;
+      }
+      await session.publishStagedManifest();
+      return record;
+    });
+  }
+
+  private async recordFailure(
+    storyId: string,
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    method: ProviderMutationMethod,
+    started: StartedMutationRecord | null,
+    runtime: ScopedProviderStoryRuntime,
+    error: unknown
+  ): Promise<void> {
+    if (started !== null) {
+      if (!isDefinitiveProviderFailure(error)) return;
+      await this.stories.withAggregateSession(storyId, async (session) => {
+        await this.commitTerminal(session, request, method, started, runtime, "error");
+      });
+      return;
+    }
+    const code = receiptOnlyProviderError(error);
+    if (code === null) return;
+    await this.stories.withAggregateSession(storyId, async (session) => {
+      await commitReceiptOnlyStoryTransaction(
+        this.ledger,
+        prepareReceiptOnlyStoryError(
+          method,
+          request,
+          session,
+          code,
+          timestamp(this.now)
+        ),
+        this.now,
+        this.hooks
+      );
     });
   }
 

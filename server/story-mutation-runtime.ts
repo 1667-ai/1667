@@ -1,7 +1,7 @@
-import { activePath } from "../shared/story-tree.js";
+import { activePath, pathTo } from "../shared/story-tree.js";
 import type { Story, StoryNode } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
-import type { StoryAggregateSession } from "./story-aggregate-session.js";
+import { hydrateStoryNodes } from "./story-codec.js";
 import {
   createInactiveTakeFromCut,
   createTake,
@@ -39,10 +39,10 @@ export interface ProviderStoryRuntime {
 export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
   private saved = false;
 
-  constructor(
-    private readonly story: Story,
-    private readonly session: StoryAggregateSession
-  ) {}
+  /** Node text hydrates from the bundle the story itself carries, so this
+   * runtime outlives the aggregate session that decoded it. That lets the
+   * provider round-trip run without holding story I/O against readers. */
+  constructor(private readonly story: Story) {}
 
   get didSave(): boolean {
     return this.saved;
@@ -55,7 +55,7 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
 
   async hydratePath(story: Story, nodeId: string): Promise<void> {
     this.requireSameStory(story);
-    await this.session.hydratePath(story, nodeId);
+    await hydrateStoryNodes(story, pathTo(story, nodeId).map((node) => node.id));
   }
 
   async withLock<T>(id: string, work: () => Promise<T>): Promise<T> {
@@ -85,7 +85,7 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
       : this.story.nodes.find((node) => node.id === commitIds.summaryNodeId);
     if (existing !== undefined) return existing;
     requireSummaryActive(cancelled);
-    await this.session.hydratePath(this.story, point.nodeId);
+    await hydrateStoryNodes(this.story, pathTo(this.story, point.nodeId).map((node) => node.id));
     requireSummaryActive(cancelled);
     const prefix = summarizedPath(this.story, point, expected);
     if (summarySourceFingerprint(this.story.title, prefix, point) !== sourceFingerprint) {

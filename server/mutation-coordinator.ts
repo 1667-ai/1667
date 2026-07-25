@@ -113,13 +113,21 @@ export class MutationCoordinator {
     storyIdInput: unknown,
     handler: (scope: `story:${string}`) => Result | PromiseLike<Result>
   ): Promise<Result> {
-    let storyId: string;
-    try {
-      storyId = requireLedgerStoryId(storyIdInput, "Story maintenance scope");
-    } catch {
-      throw invalidRequest("Story maintenance scope must contain a canonical story ID");
-    }
-    const scope = `story:${storyId}` as const;
+    const scope = maintenanceScope(storyIdInput);
+    return await this.runClaimed(scope, async () => await handler(scope));
+  }
+
+  /** Opportunistic maintenance for read paths. A claim that cannot be taken
+   * means a live in-process mutation holds admission, so the residue this
+   * would recover cannot be there: residue is what a crashed mutation leaves
+   * behind, and its owner recovers it under its own claim. Readers skip
+   * rather than fail an unrelated read. */
+  async runStoryMaintenanceWhenIdle<Result>(
+    storyIdInput: unknown,
+    handler: (scope: `story:${string}`) => Result | PromiseLike<Result>
+  ): Promise<Result | null> {
+    const scope = maintenanceScope(storyIdInput);
+    if (!this.admits(scope)) return null;
     return await this.runClaimed(scope, async () => await handler(scope));
   }
 
@@ -187,13 +195,18 @@ export class MutationCoordinator {
     });
   }
 
+  private admits(scope: string): boolean {
+    return !this.activeScopes.has(scope)
+      && this.activeScopes.size < MUTATION_COORDINATOR_GLOBAL_LIMIT;
+  }
+
   private async runClaimed<Result>(
     scope: string,
     handler: () => Result | PromiseLike<Result>
   ): Promise<Result> {
     // No await between checking and claiming: scope and global admission are
     // one atomic event-loop operation, never a queue.
-    if (this.activeScopes.has(scope) || this.activeScopes.size >= MUTATION_COORDINATOR_GLOBAL_LIMIT) {
+    if (!this.admits(scope)) {
       throw new ServiceError(409, "Mutation capacity is busy; retry later", "resource_busy");
     }
     this.activeScopes.add(scope);
@@ -207,6 +220,16 @@ export class MutationCoordinator {
 
 export function createMutationCoordinator(): MutationCoordinator {
   return new MutationCoordinator();
+}
+
+function maintenanceScope(storyIdInput: unknown): `story:${string}` {
+  let storyId: string;
+  try {
+    storyId = requireLedgerStoryId(storyIdInput, "Story maintenance scope");
+  } catch {
+    throw invalidRequest("Story maintenance scope must contain a canonical story ID");
+  }
+  return `story:${storyId}` as const;
 }
 
 function parseRequest<Target extends MutationTarget>(
