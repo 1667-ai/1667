@@ -131,7 +131,7 @@ describe("deterministic demo frames", () => {
 
   test("? explains every key it shows, in sections rather than a keyboard", async () => {
     const frame = await renderOnce(demoSource(), 120, 36, "?");
-    expect(frame).toContain("┏━ keys · what every key does ━");
+    expect(frame).toContain("┏━ keys · and what they do ━");
     expect(frame).toContain("● MOVE  read and navigate");
     expect(frame).toContain("↑ ↓  move between parts");
     expect(frame).toContain("← →  flip between takes");

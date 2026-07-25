@@ -191,8 +191,9 @@ const TOUR: StarterStory = {
             + "things no key is bound to.\n\n"
             + "[,] opens settings — that is where you connect a real model in place of the "
             + "dry-run one.\n\n"
-            + "And [?] is the key reference: every key that does something, beside a line "
-            + "saying what it does. If you remember one key from this tour, remember that one."
+            + "And [?] is the key reference: the keys grouped by what they are for, each "
+            + "beside a line saying what it does. If you remember one key from this tour, "
+            + "remember that one."
         }
       ]
     },

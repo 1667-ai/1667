@@ -254,7 +254,7 @@ export function renderKeysOverlay(
   return {
     composition: placePanel(
       base,
-      `keys · what every key does${range}`,
+      `keys · and what they do${range}`,
       content,
       footer,
       width,
