@@ -42,6 +42,7 @@ const STORY_ID = "q-local-story";
 const MUTATION_ID = "m1.1767225600000.0123456789abcdef0123456789abcdef";
 const OTHER_MUTATION_ID = "m1.1767225600000.1123456789abcdef0123456789abcdef";
 const THIRD_MUTATION_ID = "m1.1767225600000.4123456789abcdef0123456789abcdef";
+const FOURTH_MUTATION_ID = "m1.1767225600000.5123456789abcdef0123456789abcdef";
 const DELETE_MUTATION_ID = "m1.1767225600000.2123456789abcdef0123456789abcdef";
 const ACK_MUTATION_ID = "m1.1767225600000.3123456789abcdef0123456789abcdef";
 const FINGERPRINT = "a".repeat(64);
@@ -419,6 +420,34 @@ for (const cachedKind of ["v5", "v6"] as const) {
       () => storyFixture()
     );
     await started;
+    const startedManifest = parseStoryManifestBytes(
+      await readFile(fixture.manifestFile),
+      STORY_ID
+    );
+    assert.equal(startedManifest.kind, "v6-live");
+    if (startedManifest.kind !== "v6-live") {
+      assert.fail("Expected live V6");
+    }
+    const crossKindVersion = cachedKind === "v5"
+      ? { kind: "v6", revision: "00000000000000000001" } as const
+      : {
+          kind: "v5",
+          manifestHash: startedManifest.manifest.previousManifestHash!
+        } as const;
+    let crossKindMutationRan = false;
+    await assert.rejects(
+      fixture.mutations.runLocal(
+        requestFor(
+          FOURTH_MUTATION_ID,
+          "f".repeat(64),
+          crossKindVersion
+        ),
+        "createFact",
+        () => { crossKindMutationRan = true; }
+      ),
+      hasServiceError("revision_conflict")
+    );
+    assert.equal(crossKindMutationRan, false);
 
     const local = await fixture.mutations.runLocal(
       requestFor(OTHER_MUTATION_ID, OTHER_FINGERPRINT, cachedVersion),

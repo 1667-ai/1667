@@ -43,8 +43,9 @@ provider start, and terminal publication. Provider preparation and streaming
 hold no story claim, so local edits remain available throughout the round-trip.
 The provider-start record advances durable revision metadata before the stream
 can return it; a local edit may therefore present only the exact content
-version immediately before that current started record. Any intervening local
-revision still conflicts normally.
+version recorded by the active phase immediately before that current started
+record. Version kind and value must both match; any intervening local revision
+still conflicts normally.
 The admitted snapshot's immutable revision graph remains pinned until that
 round-trip ends, so concurrent cleanup cannot invalidate lazy source hydration.
 Terminal publication applies an operation-specific effect to the current story:

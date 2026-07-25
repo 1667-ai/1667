@@ -21,14 +21,17 @@ import type {
   ProviderMutationMethod,
   StartedMutationRecord
 } from "./mutation-ledger-types.js";
-import { requireExpectedStoryVersion } from "./story-aggregate-state.js";
+import {
+  requireExpectedStoryVersion
+} from "./story-aggregate-state.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
+import type { ActiveProviderStarts } from "./story-provider-active-starts.js";
+import type {
+  ProviderStoryAdmission, ProviderStoryMutationCommit, ProviderStoryWork
+} from "./story-provider-contract.js";
+import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import {
-  applyProviderStoryEffect
-} from "./story-provider-effect.js";
-import {
-  ScopedProviderStoryRuntime,
-  type ProviderStoryRuntime
+  ScopedProviderStoryRuntime
 } from "./story-mutation-runtime.js";
 import {
   providerOutcomeAcknowledged,
@@ -56,18 +59,13 @@ import {
 import { reduceStoryV6 } from "./story-v6-reducer.js";
 import type { StoryStore } from "./stories.js";
 
-export interface ProviderStoryMutationCommit<Value> {
-  readonly story: Story;
-  readonly result: Extract<MutationResult, { kind: "story" }>;
-  readonly value: Value;
-}
-
 export class StoryProviderMutationStore {
   constructor(
     private readonly stories: StoryStore,
     private readonly coordinator: MutationCoordinator,
     private readonly ledger: MutationLedgerStore,
     private readonly recovery: StoryMutationRecovery,
+    private readonly activeStarts: ActiveProviderStarts,
     private readonly now: StoryMutationClock,
     private readonly hooks: StoryMutationHooks = {}
   ) {}
@@ -78,10 +76,7 @@ export class StoryProviderMutationStore {
   async run<Value>(
     input: unknown,
     method: ProviderMutationMethod,
-    work: (
-      stories: ProviderStoryRuntime,
-      providerStarted: () => Promise<void>
-    ) => Promise<Value>,
+    work: ProviderStoryWork<Value>,
     replayValue: () => Value
   ): Promise<ProviderStoryMutationCommit<Value>> {
     const admitted = await this.coordinator.runStory(input, async (request) => {
@@ -170,10 +165,7 @@ export class StoryProviderMutationStore {
     method: ProviderMutationMethod,
     receipt: StoryMutationReceipt,
     replayValue: () => Value
-  ): Promise<
-    | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }
-    | { kind: "open"; story: Story; releaseSnapshot: () => void }
-  > {
+  ): Promise<ProviderStoryAdmission<Value>> {
     const pin: { release: (() => void) | null } = { release: null };
     try {
       return await this.stories.withAggregateSession(storyId, async (session) => {
@@ -206,7 +198,11 @@ export class StoryProviderMutationStore {
           request.expectedAggregateVersion
         );
         const story = await session.loadLive();
-        pin.release = this.stories.pinProviderSnapshot(session);
+        pin.release = this.activeStarts.pinSnapshot(
+          this.stories,
+          session,
+          request.mutationId
+        );
         return {
           kind: "open",
           story,
@@ -249,6 +245,11 @@ export class StoryProviderMutationStore {
           "The story was deleted before provider work began."
         );
       }
+      this.activeStarts.remember(
+        storyId,
+        request.mutationId,
+        session.snapshot
+      );
       const oldStateHash = session.snapshot.manifestHash;
       const record: StartedMutationRecord = {
         schema: 1,

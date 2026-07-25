@@ -81,10 +81,15 @@ export function requireExpectedStoryVersion(
  * exact content version immediately before that hidden revision. */
 export function requireExpectedLocalStoryVersion(
   snapshot: StoryAggregateSnapshot,
-  expected: StoryAggregateVersion
+  expected: StoryAggregateVersion,
+  activeProviderPredecessor: StoryAggregateVersion | null
 ): void {
   if (matchesExpectedStoryVersion(snapshot, expected)
-    || matchesHiddenProviderStart(snapshot, expected)) {
+    || matchesHiddenProviderStart(
+      snapshot,
+      expected,
+      activeProviderPredecessor
+    )) {
     return;
   }
   throwRevisionConflict();
@@ -125,10 +130,13 @@ function matchesExpectedStoryVersion(
 
 function matchesHiddenProviderStart(
   snapshot: StoryAggregateSnapshot,
-  expected: StoryAggregateVersion
+  expected: StoryAggregateVersion,
+  activeProviderPredecessor: StoryAggregateVersion | null
 ): boolean {
   const manifest = snapshot.manifest;
-  if (snapshot.storageKind !== "v6"
+  if (activeProviderPredecessor === null
+    || !sameStoryAggregateVersion(expected, activeProviderPredecessor)
+    || snapshot.storageKind !== "v6"
     || manifest.kind !== "live"
     || manifest.unresolvedProvider === null
     || manifest.lastTransaction?.phase !== "started"
@@ -141,6 +149,17 @@ function matchesHiddenProviderStart(
   }
   return expected.kind === "v6"
     && BigInt(manifest.revision) === BigInt(expected.revision) + 1n;
+}
+
+export function sameStoryAggregateVersion(
+  left: StoryAggregateVersion,
+  right: StoryAggregateVersion
+): boolean {
+  return left.kind === "v5"
+    ? right.kind === "v5" && left.manifestHash === right.manifestHash
+    : left.kind === "v6"
+      ? right.kind === "v6" && left.revision === right.revision
+      : false;
 }
 
 function throwRevisionConflict(): never {
