@@ -49,7 +49,7 @@ export function requireSummaryActive(signal?: AbortSignal): void {
 export async function createSummaryTake(
   id: string,
   body: Record<string, unknown>,
-  stories: ProviderStoryRuntime,
+  stories: ProviderStoryRuntime<"createSummaryTake">,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,

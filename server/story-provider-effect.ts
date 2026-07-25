@@ -61,6 +61,7 @@ export interface SummaryTakeEffect {
   readonly model: string;
   readonly instruction: string;
   readonly commitIds: SummaryCommitIds;
+  readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
 }
 
@@ -72,6 +73,7 @@ export interface ChapterSummaryEffect {
   readonly model: string;
   readonly summaryNodeId?: string;
   readonly rewriteId?: string;
+  readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
 }
 
@@ -82,14 +84,26 @@ export type ProviderStoryEffect =
   | SummaryTakeEffect
   | ChapterSummaryEffect;
 
-export type ProviderStoryEffectValue<Effect extends ProviderStoryEffect> =
-  Effect extends AutonameStoryEffect | ContinueStoryEffect | ChapterSummaryEffect
+export interface ProviderStoryEffectByMethod {
+  readonly autonameStory: AutonameStoryEffect;
+  readonly summarizeChapter: ChapterSummaryEffect;
+  readonly continueStory: ContinueStoryEffect;
+  readonly rewriteNode: RewriteNodeEffect;
+  readonly createSummaryTake: SummaryTakeEffect;
+}
+
+type ProviderStoryEffectValueForKind<
+  Kind extends ProviderStoryEffect["kind"]
+> = Kind extends "autoname" | "continue" | "chapter-summary"
     ? Story
-    : Effect extends RewriteNodeEffect
+    : Kind extends "rewrite"
       ? boolean
-      : Effect extends SummaryTakeEffect
+      : Kind extends "summary-take"
         ? StoryNode
         : never;
+
+export type ProviderStoryEffectValue<Effect extends ProviderStoryEffect> =
+  ProviderStoryEffectValueForKind<Effect["kind"]>;
 
 export interface AppliedProviderStoryEffect<Value = Story | StoryNode | boolean> {
   readonly changed: boolean;
@@ -220,7 +234,8 @@ async function applyContinuation(
         commit.expectedTextHash,
         commit.text,
         commit.model,
-        commit.genId ?? undefined
+        commit.genId ?? undefined,
+        commit.committedAt
       );
     } else if (writerMoved) {
       const added = newNode(
@@ -235,6 +250,9 @@ async function applyContinuation(
             : { genId: commit.genId })
         }
       );
+      if (commit.committedAt !== undefined) {
+        added.createdAt = commit.committedAt;
+      }
       createTake(story, added, { activate: false });
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
@@ -311,15 +329,18 @@ async function applySummaryTake(
       "The story changed while its summary was being written. Try again."
     );
   }
-  const parentId = effect.point.offset === null
-    ? effect.point.nodeId
-    : createInactiveTakeFromCut(
+  let parentId = effect.point.nodeId;
+  if (effect.point.offset !== null) {
+    const cut = createInactiveTakeFromCut(
       story,
       effect.point.nodeId,
       effect.point.offset,
       effect.expected,
       effect.commitIds.cutNodeId
-    ).id;
+    );
+    if (effect.committedAt !== undefined) cut.createdAt = effect.committedAt;
+    parentId = cut.id;
+  }
   const node = newNode(
     parentId,
     effect.instruction,
@@ -332,6 +353,7 @@ async function applySummaryTake(
         : { id: effect.commitIds.summaryNodeId })
     }
   );
+  if (effect.committedAt !== undefined) node.createdAt = effect.committedAt;
   createTake(story, node, { activate: false });
   return { changed: true, value: node };
 }
@@ -350,7 +372,7 @@ function applyChapterSummary(
     );
   }
   const extent = chapter.extent!;
-  const madeAt = new Date().toISOString();
+  const madeAt = effect.committedAt ?? new Date().toISOString();
   const instruction = summaryNodeInstruction(story.title);
   if (chapter.summary === null) {
     const node = newNode(
@@ -366,6 +388,7 @@ function applyChapterSummary(
         madeAt
       }
     );
+    node.createdAt = madeAt;
     setNodeRewriteId(node, effect.rewriteId);
     createTake(story, node, { activate: false });
   } else {

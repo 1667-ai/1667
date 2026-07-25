@@ -4,6 +4,7 @@ import test from "node:test";
 import { ProviderError, ServiceError } from "../server/errors.js";
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
+import { summarySourceFingerprint } from "../server/summary-take.js";
 import {
   DELETE_MUTATION_ID,
   FINGERPRINT,
@@ -137,6 +138,59 @@ test("Q a prepared no-op provider effect still terminalizes", async (t) => {
   assert.deepEqual(
     (await fixture.stories.loadVersioned(STORY_ID)).story,
     committed.story
+  );
+  await fixture.stories.waitForMaintenance();
+});
+
+test("Q freezes provider effect allocators before terminal publication", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-effect-allocation-");
+  const seeded = await fixture.stories.createNode(
+    STORY_ID,
+    null,
+    "Source to summarize",
+    "Begin"
+  );
+  const source = seeded.nodes.at(-1)!;
+  const point = { nodeId: source.id, offset: null };
+  const admitted = await fixture.stories.loadVersioned(STORY_ID);
+  const cancelledAfterPreparation = new AbortController();
+
+  const committed = await fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, admitted.aggregateVersion!),
+    "createSummaryTake",
+    async (stories) => {
+      const node = await stories.commitProviderEffect(STORY_ID, {
+        kind: "summary-take",
+        point,
+        expected: null,
+        sourceFingerprint: summarySourceFingerprint(
+          seeded.title,
+          seeded.nodes,
+          point
+        ),
+        summary: "Stable allocated result",
+        model: "test",
+        instruction: "Summarize",
+        commitIds: {},
+        cancelled: cancelledAfterPreparation.signal
+      });
+      cancelledAfterPreparation.abort();
+      return node;
+    },
+    () => source
+  );
+
+  const stored = committed.story.nodes.find(
+    (node) => node.id === committed.value.id
+  );
+  assert.notEqual(stored, undefined);
+  assert.equal(stored?.text, "Stable allocated result");
+  assert.equal(stored?.createdAt, committed.value.createdAt);
+  assert.equal(
+    committed.story.nodes.filter(
+      (node) => node.text === "Stable allocated result"
+    ).length,
+    1
   );
   await fixture.stories.waitForMaintenance();
 });

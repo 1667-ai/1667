@@ -73,10 +73,10 @@ export class StoryProviderMutationStore {
   /** Three short ADR 006 claims: admission, durable provider start, terminal
    * publication. Provider preparation and streaming run between them, so local
    * edits remain available while the model is working. */
-  async run<Value>(
+  async run<Method extends ProviderMutationMethod, Value>(
     input: unknown,
-    method: ProviderMutationMethod,
-    work: ProviderStoryWork<Value>,
+    method: Method,
+    work: ProviderStoryWork<Method, Value>,
     replayValue: () => Value
   ): Promise<ProviderStoryMutationCommit<Value>> {
     const admitted = await this.coordinator.runStory(input, async (request) => {

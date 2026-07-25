@@ -1,5 +1,8 @@
 import type { Story } from "../shared/types.js";
-import type { MutationResult } from "./mutation-ledger-types.js";
+import type {
+  MutationResult,
+  ProviderMutationMethod
+} from "./mutation-ledger-types.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 
 export interface ProviderStoryMutationCommit<Value> {
@@ -8,8 +11,11 @@ export interface ProviderStoryMutationCommit<Value> {
   readonly value: Value;
 }
 
-export type ProviderStoryWork<Value> = (
-  stories: ProviderStoryRuntime,
+export type ProviderStoryWork<
+  Method extends ProviderMutationMethod,
+  Value
+> = (
+  stories: ProviderStoryRuntime<Method>,
   providerStarted: () => Promise<void>
 ) => Promise<Value>;
 

@@ -24,7 +24,7 @@ export type BindGenerationIntent = (settings: GenerationSettings, context: unkno
 
 export async function autonameStory(
   id: string,
-  stories: ProviderStoryRuntime,
+  stories: ProviderStoryRuntime<"autonameStory">,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   signal: AbortSignal,
@@ -108,7 +108,7 @@ export async function currentModel(settingsStore: SettingsStore): Promise<string
 export async function continueStory(
   id: string,
   body: Record<string, unknown>,
-  stories: ProviderStoryRuntime,
+  stories: ProviderStoryRuntime<"continueStory">,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   generationAdmission: GenerationAdmissionRegistry,
@@ -258,7 +258,7 @@ export async function rewriteNode(
   id: string,
   partId: string,
   body: Record<string, unknown>,
-  stories: ProviderStoryRuntime,
+  stories: ProviderStoryRuntime<"rewriteNode">,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,

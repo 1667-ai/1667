@@ -4,13 +4,21 @@ import { hydrateStoryNodes } from "./story-codec.js";
 import {
   applyProviderStoryEffect,
   type ProviderStoryEffect,
+  type ProviderStoryEffectByMethod,
   type ProviderStoryEffectValue
 } from "./story-provider-effect.js";
+import type { ProviderMutationMethod } from "./mutation-ledger-types.js";
+import {
+  prepareProviderStoryEffect,
+  type PreparedProviderStoryEffect
+} from "./story-provider-preparation.js";
 
-export interface ProviderStoryRuntime {
+export interface ProviderStoryRuntime<
+  Method extends ProviderMutationMethod = ProviderMutationMethod
+> {
   loadForMutation(id: string): Promise<Story>;
   hydratePath(story: Story, nodeId: string): Promise<void>;
-  commitProviderEffect<Effect extends ProviderStoryEffect>(
+  commitProviderEffect<Effect extends ProviderStoryEffectByMethod[Method]>(
     id: string,
     effect: Effect
   ): Promise<ProviderStoryEffectValue<Effect>>;
@@ -19,14 +27,14 @@ export interface ProviderStoryRuntime {
 /** Typed provider view used outside a story claim. The outer receipt
  * transaction performs the one authoritative V6 publication. */
 export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
-  private preparedEffect: ProviderStoryEffect | null = null;
+  private preparedEffect: PreparedProviderStoryEffect | null = null;
 
   /** Node text hydrates from the bundle the story itself carries, so this
    * runtime outlives the aggregate session that decoded it. That lets the
    * provider round-trip run without holding story I/O against readers. */
   constructor(private readonly story: Story) {}
 
-  get effect(): ProviderStoryEffect | null {
+  get effect(): PreparedProviderStoryEffect | null {
     return this.preparedEffect;
   }
 
@@ -48,12 +56,13 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
     if (this.preparedEffect !== null) {
       throw new Error("Provider runtime prepared more than one story effect");
     }
+    const prepared = prepareProviderStoryEffect(effect);
     const applied = await applyProviderStoryEffect(
       this.story,
-      effect,
+      prepared,
       async (story, nodeId) => await this.hydratePath(story, nodeId)
     );
-    this.preparedEffect = effect;
+    this.preparedEffect = prepared;
     return applied.value;
   }
 

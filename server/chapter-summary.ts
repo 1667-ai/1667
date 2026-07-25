@@ -25,7 +25,7 @@ interface ChapterSummaryOptions {
 export async function summarizeChapter(
   id: string,
   breakId: string,
-  stories: ProviderStoryRuntime,
+  stories: ProviderStoryRuntime<"summarizeChapter">,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   signal: AbortSignal,

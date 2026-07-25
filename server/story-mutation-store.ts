@@ -324,11 +324,11 @@ export class StoryMutationStore {
     });
   }
 
-  async runProvider<Value>(
+  async runProvider<Method extends ProviderMutationMethod, Value>(
     input: unknown,
-    method: ProviderMutationMethod,
+    method: Method,
     work: (
-      stories: ProviderStoryRuntime,
+      stories: ProviderStoryRuntime<Method>,
       providerStarted: () => Promise<void>
     ) => Promise<Value>,
     replayValue: () => Value
