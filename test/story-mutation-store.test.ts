@@ -373,75 +373,88 @@ test("Q local edits preserve an earlier unresolved provider fence", async (t) =>
   assert.equal(persisted.manifest.unresolvedProvider?.mutationId, MUTATION_ID);
 });
 
-test("Q provider work releases story admission and commits onto the current story", async (t) => {
-  const fixture = await setup(t, "1667-q-provider-short-claims-");
-  let providerStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    providerStarted = resolve;
-  });
-  let releaseProvider!: () => void;
-  const providerGate = new Promise<void>((resolve) => {
-    releaseProvider = resolve;
-  });
-  t.after(() => releaseProvider());
-
-  const provider = fixture.mutations.runProvider(
-    request(fixture.v5Hash),
-    "autonameStory",
-    async (stories, start) => {
-      await start();
-      providerStarted();
-      await providerGate;
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Generated title",
-        autonameId: "autoname-1"
-      });
-    },
-    () => storyFixture()
-  );
-  await started;
-
-  const duringProvider = await fixture.stories.loadVersioned(STORY_ID);
-  const local = await fixture.mutations.runLocal(
-    requestFor(
-      OTHER_MUTATION_ID,
-      OTHER_FINGERPRINT,
-      duringProvider.aggregateVersion!
-    ),
-    "createFact",
-    (story) => {
-      story.facts.push({
-        id: "fact-1",
-        tag: null,
-        text: "Written while the provider streamed",
-        createdAt: FIXED_NOW.toISOString(),
-        updatedAt: FIXED_NOW.toISOString()
-      });
+for (const cachedKind of ["v5", "v6"] as const) {
+  test(`Q provider work admits a cached ${cachedKind.toUpperCase()} local edit`, async (t) => {
+    const fixture = await setup(t, `1667-q-provider-cached-${cachedKind}-`);
+    let cachedVersion = {
+      kind: "v5",
+      manifestHash: fixture.v5Hash
+    } as NonNullable<
+      Awaited<ReturnType<StoryStore["loadVersioned"]>>["aggregateVersion"]
+    >;
+    let expectedTitle = "Original";
+    if (cachedKind === "v6") {
+      expectedTitle = "Original V6";
+      const upgraded = await fixture.mutations.runLocal(
+        requestFor(THIRD_MUTATION_ID, "c".repeat(64), cachedVersion),
+        "renameStory",
+        (story) => { story.title = expectedTitle; }
+      );
+      cachedVersion = upgraded.aggregateVersion;
     }
-  );
-  assert.equal(local.story.facts.length, 1);
+    let providerStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    t.after(() => releaseProvider());
 
-  releaseProvider();
-  const committed = await provider;
-  const reloaded = await fixture.stories.loadVersioned(STORY_ID);
-  assert.deepEqual(committed.story, reloaded.story);
-  assert.equal(committed.story.title, "Generated title");
-  assert.equal(
-    committed.story.facts[0]?.text,
-    "Written while the provider streamed"
-  );
-  assert.deepEqual(reloaded.aggregateVersion, {
-    kind: "v6",
-    revision: committed.result.storyRevision
+    const provider = fixture.mutations.runProvider(
+      requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
+      "autonameStory",
+      async (stories, start) => {
+        await start();
+        providerStarted();
+        await providerGate;
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle,
+          title: "Generated title",
+          autonameId: "autoname-1"
+        });
+      },
+      () => storyFixture()
+    );
+    await started;
+
+    const local = await fixture.mutations.runLocal(
+      requestFor(OTHER_MUTATION_ID, OTHER_FINGERPRINT, cachedVersion),
+      "createFact",
+      (story) => {
+        story.facts.push({
+          id: "fact-1",
+          tag: null,
+          text: "Written while the provider streamed",
+          createdAt: FIXED_NOW.toISOString(),
+          updatedAt: FIXED_NOW.toISOString()
+        });
+      }
+    );
+    assert.equal(local.story.facts.length, 1);
+
+    releaseProvider();
+    const committed = await provider;
+    const reloaded = await fixture.stories.loadVersioned(STORY_ID);
+    assert.deepEqual(committed.story, reloaded.story);
+    assert.equal(committed.story.title, "Generated title");
+    assert.equal(
+      committed.story.facts[0]?.text,
+      "Written while the provider streamed"
+    );
+    assert.deepEqual(reloaded.aggregateVersion, {
+      kind: "v6",
+      revision: committed.result.storyRevision
+    });
+    await fixture.stories.waitForMaintenance();
+    assert.deepEqual(
+      (await fixture.stories.loadVersioned(STORY_ID)).story,
+      committed.story
+    );
   });
-  await fixture.stories.waitForMaintenance();
-  assert.deepEqual(
-    (await fixture.stories.loadVersioned(STORY_ID)).story,
-    committed.story
-  );
-});
+}
 
 test("Q provider snapshot hydration survives concurrent deletion cleanup", async (t) => {
   const fixture = await setup(t, "1667-q-provider-snapshot-pin-");

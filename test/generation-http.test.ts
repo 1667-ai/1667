@@ -8,6 +8,7 @@ import type { GenerationSettings, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
+  fetchWithApiProtocolAtVersion,
   lastTestMutationId
 } from "./http-test-client.js";
 import {
@@ -256,20 +257,30 @@ providerTest("generation HTTP: a racing Stop save wins by generation ID", async 
   let base = "";
   let storyId = "";
   let rootId = "";
+  let cachedVersion!: NonNullable<StoryPayload["aggregateVersion"]>;
   const genId = "stop-wins";
   const model = await fakeModel(t, async (_body, response) => {
-    await json(`${base}/api/stories/${storyId}/nodes`, post({
-      parentId: rootId,
-      instruction: "Continue.",
-      text: "Partial saved by Stop.",
-      genId
-    }));
+    const stopped = await fetchWithApiProtocolAtVersion(
+      `${base}/api/stories/${storyId}/nodes`,
+      post({
+        parentId: rootId,
+        instruction: "Continue.",
+        text: "Partial saved by Stop.",
+        genId
+      }),
+      cachedVersion
+    );
+    if (!stopped.ok) {
+      assert.fail(`${stopped.status} ${await stopped.text()}`);
+    }
     stream(response, ["Completed provider text."]);
   });
   base = await testApp(t, modelSettings(model.baseUrl));
   const story = await seededStory(base, "Opening.");
   storyId = story.id;
   rootId = story.path[0]!.id;
+  assert.ok(story.aggregateVersion);
+  cachedVersion = story.aggregateVersion;
 
   const response = await fetchWithApiProtocol(
     `${base}/api/stories/${story.id}/continue`,

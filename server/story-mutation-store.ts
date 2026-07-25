@@ -23,7 +23,7 @@ import {
   type ProviderStoryMutationCommit
 } from "./story-provider-mutation.js";
 import {
-  requireExpectedStoryVersion,
+  requireExpectedLocalStoryVersion,
   storyAggregateVersion
 } from "./story-aggregate-state.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
@@ -226,7 +226,7 @@ export class StoryMutationStore {
             value: replayValue()
           };
         }
-        requireExpectedStoryVersion(
+        requireExpectedLocalStoryVersion(
           session.snapshot,
           request.expectedAggregateVersion
         );
@@ -353,7 +353,7 @@ export class StoryMutationStore {
           receipt
         );
         if (terminal !== null) return { result: terminal };
-        requireExpectedStoryVersion(
+        requireExpectedLocalStoryVersion(
           session.snapshot,
           request.expectedAggregateVersion
         );

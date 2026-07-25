@@ -86,6 +86,14 @@ export async function fetchWithApiProtocol(
   url: string,
   init: RequestInit = {}
 ): Promise<Response> {
+  return await fetchWithApiProtocolAtVersion(url, init);
+}
+
+export async function fetchWithApiProtocolAtVersion(
+  url: string,
+  init: RequestInit,
+  expectedVersion?: StoryAggregateVersion
+): Promise<Response> {
   const prepared = await prepareChapterRemoval(url, init);
   if (prepared instanceof Response) return prepared;
   init = prepared;
@@ -98,12 +106,13 @@ export async function fetchWithApiProtocol(
   }
   const path = new URL(url).pathname;
   const method = (init.method ?? "GET").toUpperCase();
-  const expectedAggregateVersion = await expectedStoryVersion(
-    url,
-    method,
-    path,
-    init.signal ?? undefined
-  );
+  const expectedAggregateVersion = expectedVersion
+    ?? await expectedStoryVersion(
+      url,
+      method,
+      path,
+      init.signal ?? undefined
+    );
   const lease = await operationClient.reserve(
     method,
     path,
