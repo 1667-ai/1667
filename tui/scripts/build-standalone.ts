@@ -185,6 +185,24 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       directory,
       environment
     );
+    if (process.platform === "win32") {
+      // ADR007 relaxed the project tier, but the machine tier that holds
+      // provider secrets still needs a DACL and reparse-safe adapter. Windows
+      // therefore refuses the embedded backend in one actionable line, before
+      // the backend starts, rather than opening a project it cannot key.
+      if (render.exitCode !== 1
+        || !/DACL/.test(render.stderr)
+        || render.stderr.includes("\n    at ")) {
+        throw new Error(
+          "Windows embedded storage did not fail closed on its machine tier "
+            + `(${render.exitCode}): ${render.stderr.trim()}`
+        );
+      }
+      await assertAbsent(path.join(embeddedData, PROJECT_DIRECTORY_NAME));
+      await smokePromptTokenizer(directory, environment);
+      await smokeSupervisedServe(executable, directory, environment);
+      return;
+    }
     if (render.exitCode !== 0) {
       throw new Error(`Standalone render smoke failed (${render.exitCode}): ${render.stderr.trim()}`);
     }

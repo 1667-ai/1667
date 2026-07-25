@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resolveMachineTierRoot } from "../server/machine-tier.js";
 import {
   resolvePrivatePlatformStateRoot
 } from "../server/platform-state-root.js";
@@ -12,6 +13,12 @@ import { runAuthShow, startLegacyServe } from "../tui/src/http-commands.js";
 test("Windows machine-tier authority fails closed without native adapters", async () => {
   await assert.rejects(
     resolvePrivatePlatformStateRoot({ platform: "win32" }),
+    /DACL\/reparse-safe/
+  );
+  // The embedded backend resolves this before it starts, so the refusal reaches
+  // the CLI as one line instead of killing a worker mid-bootstrap.
+  await assert.rejects(
+    resolveMachineTierRoot({ platform: "win32", environment: {} }),
     /DACL\/reparse-safe/
   );
   await assert.rejects(

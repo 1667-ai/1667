@@ -50,36 +50,35 @@ test("current settings read remains valid across atomic replacement", {
   assert.deepEqual(await readSettingsState(dataDir), replacement);
 });
 
-test("live-owner contender reports contention when state changes during preflight", {
+test("a contender reports contention, never invalid state", {
   timeout: 5_000
 }, async (t) => {
+  // ADR007 takes the lock before reading anything, so a contender cannot see a
+  // settings state mid-publication and mistake it for corruption. The owner's
+  // publication still completes underneath the refusal.
   const dataDir = await initializedFormat2Directory(
     t,
     "1667-settings-preflight-replace-"
   );
   const replacement = changedState(
     MUTATION_A,
-    writingDocument("Published during contender preflight.")
+    writingDocument("Published while a contender is refused.")
   );
   await stageSettingsState(dataDir, replacement);
-  const pause = await pauseNextRead(
-    t,
-    Buffer.byteLength(INITIAL_SETTINGS_STATE_V2_TEXT, "utf8") + 1
+
+  // The handler is attached with the call so the refusal can settle whenever it
+  // likes without becoming an unhandled rejection.
+  const contention = new DataDirectoryLock(dataDir).acquire().then(
+    () => null,
+    (error: unknown) => error
   );
+  await publishStagedSettingsState(dataDir);
 
-  const acquiring = new DataDirectoryLock(dataDir).acquire();
-  await pause.entered;
-  try {
-    await publishStagedSettingsState(dataDir);
-  } finally {
-    pause.release();
-  }
-
-  await assert.rejects(acquiring, (error: unknown) =>
-    error instanceof ServiceError
-      && error.status === 409
-      && /already open/.test(error.message)
-      && !/invalid/.test(error.message));
+  const refusal = await contention;
+  assert.ok(refusal instanceof ServiceError, `expected a refusal, got ${refusal}`);
+  assert.equal(refusal.status, 409);
+  assert.match(refusal.message, /already open/);
+  assert.doesNotMatch(refusal.message, /invalid/);
   assert.deepEqual(await readSettingsState(dataDir), replacement);
 });
 

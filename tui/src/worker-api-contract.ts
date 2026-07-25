@@ -22,6 +22,9 @@ export interface WorkerStoryApiOptions {
   /** Injectable durable store used by transport lifecycle tests. */
   outbox?: MutationOutbox;
   dataDir?: string;
+  /** ADR007 machine tier, resolved by createWorkerStoryApi when it spawns a
+   * worker so an unavailable one is reported before the backend starts. */
+  machineDir?: string;
   /** Set by the lock owner when startup created the data directory. */
   freshDataDirectory?: boolean;
   readyTimeoutMs?: number;

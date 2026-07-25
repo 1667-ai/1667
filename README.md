@@ -149,7 +149,7 @@ Your stories and settings stay on your computer, in the project's `.1667/` folde
 
 ## Current platform limits
 
-Project storage works on macOS, Linux, and Windows. The machine tier — provider secrets and HTTP auth records — still needs a native DACL and reparse-safe adapter on Windows and fails closed there, along with HTTP attach, HTTP auth, and legacy serve.
+Local storage is available on macOS and Linux. Project discovery works everywhere, but the machine tier that holds provider secrets and HTTP auth records still needs a native DACL and reparse-safe adapter on Windows, so the Windows candidate refuses the embedded backend in one line and runs demo mode; HTTP attach, HTTP auth, and legacy serve fail closed there too.
 
 Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
 

@@ -9,7 +9,7 @@ import {
   SETTINGS_STATE_V2_FILE,
   type DataDirectoryFormat
 } from "./data-directory-layout.js";
-import { DataDirectoryLock } from "./data-directory-lock.js";
+import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import {
   MAX_DATA_DIRECTORY_OWNER_MARKER_BYTES,
   parseDataDirectoryOwnerMarkerBytes,
@@ -65,7 +65,9 @@ export async function adoptDataDirectory(options: {
     // Only the marker: the settings state, stories, and receipts that just
     // arrived are the adopted data, and no initializer may rewrite them.
     await publishDataDirectoryOwnerMarker(project.directory, dataFormat);
-    const lock = new DataDirectoryLock(project.directory);
+    // Open it the way the next `1667` start will, which both proves the adopted
+    // project is readable and runs any settings-format migration it owes.
+    const lock = new RuntimeDataDirectoryLock(project.directory);
     await lock.acquire();
     await lock.release();
     return {

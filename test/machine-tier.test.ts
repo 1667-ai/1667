@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -151,7 +151,9 @@ function storedDocument(secretId: string): SettingsDocumentV2 {
 }
 
 async function temporaryDirectory(t: TestContext, prefix: string): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), prefix));
+  // Canonical: the machine tier realpaths its root, and macOS reaches its
+  // temporary directory through a symlinked /var.
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), prefix)));
   t.after(async () => await rm(directory, { recursive: true, force: true }));
   return directory;
 }
