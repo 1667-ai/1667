@@ -19,6 +19,7 @@ import { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import { runProcessUpgrade } from "./upgrade-cli.js";
 import { createBackgroundUpdateStarter } from "./update-runtime.js";
 import { attachHttpServer } from "./http-attach.js";
+import { runStoryExport } from "./export-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
@@ -60,6 +61,7 @@ current directory the way git finds .git.
 
 Usage: 1667 [options]
        1667 init
+       1667 export [--story <id>] [--force]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>]
        1667 serve --legacy-v1 --data <path>
@@ -89,6 +91,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (argv[0] === "init") {
     await runProjectInit(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "export") {
+    await runStoryExport(argv.slice(1));
     return;
   }
   const parsed = parseArguments(argv);
@@ -378,10 +384,14 @@ interface LoadedSource {
 async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   if (args.demo) return { source: demoAppSource(args.dense), dispose: async () => {} };
   let dataDir: string | null = null;
+  // ADR007 §4: exports land in the project root, beside the writing. A client
+  // attached to a server has no project of its own and writes where it started.
+  let exportDirectory = process.cwd();
   if (args.embedded) {
     const project = await openProject(args);
     if (project === null) return null;
     dataDir = project.directory;
+    exportDirectory = project.root;
   }
   const storyFolder = dataDir === null
     ? ""
@@ -431,7 +441,8 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     const startUpdateCheck = createBackgroundUpdateStarter(config);
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,
-      storyFolder, connection, ...(worker === null ? {} : { backendFailure: worker.failure }),
+      storyFolder, exportDirectory, connection,
+      ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
       config };

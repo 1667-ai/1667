@@ -465,6 +465,7 @@ export function demoAppSource(dense = false): AppSource {
     settingsView,
     settings: settingsView.effective,
     storyFolder: "",
+    exportDirectory: process.cwd(),
     connection: null,
     config: {
       theme: "lantern",
