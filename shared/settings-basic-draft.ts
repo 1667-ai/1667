@@ -13,6 +13,8 @@ import {
   defaultModelCapabilities,
   isOfficialAnthropicBaseUrl
 } from "./settings-provider-defaults.js";
+import { classifyHttpHost } from "./http-host-class.js";
+import { storedCredentialSecretId } from "./settings-stored-credential.js";
 
 /**
  * Apply the deliberately small Release A editor to the active default route.
@@ -24,8 +26,9 @@ export function applyBasicSettingsDraft(
 ): SettingsDocumentV2 {
   const route = activeDefaultRoute(document);
   const projected = basicSettingsFromDocument(document);
-  const normalizedProjection = normalizeBasicSettingsIdentity(projected, false);
-  const normalizedDraft = normalizeBasicSettingsIdentity(draft, true);
+  const storedAuth = storedCredentialSecretId(route.connection.auth) !== null;
+  const normalizedProjection = normalizeBasicSettingsIdentity(projected, false, storedAuth);
+  const normalizedDraft = normalizeBasicSettingsIdentity(draft, true, storedAuth);
   if (sameBasicSettings(normalizedProjection, normalizedDraft)) return document;
 
   const protocol = protocolFor(normalizedDraft.provider);
@@ -165,7 +168,12 @@ export function basicSettingsFromDocument(document: SettingsDocumentV2): Generat
     model: provider === "dry-run" && route.model.remoteId === "dry-run"
       ? ""
       : route.model.remoteId,
-    apiKeyEnv: auth.type === "none" ? null : auth.env,
+    apiKeyEnv: auth.type === "bearer-env" || auth.type === "header-env"
+      ? auth.env
+      : null,
+    ...(route.connection.allowInsecureHttp === true
+      ? { allowInsecureHttp: true }
+      : {}),
     temperature: route.profile.temperature,
     maxTokens: route.profile.maxOutputTokens,
     systemPrompt: document.writing.defaultAuthorBrief,
@@ -204,8 +212,9 @@ function connectionFor(
   const protocolChanged = current.protocol !== protocol;
   if (!identityChanged) {
     return projected.apiKeyEnv === draft.apiKeyEnv
+        && projected.allowInsecureHttp === draft.allowInsecureHttp
       ? current
-      : { ...current, auth: authFor(draft) };
+      : connectionWithBasicPolicy(current, draft, authFor(draft, current.auth));
   }
 
   if (draft.provider === "dry-run") {
@@ -234,14 +243,30 @@ function connectionFor(
     preset,
     protocol,
     baseUrl,
-    auth: authFor(draft),
+    auth: authFor(draft, current.auth),
     headers: protocolChanged || plaintext || originChanged ? [] : current.headers,
-    timeouts: protocolChanged ? defaultConnectionTimeouts(draft.provider) : current.timeouts
+    timeouts: protocolChanged ? defaultConnectionTimeouts(draft.provider) : current.timeouts,
+    ...(draft.allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {})
   };
 }
 
-function authFor(draft: GenerationSettings): ModelConnectionV2["auth"] {
-  if (draft.apiKeyEnv === null || draft.provider === "dry-run") return { type: "none" };
+function authFor(
+  draft: GenerationSettings,
+  current: ModelConnectionV2["auth"]
+): ModelConnectionV2["auth"] {
+  if (draft.provider === "dry-run") return { type: "none" };
+  if (draft.apiKeyEnv === null) {
+    if (current.type !== "bearer-stored" && current.type !== "header-stored") {
+      return { type: "none" };
+    }
+    return draft.provider === "anthropic"
+      ? {
+          type: "header-stored",
+          name: "x-api-key",
+          secretId: current.secretId
+        }
+      : { type: "bearer-stored", secretId: current.secretId };
+  }
   return draft.provider === "anthropic"
     ? { type: "header-env", name: "x-api-key", env: draft.apiKeyEnv }
     : { type: "bearer-env", env: draft.apiKeyEnv };
@@ -268,6 +293,7 @@ function sameBasicSettings(left: GenerationSettings, right: GenerationSettings):
     && left.baseUrl === right.baseUrl
     && left.model === right.model
     && left.apiKeyEnv === right.apiKeyEnv
+    && left.allowInsecureHttp === right.allowInsecureHttp
     && left.temperature === right.temperature
     && left.maxTokens === right.maxTokens
     && left.systemPrompt === right.systemPrompt
@@ -288,10 +314,11 @@ function presetFor(provider: Provider, baseUrl: string): SettingsPresetV2 {
   const hostname = parsed.hostname.toLowerCase();
   if (hostname === "api.openai.com") return "openai";
   if (hostname === "openrouter.ai") return "openrouter";
-  if (isLoopbackHostname(hostname) && parsed.port === "1234") return "lm-studio";
-  if (isLoopbackHostname(hostname) && parsed.port === "11434") return "ollama";
-  if (isLoopbackHostname(hostname) && parsed.port === "8080") return "llama-cpp";
-  if (isLoopbackHostname(hostname) && parsed.port === "5001") return "koboldcpp";
+  const loopback = classifyHttpHost(baseUrl) === "loopback";
+  if (loopback && parsed.port === "1234") return "lm-studio";
+  if (loopback && parsed.port === "11434") return "ollama";
+  if (loopback && parsed.port === "8080") return "llama-cpp";
+  if (loopback && parsed.port === "5001") return "koboldcpp";
   return "custom";
 }
 
@@ -306,7 +333,12 @@ function connectionName(preset: SettingsPresetV2): string {
   return "Custom";
 }
 
-function requireBasicBaseUrl(value: string, apiKeyEnv: string | null): string {
+function requireBasicBaseUrl(
+  value: string,
+  apiKeyEnv: string | null,
+  allowInsecureHttp: boolean,
+  hasStoredCredential: boolean
+): string {
   const trimmed = value.trim().replace(/\/+$/, "");
   let parsed: URL;
   try {
@@ -319,37 +351,72 @@ function requireBasicBaseUrl(value: string, apiKeyEnv: string | null): string {
     throw new Error("Base URL cannot contain credentials, a query, or a fragment");
   }
   if (parsed.protocol === "https:") return trimmed;
-  if (parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname.toLowerCase())) {
-    if (apiKeyEnv !== null) {
-      throw new Error("Plain HTTP localhost connections cannot carry an API key");
+  if (parsed.protocol === "http:") {
+    if (apiKeyEnv !== null || hasStoredCredential) {
+      throw new Error("Plain HTTP connections cannot carry an API key");
     }
-    return trimmed;
+    const hostClass = classifyHttpHost(trimmed);
+    if (hostClass === "loopback") return trimmed;
+    if (
+      allowInsecureHttp
+      && (hostClass === "private-literal" || hostClass === "lan-hostname")
+    ) return trimmed;
   }
-  throw new Error("Basic settings require HTTPS, except for keyless localhost HTTP");
+  throw new Error(
+    "Basic settings require HTTPS, except for keyless localhost or opted-in LAN HTTP"
+  );
 }
 
 function normalizeBasicSettingsIdentity(
   settings: GenerationSettings,
-  requireHostedHttps: boolean
+  requireHostedHttps: boolean,
+  hasStoredCredential: boolean
 ): GenerationSettings {
   const model = settings.model.trim();
+  const baseUrl = settings.provider === "dry-run"
+    ? ""
+    : requireHostedHttps
+      ? requireBasicBaseUrl(
+          settings.baseUrl,
+          settings.apiKeyEnv,
+          settings.allowInsecureHttp === true,
+          hasStoredCredential
+        )
+      : settings.baseUrl.trim().replace(/\/+$/, "");
+  const allowInsecureHttp = settings.provider !== "dry-run"
+    && settings.allowInsecureHttp === true
+    && isOptedInLanHttp(baseUrl);
   return {
     ...settings,
     apiKeyEnv: settings.provider === "dry-run" ? null : settings.apiKeyEnv,
-    baseUrl: settings.provider === "dry-run"
-      ? ""
-      : requireHostedHttps
-        ? requireBasicBaseUrl(settings.baseUrl, settings.apiKeyEnv)
-        : settings.baseUrl.trim().replace(/\/+$/, ""),
-    model: settings.provider === "dry-run" && model === "dry-run" ? "" : model
+    baseUrl,
+    model: settings.provider === "dry-run" && model === "dry-run" ? "" : model,
+    allowInsecureHttp
   };
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost"
-    || hostname === "::1"
-    || hostname === "[::1]"
-    || /^127(?:\.[0-9]{1,3}){3}$/u.test(hostname);
+function connectionWithBasicPolicy(
+  current: ModelConnectionV2,
+  draft: GenerationSettings,
+  auth: ModelConnectionV2["auth"]
+): ModelConnectionV2 {
+  const { allowInsecureHttp: _allowInsecureHttp, ...portable } = current;
+  return {
+    ...portable,
+    auth,
+    ...(draft.allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {})
+  };
+}
+
+function isOptedInLanHttp(baseUrl: string): boolean {
+  try {
+    const parsed = new URL(baseUrl);
+    const hostClass = classifyHttpHost(parsed.href);
+    return parsed.protocol === "http:"
+      && (hostClass === "private-literal" || hostClass === "lan-hostname");
+  } catch {
+    return false;
+  }
 }
 
 function remoteIdFor(settings: GenerationSettings): string {

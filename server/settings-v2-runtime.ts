@@ -43,11 +43,18 @@ export function pendingSettingsDocument(state: SettingsStateV2): SettingsDocumen
 
 export function credentialReferencesResolve(
   document: SettingsDocumentV2,
-  environment: NodeJS.ProcessEnv
+  environment: NodeJS.ProcessEnv,
+  storedSecretIds: ReadonlySet<string> = new Set()
 ): boolean {
   for (const connection of Object.values(document.connections)) {
-    if (connection.auth.type !== "none"
-      && !nonemptyEnvironmentValue(environment, connection.auth.env)) return false;
+    if (
+      (connection.auth.type === "bearer-env" || connection.auth.type === "header-env")
+      && !nonemptyEnvironmentValue(environment, connection.auth.env)
+    ) return false;
+    if (
+      (connection.auth.type === "bearer-stored" || connection.auth.type === "header-stored")
+      && !storedSecretIds.has(connection.auth.secretId)
+    ) return false;
     for (const header of connection.headers) {
       if (!nonemptyEnvironmentValue(environment, header.value.env)) return false;
     }
@@ -75,18 +82,21 @@ export function providerRequestTransportAvailable(
 ): boolean {
   if (effective.provider === "dry-run") return true;
   const url = new URL(effective.baseUrl);
+  const runtime = providerRuntimeFor(effective);
+  const keyless = runtime.auth.type === "none";
+  const hostClass = classifyHttpHost(effective.baseUrl);
   return url.protocol === "https:"
     || (
       url.protocol === "http:"
-      && effective.apiKeyEnv === null
-      && classifyHttpHost(effective.baseUrl) === "loopback"
+      && keyless
+      && hostClass === "loopback"
       && ownedLoopbackHttpSupported()
     )
     || (
       url.protocol === "http:"
-      && effective.apiKeyEnv === null
-      && classifyHttpHost(effective.baseUrl) === "private-literal"
-      && providerRuntimeFor(effective).allowInsecureHttp
+      && keyless
+      && (hostClass === "private-literal" || hostClass === "lan-hostname")
+      && runtime.allowInsecureHttp
     );
 }
 

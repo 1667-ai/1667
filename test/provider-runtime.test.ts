@@ -18,6 +18,7 @@ import { streamCompletion } from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { supportsAssistantPrefill } from "../shared/continuation-plan.js";
+import { providerRequestTransportAvailable } from "../server/settings-v2-runtime.js";
 
 const PROMPT: PromptPlan = {
   operation: "continue",
@@ -78,6 +79,98 @@ test("v2 authentication and custom-header references resolve only at dispatch", 
     delete process.env.AI_1667_TEST_NAMED_AUTH;
     delete process.env.AI_1667_TEST_CUSTOM_HEADER;
   }
+});
+
+test("stored bearer and named-header credentials resolve and enter redaction", () => {
+  const cases = [
+    {
+      auth: { type: "bearer-stored", secretId: "connection:openai" } as const,
+      expected: { authorization: "Bearer stored-bearer-secret" },
+      secret: "stored-bearer-secret"
+    },
+    {
+      auth: {
+        type: "header-stored",
+        name: "x-api-key",
+        secretId: "connection:anthropic:x-api-key"
+      } as const,
+      expected: { "x-api-key": "stored-header-secret" },
+      secret: "stored-header-secret"
+    }
+  ];
+  for (const { auth, expected, secret } of cases) {
+    const runtime = providerRuntimeFromV2({
+      name: "Stored fixture",
+      preset: "custom",
+      protocol: "openai-chat-completions",
+      baseUrl: "https://models.example/v1",
+      auth,
+      headers: [],
+      timeouts: {
+        responseHeaderMs: 1_000,
+        firstTokenMs: 1_000,
+        idleMs: 1_000,
+        totalMs: 5_000
+      }
+    }, "default", {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }, {}, new Map([[auth.secretId, secret]]));
+    const resolved = resolveProviderHeaders(
+      attachProviderRuntime(baseSettings(), runtime),
+      {}
+    );
+    assert.deepEqual(resolved.headers, expected);
+    assert.deepEqual(resolved.secrets, [secret]);
+    assert.equal(
+      redactProviderSecrets(`provider echoed ${secret}`, resolved.secrets),
+      "provider echoed [REDACTED]"
+    );
+  }
+});
+
+test("stored credential lookup has a distinct non-secret diagnostic", () => {
+  assert.throws(
+    () => resolveProviderHeaders(attached({
+      auth: { type: "bearer-stored", secretId: "connection:missing" }
+    }), {}),
+    (error) => error instanceof ProviderError
+      && error.message.includes("Stored API key")
+      && !error.message.includes("environment variable")
+  );
+});
+
+test("transport policy admits opted-in keyless LAN hosts but never public HTTP or credentials", () => {
+  assert.equal(providerRequestTransportAvailable(attached({
+    auth: { type: "bearer-stored", secretId: "connection:https" }
+  }, {
+    baseUrl: "https://models.example/v1"
+  })), true);
+  assert.equal(providerRequestTransportAvailable(attached({
+    auth: { type: "bearer-stored", secretId: "connection:http" },
+    allowInsecureHttp: true
+  }, {
+    baseUrl: "http://192.168.1.50:8080/v1"
+  })), false);
+
+  for (const baseUrl of [
+    "http://192.168.1.50:8080/v1",
+    "http://gpu-box.local:11434/v1",
+    "http://gpu-box:11434/v1"
+  ]) {
+    assert.equal(providerRequestTransportAvailable(attached({
+      auth: { type: "none" },
+      allowInsecureHttp: true
+    }, { baseUrl })), true, baseUrl);
+  }
+  assert.equal(providerRequestTransportAvailable(attached({
+    auth: { type: "none" },
+    allowInsecureHttp: true
+  }, {
+    baseUrl: "http://models.example.com/v1"
+  })), false);
 });
 
 test("resolved named authentication preserves the __proto__ header", () => {

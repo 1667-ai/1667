@@ -3,6 +3,7 @@ import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
+  settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowCycles,
   settingsRows,
@@ -413,13 +414,14 @@ function settingsLine(
       )
     ];
   }
+  const displayComposer = settingsEditDisplayComposer(edit);
   return [
     prefix,
     raisedSegment("[", "chrome"),
     ...renderComposerInput(
-      edit.composer,
+      displayComposer,
       0,
-      composerPosition(edit.composer).column,
+      composerPosition(displayComposer).column,
       Math.max(1, valueWidth - 2),
       "streaming",
       false,

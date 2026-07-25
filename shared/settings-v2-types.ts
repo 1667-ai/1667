@@ -23,7 +23,10 @@ export type SettingsPresetV2 = (typeof SETTINGS_PRESET_V2_VALUES)[number];
 export type CredentialReferenceV2 =
   | { readonly type: "none" }
   | { readonly type: "bearer-env"; readonly env: string }
-  | { readonly type: "header-env"; readonly name: string; readonly env: string };
+  | { readonly type: "header-env"; readonly name: string; readonly env: string }
+  // A future bearer-keyring variant can reuse the same opaque reference shape.
+  | { readonly type: "bearer-stored"; readonly secretId: string }
+  | { readonly type: "header-stored"; readonly name: string; readonly secretId: string };
 
 export interface CustomHeaderV2 {
   readonly name: string;
@@ -244,6 +247,8 @@ export interface SaveSettingsCommand {
   readonly mutationId: string;
   readonly expectedStateGeneration: number;
   readonly document: SettingsDocumentV2;
+  /** Secret values are a write-only sidecar and never enter the settings document. */
+  readonly connectionSecrets?: Readonly<Record<string, string | null>>;
 }
 
 export interface DiscardPendingSettingsCommand {

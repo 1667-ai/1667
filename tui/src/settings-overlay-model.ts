@@ -2,7 +2,12 @@ import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import type { UserConfig } from "./config.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
-import { createComposer, setComposerText } from "./composer-model.js";
+import {
+  createComposer,
+  setComposerText,
+  type ComposerState
+} from "./composer-model.js";
+import { graphemeCells } from "./cell-width.js";
 import { promptCacheSummary } from "./settings-cache-summary.js";
 import {
   localProviderPresetsSupported,
@@ -19,13 +24,24 @@ import type {
   SettingsOverlayState,
   SettingsRowId
 } from "./state.js";
+import {
+  applyStoredApiKeyEdit,
+  hasStoredApiKey,
+  rekeyPendingStoredSecret,
+  sameConnectionSecrets,
+  storedApiKeyPresentation
+} from "./settings-secret-sidecar.js";
+
+export { applyStoredApiKeyIntent } from "./settings-secret-sidecar.js";
 
 export const SETTINGS_ROW_IDS = [
   "theme",
   "compose-focus",
   "provider",
   "base-url",
+  "allow-insecure-http",
   "model",
+  "api-key",
   "api-key-env",
   "temperature",
   "max-tokens",
@@ -51,7 +67,10 @@ const SETTINGS_FIELD_KEYS = {
   "cache-policy": "cachePolicy",
   "system-prompt": "systemPrompt"
 } as const satisfies Record<
-  Exclude<SettingsRowId, "theme" | "compose-focus">,
+  Exclude<
+    SettingsRowId,
+    "theme" | "compose-focus" | "allow-insecure-http" | "api-key"
+  >,
   string
 >;
 
@@ -64,6 +83,7 @@ export function initialSettingsOverlay(
     view,
     base: draft,
     draft,
+    connectionSecrets: {},
     cursor: 0,
     edit: null,
     conflict: null,
@@ -94,7 +114,13 @@ export function settingsRows(
       value: `‹ ${providerLabel} ›`
     },
     { id: "base-url", label: "base URL", value: settings.baseUrl || "—" },
+    {
+      id: "allow-insecure-http",
+      label: "Allow insecure HTTP (LAN)",
+      value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
+    },
     { id: "model", label: "model", value: settings.model || "—" },
+    { id: "api-key", label: "API key", value: storedApiKeyPresentation(overlay) },
     { id: "api-key-env", label: "API key env", value: settings.apiKeyEnv ?? "—" },
     {
       id: "temperature",
@@ -131,6 +157,9 @@ export function settingsRowEditValue(
 ): string {
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
+  if (row === "allow-insecure-http") {
+    return overlay.draft.generation.allowInsecureHttp === true ? "on" : "off";
+  }
   return draftRowEditValue(overlay.draft, row);
 }
 
@@ -143,7 +172,25 @@ export function beginSettingsRowEdit(
   const initial = settingsRowEditValue(overlay, config, row);
   const composer = createComposer(initial);
   if (initial.length > 0) composer.anchor = 0;
-  overlay.edit = { row, composer, initial };
+  overlay.edit = {
+    row,
+    mode: row === "api-key" ? "secret" : "text",
+    composer,
+    initial
+  };
+}
+
+/** Same grapheme offsets as the write-only buffer; no secret code units cross
+ * into rendered text, terminal selection, or clipboard projection. */
+export function settingsEditDisplayComposer(
+  edit: NonNullable<SettingsOverlayState["edit"]>
+): ComposerState {
+  if (edit.mode === "text") return edit.composer;
+  const projection = createComposer(maskSecretText(edit.composer.text));
+  projection.cursor = edit.composer.cursor;
+  projection.anchor = edit.composer.anchor;
+  projection.fullscreen = edit.composer.fullscreen;
+  return projection;
 }
 
 export function beginSettingsPasteEdit(
@@ -152,7 +199,11 @@ export function beginSettingsPasteEdit(
 ): boolean {
   if (overlay.edit !== null) return true;
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "theme" || row === "provider") return false;
+  if (
+    row === "theme"
+    || row === "provider"
+    || row === "allow-insecure-http"
+  ) return false;
   if (settingsRowUsesServer(row)
     && (!overlay.view.editable || overlay.view.pendingRevision !== null)) {
     return false;
@@ -170,7 +221,8 @@ export function applySettingsRowEdit(
   | { kind: "error"; message: string } {
   const edit = overlay.edit;
   if (edit === null) return { kind: "error", message: "no settings row is being edited" };
-  const value = edit.composer.text.trim();
+  const rawValue = edit.composer.text;
+  const value = rawValue.trim();
   if (edit.row === "theme") {
     if (!THEME_NAMES.includes(value as ThemeName)) {
       return { kind: "error", message: `theme must be ${THEME_NAMES.join(", ")}` };
@@ -184,6 +236,17 @@ export function applySettingsRowEdit(
     }
     overlay.edit = null;
     return { kind: "compose-focus", value };
+  }
+  if (edit.row === "api-key") {
+    const result = applyStoredApiKeyEdit(overlay, rawValue);
+    if (result !== null) return { kind: "error", message: result };
+    overlay.edit = null;
+    overlay.result = null;
+    if (!settingsDraftChanged(overlay)) overlay.conflict = null;
+    return { kind: "draft" };
+  }
+  if (edit.row === "allow-insecure-http") {
+    return { kind: "error", message: "insecure HTTP is a selector" };
   }
   if (edit.row === "system-prompt") {
     const systemPrompt = parseInlineSystemPrompt(edit.composer.text);
@@ -218,14 +281,16 @@ export function applySettingsRowEdit(
       }
     : parsed;
   overlay.draft = next;
-  if (sameSettingsDraft(next, overlay.base)) overlay.conflict = null;
+  if (edit.row === "api-key-env") overlay.connectionSecrets = {};
+  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   overlay.edit = null;
   overlay.result = null;
   return { kind: "draft" };
 }
 
 export function settingsDraftChanged(overlay: SettingsOverlayState): boolean {
-  return !sameSettingsDraft(overlay.draft, overlay.base);
+  return !sameSettingsDraft(overlay.draft, overlay.base)
+    || Object.keys(overlay.connectionSecrets).length > 0;
 }
 
 export function sameSettingsDraft(
@@ -247,7 +312,10 @@ export function boundedSettingsCursor(value: number): number {
  * Deliberately not the inverse of `settingsRowUsesServer`: provider cycles and
  * is server-backed, while theme and compose focus cycle and are local. */
 export function settingsRowCycles(row: SettingsRowId): boolean {
-  return row === "theme" || row === "compose-focus" || row === "provider";
+  return row === "theme"
+    || row === "compose-focus"
+    || row === "provider"
+    || row === "allow-insecure-http";
 }
 
 /** Local-only rows live in the user config; every other row edits a
@@ -261,16 +329,19 @@ export function cycleSettingsProvider(
   step: -1 | 1
 ): SettingsProviderChoice {
   const choice = nextSettingsProviderChoice(overlay.draft.generation, step);
+  const preserveStoredApiKey = hasStoredApiKey(overlay);
   overlay.draft = {
     ...overlay.draft,
     generation: {
       ...overlay.draft.generation,
       provider: choice.provider,
-      ...choice.defaults
+      ...choice.defaults,
+      ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
     }
   };
+  rekeyPendingStoredSecret(overlay);
   overlay.result = null;
-  if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
+  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else if (overlay.conflict !== null) overlay.conflict.armed = false;
   return choice;
 }
@@ -304,7 +375,9 @@ export function reconcileSettingsOverlay(
   overlay.base = nextBase;
 
   if (edit !== null && (draftWasClean || converged) && editWasClean
-    && edit.row !== "theme" && edit.row !== "compose-focus") {
+    && edit.row !== "theme"
+    && edit.row !== "compose-focus"
+    && edit.row !== "allow-insecure-http") {
     const refreshed = draftRowEditValue(overlay.draft, edit.row);
     setComposerText(edit.composer, refreshed);
     if (refreshed.length > 0) edit.composer.anchor = 0;
@@ -329,9 +402,14 @@ export function reconcileSettingsOverlay(
 
 export function settleSettingsOverlaySave(
   overlay: SettingsOverlayState,
-  acknowledged: SettingsTextDraft
+  acknowledged: SettingsTextDraft,
+  acknowledgedSecrets: Readonly<Record<string, string | null>> = {}
 ): boolean {
-  const newerDraft = !sameSettingsDraft(overlay.draft, acknowledged);
+  const newerDraft = !sameSettingsDraft(overlay.draft, acknowledged)
+    || !sameConnectionSecrets(overlay.connectionSecrets, acknowledgedSecrets);
+  if (sameConnectionSecrets(overlay.connectionSecrets, acknowledgedSecrets)) {
+    overlay.connectionSecrets = {};
+  }
   const nextBase = settingsTextDraftForView(overlay.view);
   overlay.base = nextBase;
   if (!newerDraft) {
@@ -351,6 +429,7 @@ export function sameGenerationSettings(
     && left.baseUrl === right.baseUrl
     && left.model === right.model
     && left.apiKeyEnv === right.apiKeyEnv
+    && left.allowInsecureHttp === right.allowInsecureHttp
     && left.temperature === right.temperature
     && left.maxTokens === right.maxTokens
     && left.contextWindow === right.contextWindow
@@ -359,12 +438,16 @@ export function sameGenerationSettings(
 
 function draftRowEditValue(
   draft: SettingsTextDraft,
-  row: Exclude<SettingsRowId, "theme" | "compose-focus">
+  row: Exclude<
+    SettingsRowId,
+    "theme" | "compose-focus" | "allow-insecure-http"
+  >
 ): string {
   const settings = draft.generation;
   if (row === "provider") return settings.provider;
   if (row === "base-url") return settings.baseUrl;
   if (row === "model") return settings.model;
+  if (row === "api-key") return "";
   if (row === "api-key-env") return settings.apiKeyEnv ?? "";
   if (row === "temperature") return settings.temperature?.toString() ?? "";
   if (row === "max-tokens") return settings.maxTokens.toString();
@@ -380,6 +463,9 @@ function draftWithActiveEdit(
   if (edit === null || edit.row === "theme" || edit.row === "compose-focus") {
     return overlay.draft;
   }
+  if (edit.row === "api-key" || edit.row === "allow-insecure-http") {
+    return edit.composer.text === edit.initial ? overlay.draft : null;
+  }
   if (edit.row === "system-prompt") {
     const systemPrompt = parseInlineSystemPrompt(edit.composer.text);
     return typeof systemPrompt === "string"
@@ -394,6 +480,21 @@ function draftWithActiveEdit(
     overlay.draft
   );
   return "error" in parsed ? null : parsed;
+}
+
+export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
+  const allowInsecureHttp = overlay.draft.generation.allowInsecureHttp !== true;
+  const generation = { ...overlay.draft.generation };
+  if (allowInsecureHttp) generation.allowInsecureHttp = true;
+  else delete generation.allowInsecureHttp;
+  overlay.draft = {
+    ...overlay.draft,
+    generation
+  };
+  overlay.result = null;
+  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
+  else if (overlay.conflict !== null) overlay.conflict.armed = false;
+  return allowInsecureHttp;
 }
 
 /** Existing prompts enter as a JSON string so one-line editing has a
@@ -421,4 +522,10 @@ function isPlainHttp(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function maskSecretText(value: string): string {
+  return graphemeCells(value)
+    .map((cell) => /[\r\n]/u.test(cell.text) ? cell.text : "•")
+    .join("");
 }

@@ -14,6 +14,7 @@ import {
 } from "./selection-projection.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import type { RuntimeState } from "./state.js";
+import { settingsEditDisplayComposer } from "./settings-overlay-model.js";
 
 export interface SelectionCopyResult {
   text: string;
@@ -147,7 +148,13 @@ export function copyActiveSelection(
   if (composer !== null && rendered.length > 0 && native !== null) {
     syncMouseComposerSelection(native, state, projections.composer);
   }
-  const draft = composer === null ? null : selectedComposerText(composer);
+  const displayComposer = state.mode === "SETTINGS" && state.settings?.edit !== null
+    && state.settings?.edit !== undefined
+    ? settingsEditDisplayComposer(state.settings.edit)
+    : composer;
+  const draft = displayComposer === null
+    ? null
+    : selectedComposerText(displayComposer);
   const story = composer === null
     ? storyTextFromRendererSelection(native ?? EMPTY_NATIVE_SELECTION, projections.story)
     : null;

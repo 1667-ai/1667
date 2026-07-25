@@ -1,6 +1,7 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { sameSettingsDraft } from "./settings-overlay-model.js";
+import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
 /** Probe the selected draft without letting a late response overwrite newer
@@ -26,7 +27,9 @@ export async function detectSettingsContext(
         };
         return;
       }
-      const { contextWindow } = await source.api.probeContextWindow(probed);
+      const { contextWindow } = await source.api.probeContextWindow(
+        settingsProviderProbeTarget(overlay.view, probed)
+      );
       const currentlyEditable =
         overlay.view.editable && overlay.view.pendingRevision === null;
       const current = currentlyEditable
@@ -76,5 +79,6 @@ function sameProbeIdentity(
   return left.provider === right.provider
     && left.baseUrl === right.baseUrl
     && left.model === right.model
-    && left.apiKeyEnv === right.apiKeyEnv;
+    && left.apiKeyEnv === right.apiKeyEnv
+    && left.allowInsecureHttp === right.allowInsecureHttp;
 }

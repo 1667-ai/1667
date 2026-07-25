@@ -24,11 +24,14 @@ import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { publishSettingsView } from "./overlay-publication.js";
 import { detectSettingsContext } from "./settings-context-detection.js";
+import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import {
   applySettingsRowEdit,
+  applyStoredApiKeyIntent,
   beginSettingsPasteEdit,
   beginSettingsRowEdit,
   boundedSettingsCursor,
+  cycleAllowInsecureHttp,
   cycleSettingsProvider,
   initialSettingsOverlay,
   sameGenerationSettings,
@@ -87,7 +90,11 @@ export async function settingsOverlayAction(
       await settingsInlineEditAction(resolved, state, source, context, overlay);
     } else {
       const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-      if (row === "theme" || row === "provider") {
+      if (
+        row === "theme"
+        || row === "provider"
+        || row === "allow-insecure-http"
+      ) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
         state.toast = "legacy settings are read-only";
@@ -115,6 +122,8 @@ export async function settingsOverlayAction(
       applyTheme(state, context, THEME_NAMES[(index + 1) % THEME_NAMES.length]!);
     } else if (row === "provider") {
       applyProviderChoice(overlay, state, 1);
+    } else if (row === "allow-insecure-http") {
+      applyAllowInsecureHttp(overlay, state);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -140,6 +149,13 @@ export async function settingsOverlayAction(
         state.toast = "settings pending restart · discard pending before editing";
       } else {
         applyProviderChoice(overlay, state, step);
+      }
+    } else if (row === "allow-insecure-http") {
+      if (!overlay.view.editable) state.toast = "legacy settings are read-only";
+      else if (overlay.view.pendingRevision !== null) {
+        state.toast = "settings pending restart · discard pending before editing";
+      } else {
+        applyAllowInsecureHttp(overlay, state);
       }
     }
   } else if (resolved.action === "discard-pending") {
@@ -258,7 +274,7 @@ async function saveSettingsDraft(
   if (state.connection.down) {
     return void (state.toast = "offline · draft kept until the connection returns");
   }
-  if (overlay.saveIntent === undefined && sameSettingsDraft(overlay.draft, overlay.base)) {
+  if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay)) {
     overlay.conflict = null;
     state.toast = "unchanged · no-op";
     return;
@@ -272,11 +288,15 @@ async function saveSettingsDraft(
   let intent = overlay.saveIntent;
   if (intent === undefined) {
     const draft = overlay.draft;
+    const connectionSecrets = { ...overlay.connectionSecrets };
     let document: SettingsDocumentV2;
     try {
-      document = applyPromptCachePolicy(
-        applyBasicSettingsDraft(overlay.view.document, draft.generation),
-        draft.cachePolicy
+      document = applyStoredApiKeyIntent(
+        applyPromptCachePolicy(
+          applyBasicSettingsDraft(overlay.view.document, draft.generation),
+          draft.cachePolicy
+        ),
+        connectionSecrets
       );
       const cacheContext = promptCacheContextForDocument(document);
       const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
@@ -290,7 +310,10 @@ async function saveSettingsDraft(
       state.toast = `settings kept · ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
-    if (document === overlay.view.document) {
+    if (
+      document === overlay.view.document
+      && Object.keys(connectionSecrets).length === 0
+    ) {
       overlay.draft = overlay.base;
       overlay.conflict = null;
       state.toast = "unchanged · no-op";
@@ -298,10 +321,14 @@ async function saveSettingsDraft(
     }
     intent = {
       draft,
+      connectionSecrets,
       command: {
         mutationId: createDurableMutationId(),
         expectedStateGeneration: overlay.view.stateGeneration,
-        document
+        document,
+        ...(Object.keys(connectionSecrets).length === 0
+          ? {}
+          : { connectionSecrets })
       }
     };
   }
@@ -330,7 +357,11 @@ async function saveSettingsDraft(
     publishSettingsView(state, source, saved);
     if (state.settings !== overlay) return;
     delete overlay.saveIntent;
-    const newerEdits = settleSettingsOverlaySave(overlay, intent.draft);
+    const newerEdits = settleSettingsOverlaySave(
+      overlay,
+      intent.draft,
+      intent.connectionSecrets
+    );
     const message = result.pendingSettingsRevision === null
       ? "settings saved"
       : "settings staged · restart required";
@@ -393,7 +424,9 @@ async function checkSettings(
       const checked = overlay.view.editable && overlay.view.pendingRevision === null
         ? overlay.draft.generation
         : overlay.view.effective;
-      const result = await source.api.checkModelServer(checked);
+      const result = await source.api.checkModelServer(
+        settingsProviderProbeTarget(overlay.view, checked)
+      );
       const current = overlay.view.editable && overlay.view.pendingRevision === null
         ? overlay.draft.generation
         : overlay.view.effective;
@@ -435,4 +468,12 @@ function applyComposeFocus(
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
   state.toast = `compose focus · ${composeFocus}`;
+}
+
+function applyAllowInsecureHttp(
+  overlay: SettingsOverlayState,
+  state: RuntimeState
+): void {
+  const enabled = cycleAllowInsecureHttp(overlay);
+  state.toast = `insecure HTTP (LAN) · ${enabled ? "on" : "off"} · s saves settings`;
 }

@@ -9,6 +9,9 @@ import type {
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { defaultConnectionTimeouts } from "../shared/settings-provider-defaults.js";
+import {
+  validateProviderSecretValue
+} from "../shared/provider-secret-value.js";
 import { ProviderError } from "./errors.js";
 import { classifyHttpHost } from "./settings-v2-scalars.js";
 
@@ -75,7 +78,8 @@ export function providerRuntimeFromV2(
   connection: ModelConnectionV2,
   effort: GenerationEffortV2,
   capabilities: ModelCapabilitiesV2,
-  environment?: NodeJS.ProcessEnv
+  environment?: NodeJS.ProcessEnv,
+  storedSecrets?: ReadonlyMap<string, string>
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,
@@ -86,11 +90,22 @@ export function providerRuntimeFromV2(
     effort,
     capabilities
   };
-  if (environment !== undefined) {
+  if (environment !== undefined || storedSecrets !== undefined) {
     const slots = new Map<string, string>();
-    for (const name of credentialNames(connection)) {
-      const value = environmentCredential(environment, name);
-      if (value !== undefined) slots.set(environmentKey(name), value);
+    for (const reference of credentialReferences(connection)) {
+      if (reference.kind === "env") {
+        if (environment !== undefined) {
+          const value = environmentCredential(environment, reference.name);
+          if (value !== undefined) {
+            slots.set(environmentSlotKey(reference.name), value);
+          }
+        }
+      } else {
+        const stored = storedSecrets?.get(reference.secretId);
+        if (stored !== undefined) {
+          slots.set(storedSlotKey(reference.secretId), stored);
+        }
+      }
     }
     PROVIDER_CREDENTIALS.set(runtime, slots);
   }
@@ -115,6 +130,18 @@ export function resolveProviderHeaders(
     }
     case "header-env": {
       const secret = requireCredential(runtime, runtime.auth.env);
+      defineResolvedHeader(headers, runtime.auth.name, secret);
+      secrets.push(secret);
+      break;
+    }
+    case "bearer-stored": {
+      const secret = requireStoredCredential(runtime, runtime.auth.secretId);
+      defineResolvedHeader(headers, "authorization", `Bearer ${secret}`);
+      secrets.push(secret);
+      break;
+    }
+    case "header-stored": {
+      const secret = requireStoredCredential(runtime, runtime.auth.secretId);
       defineResolvedHeader(headers, runtime.auth.name, secret);
       secrets.push(secret);
       break;
@@ -464,25 +491,65 @@ function requireCredential(runtime: ProviderRuntime, name: string): string {
   const slots = PROVIDER_CREDENTIALS.get(runtime);
   const value = slots === undefined
     ? environmentCredential(process.env, name)
-    : slots.get(environmentKey(name));
+    : slots.get(environmentSlotKey(name));
   if (typeof value !== "string" || value.length === 0) {
     throw new ProviderError(
       `Credential environment variable ${name} is not set. Export it and restart 1667.`
     );
   }
-  if (/^[\t ]|[\t ]$/u.test(value)) {
-    throw new ProviderError(
-      `Credential environment variable ${name} contains surrounding HTTP whitespace. Remove it and restart 1667.`
-    );
+  try {
+    return validateProviderSecretValue(value);
+  } catch (error) {
+    throw new ProviderError([
+      credentialValidationMessage(error, `Credential environment variable ${name}`),
+      "Remove it and restart 1667."
+    ].join(" "));
   }
-  return value;
 }
 
-function credentialNames(connection: ModelConnectionV2): readonly string[] {
+function requireStoredCredential(runtime: ProviderRuntime, secretId: string): string {
+  const value = PROVIDER_CREDENTIALS.get(runtime)?.get(storedSlotKey(secretId));
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ProviderError(
+      "Stored API key for this connection is missing. Re-enter it in Settings."
+    );
+  }
+  try {
+    return validateProviderSecretValue(value);
+  } catch (error) {
+    throw new ProviderError(
+      `${credentialValidationMessage(error, "Stored API key")} Re-enter it in Settings.`
+    );
+  }
+}
+
+type CredentialReferenceSlot =
+  | { readonly kind: "env"; readonly name: string }
+  | { readonly kind: "stored"; readonly secretId: string };
+
+function credentialReferences(
+  connection: ModelConnectionV2
+): readonly CredentialReferenceSlot[] {
+  const authReferences: readonly CredentialReferenceSlot[] = connection.auth.type === "none"
+    ? []
+    : connection.auth.type === "bearer-stored"
+        || connection.auth.type === "header-stored"
+      ? [{ kind: "stored", secretId: connection.auth.secretId }]
+      : [{ kind: "env", name: connection.auth.env }];
   return [
-    ...(connection.auth.type === "none" ? [] : [connection.auth.env]),
-    ...connection.headers.map((header) => header.value.env)
+    ...authReferences,
+    ...connection.headers.map((header): CredentialReferenceSlot => ({
+      kind: "env",
+      name: header.value.env
+    }))
   ];
+}
+
+function credentialValidationMessage(error: unknown, subject: string): string {
+  const message = error instanceof Error
+    ? error.message
+    : "Stored API key is invalid";
+  return `${subject}${message.replace(/^Stored API key/u, "")}`;
 }
 
 function environmentCredential(
@@ -500,4 +567,12 @@ function environmentCredential(
 
 function environmentKey(name: string): string {
   return process.platform === "win32" ? name.toUpperCase() : name;
+}
+
+function environmentSlotKey(name: string): string {
+  return `env:${environmentKey(name)}`;
+}
+
+function storedSlotKey(secretId: string): string {
+  return `stored:${secretId}`;
 }

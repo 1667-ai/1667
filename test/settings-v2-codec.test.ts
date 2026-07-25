@@ -372,6 +372,29 @@ test("Anthropic runtime lowering preserves exact authentication references", () 
     assert.equal(effective.apiKeyEnv, "ANTHROPIC_API_KEY");
     assert.deepEqual(providerRuntimeFor(effective).auth, auth);
   }
+  for (const auth of [
+    { type: "bearer-stored" as const, secretId: "migrated:connection" },
+    {
+      type: "header-stored" as const,
+      name: "X-Provider-Key",
+      secretId: "migrated:connection:X-Provider-Key"
+    }
+  ]) {
+    const document = parseSettingsDocumentV2({
+      ...base,
+      connections: {
+        ...base.connections,
+        "migrated:connection": { ...connection, auth }
+      }
+    });
+    assert.deepEqual(
+      parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
+      document
+    );
+    const effective = effectiveGenerationSettings(document);
+    assert.equal(effective.apiKeyEnv, null);
+    assert.deepEqual(providerRuntimeFor(effective).auth, auth);
+  }
   const customHeaderDocument = parseSettingsDocumentV2({
     ...base,
     connections: {
@@ -533,6 +556,21 @@ test("document validation rejects future fields, reserved secrets, and unsafe en
       }
     }), baseUrl);
   }
+  assert.throws(() => parseSettingsDocumentV2({
+    ...base,
+    connections: {
+      ...base.connections,
+      "migrated:connection": {
+        ...connection,
+        baseUrl: "http://192.168.1.50:8080/v1",
+        auth: {
+          type: "bearer-stored",
+          secretId: "migrated:connection"
+        },
+        allowInsecureHttp: true
+      }
+    }
+  }), /plain HTTP cannot carry authentication/);
 });
 
 test("document validation rejects authentication/custom header collisions and protected headers", () => {

@@ -5,9 +5,11 @@ import {
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import type {
+  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import {
@@ -52,6 +54,12 @@ function deferred<T>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+function generationFromProbeTarget(target: ProviderProbeTarget) {
+  return "kind" in target
+    ? basicSettingsFromDocument(target.document)
+    : target;
 }
 
 function harness() {
@@ -119,7 +127,11 @@ describe("inline settings menu", () => {
       await press(key("return"));
       expect(state.mode).toBe("SETTINGS");
       expect(state.editor).toBe(null);
-      if (row === "theme" || row === "provider") {
+      if (
+        row === "theme"
+        || row === "provider"
+        || row === "allow-insecure-http"
+      ) {
         expect(state.settings?.edit).toBe(null);
       } else {
         expect(state.settings?.edit?.row).toBe(row);
@@ -422,6 +434,175 @@ describe("inline settings menu", () => {
       .toBe("http://127.0.0.1:11434/v1");
   });
 
+  test("pasted API key uses the save sidecar and renders only a mask", async () => {
+    const { source, state, cache, press } = harness();
+    const commands: SaveSettingsCommand[] = [];
+    let current = source.settingsView;
+    source.api.saveSettings = async (command) => {
+      commands.push(command);
+      if (!current.editable) throw new Error("demo settings must be editable");
+      current = {
+        ...current,
+        stateGeneration: current.stateGeneration + 1,
+        activeRevision: current.activeRevision + 1,
+        document: command.document,
+        effective: basicSettingsFromDocument(command.document)
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: current.stateGeneration,
+        activeSettingsRevision: current.activeRevision,
+        pendingSettingsRevision: null
+      };
+    };
+    source.api.getSettings = async () => current;
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "https://api.openai.com/v1");
+    await draftRow(press, state, "model", "gpt-5.6");
+    await selectRow(press, state, "api-key");
+
+    expect(beginSettingsPasteEdit(state.settings!, state.config)).toBeTrue();
+    expect(pasteInto(state, "sk-pasted-secret")).toBeTrue();
+    expect(state.settings?.edit?.mode).toBe("secret");
+    const editingFrame = renderStoryScreen(
+      state,
+      { width: 80, height: 24, wrapCache: cache }
+    );
+    const editingText = frameText(editingFrame.lines);
+    expect(editingText).toContain("••••••••");
+    expect(editingText).not.toContain("sk-pasted-secret");
+    expect(editingFrame.derived.composerSelectionProjection).not.toBe(null);
+    await press(key("return"));
+
+    expect(state.settings?.draft.generation.apiKeyEnv).toBe(null);
+    expect(JSON.stringify(state.settings?.draft.generation))
+      .not.toContain("sk-pasted-secret");
+    const rendered = frameText(renderStoryScreen(
+      state,
+      { width: 80, height: 24, wrapCache: cache }
+    ).lines);
+    expect(rendered).toContain("•••••••• · stored");
+    expect(rendered).not.toContain("sk-pasted-secret");
+
+    await press(key("s"));
+    expect(commands).toHaveLength(1);
+    expect(commands[0]!.connectionSecrets).toEqual({
+      demo: "sk-pasted-secret"
+    });
+    expect(commands[0]!.document.connections.demo?.auth).toEqual({
+      type: "bearer-stored",
+      secretId: "demo"
+    });
+    expect(JSON.stringify(commands[0]!.document)).not.toContain("sk-pasted-secret");
+
+    await draftRow(press, state, "api-key", "");
+    await press(key("s"));
+    expect(commands[1]!.connectionSecrets).toEqual({ demo: null });
+    expect(commands[1]!.document.connections.demo?.auth).toEqual({ type: "none" });
+
+    await selectRow(press, state, "provider");
+    for (let attempts = 0;
+      state.settings?.draft.generation.provider !== "anthropic" && attempts < 8;
+      attempts += 1) {
+      await press(key("right"));
+    }
+    await draftRow(press, state, "model", "claude-sonnet");
+    await selectRow(press, state, "api-key");
+    expect(beginSettingsPasteEdit(state.settings!, state.config)).toBeTrue();
+    expect(pasteInto(state, "anthropic-pasted-secret")).toBeTrue();
+    await press(key("return"));
+    await press(key("s"));
+
+    expect(commands[2]!.connectionSecrets).toEqual({
+      demo: "anthropic-pasted-secret"
+    });
+    expect(commands[2]!.document.connections.demo?.auth).toEqual({
+      type: "header-stored",
+      name: "x-api-key",
+      secretId: "demo"
+    });
+  });
+
+  test("provider cycling preserves and reshapes a saved stored API key", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const openAiDocument = applyBasicSettingsDraft(source.settingsView.document, {
+      ...source.settings,
+      provider: "openai-compatible",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5.6",
+      apiKeyEnv: null,
+      contextWindow: null
+    });
+    const savedDocument = {
+      ...openAiDocument,
+      connections: {
+        ...openAiDocument.connections,
+        demo: {
+          ...openAiDocument.connections.demo!,
+          auth: {
+            type: "bearer-stored" as const,
+            secretId: "saved-openai-secret"
+          }
+        }
+      }
+    };
+    const savedView: SettingsView = {
+      ...source.settingsView,
+      document: savedDocument,
+      effective: basicSettingsFromDocument(savedDocument)
+    };
+    source.settingsView = savedView;
+    source.settings = savedView.effective;
+    source.api.getSettings = async () => savedView;
+
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    for (let attempts = 0;
+      state.settings?.draft.generation.provider !== "anthropic" && attempts < 8;
+      attempts += 1) {
+      await press(key("right"));
+    }
+
+    expect(state.settings?.draft.generation.provider).toBe("anthropic");
+    expect(state.settings?.draft.generation.apiKeyEnv).toBe(null);
+    await draftRow(press, state, "model", "claude-sonnet-5");
+    const switched = applyBasicSettingsDraft(
+      savedDocument,
+      state.settings!.draft.generation
+    );
+    expect(selectSettingsRoute(switched).connection.auth).toEqual({
+      type: "header-stored",
+      name: "x-api-key",
+      secretId: "saved-openai-secret"
+    });
+  });
+
+  test("LAN HTTP selector toggles and round-trips through the basic draft", async () => {
+    const { source, state, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "http://gpu-box.local:11434/v1");
+    await draftRow(press, state, "model", "lan-model");
+    await selectRow(press, state, "allow-insecure-http");
+    await press(key("right"));
+
+    expect(state.settings?.draft.generation.allowInsecureHttp).toBeTrue();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const document = applyBasicSettingsDraft(
+      source.settingsView.document,
+      state.settings!.draft.generation
+    );
+    expect(document.connections.demo?.allowInsecureHttp).toBeTrue();
+    expect(basicSettingsFromDocument(document).allowInsecureHttp).toBeTrue();
+
+    await press(key("left"));
+    expect(state.settings?.draft.generation.allowInsecureHttp).toBe(undefined);
+  });
+
   test("the selected row and inline field render inside Settings", async () => {
     const { state, cache, press } = harness();
     await openSettings(press);
@@ -474,7 +655,7 @@ describe("inline settings menu", () => {
     const { source, state, press } = harness();
     let checkedModel: string | null = null;
     source.api.checkModelServer = async (settings) => {
-      checkedModel = settings.model;
+      checkedModel = generationFromProbeTarget(settings).model;
       return { state: "ready", message: "draft ready" };
     };
     await openSettings(press);
@@ -488,11 +669,40 @@ describe("inline settings menu", () => {
     expect(state.settings?.result).toBe(null);
   });
 
+  test("server checks retain LAN HTTP opt-in on an unsaved format-2 draft", async () => {
+    const { source, state, press } = harness();
+    const checks: ProviderProbeTarget[] = [];
+    source.api.checkModelServer = async (target) => {
+      checks.push(target);
+      return { state: "ready", message: "LAN draft ready" };
+    };
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "http://gpu-box.local:11434/v1");
+    await draftRow(press, state, "model", "lan-model");
+    await selectRow(press, state, "allow-insecure-http");
+    await press(key("right"));
+    await press(key("c"));
+
+    const checked = checks[0];
+    if (checked === undefined || !("kind" in checked)) {
+      throw new Error("expected a format-2 provider probe target");
+    }
+    expect(checked.kind).toBe("settings-document");
+    const connection = selectSettingsRoute(checked.document).connection;
+    expect(connection.baseUrl).toBe("http://gpu-box.local:11434/v1");
+    expect(connection.allowInsecureHttp).toBeTrue();
+    expect(state.settings?.result?.message).toBe("LAN draft ready");
+  });
+
   test("p detects the context window from the unsaved provider draft", async () => {
     const { source, state, cache, press } = harness();
     let probedModel: string | null = null;
+    const probes: ProviderProbeTarget[] = [];
     source.api.probeContextWindow = async (settings) => {
-      probedModel = settings.model;
+      probes.push(settings);
+      probedModel = generationFromProbeTarget(settings).model;
       return { contextWindow: 65_536 };
     };
     await openSettings(press);
@@ -507,6 +717,7 @@ describe("inline settings menu", () => {
     await press(key("p"));
 
     expect(probedModel).toBe("draft-model");
+    expect(probes[0] !== undefined && "kind" in probes[0]).toBeTrue();
     expect(state.settings?.draft.generation.contextWindow).toBe(65_536);
     expect(state.settings?.result).toEqual({
       state: "ready",

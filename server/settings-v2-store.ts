@@ -21,6 +21,7 @@ import type {
   PreparedUserMutationRecord
 } from "./mutation-ledger-types.js";
 import {
+  hashSettingsDocumentV2,
   hashSettingsStateV2
 } from "./settings-v2-codec.js";
 import {
@@ -42,6 +43,7 @@ import {
   invalidSettingsMutation,
   parseDiscardPendingSettingsCommand,
   parseSaveSettingsCommandEnvelope,
+  parseSaveSettingsConnectionSecrets,
   parseSaveSettingsDocument,
   prepareSettingsMutation,
   requireExactSettingsReceiptState,
@@ -53,6 +55,12 @@ import {
   settingsMutationFingerprint,
   type SettingsMutationOperation
 } from "./settings-v2-mutation.js";
+import {
+  pruneProviderSecrets,
+  readProviderSecrets,
+  removeProviderSecretsScratch,
+  writeProviderSecret
+} from "./provider-secret-store.js";
 import {
   activeSettingsDocument,
   assertRuntimeDocumentSupported,
@@ -111,6 +119,8 @@ export class SettingsV2Store {
     await this.ledger.init();
     let state = await this.recoverReceiptTransaction();
     state = await this.recoverActivation(state);
+    await removeProviderSecretsScratch(this.dataDir);
+    await pruneProviderSecrets(this.dataDir, storedSecretIdsInState(state));
     assertRuntimeDocumentSupported(activeSettingsDocument(state));
     settingsViewFromState(state);
   }
@@ -120,12 +130,17 @@ export class SettingsV2Store {
   }
 
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
-    const state = await readSettingsState(this.dataDir);
+    const [state, storedSecrets] = await Promise.all([
+      readSettingsState(this.dataDir),
+      readProviderSecrets(this.dataDir)
+    ]);
     const runtime = effectiveGenerationRuntime(
       activeSettingsDocument(state),
       purpose,
       {},
-      this.environment
+      this.environment,
+      {},
+      storedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime;
@@ -142,6 +157,7 @@ export class SettingsV2Store {
     readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
   }[]> {
     const state = await readSettingsState(this.dataDir);
+    const storedSecrets = await readProviderSecrets(this.dataDir);
     const document = activeSettingsDocument(state);
     const exact: Array<{
       readonly connectionId: string;
@@ -168,7 +184,8 @@ export class SettingsV2Store {
           connection,
           "default",
           model?.capabilities ?? defaultModelCapabilities(provider),
-          this.environment
+          this.environment,
+          storedSecrets
         )
       };
       (exactModel === undefined ? fallback : exact).push(match);
@@ -203,7 +220,8 @@ export class SettingsV2Store {
       purpose,
       {},
       this.environment,
-      { allowBlankModel: true }
+      { allowBlankModel: true },
+      await readProviderSecrets(this.dataDir)
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime.settings;
@@ -238,7 +256,8 @@ export class SettingsV2Store {
           const document = parseSaveSettingsDocument(commandValue);
           const operation: SettingsMutationOperation = {
             method: "saveSettings",
-            document
+            document,
+            connectionSecrets: parseSaveSettingsConnectionSecrets(commandValue)
           };
           return {
             fingerprint: settingsMutationFingerprint(
@@ -327,6 +346,41 @@ export class SettingsV2Store {
       throw new ServiceError(409, "There are no pending settings to discard.");
     }
 
+    const connectionSecretEntries = operation.method === "saveSettings"
+      ? Object.entries(operation.connectionSecrets ?? {})
+      : [];
+    if (operation.method === "saveSettings") {
+      requireConnectionSecretsMatchDocument(
+        operation.document,
+        connectionSecretEntries
+      );
+      if (
+        connectionSecretEntries.length > 0
+        && hashSettingsDocumentV2(operation.document)
+          === hashSettingsDocumentV2(activeSettingsDocument(current))
+      ) {
+        for (const [secretId, value] of connectionSecretEntries) {
+          if (value !== null) await writeProviderSecret(this.dataDir, secretId, value);
+        }
+        const prepared = prepareSettingsMutation(
+          operation,
+          request,
+          current,
+          current,
+          this.timestamp()
+        );
+        await this.ledger.writeUserRecord(prepared);
+        await pruneProviderSecrets(
+          this.dataDir,
+          storedSecretIdsInState(current)
+        );
+        await this.ledger.writeUserRecord(
+          completeSettingsMutation(prepared, this.timestamp())
+        );
+        return settingsResult(prepared);
+      }
+    }
+
     let next: SettingsStateV2;
     try {
       const pointer = {
@@ -356,6 +410,10 @@ export class SettingsV2Store {
       this.timestamp()
     );
     await stageSettingsState(this.dataDir, next);
+    // Replacement takes effect on save by design; a post-stage failure is recoverable by re-entering the key.
+    for (const [secretId, value] of connectionSecretEntries) {
+      if (value !== null) await writeProviderSecret(this.dataDir, secretId, value);
+    }
     try {
       await this.ledger.writeUserRecord(prepared);
     } catch (error) {
@@ -363,6 +421,10 @@ export class SettingsV2Store {
       throw error;
     }
     await publishStagedSettingsState(this.dataDir);
+    await pruneProviderSecrets(
+      this.dataDir,
+      storedSecretIdsInState(next)
+    );
     await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
     return settingsResult(prepared);
   }
@@ -486,7 +548,12 @@ export class SettingsV2Store {
       transactionId: pointer.mutationId
     }));
     const candidate = pendingSettingsDocument(next);
-    if (!credentialReferencesResolve(candidate, this.environment)) {
+    const storedSecrets = await readProviderSecrets(this.dataDir);
+    if (!credentialReferencesResolve(
+      candidate,
+      this.environment,
+      new Set(storedSecrets.keys())
+    )) {
       return await this.replaceInternal(reduceSettingsStateV2(next, {
         kind: "validation-failed",
         errorCode: "credential_unresolved"
@@ -505,7 +572,9 @@ export class SettingsV2Store {
           candidate,
           purpose,
           {},
-          this.environment
+          this.environment,
+          {},
+          storedSecrets
         ).settings;
         if (
           providerRequestTransportAvailable(effective)
@@ -569,4 +638,42 @@ function settingsResult(prepared: PreparedUserMutationRecord): SettingsMutationR
     throw corruptSettingsStateReceipt(prepared.key);
   }
   return Object.freeze({ ...prepared.result });
+}
+
+function storedSecretIdsInDocument(document: SettingsDocumentV2): Set<string> {
+  const ids = new Set<string>();
+  for (const connection of Object.values(document.connections)) {
+    if (
+      connection.auth.type === "bearer-stored"
+      || connection.auth.type === "header-stored"
+    ) ids.add(connection.auth.secretId);
+  }
+  return ids;
+}
+
+function storedSecretIdsInState(state: SettingsStateV2): Set<string> {
+  const ids = new Set<string>();
+  for (const document of Object.values(state.documents)) {
+    for (const secretId of storedSecretIdsInDocument(document)) ids.add(secretId);
+  }
+  return ids;
+}
+
+function requireConnectionSecretsMatchDocument(
+  document: SettingsDocumentV2,
+  entries: readonly (readonly [string, string | null])[]
+): void {
+  const referenced = storedSecretIdsInDocument(document);
+  for (const [secretId, value] of entries) {
+    if (
+      (value === null && referenced.has(secretId))
+      || (value !== null && !referenced.has(secretId))
+    ) {
+      throw new ServiceError(
+        400,
+        "Settings secret sidecar does not match the document credential references.",
+        "invalid_request"
+      );
+    }
+  }
 }

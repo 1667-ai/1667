@@ -454,6 +454,8 @@ export interface GenerationSettings {
   baseUrl: string;
   model: string;
   apiKeyEnv: string | null;
+  /** Absence means false. Persisted only by the format-2 basic editor. */
+  allowInsecureHttp?: boolean;
   temperature: number | null;
   maxTokens: number;
   systemPrompt: string;

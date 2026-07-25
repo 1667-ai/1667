@@ -34,7 +34,7 @@ describe("active selection copy", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     const composer = createComposer("draft-model");
     composer.anchor = 0;
-    state.settings.edit = { row: "model", composer, initial: "" };
+    state.settings.edit = { row: "model", mode: "text", composer, initial: "" };
     let quit = false;
 
     expect(handleMainCopyShortcut(
@@ -54,6 +54,29 @@ describe("active selection copy", () => {
     expect(await copied?.outcome).toBe("command");
   });
 
+  test("inline API-key selection copies only the masked edit projection", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.mode = "SETTINGS";
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
+    const composer = createComposer("sk-visible-nowhere");
+    composer.anchor = 0;
+    state.settings.edit = {
+      row: "api-key",
+      mode: "secret",
+      composer,
+      initial: ""
+    };
+
+    const copied = copyActiveSelection(
+      EMPTY_NATIVE_SELECTION,
+      state,
+      async () => "command"
+    );
+    expect(copied?.text).toBe("•".repeat("sk-visible-nowhere".length));
+    expect(copied?.text).not.toContain("sk-visible-nowhere");
+  });
+
   test("inline Settings maps a mouse range into its composer selection", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
@@ -61,7 +84,7 @@ describe("active selection copy", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.cursor = 4;
     const composer = createComposer("draft-model");
-    state.settings.edit = { row: "model", composer, initial: "" };
+    state.settings.edit = { row: "model", mode: "text", composer, initial: "" };
     const frame = renderStoryScreen(state, { width: 80, height: 24 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
     const projection = state.composerSelectionProjection!;
@@ -90,7 +113,7 @@ describe("active selection copy", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.cursor = 4;
     const composer = createComposer("draft-model");
-    state.settings.edit = { row: "model", composer, initial: "" };
+    state.settings.edit = { row: "model", mode: "text", composer, initial: "" };
     const width = 160;
     const layout = deriveStoryFrameLayout(width, state.config);
     expect(layout.railStart).not.toBe(null);
