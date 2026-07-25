@@ -40,6 +40,14 @@ export function panelWidthFor(width: number, maxWidth = 106): number {
   return Math.max(20, Math.min(width - 8, maxWidth));
 }
 
+/** The other half of that geometry: how many content rows `placePanel` will
+ *  paint at this height, once its own minimum is applied. Callers that slice
+ *  or window their body must measure against this, or they leave rows behind a
+ *  bound that never reaches them. */
+export function panelContentRows(height: number): number {
+  return Math.max(2, height - 9);
+}
+
 export function placePanel(
   base: FrameLine[],
   title: string,

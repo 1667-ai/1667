@@ -10,7 +10,7 @@ import {
   SETTINGS_ROW_IDS
 } from "../settings-overlay-model.js";
 import type { OverlayState } from "../state.js";
-import { dimPage, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
+import { dimPage, panelContentRows, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
 import { panelRowWindow } from "./panel-table-layout.js";
 import { renderComposerInput } from "./story/composer.js";
 import {
@@ -235,10 +235,9 @@ export function renderSettingsPanel(
               overlay.result.state === "ready" ? "focus / accent" : "danger text"
             )
           ];
-  // placePanel can show at most height - 9 content rows (and retains a
-  // two-row minimum at its smallest supported height). At short heights,
-  // notices become compact chrome and the cursor-centered row window wins.
-  const contentCapacity = Math.max(2, height - 9);
+  // At short heights, notices become compact chrome and the cursor-centered
+  // row window wins whatever the panel can actually paint.
+  const contentCapacity = panelContentRows(height);
   let content: FrameLine[];
   let targets: Array<HitTarget | null>;
   if (contentCapacity < fixedRows + 1) {

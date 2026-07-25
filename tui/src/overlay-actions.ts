@@ -88,7 +88,27 @@ export async function handleOverlayAction(
     }
     return true;
   }
+  if (state.mode === "KEYS") { scrollKeysReference(resolved, state); return true; }
   return false;
+}
+
+/** How far each scroll gesture moves the key reference. The renderer owns the
+ *  upper bound — it alone knows how many rows the panel drew — and clamps what
+ *  it is given back into the state, so an eager offset here is harmless. */
+const KEYS_SCROLL_STEP: Partial<Record<ResolvedKey["action"], number>> = {
+  "focus-next": 1,
+  "focus-previous": -1,
+  "scroll-down": 6,
+  "scroll-up": -6
+};
+
+/** The reference only reads and scrolls; `open-keys` owns the reset. */
+function scrollKeysReference(resolved: ResolvedKey, state: RuntimeState): void {
+  if (resolved.action === "cancel") {
+    state.mode = "NAV";
+    return;
+  }
+  state.keysScrollTop = Math.max(0, state.keysScrollTop + (KEYS_SCROLL_STEP[resolved.action] ?? 0));
 }
 
 function initialFacts() {

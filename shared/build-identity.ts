@@ -231,3 +231,6 @@ const injectedIdentity = typeof __AI_1667_BUILD_IDENTITY__ === "undefined"
 
 export const AI_1667_BUILD_IDENTITY: BuildIdentity = Object.freeze(injectedIdentity);
 export const AI_1667_PRODUCT_VERSION = AI_1667_BUILD_IDENTITY.productVersion;
+/** The running build in a corner's worth of cells. `formatBuildVersion` is the
+ *  full identity; this is what fits beside the model in a status bar. */
+export const AI_1667_VERSION_TAG = `v${AI_1667_PRODUCT_VERSION}`;

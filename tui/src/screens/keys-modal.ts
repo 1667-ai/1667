@@ -1,9 +1,10 @@
 import { type HitRows } from "../hit.js";
 import type { AppMode, KeyAction } from "../keys.js";
 import type { MapView } from "../map-state.js";
-import { panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
-import { VERSION_TAG } from "./story/status.js";
-import { truncate, visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { AI_1667_VERSION_TAG } from "../../../shared/build-identity.js";
+import { panelContentRows, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
+import { boundedContent, panelRange } from "./panel-table-layout.js";
+import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
 
 export interface KeysModalBinding {
   name: string;
@@ -213,18 +214,6 @@ const COLUMN_WIDTH = TOKEN_WIDTH + 2 + DESCRIPTION_BUDGET;
 const COLUMN_GUTTER = 2;
 const MAX_COLUMNS = 3;
 const PANEL_MAX_WIDTH = MAX_COLUMNS * COLUMN_WIDTH + (MAX_COLUMNS - 1) * COLUMN_GUTTER + 2;
-/** Chrome `placePanel` wraps around the content it draws: title, blank, border,
- *  footer, and the row the frame reserves below the panel. */
-const PANEL_CHROME_ROWS = 9;
-/** The floor `placePanel` puts under its own height, in content rows. */
-const PANEL_MINIMUM_ROWS = 2;
-
-/** How many content rows `placePanel` will actually paint at this height.
- *  Slicing more than this would strand the last rows behind a scroll bound
- *  that can never reach them, and make the footer's position a lie. */
-function panelContentRows(height: number): number {
-  return Math.max(PANEL_MINIMUM_ROWS, height - PANEL_CHROME_ROWS);
-}
 
 export interface KeysOverlayRender {
   composition: FrameComposition;
@@ -243,23 +232,25 @@ export function renderKeysOverlay(
   const interior = panelWidth - visibleWidth("┃ ");
   const columns = columnCount(interior);
   const rows = layoutRows(interior, columns);
+  // Slicing more than the panel will paint would leave rows behind a bound
+  // that never reaches them, and make the title's range a lie.
   const visibleRows = panelContentRows(height);
-  const maxScroll = Math.max(0, rows.length - visibleRows);
-  const top = Math.max(0, Math.min(scrollTop, maxScroll));
-  const content = rows.slice(top, top + visibleRows);
-  const clipped = maxScroll > 0;
+  const top = Math.max(0, Math.min(scrollTop, Math.max(0, rows.length - visibleRows)));
+  const window = { start: top, end: Math.min(top + visibleRows, rows.length) };
+  const content = rows.slice(window.start, window.end);
+  const range = panelRange(rows.length, window);
   // The status bar hides its build tag on a narrow terminal, so the reference
   // is where `1667 v…` is always reachable.
-  const footer = `1667 ${VERSION_TAG} · ${clipped
-    ? `↑↓ scrolls · ${top + content.length} of ${rows.length} rows · esc closes`
-    : "drag selects · ctrl+c copies · esc closes"}`;
+  const footer = `1667 ${AI_1667_VERSION_TAG} · ${range === ""
+    ? "drag selects · ctrl+c copies · esc closes"
+    : "↑↓ scrolls · esc closes"}`;
 
   // Inert, not transparent: without hits the story's own rows stay live under
   // the modal, so a click outside would not even dismiss it.
   return {
     composition: placePanel(
       base,
-      "keys · what every key does",
+      `keys · what every key does${range}`,
       content,
       footer,
       width,
@@ -303,16 +294,16 @@ function layoutRows(interior: number, columns: number): FrameLine[] {
 function sectionLines(section: KeysModalSection, cellWidth: number): FrameLine[] {
   // The heading sits in the key column so its blurb starts where the
   // descriptions do: two aligned columns per cell, not a ragged third edge.
-  return [
-    fitCell([
+  return boundedContent([
+    [
       { ...raisedSegment(padKey(heading(section)), section.role), bold: true },
       raisedSegment(`  ${section.blurb}`, "prose · dim")
-    ], cellWidth),
-    ...section.entries.map((item) => fitCell([
+    ],
+    ...section.entries.map((item) => [
       raisedSegment(padKey(item.token), section.role),
       raisedSegment(`  ${item.description}`, "prose · dim")
-    ], cellWidth))
-  ];
+    ])
+  ], cellWidth);
 }
 
 function heading(section: KeysModalSection): string {
@@ -324,45 +315,27 @@ function padKey(token: string): string {
   return " ".repeat(Math.max(0, TOKEN_WIDTH - visibleWidth(token))) + token;
 }
 
-/** Clip a cell to its column. The token keeps its cells and the description
- *  yields them: a truncated `⇧↑ ⇧↓` would name a key nobody can press. */
-function fitCell(line: FrameLine, cellWidth: number): FrameLine {
-  if (lineWidth(line) <= cellWidth) return line;
-  const [head, ...rest] = line;
-  const headWidth = head === undefined ? 0 : visibleWidth(head.text);
-  const budget = Math.max(0, cellWidth - headWidth);
-  const clipped: FrameLine = head === undefined ? [] : [head];
-  let used = 0;
-  for (const part of rest) {
-    const text = truncate(part.text, budget - used);
-    if (text.length > 0) clipped.push({ ...part, text });
-    used += visibleWidth(text);
-  }
-  return clipped;
-}
-
-/** Contiguous partition that minimises the tallest column: the first height
- *  that greedy packing can meet with the columns available. */
+/** Contiguous grouping that minimises the tallest column, so the reference is
+ *  as short as its sections allow before any of it has to scroll. The smallest
+ *  limit greedy packing can meet is the answer; one column always meets the
+ *  total, so the search terminates there. */
 function dealColumns(blocks: readonly FrameLine[][], columns: number): FrameLine[][] {
   const heights = blocks.map((block) => block.length);
   const total = heights.reduce((sum, value) => sum + value, 0) + blocks.length - 1;
-  for (let limit = Math.max(...heights); limit <= total; limit += 1) {
-    const groups = packWithin(heights, limit);
-    if (groups !== null && groups.length <= columns) {
-      return groups.map((group) => group.flatMap((index, position) =>
-        position === 0 ? blocks[index]! : [[], ...blocks[index]!]));
-    }
-  }
-  return [blocks.flatMap((block, index) => index === 0 ? block : [[], ...block])];
+  let limit = Math.max(...heights);
+  while (limit < total && packWithin(heights, limit).length > columns) limit += 1;
+  return packWithin(heights, limit).map((group) => group.flatMap((index, position) =>
+    // A blank row separates sections sharing a column; the first needs none.
+    position === 0 ? blocks[index]! : [[], ...blocks[index]!]));
 }
 
-/** Greedy grouping under a height limit; null when one block alone exceeds it. */
-function packWithin(heights: readonly number[], limit: number): number[][] | null {
+/** Greedy contiguous grouping under a height limit, which every block fits:
+ *  the caller never searches below the tallest one. */
+function packWithin(heights: readonly number[], limit: number): number[][] {
   const groups: number[][] = [];
   let current: number[] = [];
   let used = 0;
   for (const [index, height] of heights.entries()) {
-    if (height > limit) return null;
     const cost = current.length === 0 ? height : height + 1;
     if (used + cost > limit) {
       groups.push(current);

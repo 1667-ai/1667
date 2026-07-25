@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AI_1667_VERSION_TAG } from "../../shared/build-identity.js";
 import { dispatch, initialState } from "../src/app.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import {
@@ -673,6 +674,33 @@ describe("honest next-request context meter", () => {
       expect(visibleWidth(status)).toBe(width);
       expect(status.trimEnd()).toBe(text);
       expect(/(?:part |take |¶ )?\d+\/…/.test(status)).toBeFalse();
+      // This story fills the line, so the build tag has no slack to take.
+      expect(status).not.toContain(AI_1667_VERSION_TAG);
     }
+  });
+
+  test("the build tag takes the corner on slack and yields it on demand", () => {
+    const state = initialState(demoAppSource(), true);
+    // A short title and no bookmark leave the room the demo fixture does not.
+    state.payload = { ...state.payload, title: "untitled", bookmarks: [] };
+
+    const roomy = plainLine(renderStoryScreen(state, { width: 120, height: 24 }).lines.at(-1)!);
+    expect(roomy.trimEnd().endsWith(`local ✓ · ${AI_1667_VERSION_TAG}`)).toBeTrue();
+    expect(roomy).toContain("untitled");
+    expect(visibleWidth(roomy)).toBe(120);
+
+    // The story's own identity outranks it: the tag goes before a title does.
+    const tight = plainLine(renderStoryScreen(
+      { ...state, payload: { ...state.payload, title: "a title long enough to fill this line completely" } },
+      { width: 120, height: 24 }
+    ).lines.at(-1)!);
+    expect(tight).not.toContain(AI_1667_VERSION_TAG);
+    expect(tight).toContain("a title long enough to fill this line");
+    expect(tight.trimEnd().endsWith("local ✓")).toBeTrue();
+
+    // Narrow keeps the request meter; the key reference carries the tag there.
+    const narrow = plainLine(renderStoryScreen(state, { width: 80, height: 24 }).lines.at(-1)!);
+    expect(narrow).not.toContain(AI_1667_VERSION_TAG);
+    expect(narrow).toContain("next ");
   });
 });

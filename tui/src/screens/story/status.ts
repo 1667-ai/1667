@@ -1,4 +1,4 @@
-import { AI_1667_PRODUCT_VERSION } from "../../../../shared/build-identity.js";
+import { AI_1667_VERSION_TAG } from "../../../../shared/build-identity.js";
 import { lineName } from "../../../../shared/loom-model.js";
 import type { Bookmark } from "../../../../shared/types.js";
 import { bookmarkGlyph, bookmarkRole } from "../../bookmark-presentation.js";
@@ -17,10 +17,6 @@ import {
   type FrameLine,
   type FrameSegment
 } from "./frame.js";
-
-/** The running build, short enough to live in a corner. `--version` and the
- *  key reference carry the full identity. */
-export const VERSION_TAG = `v${AI_1667_PRODUCT_VERSION}`;
 
 export function renderStatus(
   state: StoryScreenState,
@@ -100,30 +96,29 @@ export function renderStatus(
     narrowRight = state.backendTask === null ? requestMeter : `working · ${requestMeter}`;
   }
   if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width) narrowRight = requestMeter;
+  // Which build is running, in the corner where it stays out of the way. It is
+  // reference rather than status, so it takes slack and nothing else: never a
+  // cell from the story's title, line name, location, or word count. `?`
+  // carries it where this line cannot.
+  const wideRight = (buildTag: boolean): FrameLine => [
+    segment(" ", "chrome"),
+    segment(state.model, "chrome", { kind: "settings-row", row: "model" }),
+    segment(" · ", "chrome"),
+    segment(
+      backendStatus,
+      "chrome",
+      state.backendTask === null
+        ? { kind: "settings-row", row: "provider" }
+        : undefined
+    ),
+    segment(`${centered}${buildTag ? ` · ${AI_1667_VERSION_TAG}` : ""} `, "chrome")
+  ];
+  const tagged = wideRight(true);
   const right: FrameLine = narrow
     ? [segment(` ${narrowRight} `, contextSeverity(window) === "over" ? "danger text" : "chrome")]
-    : [
-        segment(" ", "chrome"),
-        segment(state.model, "chrome", { kind: "settings-row", row: "model" }),
-        segment(" · ", "chrome"),
-        segment(
-          backendStatus,
-          "chrome",
-          state.backendTask === null
-            ? { kind: "settings-row", row: "provider" }
-            : undefined
-        ),
-        segment(centered, "chrome"),
-        // Which build is running, in the corner where it stays out of the way.
-        // It is reference rather than status, so it yields its cells before the
-        // story's own identity does; `?` carries it where this line cannot.
-        segment(` · ${VERSION_TAG} `, "chrome")
-      ];
-  // Slack only: the tag never buys its cells from the story's own title, line
-  // name, location, or word count, all of which outrank it.
-  if (!narrow && visibleWidth(plainLine(left)) + visibleWidth(plainLine(right)) > width) {
-    right.splice(-1, 1, segment(" ", "chrome"));
-  }
+    : visibleWidth(plainLine(left)) + visibleWidth(plainLine(tagged)) <= width
+      ? tagged
+      : wideRight(false);
   const rightWidth = visibleWidth(plainLine(right));
   if (rightWidth >= width) return fitLine(right, width);
   const leftWidth = width - rightWidth;

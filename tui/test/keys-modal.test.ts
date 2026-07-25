@@ -129,6 +129,7 @@ describe("keys reference", () => {
     const frame = text(120, 60);
     for (const item of entries) expect(frame).toContain(`  ${item.description}`);
     expect(frame).not.toContain("scrolls");
+    expect(frame).not.toContain("/27");
     expect(frame).toContain("esc closes");
     expect(render(120, 60, 4).scrollTop).toBe(0);
   });
@@ -138,7 +139,9 @@ describe("keys reference", () => {
     const frame = frameText(top.composition.lines);
     expect(top.scrollTop).toBe(0);
     expect(frame).toContain("● MOVE");
-    expect(frame).toMatch(/↑↓ scrolls · \d+ of \d+ rows · esc closes/);
+    // The range reads the way every other windowed panel's title does.
+    expect(frame).toContain("keys · what every key does · 1–15/27");
+    expect(frame).toContain("↑↓ scrolls · esc closes");
 
     const scrolled = render(80, 24, 8);
     expect(scrolled.scrollTop).toBe(8);
@@ -162,7 +165,8 @@ describe("keys reference", () => {
       const shown = `${height}:${frameText(bottom.composition.lines).includes("d / b  prune · bookmark here")}`;
       expect(shown).toBe(`${height}:true`);
       expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:27`);
-      expect(frameText(bottom.composition.lines)).toContain(`${bottom.scrollTop + painted} of 27 rows`);
+      expect(frameText(bottom.composition.lines))
+        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/27`);
     }
   });
 
