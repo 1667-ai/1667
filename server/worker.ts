@@ -380,6 +380,7 @@ async function bootstrap(message: Extract<MainToWorkerMessage, { type: "bootstra
   initializing = true;
   const candidate = new StoryService({
     dataDir: message.dataDir,
+    machineDir: message.machineDir,
     dataLock: "external",
     mutationRecovery: "external",
     starterVault: "seed-when-new",

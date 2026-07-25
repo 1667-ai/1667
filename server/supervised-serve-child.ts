@@ -27,6 +27,7 @@ import { SETTINGS_STATE_V2_FILE } from "./data-directory-layout.js";
 import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { startHttpListener, type HttpListener } from "./http-listener.js";
+import { resolveMachineTierRoot } from "./machine-tier.js";
 import { StoryService } from "./story-service.js";
 import { resolveDataDirectory } from "./data-directory.js";
 
@@ -85,6 +86,7 @@ export async function runSupervisedServeChild(
         );
         return service = new StoryService({
           dataDir: lockedDataDir,
+          machineDir: await resolveMachineTierRoot(),
           dataLock: "external",
           starterVault: "seed-when-new",
           freshDataDirectory: dataLock.initializedNewDirectory

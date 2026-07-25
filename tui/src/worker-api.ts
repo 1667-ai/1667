@@ -1,5 +1,6 @@
 import path from "node:path";
 import { resolveDataDirectory } from "../../server/data-directory.js";
+import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import { RuntimeDataDirectoryLock } from "../../server/runtime-data-directory.js";
 import { releaseOrRetainDataLock } from "./worker-data-lock.js";
@@ -21,6 +22,9 @@ export type {
 } from "./worker-api-contract.js";
 
 export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}): Promise<WorkerStoryApi> {
+  if (options.worker === undefined && options.machineDir === undefined) {
+    options = { ...options, machineDir: await resolveMachineTierRoot() };
+  }
   const dataLock = options.worker === undefined
     ? new RuntimeDataDirectoryLock(resolveDataDirectory(options.dataDir), {
         initializeNew: options.initializeNew,

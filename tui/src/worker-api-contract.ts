@@ -22,6 +22,8 @@ export interface WorkerStoryApiOptions {
   /** Injectable durable store used by transport lifecycle tests. */
   outbox?: MutationOutbox;
   dataDir?: string;
+  /** ADR007 machine tier; resolved by createWorkerStoryApi when omitted. */
+  machineDir?: string;
   initializeNew?: boolean;
   offlineExclusive?: boolean;
   /** Set by the lock owner when startup created the data directory. */

@@ -7,6 +7,7 @@ import {
   type HttpAuthRecordStoreOptions
 } from "./http-auth-record.js";
 import { validateDevelopmentOrigin } from "./http-cors.js";
+import { resolveMachineTierRoot } from "./machine-tier.js";
 import { toPublicServiceError } from "./errors.js";
 import { sendJson } from "./http.js";
 import { handleHttpRequest } from "./http-router.js";
@@ -20,6 +21,8 @@ import {
 
 interface HttpListenerCommonOptions {
   readonly port?: number;
+  /** ADR007 machine tier. Defaults to the auth record's own state root. */
+  readonly machineDir?: string;
   readonly developmentOrigin?: string | null;
   readonly authStore?: HttpAuthRecordStoreOptions;
   readonly mutationGate?: HttpMutationGate;
@@ -94,8 +97,14 @@ export async function startHttpListener(
       authLease.record.instanceId,
       options.operationSessions
     );
+    const machineDir = options.machineDir
+      ?? options.authStore?.stateRoot
+      ?? await resolveMachineTierRoot();
     initializingService = options.serviceFactory === undefined
-      ? new StoryService(options.dataDir === undefined ? {} : { dataDir: options.dataDir })
+      ? new StoryService({
+          machineDir,
+          ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir })
+        })
       : await options.serviceFactory();
     await initializingService.init();
     service = initializingService;

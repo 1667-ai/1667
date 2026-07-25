@@ -40,7 +40,11 @@ export const DATA_DIRECTORY_MIGRATION_EXCLUDED_ENTRY_NAMES = Object.freeze([
   PROVIDER_SECRETS_NEXT_SCRATCH
 ] as const);
 
-/** Exact unpublished entries emitted by the current initializer. */
+/**
+ * Exact unpublished entries emitted by the current initializer. Provider
+ * secrets are absent by construction: ADR007 publishes them in the machine
+ * tier, never in a directory a project initializer touches.
+ */
 export function initialDataDirectoryResidueEntries(
   dataFormat: DataDirectoryFormat
 ): Set<string> {
@@ -52,9 +56,6 @@ export function initialDataDirectoryResidueEntries(
     entries.add(SETTINGS_STATE_V2_FILE);
     entries.add(SETTINGS_STATE_V2_NEXT_FILE);
     entries.add(SETTINGS_STATE_V2_NEXT_SCRATCH);
-    entries.add(PROVIDER_SECRETS_FILE);
-    entries.add(PROVIDER_SECRETS_NEXT_FILE);
-    entries.add(PROVIDER_SECRETS_NEXT_SCRATCH);
   }
   return entries;
 }

@@ -89,6 +89,7 @@ export class WorkerTransport {
       this.worker.postMessage({
         type: "bootstrap",
         dataDir: resolveDataDirectory(options.dataDir),
+        machineDir: requiredMachineDir(options),
         externalDataLock: true,
         ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
       });
@@ -509,3 +510,10 @@ export class WorkerTransport {
   }
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }
+/** The parent resolves the machine tier once so it cannot diverge per worker. */
+function requiredMachineDir(options: WorkerStoryApiOptions): string {
+  if (options.machineDir === undefined) {
+    throw new Error("Embedded backend bootstrap requires a resolved machine tier");
+  }
+  return options.machineDir;
+}

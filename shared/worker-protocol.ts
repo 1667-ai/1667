@@ -244,6 +244,8 @@ export type MainToWorkerMessage =
   | {
       type: "bootstrap";
       dataDir: string;
+      /** ADR007 machine tier, resolved once by the parent so both agree. */
+      machineDir: string;
       externalDataLock: true;
       /** Main created this directory during startup, so the worker fills it
        * with the starter stories. Absent on every later run. */

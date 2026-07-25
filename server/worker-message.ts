@@ -22,6 +22,7 @@ export function parseWorkerBootstrap(
   return {
     type: "bootstrap",
     dataDir: requireString(message.dataDir, "dataDir"),
+    machineDir: requireString(message.machineDir, "machineDir"),
     externalDataLock: true,
     ...(message.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
   };
