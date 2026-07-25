@@ -30,6 +30,9 @@ import {
   type ResolvedProject
 } from "../../server/project-discovery.js";
 import {
+  readProjectRunRecord
+} from "../../server/project-run-record.js";
+import {
   canPromptForProject,
   confirmProjectCreation
 } from "./project-prompt.js";
@@ -64,7 +67,7 @@ Usage: 1667 [options]
 
 Options:
   --story <id>       Open a story; defaults to the most recently updated
-  --url <base-url>   Connect to a loopback 1667 HTTP server
+  --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
   --auth-file <path> Use the canonical private auth record for --url
   --embedded         Use the embedded backend (default)
   --data <path>      Open this project root instead of discovering one
@@ -143,6 +146,11 @@ export function parseArguments(argv: string[]): Arguments | null {
       url = requiredInlineValue(arg, "--url");
       explicitUrl = true;
     }
+    else if (arg === "--url" && isBareFlag(argv, index)) {
+      // ADR007: a bare --url attaches to the server this project published.
+      url = null;
+      explicitUrl = true;
+    }
     else if (arg.startsWith("--data=")) {
       dataDir = requiredInlineValue(arg, "--data");
       explicitData = true;
@@ -181,6 +189,9 @@ export function parseArguments(argv: string[]): Arguments | null {
   if (explicitEmbedded && explicitUrl) usageError("--embedded and --url cannot be used together");
   const embedded = explicitEmbedded || (!explicitUrl && url === null);
   if (!embedded && url !== null) parseCanonicalLoopbackOrigin(url);
+  if (explicitUrl && url === null && authFile !== null) {
+    usageError("--auth-file needs the --url it belongs to");
+  }
   if (explicitData && !embedded) {
     usageError("--data requires embedded mode; unset AI_1667_URL or pass --embedded");
   }
@@ -269,6 +280,30 @@ function projectRequest(
 }
 
 /**
+ * Resolve where to attach. A bare `--url` reads the advisory run record this
+ * project's server published; the record may be stale, so a refused connection
+ * is reported as such rather than treated as a broken project.
+ */
+async function attachOrigin(args: Arguments): Promise<string> {
+  if (args.url !== null) return args.url;
+  const outcome = await resolveProject(projectRequest(args, { create: false }));
+  if (outcome.kind === "absent") {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent, `
+        + "so --url has no server to read. Pass --url <base-url>."
+    );
+  }
+  const record = await readProjectRunRecord(outcome.project.directory);
+  if (record?.url == null) {
+    throw new Error(
+      `no 1667 server is recorded for ${outcome.project.directory}. `
+        + "Start one with 1667 serve, or pass --url <base-url>."
+    );
+  }
+  return record.url;
+}
+
+/**
  * Open the project this invocation names, asking once when none exists.
  * Returns null when the person declines, which is not an error.
  */
@@ -305,6 +340,13 @@ function requiredInlineValue(argument: string, flag: string): string {
   const value = argument.slice(flag.length + 1);
   if (value.length === 0) usageError(`${flag} requires a value`);
   return value;
+}
+
+/** A flag is bare when nothing follows it but the end of the line or another
+ * option. An empty value is a mistake, and keeps its own error. */
+function isBareFlag(argv: readonly string[], index: number): boolean {
+  const value = argv[index + 1];
+  return value === undefined || value.startsWith("-");
 }
 
 function requiredSeparatedValue(
@@ -346,7 +388,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     : storyFolderForBackend(true, dataDir);
   const worker = dataDir === null ? null : await createWorkerStoryApi({ dataDir });
   const httpAttach = worker === null
-    ? await attachHttpServer(args.url ?? "http://127.0.0.1:7373", args.authFile)
+    ? await attachHttpServer(await attachOrigin(args), args.authFile)
     : null;
   const backendRecovery = new RecoveryWarningFeed();
   if (worker !== null) {

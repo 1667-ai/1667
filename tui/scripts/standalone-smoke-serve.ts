@@ -5,6 +5,8 @@ import { HttpOperationClient } from "../../shared/http-operation-client.js";
 import {
   HTTP_OPERATION_CANCEL_GRACE_MS
 } from "../../shared/http-operation-protocol.js";
+import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
+import { readProjectRunRecord } from "../../server/project-run-record.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 
 interface SupervisedServeAccess {
@@ -137,7 +139,7 @@ export async function smokeSupervisedServe(
     dataDir
   );
   await smokeAlternateDataGuidance(executable, directory, environment);
-  await smokeDefaultPortInitialization(executable, directory, environment);
+  await smokeDefaultPortServe(executable, directory, environment);
 }
 
 async function smokeSettledDeadline(
@@ -217,7 +219,7 @@ async function smokeAlternateDataGuidance(
   }
 }
 
-async function smokeDefaultPortInitialization(
+async function smokeDefaultPortServe(
   executable: string,
   directory: string,
   environment: Record<string, string>
@@ -238,9 +240,18 @@ async function smokeDefaultPortInitialization(
     }
   );
   try {
+    // ADR007: the default is a free port, published in the project's run record.
     const origin = await readServeOrigin(supervisor.stdout);
-    if (origin !== "http://127.0.0.1:7373") {
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
       throw new Error(`Default serve selected the wrong origin: ${origin}`);
+    }
+    const record = await readProjectRunRecord(
+      path.join(dataDir, PROJECT_DIRECTORY_NAME)
+    );
+    if (record?.url !== origin || record.port !== Number(new URL(origin).port)) {
+      throw new Error(
+        `Serve did not publish its origin in run.json: ${JSON.stringify(record)}`
+      );
     }
   } finally {
     supervisor.kill("SIGTERM");

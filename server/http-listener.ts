@@ -50,7 +50,9 @@ export interface HttpListener {
 export async function startHttpListener(
   options: HttpListenerOptions = {}
 ): Promise<HttpListener> {
-  const port = options.port ?? 7373;
+  // ADR007: nothing owns a fixed port. Zero asks the kernel for a free one and
+  // the project's run record publishes whatever it gave us.
+  const port = options.port ?? 0;
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
     throw new Error("1667 HTTP port must be between 0 and 65535");
   }

@@ -14,8 +14,6 @@ import { runHttpListenerUntilSignal } from "../../server/http-process-lifecycle.
 import type { HttpCapabilityScope } from "../../shared/http-auth.js";
 import { attachHttpServer } from "./http-attach.js";
 
-const LEGACY_ORIGIN = "http://127.0.0.1:7373";
-
 export async function runHttpCommand(argv: string[]): Promise<boolean> {
   if (argv[0] === "auth") {
     await runAuthShow(argv.slice(1));
@@ -39,8 +37,7 @@ export async function runAuthShow(
   assertPrivateHttpStatePlatform(platform);
   let scope: HttpCapabilityScope | null = null;
   let authFile: string | null = null;
-  let origin = LEGACY_ORIGIN;
-  let originSupplied = false;
+  let origin: string | null = null;
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--scope" || argument === "--auth-file" || argument === "--url") {
@@ -48,30 +45,30 @@ export async function runAuthShow(
       if (value === undefined) throw new Error(`${argument} requires a value`);
       if (argument === "--scope") scope = parseScope(value);
       else if (argument === "--auth-file") authFile = resolve(value);
-      else {
-        origin = value;
-        originSupplied = true;
-      }
+      else origin = value;
     } else if (argument.startsWith("--scope=")) {
       scope = parseScope(requiredInlineValue(argument, "--scope"));
     } else if (argument.startsWith("--auth-file=")) {
       authFile = resolve(requiredInlineValue(argument, "--auth-file"));
     } else if (argument.startsWith("--url=")) {
       origin = requiredInlineValue(argument, "--url");
-      originSupplied = true;
     } else {
       throw new Error(`unknown auth show option: ${argument}`);
     }
   }
   if (scope === null) throw new Error("auth show requires --scope story|admin");
-  if (authFile !== null && originSupplied) {
+  if (authFile !== null && origin !== null) {
     throw new Error("auth show accepts either --url or --auth-file, not both");
+  }
+  // ADR007 removed the fixed port, so there is no origin to assume.
+  if (authFile === null && origin === null) {
+    throw new Error("auth show requires --url <base-url> or --auth-file <path>");
   }
   if (output.isTTY !== true) {
     throw new Error("auth show refuses to print a capability to non-TTY output");
   }
   const selected = authFile === null
-    ? await readHttpAuthRecord(origin)
+    ? await readHttpAuthRecord(origin!)
     : await readHttpAuthRecordFile(authFile);
   const attach = await attachHttpServer(selected.record.origin, selected.paths.final);
   output.write(`1667 instance: ${attach.authRecord.instanceId}\n`);
@@ -86,13 +83,9 @@ export async function startLegacyServe(
   } = {}
 ): Promise<HttpListener> {
   assertPrivateHttpStatePlatform(options.platform ?? process.platform);
-  const requestedPort = options.port ?? 7373;
-  if (requestedPort !== 7373) {
-    throw new Error("Legacy serve is fixed to canonical 127.0.0.1:7373");
-  }
   const dataDir = resolve(dataDirInput);
   return await startHttpListener({
-    port: 7373,
+    port: options.port ?? 0,
     serviceFactory: async () => {
       const legacyData = await validateLegacyServeDataDirectory(dataDir);
       return new StoryService({

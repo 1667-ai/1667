@@ -36,11 +36,12 @@ test("legacy directory validation refuses absent, empty, and ownership-marked pa
   );
 });
 
-test("legacy serve binds fixed canonical port and opens unmarked v1 data", async (t) => {
+test("legacy serve binds a free port and opens unmarked v1 data", async (t) => {
   const dataDir = await legacyDataDirectory(t);
   const listener = await startLegacyServe(dataDir);
   t.after(() => listener.close());
-  assert.equal(listener.origin, "http://127.0.0.1:7373");
+  // ADR007 removed the fixed 7373 listener; the OS chooses the port.
+  assert.match(listener.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
   const operations = new HttpOperationClient({
     root: listener.origin,
     authRecord: listener.authRecord,
@@ -64,16 +65,22 @@ test("legacy serve binds fixed canonical port and opens unmarked v1 data", async
 
 test("legacy serve proves listener ownership before inspecting data", async (t) => {
   const blocker = createServer();
-  await new Promise<void>((resolve, reject) => {
+  const port = await new Promise<number>((resolve, reject) => {
     blocker.once("error", reject);
-    blocker.listen(7373, "127.0.0.1", resolve);
+    blocker.listen(0, "127.0.0.1", () => {
+      const address = blocker.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("blocker did not expose a TCP address"));
+        return;
+      }
+      resolve(address.port);
+    });
   });
   t.after(() => new Promise<void>((resolve) => blocker.close(() => resolve())));
   const parent = await privateTemporaryDirectory(t, "1667-legacy-");
   const absent = path.join(parent, "must-stay-absent");
-  await assert.rejects(startLegacyServe(absent), /EADDRINUSE/);
+  await assert.rejects(startLegacyServe(absent, { port }), /EADDRINUSE/);
   await assert.rejects(readdir(absent), /ENOENT/);
-  await assert.rejects(startLegacyServe(absent, { port: 7374 }), /fixed/);
 });
 
 async function legacyDataDirectory(t: TestContext): Promise<string> {

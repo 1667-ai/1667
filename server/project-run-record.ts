@@ -50,6 +50,23 @@ export async function publishProjectRunRecord(
   );
 }
 
+/**
+ * Record the loopback server this process is now serving the project on. Best
+ * effort: the record is a hint for the next start, not part of readiness.
+ */
+export async function announceProjectServer(
+  projectDir: string,
+  server: { readonly port: number; readonly url: string }
+): Promise<void> {
+  const existing = await readProjectRunRecord(projectDir);
+  await publishProjectRunRecord(projectDir, {
+    pid: process.pid,
+    port: server.port,
+    url: server.url,
+    startedAt: existing?.startedAt ?? new Date().toISOString()
+  }).catch(() => undefined);
+}
+
 export async function removeProjectRunRecord(projectDir: string): Promise<void> {
   await unlink(projectRunRecordPath(projectDir)).catch(() => undefined);
 }

@@ -30,7 +30,7 @@ Usage: 1667 serve [--data <path>] [--port <0-65535>]
 
 Options:
   --data <path>       Project root to serve, absolute or relative
-  --port <number>     Loopback port (default: 7373; 0 selects a free port)
+  --port <number>     Loopback port (default: 0, a free port chosen by the OS)
   -h, --help          Show serve help`;
 
 export class ServeUsageError extends Error {
@@ -312,7 +312,7 @@ export function parseServeArguments(
   argv: readonly string[]
 ): SupervisorArguments | null {
   let dataDir: string | null = null;
-  let port = 7373;
+  let port = 0;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "serve") continue;

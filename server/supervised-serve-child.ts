@@ -28,6 +28,7 @@ import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { startHttpListener, type HttpListener } from "./http-listener.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
+import { announceProjectServer } from "./project-run-record.js";
 import { StoryService } from "./story-service.js";
 import { resolveDataDirectory } from "./data-directory.js";
 
@@ -125,6 +126,10 @@ export async function runSupervisedServeChild(
       await messages.next("activate");
     }
     admissionOpen = true;
+    await announceProjectServer(displayDataDir, {
+      port: listenerPort(listener.origin),
+      url: listener.origin
+    });
     send({
       type: "ready",
       origin: listener.origin,
@@ -320,4 +325,10 @@ function optionalValueAfter(
 
 function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+/** The listener reports the port it was given; the origin is the only carrier. */
+function listenerPort(origin: string): number {
+  const port = Number(new URL(origin).port);
+  return Number.isSafeInteger(port) && port > 0 ? port : 80;
 }

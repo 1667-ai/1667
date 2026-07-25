@@ -1,5 +1,9 @@
 import { DataDirectoryLock } from "./data-directory-lock.js";
 import type { DataDirectoryFormat } from "./data-directory-layout.js";
+import {
+  publishProjectRunRecord,
+  removeProjectRunRecord
+} from "./project-run-record.js";
 
 /**
  * Runtime-only data-directory lease. Acquisition cannot succeed until every
@@ -12,6 +16,7 @@ import type { DataDirectoryFormat } from "./data-directory-layout.js";
 export class RuntimeDataDirectoryLock {
   private readonly lock: DataDirectoryLock;
   private acquired = false;
+  private canonicalDir: string | null = null;
 
   constructor(dataDir: string) {
     this.lock = new DataDirectoryLock(dataDir);
@@ -42,6 +47,15 @@ export class RuntimeDataDirectoryLock {
       const canonicalDir = await this.lock.acquire();
       await this.lock.migrateSettingsFormat();
       this.acquired = true;
+      this.canonicalDir = canonicalDir;
+      // Advisory: it lets the next start name this process instead of guessing.
+      // A record nobody could write is not a reason to refuse the project.
+      await publishProjectRunRecord(canonicalDir, {
+        pid: process.pid,
+        port: null,
+        url: null,
+        startedAt: new Date().toISOString()
+      }).catch(() => undefined);
       return canonicalDir;
     } catch (error) {
       try {
@@ -54,7 +68,13 @@ export class RuntimeDataDirectoryLock {
   }
 
   async release(): Promise<void> {
-    await this.lock.release();
+    const canonicalDir = this.canonicalDir;
+    this.canonicalDir = null;
+    try {
+      if (canonicalDir !== null) await removeProjectRunRecord(canonicalDir);
+    } finally {
+      await this.lock.release();
+    }
   }
 }
 
