@@ -129,13 +129,14 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain("d confirms · esc keeps");
   });
 
-  test("? opens the arrow-only key chart while l remains a map verb", async () => {
+  test("? explains every key it shows, in sections rather than a keyboard", async () => {
     const frame = await renderOnce(demoSource(), 120, 36, "?");
-    expect(frame).toContain("┏━ keys · laid where your fingers are ━");
-    expect(frame).toContain("│ ↑ │");
-    expect(frame).toContain("↑↓ move");
-    expect(frame).toContain("←→ takes");
-    expect(frame).toContain("l map follow/open");
+    expect(frame).toContain("┏━ keys · what every key does ━");
+    expect(frame).toContain("● MOVE  read and navigate");
+    expect(frame).toContain("↑ ↓  move between parts");
+    expect(frame).toContain("← →  flip between takes");
+    expect(frame).toContain("l  follow into the story");
+    expect(frame).not.toContain("│ ↑ │");
     expect(frame).not.toContain("j/k");
     expect(frame).not.toContain("h/l");
     expect(frame).toContain("KEYS   the lantern keeper");

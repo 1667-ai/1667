@@ -244,6 +244,8 @@ export interface StoryScreenState extends OverlayState {
   composerScrollTop: number;
   /** First logical row painted by the full-screen in-TUI editor. */
   editorScrollTop: number;
+  /** First row of the key reference shown, for terminals too short for it. */
+  keysScrollTop: number;
   /** Last presented page-buffer cells that correspond to raw editor text. */
   composerSelectionProjection: ComposerSelectionProjection | null;
   /** Last NAV page-buffer cells that correspond to raw story fields. */

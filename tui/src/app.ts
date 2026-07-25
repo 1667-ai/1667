@@ -541,7 +541,7 @@ export async function dispatch(
   else if (state.mode === "BOOKMARK") await bookmarkAction(resolved, state, source, context);
   else if (state.mode === "COMPOSE") await composeAction(resolved, state, source, context);
   else if (state.mode === "EDITOR") await inlineEditorAction(resolved, state, source, context);
-  else if (state.mode === "KEYS") { if (resolved.action === "cancel") state.mode = "NAV"; }
+  else if (state.mode === "KEYS") keysOverlayAction(resolved, state);
   else if (state.mode === "NAV" && await directChapterRowAction(resolved, state, source, context)) { /* handled */ }
   else await navAction(resolved, state, source, context, requestQuit);
   // Native buffer offsets must not leak between the story, Direct, and the
@@ -553,6 +553,25 @@ export async function dispatch(
   }
   repaint();
 }
+
+/** The key reference only reads and scrolls. The renderer owns the upper
+ *  bound — it alone knows how many rows the panel drew — and clamps what it
+ *  is given back into the state, so an eager offset here is harmless. */
+function keysOverlayAction(resolved: ResolvedKey, state: RuntimeState): void {
+  if (resolved.action === "cancel") {
+    state.mode = "NAV";
+    state.keysScrollTop = 0;
+    return;
+  }
+  const step = resolved.action === "focus-next" ? 1
+    : resolved.action === "focus-previous" ? -1
+      : resolved.action === "scroll-down" ? KEYS_OVERLAY_PAGE
+        : resolved.action === "scroll-up" ? -KEYS_OVERLAY_PAGE
+          : 0;
+  state.keysScrollTop = Math.max(0, state.keysScrollTop + step);
+}
+
+const KEYS_OVERLAY_PAGE = 6;
 
 export function initialState(source: AppSource, renderMode: boolean): RuntimeState {
   const view = createStoryViewModel(source.payload);
@@ -590,6 +609,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     lastViewportStart: 0,
     composerScrollTop: 0,
     editorScrollTop: 0,
+    keysScrollTop: 0,
     composerSelectionProjection: null,
     storySelectionProjection: null,
     demo: source.demo,

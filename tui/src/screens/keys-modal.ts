@@ -2,7 +2,8 @@ import { type HitRows } from "../hit.js";
 import type { AppMode, KeyAction } from "../keys.js";
 import type { MapView } from "../map-state.js";
 import { panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
-import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { VERSION_TAG } from "./story/status.js";
+import { truncate, visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
 
 export interface KeysModalBinding {
   name: string;
@@ -14,82 +15,25 @@ export interface KeysModalBinding {
   mapView?: MapView;
 }
 
-export type KeysModalBand = "MOVE" | "WRITE" | "SHAPE" | "OPEN";
-export type KeysModalCapBand = KeysModalBand | "UTILITY" | "INACTIVE";
-
-interface LegendPlacement {
-  order: number;
-  dividerBefore?: boolean;
-  showLabel?: boolean;
-  accent?: boolean;
-}
-
-interface DiscoveryPlacement {
-  order: number;
-  label: string;
-  token?: string;
-}
-
-export interface KeysModalCap {
-  key: string;
-  band: KeysModalCapBand;
+/** One row of the reference: the keys as a writer would spell them, and what
+ *  pressing them does. Every row carries the bindings it claims, so the
+ *  resolver-contract tests fail rather than let the copy drift from reality. */
+export interface KeysModalEntry {
+  token: string;
+  description: string;
   bindings: readonly KeysModalBinding[];
-  label?: string;
-  legend?: LegendPlacement;
-  discovery?: DiscoveryPlacement;
-  arrowCopy?: string;
-  footerCopy?: string;
 }
 
-interface KeysModalBandDefinition {
-  band: KeysModalCapBand;
+export interface KeysModalSection {
+  title: string;
+  blurb: string;
   role: DisplayRole;
-  inLegend?: boolean;
-}
-
-interface KeysModalDiagramDefinition {
-  bands: readonly KeysModalBandDefinition[];
-  capRows: readonly (readonly KeysModalCap[])[];
-  arrowRows: readonly (readonly KeysModalCap[])[];
-  utilityCaps: readonly KeysModalCap[];
-  shortcuts: readonly KeysModalCap[];
-}
-
-export interface KeysModalLegendItem {
-  token: string;
-  label?: string;
-  dividerBefore: boolean;
-  accent: boolean;
-  bindings: readonly KeysModalBinding[];
-}
-
-export interface KeysModalBandGroup {
-  band: KeysModalBand;
-  role: DisplayRole;
-  items: readonly KeysModalLegendItem[];
-}
-
-export interface KeysModalArrowCopy {
-  token: string;
-  text: string;
-}
-
-export interface KeysModalDiscoveryItem {
-  token: string;
-  label: string;
-  band: KeysModalCapBand;
-  bindings: readonly KeysModalBinding[];
+  entries: readonly KeysModalEntry[];
 }
 
 export interface KeysModalModel {
-  capRows: readonly (readonly KeysModalCap[])[];
-  arrowRows: readonly (readonly KeysModalCap[])[];
-  utilityCaps: readonly KeysModalCap[];
+  sections: readonly KeysModalSection[];
   bindings: readonly KeysModalBinding[];
-  bandGroups: readonly KeysModalBandGroup[];
-  arrowCopy: readonly KeysModalArrowCopy[];
-  discoveries: readonly KeysModalDiscoveryItem[];
-  footer: string;
 }
 
 const binding = (
@@ -99,418 +43,331 @@ const binding = (
   extra: Partial<KeysModalBinding> = {}
 ): KeysModalBinding => ({ name, mode, action, ...extra });
 
-const cap = (
-  key: string,
-  band: KeysModalCapBand,
-  bindings: readonly KeysModalBinding[] = [],
-  presentation: Omit<KeysModalCap, "key" | "band" | "bindings"> = {}
-): KeysModalCap => ({ key, band, bindings, ...presentation });
+const entry = (
+  token: string,
+  description: string,
+  bindings: readonly KeysModalBinding[]
+): KeysModalEntry => ({ token, description, bindings });
 
-/** Physical geography, semantics, display copy, and ordered legends. Inactive
- * caps stay present so h/j/k read as deliberately unbound. Everything the
- * renderer and resolver-contract tests need is derived from this definition. */
-const KEYS_MODAL_DIAGRAM: KeysModalDiagramDefinition = {
-  bands: [
-    { band: "MOVE", role: "focus / accent", inLegend: true },
-    { band: "WRITE", role: "human edit", inLegend: true },
-    { band: "SHAPE", role: "bookmark · alt", inLegend: true },
-    { band: "OPEN", role: "bookmark · canon", inLegend: true },
-    { band: "UTILITY", role: "prose · dim" },
-    { band: "INACTIVE", role: "dimmed page" }
-  ],
-  capRows: [
-    [
-      cap("q", "UTILITY", [binding("q", "NAV", "quit")], {
-        discovery: { order: 0, label: "quit" }
-      }),
-      cap("w", "WRITE", [binding("w", "NAV", "write")], { legend: { order: 4 } }),
-      cap("e", "WRITE", [binding("e", "NAV", "edit")], { legend: { order: 5 } }),
-      cap("r", "WRITE", [binding("r", "NAV", "regenerate")], { legend: { order: 3 } }),
-      cap("t", "INACTIVE"),
-      cap("y", "WRITE", [
+/** The whole key reference, as sections a writer can read top to bottom.
+ *
+ * This replaced a QWERTY diagram that coloured caps by band and left most of
+ * them unexplained: it cost eight rows and half the panel width to say where
+ * `r` sits on the keyboard, which is the one thing nobody needs told. Every
+ * key that does something now states what it does, in the same voice as the
+ * command palette.
+ *
+ * Descriptions stay within DESCRIPTION_BUDGET cells so two columns fit an
+ * 80-column terminal without truncation; keep new copy inside it. */
+const SECTIONS: readonly KeysModalSection[] = [
+  {
+    title: "MOVE",
+    blurb: "read and navigate",
+    role: "focus / accent",
+    entries: [
+      entry("↑ ↓", "move between parts", [
+        binding("up", "NAV", "focus-previous"),
+        binding("down", "NAV", "focus-next"),
+        binding("up", "MAP", "focus-previous", { mapView: "path" }),
+        binding("down", "MAP", "focus-next", { mapView: "path" }),
+        binding("up", "MAP", "focus-previous", { mapView: "tree" }),
+        binding("down", "MAP", "focus-next", { mapView: "tree" }),
+        binding("up", "MAP", "focus-previous", { mapView: "mass" }),
+        binding("down", "MAP", "focus-next", { mapView: "mass" })
+      ]),
+      entry("← →", "flip between takes", [
+        binding("left", "NAV", "take-previous"),
+        binding("right", "NAV", "take-next"),
+        binding("left", "MAP", "take-previous", { mapView: "path" }),
+        binding("right", "MAP", "take-next", { mapView: "path" })
+      ]),
+      entry("⇧↑ ⇧↓", "nudge the page a line", [
+        binding("up", "NAV", "scroll-line-up", { shift: true }),
+        binding("down", "NAV", "scroll-line-down", { shift: true })
+      ]),
+      entry("⌃u ⌃d", "page up and down", [
+        binding("u", "NAV", "scroll-up", { ctrl: true }),
+        binding("d", "NAV", "scroll-down", { ctrl: true })
+      ]),
+      entry("g / G", "first part · newest leaf", [
+        binding("g", "NAV", "top"),
+        binding("G", "NAV", "leaf", { shift: true })
+      ]),
+      entry("[ ]", "chapter back · forward", [
+        binding("[", "NAV", "chapter-previous"),
+        binding("]", "NAV", "chapter-next")
+      ]),
+      entry("u", "undo the last change", [binding("u", "NAV", "undo")])
+    ]
+  },
+  {
+    title: "WRITE",
+    blurb: "make the next part",
+    role: "human edit",
+    entries: [
+      entry("space", "continue this part", [binding("space", "NAV", "continue")]),
+      entry("enter i", "type what happens next", [
+        binding("return", "NAV", "compose"),
+        binding("i", "NAV", "compose")
+      ]),
+      entry("r", "retake · same prompt", [binding("r", "NAV", "regenerate")]),
+      entry("R", "retake · edit prompt", [
+        binding("R", "NAV", "retake-with-prompt", { shift: true })
+      ]),
+      entry("w", "write a take yourself", [binding("w", "NAV", "write")]),
+      entry("e", "edit prose and prompt", [binding("e", "NAV", "edit")]),
+      entry("y / Y", "copy part · whole line", [
         binding("y", "NAV", "copy-part"),
         binding("Y", "NAV", "copy-line", { shift: true })
-      ], { discovery: { order: 3, token: "y/Y", label: "copy" } }),
-      cap("u", "MOVE", [binding("u", "NAV", "undo")], { legend: { order: 3 } }),
-      cap("i", "WRITE", [binding("i", "NAV", "compose")], { legend: { order: 1 } }),
-      cap("o", "OPEN", [binding("o", "NAV", "open-library")], { legend: { order: 2 } }),
-      cap("p", "SHAPE", [binding("p", "NAV", "toggle-instructions")], { legend: { order: 2 } })
-    ],
-    [
-      cap("a", "SHAPE", [
+      ]),
+      entry("⌃↑ ⌃↓", "past prompts, in direct", [
+        binding("up", "COMPOSE", "history-previous", { ctrl: true }),
+        binding("down", "COMPOSE", "history-next", { ctrl: true })
+      ]),
+      entry("n", "start a new story", [binding("n", "NAV", "new-item")])
+    ]
+  },
+  {
+    title: "SHAPE",
+    blurb: "arrange what exists",
+    role: "bookmark · alt",
+    entries: [
+      entry("d", "delete take and below", [binding("d", "NAV", "prune")]),
+      entry("b", "bookmark the line here", [binding("b", "NAV", "bookmark")]),
+      entry("c / C", "chapters · end one here", [
+        binding("c", "NAV", "open-chapters"),
+        binding("C", "NAV", "create-chapter", { shift: true })
+      ]),
+      entry("x", "actions for this part", [binding("x", "NAV", "open-actions")]),
+      entry("p", "show or hide directions", [binding("p", "NAV", "toggle-instructions")]),
+      entry("z", "typewriter mode", [binding("z", "NAV", "typewriter")]),
+      entry("F", "facts rail on or off", [
+        binding("F", "NAV", "toggle-rail", { shift: true })
+      ])
+    ]
+  },
+  {
+    title: "OPEN",
+    blurb: "panels and views",
+    role: "bookmark · canon",
+    entries: [
+      entry("m", "map of the whole story", [binding("m", "NAV", "open-map")]),
+      entry("f", "facts kept for context", [binding("f", "NAV", "open-facts")]),
+      entry("o", "switch story · library", [binding("o", "NAV", "open-library")]),
+      entry(": ⌃p", "command palette", [
+        binding(":", "NAV", "open-commands"),
+        binding("p", "NAV", "open-commands", { ctrl: true })
+      ]),
+      entry(",", "generation settings", [binding(",", "NAV", "open-settings")]),
+      entry("⌃g", "context meter details", [
+        binding("g", "NAV", "toggle-context-meter", { ctrl: true }),
+        binding("g", "COMPOSE", "toggle-context-meter", { ctrl: true })
+      ]),
+      entry("?", "this key reference", [binding("?", "NAV", "open-keys")]),
+      entry("esc", "close what is open", [binding("escape", "KEYS", "cancel")]),
+      entry("q", "quit 1667", [binding("q", "NAV", "quit")])
+    ]
+  },
+  {
+    title: "MAP",
+    blurb: "while the map is open",
+    role: "compose accent",
+    entries: [
+      entry("m", "cycle path · tree · mass", [binding("m", "MAP", "cycle-map-view")]),
+      entry("a", "all takes · sketches", [
         binding("a", "MAP", "toggle-path-takes", { mapView: "path" }),
         binding("a", "MAP", "toggle-sketches", { mapView: "tree" }),
         binding("a", "MAP", "toggle-sketches", { mapView: "mass" })
-      ], { discovery: { order: 4, label: "map detail" } }),
-      cap("s", "SHAPE", [
+      ]),
+      entry("s", "sort by mass", [
         binding("s", "MAP", "map-cycle-sort", { mapView: "tree" }),
         binding("s", "MAP", "map-cycle-sort", { mapView: "mass" })
-      ], { legend: { order: 4 } }),
-      cap("d", "SHAPE", [
-        binding("d", "NAV", "prune"),
-        binding("d", "MAP", "prune", { mapView: "path" })
-      ], { legend: { order: 0 } }),
-      cap("f", "OPEN", [
-        binding("f", "NAV", "open-facts")
-      ], { legend: { order: 1 } }),
-      cap("g", "MOVE", [
-        binding("g", "NAV", "top"),
-        binding("G", "NAV", "leaf", { shift: true })
-      ], { legend: { order: 2 } }),
-      cap("h", "INACTIVE"),
-      cap("j", "INACTIVE"),
-      cap("k", "INACTIVE"),
-      cap("l", "MOVE", [
+      ]),
+      entry("l", "follow into the story", [
         binding("l", "MAP", "map-follow", { mapView: "tree" }),
         binding("l", "MAP", "map-follow", { mapView: "mass" })
-      ], {
-        label: "map follow/open",
-        legend: { order: 4, dividerBefore: true, showLabel: true, accent: true }
-      }),
-      cap(";", "INACTIVE")
-    ],
-    [
-      cap("z", "SHAPE", [binding("z", "NAV", "typewriter")], { legend: { order: 3 } }),
-      cap("x", "SHAPE", [binding("x", "NAV", "open-actions")], {
-        discovery: { order: 2, label: "menu" }
-      }),
-      cap("c", "OPEN", [
-        binding("c", "NAV", "open-chapters"),
-        binding("C", "NAV", "create-chapter", { shift: true })
-      ], { discovery: { order: 1, token: "c/C", label: "chapters" } }),
-      cap("v", "INACTIVE"),
-      cap("b", "SHAPE", [
-        binding("b", "NAV", "bookmark"),
+      ]),
+      entry("enter", "jump to that part", [binding("return", "MAP", "apply")]),
+      entry("d / b", "prune · bookmark here", [
+        binding("d", "MAP", "prune", { mapView: "path" }),
         binding("b", "MAP", "bookmark", { mapView: "path" })
-      ], { legend: { order: 1 } }),
-      cap("n", "WRITE", [binding("n", "NAV", "new-item")], {
-        label: "new story",
-        legend: { order: 2, showLabel: true }
-      }),
-      cap("m", "OPEN", [
-        binding("m", "NAV", "open-map"),
-        binding("m", "MAP", "cycle-map-view")
-      ], { legend: { order: 0 } })
+      ])
     ]
-  ],
-  arrowRows: [
-    [
-      cap("↑", "MOVE", [
-        binding("up", "NAV", "focus-previous"),
-        binding("up", "MAP", "focus-previous", { mapView: "path" }),
-        binding("up", "MAP", "focus-previous", { mapView: "tree" }),
-        binding("up", "MAP", "focus-previous", { mapView: "mass" })
-      ], { legend: { order: 0 }, arrowCopy: "move" })
-    ],
-    [
-      cap("←", "MOVE", [
-        binding("left", "NAV", "take-previous"),
-        binding("left", "MAP", "take-previous", { mapView: "path" })
-      ], { legend: { order: 1 }, arrowCopy: "takes" }),
-      cap("↓", "MOVE", [
-        binding("down", "NAV", "focus-next"),
-        binding("down", "MAP", "focus-next", { mapView: "path" }),
-        binding("down", "MAP", "focus-next", { mapView: "tree" }),
-        binding("down", "MAP", "focus-next", { mapView: "mass" })
-      ], { legend: { order: 0 }, arrowCopy: "move" }),
-      cap("→", "MOVE", [
-        binding("right", "NAV", "take-next"),
-        binding("right", "MAP", "take-next", { mapView: "path" })
-      ], { legend: { order: 1 }, arrowCopy: "takes" })
-    ]
-  ],
-  utilityCaps: [
-    cap("enter", "WRITE", [binding("return", "NAV", "compose")], {
-      label: "direct",
-      legend: { order: 0 }
-    }),
-    cap(":", "OPEN", [binding(":", "NAV", "open-commands")], {
-      label: "cmd"
-    }),
-    cap(",", "OPEN", [binding(",", "NAV", "open-settings")], {
-      label: "settings",
-      legend: { order: 4, dividerBefore: true }
-    }),
-    cap("esc", "UTILITY", [binding("escape", "KEYS", "cancel")], { footerCopy: "closes" })
-  ],
-  shortcuts: [
-    cap("␠", "WRITE", [binding("space", "NAV", "continue")], {
-      label: "continue",
-      legend: { order: 7, dividerBefore: true, showLabel: true }
-    }),
-    cap("R", "WRITE", [binding("R", "NAV", "retake-with-prompt", { shift: true })], {
-      label: "reprompt",
-      discovery: { order: 5, label: "reprompt" }
-    }),
-    cap("?", "OPEN", [binding("?", "NAV", "open-keys")], { legend: { order: 5 } }),
-    cap("⌃p/:", "OPEN", [binding("p", "NAV", "open-commands", { ctrl: true })], {
-      label: "commands",
-      legend: { order: 3, showLabel: true, accent: true }
-    }),
-    cap("⌃g", "OPEN", [
-      binding("g", "NAV", "toggle-context-meter", { ctrl: true }),
-      binding("g", "COMPOSE", "toggle-context-meter", { ctrl: true })
-    ], {
-      label: "wide context details",
-      legend: { order: 6, dividerBefore: true, showLabel: true }
-    }),
-    cap("⌃↑↓", "WRITE", [
-      binding("up", "COMPOSE", "history-previous", { ctrl: true }),
-      binding("down", "COMPOSE", "history-next", { ctrl: true })
-    ], {
-      label: "history",
-      legend: { order: 6, dividerBefore: true, showLabel: true }
-    }),
-    cap("F", "OPEN", [binding("F", "NAV", "toggle-rail", { shift: true })], {
-      label: "rail",
-      legend: { order: 7, dividerBefore: true, showLabel: true }
-    })
-  ]
+  }
+];
+
+export const KEYS_MODAL_MODEL: KeysModalModel = {
+  sections: SECTIONS,
+  bindings: SECTIONS.flatMap((section) => section.entries.flatMap((item) => item.bindings))
 };
 
-export const KEYS_MODAL_MODEL: KeysModalModel = deriveKeysModalModel(KEYS_MODAL_DIAGRAM);
+/** Copy budget, not a measurement of the copy: exceeding it truncates rather
+ *  than reflowing, so the panel geometry cannot be widened by a long line. */
+const DESCRIPTION_BUDGET = 24;
+/** Headings share the key column, so they widen it as an entry token would. */
+const TOKEN_WIDTH = Math.max(...SECTIONS.flatMap((section) => [
+  visibleWidth(heading(section)),
+  ...section.entries.map((item) => visibleWidth(item.token))
+]));
+const COLUMN_WIDTH = TOKEN_WIDTH + 2 + DESCRIPTION_BUDGET;
+const COLUMN_GUTTER = 2;
+const MAX_COLUMNS = 3;
+const PANEL_MAX_WIDTH = MAX_COLUMNS * COLUMN_WIDTH + (MAX_COLUMNS - 1) * COLUMN_GUTTER + 2;
+/** Panel chrome placePanel adds around the content rows it will actually draw:
+ *  title, blank, border, footer, and the row the frame reserves below. */
+const PANEL_CHROME_ROWS = 9;
 
-const BAND_ROLES = new Map(
-  KEYS_MODAL_DIAGRAM.bands.map((definition) => [definition.band, definition.role] as const)
-);
+export interface KeysOverlayRender {
+  composition: FrameComposition;
+  /** Scroll offset after clamping, for the caller to store back. */
+  scrollTop: number;
+}
 
-export function renderKeysOverlay(base: FrameLine[], hits: HitRows, width: number, height: number): FrameComposition {
-  const keyboard = renderKeyboard();
-  const arrows = renderArrowCluster();
-  const content: FrameLine[] = keyboard.map((line, index) => placeArrowCluster(line, arrows[index] ?? []));
-  content.push([]);
-  content.push(renderUtilityCaps());
-  content.push(renderLegendLine(KEYS_MODAL_MODEL.bandGroups.slice(0, 1)));
-  content.push(renderLegendLine(KEYS_MODAL_MODEL.bandGroups.slice(1, 2)));
-  content.push(renderLegendLine(KEYS_MODAL_MODEL.bandGroups.slice(2, 3)));
-  content.push(renderLegendLine(KEYS_MODAL_MODEL.bandGroups.slice(3, 4)));
-  content.push(...renderDiscoveryLines(
-    KEYS_MODAL_MODEL.discoveries,
-    panelWidthFor(width, 76) - visibleWidth("┃ ")
-  ));
+export function renderKeysOverlay(
+  base: FrameLine[],
+  hits: HitRows,
+  width: number,
+  height: number,
+  scrollTop = 0
+): KeysOverlayRender {
+  const panelWidth = panelWidthFor(width, PANEL_MAX_WIDTH);
+  const interior = panelWidth - visibleWidth("┃ ");
+  const columns = columnCount(interior);
+  const rows = layoutRows(interior, columns);
+  const visibleRows = Math.max(3, height - PANEL_CHROME_ROWS);
+  const maxScroll = Math.max(0, rows.length - visibleRows);
+  const top = Math.max(0, Math.min(scrollTop, maxScroll));
+  const content = rows.slice(top, top + visibleRows);
+  const clipped = maxScroll > 0;
+  // The status bar hides its build tag on a narrow terminal, so the reference
+  // is where `1667 v…` is always reachable.
+  const footer = `1667 ${VERSION_TAG} · ${clipped
+    ? `↑↓ scrolls · ${top + content.length} of ${rows.length} rows · esc closes`
+    : "drag selects · ctrl+c copies · esc closes"}`;
 
   // Inert, not transparent: without hits the story's own rows stay live under
   // the modal, so a click outside would not even dismiss it.
-  return placePanel(
-    base,
-    "keys · laid where your fingers are",
-    content,
-    "drag/⇧arrows select · ctrl+c copy · ctrl+v paste · esc closes",
-    width,
-    height,
-    76,
-    { rows: hits, targets: content.map(() => null) }
-  );
-}
-
-function deriveKeysModalModel(diagram: KeysModalDiagramDefinition): KeysModalModel {
-  const arrowCaps = diagram.arrowRows.flat();
-  const allCaps = [
-    ...diagram.capRows.flat(),
-    ...arrowCaps,
-    ...diagram.utilityCaps,
-    ...diagram.shortcuts
-  ];
-  const arrowCopy = groupedCopy(arrowCaps);
-  const discoveries = allCaps
-    .filter((item): item is KeysModalCap & { discovery: DiscoveryPlacement } => item.discovery !== undefined)
-    .sort((left, right) => left.discovery.order - right.discovery.order)
-    .map((item) => ({
-      token: item.discovery.token ?? item.key,
-      label: item.discovery.label,
-      band: item.band,
-      bindings: item.bindings
-    }));
-  const bandGroups = diagram.bands
-    .filter((definition): definition is KeysModalBandDefinition & { band: KeysModalBand } =>
-      definition.inLegend === true)
-    .map((definition) => ({
-      band: definition.band,
-      role: definition.role,
-      items: legendItems(allCaps, definition.band)
-    }));
-  const footer = [
-    ...arrowCopy.map((item) => `${item.token} ${item.text}`),
-    ...diagram.utilityCaps
-      .filter((item) => item.footerCopy !== undefined)
-      .map((item) => `${item.key} ${item.footerCopy}`)
-  ].join(" · ");
   return {
-    capRows: diagram.capRows,
-    arrowRows: diagram.arrowRows,
-    utilityCaps: diagram.utilityCaps,
-    bindings: allCaps.flatMap((item) => item.bindings),
-    bandGroups,
-    arrowCopy,
-    discoveries,
-    footer
+    composition: placePanel(
+      base,
+      "keys · what every key does",
+      content,
+      footer,
+      width,
+      height,
+      PANEL_MAX_WIDTH,
+      { rows: hits, targets: content.map(() => null) }
+    ),
+    scrollTop: top
   };
 }
 
-function legendItems(caps: readonly KeysModalCap[], band: KeysModalBand): KeysModalLegendItem[] {
-  const grouped = new Map<number, KeysModalLegendItem>();
-  for (const item of caps) {
-    if (item.band !== band || item.legend === undefined) continue;
-    const existing = grouped.get(item.legend.order);
-    if (existing !== undefined) {
-      existing.token += item.key;
-      existing.bindings = [...existing.bindings, ...item.bindings];
+function columnCount(interior: number): number {
+  const fits = Math.floor((interior + COLUMN_GUTTER) / (COLUMN_WIDTH + COLUMN_GUTTER));
+  return Math.max(1, Math.min(MAX_COLUMNS, fits));
+}
+
+/** Sections become blocks, blocks are dealt into columns, and the columns are
+ *  zipped back into rows the panel can draw. Dealing whole sections keeps a
+ *  heading with its keys; the scroll offset then applies to every column at
+ *  once, so a clipped panel reads as one table rather than five. */
+function layoutRows(interior: number, columns: number): FrameLine[] {
+  const cellWidth = columns === 1
+    ? interior
+    : Math.min(COLUMN_WIDTH, Math.floor((interior - COLUMN_GUTTER * (columns - 1)) / columns));
+  const blocks = SECTIONS.map((section) => sectionLines(section, cellWidth));
+  const strips = dealColumns(blocks, columns);
+  const tallest = Math.max(...strips.map((strip) => strip.length));
+  const rows: FrameLine[] = [];
+  for (let row = 0; row < tallest; row += 1) {
+    const line: FrameLine = [];
+    for (const [index, strip] of strips.entries()) {
+      if (index > 0) line.push(raisedSegment(" ".repeat(COLUMN_GUTTER), "chrome"));
+      const cell = strip[row] ?? [];
+      line.push(...cell, raisedSegment(" ".repeat(Math.max(0, cellWidth - lineWidth(cell))), "chrome"));
+    }
+    rows.push(line);
+  }
+  return rows;
+}
+
+function sectionLines(section: KeysModalSection, cellWidth: number): FrameLine[] {
+  // The heading sits in the key column so its blurb starts where the
+  // descriptions do: two aligned columns per cell, not a ragged third edge.
+  return [
+    fitCell([
+      { ...raisedSegment(padKey(heading(section)), section.role), bold: true },
+      raisedSegment(`  ${section.blurb}`, "prose · dim")
+    ], cellWidth),
+    ...section.entries.map((item) => fitCell([
+      raisedSegment(padKey(item.token), section.role),
+      raisedSegment(`  ${item.description}`, "prose · dim")
+    ], cellWidth))
+  ];
+}
+
+function heading(section: KeysModalSection): string {
+  return `● ${section.title}`;
+}
+
+/** Right-align in the key column by cells; `padStart` counts code units. */
+function padKey(token: string): string {
+  return " ".repeat(Math.max(0, TOKEN_WIDTH - visibleWidth(token))) + token;
+}
+
+/** Clip a cell to its column. The token keeps its cells and the description
+ *  yields them: a truncated `⇧↑ ⇧↓` would name a key nobody can press. */
+function fitCell(line: FrameLine, cellWidth: number): FrameLine {
+  if (lineWidth(line) <= cellWidth) return line;
+  const [head, ...rest] = line;
+  const headWidth = head === undefined ? 0 : visibleWidth(head.text);
+  const budget = Math.max(0, cellWidth - headWidth);
+  const clipped: FrameLine = head === undefined ? [] : [head];
+  let used = 0;
+  for (const part of rest) {
+    const text = truncate(part.text, budget - used);
+    if (text.length > 0) clipped.push({ ...part, text });
+    used += visibleWidth(text);
+  }
+  return clipped;
+}
+
+/** Contiguous partition that minimises the tallest column: the first height
+ *  that greedy packing can meet with the columns available. */
+function dealColumns(blocks: readonly FrameLine[][], columns: number): FrameLine[][] {
+  const heights = blocks.map((block) => block.length);
+  const total = heights.reduce((sum, value) => sum + value, 0) + blocks.length - 1;
+  for (let limit = Math.max(...heights); limit <= total; limit += 1) {
+    const groups = packWithin(heights, limit);
+    if (groups !== null && groups.length <= columns) {
+      return groups.map((group) => group.flatMap((index, position) =>
+        position === 0 ? blocks[index]! : [[], ...blocks[index]!]));
+    }
+  }
+  return [blocks.flatMap((block, index) => index === 0 ? block : [[], ...block])];
+}
+
+/** Greedy grouping under a height limit; null when one block alone exceeds it. */
+function packWithin(heights: readonly number[], limit: number): number[][] | null {
+  const groups: number[][] = [];
+  let current: number[] = [];
+  let used = 0;
+  for (const [index, height] of heights.entries()) {
+    if (height > limit) return null;
+    const cost = current.length === 0 ? height : height + 1;
+    if (used + cost > limit) {
+      groups.push(current);
+      current = [index];
+      used = height;
       continue;
     }
-    grouped.set(item.legend.order, {
-      token: item.key,
-      ...(item.legend.showLabel === true && item.label !== undefined ? { label: item.label } : {}),
-      dividerBefore: item.legend.dividerBefore === true,
-      accent: item.legend.accent === true,
-      bindings: [...item.bindings]
-    });
+    current.push(index);
+    used += cost;
   }
-  return [...grouped.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([, item]) => item);
+  if (current.length > 0) groups.push(current);
+  return groups;
 }
 
-function groupedCopy(caps: readonly KeysModalCap[]): KeysModalArrowCopy[] {
-  const grouped = new Map<string, KeysModalArrowCopy>();
-  for (const item of caps) {
-    if (item.arrowCopy === undefined) continue;
-    const existing = grouped.get(item.arrowCopy);
-    if (existing === undefined) grouped.set(item.arrowCopy, { token: item.key, text: item.arrowCopy });
-    else existing.token += item.key;
-  }
-  return [...grouped.values()];
-}
-
-function renderKeyboard(): FrameLine[] {
-  return [
-    chromeLine("  ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐"),
-    renderCapRow(KEYS_MODAL_MODEL.capRows[0]!),
-    chromeLine("  ├───┼───┼───┼───┼───┼───┼───┼───┼───┼───┤"),
-    renderCapRow(KEYS_MODAL_MODEL.capRows[1]!),
-    chromeLine("  ├───┼───┼───┼───┼───┼───┴───┴───┴───┴───┘"),
-    renderCapRow(KEYS_MODAL_MODEL.capRows[2]!),
-    chromeLine("  └───┴───┴───┴───┴───┴───┘")
-  ];
-}
-
-function renderCapRow(caps: readonly KeysModalCap[]): FrameLine {
-  const line: FrameLine = [raisedSegment("  ", "chrome")];
-  for (const item of caps) {
-    line.push(
-      raisedSegment("│ ", "chrome"),
-      raisedSegment(item.key, roleFor(item.band)),
-      raisedSegment(" ", "chrome")
-    );
-  }
-  line.push(raisedSegment("│", "chrome"));
-  return line;
-}
-
-function renderArrowCluster(): FrameLine[] {
-  const [up, directions] = KEYS_MODAL_MODEL.arrowRows;
-  return [
-    chromeLine("    ┌───┐"),
-    [raisedSegment("    ", "chrome"), ...renderArrowRow(up!)],
-    chromeLine("┌───┼───┼───┐"),
-    renderArrowRow(directions!),
-    chromeLine("└───┴───┴───┘"),
-    ...KEYS_MODAL_MODEL.arrowCopy.map((item) => [
-      raisedSegment(item.token, roleFor("MOVE")),
-      raisedSegment(` ${item.text}`, "chrome")
-    ])
-  ];
-}
-
-function renderArrowRow(caps: readonly KeysModalCap[]): FrameLine {
-  const line: FrameLine = [];
-  for (const item of caps) {
-    line.push(
-      raisedSegment("│ ", "chrome"),
-      raisedSegment(item.key, roleFor(item.band)),
-      raisedSegment(" ", "chrome")
-    );
-  }
-  line.push(raisedSegment("│", "chrome"));
-  return line;
-}
-
-function placeArrowCluster(keyboard: FrameLine, arrows: FrameLine): FrameLine {
-  const keyboardWidth = visibleWidth(keyboard.map((item) => item.text).join(""));
-  return [
-    ...keyboard,
-    raisedSegment(" ".repeat(Math.max(3, 47 - keyboardWidth)), "chrome"),
-    ...arrows
-  ];
-}
-
-function renderUtilityCaps(): FrameLine {
-  const line: FrameLine = [raisedSegment("  ", "chrome")];
-  KEYS_MODAL_MODEL.utilityCaps.forEach((item, index) => {
-    if (index > 0) line.push(raisedSegment("   ", "chrome"));
-    line.push(
-      raisedSegment("[ ", "chrome"),
-      raisedSegment(item.key, roleFor(item.band)),
-      raisedSegment(`${item.label === undefined ? "" : ` ${item.label}`} ]`, "chrome")
-    );
-  });
-  return line;
-}
-
-function renderLegendLine(groups: readonly KeysModalBandGroup[]): FrameLine {
-  const line: FrameLine = [];
-  for (const [groupIndex, group] of groups.entries()) {
-    if (groupIndex > 0) line.push(raisedSegment("   ", "prose · dim"));
-    line.push(
-      raisedSegment("  ●", group.role),
-      raisedSegment(` ${group.band.padEnd(6)}`, "prose · dim")
-    );
-    for (const [itemIndex, item] of group.items.entries()) {
-      if (itemIndex > 0) {
-        line.push(raisedSegment(item.dividerBefore ? " · " : " ", "prose · dim"));
-      }
-      line.push(raisedSegment(item.token, item.accent ? group.role : "prose · dim"));
-      if (item.label !== undefined) line.push(raisedSegment(` ${item.label}`, "prose · dim"));
-    }
-  }
-  return line;
-}
-
-function renderDiscoveryLines(
-  items: readonly KeysModalDiscoveryItem[],
-  width: number
-): FrameLine[] {
-  const firstPrefix = "  ◦ MORE   ";
-  const continuedPrefix = " ".repeat(visibleWidth(firstPrefix));
-  const lines: FrameLine[] = [];
-  let line: FrameLine = [raisedSegment(firstPrefix, "prose · dim")];
-  let used = visibleWidth(firstPrefix);
-  let itemCount = 0;
-  for (const item of items) {
-    const separator = itemCount === 0 ? "" : " · ";
-    const itemWidth = visibleWidth(separator) + visibleWidth(item.token) + 1 + visibleWidth(item.label);
-    if (itemCount > 0 && used + itemWidth > width) {
-      lines.push(line);
-      line = [raisedSegment(continuedPrefix, "prose · dim")];
-      used = visibleWidth(continuedPrefix);
-      itemCount = 0;
-    }
-    const actualSeparator = itemCount === 0 ? "" : " · ";
-    if (actualSeparator.length > 0) line.push(raisedSegment(actualSeparator, "prose · dim"));
-    line.push(
-      raisedSegment(item.token, roleFor(item.band)),
-      raisedSegment(` ${item.label}`, "prose · dim")
-    );
-    used += visibleWidth(actualSeparator) + visibleWidth(item.token) + 1 + visibleWidth(item.label);
-    itemCount += 1;
-  }
-  if (itemCount > 0 || lines.length === 0) lines.push(line);
-  return lines;
-}
-
-function roleFor(band: KeysModalCapBand): DisplayRole {
-  return BAND_ROLES.get(band)!;
-}
-
-function chromeLine(text: string): FrameLine {
-  return [raisedSegment(text, "chrome")];
+function lineWidth(line: FrameLine): number {
+  return line.reduce((sum, part) => sum + visibleWidth(part.text), 0);
 }

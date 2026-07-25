@@ -797,7 +797,11 @@ describe("hit map clickable chrome", () => {
           ? "m path · ↑↓ row · s sort · l open · esc writes"
           : "m path · ↑↓ row · s sort · l open line · enter reroute · esc writes",
         setup: (state) => { showMap(state, "mass", state.payload.path.at(-1)!.id); } },
-      { name: "keys", expected: "drag/⇧arrows select · ctrl+c copy · ctrl+v paste · esc closes",
+      // Too short a terminal to hold the whole reference trades the selection
+      // hint for the scroll position, so the footer differs by size.
+      { name: "keys", expected: (width) => width < 100
+        ? "↑↓ scrolls · "
+        : "drag selects · ctrl+c copies · esc closes",
         setup: (state) => { state.mode = "KEYS"; } },
       { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },

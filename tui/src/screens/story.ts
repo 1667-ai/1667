@@ -69,6 +69,7 @@ export interface StoryScreenDerived {
   lastViewportStart: number;
   composerScrollTop: number;
   editorScrollTop: number;
+  keysScrollTop: number;
   composerSelectionProjection: ComposerSelectionProjection | null;
   storySelectionProjection: StorySelectionProjection | null;
   map: StoryScreenState["map"];
@@ -230,10 +231,14 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   }
   const full = options.width;
   let selectable: FrameComposition["selectable"] = null;
+  // The reference is taller than a short terminal can show, so its scroll
+  // offset is clamped where the rows are known and handed back to the state.
+  let keysScrollTop = state.keysScrollTop;
   if (state.mode === "KEYS") {
-    const keys = renderKeysOverlay(dimPage(lines), hitRows, full, height);
-    lines = keys.lines;
-    selectable = keys.selectable;
+    const keys = renderKeysOverlay(dimPage(lines), hitRows, full, height, state.keysScrollTop);
+    lines = keys.composition.lines;
+    selectable = keys.composition.selectable;
+    keysScrollTop = keys.scrollTop;
   }
   const panels = renderPanels(lines, state, hitRows, full, height, estimate, options.deadlines);
   const presentedLines = panels.lines;
@@ -250,6 +255,7 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
       lastViewportStart: viewport.start,
       composerScrollTop: composer.scrollTop,
       editorScrollTop: state.editorScrollTop,
+      keysScrollTop,
       composerSelectionProjection: state.mode === "SETTINGS" && state.settings?.edit != null
         ? buildComposerSelectionProjection(presentedLines, full)
         : state.mode === "COMPOSE"
@@ -298,6 +304,7 @@ function renderMap(
       lastViewportStart: state.lastViewportStart,
       composerScrollTop: state.composerScrollTop,
       editorScrollTop: state.editorScrollTop,
+      keysScrollTop: state.keysScrollTop,
       composerSelectionProjection: null,
       storySelectionProjection: null,
       map
@@ -501,6 +508,7 @@ function renderFullscreenComposer(
       lastViewportStart: state.lastViewportStart,
       composerScrollTop: composer.scrollTop,
       editorScrollTop: state.editorScrollTop,
+      keysScrollTop: state.keysScrollTop,
       composerSelectionProjection: buildComposerSelectionProjection(presentedLines, width),
       storySelectionProjection: null,
       map: state.map
@@ -549,6 +557,7 @@ function renderInlineEditor(
       lastViewportStart: state.lastViewportStart,
       composerScrollTop: state.composerScrollTop,
       editorScrollTop: layout.scrollTop,
+      keysScrollTop: state.keysScrollTop,
       composerSelectionProjection: buildComposerSelectionProjection(lines, width),
       storySelectionProjection: null,
       map: state.map

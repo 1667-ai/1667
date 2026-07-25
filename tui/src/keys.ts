@@ -372,7 +372,16 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "return") return { action: "apply" };
     return { action: "none" };
   }
-  if (mode === "KEYS") return { action: "none" };
+  // The reference can outgrow a short terminal, so it scrolls with the same
+  // vocabulary every other overlay uses — which also gives it the mouse wheel,
+  // since `mouseToAction` sends wheel gestures over any overlay as focus moves.
+  if (mode === "KEYS") {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "pagedown" || key.name === "space") return { action: "scroll-down" };
+    if (key.name === "pageup") return { action: "scroll-up" };
+    return { action: "none" };
+  }
   if (mode === "SUMMARY") return { action: "none" };
   if (mode === "SETTINGS") {
     if (key.name === "down") return { action: "focus-next" };

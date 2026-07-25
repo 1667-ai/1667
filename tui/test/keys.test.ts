@@ -78,8 +78,17 @@ describe("arrow-first key routing", () => {
     }
   });
 
-  test("keys overlay suppresses NAV and escape peels it", () => {
-    expect(resolveKey(key("down"), "KEYS").action).toBe("none");
+  test("keys overlay scrolls, suppresses NAV, and escape peels it", () => {
+    expect(resolveKey(key("down"), "KEYS").action).toBe("focus-next");
+    expect(resolveKey(key("up"), "KEYS").action).toBe("focus-previous");
+    expect(resolveKey(key("pagedown"), "KEYS").action).toBe("scroll-down");
+    expect(resolveKey(key("pageup"), "KEYS").action).toBe("scroll-up");
+    expect(resolveKey(key("space"), "KEYS").action).toBe("scroll-down");
+    // Story hotkeys stay inert behind the panel: `d` must not prune, and the
+    // scroll vocabulary must not leak the letters that mean something in NAV.
+    for (const inert of ["d", "n", "r", "j", "k", "return"]) {
+      expect(resolveKey(key(inert), "KEYS").action).toBe("none");
+    }
     expect(resolveKey(key("escape"), "KEYS").action).toBe("cancel");
   });
 
@@ -94,15 +103,12 @@ describe("arrow-first key routing", () => {
 });
 
 describe("key map", () => {
-  test("renders four ordered groups and every advertised binding resolves", () => {
+  test("sections read in order and every advertised binding resolves", () => {
     const frame = frameText(renderKeysOverlay(
       Array.from({ length: 36 }, () => []), Array.from({ length: 36 }, () => null), 120, 36
-    ).lines);
-    const groups = KEYS_MODAL_MODEL.bandGroups.map((group) => group.band);
-    expect(groups).toEqual(["MOVE", "WRITE", "SHAPE", "OPEN"]);
-    expect(groups.map((group) => frame.indexOf(group))).toEqual(
-      groups.map((group) => frame.indexOf(group)).sort((left, right) => left - right)
-    );
+    ).composition.lines);
+    const titles = KEYS_MODAL_MODEL.sections.map((section) => section.title);
+    expect(titles).toEqual(["MOVE", "WRITE", "SHAPE", "OPEN", "MAP"]);
     for (const binding of KEYS_MODAL_MODEL.bindings) {
       const event = key(binding.name, {
         sequence: binding.sequence,
@@ -115,23 +121,19 @@ describe("key map", () => {
       binding.name === "escape" && binding.mode === "KEYS")!;
     expect(frame).toContain("esc");
     expect(resolveKey(key(escape.name), escape.mode).action).toBe(escape.action);
-    expect(frame).toContain("↑↓");
-    expect(frame).toContain("←→");
+    expect(frame).toContain("↑ ↓");
+    expect(frame).toContain("← →");
   });
 
-  test("h/j/k caps are inactive while map-follow l and sketches a stay lit", () => {
-    const caps = new Map(KEYS_MODAL_MODEL.capRows.flat().map((item) => [item.key, item]));
-    for (const dead of ["h", "j", "k"]) {
-      expect(caps.get(dead)?.band).toBe("INACTIVE");
-      expect(caps.get(dead)?.bindings).toHaveLength(0);
-    }
-    expect(caps.get("l")?.band).not.toBe("INACTIVE");
-    expect(caps.get("l")?.bindings.some((binding) => binding.action === "map-follow")).toBeTrue();
-    expect(caps.get("a")?.band).not.toBe("INACTIVE");
-    expect(caps.get("a")?.bindings.some((binding) => binding.action === "toggle-sketches")).toBeTrue();
-    expect(KEYS_MODAL_MODEL.discoveries.some((item) =>
-      item.token === "R" && item.bindings.some((binding) => binding.action === "retake-with-prompt")
-    )).toBeTrue();
+  test("the keys nothing binds are absent rather than shown unexplained", () => {
+    const tokens = KEYS_MODAL_MODEL.sections.flatMap((section) =>
+      section.entries.map((item) => item.token));
+    for (const dead of ["h", "j", "k", "t", "v", ";"]) expect(tokens).not.toContain(dead);
+    const advertised = (action: string) =>
+      KEYS_MODAL_MODEL.bindings.some((binding) => binding.action === action);
+    expect(advertised("map-follow")).toBeTrue();
+    expect(advertised("toggle-sketches")).toBeTrue();
+    expect(advertised("retake-with-prompt")).toBeTrue();
   });
 });
 

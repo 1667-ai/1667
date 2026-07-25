@@ -132,7 +132,10 @@ export async function navAction(
   }
   else if (resolved.action === "quit") return requestQuit();
   else if (resolved.action === "open-map") openMap(state);
-  else if (resolved.action === "open-keys") state.mode = "KEYS";
+  else if (resolved.action === "open-keys") {
+    state.mode = "KEYS";
+    state.keysScrollTop = 0;
+  }
   else if (resolved.action === "create-chapter") await createBreakAtFocus(state, source, context);
   else if (resolved.action === "chapter-previous") jumpAdjacentChapter(state, -1);
   else if (resolved.action === "chapter-next") jumpAdjacentChapter(state, 1);
