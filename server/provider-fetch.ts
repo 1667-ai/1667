@@ -7,10 +7,10 @@ import {
 } from "node:http";
 import { isIP, Socket } from "node:net";
 import { Readable, type Duplex } from "node:stream";
+import { classifyHttpHost } from "../shared/http-host-class.js";
 import { ownedLoopbackHttpSupportedOn } from "../shared/provider-transport-capability.js";
 import { ProviderError } from "./errors.js";
 import { pinnedPrivateHttpFetch } from "./provider-private-http.js";
-import { classifyHttpHost } from "./settings-v2-scalars.js";
 
 const LINUX_TCP_TABLES = ["/proc/net/tcp", "/proc/net/tcp6"] as const;
 const SAFE_PLAINTEXT_HEADERS = new Set([
@@ -74,7 +74,10 @@ async function providerFetchInternal(
     return await fetch(new Request(url, { ...init, redirect: "manual" }));
   }
   const hostClass = url.protocol === "http:" ? classifyHttpHost(url.href) : "other";
-  if (hostClass === "private-literal" && policy.allowInsecurePrivateHttp === true) {
+  if (
+    (hostClass === "private-literal" || hostClass === "lan-hostname")
+    && policy.allowInsecurePrivateHttp === true
+  ) {
     return await pinnedPrivateHttpFetch(url, init, { allowPresetQuery });
   }
   if (url.protocol !== "http:" || hostClass !== "loopback") {

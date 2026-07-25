@@ -104,7 +104,9 @@ export type SettingsRowId =
   | "compose-focus"
   | "provider"
   | "base-url"
+  | "allow-insecure-http"
   | "model"
+  | "api-key"
   | "api-key-env"
   | "temperature"
   | "max-tokens"
@@ -113,12 +115,14 @@ export type SettingsRowId =
   | "system-prompt";
 export interface SettingsInlineEditState {
   row: SettingsRowId;
+  mode: "text" | "secret";
   composer: ComposerState;
   initial: string;
 }
 export interface SettingsOverlaySaveIntent {
   readonly command: Omit<SaveSettingsCommand, "transportOperationId">;
   readonly draft: SettingsTextDraft;
+  readonly connectionSecrets: Readonly<Record<string, string | null>>;
 }
 export interface SettingsOverlayState {
   view: SettingsView;
@@ -126,6 +130,8 @@ export interface SettingsOverlayState {
   base: SettingsTextDraft;
   /** Atomic unsaved form state. Runtime generation remains pinned to view.effective. */
   draft: SettingsTextDraft;
+  /** Write-only key material; never projected into GenerationSettings/document. */
+  connectionSecrets: Record<string, string | null>;
   cursor: number;
   edit: SettingsInlineEditState | null;
   conflict: { message: string; armed: boolean } | null;

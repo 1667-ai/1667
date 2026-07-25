@@ -11,6 +11,7 @@ import {
   MAX_SETTINGS_TIMEOUT_MS,
   MAX_SETTINGS_TOKEN_COUNT,
   MAX_SETTINGS_URL_SCALARS,
+  SECRET_ID_PATTERN_SOURCE,
   SETTINGS_ID_PATTERN_SOURCE
 } from "../server/settings-v2-scalars.js";
 import {
@@ -37,6 +38,7 @@ export function settingsV2Schema(): Schema {
   const definitions: Record<string, Schema> = {
     SettingsId: stringPattern(SETTINGS_ID_PATTERN_SOURCE, MAX_SETTINGS_ID_SCALARS),
     CredentialName: stringPattern(CREDENTIAL_ENV_PATTERN_SOURCE, 64),
+    SecretId: stringPattern(SECRET_ID_PATTERN_SOURCE, MAX_SETTINGS_ID_SCALARS),
     HeaderName: stringPattern(HEADER_NAME_PATTERN_SOURCE, 128),
     Hash256: stringPattern(HASH256_PATTERN_SOURCE, 64),
     MutationId: stringPattern(MUTATION_ID_PATTERN_SOURCE),
@@ -51,7 +53,24 @@ export function settingsV2Schema(): Schema {
       name: ref("HeaderName"),
       env: ref("CredentialName")
     }),
-    Auth: { oneOf: [ref("AuthNone"), ref("AuthBearer"), ref("AuthHeader")] },
+    AuthBearerStored: closed({
+      type: { const: "bearer-stored" },
+      secretId: ref("SecretId")
+    }),
+    AuthHeaderStored: closed({
+      type: { const: "header-stored" },
+      name: ref("HeaderName"),
+      secretId: ref("SecretId")
+    }),
+    Auth: {
+      oneOf: [
+        ref("AuthNone"),
+        ref("AuthBearer"),
+        ref("AuthHeader"),
+        ref("AuthBearerStored"),
+        ref("AuthHeaderStored")
+      ]
+    },
     HeaderValue: closed({ type: { const: "env" }, env: ref("CredentialName") }),
     Header: closed({ name: ref("HeaderName"), value: ref("HeaderValue") }),
     Timeouts: closed({

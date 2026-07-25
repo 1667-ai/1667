@@ -35,6 +35,7 @@ export function serializeSettings(draft: SettingsTextDraft): string {
     "≻ Advanced cachePolicy is off | auto | long · exact provider/model support is required.",
     `provider: ${settings.provider}`,
     `baseUrl: ${settings.baseUrl}`,
+    `allowInsecureHttp: ${settings.allowInsecureHttp === true}`,
     `model: ${settings.model}`,
     `apiKeyEnv: ${settings.apiKeyEnv ?? ""}`,
     `temperature: ${settings.temperature}`,
@@ -62,6 +63,13 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
       next.provider = text as Provider;
     }
     else if (key === "baseUrl") next.baseUrl = text;
+    else if (key === "allowInsecureHttp") {
+      if (text !== "true" && text !== "false") {
+        return { error: `allowInsecureHttp must be true or false — "${text}"` };
+      }
+      if (text === "true") next.allowInsecureHttp = true;
+      else delete next.allowInsecureHttp;
+    }
     else if (key === "model") next.model = text;
     else if (key === "apiKeyEnv") next.apiKeyEnv = text.length === 0 ? null : text;
     else if (key === "systemPrompt") next.systemPrompt = text;

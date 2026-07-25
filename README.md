@@ -101,7 +101,7 @@ One backend owns a data directory at a time. A second lock-aware process refuses
 
 1667 supports three provider modes: `dry-run`, `openai-compatible`, and `anthropic`. Settings include presets for OpenAI, OpenRouter, Anthropic, LM Studio, Ollama, llama.cpp, KoboldCpp, and a custom endpoint. Use `dry-run` to exercise the interface without a network call.
 
-Settings store a credential reference, such as the name of an environment variable, instead of the key itself. Keep the key value in your environment. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](docs/adr/004-prompt-caching.md).
+Settings store a credential reference, never the key itself: either paste an API key — kept only in the private per-data-directory `secrets.json` (mode `0600`), with an opaque id in the settings document — or name an environment variable and export it. Local servers like Ollama need no key. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](docs/adr/004-prompt-caching.md).
 
 ## Privacy
 
@@ -111,7 +111,7 @@ Your stories and settings stay on your computer, in the data directory. 1667 doe
 
 Embedded local storage is available on macOS and Linux. The Windows candidate builds and runs demo mode, but local data, HTTP attach, HTTP auth, and legacy serve fail closed until the native DACL and reparse-safe adapters are complete.
 
-Plain HTTP model endpoints need an exact-socket ownership proof. The current adapter supports Linux only. On macOS and Windows, use an authenticated HTTPS model endpoint. See [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
+Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
 
 ## Build a standalone executable
 

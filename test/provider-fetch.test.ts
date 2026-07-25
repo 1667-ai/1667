@@ -9,7 +9,10 @@ import {
   providerFetch,
   providerFetchWithPresetQuery
 } from "../server/provider-fetch.js";
-import { PinnedAddressAgent } from "../server/provider-private-http.js";
+import {
+  PinnedAddressAgent,
+  isLanPeerAddress
+} from "../server/provider-private-http.js";
 import { streamCompletion } from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 
@@ -233,6 +236,14 @@ test("private HTTP agent destroys sockets that have not connected yet", async ()
   agent.destroy();
 
   assert.match((await completed)?.message ?? "", /connection was closed/);
+});
+
+test("LAN hostname pinning rejects unscoped link-local DNS answers", () => {
+  assert.equal(isLanPeerAddress("169.254.10.20"), false);
+  assert.equal(isLanPeerAddress("fe80::1234"), false);
+  assert.equal(isLanPeerAddress("192.168.10.20"), true);
+  assert.equal(isLanPeerAddress("fd00::1234"), true);
+  assert.equal(isLanPeerAddress("127.0.0.1"), true);
 });
 
 test("keyless owned-loopback generation streams through the provider adapter", {

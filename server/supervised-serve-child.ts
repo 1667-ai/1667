@@ -17,7 +17,7 @@ import {
   isCredentialEnvironmentName
 } from "../shared/credential-slot-policy.js";
 import {
-  settingsStateCredentialNames
+  settingsStateEnvironmentCredentialNames
 } from "../shared/settings-credential-slots.js";
 import {
   decodeSupervisedSecrets,
@@ -197,7 +197,7 @@ async function credentialNames(dataDir: string): Promise<string[]> {
     if (isErrorCode(error, "ENOENT")) return [];
     throw error;
   }
-  const names = settingsStateCredentialNames(state);
+  const names = settingsStateEnvironmentCredentialNames(state);
   if (names.length > MAX_CREDENTIAL_NAMES_PER_STATE || names.some((name) =>
     !isCredentialEnvironmentName(name))) {
     throw new Error("Settings request invalid credential environment names");

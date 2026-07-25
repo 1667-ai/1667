@@ -6,6 +6,11 @@ import {
   basicSettingsForDisplay,
   basicSettingsFromDocument
 } from "../shared/settings-basic-draft.js";
+import {
+  attachProviderRuntime,
+  providerRuntimeFromV2,
+  resolveProviderHeaders
+} from "../server/provider-runtime.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { validateSettingsDocumentV2 } from "../server/settings-v2-validation.js";
@@ -288,6 +293,52 @@ test("an Anthropic protocol on a custom gateway never claims the official preset
   assert.equal(updated.connections.active?.preset, "custom");
 });
 
+test("stored auth keeps one secret ID and adapts across provider switches", () => {
+  const secretId = "active";
+  const secret = "stored-switch-secret";
+  const openAi: SettingsDocumentV2 = {
+    ...DOCUMENT,
+    connections: {
+      ...DOCUMENT.connections,
+      active: {
+        ...DOCUMENT.connections.active!,
+        auth: { type: "bearer-stored", secretId }
+      }
+    }
+  };
+  const anthropic = applyBasicSettingsDraft(openAi, {
+    ...basicSettingsFromDocument(openAi),
+    provider: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    model: "claude-sonnet"
+  });
+
+  assert.deepEqual(anthropic.connections.active?.auth, {
+    type: "header-stored",
+    name: "x-api-key",
+    secretId
+  });
+  assert.deepEqual(resolvedStoredHeaders(anthropic, secret), {
+    headers: { "x-api-key": secret },
+    secrets: [secret]
+  });
+
+  const switchedBack = applyBasicSettingsDraft(anthropic, {
+    ...basicSettingsFromDocument(anthropic),
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-5.6"
+  });
+  assert.deepEqual(switchedBack.connections.active?.auth, {
+    type: "bearer-stored",
+    secretId
+  });
+  assert.deepEqual(resolvedStoredHeaders(switchedBack, secret), {
+    headers: { authorization: `Bearer ${secret}` },
+    secrets: [secret]
+  });
+});
+
 test("same-protocol origin changes clear secret headers but preserve transport tuning", () => {
   const updated = applyBasicSettingsDraft(DOCUMENT, {
     ...basicSettingsFromDocument(DOCUMENT),
@@ -306,6 +357,32 @@ test("same-protocol origin changes clear secret headers but preserve transport t
     promptCaching: "unknown"
   });
 });
+
+function resolvedStoredHeaders(
+  document: SettingsDocumentV2,
+  secret: string
+): ReturnType<typeof resolveProviderHeaders> {
+  const connection = document.connections.active!;
+  const model = document.models.active!;
+  const auth = connection.auth;
+  if (auth.type !== "bearer-stored" && auth.type !== "header-stored") {
+    throw new Error("test document must use stored auth");
+  }
+  return resolveProviderHeaders(
+    attachProviderRuntime(
+      basicSettingsFromDocument(document),
+      providerRuntimeFromV2(
+        connection,
+        "default",
+        model.capabilities,
+        {},
+        new Map([[auth.secretId, secret]])
+      ),
+      true
+    ),
+    {}
+  );
+}
 
 test("same-origin path changes preserve secret headers and transport tuning", () => {
   const updated = applyBasicSettingsDraft(DOCUMENT, {
@@ -452,6 +529,83 @@ test("switching a local connection to hosted HTTPS removes its insecure opt-in",
   assert.equal(updated.connections.active?.baseUrl, "https://models.example/v1");
 });
 
+test("toggling LAN HTTP opt-in on HTTPS is normalized away before validation", () => {
+  const updated = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
+    ...basicSettingsFromDocument(INITIAL_SETTINGS_DOCUMENT_V2),
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-test",
+    allowInsecureHttp: true
+  });
+
+  assert.equal(
+    updated.connections["builtin:dry-run"]?.allowInsecureHttp,
+    undefined
+  );
+  assert.deepEqual(validateSettingsDocumentV2(updated), updated);
+});
+
+test("stored auth survives unrelated base-URL and model edits", () => {
+  const stored: SettingsDocumentV2 = {
+    ...DOCUMENT,
+    connections: {
+      ...DOCUMENT.connections,
+      active: {
+        ...DOCUMENT.connections.active!,
+        auth: { type: "bearer-stored", secretId: "active" }
+      }
+    }
+  };
+  const baseEdited = applyBasicSettingsDraft(stored, {
+    ...basicSettingsFromDocument(stored),
+    baseUrl: "https://models.example/v2"
+  });
+  assert.deepEqual(baseEdited.connections.active?.auth, {
+    type: "bearer-stored",
+    secretId: "active"
+  });
+
+  const modelEdited = applyBasicSettingsDraft(baseEdited, {
+    ...basicSettingsFromDocument(baseEdited),
+    model: "replacement-model"
+  });
+  assert.deepEqual(modelEdited.connections.active?.auth, {
+    type: "bearer-stored",
+    secretId: "active"
+  });
+});
+
+test("LAN opt-in survives base-URL and model edits", () => {
+  const insecure: SettingsDocumentV2 = {
+    ...DOCUMENT,
+    profiles: {
+      ...DOCUMENT.profiles,
+      default: { ...DOCUMENT.profiles.default!, effort: "default" }
+    },
+    connections: {
+      ...DOCUMENT.connections,
+      active: {
+        ...DOCUMENT.connections.active!,
+        baseUrl: "http://192.168.1.10:1234/v1",
+        auth: { type: "none" },
+        headers: [],
+        allowInsecureHttp: true
+      }
+    }
+  };
+  const baseEdited = applyBasicSettingsDraft(insecure, {
+    ...basicSettingsFromDocument(insecure),
+    baseUrl: "http://gpu-box.local:11434/v1"
+  });
+  assert.equal(baseEdited.connections.active?.allowInsecureHttp, true);
+  const modelEdited = applyBasicSettingsDraft(baseEdited, {
+    ...basicSettingsFromDocument(baseEdited),
+    model: "replacement-model"
+  });
+  assert.equal(modelEdited.connections.active?.allowInsecureHttp, true);
+  assert.deepEqual(validateSettingsDocumentV2(modelEdited), modelEdited);
+});
+
 test("basic settings accept keyless loopback HTTP and infer local presets", () => {
   const cases = [
     ["http://localhost:1234/v1", "lm-studio"],
@@ -478,6 +632,24 @@ test("basic settings accept keyless loopback HTTP and infer local presets", () =
   }
 });
 
+test("basic settings accept opted-in keyless private and named LAN HTTP", () => {
+  for (const baseUrl of [
+    "http://192.168.1.50:8080/v1",
+    "http://gpu-box.local:11434/v1",
+    "http://gpu-box:11434/v1"
+  ]) {
+    const updated = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
+      ...basicSettingsFromDocument(INITIAL_SETTINGS_DOCUMENT_V2),
+      provider: "openai-compatible",
+      baseUrl,
+      model: "lan-model",
+      allowInsecureHttp: true
+    });
+    assert.equal(updated.connections["builtin:dry-run"]?.allowInsecureHttp, true);
+    assert.deepEqual(validateSettingsDocumentV2(updated), updated);
+  }
+});
+
 test("basic settings fail closed for unsupported network inputs", () => {
   const draft = {
     provider: "openai-compatible" as const,
@@ -491,6 +663,22 @@ test("basic settings fail closed for unsupported network inputs", () => {
   };
   assert.throws(
     () => applyBasicSettingsDraft(DOCUMENT, draft),
+    /require HTTPS/
+  );
+  assert.throws(
+    () => applyBasicSettingsDraft(DOCUMENT, {
+      ...draft,
+      baseUrl: "http://models.example.com/v1",
+      allowInsecureHttp: true
+    }),
+    /require HTTPS/
+  );
+  assert.throws(
+    () => applyBasicSettingsDraft(DOCUMENT, {
+      ...draft,
+      baseUrl: "http://10.example/v1",
+      allowInsecureHttp: true
+    }),
     /require HTTPS/
   );
   assert.throws(

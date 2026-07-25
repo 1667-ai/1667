@@ -102,7 +102,8 @@ export function effectiveGenerationRuntime(
   purpose: SettingsRoutePurpose = "default",
   metadata: EffectiveMetadataV2 = {},
   environment?: NodeJS.ProcessEnv,
-  options: EffectiveGenerationRuntimeOptions = {}
+  options: EffectiveGenerationRuntimeOptions = {},
+  storedSecrets?: ReadonlyMap<string, string>
 ): EffectiveGenerationRuntime {
   const document = parseSettingsDocumentV2(value);
   const route = selectSettingsRoute(document, purpose);
@@ -129,7 +130,8 @@ export function effectiveGenerationRuntime(
     connection,
     profile.effort,
     model.capabilities,
-    environment
+    environment,
+    storedSecrets
   );
   const settings = attachProviderRuntime({
       provider,
@@ -169,7 +171,8 @@ export function applyEffectiveGenerationSettings(
   generationValue: GenerationSettings
 ): SettingsDocumentV2 {
   const document = parseSettingsDocumentV2(value);
-  const settings = parseGenerationSettingsV1(generationValue);
+  const { allowInsecureHttp: _allowInsecureHttp, ...legacyValue } = generationValue;
+  const settings = parseGenerationSettingsV1(legacyValue);
   return parseSettingsDocumentV2(applyBasicSettingsDraft(document, settings));
 }
 
@@ -254,7 +257,11 @@ function resolveModelScalar(
 }
 
 export function effectiveApiKeyEnv(connection: ModelConnectionV2): string | null {
-  if (connection.auth.type === "none") return null;
+  if (
+    connection.auth.type === "none"
+    || connection.auth.type === "bearer-stored"
+    || connection.auth.type === "header-stored"
+  ) return null;
   return connection.auth.env;
 }
 

@@ -90,7 +90,7 @@ describe("forced story replacement adoption", () => {
     const source = demoAppSource();
     const app = harness(source);
     await app.press(key(","));
-    for (let index = 0; index < 4; index += 1) await app.press(key("down"));
+    for (let index = 0; index < 5; index += 1) await app.press(key("down"));
     await app.press(key("return"));
     const edit = app.state.settings!.edit!;
     setComposerText(edit.composer, "local-model");
@@ -105,7 +105,7 @@ describe("forced story replacement adoption", () => {
     expect(app.state.editor).toBe(null);
     expect(app.state.settings?.edit).toBe(edit);
     expect(app.state.settings?.edit?.composer.text).toBe("local-model");
-    expect(app.state.settings?.cursor).toBe(4);
+    expect(app.state.settings?.cursor).toBe(5);
   });
 
   test("a newer prompt for a story removed by a slow delete is reconciled away", async () => {

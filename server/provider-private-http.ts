@@ -4,10 +4,11 @@ import {
   type ClientRequestArgs,
   type IncomingHttpHeaders
 } from "node:http";
+import { lookup } from "node:dns/promises";
 import { isIP, Socket } from "node:net";
 import { Readable, type Duplex } from "node:stream";
+import { classifyHttpHost } from "../shared/http-host-class.js";
 import { ProviderError } from "./errors.js";
-import { classifyHttpHost } from "./settings-v2-scalars.js";
 
 const SENSITIVE_HEADERS = ["authorization", "proxy-authorization", "x-api-key"] as const;
 const SAFE_HEADERS = new Set(["accept", "anthropic-version", "content-type"]);
@@ -16,24 +17,25 @@ export interface PinnedPrivateHttpPolicy {
   readonly allowPresetQuery?: boolean;
 }
 
-/** Credentialless private-LAN HTTP: numeric literal only, no proxy/pool/DNS,
- * and the established peer must remain the exact configured address. */
+/** Credentialless private-LAN HTTP: resolve once, reject public answers, then
+ * pin the exact peer address without proxying or connection pooling. */
 export async function pinnedPrivateHttpFetch(
   input: string | URL,
   init: RequestInit = {},
   policy: PinnedPrivateHttpPolicy = {}
 ): Promise<Response> {
   const url = input instanceof URL ? input : new URL(input);
+  const hostClass = classifyHttpHost(url.href);
   if (
     url.protocol !== "http:"
-    || classifyHttpHost(url.href) !== "private-literal"
+    || (hostClass !== "private-literal" && hostClass !== "lan-hostname")
     || url.username !== ""
     || url.password !== ""
     || (policy.allowPresetQuery !== true && url.href.includes("?"))
     || url.href.includes("#")
   ) {
     throw new ProviderError(
-      "Private HTTP transport requires a canonical private-address literal without credentials, query, or fragment."
+      "Private HTTP transport requires a canonical LAN host without credentials, query, or fragment."
     );
   }
   const headers = new Headers(init.headers);
@@ -50,7 +52,8 @@ export async function pinnedPrivateHttpFetch(
   if (body !== null && !headers.has("content-length")) {
     headers.set("content-length", String(body.byteLength));
   }
-  const agent = new PinnedAddressAgent(unbracketed(url.hostname));
+  const pinnedAddress = await resolvePinnedLanAddress(url, hostClass);
+  const agent = new PinnedAddressAgent(pinnedAddress);
   return await new Promise<Response>((resolve, reject) => {
     const outgoing = request(url, {
       method: init.method ?? "GET",
@@ -98,7 +101,10 @@ export async function pinnedPrivateHttpFetch(
 export class PinnedAddressAgent extends Agent {
   private readonly pending = new Map<Socket, (error: Error | null) => void>();
 
-  constructor(private readonly expectedAddress: string) {
+  constructor(
+    private readonly expectedAddress: string,
+    private readonly connectAddress = expectedAddress
+  ) {
     super({ keepAlive: false, maxSockets: 1 });
   }
 
@@ -118,7 +124,7 @@ export class PinnedAddressAgent extends Agent {
     this.pending.set(socket, finish);
     socket.once("error", finish);
     socket.connect({
-      host: requiredHost(options),
+      host: this.connectAddress,
       port: requiredPort(options)
     }, () => {
       const remote = socket.remoteAddress;
@@ -137,6 +143,27 @@ export class PinnedAddressAgent extends Agent {
     }
     super.destroy();
   }
+}
+
+async function resolvePinnedLanAddress(
+  url: URL,
+  hostClass: "private-literal" | "lan-hostname"
+): Promise<string> {
+  const host = unbracketed(url.hostname);
+  if (hostClass === "private-literal") return host;
+  const answers = await lookup(host, { all: true, verbatim: true });
+  if (answers.length === 0 || answers.some(({ address }) => !isLanPeerAddress(address))) {
+    throw new ProviderError("LAN HTTP provider resolved outside the private network.");
+  }
+  return answers[0]!.address;
+}
+
+export function isLanPeerAddress(address: string): boolean {
+  const host = unbracketed(address).toLowerCase();
+  const literalUrl = isIP(host) === 6 ? `http://[${host}]` : `http://${host}`;
+  const classified = classifyHttpHost(literalUrl);
+  return classified === "loopback"
+    || classified === "private-literal";
 }
 
 function sameAddress(expected: string, actual: string): boolean {
@@ -183,14 +210,6 @@ function responseHeaders(headers: IncomingHttpHeaders): Headers {
     else result.set(name, value);
   }
   return result;
-}
-
-function requiredHost(options: ClientRequestArgs): string {
-  const value = options.hostname ?? options.host;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new ProviderError("Private HTTP provider host is missing.");
-  }
-  return unbracketed(value);
 }
 
 function requiredPort(options: ClientRequestArgs): number {

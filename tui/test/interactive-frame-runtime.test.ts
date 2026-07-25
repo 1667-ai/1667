@@ -116,6 +116,7 @@ describe("interactive frame runtime", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.edit = {
       row: "model",
+      mode: "text",
       composer: createComposer("draft-model"),
       initial: ""
     };

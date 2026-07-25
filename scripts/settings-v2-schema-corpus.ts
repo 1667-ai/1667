@@ -65,6 +65,30 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   const unresolvedConstructorModel = withDefaultModelId("constructor");
   const unresolvedToStringModel = withDefaultModelId("toString");
   const networkConnection = convertedOpenAi.connections["migrated:connection"]!;
+  const storedBearer = {
+    ...convertedOpenAi,
+    connections: {
+      ...convertedOpenAi.connections,
+      "migrated:connection": {
+        ...networkConnection,
+        auth: { type: "bearer-stored", secretId: "migrated:connection" }
+      }
+    }
+  } satisfies SettingsDocumentV2;
+  const storedHeader = {
+    ...convertedOpenAi,
+    connections: {
+      ...convertedOpenAi.connections,
+      "migrated:connection": {
+        ...networkConnection,
+        auth: {
+          type: "header-stored",
+          name: "x-api-key",
+          secretId: "migrated:connection:x-api-key"
+        }
+      }
+    }
+  } satisfies SettingsDocumentV2;
   const reservedCredential = {
     ...convertedOpenAi,
     connections: {
@@ -103,6 +127,8 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     valid("converted-openai", "document", convertedOpenAi),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
+    valid("stored-bearer", "document", storedBearer),
+    valid("stored-header", "document", storedHeader),
     valid("staged", "state", staged),
     valid("validating", "state", validating),
     valid("prepared", "state", prepared),
@@ -133,6 +159,16 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     invalid("document-unresolved-to-string-model", "document", unresolvedToStringModel, true),
     invalid("document-reserved-credential", "document", reservedCredential, true),
     invalid("document-public-plain-http", "document", publicHttp, true),
+    invalid("document-invalid-stored-secret-id", "document", {
+      ...storedBearer,
+      connections: {
+        ...storedBearer.connections,
+        "migrated:connection": {
+          ...storedBearer.connections["migrated:connection"]!,
+          auth: { type: "bearer-stored", secretId: "not/portable" }
+        }
+      }
+    }, false),
     invalid("document-nfd-string", "document", {
       ...INITIAL_SETTINGS_DOCUMENT_V2,
       writing: { defaultAuthorBrief: "Cafe\u0301" }

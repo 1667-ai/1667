@@ -22,12 +22,18 @@ import {
   hashSettingsStateV2,
   parseSettingsDocumentV2
 } from "./settings-v2-codec.js";
+import {
+  validateProviderSecretValue
+} from "../shared/provider-secret-value.js";
+import { requireSecretId } from "./settings-v2-scalars.js";
 
-export type SaveSettingsCommandEnvelope = Omit<SaveSettingsCommand, "document">;
+export type SaveSettingsCommandEnvelope =
+  Omit<SaveSettingsCommand, "document" | "connectionSecrets">;
 export type SettingsMutationOperation =
   | {
       readonly method: "saveSettings";
       readonly document: SettingsDocumentV2;
+      readonly connectionSecrets?: Readonly<Record<string, string | null>>;
     }
   | {
       readonly method: "discardPendingSettings";
@@ -36,9 +42,7 @@ export type SettingsMutationOperation =
 export function parseSaveSettingsCommandEnvelope(
   value: unknown
 ): SaveSettingsCommandEnvelope {
-  const command = exactRecord(value, [
-    "transportOperationId", "mutationId", "expectedStateGeneration", "document"
-  ], "Save settings command");
+  const command = saveCommandRecord(value);
   return {
     transportOperationId: stringValue(command.transportOperationId, "Transport operation ID"),
     mutationId: stringValue(command.mutationId, "Mutation ID"),
@@ -47,10 +51,31 @@ export function parseSaveSettingsCommandEnvelope(
 }
 
 export function parseSaveSettingsDocument(value: unknown): SettingsDocumentV2 {
-  const command = exactRecord(value, [
-    "transportOperationId", "mutationId", "expectedStateGeneration", "document"
-  ], "Save settings command");
+  const command = saveCommandRecord(value);
   return parseSettingsDocumentV2(command.document);
+}
+
+export function parseSaveSettingsConnectionSecrets(
+  value: unknown
+): Readonly<Record<string, string | null>> {
+  const command = saveCommandRecord(value);
+  if (command.connectionSecrets === undefined) return {};
+  const raw = command.connectionSecrets;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ServiceError(400, "Save settings connectionSecrets must be an object");
+  }
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > 64) {
+    throw new ServiceError(400, "Save settings connectionSecrets exceeds 64 entries");
+  }
+  const result: Record<string, string | null> = {};
+  for (const [rawSecretId, rawValue] of entries) {
+    const secretId = requireSecretId(rawSecretId, "Save settings secret ID");
+    result[secretId] = rawValue === null
+      ? null
+      : validateProviderSecretValue(rawValue);
+  }
+  return result;
 }
 
 export function parseDiscardPendingSettingsCommand(
@@ -235,6 +260,31 @@ function exactRecord(
     || Reflect.ownKeys(value).some((key) => typeof key !== "string" || !keys.includes(key))
     || Reflect.ownKeys(value).length !== keys.length) {
     throw new ServiceError(400, `${label} must contain exactly: ${keys.join(", ")}`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function saveCommandRecord(value: unknown): Record<string, unknown> {
+  const required = [
+    "transportOperationId",
+    "mutationId",
+    "expectedStateGeneration",
+    "document"
+  ] as const;
+  const allowed = [...required, "connectionSecrets"];
+  if (
+    value === null
+    || typeof value !== "object"
+    || Array.isArray(value)
+    || Reflect.ownKeys(value).some(
+      (key) => typeof key !== "string" || !(allowed as readonly string[]).includes(key)
+    )
+    || required.some((key) => !Object.hasOwn(value, key))
+  ) {
+    throw new ServiceError(
+      400,
+      `Save settings command must contain: ${required.join(", ")}; connectionSecrets is optional`
+    );
   }
   return value as Record<string, unknown>;
 }

@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import { StoryFormatError } from "./story-format-facts.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
 import {
@@ -7,6 +6,7 @@ import {
   MAX_CREDENTIAL_NAMES_PER_DOCUMENT,
   isCredentialEnvironmentName
 } from "../shared/credential-slot-policy.js";
+export { classifyHttpHost } from "../shared/http-host-class.js";
 
 export const MAX_SETTINGS_DOCUMENT_BYTES = 256 * 1024;
 export const MAX_SETTINGS_STATE_BYTES = 1024 * 1024;
@@ -25,6 +25,8 @@ export const MAX_SETTINGS_TOKEN_COUNT = 1_000_000_000;
 
 export const SETTINGS_ID_PATTERN_SOURCE = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}";
 export const SETTINGS_ID_PATTERN = new RegExp(`^(?:${SETTINGS_ID_PATTERN_SOURCE})$`, "u");
+export const SECRET_ID_PATTERN_SOURCE = SETTINGS_ID_PATTERN_SOURCE;
+export const SECRET_ID_PATTERN = SETTINGS_ID_PATTERN;
 export { CREDENTIAL_ENV_PATTERN, CREDENTIAL_ENV_PATTERN_SOURCE };
 export const HEADER_NAME_PATTERN_SOURCE = "[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}";
 export const HEADER_NAME_PATTERN = new RegExp(`^(?:${HEADER_NAME_PATTERN_SOURCE})$`, "u");
@@ -51,6 +53,13 @@ export class SettingsFormatError extends StoryFormatError {
 export function requireSettingsId(value: unknown, label: string): string {
   if (typeof value !== "string" || !SETTINGS_ID_PATTERN.test(value)) {
     throw new SettingsFormatError(`${label} must match ${SETTINGS_ID_PATTERN}`);
+  }
+  return value;
+}
+
+export function requireSecretId(value: unknown, label: string): string {
+  if (typeof value !== "string" || !SECRET_ID_PATTERN.test(value)) {
+    throw new SettingsFormatError(`${label} must match ${SECRET_ID_PATTERN}`);
   }
   return value;
 }
@@ -150,25 +159,4 @@ export function normalizeSettingsBaseUrl(value: unknown, label: string): string 
     throw new SettingsFormatError(`${label} contains an ambiguous or non-canonical hostname`);
   }
   return normalized;
-}
-
-export function classifyHttpHost(baseUrl: string): "loopback" | "private-literal" | "other" {
-  const parsed = new URL(baseUrl);
-  const host = parsed.hostname.startsWith("[") ? parsed.hostname.slice(1, -1) : parsed.hostname;
-  if (host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127."))) {
-    return "loopback";
-  }
-  if (isIP(host) === 4 && isPrivateIpv4(host)) return "private-literal";
-  if (isIP(host) === 6 && /^(?:fc|fd)[0-9a-f]{2}:/u.test(host)) return "private-literal";
-  return "other";
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const octets = host.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false;
-  }
-  return octets[0] === 10
-    || (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31)
-    || (octets[0] === 192 && octets[1] === 168);
 }

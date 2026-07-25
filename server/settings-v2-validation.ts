@@ -32,6 +32,7 @@ import {
   requireFiniteTemperature,
   requireHeaderName,
   requirePositiveSettingsInteger,
+  requireSecretId,
   requireSettingsId
 } from "./settings-v2-scalars.js";
 
@@ -44,6 +45,8 @@ const TIMEOUTS = closedShape(["responseHeaderMs", "firstTokenMs", "idleMs", "tot
 const AUTH_NONE = closedShape(["type"]);
 const AUTH_BEARER = closedShape(["type", "env"]);
 const AUTH_HEADER = closedShape(["type", "name", "env"]);
+const AUTH_BEARER_STORED = closedShape(["type", "secretId"]);
+const AUTH_HEADER_STORED = closedShape(["type", "name", "secretId"]);
 const HEADER = closedShape(["name", "value"]);
 const HEADER_VALUE = closedShape(["type", "env"]);
 const MODEL = closedShape(["connectionId", "remoteId", "name", "discovered", "overrides", "capabilities"]);
@@ -106,7 +109,7 @@ function parseConnections(
     const auth = parseAuth(connection.auth, `connection ${id}.auth`, credentialNames, caseInsensitive);
     const headers = parseHeaders(connection.headers, `connection ${id}.headers`, credentialNames, caseInsensitive);
     if (
-      auth.type === "header-env"
+      (auth.type === "header-env" || auth.type === "header-stored")
       && headers.some((header) => header.name.toLowerCase() === auth.name.toLowerCase())
     ) {
       throw new SettingsFormatError(
@@ -173,7 +176,7 @@ function parseNetworkConnection(
   const parsed = new URL(baseUrl);
   if (parsed.protocol === "https:") {
     if (allowInsecureHttp !== undefined) {
-      throw new SettingsFormatError(`connection ${id}.allowInsecureHttp is only valid for private HTTP literals`);
+      throw new SettingsFormatError(`connection ${id}.allowInsecureHttp is only valid for LAN HTTP`);
     }
     return baseUrl;
   }
@@ -182,9 +185,12 @@ function parseNetworkConnection(
   }
   const hostClass = classifyHttpHost(baseUrl);
   if (hostClass === "loopback" && allowInsecureHttp === undefined) return baseUrl;
-  if (hostClass === "private-literal" && allowInsecureHttp === true) return baseUrl;
+  if (
+    (hostClass === "private-literal" || hostClass === "lan-hostname")
+    && allowInsecureHttp === true
+  ) return baseUrl;
   throw new SettingsFormatError(
-    `connection ${id} plain HTTP requires loopback or allowInsecureHttp on a private address literal`
+    `connection ${id} plain HTTP requires loopback or allowInsecureHttp on a LAN host`
   );
 }
 
@@ -209,6 +215,25 @@ function parseAuth(
       type: "header-env",
       name: requireHeaderName(auth.name, `${label}.name`),
       env: credential(auth.env, `${label}.env`, names, caseInsensitive)
+    };
+  }
+  if (candidate?.type === "bearer-stored") {
+    const auth = closedRecord(value, label, AUTH_BEARER_STORED);
+    const secretId = requireSecretId(auth.secretId, `${label}.secretId`);
+    names.add(`stored:${secretId}`);
+    return {
+      type: "bearer-stored",
+      secretId
+    };
+  }
+  if (candidate?.type === "header-stored") {
+    const auth = closedRecord(value, label, AUTH_HEADER_STORED);
+    const secretId = requireSecretId(auth.secretId, `${label}.secretId`);
+    names.add(`stored:${secretId}`);
+    return {
+      type: "header-stored",
+      name: requireHeaderName(auth.name, `${label}.name`),
+      secretId
     };
   }
   throw new SettingsFormatError(`${label}.type is invalid`);

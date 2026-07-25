@@ -20,7 +20,10 @@ import type {
   SettingsDocumentV2,
   SettingsStateV2
 } from "../shared/settings-v2-types.js";
-import { settingsStateCredentialNames } from "../shared/settings-credential-slots.js";
+import {
+  settingsStateCredentialNames,
+  settingsStateEnvironmentCredentialNames
+} from "../shared/settings-credential-slots.js";
 
 const MUTATION_A = `m1.1767225600000.${"a".repeat(32)}`;
 const MUTATION_B = `m1.1767225600001.${"b".repeat(32)}`;
@@ -207,6 +210,24 @@ test("promoted settings retain credentials needed for rollback", () => {
     "NEW_PROVIDER_KEY",
     "OLD_PROVIDER_KEY"
   ]);
+});
+
+test("stored credential IDs count toward state bounds but never become environment requests", () => {
+  const document = credentialedDocument("STORED_PLACEHOLDER");
+  const connection = document.connections["builtin:dry-run"]!;
+  const staged = stage({
+    ...document,
+    connections: {
+      ...document.connections,
+      "builtin:dry-run": {
+        ...connection,
+        auth: { type: "bearer-stored", secretId: "builtin:dry-run" }
+      }
+    }
+  });
+
+  assert.deepEqual(settingsStateCredentialNames(staged), ["stored:builtin:dry-run"]);
+  assert.deepEqual(settingsStateEnvironmentCredentialNames(staged), []);
 });
 
 test("parser rejects every malformed role/hash/pointer relation", () => {

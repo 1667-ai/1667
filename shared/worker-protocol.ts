@@ -17,6 +17,7 @@ import type {
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
+  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsMutationResult,
   SettingsView
@@ -120,8 +121,8 @@ export interface WorkerMethodContract {
     input: { command: DiscardPendingSettingsCommand };
     output: SettingsMutationResult;
   };
-  checkModelServer: { input: { settings: GenerationSettings }; output: ModelServerCheckResult };
-  probeContextWindow: { input: { settings: GenerationSettings }; output: { contextWindow: number | null } };
+  checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
+  probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: GenerationSettings }; output: ModelDiscoveryResultV2 };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   continueStory: {

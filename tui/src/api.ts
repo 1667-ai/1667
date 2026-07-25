@@ -38,6 +38,7 @@ import type {
 } from "../../shared/types.js";
 import type {
   DiscardPendingSettingsCommand,
+  ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsMutationResult,
   SettingsView
@@ -157,8 +158,8 @@ export interface StoryApi {
   getSettings(): Promise<SettingsView>;
   saveSettings(command: SaveSettingsCommand): Promise<SettingsMutationResult>;
   discardPendingSettings(command: DiscardPendingSettingsCommand): Promise<SettingsMutationResult>;
-  checkModelServer(settings: GenerationSettings): Promise<ModelServerCheckResult>;
-  probeContextWindow(settings: GenerationSettings): Promise<{ contextWindow: number | null }>;
+  checkModelServer(settings: ProviderProbeTarget): Promise<ModelServerCheckResult>;
+  probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   continueStory(
     storyId: string,
