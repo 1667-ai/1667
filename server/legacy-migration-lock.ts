@@ -1,13 +1,22 @@
 import type { Stats } from "node:fs";
-import { lstat, mkdir, rmdir, utimes } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  open,
+  rmdir,
+  utimes,
+  type FileHandle
+} from "node:fs/promises";
 import path from "node:path";
+import { retainedDirectoryOpenFlags } from "./retained-directory-authority.js";
 import { syncDirectory } from "./story-lifecycle.js";
 
 const HEARTBEAT_MS = 2_000;
 
 /** A lease compatible with the directory locks used by older 1667
  * releases. The heartbeat stays comfortably inside their 10-second stale
- * window; inode checks prevent cleanup from removing a replacement owner. */
+ * window. A retained directory handle prevents inode reuse while path
+ * identity checks keep cleanup from removing a replacement owner. */
 export class LegacyMigrationLock {
   private heartbeatError: unknown = null;
   private heartbeatTask: Promise<void> = Promise.resolve();
@@ -17,7 +26,8 @@ export class LegacyMigrationLock {
   private constructor(
     private readonly sourceDir: string,
     private readonly lockPath: string,
-    private readonly identity: LockIdentity
+    private readonly identity: LockIdentity,
+    private readonly handle: FileHandle
   ) {}
 
   static async acquire(sourceDir: string): Promise<LegacyMigrationLock> {
@@ -34,14 +44,27 @@ export class LegacyMigrationLock {
       throw error;
     }
 
+    let handle: FileHandle | undefined;
+    let identity: LockIdentity | undefined;
     try {
-      const lock = new LegacyMigrationLock(sourceDir, lockPath, identityOf(await lstat(lockPath)));
+      handle = await open(lockPath, retainedDirectoryOpenFlags());
+      identity = identityOf(await handle.stat());
+      if (!sameIdentity(identity, identityOf(await lstat(lockPath)))) {
+        throw lockLostError();
+      }
       await syncDirectory(sourceDir);
-      await lock.assertHeld();
+      if (!sameIdentity(identity, identityOf(await lstat(lockPath)))) {
+        throw lockLostError();
+      }
+      const lock = new LegacyMigrationLock(sourceDir, lockPath, identity, handle);
+      handle = undefined;
       lock.startHeartbeat();
       return lock;
     } catch (error) {
-      await rmdir(lockPath).catch(() => undefined);
+      if (handle !== undefined && identity !== undefined) {
+        await removeIfOwned(lockPath, identity);
+      }
+      await handle?.close();
       throw error;
     }
   }
@@ -57,17 +80,21 @@ export class LegacyMigrationLock {
     this.timer = null;
     await this.heartbeatTask;
 
-    let current: Stats;
     try {
-      current = await lstat(this.lockPath);
-    } catch (error) {
-      throw lockLostError(error);
-    }
-    if (!sameIdentity(this.identity, identityOf(current))) throw lockLostError();
+      let current: Stats;
+      try {
+        current = await lstat(this.lockPath);
+      } catch (error) {
+        throw lockLostError(error);
+      }
+      if (!sameIdentity(this.identity, identityOf(current))) throw lockLostError();
 
-    await rmdir(this.lockPath);
-    await syncDirectory(this.sourceDir);
-    if (this.heartbeatError !== null) throw lockLostError(this.heartbeatError);
+      await rmdir(this.lockPath);
+      await syncDirectory(this.sourceDir);
+      if (this.heartbeatError !== null) throw lockLostError(this.heartbeatError);
+    } finally {
+      await this.handle.close();
+    }
   }
 
   private startHeartbeat(): void {
@@ -110,6 +137,19 @@ function identityOf(stats: Stats): LockIdentity {
 
 function sameIdentity(left: LockIdentity, right: LockIdentity): boolean {
   return left.dev === right.dev && left.ino === right.ino && left.birthtimeMs === right.birthtimeMs;
+}
+
+async function removeIfOwned(
+  lockPath: string,
+  identity: LockIdentity
+): Promise<void> {
+  try {
+    if (sameIdentity(identity, identityOf(await lstat(lockPath)))) {
+      await rmdir(lockPath);
+    }
+  } catch {
+    // Acquisition already failed. Preserve any uncertain path for diagnosis.
+  }
 }
 
 function isCode(error: unknown, code: string): boolean {
