@@ -95,6 +95,52 @@ test("Q a receipt-only duplicate terminalizes before another start", async (t) =
   assert.notEqual(receipt.completed, null);
 });
 
+test("Q a prepared no-op provider effect still terminalizes", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-no-op-terminal-");
+  const seeded = await fixture.stories.createNode(
+    STORY_ID,
+    null,
+    "Already committed summary",
+    "Summarize"
+  );
+  const existing = seeded.nodes.at(-1)!;
+  const admitted = await fixture.stories.loadVersioned(STORY_ID);
+
+  const committed = await fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, admitted.aggregateVersion!),
+    "createSummaryTake",
+    async (stories) => await stories.commitProviderEffect(STORY_ID, {
+      kind: "summary-take",
+      point: { nodeId: existing.id, offset: null },
+      expected: null,
+      sourceFingerprint: "unused-for-existing-commit",
+      summary: "Must not be duplicated",
+      model: "test",
+      instruction: "Summarize",
+      commitIds: { summaryNodeId: existing.id }
+    }),
+    () => existing
+  );
+
+  assert.equal(committed.value.id, existing.id);
+  assert.equal(
+    committed.story.nodes.filter((node) => node.id === existing.id).length,
+    1
+  );
+  const receipt = await fixture.ledger.loadStoryReceipt(
+    `story:${STORY_ID}`,
+    MUTATION_ID
+  );
+  assert.notEqual(receipt.started, null);
+  assert.equal(receipt.prepared?.result.kind, "story");
+  assert.notEqual(receipt.completed, null);
+  assert.deepEqual(
+    (await fixture.stories.loadVersioned(STORY_ID)).story,
+    committed.story
+  );
+  await fixture.stories.waitForMaintenance();
+});
+
 for (const cachedKind of ["v5", "v6"] as const) {
   test(`Q provider failure terminalizes after cached ${cachedKind.toUpperCase()} deletion`, async (t) => {
     const fixture = await setup(

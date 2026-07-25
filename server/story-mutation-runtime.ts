@@ -19,17 +19,12 @@ export interface ProviderStoryRuntime {
 /** Typed provider view used outside a story claim. The outer receipt
  * transaction performs the one authoritative V6 publication. */
 export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
-  private saved = false;
   private preparedEffect: ProviderStoryEffect | null = null;
 
   /** Node text hydrates from the bundle the story itself carries, so this
    * runtime outlives the aggregate session that decoded it. That lets the
    * provider round-trip run without holding story I/O against readers. */
   constructor(private readonly story: Story) {}
-
-  get didSave(): boolean {
-    return this.saved;
-  }
 
   get effect(): ProviderStoryEffect | null {
     return this.preparedEffect;
@@ -59,7 +54,6 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
       async (story, nodeId) => await this.hydratePath(story, nodeId)
     );
     this.preparedEffect = effect;
-    this.saved = applied.changed;
     return applied.value;
   }
 

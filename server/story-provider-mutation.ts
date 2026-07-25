@@ -120,7 +120,7 @@ export class StoryProviderMutationStore {
         await this.recordFailure(storyId, request, method, started, error);
         throw error;
       }
-      if (started === null && runtime.didSave) await startProvider();
+      if (started === null && runtime.effect !== null) await startProvider();
       if (started === null) {
         return await this.coordinator.runStoryPhase(request, async () =>
           await this.stories.withAggregateSession(storyId, async (session) => ({
@@ -130,7 +130,7 @@ export class StoryProviderMutationStore {
           }))
         );
       }
-      if (!runtime.didSave || runtime.effect === null) {
+      if (runtime.effect === null) {
         throw providerOutcomeUnknown(request.mutationId);
       }
 
