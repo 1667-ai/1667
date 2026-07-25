@@ -113,7 +113,7 @@ async function proveConnection(
     client.once("response", (incoming) => {
       const proof = incoming.headers[HTTP_SERVER_PROOF_HEADER];
       const responseUsedProofSocket =
-        proofSocket !== null && incoming.socket === proofSocket;
+        proofSocket !== null && sameProvenConnection(incoming.socket, proofSocket);
       incoming.resume();
       incoming.once("end", () => {
         const socket = proofSocket;
@@ -227,13 +227,36 @@ async function verifyThenSend(
       socket.once("error", reject);
     });
   }
-  if (socket !== provenSocket || socket.destroyed || !peerMatches(socket, expectedPeer)) {
+  if (!sameProvenConnection(socket, provenSocket)
+    || socket.destroyed
+    || !peerMatches(socket, expectedPeer)) {
     throw new Error(
       "1667 HTTP transport refused an unproven loopback connection"
     );
   }
   headers.forEach((value, name) => client.setHeader(name, value));
   client.end(body);
+}
+
+/**
+ * Whether a socket is the connection the server already proved itself on.
+ *
+ * Node's `node:http` hands out one stable socket object per keep-alive
+ * connection, so identity is exact and is enforced. Bun's compatibility layer
+ * does not: it exposes a different object on the response than on the request,
+ * returns a fresh object for the next request on the same agent, and ignores a
+ * custom `createConnection`, so there is nothing stable to compare. On that
+ * runtime the exact-connection HMAC over origin, instance ID and nonce remains
+ * authoritative — the same trade this file already documents for the missing
+ * `remoteAddress`. Every request still dials the one canonical loopback origin
+ * and still verifies that HMAC before any payload is sent.
+ */
+function sameProvenConnection(
+  candidate: Socket | null | undefined,
+  proven: Socket
+): boolean {
+  if (candidate === proven) return true;
+  return process.versions.bun !== undefined;
 }
 
 function peerMatches(socket: Socket, expectedPeer: string): boolean {
