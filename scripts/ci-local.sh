@@ -168,6 +168,16 @@ for i in "${!RESULT_NAMES[@]}"; do
 done
 printf '  \033[33mNOT COVERED\033[0m  windows-x64 (no local equivalent)\n'
 
+# The pre-push hook reads this. Only a full run may record a pass: --only
+# covers one target and must never satisfy the gate.
+marker="$(git -C "$REPO_ROOT" rev-parse --git-dir)/local-ci-pass"
+if [ "$failed" -eq 0 ] && [ -z "$ONLY_TARGET" ]; then
+  git -C "$REPO_ROOT" rev-parse HEAD > "$marker"
+  echo "  recorded local-ci pass for $(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+else
+  rm -f "$marker"
+fi
+
 if [ "$PUBLISH_STATUS" -eq 1 ]; then
   sha="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   covered="$(IFS=,; echo "${RESULT_NAMES[*]}")"

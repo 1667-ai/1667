@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Refuses to push a commit that has not passed scripts/ci-local.sh.
+#
+# Hosted CI is paused, and branch protection is unavailable on a private repo
+# on the Free plan, so no required status check can block a merge. This hook is
+# where the gate can still bite: the commit you are about to publish must have
+# a recorded local pass.
+#
+# Install: git config core.hooksPath .githooks
+# Bypass:  git push --no-verify   (deliberate, and visible in the reflog)
+set -uo pipefail
+
+readonly MARKER="$(git rev-parse --git-dir)/local-ci-pass"
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  # Branch deletion pushes an all-zero local sha and needs no gate.
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+
+  if [ ! -f "$MARKER" ]; then
+    cat >&2 <<EOF
+
+  push refused: no local CI run recorded
+
+  Hosted CI is paused, so scripts/ci-local.sh is the gate.
+
+      scripts/ci-local.sh
+
+  Then push again. To publish without the gate: git push --no-verify
+
+EOF
+    exit 1
+  fi
+
+  passed_sha="$(cat "$MARKER" 2>/dev/null)"
+  if [ "$passed_sha" != "$local_sha" ]; then
+    cat >&2 <<EOF
+
+  push refused: local CI passed a different commit
+
+    passed:  ${passed_sha:0:12}
+    pushing: ${local_sha:0:12}
+
+  Rerun the gate against what you are actually pushing:
+
+      scripts/ci-local.sh
+
+  To publish without the gate: git push --no-verify
+
+EOF
+    exit 1
+  fi
+
+  # remote_sha is unused: the gate is about the commit being published, not
+  # about what the remote happens to hold.
+  : "${remote_sha}"
+done
+
+exit 0

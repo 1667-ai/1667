@@ -194,7 +194,14 @@ scripts/ci-local.sh --status     # also publish the result as a commit status
 Linux targets run in Docker, which is the only way to exercise the plain-HTTP
 loopback provider suites: `ownedLoopbackHttpSupportedOn` is Linux-only, so those
 tests skip entirely on macOS and Windows. `windows-x64` has no local equivalent
-and is the one gap. See [scripts/ci-local.sh](scripts/ci-local.sh).
+and is the one gap; the run reports it as NOT COVERED rather than implying a pass.
+
+A full green run records a pass for that exact commit, and the pre-push hook
+refuses to publish anything else:
+
+```bash
+git config core.hooksPath .githooks   # once per clone
+```
 
 Hosted CI is paused for the month and its workflow is manual-dispatch only. See
 [.github/workflows/ci.yml](.github/workflows/ci.yml).
