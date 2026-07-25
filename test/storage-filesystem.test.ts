@@ -4,6 +4,7 @@ import { isVerifiedLocalFilesystem } from "../server/storage-filesystem.js";
 import { darwinMountInfo } from "../server/storage-filesystem-node.js";
 import { windowsDriveRoot } from "../server/storage-filesystem-windows.js";
 import { posixLibcCandidates } from "../server/bun-ffi.js";
+import { decodeDarwinStatfs } from "../server/storage-filesystem-bun.js";
 
 test("storage filesystem policy accepts reviewed local filesystems", () => {
   assert.equal(isVerifiedLocalFilesystem("darwin", { type: 999n, typeName: "apfs", local: true }), true);
@@ -55,3 +56,48 @@ test("Bun FFI probes both glibc and musl C libraries", () => {
   ]);
   assert.ok(posixLibcCandidates("linux", "arm64").includes("libc.musl-aarch64.so.1"));
 });
+
+test("Bun decodes both Darwin statfs ABIs", () => {
+  const arm = darwinStatfsFixture({
+    typeOffset: 60,
+    flagsOffset: 64,
+    typeNameOffset: 72,
+    legacy: false
+  });
+  assert.deepEqual(decodeDarwinStatfs(arm, "arm64"), {
+    type: 26n,
+    typeName: "apfs",
+    local: true
+  });
+
+  const intel = darwinStatfsFixture({
+    typeOffset: 78,
+    flagsOffset: 80,
+    typeNameOffset: 104,
+    legacy: true
+  });
+  assert.deepEqual(decodeDarwinStatfs(intel, "x64"), {
+    type: 26n,
+    typeName: "apfs",
+    local: true
+  });
+});
+
+function darwinStatfsFixture(offsets: {
+  typeOffset: number;
+  flagsOffset: number;
+  typeNameOffset: number;
+  legacy: boolean;
+}): Uint8Array {
+  const storage = new Uint8Array(128);
+  const view = new DataView(storage.buffer);
+  if (offsets.legacy) {
+    view.setUint16(offsets.typeOffset, 26, true);
+    view.setBigUint64(offsets.flagsOffset, 0x1000n, true);
+  } else {
+    view.setUint32(offsets.typeOffset, 26, true);
+    view.setUint32(offsets.flagsOffset, 0x1000, true);
+  }
+  storage.set(new TextEncoder().encode("apfs"), offsets.typeNameOffset);
+  return storage;
+}
