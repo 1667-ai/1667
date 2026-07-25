@@ -49,7 +49,7 @@ const TOUR: StarterStory = {
           instruction: "Open the tour. Teach take flipping by making the reader do it.",
           keys: ["takeNext", "takePrevious"],
           text: "Welcome to 1667. This story is also the manual, which means you can "
-            + "ruin it freely — nothing here is load-bearing, and you can delete both starter "
+            + "ruin it freely, and you can delete both starter "
             + "stories the moment they stop earning their place.\n\n"
             + "Start with the thing that makes this editor different. This paragraph exists in "
             + "three versions. They are called takes. Press [→] to read the next one, and [←] "
@@ -64,7 +64,7 @@ const TOUR: StarterStory = {
           text: "Take two of three.\n\n"
             + "Same moment in the story, different words for it. That is all a take is: an "
             + "alternative for one beat, not a fork of the whole book. You will accumulate "
-            + "them without meaning to — every regeneration lands here, beside its siblings, "
+            + "them without meaning to. Every regeneration lands here, beside its siblings, "
             + "rather than on top of them.\n\n"
             + "Nothing you have read so far was overwritten to show you this. Press [→] for "
             + "the last one, or [←] to go back."
@@ -76,10 +76,9 @@ const TOUR: StarterStory = {
           keys: ["takeNext", "takePrevious", "focusNext"],
           text: "Take three, and the end of the row — [→] stops here, and [←] walks back.\n\n"
             + "This one has a bookmark on it, named \"The long way round\". You will see it "
-            + "again in the map, which is the point: a bookmark is how you make one take "
+            + "again in the map later: a bookmark is how you make one take "
             + "findable months later, when you have forgotten it existed.\n\n"
-            + "Leave whichever take you prefer on screen. The tour continues the same either "
-            + "way. Press [↓] when you are ready."
+            + "Now go back to the first take with [←]. And then press [↓]."
         }
       ]
     },
@@ -90,12 +89,12 @@ const TOUR: StarterStory = {
           instruction: "Movement: focus versus viewport.",
           keys: ["focusNext", "focusPrevious", "scrollLineDown", "scrollLineUp", "top", "leaf"],
           text: "[↓] and [↑] move between parts.\n\n"
-            + "That is focus, and it matters more than it sounds: the focused part is the one "
-            + "every other key acts on. Bookmarking, regenerating, editing, deleting — they "
+            + "The focused part is highlighted. It's the one every other key acts on. "
+            + "Bookmarking, regenerating, editing, deleting — they "
             + "all aim at whatever is focused right now.\n\n"
             + "Reading is a separate motion. Hold shift and the view slides without dragging "
             + "focus along: [⇧↓] and [⇧↑] nudge it one line. To travel further, [g] jumps to "
-            + "the top of the story and [G] runs to the end of the line you are on.\n\n"
+            + "the top of the story and [G] runs to the end of the story line you are on.\n\n"
             + "Keep going down."
         }
       ]
@@ -107,12 +106,12 @@ const TOUR: StarterStory = {
           instruction: "Introduce the two ways prose arrives.",
           keys: ["continue", "compose", "write", "regenerate", "reprompt"],
           text: "Prose arrives two ways, and both are one keystroke.\n\n"
-            + "Press [space] to continue from here — no instruction, no ceremony, just carry "
+            + "Press [space] to continue from here. No instruction, no ceremony, just carry "
             + "on. Press [enter] instead when you want to say something first: describe the "
             + "next beat, then send it.\n\n"
             + "This install is wired to a dry-run model, so anything you generate comes back "
-            + "as obvious placeholder text rather than a bill. That is deliberate. Connect a "
-            + "real model whenever you like — the tour tells you where, further down.\n\n"
+            + "as obvious placeholder text rather than a bill. Connect a "
+            + "real model whenever you like. The tour tells you where, further down.\n\n"
             + "When a result disappoints, [r] regenerates it as a new take beside the old "
             + "one, and [R] regenerates with a fresh instruction. The disappointing version "
             + "does not vanish; it just stops being the one on screen.\n\n"
@@ -128,9 +127,9 @@ const TOUR: StarterStory = {
           keys: ["edit", "takePrevious", "undo", "prune", "instructions"],
           text: "Press [e] to edit the focused part in place. Your changes become a take, so "
             + "the model's original stays reachable behind [←].\n\n"
-            + "[u] undoes. [d] prunes — it deletes takes you never chose, which is how a "
+            + "[u] undoes. [d] prunes — it deletes takes and their children, which is how a "
             + "story that sprawled during a long session gets its shape back. Pruning asks "
-            + "first, and only ever removes the unused.\n\n"
+            + "first if you are sure.\n\n"
             + "One more: [p] toggles the instructions that produced each part. Try it here. "
             + "Every part in this tour carries the note it was written against, which is "
             + "usually the fastest way to remember what you were trying to do."
@@ -146,13 +145,13 @@ const TOUR: StarterStory = {
           keys: ["openMap", "mapCycleView", "mapDetail", "mapJump", "mapBookmark"],
           text: "Press [m] to open the map.\n\n"
             + "A story with takes is a tree, not a page, and past a few thousand words the "
-            + "tree is the only honest picture of it. The map draws that tree: the line you "
+            + "tree is the real picture of it. The map draws that tree: the line you "
             + "are reading, the takes hanging off it, the bookmarks you left behind.\n\n"
-            + "Inside the map, [m] cycles between its views, [a] turns detail up or down, and "
-            + "[b] bookmarks whatever row you are on. Press [enter] to jump the story to that "
-            + "row and land back in the text exactly there.\n\n"
-            + "Bookmarks go on the end of a line, never in the middle: you are naming where "
-            + "a storyline arrived, not annotating a paragraph. Two of them are already out "
+            + "Inside the map, [m] cycles between its views, [esc] closes it, [a] turns "
+            + "detail up or down, and [b] bookmarks whatever row you are on. Press [enter] "
+            + "to jump the story to that row and land back in the text exactly there.\n\n"
+            + "Bookmarks go on the end of a story line, never in the middle: you are naming "
+            + "where a storyline arrived, not annotating a paragraph. Two of them are already out "
             + "there — one on the take you skipped at the start, one at the end of this tour. "
             + "Labels are the vocabulary: Canon, Alt, Draft, Discarded, Summary. Use them "
             + "loosely — they sort the map, they do not police anything."
