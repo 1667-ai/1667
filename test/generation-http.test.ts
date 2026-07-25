@@ -95,6 +95,40 @@ providerTest("generation HTTP: append at a summarized chapter break creates a ch
   assert.deepEqual(messages.at(-1), { role: "user", content: "Continue the story." });
 });
 
+providerTest("generation HTTP: append survives a concurrent line switch", async (t) => {
+  let base = "";
+  let storyId = "";
+  const model = await fakeModel(t, async (_body, response) => {
+    await json(`${base}/api/stories/${storyId}/nodes`, post({
+      parentId: null,
+      instruction: "Start elsewhere.",
+      text: "The writer changed lines."
+    }));
+    stream(response, ["cked."]);
+  });
+  base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "The latch was unlo");
+  storyId = story.id;
+  const source = story.path[0]!;
+  const response = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post({
+      appendTo: source.id,
+      expectedTextHash: sha256(source.text),
+      instruction: "",
+      genId: "append-after-switch"
+    })
+  );
+  const returned = doneStory(await response.text());
+  const saved = await getStory(base, story.id);
+  assert.deepEqual(returned, saved);
+  assert.equal(
+    saved.nodes.find(({ id }) => id === source.id)?.preview,
+    "The latch was unlocked."
+  );
+  assert.equal(saved.path.at(-1)?.text, "The writer changed lines.");
+});
+
 providerTest("generation HTTP: a take under a parent preserves the old child as a sibling", async (t) => {
   const model = await fakeModel(t, (_body, response) => stream(response, ["A different turn."]));
   const base = await testApp(t, modelSettings(model.baseUrl));

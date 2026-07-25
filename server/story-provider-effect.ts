@@ -6,6 +6,7 @@ import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { setNodeRewriteId } from "./story-node-text.js";
 import {
+  appendContinuationToNode,
   commitTake,
   createInactiveTakeFromCut,
   createTake,
@@ -115,7 +116,7 @@ export async function applyProviderStoryEffect(
     case "autoname":
       return applyAutoname(story, effect);
     case "continue":
-      return applyContinuation(story, effect);
+      return await applyContinuation(story, effect, hydratePath);
     case "rewrite":
       return await applyRewrite(story, effect, hydratePath);
     case "summary-take":
@@ -144,11 +145,22 @@ function applyAutoname(
   return { changed: true, value: story };
 }
 
-function applyContinuation(
+async function applyContinuation(
   story: Story,
-  effect: ContinueStoryEffect
-): AppliedProviderStoryEffect<Story> {
+  effect: ContinueStoryEffect,
+  hydratePath: HydrateProviderPath
+): Promise<AppliedProviderStoryEffect<Story>> {
   requireNotCancelled(effect.cancelled, "Story writing was cancelled");
+  if (effect.appendTo !== null) {
+    if (nodeById(story, effect.appendTo) === null) {
+      throw new GenerationResultError(
+        409,
+        "The node being continued was deleted while writing; nothing was saved."
+      );
+    }
+    await hydratePath(story, effect.appendTo);
+    requireNotCancelled(effect.cancelled, "Story writing was cancelled");
+  }
   if (effect.genId !== null && hasCommittedGeneration(story, effect.genId)) {
     return { changed: false, value: story };
   }
@@ -175,6 +187,11 @@ function applyContinuation(
   const parent = commit.parentId === null
     ? null
     : nodeById(story, commit.parentId);
+  const appendTarget = commit.appendTo === null
+    ? null
+    : nodeById(story, commit.appendTo);
+  const appendWriterMoved = appendTarget !== null
+    && activePath(story).at(-1)?.id !== appendTarget.id;
   const writerMoved = commit.appendTo === null && (
     parent === null
       ? story.activeRootId !== effect.expectedActiveRootId
@@ -185,7 +202,18 @@ function applyContinuation(
       )
   );
   try {
-    if (writerMoved) {
+    if (appendWriterMoved) {
+      if (commit.expectedTextHash === null) {
+        throw new Error("appendTo requires expectedTextHash");
+      }
+      appendContinuationToNode(
+        appendTarget,
+        commit.expectedTextHash,
+        commit.text,
+        commit.model,
+        commit.genId ?? undefined
+      );
+    } else if (writerMoved) {
       const added = newNode(
         commit.parentId,
         commit.instruction,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Story, StoryNode } from "../shared/types.js";
 import { GenerationResultError } from "../server/errors.js";
+import { sha256 } from "../server/story-format.js";
 import { storyAutonameId } from "../server/story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "../server/story-node-text.js";
 import {
@@ -193,6 +194,30 @@ test("continue deduplicates a Stop save with the same generation ID", async () =
   }, hydrate);
   assert.equal(applied.changed, false);
   assert.deepEqual(current.nodes.map(({ id }) => id), ["root", "partial"]);
+});
+
+test("append completion stays on its source after the writer switches lines", async () => {
+  const current = story([
+    node("source", null, "The latch was unlo"),
+    node("writer", null, "A different line.", { human: true })
+  ], "writer");
+  await applyProviderStoryEffect(current, {
+    kind: "continue",
+    parentId: null,
+    appendTo: "source",
+    expectedTextHash: sha256("The latch was unlo"),
+    instruction: "",
+    text: "cked.",
+    model: "m2",
+    genId: "g-append",
+    expectedParentActiveChildId: null,
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "source"
+  }, hydrate);
+  assert.equal(current.nodes[0]?.text, "The latch was unlocked.");
+  assert.equal(current.nodes[0]?.genId, "g-append");
+  assert.equal(current.activeRootId, "writer");
+  assert.equal(current.nodes.length, 2);
 });
 
 test("continue fails when its parent was deleted", async () => {

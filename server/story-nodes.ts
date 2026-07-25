@@ -238,6 +238,23 @@ export function appendToActiveLeaf(
   if (activeLeaf(story)?.id !== node.id) {
     throw new HttpError(409, "The node being continued is no longer the active leaf.");
   }
+  return appendContinuationToNode(
+    node,
+    expectedTextHash,
+    continuation,
+    model,
+    genId
+  );
+}
+
+export function appendContinuationToNode(
+  node: StoryNode,
+  expectedTextHash: string,
+  continuation: string,
+  model: string,
+  genId?: string
+): StoryNode {
+  validateTextHash(expectedTextHash);
   if (node.role === "summary") {
     throw new HttpError(400, "Cannot write inside a summary — continue the story with a new node.");
   }
