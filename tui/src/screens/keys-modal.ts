@@ -213,9 +213,18 @@ const COLUMN_WIDTH = TOKEN_WIDTH + 2 + DESCRIPTION_BUDGET;
 const COLUMN_GUTTER = 2;
 const MAX_COLUMNS = 3;
 const PANEL_MAX_WIDTH = MAX_COLUMNS * COLUMN_WIDTH + (MAX_COLUMNS - 1) * COLUMN_GUTTER + 2;
-/** Panel chrome placePanel adds around the content rows it will actually draw:
- *  title, blank, border, footer, and the row the frame reserves below. */
+/** Chrome `placePanel` wraps around the content it draws: title, blank, border,
+ *  footer, and the row the frame reserves below the panel. */
 const PANEL_CHROME_ROWS = 9;
+/** The floor `placePanel` puts under its own height, in content rows. */
+const PANEL_MINIMUM_ROWS = 2;
+
+/** How many content rows `placePanel` will actually paint at this height.
+ *  Slicing more than this would strand the last rows behind a scroll bound
+ *  that can never reach them, and make the footer's position a lie. */
+function panelContentRows(height: number): number {
+  return Math.max(PANEL_MINIMUM_ROWS, height - PANEL_CHROME_ROWS);
+}
 
 export interface KeysOverlayRender {
   composition: FrameComposition;
@@ -234,7 +243,7 @@ export function renderKeysOverlay(
   const interior = panelWidth - visibleWidth("┃ ");
   const columns = columnCount(interior);
   const rows = layoutRows(interior, columns);
-  const visibleRows = Math.max(3, height - PANEL_CHROME_ROWS);
+  const visibleRows = panelContentRows(height);
   const maxScroll = Math.max(0, rows.length - visibleRows);
   const top = Math.max(0, Math.min(scrollTop, maxScroll));
   const content = rows.slice(top, top + visibleRows);

@@ -151,6 +151,21 @@ describe("keys reference", () => {
     expect(render(80, 24, clamped.scrollTop + 1).scrollTop).toBe(clamped.scrollTop);
   });
 
+  test("the last row stays reachable on the shortest panel the frame allows", () => {
+    // `placePanel` floors its own height, so a taller slice than it paints
+    // would strand the final rows and overstate the footer's position.
+    for (const height of [10, 11, 12, 13, 16]) {
+      const bottom = render(80, height, 500);
+      const painted = frameText(bottom.composition.lines)
+        .split("\n")
+        .filter((line) => line.includes("┃")).length - 1;
+      const shown = `${height}:${frameText(bottom.composition.lines).includes("d / b  prune · bookmark here")}`;
+      expect(shown).toBe(`${height}:true`);
+      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:27`);
+      expect(frameText(bottom.composition.lines)).toContain(`${bottom.scrollTop + painted} of 27 rows`);
+    }
+  });
+
   test("descriptions stay inside the column budget instead of truncating", () => {
     const frame = text(80, 36);
     expect(frame).not.toContain("…");
