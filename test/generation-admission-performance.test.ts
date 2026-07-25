@@ -3,11 +3,12 @@ import test from "node:test";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { hasCommittedGeneration } from "../server/story-nodes.js";
 import type { Story, StoryNode } from "../shared/types.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 const NODE_COUNT = 20_000;
 const LOOKUP_ROUNDS = 500;
 const REGISTRY_ROUNDS = 25_000;
-const CPU_BUDGET_MS = 8_000;
+const CPU_BUDGET_MS = platformPerformanceBudget(8_000);
 
 test("generation lookup and admission churn stay comfortably bounded", { timeout: 30_000 }, async (t) => {
   const story = largeStory();
