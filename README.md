@@ -4,7 +4,6 @@
 
 **A full-screen terminal environment for writing fiction with language models.**
 
-[![CI](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg)](https://github.com/1667-ai/1667/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
@@ -185,7 +184,20 @@ bun test
 bun bench/perf.ts      # headless frame performance gates
 ```
 
-Continuous integration runs every gate on Linux, then builds and executes a packaged candidate on macOS, Linux, and Windows. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+Every gate runs locally across the platforms this machine can reach:
+
+```bash
+scripts/ci-local.sh              # darwin-arm64, linux-x64, linux-arm64
+scripts/ci-local.sh --status     # also publish the result as a commit status
+```
+
+Linux targets run in Docker, which is the only way to exercise the plain-HTTP
+loopback provider suites: `ownedLoopbackHttpSupportedOn` is Linux-only, so those
+tests skip entirely on macOS and Windows. `windows-x64` has no local equivalent
+and is the one gap. See [scripts/ci-local.sh](scripts/ci-local.sh).
+
+Hosted CI is paused for the month and its workflow is manual-dispatch only. See
+[.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 To collect frame diagnostics from an interactive session, set `AI_1667_TUI_PROFILE=1`. After the terminal restores, 1667 writes one JSON report to standard error.
 

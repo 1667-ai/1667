@@ -1,9 +1,11 @@
 name: CI
 
+# Hosted CI is paused: the monthly Actions allowance is spent, and 61% of it
+# went to jobs that wedged and burned their timeout rather than to useful work.
+# scripts/ci-local.sh covers every target except windows-x64 at no cost.
+# To bring hosted CI back, restore the pull_request and push triggers below.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +17,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,7 +78,7 @@ jobs:
           - target: windows-x64
             runner: windows-2025
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
