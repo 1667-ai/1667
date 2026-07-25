@@ -135,7 +135,7 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain("● MOVE  read and navigate");
     expect(frame).toContain("↑ ↓  move between parts");
     expect(frame).toContain("← →  flip between takes");
-    expect(frame).toContain("l  follow into the story");
+    expect(frame).toContain("l  follow it · tree, mass");
     expect(frame).not.toContain("│ ↑ │");
     expect(frame).not.toContain("j/k");
     expect(frame).not.toContain("h/l");

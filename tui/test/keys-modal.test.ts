@@ -162,11 +162,24 @@ describe("keys reference", () => {
       const painted = frameText(bottom.composition.lines)
         .split("\n")
         .filter((line) => line.includes("┃")).length - 1;
-      const shown = `${height}:${frameText(bottom.composition.lines).includes("d / b  prune · bookmark here")}`;
+      const shown = `${height}:${frameText(bottom.composition.lines).includes("d / b  prune · bookmark · path")}`;
       expect(shown).toBe(`${height}:true`);
       expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:27`);
       expect(frameText(bottom.composition.lines))
         .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/27`);
+    }
+  });
+
+  test("a map key that only works in some views names them", () => {
+    // `d` prunes in path and does nothing in tree or mass. A section headed
+    // "while the map is open" would otherwise promise all three.
+    const map = KEYS_MODAL_MODEL.sections.find((section) => section.title === "MAP")!;
+    for (const item of map.entries) {
+      const views = new Set(item.bindings.map((binding) => binding.mapView));
+      if (views.has(undefined) || views.size === 3) continue;
+      for (const view of views) {
+        expect(`${item.token}:${item.description.includes(view!)}`).toBe(`${item.token}:true`);
+      }
     }
   });
 

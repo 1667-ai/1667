@@ -180,16 +180,18 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("a", "MAP", "toggle-sketches", { mapView: "tree" }),
         binding("a", "MAP", "toggle-sketches", { mapView: "mass" })
       ]),
-      entry("s", "sort by mass", [
-        binding("s", "MAP", "map-cycle-sort", { mapView: "tree" }),
-        binding("s", "MAP", "map-cycle-sort", { mapView: "mass" })
-      ]),
-      entry("l", "follow into the story", [
+      entry("enter", "jump to that part", [binding("return", "MAP", "apply")]),
+      // Views the map itself names in its tabs. A key that does nothing in the
+      // view you are looking at has to say so, or the reference lies again.
+      entry("l", "follow it · tree, mass", [
         binding("l", "MAP", "map-follow", { mapView: "tree" }),
         binding("l", "MAP", "map-follow", { mapView: "mass" })
       ]),
-      entry("enter", "jump to that part", [binding("return", "MAP", "apply")]),
-      entry("d / b", "prune · bookmark here", [
+      entry("s", "mass sort · tree, mass", [
+        binding("s", "MAP", "map-cycle-sort", { mapView: "tree" }),
+        binding("s", "MAP", "map-cycle-sort", { mapView: "mass" })
+      ]),
+      entry("d / b", "prune · bookmark · path", [
         binding("d", "MAP", "prune", { mapView: "path" }),
         binding("b", "MAP", "bookmark", { mapView: "path" })
       ])
