@@ -10,6 +10,7 @@ import {
   FINGERPRINT,
   hasServiceError,
   MUTATION_ID,
+  request,
   requestFor,
   setup,
   STORY_ID,
@@ -94,6 +95,105 @@ test("Q a receipt-only duplicate terminalizes before another start", async (t) =
     "conflict"
   );
   assert.notEqual(receipt.completed, null);
+});
+
+test("Q a delayed duplicate replays a winner completed before start", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-delayed-start-replay-");
+  let markDuplicateAdmitted!: () => void;
+  const duplicateAdmitted = new Promise<void>((resolve) => {
+    markDuplicateAdmitted = resolve;
+  });
+  let releaseDuplicate!: () => void;
+  const duplicateGate = new Promise<void>((resolve) => {
+    releaseDuplicate = resolve;
+  });
+  t.after(() => releaseDuplicate());
+  let continuedAfterStart = false;
+
+  const duplicate = fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (_stories, start) => {
+      markDuplicateAdmitted();
+      await duplicateGate;
+      await start();
+      continuedAfterStart = true;
+      return "duplicate-work";
+    },
+    () => "replayed"
+  );
+  await duplicateAdmitted;
+  const winner = await fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Winner"
+      });
+    },
+    storyFixture
+  );
+  releaseDuplicate();
+
+  const replayed = await duplicate;
+  assert.equal(continuedAfterStart, false);
+  assert.equal(replayed.value, "replayed");
+  assert.equal(replayed.story.title, "Winner");
+  assert.deepEqual(replayed.result, winner.result);
+});
+
+test("Q a pre-start failure observes a contender's durable start", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-failure-after-other-start-");
+  let markLoserAdmitted!: () => void;
+  const loserAdmitted = new Promise<void>((resolve) => {
+    markLoserAdmitted = resolve;
+  });
+  let markWinnerStarted!: () => void;
+  const winnerStarted = new Promise<void>((resolve) => {
+    markWinnerStarted = resolve;
+  });
+  let releaseWinner!: () => void;
+  const winnerGate = new Promise<void>((resolve) => {
+    releaseWinner = resolve;
+  });
+  t.after(() => releaseWinner());
+
+  const loser = fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async () => {
+      markLoserAdmitted();
+      await winnerStarted;
+      throw new ServiceError(409, "Loser failed before start", "conflict");
+    },
+    storyFixture
+  );
+  await loserAdmitted;
+  const winner = fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      markWinnerStarted();
+      await winnerGate;
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Winner"
+      });
+    },
+    storyFixture
+  );
+
+  await assert.rejects(
+    loser,
+    hasServiceError("generation_outcome_unknown")
+  );
+  releaseWinner();
+  assert.equal((await winner).story.title, "Winner");
 });
 
 test("Q a prepared no-op provider effect still terminalizes", async (t) => {

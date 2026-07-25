@@ -208,13 +208,31 @@ async function stopApp(server: ChildProcess): Promise<void> {
     server.once("exit", () => resolve())
   );
   server.kill("SIGTERM");
-  await Promise.race([
-    exited,
-    new Promise<void>((resolve) => setTimeout(resolve, 1_000))
-  ]);
-  if (server.exitCode !== null || server.signalCode !== null) return;
-  server.kill("SIGKILL");
-  await exited;
+  if (await exitsWithin(exited, 1_000)) return;
+  const killed = server.kill("SIGKILL");
+  if (await exitsWithin(exited, 1_000)) return;
+  throw new Error(
+    killed
+      ? "Test app did not exit within 1 second after SIGKILL"
+      : "Test app could not be sent SIGKILL and did not exit"
+  );
+}
+
+async function exitsWithin(
+  exited: Promise<void>,
+  milliseconds: number
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      exited.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), milliseconds);
+      })
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 async function requestText(request: IncomingMessage): Promise<string> {

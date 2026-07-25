@@ -1,7 +1,6 @@
 import type { Story } from "../shared/types.js";
 import {
   GenerationResultError,
-  isDefinitiveProviderFailure,
   ServiceError
 } from "./errors.js";
 import type {
@@ -36,19 +35,20 @@ import {
 import {
   providerOutcomeAcknowledged,
   providerOutcomeUnknown,
-  receiptOnlyProviderError,
   requireMatchingAcknowledgedProviderReceipt,
   requireMatchingProviderReceipt,
   terminalProviderConflict
 } from "./story-provider-receipt.js";
 import { runTerminalStoryPhase } from "./story-provider-phase.js";
 import {
+  ProviderTerminalReplay,
+  StoryProviderRaceResolver
+} from "./story-provider-race.js";
+import {
   commitPreparedStoryTransaction,
-  commitReceiptOnlyStoryTransaction,
   corruptStoryReceipt,
   hashStoryManifest,
   requireFreshStoryMutation,
-  prepareReceiptOnlyStoryError,
   storyIdFromScope,
   StoryMutationRecovery,
   storyResult,
@@ -60,6 +60,8 @@ import { reduceStoryV6 } from "./story-v6-reducer.js";
 import type { StoryStore } from "./stories.js";
 
 export class StoryProviderMutationStore {
+  private readonly races: StoryProviderRaceResolver;
+
   constructor(
     private readonly stories: StoryStore,
     private readonly coordinator: MutationCoordinator,
@@ -68,7 +70,16 @@ export class StoryProviderMutationStore {
     private readonly activeStarts: ActiveProviderStarts,
     private readonly now: StoryMutationClock,
     private readonly hooks: StoryMutationHooks = {}
-  ) {}
+  ) {
+    this.races = new StoryProviderRaceResolver(
+      stories,
+      coordinator,
+      ledger,
+      recovery,
+      now,
+      hooks
+    );
+  }
 
   /** Three short ADR 006 claims: admission, durable provider start, terminal
    * publication. Provider preparation and streaming run between them, so local
@@ -117,7 +128,40 @@ export class StoryProviderMutationStore {
       try {
         value = await work(runtime, startProvider);
       } catch (error) {
-        await this.recordFailure(storyId, request, method, started, error);
+        if (error instanceof ProviderTerminalReplay) {
+          return await this.races.replayTerminalSuccess(
+            storyId,
+            request,
+            method,
+            replayValue
+          );
+        }
+        try {
+          await this.races.recordFailure(
+            storyId,
+            request,
+            method,
+            started,
+            error,
+            async (record, code) => await this.commitTerminalError(
+              storyId,
+              request,
+              method,
+              record,
+              code
+            )
+          );
+        } catch (failure) {
+          if (failure instanceof ProviderTerminalReplay) {
+            return await this.races.replayTerminalSuccess(
+              storyId,
+              request,
+              method,
+              replayValue
+            );
+          }
+          throw failure;
+        }
         throw error;
       }
       if (started === null && runtime.effect !== null) await startProvider();
@@ -232,11 +276,12 @@ export class StoryProviderMutationStore {
         request.mutationId
       );
       requireMatchingProviderReceipt(receipt, request, method);
-      if (receipt.started !== null) throw providerOutcomeUnknown(request.mutationId);
       if (receipt.prepared !== null) {
-        await this.recovery.recover(session, request, receipt);
+        const terminal = await this.recovery.recover(session, request, receipt);
+        if (terminal !== null) throw new ProviderTerminalReplay();
         throw providerOutcomeUnknown(request.mutationId);
       }
+      if (receipt.started !== null) throw providerOutcomeUnknown(request.mutationId);
       const unresolved = session.snapshot.manifest.unresolvedProvider;
       if (unresolved !== null) throw providerOutcomeUnknown(unresolved.mutationId);
       if (session.snapshot.manifest.kind !== "live") {
@@ -286,55 +331,6 @@ export class StoryProviderMutationStore {
       await session.publishStagedManifest();
       return record;
     });
-  }
-
-  private async recordFailure(
-    storyId: string,
-    request: MutationCoordinatorRequest<StoryMutationTarget>,
-    method: ProviderMutationMethod,
-    started: StartedMutationRecord | null,
-    error: unknown
-  ): Promise<void> {
-    if (started !== null) {
-      if (!isDefinitiveProviderFailure(error)) return;
-      const code = receiptOnlyProviderError(error) ?? "provider_failure";
-      try {
-        await runTerminalStoryPhase(this.coordinator, request, async () =>
-          await this.commitTerminalError(
-            storyId,
-            request,
-            method,
-            started,
-            code
-          )
-        );
-      } catch (terminalError) {
-        if (terminalError instanceof ServiceError
-          && terminalError.code === "resource_busy") {
-          throw providerOutcomeUnknown(request.mutationId);
-        }
-        throw terminalError;
-      }
-      return;
-    }
-    const code = receiptOnlyProviderError(error);
-    if (code === null) return;
-    await this.coordinator.runStoryPhase(request, async () =>
-      await this.stories.withAggregateSession(storyId, async (session) => {
-        await commitReceiptOnlyStoryTransaction(
-          this.ledger,
-          prepareReceiptOnlyStoryError(
-            method,
-            request,
-            session,
-            code,
-            timestamp(this.now)
-          ),
-          this.now,
-          this.hooks
-        );
-      })
-    );
   }
 
   private async commitTerminal(
