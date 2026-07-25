@@ -111,9 +111,14 @@ jobs:
         run: npm test -- --test-concurrency=1
 
       - name: Run native TUI tests
-        if: matrix.target != 'windows-x64'
+        if: matrix.target != 'windows-x64' && matrix.target != 'darwin-x64'
         working-directory: tui
         run: bun test
+
+      - name: Run Intel macOS TUI tests without filesystem contention
+        if: matrix.target == 'darwin-x64'
+        working-directory: tui
+        run: bun test --max-concurrency=1
 
       - name: Check Windows fail-closed platform boundaries
         if: matrix.target == 'windows-x64'
