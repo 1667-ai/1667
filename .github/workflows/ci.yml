@@ -103,8 +103,12 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run native platform tests
-        if: matrix.target != 'windows-x64'
+        if: matrix.target != 'windows-x64' && matrix.target != 'darwin-x64'
         run: npm test
+
+      - name: Run Intel macOS platform tests without benchmark contention
+        if: matrix.target == 'darwin-x64'
+        run: npm test -- --test-concurrency=1
 
       - name: Run native TUI tests
         if: matrix.target != 'windows-x64'
