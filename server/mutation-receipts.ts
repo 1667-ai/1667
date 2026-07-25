@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { uuidFromDigestHex } from "./deterministic-uuid.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   MUTATION_ID_CLOCK_SKEW_MS,
@@ -497,8 +498,9 @@ function isPublicFailure(value: unknown): value is PublicServiceError {
 
 function deterministicEntityId(mutationId: string, namespace: string, index: number): string {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error("Mutation entity index must be a non-negative integer");
-  const hex = createHash("sha256").update(`${mutationId}\0${namespace}\0${index}`).digest("hex").slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20)}`;
+  return uuidFromDigestHex(
+    createHash("sha256").update(`${mutationId}\0${namespace}\0${index}`).digest("hex")
+  );
 }
 
 function corruptReceipt(mutationId: string): ServiceError {

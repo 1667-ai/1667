@@ -24,6 +24,8 @@ export class RuntimeDataDirectoryLock {
   private readonly lock: DataDirectoryLock;
   private readonly hardened: boolean;
   private guard: Server | null = null;
+  private publishedNewDirectory = false;
+  private acquired = false;
 
   constructor(
     private readonly dataDir: string,
@@ -44,6 +46,19 @@ export class RuntimeDataDirectoryLock {
     return this.lock.authorityPath;
   }
 
+  /** True when this acquisition created the data directory. Hardened builds
+   * publish a fresh payload; source builds mkdir in place. Either way it is a
+   * first run, and never an emptied library.
+   *
+   * Throws before acquisition rather than answering `false`, which would be
+   * indistinguishable from "not fresh" and would silently skip the seed. */
+  get initializedNewDirectory(): boolean {
+    if (!this.acquired) {
+      throw new Error("Data-directory freshness is unavailable before acquisition");
+    }
+    return this.publishedNewDirectory || this.lock.initializedNewDirectory;
+  }
+
   async acquire(): Promise<string> {
     const publication = this.hardened
       ? await this.acquirePublicationFence()
@@ -55,6 +70,7 @@ export class RuntimeDataDirectoryLock {
         this.guard = publication.guard;
         await publication.release();
       }
+      this.acquired = true;
       return canonicalDir;
     } catch (error) {
       try {
@@ -89,9 +105,11 @@ export class RuntimeDataDirectoryLock {
       if (this.options.initializeNew !== true) {
         return await acquireOwnedDataDirectoryFence(this.dataDir);
       }
-      return await initializeAbsentDataDirectory(this.dataDir, {
+      const published = await initializeAbsentDataDirectory(this.dataDir, {
         offlineGuardHeld: this.options.offlineGuardHeld
       });
+      this.publishedNewDirectory = true;
+      return published;
     }
     return await acquireOwnedDataDirectoryFence(this.dataDir);
   }

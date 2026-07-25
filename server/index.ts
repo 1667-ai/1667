@@ -1,12 +1,16 @@
 import { startHttpListener } from "./http-listener.js";
 import { runHttpListenerUntilSignal } from "./http-process-lifecycle.js";
+import { StoryService } from "./story-service.js";
 
 await runHttpListenerUntilSignal(
   async () => await startHttpListener({
     port: Number(process.env.AI_1667_PORT ?? 7373),
     developmentOrigin: process.argv.includes("--dev")
       ? process.env.AI_1667_DEV_ORIGIN ?? "http://127.0.0.1:5173"
-      : null
+      : null,
+    // Only the product entry point fills a new data directory. Callers that
+    // embed the listener as a library keep getting an empty one.
+    serviceFactory: async () => new StoryService({ starterVault: "seed-when-new" })
   }),
   (listener) => {
     console.log(

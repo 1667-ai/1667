@@ -72,6 +72,7 @@ export class DataDirectoryLock {
   private canonicalDir: string | null = null;
   private selectedDataFormat: DataDirectoryFormat | null = null;
   private selectedDataFormatSource: DataDirectoryFormatSource | null = null;
+  private createdDirectory = false;
 
   constructor(
     private readonly dataDir: string,
@@ -90,6 +91,13 @@ export class DataDirectoryLock {
       throw new Error("Data-directory format source is unavailable before lock acquisition");
     }
     return this.selectedDataFormatSource;
+  }
+
+  /** True when this acquisition created the directory rather than adopting an
+   * existing one. Callers use it to distinguish a first run from an emptied
+   * library, which must not be refilled behind the writer's back. */
+  get initializedNewDirectory(): boolean {
+    return this.createdDirectory;
   }
 
   get authorityPath(): string {
@@ -117,7 +125,12 @@ export class DataDirectoryLock {
     if (this.options.initializeIfMissing === false) {
       await requireExistingDataDirectory(this.dataDir, legacyDataError);
     } else {
-      await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
+      // `recursive` mkdir reports the first path it created, which is the only
+      // trustworthy first-run signal available before the lock exists.
+      this.createdDirectory = await mkdir(this.dataDir, {
+        recursive: true,
+        mode: 0o700
+      }) !== undefined;
     }
     const canonicalDir = await realpath(this.dataDir);
     const initializeDataFormat = this.options.initializeDataFormat ?? 2;
