@@ -1,0 +1,168 @@
+import { resolve } from "node:path";
+import {
+  readHttpAuthRecord,
+  readHttpAuthRecordFile
+} from "../../server/http-auth-record.js";
+import {
+  startHttpListener,
+  type HttpListener
+} from "../../server/http-listener.js";
+import { validateLegacyServeDataDirectory } from "../../server/legacy-data-directory.js";
+import { SingleMutationGate } from "../../server/single-mutation-gate.js";
+import { StoryService } from "../../server/story-service.js";
+import { runHttpListenerUntilSignal } from "../../server/http-process-lifecycle.js";
+import type { HttpCapabilityScope } from "../../shared/http-auth.js";
+import { attachHttpServer } from "./http-attach.js";
+
+const LEGACY_ORIGIN = "http://127.0.0.1:7373";
+
+export async function runHttpCommand(argv: string[]): Promise<boolean> {
+  if (argv[0] === "auth") {
+    await runAuthShow(argv.slice(1));
+    return true;
+  }
+  if (argv[0] === "serve") {
+    await runLegacyServe(argv.slice(1));
+    return true;
+  }
+  return false;
+}
+
+export async function runAuthShow(
+  argv: string[],
+  output: Pick<NodeJS.WriteStream, "isTTY" | "write"> = process.stdout,
+  platform: NodeJS.Platform = process.platform
+): Promise<void> {
+  if (argv[0] !== "show") {
+    throw new Error("auth requires the show command");
+  }
+  assertPrivateHttpStatePlatform(platform);
+  let scope: HttpCapabilityScope | null = null;
+  let authFile: string | null = null;
+  let origin = LEGACY_ORIGIN;
+  let originSupplied = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (argument === "--scope" || argument === "--auth-file" || argument === "--url") {
+      const value = argv[++index];
+      if (value === undefined) throw new Error(`${argument} requires a value`);
+      if (argument === "--scope") scope = parseScope(value);
+      else if (argument === "--auth-file") authFile = resolve(value);
+      else {
+        origin = value;
+        originSupplied = true;
+      }
+    } else if (argument.startsWith("--scope=")) {
+      scope = parseScope(requiredInlineValue(argument, "--scope"));
+    } else if (argument.startsWith("--auth-file=")) {
+      authFile = resolve(requiredInlineValue(argument, "--auth-file"));
+    } else if (argument.startsWith("--url=")) {
+      origin = requiredInlineValue(argument, "--url");
+      originSupplied = true;
+    } else {
+      throw new Error(`unknown auth show option: ${argument}`);
+    }
+  }
+  if (scope === null) throw new Error("auth show requires --scope story|admin");
+  if (authFile !== null && originSupplied) {
+    throw new Error("auth show accepts either --url or --auth-file, not both");
+  }
+  if (output.isTTY !== true) {
+    throw new Error("auth show refuses to print a capability to non-TTY output");
+  }
+  const selected = authFile === null
+    ? await readHttpAuthRecord(origin)
+    : await readHttpAuthRecordFile(authFile);
+  const attach = await attachHttpServer(selected.record.origin, selected.paths.final);
+  output.write(`1667 instance: ${attach.authRecord.instanceId}\n`);
+  output.write(`${scope} capability: ${attach.authRecord.capabilities[scope]}\n`);
+}
+
+export async function startLegacyServe(
+  dataDirInput: string,
+  options: {
+    readonly port?: number;
+    readonly platform?: NodeJS.Platform;
+  } = {}
+): Promise<HttpListener> {
+  assertPrivateHttpStatePlatform(options.platform ?? process.platform);
+  const requestedPort = options.port ?? 7373;
+  if (requestedPort !== 7373) {
+    throw new Error("Legacy serve is fixed to canonical 127.0.0.1:7373");
+  }
+  const dataDir = resolve(dataDirInput);
+  return await startHttpListener({
+    port: 7373,
+    serviceFactory: async () => {
+      const legacyData = await validateLegacyServeDataDirectory(dataDir);
+      return new StoryService({
+        legacyData,
+        dataLock: "external",
+        mutationRecovery: "external",
+        settingsActivation: "recover-only"
+      });
+    },
+    mutationGate: new SingleMutationGate()
+  });
+}
+
+async function runLegacyServe(argv: string[]): Promise<void> {
+  let dataDir: string | null = null;
+  let legacy = false;
+  let offlineExclusive = false;
+  let portSupplied = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (argument === "--legacy-v1") legacy = true;
+    else if (argument === "--offline-exclusive") offlineExclusive = true;
+    else if (argument === "--data" || argument === "--port") {
+      const value = argv[++index];
+      if (value === undefined) throw new Error(`${argument} requires a value`);
+      if (argument === "--data") dataDir = value;
+      else portSupplied = true;
+    } else if (argument.startsWith("--data=")) {
+      dataDir = requiredInlineValue(argument, "--data");
+    } else if (argument.startsWith("--port=")) {
+      requiredInlineValue(argument, "--port");
+      portSupplied = true;
+    } else {
+      throw new Error(`unknown serve option: ${argument}`);
+    }
+  }
+  if (!legacy) throw new Error("serve currently requires --legacy-v1");
+  if (!offlineExclusive) {
+    throw new Error(
+      "--offline-exclusive is required: stop every old server, import, and maintenance process first"
+    );
+  }
+  if (portSupplied) throw new Error("serve --legacy-v1 rejects --port");
+  if (dataDir === null) throw new Error("serve requires --data <path>");
+  process.stderr.write(
+    "Legacy offline-exclusive mode: no automatic restart; an interrupted mutation may have an unknown outcome.\n"
+  );
+  await runHttpListenerUntilSignal(
+    async () => await startLegacyServe(dataDir),
+    (listener) => {
+      process.stdout.write(`1667 legacy server listening on ${listener.origin}\n`);
+    }
+  );
+}
+
+function parseScope(value: string): HttpCapabilityScope {
+  if (value === "story" || value === "admin") return value;
+  throw new Error("--scope must be story or admin");
+}
+
+function assertPrivateHttpStatePlatform(platform: NodeJS.Platform): void {
+  if (platform !== "win32") return;
+  throw new Error(
+    "HTTP auth and legacy serve are unavailable on Windows until a DACL "
+      + "and reparse-safe private state adapter is installed."
+  );
+}
+
+function requiredInlineValue(argument: string, flag: string): string {
+  const value = argument.slice(flag.length + 1);
+  if (value.length === 0) throw new Error(`${flag} requires a value`);
+  return value;
+}

@@ -1,0 +1,450 @@
+import type { GenerationSettings } from "../shared/types.js";
+import { ProviderError } from "./errors.js";
+import { providerFetch } from "./provider-fetch.js";
+import {
+  providerRuntimeFor,
+  redactProviderBody
+} from "./provider-runtime.js";
+
+const MAX_ERROR_BODY_BYTES = 64 * 1024;
+const MAX_SSE_EVENT_BYTES = 1024 * 1024;
+const MAX_PARTIAL_EVENT_BYTES = 2 * 1024 * 1024;
+const MAX_RAW_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_EVENT_COUNT = 250_000;
+const MAX_QUEUED_EVENT_MEMORY_BYTES = 2 * 1024 * 1024;
+
+export async function* providerSseEvents(
+  settings: GenerationSettings,
+  url: string,
+  requestBody: Record<string, unknown>,
+  headers: Record<string, string>,
+  secrets: readonly string[],
+  signal: AbortSignal,
+  redact: (value: string, secrets: readonly string[]) => string,
+  providerStarted?: () => void | Promise<void>,
+  requestPrepared?: () => void,
+  isContentDelta: (event: string) => boolean = () => true,
+  isTerminalEvent: (event: string) => boolean = () => false,
+  callerSignal: AbortSignal = signal,
+  providerTransportFinished?: () => void
+): AsyncGenerator<string> {
+  const runtime = providerRuntimeFor(settings);
+  try {
+    new URL(url);
+    new Headers(headers);
+    JSON.stringify(requestBody);
+  } catch (error) {
+    throw new ProviderError(
+      `Model request is invalid: ${redact(
+        error instanceof Error ? error.message : String(error),
+        secrets
+      )}`
+    );
+  }
+  let deadlineMessage: string | null = null;
+  const deadline = new AbortController();
+  const totalTimer = setTimeout(() => {
+    deadlineMessage = "Model request exceeded its total deadline.";
+    deadline.abort();
+  }, runtime.timeouts.totalMs);
+  let phaseTimer: ReturnType<typeof setTimeout> | null = null;
+  const setPhaseTimer = (milliseconds: number, message: string) => {
+    if (phaseTimer !== null) clearTimeout(phaseTimer);
+    phaseTimer = setTimeout(() => {
+      deadlineMessage = message;
+      deadline.abort();
+    }, milliseconds);
+  };
+  const combinedSignal = AbortSignal.any([signal, deadline.signal]);
+  try {
+    const body = JSON.stringify(requestBody);
+    await providerStarted?.();
+    requestPrepared?.();
+    setPhaseTimer(
+      runtime.timeouts.responseHeaderMs,
+      "Model server did not return response headers before the configured deadline."
+    );
+    let response: Response;
+    try {
+      response = await providerFetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: combinedSignal
+      }, {
+        allowInsecurePrivateHttp: runtime.allowInsecureHttp
+      });
+    } catch (error) {
+      if (callerSignal.aborted) throw callerSignal.reason;
+      throw deadlineMessage === null
+        ? new ProviderError(`Model request failed: ${safeMessage(error, secrets, redact)}`)
+        : new ProviderError(deadlineMessage);
+    }
+    if (phaseTimer !== null) clearTimeout(phaseTimer);
+    phaseTimer = null;
+    if (!response.ok) {
+      let rawText: string;
+      try {
+        rawText = await boundedResponseText(response);
+      } catch (error) {
+        if (callerSignal.aborted) throw callerSignal.reason;
+        throw new ProviderError(
+          deadlineMessage
+            ?? `Model request failed (${response.status}) while reading its error body: ${
+              safeMessage(error, secrets, redact)
+            }`,
+          response.status
+        );
+      }
+      const text = redactProviderBody(rawText, secrets);
+      throw new ProviderError(
+        `Model request failed (${response.status}): ${text.slice(0, 500)}`,
+        response.status,
+        text
+      );
+    }
+    if (response.body === null) throw new ProviderError("Model response has no body");
+
+    setPhaseTimer(
+      runtime.timeouts.firstTokenMs,
+      "Model server did not produce a content delta before the configured deadline."
+    );
+    const decoder = new TextDecoder();
+    let rawBytes = 0;
+    let firstContent = true;
+    const reader = response.body.getReader();
+    const events = new ProviderEventQueue();
+    const parser = new BoundedProviderSseParser();
+    let terminalQueued = false;
+    const enqueueParsedEvents = async (
+      parsedEvents: readonly string[]
+    ): Promise<boolean> => {
+      for (const event of parsedEvents) {
+        if (firstContent && isContentDelta(event)) {
+          firstContent = false;
+          if (phaseTimer !== null) clearTimeout(phaseTimer);
+          phaseTimer = null;
+        }
+        if (!await events.push(event)) return false;
+        if (isTerminalEvent(event)) {
+          terminalQueued = true;
+          break;
+        }
+      }
+      return true;
+    };
+    const pump = (async () => {
+      try {
+        let active = true;
+        for (;;) {
+          if (!firstContent) {
+            setPhaseTimer(
+              runtime.timeouts.idleMs,
+              "Model stream was idle beyond the configured deadline."
+            );
+          }
+          const { done, value: chunk } = await reader.read();
+          if (!firstContent && phaseTimer !== null) {
+            clearTimeout(phaseTimer);
+            phaseTimer = null;
+          }
+          if (done) break;
+          rawBytes += chunk.byteLength;
+          if (rawBytes > MAX_RAW_RESPONSE_BYTES) throw responseTooLarge();
+          active = await enqueueParsedEvents(
+            parser.push(decoder.decode(chunk, { stream: true }))
+          );
+          if (!active) break;
+          if (terminalQueued) break;
+        }
+        if (active && !terminalQueued) {
+          active = await enqueueParsedEvents(parser.push(decoder.decode()));
+        }
+        if (active && !terminalQueued) {
+          throw new ProviderError(
+            "Model stream ended before its terminal event."
+          );
+        }
+        if (active) providerTransportFinished?.();
+        events.close();
+      } catch (error) {
+        events.fail(
+          deadlineMessage === null ? error : new ProviderError(deadlineMessage)
+        );
+      } finally {
+        clearTimeout(totalTimer);
+        if (phaseTimer !== null) clearTimeout(phaseTimer);
+        phaseTimer = null;
+      }
+    })();
+    try {
+      for (;;) {
+        if (signal.aborted) throw signal.reason;
+        const next = await events.next();
+        if (signal.aborted) throw signal.reason;
+        if (next.done) break;
+        yield next.value;
+      }
+    } finally {
+      events.cancel();
+      await reader.cancel().catch(() => {});
+      await pump;
+    }
+  } finally {
+    clearTimeout(totalTimer);
+    if (phaseTimer !== null) clearTimeout(phaseTimer);
+  }
+}
+
+async function boundedResponseText(response: Response): Promise<string> {
+  if (response.body === null) return "";
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  for await (const chunk of response.body) {
+    bytes += chunk.byteLength;
+    if (bytes > MAX_ERROR_BODY_BYTES) throw responseTooLarge();
+    text += decoder.decode(chunk, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+function safeMessage(
+  error: unknown,
+  secrets: readonly string[],
+  redact: (value: string, secrets: readonly string[]) => string
+): string {
+  return redact(error instanceof Error ? error.message : String(error), secrets);
+}
+
+function responseTooLarge(): ProviderError {
+  return new ProviderError("provider_response_too_large: model response exceeded a safety limit.");
+}
+
+interface QueuedProviderEvent {
+  readonly value: string;
+  readonly memoryBytes: number;
+}
+
+class ProviderEventQueue {
+  private readonly values: Array<QueuedProviderEvent | undefined> = [];
+  private head = 0;
+  private queuedMemoryBytes = 0;
+  private readonly waiters: Array<{
+    readonly resolve: (result: IteratorResult<string>) => void;
+    readonly reject: (error: unknown) => void;
+  }> = [];
+  private readonly capacityWaiters: Array<() => void> = [];
+  private closed = false;
+  private failed = false;
+  private failure: unknown;
+
+  async push(value: string): Promise<boolean> {
+    if (this.failed) throw this.failure;
+    if (this.closed) return false;
+    const waiter = this.waiters.shift();
+    if (waiter !== undefined) {
+      waiter.resolve({ done: false, value });
+      return true;
+    }
+    const memoryBytes = Math.max(1, value.length * 2);
+    while (this.queuedMemoryBytes > 0
+      && this.queuedMemoryBytes + memoryBytes
+        > MAX_QUEUED_EVENT_MEMORY_BYTES) {
+      await new Promise<void>((resolve) => {
+        this.capacityWaiters.push(resolve);
+      });
+      if (this.failed) throw this.failure;
+      if (this.closed) return false;
+    }
+    this.values.push({ value, memoryBytes });
+    this.queuedMemoryBytes += memoryBytes;
+    return true;
+  }
+
+  close(): void {
+    if (this.closed || this.failed) return;
+    this.closed = true;
+    this.releaseCapacityWaiters();
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.resolve({ done: true, value: undefined });
+    }
+  }
+
+  cancel(): void {
+    if (this.closed || this.failed) return;
+    this.closed = true;
+    this.values.length = 0;
+    this.head = 0;
+    this.queuedMemoryBytes = 0;
+    this.releaseCapacityWaiters();
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.resolve({ done: true, value: undefined });
+    }
+  }
+
+  fail(error: unknown): void {
+    if (this.closed || this.failed) return;
+    this.failed = true;
+    this.failure = error;
+    this.values.length = 0;
+    this.head = 0;
+    this.queuedMemoryBytes = 0;
+    this.releaseCapacityWaiters();
+    for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+  }
+
+  async next(): Promise<IteratorResult<string>> {
+    if (this.failed) throw this.failure;
+    if (this.head < this.values.length) {
+      const queued = this.values[this.head]!;
+      this.values[this.head] = undefined;
+      this.head += 1;
+      this.queuedMemoryBytes -= queued.memoryBytes;
+      if (this.head === this.values.length) {
+        this.values.length = 0;
+        this.head = 0;
+      }
+      this.releaseCapacityWaiters();
+      return { done: false, value: queued.value };
+    }
+    if (this.closed) return { done: true, value: undefined };
+    return await new Promise<IteratorResult<string>>((resolve, reject) => {
+      this.waiters.push({ resolve, reject });
+    });
+  }
+
+  private releaseCapacityWaiters(): void {
+    for (const resolve of this.capacityWaiters.splice(0)) resolve();
+  }
+}
+
+export class BoundedProviderSseParser {
+  private lineParts: string[] = [];
+  private readonly lineBlocks: string[] = [];
+  private lineBytes = 0;
+  private partialBytes = 0;
+  private eventBytes = 0;
+  private pendingEventLineEndingBytes = 0;
+  private hasEventLine = false;
+  private readonly dataLines: string[] = [];
+  private eventCount = 0;
+  private pendingCr = false;
+  private pendingCrContinuesEvent = false;
+
+  push(chunk: string): readonly string[] {
+    const events: string[] = [];
+    let offset = 0;
+    if (this.pendingCr) {
+      this.pendingCr = false;
+      if (chunk.startsWith("\n")) {
+        if (this.pendingCrContinuesEvent) {
+          this.pendingEventLineEndingBytes += 1;
+          this.partialBytes += 1;
+          this.requirePartialWithinLimit();
+        }
+        offset = 1;
+      }
+      this.pendingCrContinuesEvent = false;
+    }
+    while (offset < chunk.length) {
+      let ending = offset;
+      while (
+        ending < chunk.length
+        && chunk[ending] !== "\r"
+        && chunk[ending] !== "\n"
+      ) {
+        ending += 1;
+      }
+      if (ending === chunk.length) {
+        this.appendLinePart(chunk.slice(offset));
+        break;
+      }
+      this.appendLinePart(chunk.slice(offset, ending));
+      if (chunk[ending] === "\r") {
+        if (chunk[ending + 1] === "\n") {
+          this.finishLine(2, events);
+          offset = ending + 2;
+        } else {
+          const continuesEvent = this.finishLine(1, events);
+          offset = ending + 1;
+          if (offset === chunk.length) {
+            this.pendingCr = true;
+            this.pendingCrContinuesEvent = continuesEvent;
+          }
+        }
+      } else {
+        this.finishLine(1, events);
+        offset = ending + 1;
+      }
+    }
+    return events;
+  }
+
+  private appendLinePart(value: string): void {
+    if (value.length === 0) return;
+    const bytes = Buffer.byteLength(value);
+    this.lineBytes += bytes;
+    this.partialBytes += bytes;
+    this.requirePartialWithinLimit();
+    this.lineParts.push(value);
+    if (this.lineParts.length === 1_024) {
+      this.lineBlocks.push(this.lineParts.join(""));
+      this.lineParts = [];
+    }
+  }
+
+  private finishLine(
+    endingBytes: number,
+    events: string[]
+  ): boolean {
+    const lineBytes = this.lineBytes;
+    const line = this.takeLine();
+    this.lineBytes = 0;
+    if (line.length === 0) {
+      this.eventCount += 1;
+      if (this.eventCount > MAX_EVENT_COUNT) throw responseTooLarge();
+      if (this.eventBytes > MAX_SSE_EVENT_BYTES) throw responseTooLarge();
+      const data = this.dataLines.join("\n");
+      if (data.length > 0) events.push(data);
+      this.resetEvent();
+      return false;
+    }
+    if (this.hasEventLine) {
+      this.eventBytes += this.pendingEventLineEndingBytes;
+    }
+    this.eventBytes += lineBytes;
+    if (this.eventBytes > MAX_SSE_EVENT_BYTES) throw responseTooLarge();
+    this.hasEventLine = true;
+    this.pendingEventLineEndingBytes = endingBytes;
+    this.partialBytes += endingBytes;
+    this.requirePartialWithinLimit();
+    if (line.startsWith("data:")) {
+      this.dataLines.push(line.slice(5).replace(/^ /u, ""));
+    }
+    return true;
+  }
+
+  private takeLine(): string {
+    const tail = this.lineParts.join("");
+    const line = this.lineBlocks.length === 0
+      ? tail
+      : [...this.lineBlocks, tail].join("");
+    this.lineParts = [];
+    this.lineBlocks.length = 0;
+    return line;
+  }
+
+  private resetEvent(): void {
+    this.lineBytes = 0;
+    this.partialBytes = 0;
+    this.eventBytes = 0;
+    this.pendingEventLineEndingBytes = 0;
+    this.hasEventLine = false;
+    this.dataLines.length = 0;
+  }
+
+  private requirePartialWithinLimit(): void {
+    if (this.partialBytes > MAX_PARTIAL_EVENT_BYTES) throw responseTooLarge();
+  }
+}

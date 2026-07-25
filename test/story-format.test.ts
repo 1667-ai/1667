@@ -1,0 +1,346 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "../server/story-codec.js";
+import { buildStoryPayload } from "../server/story-payload.js";
+import {
+  MAX_CHUNK_BYTES,
+  MAX_CHUNKS_PER_REVISION,
+  StoryFormatError,
+  chunkId,
+  chunkText,
+  createRevision,
+  hasUnpairedSurrogate,
+  parseLegacyStory,
+  parseManifest,
+  parseRevision,
+  revisionId,
+  serializeManifest,
+  serializeRevision,
+  sha256,
+  type StoryManifestV2,
+  type StoryManifestV5,
+  type StoryManifestV4
+} from "../server/story-format.js";
+import { StoryObjectStore } from "../server/story-objects.js";
+import {
+  MAX_STORY_INSTRUCTION_CHARS,
+  MAX_STORY_MANIFEST_BYTES
+} from "../server/story-v5-strict.js";
+import type { Story, StoryNode } from "../shared/types.js";
+
+const NOW = "2026-01-01T00:00:00.000Z";
+const HASH = "a".repeat(64);
+
+test("story format: chunking and revision hashes preserve exact prose", () => {
+  for (const source of ["", "First.\n\nSecond.", "Stars ✨ and 文字.", "x".repeat(MAX_CHUNK_BYTES * 2 + 17)]) {
+    const chunks = chunkText(source);
+    assert.equal(chunks.join(""), source);
+    assert.ok(chunks.every((chunk) => Buffer.byteLength(chunk, "utf8") <= MAX_CHUNK_BYTES));
+  }
+  assert.throws(() => chunkText("broken \ud800 text"), /unpaired Unicode surrogate/);
+  const revision = createRevision([chunkId("Alpha")], 5);
+  const raw = serializeRevision(revision);
+  assert.deepEqual(parseRevision(raw, revisionId(revision)), revision);
+  assert.throws(() => parseRevision(`${raw} `, revisionId(revision)), StoryFormatError);
+  const excessive = Array.from({ length: MAX_CHUNKS_PER_REVISION + 1 }, () => "x").join("\n\n");
+  assert.throws(() => chunkText(excessive), /chunk limit/);
+});
+
+test("story objects: foreground cancellation leaves cleanup safe to retry", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-sweep-cancel-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  await objects.init();
+  const live = await objects.storeText("Live prose");
+  const stale = await objects.storeText("Stale prose");
+  await objects.flush();
+  const abort = new AbortController();
+  abort.abort();
+
+  assert.equal(await objects.sweep([live], abort.signal), false);
+  await readFile(objects.objectPath("revisions", stale));
+  assert.equal(await objects.sweep([live]), true);
+  await assert.rejects(
+    () => readFile(objects.objectPath("revisions", stale)),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT"
+  );
+});
+
+test("story format: V5 bundle round-trips nodes, attribution, bookmarks, recents, and facts", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v4-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const story: Story = {
+    id: "story-v4", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [node("root", null, "Opening", "child"), {
+      ...node("child", "root", "Edited prose"),
+      updatedAt: "2026-01-02T00:00:00.000Z",
+      attribution: { source: "human", ranges: [{ start: 0, end: 6 }], deletedCharacters: 3 },
+      human: true,
+      genId: "g1"
+    }, { ...node("summary", "root", "Recap"), role: "summary" }],
+    activeRootId: "root",
+    bookmarks: [{ nodeId: "child", name: "Canon line", label: "Canon", color: "#4b45c9", createdAt: NOW }],
+    recentNodeIds: ["summary"],
+    facts: [{ id: "fact", tag: null, text: "Exact fact.", createdAt: NOW, updatedAt: NOW }],
+    chapterBreaks: []
+  };
+  const manifest = await encodeStoryBundle(story, new StoryObjectStore(dir));
+  assert.equal(manifest.schemaVersion, 5);
+  assert.equal(manifest.nodes.length, 3);
+  assert.equal(manifest.nodes.every((stored) => typeof stored.revisionId === "string"), true);
+  assert.deepEqual(manifest.nodes.map(({ preview, words }) => ({ preview, words })), [
+    { preview: "Opening", words: 1 },
+    { preview: "Edited prose", words: 2 },
+    { preview: "Recap", words: 1 }
+  ]);
+  const parsed = parseManifest(serializeManifest(manifest), story.id);
+  assert.deepEqual((await decodeStoryBundle(parsed, dir)).story, story);
+
+  const lazy = (await decodeStoryBundle(parsed, dir, { activeOnly: true })).story;
+  assert.equal(lazy.nodes.find((candidate) => candidate.id === "summary")!.text, "");
+  assert.deepEqual(buildStoryPayload(lazy).nodes.find((candidate) => candidate.id === "summary"), {
+    id: "summary", parentId: "root", preview: "Recap", words: 1, tokens: 4, childCount: 0, leafCount: 1,
+    lastTouched: NOW, role: "summary", hasInstruction: true, activeChildId: null
+  });
+  await hydrateStoryNodes(lazy, ["summary"]);
+  assert.equal(lazy.nodes.find((candidate) => candidate.id === "summary")!.text, "Recap");
+
+  const earlyV4 = structuredClone(parsed);
+  for (const stored of earlyV4.nodes) {
+    delete stored.preview;
+    delete stored.words;
+  }
+  const early = (await decodeStoryBundle(
+    parseManifest(JSON.stringify(earlyV4), story.id),
+    dir,
+    { activeOnly: true }
+  )).story;
+  assert.equal(
+    early.nodes.find((candidate) => candidate.id === "summary")!.text,
+    "Recap",
+    "early V4 without stubs safely hydrates the full tree"
+  );
+});
+
+test("story format: encoded V5 size validation measures exact persisted bytes", async () => {
+  const instruction = "x".repeat(MAX_STORY_INSTRUCTION_CHARS - 276);
+  const story = runtimeStory(Array.from({ length: 16 }, (_, index) => ({
+    ...node(`root-${index}`, null, ""),
+    instruction
+  })));
+  const candidate: StoryManifestV5 = {
+    format: "1667-story",
+    schemaVersion: 5,
+    id: story.id,
+    title: story.title,
+    createdAt: story.createdAt,
+    updatedAt: story.updatedAt,
+    activeWordCount: 0,
+    nodes: story.nodes.map((entry) => ({
+      id: entry.id,
+      parentId: null,
+      instruction,
+      model: entry.model,
+      createdAt: entry.createdAt,
+      preview: "",
+      words: 0,
+      tokens: 0,
+      revisionId: HASH,
+      activeChildId: null
+    })),
+    facts: [],
+    activeRootId: story.activeRootId,
+    bookmarks: [],
+    recentNodeIds: [],
+    chapterBreaks: []
+  };
+  assert.ok(Buffer.byteLength(JSON.stringify(candidate)) < MAX_STORY_MANIFEST_BYTES);
+  assert.ok(Buffer.byteLength(serializeManifest(candidate)) > MAX_STORY_MANIFEST_BYTES);
+
+  const objects = {
+    init: async () => undefined,
+    storeTexts: async (values: readonly string[]) => values.map(() => HASH)
+  } as unknown as StoryObjectStore;
+  await assert.rejects(() => encodeStoryBundle(story, objects), /size limit/);
+});
+
+test("story format: preview bounds preserve legacy width without splitting a scalar", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-scalar-preview-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const text = `${"a".repeat(99)}😀more`;
+  const story = runtimeStory([node("root", null, text)]);
+
+  const manifest = await encodeStoryBundle(story, new StoryObjectStore(dir));
+
+  assert.equal(manifest.nodes[0]!.preview, "a".repeat(99));
+  assert.equal((await decodeStoryBundle(manifest, dir)).story.nodes[0]!.text, text);
+
+  const legacyWidth = runtimeStory([node("root", null, `${"😀".repeat(50)}tail`)]);
+  const legacyManifest = await encodeStoryBundle(legacyWidth, new StoryObjectStore(dir));
+  assert.equal(legacyManifest.nodes[0]!.preview, "😀".repeat(50));
+  assert.equal((await decodeStoryBundle(legacyManifest, dir)).story.nodes[0]!.text, `${"😀".repeat(50)}tail`);
+});
+
+test("story format: permissive V4 split previews repair during lazy V5 migration", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v4-preview-repair-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  await objects.init();
+  const activeText = "Active";
+  const inactiveText = `${"a".repeat(99)}😀more`;
+  const [activeRevision, inactiveRevision] = await objects.storeTexts([activeText, inactiveText]);
+  await objects.flush();
+  const manifest = v4Manifest();
+  manifest.nodes = [{
+    id: "root", parentId: null, instruction: "Go", model: "m", createdAt: NOW,
+    revisionId: activeRevision!, activeChildId: null, preview: activeText, words: 1
+  }, {
+    id: "other-root", parentId: null, instruction: "Go", model: "m", createdAt: NOW,
+    revisionId: inactiveRevision!, activeChildId: null, preview: inactiveText.slice(0, 100), words: 1
+  }];
+  manifest.activeRootId = "root";
+  manifest.bookmarks = [];
+  manifest.recentNodeIds = [];
+  assert.equal(hasUnpairedSurrogate(manifest.nodes[1]!.preview!), true);
+
+  const parsed = parseManifest(JSON.stringify(manifest), manifest.id);
+  const decoded = await decodeStoryBundle(parsed, dir, { activeOnly: true });
+  const migrated = await encodeStoryBundle(decoded.story, objects);
+
+  assert.equal(migrated.nodes[1]!.preview, "a".repeat(99));
+  assert.equal(hasUnpairedSurrogate(migrated.nodes[1]!.preview!), false);
+  assert.doesNotThrow(() => parseManifest(serializeManifest(migrated), manifest.id));
+});
+
+test("story format: V4 manifest fails closed across the tree matrix", () => {
+  const base = v4Manifest();
+  const reject = (mutate: (manifest: StoryManifestV4) => void, pattern: RegExp): void => {
+    const manifest = structuredClone(base);
+    mutate(manifest);
+    assert.throws(() => parseManifest(JSON.stringify(manifest), manifest.id), pattern);
+  };
+  reject((m) => { m.nodes[1]!.id = "root"; }, /Duplicate story node id/);
+  reject((m) => { m.nodes[0]!.parentId = "child"; }, /earlier node/);
+  reject((m) => { m.nodes[1]!.parentId = "missing"; }, /earlier node/);
+  reject((m) => { m.nodes[0]!.activeChildId = "missing"; }, /reference a child/);
+  reject((m) => { m.nodes[0]!.activeChildId = "other-root"; }, /reference a child/);
+  reject((m) => { m.activeRootId = null; }, /reference a root/);
+  reject((m) => { m.activeRootId = "child"; }, /reference a root/);
+  reject((m) => { m.bookmarks[0]!.nodeId = "missing"; }, /unknown node/);
+  reject((m) => { m.bookmarks.push({ ...m.bookmarks[0]! }); }, /Duplicate bookmark/);
+  reject((m) => { m.bookmarks.push({ ...m.bookmarks[0]!, nodeId: "other-root", name: "Other" }); }, /Only one bookmark may be Canon/);
+  reject((m) => { m.bookmarks[0]!.name = " bad "; }, /trimmed/);
+  reject((m) => { m.bookmarks[0]!.label = "Bad" as "Canon"; }, /label is invalid/);
+  reject((m) => { m.recentNodeIds = ["missing"]; }, /unknown node/);
+  reject((m) => { m.recentNodeIds = Array.from({ length: 6 }, () => "child"); }, /5-node limit/);
+  reject((m) => { m.nodes[0]!.human = false as true; }, /true or absent/);
+  reject((m) => { m.nodes[0]!.role = "prose" as "summary"; }, /role must be/);
+  reject((m) => { m.nodes[0]!.preview = "Opening"; }, /preview and words/);
+  reject((m) => { m.nodes[0]!.preview = "x".repeat(101); m.nodes[0]!.words = 1; }, /preview exceeds/);
+  reject((m) => { m.nodes[0]!.preview = "Opening"; m.nodes[0]!.words = -1; }, /words must not/);
+  reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [{ start: -1, end: 2 }] }; }, /invalid human edit range/);
+  reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [], deletedCharacters: 0 }; }, /positive integer/);
+  reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [], deletedCharacters: 1.5 }; }, /must be an integer/);
+  const empty = { ...structuredClone(base), nodes: [], activeRootId: "root", bookmarks: [], recentNodeIds: [] };
+  assert.throws(() => parseManifest(JSON.stringify(empty), empty.id), /must be null/);
+});
+
+test("story format: V2 and legacy JSON normalize to V5 trees", () => {
+  const v2: StoryManifestV2 = {
+    format: "1667-story", schemaVersion: 2, id: "story-v2", title: "V2",
+    createdAt: NOW, updatedAt: NOW, activeWordCount: 2, facts: [],
+    parts: [{ id: "p1", instruction: "Go", model: "m", createdAt: NOW, revisionIds: [HASH], activeRevision: 0 }]
+  };
+  const parsed = parseManifest(JSON.stringify(v2), v2.id);
+  assert.equal(parsed.schemaVersion, 5);
+  assert.equal(parsed.nodes[0]!.id, "p1");
+  assert.equal(parsed.activeRootId, "p1");
+  assert.equal(JSON.parse(serializeManifest(parsed)).schemaVersion, 5);
+
+  const legacy = {
+    id: "legacy", title: "Legacy", createdAt: NOW, updatedAt: NOW,
+    parts: [{ id: "p1", instruction: "Go", text: "B", model: "m", createdAt: NOW,
+      versions: ["A", "B"], activeVersion: 1, role: "summary" }]
+  };
+  const story = parseLegacyStory(JSON.stringify(legacy), legacy.id);
+  assert.deepEqual(story.nodes.map(({ id, text }) => ({ id, text })), [
+    { id: "p1@v0", text: "A" }, { id: "p1", text: "B" }
+  ]);
+  assert.equal(story.activeRootId, "p1");
+  assert.equal(story.nodes[1]?.role, "summary");
+  assert.throws(
+    () => parseLegacyStory(JSON.stringify({ ...legacy, parts: [{ ...legacy.parts[0], role: "prose" }] }), legacy.id),
+    /role must be/
+  );
+  assert.throws(() => parseLegacyStory(JSON.stringify({ ...legacy, schemaVersion: 9 }), legacy.id), /Unsupported/);
+});
+
+test("story format: every historical V2 fact shape normalizes to V4", () => {
+  const base = {
+    format: "1667-story", schemaVersion: 2, title: "Historical V2",
+    createdAt: NOW, updatedAt: NOW, activeWordCount: 2,
+    parts: [
+      { id: "p1", instruction: "Go", model: "m", createdAt: NOW, revisionIds: [HASH], activeRevision: 0 },
+      { id: "p2", instruction: "Go", model: "m", createdAt: NOW, revisionIds: ["b".repeat(64)], activeRevision: 0 }
+    ]
+  };
+  const earliest = parseManifest(JSON.stringify({ ...base, id: "v2-earliest" }), "v2-earliest");
+  assert.deepEqual(earliest.facts, [], "the first bundle release had no facts field");
+
+  const temporal = parseManifest(JSON.stringify({
+    ...base,
+    id: "v2-temporal",
+    facts: [{
+      id: "fact", tag: "Lore", createdAt: NOW, updatedAt: NOW,
+      states: [
+        { id: "state-1", revisionId: "c".repeat(64), effectiveAfterPartId: null, createdAt: NOW, updatedAt: NOW },
+        { id: "state-2", revisionId: "d".repeat(64), effectiveAfterPartId: "p1", createdAt: NOW, updatedAt: NOW }
+      ]
+    }]
+  }), "v2-temporal");
+  assert.equal(temporal.facts[0]!.revisionId, "d".repeat(64));
+
+  const flat = parseManifest(JSON.stringify({
+    ...base,
+    id: "v2-flat",
+    facts: [{ id: "fact", tag: null, revisionId: "e".repeat(64), createdAt: NOW, updatedAt: NOW }]
+  }), "v2-flat");
+  assert.equal(flat.facts[0]!.revisionId, "e".repeat(64));
+});
+
+test("story format: runtime attribution is bounded by its node text", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v4-attribution-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const story = runtimeStory([{
+    ...node("root", null, "short"),
+    attribution: { source: "human", ranges: [{ start: 0, end: 99 }] }
+  }]);
+  await assert.rejects(() => encodeStoryBundle(story, new StoryObjectStore(dir)), /invalid human edit range/);
+});
+
+function node(id: string, parentId: string | null, text: string, activeChildId: string | null = null): StoryNode {
+  return { id, parentId, instruction: "Continue", text, model: "test", createdAt: NOW, activeChildId };
+}
+
+function runtimeStory(nodes: StoryNode[]): Story {
+  return { id: "runtime", title: "Runtime", createdAt: NOW, updatedAt: NOW,
+    nodes, activeRootId: nodes[0]?.id ?? null, bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: [] };
+}
+
+function v4Manifest(): StoryManifestV4 {
+  return {
+    format: "1667-story", schemaVersion: 4, id: "story-v4", title: "V4",
+    createdAt: NOW, updatedAt: NOW, activeWordCount: 2,
+    nodes: [
+      { id: "root", parentId: null, instruction: "Go", model: "m", createdAt: NOW, revisionId: HASH, activeChildId: "child" },
+      { id: "child", parentId: "root", instruction: "Go", model: "m", createdAt: NOW, revisionId: HASH, activeChildId: null },
+      { id: "other-root", parentId: null, instruction: "Go", model: "m", createdAt: NOW, revisionId: HASH, activeChildId: null }
+    ],
+    facts: [], activeRootId: "root",
+    bookmarks: [{ nodeId: "child", name: "Main", label: "Canon", color: "#4b45c9", createdAt: NOW }],
+    recentNodeIds: ["other-root"]
+  };
+}

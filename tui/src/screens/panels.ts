@@ -1,0 +1,470 @@
+import type { StoryPayload, StorySummary } from "../../../shared/types.js";
+import { nextAgeChange } from "../../../shared/loom-model.js";
+import type { FrameDeadlineCollector } from "../animation-deadline.js";
+import {
+  commandContext,
+  commandPaletteModel,
+  commandPaletteWindow,
+  retainCommandSelection
+} from "../command-model.js";
+import { boundedFactSelection, factBody, factName, factRows, factTags } from "../facts-model.js";
+import { libraryAge, libraryRows, libraryTotals } from "../library-model.js";
+import { type HitRegion, type HitRows, type HitTarget } from "../hit.js";
+import type { KeyAction } from "../keys.js";
+import type { OverlayState, StoryScreenState, StreamView } from "../state.js";
+import { currentPartActions } from "../story-actions.js";
+import { generationBusy } from "../generation-action.js";
+import { deriveSummaryProgress } from "../summary-model.js";
+import { chapterListModel, chapterWindow } from "../chapter-model.js";
+import { createStoryViewModel, rowIndexForNode, rowPart } from "../model.js";
+import { formatTokensScaled, formatTokensEstimate } from "../rail.js";
+import type { NextRequestEstimate } from "../request-projection.js";
+import { dimPage, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
+import { renderConnectionBanner } from "./connection-banner.js";
+import { commandPaletteLine } from "./command-palette-line.js";
+import { bookmarkRole } from "./map-row-labels.js";
+import {
+  boundedContent,
+  cellPad,
+  cellPadStart,
+  chapterColumns,
+  factColumns,
+  libraryColumns,
+  panelRange,
+  panelRowWindow,
+  type LibraryColumns
+} from "./panel-table-layout.js";
+import { wrapText } from "../wrap.js";
+import { truncate, truncateTail, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { renderSettingsPanel } from "./settings-panel.js";
+
+export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel.js";
+
+export const CHAPTERS_FOOTER_ACTIONS = [
+  { token: "↵", action: "open-selected" }, { token: "s sum", action: "summarize-chapter" },
+  { token: "e rename", action: "rename-item" }, { token: "n break", action: "new-item" },
+  { token: "d", action: "delete-item" }, { token: "esc", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const RENAME_FOOTER_ACTIONS = [
+  { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const LIBRARY_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+  { token: "↵", action: "open-selected" }, { token: "n new", action: "new-item" },
+  { token: "e rename", action: "rename-item" }, { token: "/ filter", action: "filter" },
+  { token: "d delete", action: "delete-item" }, { token: "esc", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const FACTS_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+  { token: "tab", action: "cycle" }, { token: "↵", action: "open-selected" },
+  { token: "/ filter", action: "filter" }, { token: "e edit", action: "edit" },
+  { token: "n new", action: "new-item" }, { token: "d", action: "delete-item" },
+  { token: "esc", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const COMMANDS_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+  { token: "↵ run", action: "open-selected" },
+  { token: "esc close", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const ACTIONS_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+  { token: "↵ run", action: "apply" },
+  { token: "esc close", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const BOOKMARKS_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+  { token: "d delete", action: "delete-item" }, { token: "esc commands", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+type PanelState = Omit<OverlayState, "hitRows"> & {
+  mode: StoryScreenState["mode"];
+  bookmark: StoryScreenState["bookmark"];
+  payload: StoryPayload;
+  focusIndex: number;
+  now: number;
+  contextWindow?: number | null;
+  stream: StreamView | null;
+  abort: StoryScreenState["abort"];
+};
+
+type PanelRenderState = PanelState & { hitRows: HitRows; requestActive: boolean };
+
+export function renderPanels(
+  base: FrameLine[],
+  state: PanelState,
+  hitRows: HitRows,
+  width: number,
+  height: number,
+  estimate: NextRequestEstimate,
+  deadlines?: FrameDeadlineCollector
+): FrameComposition {
+  const local: PanelRenderState = {
+    ...state,
+    hitRows,
+    requestActive: generationBusy(state) || state.summary !== null
+  };
+  let composition: FrameComposition = { lines: base, selectable: null };
+  if (state.actions != null) composition = renderActions(dimPage(base), local, width, height);
+  else if (state.library !== null) composition = renderLibrary(dimPage(base), local, width, height, deadlines);
+  else if (state.facts !== null) composition = renderFacts(dimPage(base), local, width, height);
+  else if (state.commands !== null) composition = renderCommands(dimPage(base), local, width, height);
+  else if (state.chapters !== null) composition = renderChapters(dimPage(base), local, width, height, estimate);
+  else if (state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
+  else if (state.summary !== null) composition = renderSummary(dimPage(base), local, width, height);
+  if (state.connection.down) {
+    composition = { ...composition, lines: renderConnectionBanner(composition.lines, local, width, deadlines) };
+  }
+  return composition;
+}
+
+/** OpenCode-style part menu: right-click a part, or press x. */
+function renderActions(
+  base: FrameLine[],
+  state: PanelRenderState,
+  width: number,
+  height: number
+): FrameComposition {
+  const overlay = state.actions!;
+  const actions = currentPartActions(state);
+  const view = createStoryViewModel(state.payload, state.stream);
+  const part = rowPart(view, rowIndexForNode(view, overlay.partId));
+  const contentWidth = panelWidthFor(width, 64) - 2;
+  const leadWidth = Math.min(4, contentWidth);
+  const widestName = Math.max(0, ...actions.map((action) => visibleWidth(action.name)));
+  const nameWidth = Math.min(widestName + 2, Math.max(0, contentWidth - leadWidth));
+  const descriptionWidth = Math.max(0, contentWidth - leadWidth - nameWidth);
+  const content: FrameLine[] = actions.map((action, index): FrameLine => [
+    raisedSegment(cellPad(index === overlay.cursor ? "  ▸ " : "", leadWidth),
+      index === overlay.cursor ? "focus / accent" : "chrome"),
+    raisedSegment(cellPad(truncate(action.name, nameWidth), nameWidth),
+      index === overlay.cursor ? "prose" : "prose · dim"),
+    raisedSegment(truncate(action.description, descriptionWidth), "chrome")
+  ]);
+  const title = part === null ? "¶ actions" : `¶ ${part.number} actions`;
+  return placePanel(base, title, content,
+    "↑↓ move · ↵ run · esc close", width, height, 64,
+    { rows: state.hitRows, targets: actions.map((_, index): HitTarget => ({ kind: "list", index })),
+      footerActions: ACTIONS_FOOTER_ACTIONS });
+}
+
+function renderChapters(
+  base: FrameLine[],
+  state: OverlayState & { payload: StoryPayload; hitRows: HitRows; contextWindow?: number | null },
+  width: number,
+  height: number,
+  estimate: NextRequestEstimate
+): FrameComposition {
+  const overlay = state.chapters!;
+  const model = chapterListModel(state.payload, state.contextWindow ?? null, estimate);
+  const contentWidth = panelWidthFor(width) - 2;
+  // Chapter numbers are contiguous and one-based, so the final row owns the
+  // widest label. Avoid passing a user-sized chapter list as function args.
+  const chapterDigits = Math.max(2, String(model.rows.length).length);
+  const columns = chapterColumns(contentWidth, chapterDigits);
+  const content: FrameLine[] = [];
+  const targets: Array<HitTarget | null> = [];
+  if (overlay.rename !== null) {
+    content.push(promptLine("chapter title", overlay.rename.value, contentWidth));
+    targets.push(null);
+  }
+  // 13, not 11: the context status below costs two content rows. Under-reserving
+  // overflows the panel, and placePanel clamps by dropping from the bottom —
+  // which is exactly the status this panel moved inside to stop hiding.
+  const rowBudget = Math.max(1, height - 13 - (overlay.rename === null ? 0 : 1));
+  const window = chapterWindow(model.rows.length, overlay.cursor, rowBudget);
+  const range = model.rows.length <= rowBudget ? "" : ` · ${window.start + 1}–${window.end}/${model.rows.length}`;
+  content.push([
+    raisedSegment(cellPad("", columns.lead), "chrome"),
+    raisedSegment(cellPad("ch", columns.chapter), "chrome"),
+    raisedSegment(cellPad(`title${range}`, columns.title), "chrome"),
+    raisedSegment(cellPad("extent", columns.extent), "chrome"),
+    raisedSegment(cellPad("context", columns.status), "chrome"),
+    raisedSegment(cellPad("", columns.marker), "chrome")
+  ]);
+  targets.push(null);
+  for (const [offset, row] of model.rows.slice(window.start, window.end).entries()) {
+    const index = window.start + offset;
+    const selected = index === overlay.cursor;
+    const title = row.chapter.title === "" ? "(untitled)" : row.chapter.title;
+    const role = !row.sent ? "dimmed page" : row.stale ? "focus / accent" : selected ? "prose" : "prose · dim";
+    content.push([
+      raisedSegment(cellPad(selected ? "  ▸ " : "", columns.lead), selected ? "focus / accent" : "chrome"),
+      raisedSegment(cellPadStart(String(row.chapter.number), Math.max(0, columns.chapter - 2)) + " ".repeat(Math.min(2, columns.chapter)), "chrome"),
+      raisedSegment(cellPad(truncate(title, Math.max(0, columns.title - 1)), columns.title), role),
+      raisedSegment(cellPad(row.extent, columns.extent), row.sent ? "chrome" : "dimmed page"),
+      raisedSegment(cellPad(row.status, columns.status), role),
+      raisedSegment(cellPad(row.biggestFix ? " [!]" : "", columns.marker), "focus / accent")
+    ]);
+    targets.push({ kind: "list", index });
+  }
+  if (model.rows.length === 0) {
+    content.push([raisedSegment("  write a first part to begin Chapter One", "prose · dim")]);
+    targets.push(null);
+  }
+  const windowLabel = model.contextWindow === null ? "?" : formatTokensScaled(model.contextWindow);
+  const over = model.over > 0 ? ` · over ${formatTokensEstimate(model.over)}` : "";
+  const fix = model.biggestUnsummarized === null ? "" : ` · [!] summarize ch ${model.biggestUnsummarized.number}`;
+  // Context status is state, not keys, so it rides in the panel rather than the
+  // footer. Prefixed to the footer it grew with `over`/`fix` and pushed the
+  // trailing actions past the measure — truncating a key the footer advertises.
+  content.push([], [
+    raisedSegment(`  total ${formatTokensScaled(model.totalTokens)} / ${windowLabel}`, "chrome"),
+    raisedSegment(over, over.length === 0 ? "chrome" : "danger text"),
+    raisedSegment(fix, "accent · deep")
+  ]);
+  targets.push(null, null);
+  const footer = overlay.rename !== null
+    ? "↵ saves the title · esc keeps the old one"
+    : overlay.deleteArmedId !== null
+    ? "↵ jump · s sum · e rename · n break · d confirms · esc keeps"
+    : width < 100
+      ? "↵ jump · s sum · e rename · n break · d rm · esc"
+      : "↵ jump · s summarize · e rename · n break · d remove · esc";
+  return placePanel(base, `chapters · ${model.rows.length} on this storyline`, boundedContent(content, contentWidth),
+    footer, width, height, 106, { rows: state.hitRows, targets,
+      // Renaming accepts only save, cancel and text: advertising the other verbs
+      // would register clicks its handler drops on the floor.
+      footerActions: overlay.rename === null ? CHAPTERS_FOOTER_ACTIONS : RENAME_FOOTER_ACTIONS });
+}
+
+function renderLibrary(
+  base: FrameLine[],
+  state: OverlayState & { hitRows: HitRows; now: number },
+  width: number,
+  height: number,
+  deadlines?: FrameDeadlineCollector
+): FrameComposition {
+  const overlay = state.library!;
+  const rows = libraryRows(overlay.stories, overlay.query);
+  const totals = libraryTotals(overlay.stories);
+  const contentWidth = panelWidthFor(width) - 2;
+  const columns = libraryColumns(contentWidth);
+  const folder = state.storyFolder.length === 0 ? "" : ` · ${state.storyFolder}`;
+  const content: FrameLine[] = [];
+  if (overlay.prompt !== null) content.push(promptLine(overlay.prompt.kind, overlay.prompt.value, contentWidth));
+  else if (overlay.query.length > 0) content.push(promptLine("filter", overlay.query, contentWidth));
+  content.push([
+    raisedSegment(cellPad("", columns.lead), "chrome"),
+    raisedSegment(cellPad("title", columns.title), "chrome"),
+    raisedSegment(cellPadStart("words", columns.words), "chrome"),
+    raisedSegment(cellPad("  structure", columns.structure), "chrome"),
+    ...(columns.updated === 0 ? [] : [raisedSegment(cellPad("updated", columns.updated), "chrome")])
+  ]);
+  const targets: Array<HitTarget | null> = content.map(() => null);
+  const window = panelRowWindow(rows.map(() => 1), overlay.cursor, height - 9 - content.length);
+  for (const [offset, story] of rows.slice(window.start, window.end).entries()) {
+    const index = window.start + offset;
+    targets.push({ kind: "list", index });
+    content.push(libraryLine(story, index === overlay.cursor, columns, state.now, deadlines));
+  }
+  if (rows.length === 0) { content.push([raisedSegment("  no matching stories", "prose · dim")]); targets.push(null); }
+  const title = `library${folder} · ${totals.stories} stories · ${totals.words.toLocaleString("en-US")} words${panelRange(rows.length, window)}`;
+  const prompting = overlay.prompt !== null;
+  const footer = prompting ? "↵ apply · esc cancel" : "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc";
+  return placePanel(base, title, boundedContent(content, contentWidth), footer, width, height, 106,
+    { rows: state.hitRows, targets, footerActions: prompting ? RENAME_FOOTER_ACTIONS : LIBRARY_FOOTER_ACTIONS });
+}
+
+function libraryLine(
+  story: StorySummary,
+  selected: boolean,
+  columns: LibraryColumns,
+  now: number,
+  deadlines?: FrameDeadlineCollector
+): FrameLine {
+  if (columns.updated !== 0) {
+    const ageDeadline = nextAgeChange(story.updatedAt, now);
+    if (ageDeadline !== null) deadlines?.at(ageDeadline);
+  }
+  const structure = `${story.partCount} parts · ${story.lineCount} lines`;
+  return [
+    raisedSegment(cellPad(selected ? "  ▸ " : "", columns.lead), selected ? "focus / accent" : "chrome"),
+    raisedSegment(cellPad(truncate(story.title, Math.max(0, columns.title - 2)), columns.title), selected ? "prose" : "prose · dim"),
+    raisedSegment(cellPadStart(story.words.toLocaleString("en-US"), columns.words), "prose · dim"),
+    raisedSegment(`  ${cellPad(truncate(structure, Math.max(0, columns.structure - 4)), Math.max(0, columns.structure - 2))}`, "chrome"),
+    ...(columns.updated === 0 ? [] : [
+      raisedSegment(cellPad(libraryAge(story.updatedAt, now), columns.updated), "chrome")
+    ])
+  ];
+}
+
+function promptLine(kind: string, value: string, width: number): FrameLine {
+  const label = kind === "delete" ? "retype exact title" : kind;
+  const prefix = truncate(`  › ${label}: `, Math.max(0, width - 1));
+  const valueWidth = Math.max(0, width - visibleWidth(prefix) - 1);
+  return [
+    raisedSegment(prefix, kind === "delete" ? "danger text" : "accent · deep"),
+    raisedSegment(truncateTail(value, valueWidth), "streaming"),
+    raisedSegment("▌", "focus / accent")
+  ];
+}
+
+function renderFacts(base: FrameLine[], state: OverlayState & { payload: StoryPayload; hitRows: HitRows }, width: number, height: number): FrameComposition {
+  const overlay = state.facts!;
+  const tags = factTags(state.payload.facts);
+  const selection = boundedFactSelection(state.payload.facts, overlay, overlay.query);
+  const activeChip = selection.chip;
+  const activeTag = selection.selectedTag;
+  const rows = factRows(state.payload.facts, activeTag, overlay.query);
+  const rowCursor = selection.cursor;
+  // Tags are user-written, so the row can outrun the panel. Overrides past the edge
+  // would still answer clicks — `hitAt` consults overrides before row bounds — but
+  // dropping the overflow would hide tags that `tab` still cycles through. So
+  // the chips wrap: every tag stays visible, clickable, and in bounds.
+  const contentWidth = panelWidthFor(width) - 2;
+  const columns = factColumns(contentWidth);
+  const chipLimit = contentWidth;
+  const chipLines: FrameLine[] = [[raisedSegment("  tags  ", "chrome")]];
+  const chipOverridesByLine: HitRegion[][] = [[]];
+  let chipLeft = 8;
+  for (const [index, tag] of tags.entries()) {
+    const rendered = chip(truncate(tag ?? "all", Math.max(1, chipLimit - 12)), index === activeChip);
+    const chipWidth = visibleWidth(rendered.text);
+    const gap = chipLeft > 8 ? 1 : 0;
+    if (chipLeft > 8 && chipLeft + gap + chipWidth > chipLimit) {
+      chipLines.push([raisedSegment("        ", "chrome")]);
+      chipOverridesByLine.push([]);
+      chipLeft = 8;
+    }
+    if (chipLeft > 8) {
+      chipLines.at(-1)!.push(raisedSegment(" "));
+      chipLeft += 1;
+    }
+    chipOverridesByLine.at(-1)!.push({ target: { kind: "chip", index }, left: chipLeft, right: chipLeft + chipWidth });
+    chipLines.at(-1)!.push(rendered);
+    chipLeft += chipWidth;
+  }
+  const content: FrameLine[] = [...chipLines];
+  if (overlay.filtering || overlay.query.length > 0) content.push(promptLine("filter", overlay.query, contentWidth));
+  content.push([
+    raisedSegment(cellPad("", columns.lead), "chrome"),
+    raisedSegment(cellPad("name", columns.name), "chrome"),
+    raisedSegment(cellPad("tag", columns.tag), "chrome"),
+    raisedSegment(cellPad("note", columns.note), "chrome")
+  ]);
+  const targets: Array<HitTarget | null> = content.map(() => null);
+  const logicalRows: FrameLine[][] = [];
+  for (const [index, fact] of rows.entries()) {
+    const expanded = overlay.expandedId === fact.id;
+    const body = factBody(fact);
+    const lines: FrameLine[] = [[
+      raisedSegment(cellPad(index === rowCursor ? "  ▸ " : "", columns.lead), index === rowCursor ? "focus / accent" : "chrome"),
+      raisedSegment(cellPad(truncate(factName(fact), Math.max(0, columns.name - 1)), columns.name), index === rowCursor ? "prose" : "prose · dim"),
+      raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag), "accent · deep"),
+      raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome")
+    ]];
+    const panelWidth = panelWidthFor(width);
+    if (expanded) for (const line of wrapText(fact.text, [], Math.max(20, panelWidth - 8))) {
+      lines.push([raisedSegment("      "), raisedSegment(line.text, "prose")]);
+    }
+    logicalRows.push(lines);
+  }
+  const window = panelRowWindow(logicalRows.map((lines) => lines.length), rowCursor,
+    height - 9 - content.length);
+  for (let index = window.start; index < window.end; index += 1) {
+    const lines = logicalRows[index]!;
+    content.push(...lines);
+    // Detail lines belong to the fact above them, so every click keeps the
+    // same logical selection.
+    targets.push(...lines.map((): HitTarget => ({ kind: "list", index })));
+  }
+  if (rows.length === 0) { content.push([raisedSegment("  no matching facts", "prose · dim")]); targets.push(null); }
+  const footer = overlay.filtering
+    ? "↵ done · esc done"
+    : overlay.deleteArmedId === null
+    ? "↑↓ · tab tags · ↵ view · / filter · e edit · n new · d delete · esc"
+    : width < 100
+      ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
+      : "↑↓ · tab tags · ↵ view · / filter · e edit · n new · d confirms · esc keeps";
+  return placePanel(base, `facts · ${state.payload.facts.length} notes${panelRange(rows.length, window)}`, boundedContent(content, contentWidth),
+    footer, width, height, 106,
+    { rows: state.hitRows, targets, overrides: chipOverridesByLine,
+      footerActions: overlay.filtering ? RENAME_FOOTER_ACTIONS : FACTS_FOOTER_ACTIONS });
+}
+
+function chip(label: string, active: boolean) {
+  return active
+    ? { text: `[ ${label} ]`, role: "background" as const, background: "accent · deep" as const, bold: true }
+    : raisedSegment(`[ ${label} ]`, "chrome");
+}
+
+function renderCommands(
+  base: FrameLine[],
+  state: PanelRenderState,
+  width: number,
+  height: number
+): FrameComposition {
+  const overlay = state.commands!;
+  const panelWidth = panelWidthFor(width, 72);
+  const content: FrameLine[] = [commandSearchLine(overlay.query, panelWidth - 2)];
+  if (overlay.view === "bookmarks") {
+    const bookmarks = state.payload.bookmarks;
+    const window = panelRowWindow(bookmarks.map(() => 1), overlay.cursor, height - 9 - content.length);
+    const targets: Array<HitTarget | null> = [null];
+    for (const [offset, bookmark] of bookmarks.slice(window.start, window.end).entries()) {
+      const index = window.start + offset;
+      targets.push({ kind: "list", index });
+      content.push([
+      raisedSegment(index === overlay.cursor ? "  ▸ " : "    ", index === overlay.cursor ? "focus / accent" : "chrome"),
+      raisedSegment(cellPad(bookmark.name, 30), "prose"), raisedSegment(bookmark.label || "unlabelled", bookmarkRole(bookmark))
+      ]);
+    }
+    if (bookmarks.length === 0) { content.push([raisedSegment("  no bookmarks", "prose · dim")]); targets.push(null); }
+    return placePanel(base, `bookmark manager${panelRange(bookmarks.length, window)}`, content,
+      "↑↓ move · d delete · esc commands", width, height, 72,
+      { rows: state.hitRows, targets, footerActions: BOOKMARKS_FOOTER_ACTIONS });
+  }
+  const model = commandPaletteModel(
+    overlay.query,
+    state.demo,
+    commandContext(
+      state.payload,
+      state.connection.down,
+      state.requestActive
+    )
+  );
+  const cursor = retainCommandSelection(model.selectable, overlay.selectedId, overlay.cursor).cursor;
+  const targets: Array<HitTarget | null> = [null];
+  // placePanel can paint height - 9 body rows; Search permanently owns one.
+  const rows = commandPaletteWindow(model, cursor, Math.max(1, height - 10));
+  for (const row of rows) {
+    content.push(commandPaletteLine(row, cursor, panelWidth - 2));
+    targets.push(row.selectableIndex === null ? null : {
+      kind: "list", index: row.selectableIndex, selected: row.selectableIndex === cursor
+    });
+  }
+  if (model.selectable.length === 0) {
+    content.push([raisedSegment("  no matching commands", "prose · dim")]);
+    targets.push(null);
+  }
+  return placePanel(base, "commands", content, "↑↓ move · ↵ run · esc close", width, height, 72,
+    { rows: state.hitRows, targets, footerActions: COMMANDS_FOOTER_ACTIONS });
+}
+
+function commandSearchLine(query: string, width: number): FrameLine {
+  const prefix = "  Search  ";
+  const valueWidth = Math.max(0, width - visibleWidth(prefix) - 1);
+  return [
+    raisedSegment(prefix, "chrome"),
+    raisedSegment(truncateTail(query, valueWidth), "streaming"),
+    { text: " ", role: "background", background: "focus / accent", bold: true }
+  ];
+}
+
+function renderSummary(base: FrameLine[], state: OverlayState & { hitRows: HitRows }, width: number, height: number): FrameComposition {
+  const summary = state.summary!;
+  const progress = deriveSummaryProgress(summary.text, summary.totalParts);
+  const label = progress.consumedParts === null
+    ? `${progress.words} words so far`
+    : `¶ ${progress.consumedParts} of ${progress.totalParts} · ${progress.words} words so far`;
+  const filled = progress.consumedParts === null ? Math.min(30, Math.floor(progress.words / 8)) : Math.round(30 * progress.consumedParts / Math.max(1, progress.totalParts));
+  const content: FrameLine[] = [
+    [raisedSegment(`  ${"━".repeat(filled)}${"─".repeat(30 - filled)}  ${label}`, "focus / accent")],
+    [raisedSegment("  summarized stretch is locked while this writes", "summary")],
+    [raisedSegment("  everything after it stays editable", "chrome")],
+    [],
+    [raisedSegment(`  ${truncate(summary.text.replace(/\s+/g, " "), 64)}`, "prose · dim")]
+  ];
+  // Inert, not transparent — see renderKeysOverlay.
+  return placePanel(base, `summary take ━ compressing ¶ ${summary.start}–${summary.end} into a continuity record`, content,
+    "esc discards", width, height, 78, { rows: state.hitRows, targets: content.map(() => null) });
+}

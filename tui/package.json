@@ -1,0 +1,30 @@
+{
+  "name": "1667",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A terminal environment for writing fiction with language models",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1667-ai/1667.git"
+  },
+  "type": "module",
+  "bin": {
+    "1667": "./bin/1667"
+  },
+  "scripts": {
+    "start": "bun src/standalone.ts",
+    "build:standalone": "bun scripts/build-standalone.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "dependencies": {
+    "@opentui/core": "0.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

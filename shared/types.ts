@@ -1,0 +1,463 @@
+import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
+
+export interface TextRange {
+  /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
+  start: number;
+  end: number;
+}
+
+/** The spans introduced or replaced by a direct author edit. An empty range
+ *  list still identifies a deletion-only variant as human-made. */
+export interface HumanEditAttribution {
+  source: "human";
+  ranges: TextRange[];
+  /** User-perceived (grapheme) characters removed. Absent when none or unknown. */
+  deletedCharacters?: number;
+}
+
+/** Keep persisted and rendered attribution bounded for pathological edits. */
+export const MAX_HUMAN_EDIT_RANGES = 256;
+
+export const MAX_FACTS = 128;
+export const MAX_FACT_TEXT_CHARS = 4_000;
+export const MAX_FACT_TAG_CHARS = 48;
+
+export interface FactInput {
+  tag?: string | null;
+  text: string;
+  sourcePartId?: string;
+}
+
+/** Wire body of POST /api/stories/:id/facts. */
+export type CreateFactsRequest = FactInput | { facts: FactInput[] };
+
+export interface StoryFact {
+  id: string;
+  tag: string | null;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+  sourcePartId?: string;
+}
+
+export interface CoveredExtent {
+  fromPartId: string;
+  toPartId: string;
+}
+
+export interface ChapterBreak {
+  id: string;
+  parentPartId: string;
+  title: string;
+  createdAt: string;
+}
+
+export interface StoryNode {
+  id: string;
+  /** null = a root: a take of the story's beginning. */
+  parentId: string | null;
+  instruction: string;
+  text: string;
+  model: string;
+  createdAt: string;
+  /** Set on any in-place mutation (human edit, rewrite, append). */
+  updatedAt?: string;
+  /** Human-edit spans of the current text. */
+  attribution?: HumanEditAttribution | null;
+  /** This take began when the user typed at a seam (or composer Write). */
+  human?: true;
+  genId?: string;
+  role?: "summary";
+  chapterBreakId?: string;
+  coveredExtent?: CoveredExtent;
+  madeAt?: string;
+  editedByUser?: true;
+  /** Which child continues the line through this node. null = no preference
+   *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
+  activeChildId: string | null;
+}
+
+export const BOOKMARK_LABELS = ["", "Canon", "Alt", "Draft", "Discarded", "Summary"] as const;
+
+export type BookmarkLabel = (typeof BOOKMARK_LABELS)[number];
+
+export function isBookmarkLabel(value: string): value is BookmarkLabel {
+  return (BOOKMARK_LABELS as readonly string[]).includes(value);
+}
+
+export interface Bookmark {
+  /** The bookmarked leaf. One bookmark per node. */
+  nodeId: string;
+  name: string;
+  label: BookmarkLabel;
+  color: string;
+  createdAt: string;
+}
+
+export const MAX_RECENT_LINES = 5;
+
+interface NodeStubBase {
+  id: string;
+  parentId: string | null;
+  preview: string;
+  words: number;
+  tokens: number;
+  childCount: number;
+  leafCount: number;
+  lastTouched: string;
+  updatedAt?: string;
+  human?: true;
+  hasInstruction: boolean;
+  activeChildId: string | null;
+}
+
+/** Ordinary prose and legacy summary-take stubs. A legacy role:"summary"
+ * node has no chapterBreakId and remains valid protocol-v3 data. */
+export interface OrdinaryNodeStub extends NodeStubBase {
+  role?: "summary";
+  chapterBreakId?: undefined;
+  text?: string;
+  instruction?: string;
+  coveredExtent?: CoveredExtent;
+  madeAt?: string;
+  editedByUser?: true;
+}
+
+/** Provider-ready chapter summary guaranteed by HTTP protocol v3. */
+export interface ChapterSummaryNodeStub extends NodeStubBase {
+  role: "summary";
+  chapterBreakId: string;
+  text: string;
+  instruction: string;
+  coveredExtent?: CoveredExtent;
+  madeAt?: string;
+  editedByUser?: true;
+}
+
+export type NodeStub = OrdinaryNodeStub | ChapterSummaryNodeStub;
+
+export function isChapterSummaryNodeStub(node: NodeStub): node is ChapterSummaryNodeStub {
+  return node.chapterBreakId !== undefined;
+}
+
+export interface StoryPayload {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  origin?: StoryOrigin;
+  nodes: NodeStub[];
+  path: StoryNode[];
+  activeRootId: string | null;
+  bookmarks: Bookmark[];
+  recentNodeIds: string[];
+  facts: StoryFact[];
+  chapterBreaks: ChapterBreak[];
+  /** Successor-Q optimistic-concurrency token. Predecessor responses omit it. */
+  aggregateVersion?: import("./story-aggregate-version.js").StoryAggregateVersion;
+}
+
+/** Runtime protocol-v3 boundary. Call once when an HTTP payload enters the
+ * client; presentation and request projection can then trust NodeStub's union. */
+export function assertPromptReadyStoryPayload(value: unknown): asserts value is StoryPayload {
+  const candidate = requireRecord(value, "The server did not return a story payload.");
+  if (!Array.isArray(candidate.nodes)) throw new Error("The server did not return a story payload.");
+  // Lead with the protocol-v3 diagnostic even when an incompatible fixture is
+  // otherwise incomplete; this is the one field older servers cannot supply.
+  for (const item of candidate.nodes) {
+    const node = requireRecord(item, "The server returned an invalid story node stub.");
+    if (node.chapterBreakId === undefined) continue;
+    if (
+      typeof node.chapterBreakId !== "string"
+      || node.role !== "summary"
+      || typeof node.text !== "string"
+      || typeof node.instruction !== "string"
+    ) {
+      throw new Error(`Chapter summary ${node.id} is not provider-ready; reconnect to a protocol-v3 server.`);
+    }
+  }
+  requireStrings(candidate, "story payload", "id", "title", "createdAt", "updatedAt");
+  requireNullableString(candidate, "activeRootId", "story payload");
+  const path = requireArray(candidate, "path", "story payload");
+  const bookmarks = requireArray(candidate, "bookmarks", "story payload");
+  const recentNodeIds = requireArray(candidate, "recentNodeIds", "story payload");
+  const facts = requireArray(candidate, "facts", "story payload");
+  const chapterBreaks = requireArray(candidate, "chapterBreaks", "story payload");
+  candidate.nodes.forEach(assertNodeStub);
+  path.forEach(assertStoryNode);
+  bookmarks.forEach(assertBookmark);
+  if (!recentNodeIds.every((id) => typeof id === "string")) {
+    throw new Error("The server returned invalid story payload.recentNodeIds.");
+  }
+  facts.forEach(assertStoryFact);
+  chapterBreaks.forEach(assertChapterBreak);
+  if (candidate.origin !== undefined) assertStoryOrigin(candidate.origin);
+  if (candidate.aggregateVersion !== undefined) {
+    assertStoryAggregateVersion(
+      candidate.aggregateVersion,
+      "story payload.aggregateVersion"
+    );
+  }
+}
+
+function assertNodeStub(value: unknown): void {
+  const node = requireRecord(value, "The server returned an invalid story node stub.");
+  requireStrings(node, "story node stub", "id", "preview", "lastTouched");
+  requireNullableString(node, "parentId", "story node stub");
+  requireNullableString(node, "activeChildId", "story node stub");
+  requireNumbers(node, "story node stub", "words", "tokens", "childCount", "leafCount");
+  if (typeof node.hasInstruction !== "boolean") invalidField("story node stub", "hasInstruction");
+  optionalString(node, "updatedAt", "story node stub");
+  optionalString(node, "text", "story node stub");
+  optionalString(node, "instruction", "story node stub");
+  optionalString(node, "madeAt", "story node stub");
+  optionalLiteral(node, "human", true, "story node stub");
+  optionalLiteral(node, "editedByUser", true, "story node stub");
+  optionalLiteral(node, "role", "summary", "story node stub");
+  if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {
+    invalidField("story node stub", "chapterBreakId");
+  }
+  if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story node stub.coveredExtent");
+}
+
+export function assertStoryNode(value: unknown): asserts value is StoryNode {
+  const node = requireRecord(value, "The server returned an invalid story path node.");
+  requireStrings(node, "story path node", "id", "instruction", "text", "model", "createdAt");
+  requireNullableString(node, "parentId", "story path node");
+  requireNullableString(node, "activeChildId", "story path node");
+  for (const field of ["updatedAt", "genId", "chapterBreakId", "madeAt"] as const) {
+    optionalString(node, field, "story path node");
+  }
+  optionalLiteral(node, "human", true, "story path node");
+  optionalLiteral(node, "editedByUser", true, "story path node");
+  optionalLiteral(node, "role", "summary", "story path node");
+  if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story path node.coveredExtent");
+  if (node.attribution !== undefined && node.attribution !== null) {
+    const attribution = requireRecord(node.attribution, "The server returned invalid human attribution.");
+    if (attribution.source !== "human" || !Array.isArray(attribution.ranges)) {
+      throw new Error("The server returned invalid human attribution.");
+    }
+    for (const value of attribution.ranges) {
+      const range = requireRecord(value, "The server returned an invalid human attribution range.");
+      requireNumbers(range, "human attribution range", "start", "end");
+    }
+    if (attribution.deletedCharacters !== undefined) {
+      requireNumber(attribution.deletedCharacters, "human attribution", "deletedCharacters");
+    }
+  }
+}
+
+function assertBookmark(value: unknown): void {
+  const bookmark = requireRecord(value, "The server returned an invalid bookmark.");
+  requireStrings(bookmark, "bookmark", "nodeId", "name", "label", "color", "createdAt");
+  if (typeof bookmark.label !== "string" || !isBookmarkLabel(bookmark.label)) invalidField("bookmark", "label");
+}
+
+function assertStoryFact(value: unknown): void {
+  const fact = requireRecord(value, "The server returned an invalid fact.");
+  requireStrings(fact, "fact", "id", "text", "createdAt", "updatedAt");
+  if (fact.tag !== null && typeof fact.tag !== "string") invalidField("fact", "tag");
+  optionalString(fact, "sourcePartId", "fact");
+}
+
+export function assertChapterBreak(value: unknown): asserts value is ChapterBreak {
+  const chapterBreak = requireRecord(value, "The server returned an invalid chapter break.");
+  requireStrings(chapterBreak, "chapter break", "id", "parentPartId", "title", "createdAt");
+}
+
+function assertStoryOrigin(value: unknown): void {
+  const origin = requireRecord(value, "The server returned an invalid story origin.");
+  requireStrings(origin, "story origin", "storyId", "storyTitle", "partId", "createdAt");
+  if (origin.offset !== null) requireNumber(origin.offset, "story origin", "offset");
+}
+
+function assertCoveredExtent(value: unknown, label: string): void {
+  const extent = requireRecord(value, `The server returned an invalid ${label}.`);
+  requireStrings(extent, label, "fromPartId", "toPartId");
+}
+
+function requireRecord(value: unknown, message: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
+  return value as Record<string, unknown>;
+}
+
+function requireArray(value: Record<string, unknown>, field: string, label: string): unknown[] {
+  if (!Array.isArray(value[field])) invalidField(label, field);
+  return value[field] as unknown[];
+}
+
+function requireStrings(value: Record<string, unknown>, label: string, ...fields: string[]): void {
+  for (const field of fields) if (typeof value[field] !== "string") invalidField(label, field);
+}
+
+function requireNumbers(value: Record<string, unknown>, label: string, ...fields: string[]): void {
+  for (const field of fields) requireNumber(value[field], label, field);
+}
+
+function requireNumber(value: unknown, label: string, field: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value)) invalidField(label, field);
+}
+
+function requireNullableString(value: Record<string, unknown>, field: string, label: string): void {
+  if (value[field] !== null && typeof value[field] !== "string") invalidField(label, field);
+}
+
+function optionalString(value: Record<string, unknown>, field: string, label: string): void {
+  if (value[field] !== undefined && typeof value[field] !== "string") invalidField(label, field);
+}
+
+function optionalLiteral(
+  value: Record<string, unknown>, field: string, literal: string | true, label: string
+): void {
+  if (value[field] !== undefined && value[field] !== literal) invalidField(label, field);
+}
+
+function invalidField(label: string, field: string): never {
+  throw new Error(`The server returned an invalid ${label}.${field}.`);
+}
+
+/** Where a branched story was forked from — enough to reconstruct a tree later. */
+export interface StoryOrigin {
+  storyId: string;
+  storyTitle: string;
+  partId: string;
+  /** Character offset inside the origin part where the copy was cut; null = the full part was kept. */
+  offset: number | null;
+  createdAt: string;
+}
+
+export interface Story {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  origin?: StoryOrigin;
+  nodes: StoryNode[];
+  activeRootId: string | null;
+  bookmarks: Bookmark[];
+  recentNodeIds: string[];
+  facts: StoryFact[];
+  chapterBreaks: ChapterBreak[];
+}
+
+export interface StorySummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+  partCount: number;
+  words: number;
+  forked: boolean;
+  lineCount: number;
+  /** Successor-Q optimistic-concurrency token. Predecessor responses omit it. */
+  aggregateVersion?: import("./story-aggregate-version.js").StoryAggregateVersion;
+}
+
+export interface SwitchRequest {
+  nodeId: string;
+  expectedLineFingerprint?: string;
+  stopAtNode?: boolean;
+}
+
+interface CreateNodeRequestBase {
+  text: string;
+  instruction?: string;
+}
+
+export interface CreateChildNodeRequest extends CreateNodeRequestBase {
+  parentId: string | null;
+  appendTo?: never;
+  sourceNodeId?: never;
+  genId?: string;
+  expectedTextHash?: never;
+}
+
+export interface AppendNodeRequest extends CreateNodeRequestBase {
+  parentId?: never;
+  appendTo: string;
+  sourceNodeId?: never;
+  genId: string;
+  expectedTextHash: string;
+}
+
+/** Copy an existing take into a new sibling, then apply a human edit. */
+export interface CreateEditedTakeRequest extends CreateNodeRequestBase {
+  parentId?: never;
+  appendTo?: never;
+  sourceNodeId: string;
+  genId?: never;
+  expectedTextHash: string;
+}
+
+export type CreateNodeRequest =
+  | CreateChildNodeRequest
+  | AppendNodeRequest
+  | CreateEditedTakeRequest;
+
+export interface EditNodeRequest {
+  text?: string;
+  instruction?: string;
+  expectedTextHash: string;
+}
+
+export interface DeleteNodeRequest {
+  expectedSubtreeCount: number;
+}
+
+export interface PruneUnusedTakesRequest {
+  /** Opaque story revision captured with the preview; currently StoryPayload.updatedAt. */
+  expectedStoryRevision: string;
+  expectedTakeCount: number;
+  expectedPartCount: number;
+}
+
+export interface BookmarkRequest {
+  name: string;
+  label: BookmarkLabel;
+}
+
+/** Wire body of POST /api/stories/:id/nodes/:nodeId/take-from-cut. */
+export interface TakeFromCutRequest {
+  offset: number;
+  expected?: string;
+}
+
+/** Wire body of POST /api/stories/:id/nodes/:nodeId/rewrite. */
+export interface RewriteRequest {
+  start: number;
+  end: number;
+  instruction: string;
+  /** The exact text currently at [start, end) — the server rejects stale selections. */
+  expected: string;
+}
+
+/** The largest imported file any entry point will read before format-specific validation. */
+export const MAX_IMPORT_BYTES = 20_000_000;
+
+/** Shared ceiling for JSON API bodies, measured as received UTF-8 bytes. */
+export const MAX_JSON_BODY_BYTES = 1_000_000;
+
+/** Graceful drain window before a hung backend is force-terminated. */
+export const BACKEND_SHUTDOWN_GRACE_MS = 30_000;
+
+export const PROVIDER_VALUES = ["dry-run", "openai-compatible", "anthropic"] as const;
+export type Provider = (typeof PROVIDER_VALUES)[number];
+
+export interface ModelServerCheckResult {
+  /** ready = usable endpoint; warning = server answered but rejected the probe;
+   *  error = the request could not be made or no response arrived. */
+  state: "ready" | "warning" | "error";
+  message: string;
+}
+
+export interface GenerationSettings {
+  provider: Provider;
+  baseUrl: string;
+  model: string;
+  apiKeyEnv: string | null;
+  temperature: number | null;
+  maxTokens: number;
+  systemPrompt: string;
+  /** The model's context window, for the usage meter. null = unknown, meter shows
+   *  the estimate alone. Set by hand or by probing the backend. */
+  contextWindow: number | null;
+}

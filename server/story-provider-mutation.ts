@@ -1,0 +1,378 @@
+import type { Story } from "../shared/types.js";
+import {
+  isDefinitiveProviderFailure,
+  ProviderError,
+  ServiceError
+} from "./errors.js";
+import type {
+  MutationCoordinator,
+  MutationCoordinatorRequest,
+  StoryMutationTarget
+} from "./mutation-coordinator.js";
+import { hashStartedMutationRecord } from "./mutation-ledger-codec.js";
+import {
+  MutationLedgerStore,
+  type StoryMutationReceipt
+} from "./mutation-ledger-store.js";
+import type {
+  MutationResult,
+  PreparedUserMutationRecord,
+  ProviderMutationMethod,
+  StartedMutationRecord
+} from "./mutation-ledger-types.js";
+import {
+  isPreparedDomainError,
+  type PreparedDomainError
+} from "./mutation-ledger-types.js";
+import { requireExpectedStoryVersion } from "./story-aggregate-state.js";
+import type { StoryAggregateSession } from "./story-aggregate-session.js";
+import {
+  ScopedProviderStoryRuntime,
+  type ProviderStoryRuntime
+} from "./story-mutation-runtime.js";
+import {
+  commitPreparedStoryTransaction,
+  commitReceiptOnlyStoryTransaction,
+  corruptStoryReceipt,
+  hashStoryManifest,
+  requireFreshStoryMutation,
+  prepareReceiptOnlyStoryError,
+  storyIdFromScope,
+  StoryMutationRecovery,
+  storyResult,
+  timestamp,
+  type StoryMutationClock,
+  type StoryMutationHooks
+} from "./story-mutation-transaction.js";
+import { reduceStoryV6 } from "./story-v6-reducer.js";
+import type { StoryStore } from "./stories.js";
+
+export interface ProviderStoryMutationCommit<Value> {
+  readonly story: Story;
+  readonly result: Extract<MutationResult, { kind: "story" }>;
+  readonly value: Value;
+}
+
+export class StoryProviderMutationStore {
+  constructor(
+    private readonly stories: StoryStore,
+    private readonly coordinator: MutationCoordinator,
+    private readonly ledger: MutationLedgerStore,
+    private readonly recovery: StoryMutationRecovery,
+    private readonly now: StoryMutationClock,
+    private readonly hooks: StoryMutationHooks = {}
+  ) {}
+
+  async run<Value>(
+    input: unknown,
+    method: ProviderMutationMethod,
+    work: (
+      stories: ProviderStoryRuntime,
+      providerStarted: () => Promise<void>
+    ) => Promise<Value>,
+    replayValue: () => Value
+  ): Promise<ProviderStoryMutationCommit<Value>> {
+    return await this.coordinator.runStory(input, async (request) => {
+      const storyId = storyIdFromScope(request.scope);
+      let receipt = await this.ledger.loadStoryReceipt(
+        request.scope,
+        request.mutationId
+      );
+      requireFreshStoryMutation(receipt, request.mutationId, this.now);
+      if (receipt.acknowledged !== null) {
+        requireMatchingAcknowledgedProviderReceipt(receipt, request, method);
+        throw providerOutcomeAcknowledged(request.mutationId);
+      }
+      requireMatchingProviderReceipt(receipt, request, method);
+      return await this.stories.withAggregateSession(storyId, async (session) => {
+        await this.recovery.finalizeAggregateTransaction(
+          session,
+          request.mutationId
+        );
+        const terminal = await this.recovery.recover(
+          session,
+          request,
+          receipt
+        );
+        if (terminal !== null) {
+          return {
+            story: await session.loadLive(),
+            result: terminal,
+            value: replayValue()
+          };
+        }
+        receipt = await this.ledger.loadStoryReceipt(
+          request.scope,
+          request.mutationId
+        );
+        requireMatchingProviderReceipt(receipt, request, method);
+        const unresolved = session.snapshot.manifest.unresolvedProvider;
+        if (unresolved !== null) {
+          throw providerOutcomeUnknown(unresolved.mutationId);
+        }
+        if (receipt.started !== null) {
+          throw providerOutcomeUnknown(request.mutationId);
+        }
+        requireExpectedStoryVersion(
+          session.snapshot,
+          request.expectedAggregateVersion
+        );
+        const story = await session.loadLive();
+        const runtime = new ScopedProviderStoryRuntime(story, session);
+        let started: StartedMutationRecord | null = null;
+        const provider = {
+          mutationId: request.mutationId,
+          fingerprintHash: request.fingerprint
+        } as const;
+        const startProvider = async (): Promise<void> => {
+          if (started !== null) return;
+          const oldStateHash = session.snapshot.manifestHash;
+          const record: StartedMutationRecord = {
+            schema: 1,
+            kind: "started",
+            aggregateKey: request.scope,
+            mutationId: request.mutationId,
+            fingerprintHash: request.fingerprint,
+            method,
+            oldStateHash,
+            createdAt: timestamp(this.now)
+          };
+          const manifest = reduceStoryV6({
+            kind: "present",
+            manifest: session.snapshot.manifest,
+            manifestHash: oldStateHash
+          }, {
+            kind: "provider-started",
+            expectedManifestHash: oldStateHash,
+            provider
+          });
+          if (manifest === null) {
+            throw new Error("Provider start removed its story aggregate");
+          }
+          await session.stageManifest(manifest);
+          try {
+            await this.ledger.writeStoryRecord(record);
+          } catch (error) {
+            await session.discardStagedManifest().catch(() => undefined);
+            throw error;
+          }
+          await session.publishStagedManifest();
+          started = record;
+        };
+
+        let value: Value;
+        try {
+          value = await work(runtime, startProvider);
+        } catch (error) {
+          if (started !== null && isDefinitiveProviderFailure(error)) {
+            await this.commitTerminal(
+              session,
+              request,
+              method,
+              started,
+              runtime,
+              "error"
+            );
+          } else if (started === null) {
+            const code = receiptOnlyProviderError(error);
+            if (code !== null) {
+              await commitReceiptOnlyStoryTransaction(
+                this.ledger,
+                prepareReceiptOnlyStoryError(
+                  method,
+                  request,
+                  session,
+                  code,
+                  timestamp(this.now)
+                ),
+                this.now,
+                this.hooks
+              );
+            }
+          }
+          throw error;
+        }
+        if (started === null && runtime.didSave) {
+          await startProvider();
+        }
+        if (started === null) {
+          return {
+            story,
+            result: storyResult(session.snapshot.manifest),
+            value
+          };
+        }
+        if (!runtime.didSave) throw providerOutcomeUnknown(request.mutationId);
+        const result = await this.commitTerminal(
+          session,
+          request,
+          method,
+          started,
+          runtime,
+          "success"
+        );
+        return { story, result, value };
+      });
+    });
+  }
+
+  private async commitTerminal(
+    session: StoryAggregateSession,
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    method: ProviderMutationMethod,
+    started: StartedMutationRecord,
+    runtime: ScopedProviderStoryRuntime,
+    outcome: "success" | "error"
+  ): Promise<Extract<MutationResult, { kind: "story" }>> {
+    const oldStateHash = session.snapshot.manifestHash;
+    const draft = outcome === "success"
+      ? await runtime.loadForMutation(storyIdFromScope(request.scope))
+      : null;
+    const replacement = draft === null
+      ? null
+      : await session.prepareContent(draft);
+    const provider = {
+      mutationId: request.mutationId,
+      fingerprintHash: request.fingerprint
+    } as const;
+    const manifest = reduceStoryV6({
+      kind: "present",
+      manifest: session.snapshot.manifest,
+      manifestHash: oldStateHash
+    }, {
+      kind: "provider-terminal-prepared",
+      expectedManifestHash: oldStateHash,
+      provider,
+      outcome: replacement === null
+        ? { kind: "error" }
+        : {
+          kind: "success",
+          content: replacement.content,
+          summary: replacement.summary
+        }
+    });
+    if (manifest === null) {
+      throw new Error("Provider terminal transition removed its story aggregate");
+    }
+    const prepared: PreparedUserMutationRecord = {
+      schema: 1,
+      kind: "prepared",
+      purpose: "mutation",
+      aggregateKey: request.scope,
+      key: request.mutationId,
+      fingerprintHash: request.fingerprint,
+      method,
+      oldStateHash,
+      newStateHash: hashStoryManifest(manifest),
+      startedRecordHash: hashStartedMutationRecord(started),
+      result: outcome === "success"
+        ? storyResult(manifest)
+        : {
+          kind: "error",
+          code: "provider_failure",
+          aggregateVersion: {
+            kind: "story",
+            revision: manifest.revision
+          }
+        },
+      preparedAt: timestamp(this.now)
+    };
+    await commitPreparedStoryTransaction({
+      session,
+      ledger: this.ledger,
+      manifest,
+      prepared,
+      now: this.now,
+      hooks: this.hooks
+    });
+    return storyResult(manifest);
+  }
+}
+
+function receiptOnlyProviderError(error: unknown): PreparedDomainError | null {
+  if (error instanceof ProviderError) {
+    return isDefinitiveProviderFailure(error) ? "provider_failure" : null;
+  }
+  if (!(error instanceof ServiceError) || !isPreparedDomainError(error.code)) {
+    return null;
+  }
+  if (error.code === "provider_failure"
+    && !isDefinitiveProviderFailure(error)) {
+    return null;
+  }
+  return error.code;
+}
+
+function requireMatchingProviderReceipt(
+  receipt: StoryMutationReceipt,
+  request: MutationCoordinatorRequest<StoryMutationTarget>,
+  method: ProviderMutationMethod
+): void {
+  if (receipt.started !== null && (
+    receipt.started.aggregateKey !== request.scope
+    || receipt.started.mutationId !== request.mutationId
+    || receipt.started.method !== method
+    || receipt.started.fingerprintHash !== request.fingerprint
+  )) {
+    throw providerIdempotencyConflict();
+  }
+  if (receipt.prepared !== null) {
+    if (receipt.prepared.purpose !== "mutation"
+      || receipt.prepared.aggregateKey !== request.scope
+      || receipt.prepared.key !== request.mutationId
+      || receipt.prepared.method !== method
+      || receipt.prepared.fingerprintHash !== request.fingerprint
+      || (receipt.prepared.startedRecordHash === null
+        && (receipt.prepared.result.kind !== "error"
+          || receipt.prepared.oldStateHash !== receipt.prepared.newStateHash))) {
+      throw providerIdempotencyConflict();
+    }
+  } else if (receipt.completed !== null || receipt.acknowledged !== null) {
+    throw corruptStoryReceipt(request.mutationId);
+  }
+}
+
+function requireMatchingAcknowledgedProviderReceipt(
+  receipt: StoryMutationReceipt,
+  request: MutationCoordinatorRequest<StoryMutationTarget>,
+  method: ProviderMutationMethod
+): void {
+  const started = receipt.started;
+  const acknowledged = receipt.acknowledged;
+  if (started === null || acknowledged === null
+    || started.aggregateKey !== request.scope
+    || started.mutationId !== request.mutationId
+    || started.method !== method
+    || started.fingerprintHash !== request.fingerprint
+    || acknowledged.aggregateKey !== request.scope
+    || acknowledged.mutationId !== request.mutationId
+    || acknowledged.startedRecordHash !== hashStartedMutationRecord(started)
+    || receipt.prepared !== null
+    || receipt.completed !== null) {
+    throw providerIdempotencyConflict();
+  }
+}
+
+function providerIdempotencyConflict(): ServiceError {
+  return new ServiceError(
+    409,
+    "Mutation ID was already used for different provider input.",
+    "idempotency_conflict"
+  );
+}
+
+function providerOutcomeUnknown(mutationId: string): ServiceError {
+  return new ServiceError(
+    409,
+    `Provider outcome is unknown for mutation ${mutationId}; acknowledge it before continuing.`,
+    "generation_outcome_unknown"
+  );
+}
+
+function providerOutcomeAcknowledged(mutationId: string): ServiceError {
+  return new ServiceError(
+    409,
+    `Provider outcome was acknowledged for mutation ${mutationId}.`,
+    "generation_outcome_unknown_acknowledged"
+  );
+}

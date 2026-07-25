@@ -1,0 +1,67 @@
+import type { CreateNodeRequest, Story } from "../shared/types.js";
+import { ServiceError } from "./errors.js";
+import { currentModel } from "./generation-http.js";
+import type { GenerationAdmissionRegistry } from "./generation-admission.js";
+import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
+import type { SettingsStore } from "./settings.js";
+import { commitTake, createEditedTake } from "./story-nodes.js";
+import type { StoryStore } from "./stories.js";
+
+/** One locked commit path for human takes, generated takes, appends, and
+ * edit-as-sibling. Keeping this out of StoryService leaves transport
+ * orchestration separate from node mutation policy. */
+export async function commitNode(
+  stories: StoryStore,
+  settings: SettingsStore,
+  generationAdmission: GenerationAdmissionRegistry,
+  id: string,
+  body: CreateNodeRequest,
+  mutationNodeId?: string
+): Promise<Story> {
+  const rawText = body.text;
+  if (rawText.trim().length === 0) throw new ServiceError(400, "Nothing to save");
+  const genId = body.genId ?? null;
+  const providedInstruction = body.instruction ?? "";
+  const instruction = genId === null ? providedInstruction : providedInstruction.trim() || DEFAULT_INSTRUCTION;
+
+  return await stories.withLock(id, async () => {
+    const story = await stories.loadForMutation(id);
+    if (mutationNodeId !== undefined && story.nodes.some((node) => node.id === mutationNodeId)) return story;
+    if (body.sourceNodeId !== undefined) {
+      await stories.hydratePath(story, body.sourceNodeId);
+      createEditedTake(
+        story,
+        body.sourceNodeId,
+        body.expectedTextHash,
+        instruction,
+        rawText.trim(),
+        mutationNodeId
+      );
+      await stories.save(story);
+      return story;
+    }
+    const model = genId === null
+      ? "human"
+      : generationAdmission.modelFor(id, genId) ?? await currentModel(settings);
+    const requestedAppendTo = body.appendTo ?? null;
+    const appendCrossesBreak = requestedAppendTo !== null
+      && story.chapterBreaks.some((chapterBreak) => chapterBreak.parentPartId === requestedAppendTo);
+    const appendTo = appendCrossesBreak ? null : requestedAppendTo;
+    const expectedTextHash = appendTo !== null && body.appendTo !== undefined
+      ? body.expectedTextHash
+      : null;
+    const parentId = body.parentId ?? null;
+    const { duplicate } = commitTake(story, {
+      parentId: appendCrossesBreak ? requestedAppendTo : appendTo === null ? parentId : null,
+      appendTo,
+      expectedTextHash,
+      instruction,
+      text: appendTo === null ? rawText.trim() : rawText,
+      model,
+      genId,
+      ...(mutationNodeId === undefined ? {} : { nodeId: mutationNodeId })
+    });
+    if (!duplicate) await stories.save(story);
+    return story;
+  });
+}

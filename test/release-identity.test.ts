@@ -1,0 +1,61 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { PACKAGED_ARTIFACT_TARGETS } from "../shared/build-identity.js";
+import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+
+const evidence = {
+  schemaVersion: 1,
+  productVersion: "1.2.3-beta.1",
+  sourceCommit: "0123456789abcdef0123456789abcdef01234567",
+  sourceDirty: false,
+  tagName: "v1.2.3-beta.1",
+  tagObjectType: "annotated",
+  tagSignature: "verified",
+  tagTargetCommit: "0123456789abcdef0123456789abcdef01234567",
+  buildTimestamp: "2026-07-23T10:20:30.000Z",
+  packageVersions: {
+    root: "1.2.3-beta.1",
+    tui: "1.2.3-beta.1",
+    rootLock: "1.2.3-beta.1",
+    rootLockPackage: "1.2.3-beta.1"
+  }
+} as const;
+
+test("signed clean tag evidence produces one immutable release identity per target", () => {
+  const release = createReleaseIdentitySet(evidence);
+  assert.deepEqual(
+    release.identities.map((identity) => identity.artifactTarget),
+    PACKAGED_ARTIFACT_TARGETS
+  );
+  for (const identity of release.identities) {
+    assert.equal(identity.buildKind, "release");
+    assert.equal(identity.sourceDirty, false);
+    assert.equal(identity.productVersion, evidence.productVersion);
+    assert.equal(identity.sourceCommit, evidence.sourceCommit);
+    assert.equal(identity.buildTimestamp, evidence.buildTimestamp);
+    assert.ok(Object.isFrozen(identity));
+  }
+  assert.ok(Object.isFrozen(release.identities));
+  assert.ok(Object.isFrozen(release.evidence.packageVersions));
+});
+
+test("release identity rejects mutable, unsigned, detached, or version-skewed inputs", () => {
+  const invalid: unknown[] = [
+    { ...evidence, sourceDirty: true },
+    { ...evidence, tagObjectType: "commit" },
+    { ...evidence, tagSignature: "unverified" },
+    { ...evidence, tagName: "1.2.3-beta.1" },
+    {
+      ...evidence,
+      tagTargetCommit: "fedcba9876543210fedcba9876543210fedcba98"
+    },
+    {
+      ...evidence,
+      packageVersions: { ...evidence.packageVersions, tui: "1.2.4" }
+    },
+    { ...evidence, productVersion: "01.2.3", tagName: "v01.2.3" },
+    { ...evidence, buildTimestamp: "2026-07-23T10:20:30Z" },
+    { ...evidence, future: true }
+  ];
+  for (const value of invalid) assert.throws(() => createReleaseIdentitySet(value));
+});

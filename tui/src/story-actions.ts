@@ -1,0 +1,524 @@
+import { createLoomIndex, rememberedLeafId } from "../../shared/loom-model.js";
+import { BOOKMARK_LABELS, type StoryNode } from "../../shared/types.js";
+import type { AppSource } from "./app.js";
+import { openFactFromSelection, openPartEditor } from "./editor-action.js";
+import { applyTextKey, type ResolvedKey } from "./keys.js";
+import { copyToClipboard } from "./clipboard.js";
+import { copyStoryText } from "./copy-actions.js";
+import { recordHumanWords, saveConfig } from "./config.js";
+import { openMap } from "./map-actions.js";
+import { createNewStory } from "./library-actions.js";
+import { resolveRerouteTarget } from "./loom-layout.js";
+import {
+  backspaceComposer,
+  insertComposerText,
+  moveComposerHorizontal,
+  moveComposerVertical,
+  setComposerText
+} from "./composer-model.js";
+import {
+  capturePendingDirectDraft,
+  claimDirectComposer,
+  openDirectComposer,
+  openRetakeComposer,
+  resumeDirectComposer,
+  resumeRetakeComposer,
+  suspendRetakeComposer
+} from "./composer-ownership.js";
+import { countWords } from "../../shared/story-text.js";
+import { humanWordsOf } from "./rail.js";
+import {
+  createStoryViewModel,
+  lastPartRowIndex,
+  rowIndexForNode,
+  rowPart
+} from "./model.js";
+import { createBreakAtFocus, jumpAdjacentChapter } from "./chapter-actions.js";
+import { generate, generationBusy } from "./generation-action.js";
+import {
+  partActionRequiresPersistedTarget,
+  partActions,
+  type PartAction,
+  type PartActionId
+} from "./part-actions.js";
+import { createPrunePlan } from "./prune-model.js";
+import type { PendingGenerationDraft, RuntimeState } from "./state.js";
+import type { StorySelectionSpan } from "./selection-projection.js";
+import type { ActionContext } from "./action-context.js";
+import { adoptSameStoryPayload } from "./story-adoption.js";
+import {
+  advanceOrSaveBookmark,
+  confirmPrune,
+  removeBookmark,
+  switchTake,
+  switchTakeAt,
+  undoSwitch
+} from "./story-mutations.js";
+import {
+  followStoryViewport,
+  pinStoryViewport,
+  scrollStoryViewport
+} from "./viewport-intent.js";
+
+export type { ActionContext } from "./action-context.js";
+
+export {
+  generate,
+  generationBusy,
+  requestGenerationStop,
+  restorePendingGenerationDraft,
+  restoreStoppedGenerationDraft
+} from "./generation-action.js";
+
+/** NAV-mode actions (plus quit, which only NAV reaches). */
+export async function navAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  requestQuit: () => void
+): Promise<void> {
+  const view = createStoryViewModel(state.payload, state.stream);
+  const count = view.rows.length;
+  const SCROLL_STEP = 8;
+  if (state.chapterDeleteArmedId !== null && resolved.action !== "prune") {
+    state.chapterDeleteArmedId = null;
+    if (resolved.action === "cancel") return void (state.toast = "chapter break kept");
+  }
+  if (resolved.action === "scroll-down") scrollStoryViewport(state, SCROLL_STEP);
+  else if (resolved.action === "scroll-up") scrollStoryViewport(state, -SCROLL_STEP);
+  else if (resolved.action === "scroll-line-down") scrollStoryViewport(state, 1);
+  else if (resolved.action === "scroll-line-up") scrollStoryViewport(state, -1);
+  else if (resolved.action === "focus-next") {
+    state.focusIndex = Math.min(count - 1, state.focusIndex + 1);
+    followStoryViewport(state);
+  }
+  else if (resolved.action === "focus-index") {
+    state.focusIndex = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
+    followStoryViewport(state);
+  }
+  else if (resolved.action === "focus-previous") {
+    state.focusIndex = Math.max(0, state.focusIndex - 1);
+    followStoryViewport(state);
+  }
+  else if (resolved.action === "top") {
+    state.focusIndex = 0;
+    pinStoryViewport(state, 0);
+  }
+  else if (resolved.action === "leaf") {
+    state.focusIndex = lastPartRowIndex(view);
+    followStoryViewport(state);
+  }
+  else if (resolved.action === "toggle-instructions") state.showInstructions = !state.showInstructions;
+  else if (resolved.action === "toggle-prompt") {
+    const index = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
+    const part = rowPart(view, index);
+    if (part !== null) {
+      state.focusIndex = index;
+      followStoryViewport(state);
+      const expanded = new Set(state.expandedPromptIds);
+      if (expanded.has(part.id)) expanded.delete(part.id);
+      else expanded.add(part.id);
+      state.expandedPromptIds = expanded;
+    }
+  }
+  else if (resolved.action === "compose") openDirectComposer(state);
+  else if (resolved.action === "new-item") await createNewStory(state, source, context);
+  else if (resolved.action === "continue") {
+    if (generationBusy(state)) state.toast = "stream running · esc stops it first";
+    else if (state.connection.down) state.toast = "offline · reading still works";
+    else await context.backend.run("generating prose", (task) =>
+      generate(state, source, context.cache, context.repaint, "", null, null, task));
+  }
+  else if (resolved.action === "quit") return requestQuit();
+  else if (resolved.action === "open-map") openMap(state);
+  else if (resolved.action === "open-keys") state.mode = "KEYS";
+  else if (resolved.action === "create-chapter") await createBreakAtFocus(state, source, context);
+  else if (resolved.action === "chapter-previous") jumpAdjacentChapter(state, -1);
+  else if (resolved.action === "chapter-next") jumpAdjacentChapter(state, 1);
+  else if (resolved.action === "typewriter") state.typewriter = !state.typewriter;
+  else if (resolved.action === "copy-part") await runPartAction("copy", state, source, context);
+  else if (resolved.action === "copy-line") await copyPart(state, true);
+  else if (resolved.action === "open-actions") {
+    openActions(
+      state,
+      resolved.index ?? state.focusIndex,
+      resolved.selectionText ?? null,
+      resolved.selectionSpans ?? []
+    );
+  }
+  else if (resolved.action === "toggle-rail") {
+    state.config = { ...state.config, factsRail: state.config.factsRail === "auto" ? "off" : "auto" };
+    source.config = state.config;
+    if (!state.demo) saveConfig(state.config);
+    state.toast = state.config.factsRail === "auto" ? "facts rail · auto at wide terminals" : "facts rail · off";
+  }
+  // These all share runPartAction's guard block, so keys and the menu can
+  // never drift apart on what is allowed.
+  else if (resolved.action === "prune") await runPartAction("prune", state, source, context);
+  else if (resolved.action === "bookmark") await runPartAction("bookmark", state, source, context);
+  else if (resolved.action === "edit") await runPartAction("edit", state, source, context);
+  else if (resolved.action === "write") await runPartAction("write", state, source, context);
+  else if (resolved.action === "regenerate") await runPartAction("retake", state, source, context);
+  else if (resolved.action === "retake-with-prompt") {
+    if (!resumePendingRetakeDraft(state)) {
+      await runPartAction("retake-with-prompt", state, source, context);
+    }
+  }
+  else if (resolved.action === "take-next") await switchTake(state, source, 1, context);
+  else if (resolved.action === "take-previous") await switchTake(state, source, -1, context);
+  else if (resolved.action === "take-at" && resolved.take !== undefined) {
+    await switchTakeAt(state, source, resolved.take, context);
+  }
+  else if (resolved.action === "undo") await undoSwitch(state, source, context);
+}
+
+export function closeActions(state: RuntimeState): void {
+  state.actions = null;
+  state.mode = "NAV";
+}
+
+export function openActions(
+  state: RuntimeState,
+  partIndex: number,
+  selectionText: string | null = null,
+  selectionSpans: readonly StorySelectionSpan[] = []
+): void {
+  const view = createStoryViewModel(state.payload, state.stream);
+  const index = Math.max(0, Math.min(view.rows.length - 1, partIndex));
+  const part = rowPart(view, index);
+  if (part === null) return;
+  state.focusIndex = index;
+  state.actions = {
+    cursor: 0,
+    partId: part.id,
+    selectionText,
+    ...(selectionSpans.length === 0 ? {} : { selectionSpans })
+  };
+  state.mode = "ACTIONS";
+}
+
+/** The menu the renderer draws — one source for both, so row N on screen is
+ *  always row N to a click. */
+export function currentPartActions(
+  state: Pick<RuntimeState, "actions" | "focusIndex" | "payload" | "stream">
+): PartAction[] {
+  const view = createStoryViewModel(state.payload, state.stream);
+  const index = state.actions === null
+    ? state.focusIndex
+    : rowIndexForNode(view, state.actions.partId);
+  const part = rowPart(view, index);
+  const actions = partActions(
+    part?.node,
+    part?.pathIndex === state.payload.path.length - 1,
+    state.actions?.selectionText != null
+  );
+  const persisted = part !== null && state.payload.nodes.some(({ id }) => id === part.id);
+  return persisted ? actions : actions.filter(({ id }) => !partActionRequiresPersistedTarget(id));
+}
+
+/** One entry point for every part action, whether reached by mouse, menu,
+ *  or NAV key — so the guards below apply uniformly. */
+export async function runPartAction(
+  id: PartActionId,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): Promise<void> {
+  const view = createStoryViewModel(state.payload, state.stream);
+  const partId = state.actions?.partId ?? rowPart(view, state.focusIndex)?.id ?? null;
+  const selectionText = state.actions?.selectionText ?? null;
+  closeActions(state);
+  const index = partId === null ? -1 : rowIndexForNode(view, partId);
+  if (index < 0) return;
+  state.focusIndex = index;
+  const part = rowPart(view, state.focusIndex);
+  if (part === null) return;
+  const node = part.node;
+  if (partActionRequiresPersistedTarget(id)
+    && !state.payload.nodes.some((candidate) => candidate.id === node.id)) {
+    state.toast = "generation still landing · wait before changing this part";
+    return;
+  }
+  // Only generation needs a stream-specific guard. Local prompt phases stay
+  // available; their eventual API mutations claim the backend owner.
+  if (node.role === "summary" && (id === "retake" || id === "retake-with-prompt")) {
+    state.toast = "summaries are rewritten, not retaken";
+    return;
+  }
+  if (id === "continue" || id === "retake") {
+    if (generationBusy(state)) {
+      state.toast = "stream running · esc stops it first";
+      return;
+    }
+    if (state.connection.down) {
+      state.toast = "offline · reading still works";
+      return;
+    }
+  }
+  if (id === "continue") await context.backend.run("generating prose", (task) =>
+    generate(state, source, context.cache, context.repaint, "", null, null, task));
+  else if (id === "direct") openDirectComposer(state);
+  else if (id === "retake") await context.backend.run("regenerating prose", (task) =>
+    generate(state, source, context.cache, context.repaint, node.instruction, node, null, task));
+  else if (id === "retake-with-prompt") openRetakeComposer(state, node.id, node.instruction);
+  else if (id === "write") openPartEditor(state, true);
+  else if (id === "edit") openPartEditor(state, false);
+  else if (id === "copy") {
+    if (selectionText === null) await copyPart(state, false);
+    else await copyStoryText(state, { kind: "selection", text: selectionText });
+  }
+  else if (id === "fact-from-selection") {
+    if (selectionText === null) state.toast = "highlight story text before creating a fact";
+    else openFactFromSelection(state, selectionText);
+  }
+  else if (id === "bookmark") openBookmark(state, node.id);
+  else if (id === "prune") armPrune(state, node.id);
+}
+
+function resumePendingRetakeDraft(state: RuntimeState): boolean {
+  const draft = state.pendingGenerationDraft;
+  if (draft?.kind !== "retake" || !draft.restored || state.retakePrompt !== null) return false;
+  resumeRetakeComposer(state, draft.retakePrompt);
+  state.toast = "retake draft restored";
+  return true;
+}
+
+/** Clipboard path for exact part/line copies, independent of terminal
+ * selection behavior. */
+export async function copyPart(state: RuntimeState, wholeLine: boolean): Promise<void> {
+  const part = rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex);
+  const text = wholeLine
+    ? state.payload.path.map((node) => node.text).join("\n\n")
+    : part?.node.text ?? "";
+  if (text.length === 0) {
+    state.toast = "nothing to copy here";
+    return;
+  }
+  const interactionVersion = state.interactionVersion;
+  const outcome = await copyToClipboard(text);
+  if (state.interactionVersion !== interactionVersion) return;
+  const what = wholeLine ? `line · ${state.payload.path.length} parts` : `¶ ${part?.number ?? 0}`;
+  state.toast = outcome === "unavailable"
+    ? `no clipboard available for ${what} · inline edit or export instead`
+    : `copied ${what} · ${countWords(text).toLocaleString("en-US")} words`;
+}
+
+export async function actionsMenuAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): Promise<void> {
+  const overlay = state.actions;
+  if (overlay === null) return;
+  const actions = currentPartActions(state);
+  if (resolved.action === "cancel") closeActions(state);
+  else if (resolved.action === "focus-next") overlay.cursor = Math.min(actions.length - 1, overlay.cursor + 1);
+  else if (resolved.action === "focus-previous") overlay.cursor = Math.max(0, overlay.cursor - 1);
+  else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(actions.length - 1, resolved.index ?? overlay.cursor));
+  else if (resolved.action === "apply" || resolved.action === "open-selected") {
+    const action = actions[overlay.cursor];
+    if (action !== undefined) await runPartAction(action.id, state, source, context);
+  }
+}
+
+export async function bookmarkAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): Promise<void> {
+  const prompt = state.bookmark;
+  if (prompt === null) return;
+  if (resolved.action === "cancel") {
+    state.mode = prompt.returnMode;
+    state.bookmark = null;
+    return;
+  }
+  if (resolved.action === "apply") return await advanceOrSaveBookmark(state, source, context);
+  if (resolved.action === "delete-bookmark") return await removeBookmark(state, source, context);
+  if (prompt.choosingLabel) {
+    if (resolved.action === "take-next") prompt.labelIndex = (prompt.labelIndex + 1) % BOOKMARK_LABELS.length;
+    if (resolved.action === "take-previous") prompt.labelIndex = (prompt.labelIndex - 1 + BOOKMARK_LABELS.length) % BOOKMARK_LABELS.length;
+    return;
+  }
+  const name = applyTextKey(prompt.name, resolved);
+  if (name !== null) prompt.name = name;
+}
+
+export async function composeAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): Promise<void> {
+  if (resolved.action === "cancel") {
+    if (state.composer.fullscreen) state.composer.fullscreen = false;
+    else {
+      state.mode = "NAV";
+      if (state.retakePrompt === null && state.pendingGenerationDraft?.kind === "direct") {
+        resumeDirectComposer(state);
+      } else claimDirectComposer(state);
+    }
+    return;
+  }
+  if (resolved.action === "toggle-compose-fullscreen") {
+    state.composer.fullscreen = !state.composer.fullscreen;
+    return;
+  }
+  if (resolved.action === "newline") { insertComposerText(state.composer, "\n"); return; }
+  if (resolved.action === "cursor-left") {
+    moveComposerHorizontal(state.composer, -1, resolved.extendSelection);
+    return;
+  }
+  if (resolved.action === "cursor-right") {
+    moveComposerHorizontal(state.composer, 1, resolved.extendSelection);
+    return;
+  }
+  if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
+    const direction = resolved.action === "cursor-up" ? -1 : 1;
+    if (!moveComposerVertical(state.composer, direction, resolved.extendSelection)
+      && state.composer.text.length === 0
+      && resolved.extendSelection !== true) {
+      historyMove(state, direction);
+    }
+    return;
+  }
+  if (resolved.action === "history-previous") return historyMove(state, -1);
+  if (resolved.action === "history-next") return historyMove(state, 1);
+  if (resolved.action === "send") {
+    if (generationBusy(state)) {
+      state.toast = "stream running · esc stops it first · draft kept";
+      return;
+    }
+    if (state.connection.down) {
+      state.toast = "offline · draft kept until the connection returns";
+      return;
+    }
+    const instruction = state.composer.text;
+    const retakePrompt = state.retakePrompt;
+    const retakeNode = retakePrompt === null
+      ? null
+      : state.payload.path.find((node) => node.id === retakePrompt.nodeId) ?? null;
+    if (retakePrompt !== null && (retakeNode === null || retakeNode.role === "summary")) {
+      state.composer.fullscreen = false;
+      state.toast = "that part is no longer available to retake · draft kept";
+      return;
+    }
+    await context.backend.run(retakeNode === null ? "generating prose" : "regenerating prose", async (task) => {
+      if (instruction.trim().length > 0) {
+        state.history.push(instruction);
+        if (!state.demo) {
+          source.config = recordHumanWords(source.config, humanWordsOf(instruction));
+          state.config = source.config;
+        }
+      }
+      state.historyIndex = state.history.length;
+      state.historyDraft = null;
+      const pendingDraft: PendingGenerationDraft | null = instruction.trim().length === 0 && retakeNode === null
+        ? null
+        : retakePrompt === null
+          ? capturePendingDirectDraft(state, instruction)
+          : { kind: "retake", text: instruction, retakePrompt, restored: false };
+      state.pendingGenerationDraft = pendingDraft;
+      state.composer.fullscreen = false;
+      if (retakePrompt === null) setComposerText(state.composer, "");
+      else suspendRetakeComposer(state, retakePrompt);
+      state.mode = "NAV";
+      await generate(
+        state, source, context.cache, context.repaint,
+        instruction, retakeNode, pendingDraft, task
+      );
+    });
+    return;
+  }
+  if (resolved.action === "input") insertComposerText(state.composer, resolved.text ?? "");
+  else if (resolved.action === "backspace") backspaceComposer(state.composer);
+}
+
+export async function pruneAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): Promise<void> {
+  if (resolved.action === "cancel") state.prune = null;
+  else if (resolved.action === "prune") await confirmPrune(state, source, context);
+}
+
+function historyMove(state: RuntimeState, direction: -1 | 1): void {
+  const nextIndex = Math.max(0, Math.min(state.history.length, state.historyIndex + direction));
+  if (nextIndex === state.historyIndex) return;
+  if (state.historyIndex === state.history.length) state.historyDraft = state.composer.text;
+  state.historyIndex = nextIndex;
+  if (nextIndex === state.history.length) {
+    setComposerText(state.composer, state.historyDraft ?? "");
+    state.historyDraft = null;
+    return;
+  }
+  setComposerText(state.composer, state.history[nextIndex] ?? "");
+}
+
+export function armPrune(state: RuntimeState, targetId?: string): void {
+  const nodeId = targetId ?? (state.mode === "MAP"
+    ? state.map?.pathCursorId
+    : rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id);
+  if (nodeId === null || nodeId === undefined) return;
+  state.prune = createPrunePlan(state.payload, nodeId);
+}
+
+export async function rerouteFromMap(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  nodeId = state.map?.pathCursorId ?? null
+): Promise<void> {
+  if (nodeId === null) return;
+  // Rerouting mid-generation would let the landing take overwrite the line
+  // the user just chose; the keyboard path is blocked, so this one is too.
+  if (generationBusy(state)) {
+    state.toast = "stream running · esc stops it first";
+    return;
+  }
+  const target = resolveRerouteTarget(state.payload, nodeId);
+  if (target === null) return;
+  await context.backend.run("rerouting story", async (task) => {
+    const payload = await source.api.switchLine(task.storyId, target);
+    if (!task.storyCurrent()) return;
+    adoptSameStoryPayload(state, payload);
+    const targetPathIndex = Math.max(0, payload.path.findIndex((node) => node.id === target));
+    const landed = new Map(state.freshLandedAt);
+    for (const node of payload.path.slice(targetPathIndex)) landed.set(node.id, Date.now());
+    state.freshLandedAt = landed;
+    // Painting commits a derived clone of MAP navigation back into state, so
+    // object identity changes during every ordinary reroute repaint. The
+    // interaction epoch is the ownership fence: close only if no later input
+    // has moved the user elsewhere while the backend request was in flight.
+    if (task.interactionCurrent() && state.mode === "MAP" && state.map !== null) {
+      state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), target));
+      state.mode = "NAV";
+      state.map = null;
+    }
+    context.cache.invalidate();
+  });
+}
+
+export function openBookmark(state: RuntimeState, targetId?: string): void {
+  const origin = state.mode === "MAP" && state.map !== null ? "MAP" : "NAV";
+  const baseId = targetId ?? (origin === "MAP"
+    ? state.map?.pathCursorId
+    : rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id ?? state.payload.path.at(-1)?.id);
+  if (baseId === null || baseId === undefined) return;
+  const nodeId = rememberedLeafId(state.payload, baseId, createLoomIndex(state.payload));
+  const existing = state.payload.bookmarks.find((bookmark) => bookmark.nodeId === nodeId) ?? null;
+  state.bookmark = {
+    nodeId,
+    name: existing?.name ?? "",
+    labelIndex: Math.max(0, BOOKMARK_LABELS.indexOf(existing?.label ?? "")),
+    choosingLabel: false,
+    existing: existing !== null,
+    returnMode: origin
+  };
+  state.mode = "BOOKMARK";
+}

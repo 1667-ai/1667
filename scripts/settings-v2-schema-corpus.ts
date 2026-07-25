@@ -1,0 +1,215 @@
+import { canonicalJson } from "../server/canonical-json.js";
+import {
+  formatSettingsDocumentV2,
+  formatSettingsStateV2
+} from "../server/settings-v2-codec.js";
+import {
+  applyEffectiveGenerationSettings,
+  convertGenerationSettingsV1
+} from "../server/settings-v2-conversion.js";
+import {
+  INITIAL_SETTINGS_DOCUMENT_V2,
+  INITIAL_SETTINGS_DOCUMENT_V2_TEXT,
+  INITIAL_SETTINGS_STATE_V2,
+  INITIAL_SETTINGS_STATE_V2_TEXT
+} from "../server/settings-v2-default.js";
+import {
+  reduceSettingsStateV2
+} from "../server/settings-v2-reducer.js";
+import type { GenerationSettings } from "../shared/types.js";
+import type { SettingsDocumentV2, SettingsStateV2 } from "../shared/settings-v2-types.js";
+
+export interface SettingsV2CorpusCase {
+  readonly name: string;
+  readonly kind: "document" | "state";
+  readonly valid: boolean;
+  readonly schemaValid: boolean;
+  readonly text: string;
+}
+
+const MUTATION = `m1.1767225600000.${"d".repeat(32)}`;
+const POINTER = { receiptKind: "user", mutationId: MUTATION, phase: "prepared" } as const;
+
+export function settingsV2Corpus(): SettingsV2CorpusCase[] {
+  const openAi = openAiSettings();
+  const anthropic = { ...openAi, provider: "anthropic" as const, baseUrl: "https://api.anthropic.com" };
+  const local = {
+    ...openAi,
+    baseUrl: "http://127.0.0.1:1234/v1",
+    model: "local-model",
+    apiKeyEnv: null
+  };
+  const convertedOpenAi = convertGenerationSettingsV1(openAi);
+  const convertedAnthropic = convertGenerationSettingsV1(anthropic);
+  const convertedLocal = convertGenerationSettingsV1(local);
+  const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
+  const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
+    kind: "save-document",
+    document: candidate,
+    lastTransaction: POINTER
+  });
+  const validating = reduceSettingsStateV2(staged, { kind: "begin-validation", transactionId: MUTATION });
+  const prepared = reduceSettingsStateV2(validating, { kind: "prepare" });
+  const promoted = reduceSettingsStateV2(prepared, { kind: "promote" });
+  const committed = reduceSettingsStateV2(promoted, { kind: "commit" });
+  const rollingBack = reduceSettingsStateV2(promoted, { kind: "begin-rollback" });
+  const cleanCommitted = reduceSettingsStateV2(committed, { kind: "finish-commit" });
+  const cleanRolledBack = reduceSettingsStateV2(rollingBack, {
+    kind: "finish-rollback",
+    errorCode: "readiness_failed"
+  });
+  const badRoute = {
+    ...INITIAL_SETTINGS_DOCUMENT_V2,
+    routing: { default: "missing" }
+  };
+  const unresolvedConstructorModel = withDefaultModelId("constructor");
+  const unresolvedToStringModel = withDefaultModelId("toString");
+  const networkConnection = convertedOpenAi.connections["migrated:connection"]!;
+  const reservedCredential = {
+    ...convertedOpenAi,
+    connections: {
+      ...convertedOpenAi.connections,
+      "migrated:connection": {
+        ...networkConnection,
+        auth: { type: "bearer-env", env: "PATH" }
+      }
+    }
+  };
+  const publicHttp = {
+    ...convertedOpenAi,
+    connections: {
+      ...convertedOpenAi.connections,
+      "migrated:connection": { ...networkConnection, baseUrl: "http://example.com", auth: { type: "none" } }
+    }
+  };
+  const badRole = {
+    ...staged,
+    activeRevision: staged.pendingRevision
+  };
+  const badHash = {
+    ...validating,
+    activation: { ...validating.activation!, oldHash: "a".repeat(64) }
+  };
+  const newerProtocol = {
+    ...convertedOpenAi,
+    connections: {
+      ...convertedOpenAi.connections,
+      "migrated:connection": { ...networkConnection, protocol: "openai-responses" }
+    }
+  };
+  return [
+    validText("initial-document", "document", INITIAL_SETTINGS_DOCUMENT_V2_TEXT),
+    validText("initial-state", "state", INITIAL_SETTINGS_STATE_V2_TEXT),
+    valid("converted-openai", "document", convertedOpenAi),
+    valid("converted-anthropic", "document", convertedAnthropic),
+    valid("converted-loopback", "document", convertedLocal),
+    valid("staged", "state", staged),
+    valid("validating", "state", validating),
+    valid("prepared", "state", prepared),
+    valid("promoted", "state", promoted),
+    valid("rolling-back", "state", rollingBack),
+    valid("committed", "state", committed),
+    valid("clean-committed", "state", cleanCommitted),
+    valid("clean-rolled-back", "state", cleanRolledBack),
+    invalidText(
+      "document-noncanonical-order",
+      "document",
+      JSON.stringify(INITIAL_SETTINGS_DOCUMENT_V2),
+      true
+    ),
+    invalidText(
+      "document-duplicate-root-key",
+      "document",
+      INITIAL_SETTINGS_DOCUMENT_V2_TEXT.replace("{", '{"schemaVersion":2,'),
+      true
+    ),
+    invalid("document-unknown-root-key", "document", {
+      ...INITIAL_SETTINGS_DOCUMENT_V2,
+      surprise: true
+    }, false),
+    invalid("document-newer-reserved-protocol", "document", newerProtocol, false),
+    invalid("document-unresolved-default-route", "document", badRoute, true),
+    invalid("document-unresolved-constructor-model", "document", unresolvedConstructorModel, true),
+    invalid("document-unresolved-to-string-model", "document", unresolvedToStringModel, true),
+    invalid("document-reserved-credential", "document", reservedCredential, true),
+    invalid("document-public-plain-http", "document", publicHttp, true),
+    invalid("document-nfd-string", "document", {
+      ...INITIAL_SETTINGS_DOCUMENT_V2,
+      writing: { defaultAuthorBrief: "Cafe\u0301" }
+    }, true),
+    invalid("state-invalid-role-matrix", "state", badRole, true),
+    invalid("state-activation-hash-mismatch", "state", badHash, true),
+    invalid("state-unknown-root-key", "state", { ...staged, surprise: true }, false),
+    invalid("state-started-pointer", "state", {
+      ...staged,
+      lastTransaction: { ...POINTER, phase: "started" }
+    }, false)
+  ];
+}
+
+function withDefaultModelId(modelId: string): SettingsDocumentV2 {
+  const defaultProfile = INITIAL_SETTINGS_DOCUMENT_V2.profiles.default;
+  if (defaultProfile === undefined) {
+    throw new Error("Canonical initial settings are missing the default profile");
+  }
+  return {
+    ...INITIAL_SETTINGS_DOCUMENT_V2,
+    profiles: {
+      ...INITIAL_SETTINGS_DOCUMENT_V2.profiles,
+      default: {
+        ...defaultProfile,
+        modelId
+      }
+    }
+  };
+}
+
+function openAiSettings(): GenerationSettings {
+  return {
+    provider: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "test-model",
+    apiKeyEnv: "OPENAI_API_KEY",
+    temperature: 0.7,
+    maxTokens: 2_048,
+    systemPrompt: "Continue in the established voice.",
+    contextWindow: 32_768
+  };
+}
+
+function valid(
+  name: string,
+  kind: SettingsV2CorpusCase["kind"],
+  value: SettingsDocumentV2 | SettingsStateV2
+): SettingsV2CorpusCase {
+  const text = kind === "document"
+    ? formatSettingsDocumentV2(value as SettingsDocumentV2)
+    : formatSettingsStateV2(value as SettingsStateV2);
+  return validText(name, kind, text);
+}
+
+function validText(
+  name: string,
+  kind: SettingsV2CorpusCase["kind"],
+  text: string
+): SettingsV2CorpusCase {
+  return { name, kind, valid: true, schemaValid: true, text };
+}
+
+function invalid(
+  name: string,
+  kind: SettingsV2CorpusCase["kind"],
+  value: unknown,
+  schemaValid: boolean
+): SettingsV2CorpusCase {
+  return invalidText(name, kind, canonicalJson(value), schemaValid);
+}
+
+function invalidText(
+  name: string,
+  kind: SettingsV2CorpusCase["kind"],
+  text: string,
+  schemaValid: boolean
+): SettingsV2CorpusCase {
+  return { name, kind, valid: false, schemaValid, text };
+}

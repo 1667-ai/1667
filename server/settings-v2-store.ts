@@ -1,0 +1,572 @@
+import {
+  SETTINGS_ROUTE_PURPOSE_VALUES,
+  type SettingsDocumentV2,
+  type SettingsMutationResult,
+  type SettingsStateV2,
+  type SettingsRoutePurpose,
+  type SettingsView
+} from "../shared/settings-v2-types.js";
+import { selectSettingsRoute } from "../shared/settings-route.js";
+import type { GenerationSettings } from "../shared/types.js";
+import { ServiceError } from "./errors.js";
+import {
+  createMutationCoordinator,
+  MutationCoordinator,
+  type MutationCoordinatorRequest,
+  type SettingsMutationTarget
+} from "./mutation-coordinator.js";
+import { hashPreparedMutationRecord } from "./mutation-ledger-codec.js";
+import { MutationLedgerStore } from "./mutation-ledger-store.js";
+import type {
+  PreparedUserMutationRecord
+} from "./mutation-ledger-types.js";
+import {
+  hashSettingsStateV2
+} from "./settings-v2-codec.js";
+import {
+  effectiveGenerationRuntime,
+  effectiveApiKeyEnv,
+  providerForProtocol
+} from "./settings-v2-conversion.js";
+import { providerRuntimeFromV2 } from "./provider-runtime.js";
+import { defaultModelCapabilities } from "../shared/settings-provider-defaults.js";
+import {
+  isExactSettingsActivationSuccessor,
+  recoveryEventForSettingsStateV2,
+  reduceSettingsStateV2,
+  settingsStateRelation
+} from "./settings-v2-reducer.js";
+import {
+  completeSettingsMutation,
+  corruptSettingsStateReceipt,
+  invalidSettingsMutation,
+  parseDiscardPendingSettingsCommand,
+  parseSaveSettingsCommandEnvelope,
+  parseSaveSettingsDocument,
+  prepareSettingsMutation,
+  requireExactSettingsReceiptState,
+  requireMatchingSettingsPrepared,
+  requireSettingsPrepared,
+  requireSettingsReceiptNotAhead,
+  settingsCoordinatorAdmissionRequest,
+  settingsCoordinatorRequest,
+  settingsMutationFingerprint,
+  type SettingsMutationOperation
+} from "./settings-v2-mutation.js";
+import {
+  activeSettingsDocument,
+  assertRuntimeDocumentSupported,
+  credentialReferencesResolve,
+  defaultCandidateValidator,
+  assertRuntimeGenerationSettingsSupported,
+  pendingSettingsDocument,
+  providerRequestTransportAvailable,
+  settingsViewFromState
+} from "./settings-v2-runtime.js";
+import {
+  discardStagedSettingsState,
+  publishStagedSettingsState,
+  readSettingsState,
+  readSettingsStateFiles,
+  stageSettingsState
+} from "./settings-state-file.js";
+import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
+import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
+
+type Clock = () => Date;
+export type SettingsActivationMode = "activation-capable" | "recover-only";
+
+export interface SettingsV2StoreOptions {
+  readonly coordinator?: MutationCoordinator;
+  readonly ledger?: MutationLedgerStore;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly now?: Clock;
+  readonly validateCandidate?: (settings: GenerationSettings) => Promise<boolean>;
+  readonly activationMode?: SettingsActivationMode;
+}
+
+/** Format-2 settings authority: admission, receipts, aggregate replacement,
+ * bounded recovery, and restart activation all meet at this one boundary. */
+export class SettingsV2Store {
+  private readonly coordinator: MutationCoordinator;
+  private readonly ledger: MutationLedgerStore;
+  private readonly environment: NodeJS.ProcessEnv;
+  private readonly now: Clock;
+  private readonly validateCandidate: (settings: GenerationSettings) => Promise<boolean>;
+  private readonly activationMode: SettingsActivationMode;
+
+  constructor(
+    private readonly dataDir: string,
+    options: SettingsV2StoreOptions = {}
+  ) {
+    this.coordinator = options.coordinator ?? createMutationCoordinator();
+    this.ledger = options.ledger ?? new MutationLedgerStore(dataDir);
+    this.environment = { ...(options.environment ?? process.env) };
+    this.now = options.now ?? (() => new Date());
+    this.validateCandidate = options.validateCandidate ?? defaultCandidateValidator;
+    this.activationMode = options.activationMode ?? "activation-capable";
+  }
+
+  async init(): Promise<void> {
+    await this.ledger.init();
+    let state = await this.recoverReceiptTransaction();
+    state = await this.recoverActivation(state);
+    assertRuntimeDocumentSupported(activeSettingsDocument(state));
+    settingsViewFromState(state);
+  }
+
+  async loadView(): Promise<SettingsView> {
+    return settingsViewFromState(await readSettingsState(this.dataDir));
+  }
+
+  async loadRuntime(purpose: SettingsRoutePurpose = "default") {
+    const state = await readSettingsState(this.dataDir);
+    const runtime = effectiveGenerationRuntime(
+      activeSettingsDocument(state),
+      purpose,
+      {},
+      this.environment
+    );
+    assertRuntimeGenerationSettingsSupported(runtime.settings);
+    return runtime;
+  }
+
+  async loadEffective() {
+    return (await this.loadRuntime()).settings;
+  }
+
+  async loadMatchingProviderRuntimes(
+    settings: GenerationSettings
+  ): Promise<readonly {
+    readonly connectionId: string;
+    readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
+  }[]> {
+    const state = await readSettingsState(this.dataDir);
+    const document = activeSettingsDocument(state);
+    const exact: Array<{
+      readonly connectionId: string;
+      readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
+    }> = [];
+    const fallback: typeof exact = [];
+    for (const [connectionId, connection] of Object.entries(document.connections)) {
+      const provider = providerForProtocol(connection.protocol);
+      if (
+        provider !== settings.provider
+        || (connection.baseUrl ?? "") !== settings.baseUrl
+        || effectiveApiKeyEnv(connection) !== settings.apiKeyEnv
+      ) continue;
+      const models = Object.values(document.models).filter(
+        (model) => model.connectionId === connectionId
+      );
+      const exactModel = models.find((candidate) =>
+        candidate.remoteId === settings.model
+      );
+      const model = exactModel ?? models[0];
+      const match = {
+        connectionId,
+        providerRuntime: providerRuntimeFromV2(
+          connection,
+          "default",
+          model?.capabilities ?? defaultModelCapabilities(provider),
+          this.environment
+        )
+      };
+      (exactModel === undefined ? fallback : exact).push(match);
+    }
+    return exact.length > 0 ? exact : fallback;
+  }
+
+  async loadProviderProbeTarget(
+    documentValue: unknown,
+    purpose: SettingsRoutePurpose
+  ): Promise<GenerationSettings> {
+    const document = parseSettingsDocumentV2(documentValue);
+    const route = selectSettingsRoute(document, purpose);
+    const connectionId = route.model.connectionId;
+    if (usesCredentialReferences(route.connection)) {
+      const state = await readSettingsState(this.dataDir);
+      const activeConnection =
+        activeSettingsDocument(state).connections[connectionId];
+      if (
+        activeConnection === undefined
+        || !sameActivatedCredentialTarget(activeConnection, route.connection)
+      ) {
+        throw new ServiceError(
+          409,
+          "A new or changed credential target must be saved and activated before it can be tested.",
+          "credential_test_requires_activation"
+        );
+      }
+    }
+    const runtime = effectiveGenerationRuntime(
+      document,
+      purpose,
+      {},
+      this.environment,
+      { allowBlankModel: true }
+    );
+    assertRuntimeGenerationSettingsSupported(runtime.settings);
+    return runtime.settings;
+  }
+
+  async inspectMutationReceipt(mutationId: string): Promise<{
+    readonly state: "pending" | "completed";
+    readonly method: "saveSettings" | "discardPendingSettings";
+    readonly fingerprint: string;
+  } | null> {
+    const receipt = await this.ledger.loadUserReceipt("settings", mutationId);
+    const prepared = receipt.prepared;
+    if (prepared === null) return null;
+    requireSettingsPrepared(prepared, mutationId);
+    const method = prepared.method;
+    if (method !== "saveSettings" && method !== "discardPendingSettings") {
+      throw new Error("Settings receipt method was not narrowed");
+    }
+    return {
+      state: receipt.completed === null ? "pending" : "completed",
+      method,
+      fingerprint: prepared.fingerprintHash
+    };
+  }
+
+  async save(commandValue: unknown): Promise<SettingsMutationResult> {
+    const command = parseSaveSettingsCommandEnvelope(commandValue);
+    return await this.coordinator.runAfterSettingsAdmission(
+      settingsCoordinatorAdmissionRequest(command),
+      () => {
+        try {
+          const document = parseSaveSettingsDocument(commandValue);
+          const operation: SettingsMutationOperation = {
+            method: "saveSettings",
+            document
+          };
+          return {
+            fingerprint: settingsMutationFingerprint(
+              operation,
+              command.expectedStateGeneration
+            ),
+            payload: operation
+          };
+        } catch (error) {
+          throw invalidSettingsMutation(error);
+        }
+      },
+      async (request, operation) => await this.runMutation(operation, request)
+    );
+  }
+
+  async discardPending(commandValue: unknown): Promise<SettingsMutationResult> {
+    const command = parseDiscardPendingSettingsCommand(commandValue);
+    const operation: SettingsMutationOperation = {
+      method: "discardPendingSettings"
+    };
+    const fingerprint = settingsMutationFingerprint(
+      operation,
+      command.expectedStateGeneration
+    );
+    return await this.coordinator.runSettings(
+      settingsCoordinatorRequest(command, fingerprint),
+      async (request) => await this.runMutation(operation, request)
+    );
+  }
+
+  private async runMutation(
+    operation: SettingsMutationOperation,
+    request: MutationCoordinatorRequest<SettingsMutationTarget>
+  ): Promise<SettingsMutationResult> {
+    const current = await this.recoverReceiptTransaction();
+    const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
+    if (existing.prepared === null && existing.completed === null) {
+      requireFreshUnseenMutationId(
+        request.mutationId,
+        this.now().getTime()
+      );
+    }
+    if (existing.prepared !== null) {
+      const prepared = requireMatchingSettingsPrepared(
+        existing.prepared,
+        operation,
+        request.mutationId,
+        request.fingerprint
+      );
+      if (existing.completed === null) {
+        if (prepared.oldStateHash !== hashSettingsStateV2(current)
+          || pointsToUserMutation(current, request.mutationId)) {
+          throw new ServiceError(
+            409,
+            "Settings mutation recovery is incomplete; retry after restarting the backend.",
+            "mutation_outcome_unknown"
+          );
+        }
+        await this.ledger.removeOrphanPreparedUserReceipt(
+          "settings",
+          request.mutationId,
+          hashPreparedMutationRecord(prepared)
+        );
+      } else {
+        requireSettingsReceiptNotAhead(prepared, current);
+        return settingsResult(prepared);
+      }
+    }
+
+    if (operation.method === "saveSettings") {
+      assertRuntimeDocumentSupported(operation.document);
+    }
+    if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
+      throw new ServiceError(
+        409,
+        "Settings changed since this edit began; reload before saving.",
+        "revision_conflict"
+      );
+    }
+    const relation = settingsStateRelation(current);
+    if (operation.method === "saveSettings" && relation !== "clean") {
+      throw new ServiceError(409, "Pending settings must be activated or discarded before another edit.");
+    }
+    if (operation.method === "discardPendingSettings" && relation !== "staged") {
+      throw new ServiceError(409, "There are no pending settings to discard.");
+    }
+
+    let next: SettingsStateV2;
+    try {
+      const pointer = {
+        receiptKind: "user" as const,
+        mutationId: request.mutationId,
+        phase: "prepared" as const
+      };
+      next = operation.method === "saveSettings"
+        ? reduceSettingsStateV2(current, {
+            kind: "save-document",
+            document: operation.document,
+            lastTransaction: pointer
+          })
+        : reduceSettingsStateV2(current, {
+            kind: "discard-pending",
+            lastTransaction: pointer
+          });
+    } catch (error) {
+      throw invalidSettingsMutation(error);
+    }
+
+    const prepared = prepareSettingsMutation(
+      operation,
+      request,
+      current,
+      next,
+      this.timestamp()
+    );
+    await stageSettingsState(this.dataDir, next);
+    try {
+      await this.ledger.writeUserRecord(prepared);
+    } catch (error) {
+      await this.cleanupUncommitted(prepared).catch(() => undefined);
+      throw error;
+    }
+    await publishStagedSettingsState(this.dataDir);
+    await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
+    return settingsResult(prepared);
+  }
+
+  /** Final is always authoritative. A valid reserved `.next` is either an
+   * unpublished internal edge or a provable pre-state user transaction. */
+  private async recoverReceiptTransaction(): Promise<SettingsStateV2> {
+    let { current, next } = await readSettingsStateFiles(this.dataDir);
+    if (next !== null) {
+      await this.recoverUnpublishedNext(current, next);
+      current = await readSettingsState(this.dataDir);
+    }
+    const pointer = current.lastTransaction;
+    if (pointer === null) return current;
+    if (pointer.receiptKind === "format-migration-v1") {
+      const receipt = await this.ledger.loadFormatMigrationReceipt(pointer.key);
+      if (receipt.prepared === null || receipt.completed === null
+        || receipt.prepared.newStateHash !== hashSettingsStateV2(current)) {
+        throw corruptSettingsStateReceipt("format migration");
+      }
+      return current;
+    }
+
+    const receipt = await this.ledger.loadUserReceipt("settings", pointer.mutationId);
+    if (receipt.prepared === null) throw corruptSettingsStateReceipt(pointer.mutationId);
+    requireSettingsPrepared(receipt.prepared, pointer.mutationId);
+    if (receipt.completed === null) {
+      requireExactSettingsReceiptState(receipt.prepared, current);
+      await this.ledger.writeUserRecord(completeSettingsMutation(receipt.prepared, this.timestamp()));
+    } else {
+      requireSettingsReceiptNotAhead(receipt.prepared, current);
+    }
+    return current;
+  }
+
+  private async recoverUnpublishedNext(
+    current: SettingsStateV2,
+    next: SettingsStateV2
+  ): Promise<void> {
+    const pointer = next.lastTransaction;
+    if (pointer === null) {
+      if (next.stateGeneration !== 1) throw corruptSettingsStateReceipt("initial settings replacement");
+      await discardStagedSettingsState(this.dataDir);
+      return;
+    }
+    if (pointer.receiptKind === "format-migration-v1") {
+      const receipt = await this.ledger.loadFormatMigrationReceipt(pointer.key);
+      if (receipt.prepared === null || receipt.completed === null) {
+        throw corruptSettingsStateReceipt(pointer.key);
+      }
+      if (receipt.prepared.newStateHash !== hashSettingsStateV2(next)
+        || current.stateGeneration < next.stateGeneration) {
+        throw corruptSettingsStateReceipt(pointer.key);
+      }
+      await discardStagedSettingsState(this.dataDir);
+      return;
+    }
+
+    const receipt = await this.ledger.loadUserReceipt("settings", pointer.mutationId);
+    if (receipt.prepared === null) {
+      await discardStagedSettingsState(this.dataDir);
+      return;
+    }
+    requireSettingsPrepared(receipt.prepared, pointer.mutationId);
+    if (receipt.completed === null) {
+      if (receipt.prepared.oldStateHash !== hashSettingsStateV2(current)
+        || receipt.prepared.newStateHash !== hashSettingsStateV2(next)) {
+        throw corruptSettingsStateReceipt(pointer.mutationId);
+      }
+      await this.ledger.removeOrphanPreparedUserReceipt(
+        "settings",
+        pointer.mutationId,
+        hashPreparedMutationRecord(receipt.prepared)
+      );
+      await discardStagedSettingsState(this.dataDir);
+      return;
+    }
+    requireSettingsReceiptNotAhead(receipt.prepared, current);
+    const nextIsReceiptState = receipt.prepared.newStateHash === hashSettingsStateV2(next);
+    if (!nextIsReceiptState && !isExactSettingsActivationSuccessor(current, next)) {
+      throw corruptSettingsStateReceipt(pointer.mutationId);
+    }
+    await discardStagedSettingsState(this.dataDir);
+  }
+
+  private async cleanupUncommitted(prepared: PreparedUserMutationRecord): Promise<void> {
+    const receipt = await this.ledger.loadUserReceipt("settings", prepared.key);
+    if (receipt.prepared !== null && receipt.completed === null
+      && hashPreparedMutationRecord(receipt.prepared) === hashPreparedMutationRecord(prepared)) {
+      await this.ledger.removeOrphanPreparedUserReceipt(
+        "settings",
+        prepared.key,
+        hashPreparedMutationRecord(prepared)
+      );
+    }
+    await discardStagedSettingsState(this.dataDir);
+  }
+
+  private async recoverActivation(initial: SettingsStateV2): Promise<SettingsStateV2> {
+    let state = initial;
+    for (let edge = 0; edge < 6; edge += 1) {
+      const relation = settingsStateRelation(state);
+      if (relation === "clean") return state;
+      if (relation === "staged") {
+        return this.activationMode === "activation-capable"
+          ? await this.activateStaged(state)
+          : state;
+      }
+      const event = recoveryEventForSettingsStateV2(state);
+      if (event === null) throw corruptSettingsStateReceipt("settings activation");
+      state = await this.replaceInternal(reduceSettingsStateV2(state, event));
+    }
+    throw corruptSettingsStateReceipt("settings activation edge bound");
+  }
+
+  private async activateStaged(state: SettingsStateV2): Promise<SettingsStateV2> {
+    const pointer = state.lastTransaction;
+    if (pointer?.receiptKind !== "user") throw corruptSettingsStateReceipt("staged settings");
+    let next = await this.replaceInternal(reduceSettingsStateV2(state, {
+      kind: "begin-validation",
+      transactionId: pointer.mutationId
+    }));
+    const candidate = pendingSettingsDocument(next);
+    if (!credentialReferencesResolve(candidate, this.environment)) {
+      return await this.replaceInternal(reduceSettingsStateV2(next, {
+        kind: "validation-failed",
+        errorCode: "credential_unresolved"
+      }));
+    }
+    let candidateReady = false;
+    try {
+      assertRuntimeDocumentSupported(candidate);
+      candidateReady = true;
+      const validatedConnections = new Set<string>();
+      for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
+        const route = selectSettingsRoute(candidate, purpose);
+        if (validatedConnections.has(route.model.connectionId)) continue;
+        validatedConnections.add(route.model.connectionId);
+        const effective = effectiveGenerationRuntime(
+          candidate,
+          purpose,
+          {},
+          this.environment
+        ).settings;
+        if (
+          providerRequestTransportAvailable(effective)
+          && !await this.validateCandidate(effective)
+        ) {
+          candidateReady = false;
+          break;
+        }
+      }
+    } catch {
+      candidateReady = false;
+    }
+    if (!candidateReady) {
+      return await this.replaceInternal(reduceSettingsStateV2(next, {
+        kind: "validation-failed",
+        errorCode: "candidate_invalid"
+      }));
+    }
+    for (const kind of ["prepare", "promote", "commit", "finish-commit"] as const) {
+      next = await this.replaceInternal(reduceSettingsStateV2(next, { kind }));
+    }
+    return next;
+  }
+
+  private async replaceInternal(state: SettingsStateV2): Promise<SettingsStateV2> {
+    await stageSettingsState(this.dataDir, state);
+    await publishStagedSettingsState(this.dataDir);
+    return state;
+  }
+
+  private timestamp(): string {
+    const value = this.now();
+    if (!Number.isFinite(value.getTime())) throw new Error("Settings clock returned an invalid date");
+    return value.toISOString();
+  }
+}
+
+function usesCredentialReferences(
+  connection: SettingsDocumentV2["connections"][string]
+): boolean {
+  return connection.auth.type !== "none" || connection.headers.length > 0;
+}
+
+function sameActivatedCredentialTarget(
+  active: SettingsDocumentV2["connections"][string],
+  candidate: SettingsDocumentV2["connections"][string]
+): boolean {
+  return active.protocol === candidate.protocol
+    && active.baseUrl === candidate.baseUrl
+    && JSON.stringify(active.auth) === JSON.stringify(candidate.auth)
+    && JSON.stringify(active.headers) === JSON.stringify(candidate.headers);
+}
+
+function pointsToUserMutation(state: SettingsStateV2, mutationId: string): boolean {
+  return state.lastTransaction?.receiptKind === "user"
+    && state.lastTransaction.mutationId === mutationId;
+}
+
+function settingsResult(prepared: PreparedUserMutationRecord): SettingsMutationResult {
+  if (prepared.result.kind !== "settings") {
+    throw corruptSettingsStateReceipt(prepared.key);
+  }
+  return Object.freeze({ ...prepared.result });
+}

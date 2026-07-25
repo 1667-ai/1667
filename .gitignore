@@ -1,0 +1,7 @@
+node_modules/
+tui/dist/
+data/
+*.log
+.DS_Store
+.claude/
+.env

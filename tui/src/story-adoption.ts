@@ -1,0 +1,327 @@
+import type { StoryPayload } from "../../shared/types.js";
+import { createComposer } from "./composer-model.js";
+import { capturePendingDirectDraft } from "./composer-ownership.js";
+import { reconcileFactEditor } from "./editor-reconciliation.js";
+import { boundedFactSelection, factRows } from "./facts-model.js";
+import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "./model.js";
+import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
+import type { RuntimeState } from "./state.js";
+import { followStoryViewport } from "./viewport-intent.js";
+
+interface StoryFocus {
+  rowId: string | null;
+  index: number;
+}
+
+/** Capture logical focus before changing the rows beneath it. */
+export function captureStoryFocus(state: RuntimeState): StoryFocus {
+  const view = createStoryViewModel(state.payload, state.stream);
+  return { rowId: view.rows[state.focusIndex]?.id ?? null, index: state.focusIndex };
+}
+
+/** Preserve the same logical row when possible; otherwise keep focus valid. */
+export function restoreStoryFocus(state: RuntimeState, focus: StoryFocus): ReturnType<typeof createStoryViewModel> {
+  const view = createStoryViewModel(state.payload, state.stream);
+  const matchingIndex = focus.rowId === null ? -1 : view.rows.findIndex((row) => row.id === focus.rowId);
+  state.focusIndex = matchingIndex >= 0
+    ? matchingIndex
+    : Math.max(0, Math.min(focus.index, view.rows.length - 1));
+  return view;
+}
+
+/** Adopt an authoritative revision of the open story without reviving the
+ * action's launch-time focus. This validity reconciliation is unconditional:
+ * later input may move focus, but it may never leave an out-of-range index. */
+export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload): ReturnType<typeof createStoryViewModel> {
+  const focus = captureStoryFocus(state);
+  const facts = state.facts;
+  const factSelection = facts === null
+    ? null
+    : boundedFactSelection(state.payload.facts, facts, facts.query);
+  const factId = facts === null || factSelection === null
+    ? null
+    : factRows(state.payload.facts, factSelection.selectedTag, facts.query)[factSelection.cursor]?.id ?? null;
+  const commands = state.commands?.view === "bookmarks" ? state.commands : null;
+  const bookmarkNodeId = commands === null ? null : state.payload.bookmarks[commands.cursor]?.nodeId ?? null;
+  const chapters = state.chapters;
+  const chapterRows = chapters === null ? [] : createStoryViewModel(state.payload).chapters;
+  const chapter = chapters === null
+    ? null
+    : chapterRows[Math.max(0, Math.min(chapterRows.length - 1, chapters.cursor))] ?? null;
+
+  state.payload = payload;
+  const view = restoreStoryFocus(state, focus);
+
+  if (facts !== null && state.facts === facts) {
+    Object.assign(facts, boundedFactSelection(payload.facts, facts, facts.query));
+    const rows = factRows(payload.facts, facts.selectedTag, facts.query);
+    const preservedIndex = factId === null ? -1 : rows.findIndex((fact) => fact.id === factId);
+    if (preservedIndex >= 0) facts.cursor = preservedIndex;
+    if (facts.expandedId !== null && !payload.facts.some((fact) => fact.id === facts.expandedId)) {
+      facts.expandedId = null;
+    }
+  }
+  if (commands !== null && state.commands === commands && commands.view === "bookmarks") {
+    const preservedIndex = bookmarkNodeId === null
+      ? -1
+      : payload.bookmarks.findIndex((bookmark) => bookmark.nodeId === bookmarkNodeId);
+    commands.cursor = preservedIndex >= 0
+      ? preservedIndex
+      : Math.min(commands.cursor, Math.max(0, payload.bookmarks.length - 1));
+  }
+  if (chapters !== null && state.chapters === chapters) {
+    const rows = view.chapters;
+    const preservedIndex = chapter === null
+      ? -1
+      : rows.findIndex((candidate) => chapter.openingBreakId === null
+        ? candidate.openingBreakId === null
+        : candidate.openingBreakId === chapter.openingBreakId);
+    chapters.cursor = preservedIndex >= 0
+      ? preservedIndex
+      : Math.min(chapters.cursor, Math.max(0, rows.length - 1));
+  }
+  reconcileStoryActions(state, view);
+  reconcileMapNavigation(state, payload);
+  reconcileStoryBoundIntent(state, view);
+  return view;
+}
+
+/** Re-anchor an open part menu by semantic identity, or close it if its
+ * virtual/real target disappeared underneath the rendered row. */
+export function reconcileStoryActions(
+  state: RuntimeState,
+  view = createStoryViewModel(state.payload, state.stream)
+): void {
+  const actions = state.actions;
+  if (actions === null) return;
+  if (rowIndexForNode(view, actions.partId) >= 0) return;
+  state.actions = null;
+  if (state.mode === "ACTIONS") state.mode = "NAV";
+}
+
+/** Keep story-bound navigation and inspection ids aligned with rendered nodes. */
+export function reconcileMapNavigation(state: RuntimeState, payload = state.payload): void {
+  const nodeIds = new Set(payload.nodes.map(({ id }) => id));
+  if (state.stream !== null && !state.stream.append) nodeIds.add(state.stream.targetId);
+  state.expandedPromptIds = new Set(
+    [...state.expandedPromptIds].filter((nodeId) => nodeIds.has(nodeId))
+  );
+  const map = state.map;
+  if (map === null) return;
+  const fallbackId = payload.path.at(-1)?.id ?? null;
+  if (fallbackId === null) {
+    state.map = null;
+    if (state.mode === "MAP") state.mode = "NAV";
+    return;
+  }
+  if (!nodeIds.has(map.pathCursorId)) map.pathCursorId = fallbackId;
+  if (map.treeCursorId !== null && !nodeIds.has(map.treeCursorId)) map.treeCursorId = fallbackId;
+  map.rowIds = map.rowIds.filter((nodeId) => nodeIds.has(nodeId));
+  map.openedColdFolds = new Set(
+    [...map.openedColdFolds].filter((nodeId) => nodeIds.has(nodeId))
+  );
+}
+
+/** Adopt a recovery or forced-replacement snapshot. Same-story interactions
+ * are reconciled by semantic target; a different story keeps only safe input. */
+export function adoptReconciliationSnapshot(
+  state: RuntimeState,
+  payload: StoryPayload,
+  options: { discardedLibrary?: NonNullable<RuntimeState["library"]> } = {}
+): void {
+  if (state.payload.id === payload.id) {
+    adoptSameStoryPayload(state, payload);
+    state.undo = [];
+    return;
+  }
+
+  const focusIndex = state.focusIndex;
+  const retakePrompt = state.retakePrompt;
+  const dormantRetake = state.pendingGenerationDraft?.kind === "retake"
+    ? state.pendingGenerationDraft.retakePrompt
+    : null;
+  const retainedPendingText = state.pendingGenerationDraft?.restored === true
+    && state.composer.text === state.pendingGenerationDraft.text
+    ? state.pendingGenerationDraft.text
+    : null;
+  const composer = state.composer;
+  const composerScrollTop = state.composerScrollTop;
+  // A retake target cannot cross stories. Promote whichever editor is visible
+  // to Direct and shelve every other editor buffer in recall history.
+  const retakeSession = retakePrompt ?? dormantRetake;
+  const shelvedCandidates: Array<string | null> = [state.historyDraft];
+  if (retakeSession !== null) {
+    shelvedCandidates.push(
+      retakeSession.returnState.historyDraft,
+      retakeSession.returnState.composer.text,
+      retakeSession.composer.text
+    );
+  }
+  const shelvedDrafts = shelvedCandidates.filter((text, index, drafts): text is string =>
+    text !== null && text.length > 0 && text !== composer.text && drafts.indexOf(text) === index);
+  const mode = state.mode;
+  const quitArmed = state.quitArmed;
+  const library = mode === "LIBRARY"
+    && state.library !== null
+    && state.library !== options.discardedLibrary
+    ? state.library
+    : null;
+  const settings = mode === "SETTINGS" ? state.settings : null;
+  const commands = mode === "COMMANDS" && state.commands?.view === "commands"
+    ? state.commands
+    : null;
+
+  adoptStoryState(state, payload);
+  state.focusIndex = Math.max(0, Math.min(focusIndex, createStoryViewModel(payload).rows.length - 1));
+  state.composer = composer;
+  state.composerScrollTop = composerScrollTop;
+  state.pendingGenerationDraft = retainedPendingText === null
+    ? null
+    : { ...capturePendingDirectDraft(state, retainedPendingText), restored: true };
+  if (shelvedDrafts.length > 0) {
+    state.history = shelvedDrafts;
+    state.historyIndex = state.history.length;
+  }
+  state.quitArmed = quitArmed;
+
+  if (mode === "COMPOSE") state.mode = "COMPOSE";
+  else if (library !== null) {
+    if (library.prompt?.targetId !== undefined
+      && !library.stories.some((story) => story.id === library.prompt?.targetId)) {
+      library.prompt = null;
+    }
+    state.library = library;
+    state.mode = "LIBRARY";
+  } else if (settings !== null) {
+    state.settings = settings;
+    state.mode = "SETTINGS";
+  } else if (commands !== null) {
+    state.commands = commands;
+    state.mode = "COMMANDS";
+  } else if (mode === "KEYS") state.mode = "KEYS";
+}
+
+/** An authoritative call may settle while local input keeps moving. Revalidate
+ * the interaction live at adoption time instead of discarding a newer prompt
+ * or leaving a destructive confirmation aimed at vanished state. */
+function reconcileStoryBoundIntent(
+  state: RuntimeState,
+  view: ReturnType<typeof createStoryViewModel>
+): void {
+  reconcileFactEditor(state);
+  const prune = state.prune;
+  if (prune?.kind === "subtree") {
+    const refreshed = createPrunePlan(state.payload, prune.nodeId);
+    if (refreshed === null) state.prune = null;
+    else Object.assign(prune, refreshed);
+  } else if (prune?.kind === "unused-takes") {
+    const refreshed = createUnusedTakesPrunePlan(state.payload);
+    if (refreshed === null) state.prune = null;
+    else Object.assign(prune, refreshed);
+  }
+
+  const bookmark = state.bookmark;
+  const bookmarkNode = bookmark === null
+    ? null
+    : state.payload.nodes.find(({ id }) => id === bookmark.nodeId) ?? null;
+  const existingBookmark = bookmark === null
+    ? null
+    : state.payload.bookmarks.find(({ nodeId }) => nodeId === bookmark.nodeId) ?? null;
+  const bookmarkValid = bookmark !== null
+    && bookmarkNode !== null
+    && (bookmarkNode.activeChildId === null || existingBookmark !== null);
+  if (bookmarkValid) {
+    bookmark.existing = existingBookmark !== null;
+    if (bookmark.returnMode === "MAP" && state.map === null) bookmark.returnMode = "NAV";
+  } else {
+    const returnMode = bookmark?.returnMode ?? "NAV";
+    state.bookmark = null;
+    if (state.mode === "BOOKMARK") {
+      state.mode = returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
+    }
+  }
+
+  const breakIds = new Set(state.payload.chapterBreaks.map(({ id }) => id));
+  const focusedRow = view.rows[state.focusIndex];
+  if (state.chapterDeleteArmedId !== null
+    && (focusedRow?.kind !== "chapter-divider" || focusedRow.break.id !== state.chapterDeleteArmedId)) {
+    state.chapterDeleteArmedId = null;
+  }
+  if (state.chapters !== null) {
+    const rename = state.chapters.rename;
+    if (rename !== null && !breakIds.has(rename.breakId)) {
+      state.chapters.rename = null;
+    }
+    if (state.chapters.deleteArmedId !== null && !breakIds.has(state.chapters.deleteArmedId)) {
+      state.chapters.deleteArmedId = null;
+    }
+  }
+  const facts = state.facts;
+  if (facts !== null && facts.deleteArmedId !== null
+    && !state.payload.facts.some(({ id }) => id === facts.deleteArmedId)) {
+    facts.deleteArmedId = null;
+  }
+
+  const editor = state.editor;
+  if (editor !== null) {
+    const target = editor.target;
+    const targetExists = (target.kind === "fact" && (target.factId === null
+        || state.payload.facts.some(({ id }) => id === target.factId)))
+      || (target.kind === "part" && state.payload.nodes.some(({ id }) =>
+        id === (target.savedNode ?? target.node).id))
+      || (target.kind === "human-take" && state.payload.nodes.some(({ id }) =>
+        id === (target.savedNode ?? target.node).id))
+      || (target.kind === "chapter-summary"
+        && state.payload.nodes.some(({ id }) => id === target.summaryId));
+    if (!targetExists) {
+      state.editor = null;
+      state.editorScrollTop = 0;
+      if (state.mode === "EDITOR") {
+        state.mode = editor.returnMode === "FACTS" && state.facts !== null
+          ? "FACTS"
+          : "NAV";
+      }
+    }
+  }
+}
+
+/** Replace the authoritative story and discard every interaction frozen
+ * against the previous payload. Global visual preferences remain intact. */
+export function adoptStoryState(state: RuntimeState, payload: StoryPayload): void {
+  state.payload = payload;
+  state.unknownOutcomeAcknowledgementArmed = null;
+  state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
+  state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
+  state.composer = createComposer();
+  state.editor = null;
+  state.retakePrompt = null;
+  state.stream = null;
+  state.abort = null;
+  state.undo = [];
+  state.history = [];
+  state.historyIndex = 0;
+  state.historyDraft = null;
+  state.pendingGenerationDraft = null;
+  state.composerClaimEpoch += 1;
+  state.freshLandedAt = new Map();
+  state.map = null;
+  state.contextMeterExpanded = false;
+  state.prune = null;
+  state.bookmark = null;
+  state.chapters = null;
+  state.expandedChapterSummaryIds = new Set();
+  state.expandedPromptIds = new Set();
+  state.chapterDeleteArmedId = null;
+  state.actions = null;
+  state.library = null;
+  state.facts = null;
+  state.commands = null;
+  state.settings = null;
+  state.summary = null;
+  state.hitRows = [];
+  followStoryViewport(state);
+  state.lastViewportStart = 0;
+  state.composerScrollTop = 0;
+  state.editorScrollTop = 0;
+  state.quitArmed = false;
+}

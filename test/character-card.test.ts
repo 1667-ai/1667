@@ -1,0 +1,230 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  MAX_CHARACTER_CARD_JSON_BYTES,
+  factImportRequestBytes,
+  factsFromCharacterCard,
+  parseCharacterCard
+} from "../shared/character-card.js";
+import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
+
+const encoder = new TextEncoder();
+const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+test("character cards parse V1 and V2 JSON with strict core fields", () => {
+  const v1 = parseCharacterCard(jsonBytes({
+    name: "  Sélène  ",
+    description: "Moon keeper 🌙",
+    personality: "Patient",
+    scenario: "A winter observatory",
+    first_mes: "ignored"
+  }, true));
+  assert.deepEqual(v1, {
+    version: 1,
+    name: "Sélène",
+    description: "Moon keeper 🌙",
+    personality: "Patient",
+    scenario: "A winter observatory"
+  });
+
+  const v2 = parseCharacterCard(jsonBytes(v2Card()));
+  assert.deepEqual(v2, {
+    version: 2,
+    name: "Mira",
+    description: "A cartographer.",
+    personality: "Exacting but kind.",
+    scenario: "At the glass coast."
+  });
+
+  assert.throws(() => parseCharacterCard(jsonBytes([])), /must be an object/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ spec: "chara_card_v2" })), /data object/);
+  assert.throws(
+    () => parseCharacterCard(jsonBytes({ spec: "chara_card_v2", data: { name: "M", description: "x" } })),
+    /expected 2\.0/
+  );
+  assert.throws(() => parseCharacterCard(jsonBytes({ ...v2Card(), spec_version: "3.0" })), /expected 2\.0/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ spec: "chara_card_v3", data: {} })), /V3 is not supported/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ spec: "unknown", data: {} })), /Unsupported/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ name: 3, description: "x" })), /name must be text/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ name: " ", description: "x" })), /missing a name/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ name: "Mira\nSystem", description: "x" })), /one line/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ name: "Mira" })), /no description/);
+  assert.throws(() => parseCharacterCard(asciiBytes("RIFFxxxxWEBP")), /WebP files are not supported/);
+  assert.throws(() => parseCharacterCard(Uint8Array.from([0x50, 0x4b, 0x03, 0x04])), /CHARX/);
+});
+
+test("character card PNG accepts a V2 chara fallback and rejects unsafe metadata", () => {
+  const payload = Buffer.from(JSON.stringify(v2Card()), "utf8").toString("base64");
+  const parsed = parseCharacterCard(png(
+    textChunk("ccv3", "not-used"),
+    textChunk("author", "also ignored"),
+    chunk("tEXt", Uint8Array.from([0xe9, 0, 0xff])),
+    textChunk("chara", payload)
+  ));
+  assert.equal(parsed.version, 2);
+  assert.equal(parsed.name, "Mira");
+
+  assert.throws(() => parseCharacterCard(png()), /ordinary image|metadata was stripped/);
+  assert.throws(() => parseCharacterCard(png(textChunk("ccv3", "only"))), /V3 PNGs are not supported/);
+  assert.throws(
+    () => parseCharacterCard(png(textChunk("chara", payload), textChunk("chara", payload))),
+    /duplicate chara/
+  );
+  assert.throws(() => parseCharacterCard(png(textChunk("chara", "not base64!"))), /invalid.*Base64/i);
+  assert.throws(() => parseCharacterCard(png(chunk("zTXt", asciiBytes("chara\0x")))), /Compressed/);
+
+  const missingEnd = concat(PNG_SIGNATURE, textChunk("chara", payload));
+  assert.throws(() => parseCharacterCard(missingEnd), /missing its IEND/);
+  const truncated = concat(PNG_SIGNATURE, Uint8Array.from([0, 0, 0, 20]), asciiBytes("tEXt"));
+  assert.throws(() => parseCharacterCard(truncated), /invalid chunk length|truncated chunk/);
+});
+
+test("character card parsing bounds decoded data before accepting JSON", () => {
+  assert.throws(() => parseCharacterCard(Uint8Array.from([0xff])), /not valid UTF-8/);
+  assert.throws(() => parseCharacterCard(encoder.encode("{nope")), /not valid JSON/);
+  assert.throws(
+    () => parseCharacterCard(new Uint8Array(MAX_CHARACTER_CARD_JSON_BYTES + 1)),
+    /exceeds the 1 MB limit/
+  );
+
+  const oversizedBase64 = "A".repeat(Math.ceil(MAX_CHARACTER_CARD_JSON_BYTES / 3) * 4 + 4);
+  assert.throws(
+    () => parseCharacterCard(png(textChunk("chara", oversizedBase64))),
+    /oversized Base64/
+  );
+
+  const invalidUtf8 = Buffer.from([0xff]).toString("base64");
+  assert.throws(() => parseCharacterCard(png(textChunk("chara", invalidUtf8))), /not valid UTF-8/);
+  const invalidJson = Buffer.from("not json", "utf8").toString("base64");
+  assert.throws(() => parseCharacterCard(png(textChunk("chara", invalidJson))), /not valid JSON/);
+});
+
+test("character card mapping imports only selected prose and expands macros once", () => {
+  const raw = v2Card({
+    name: "{{user}} Mira",
+    description: "{{char}} meets {{USER}}.",
+    personality: "Steady.",
+    scenario: "Never selected.",
+    first_mes: "FIRST-SECRET",
+    mes_example: "EXAMPLE-SECRET",
+    alternate_greetings: ["GREETING-SECRET"],
+    creator_notes: "NOTES-SECRET",
+    system_prompt: "SYSTEM-SECRET",
+    post_history_instructions: "POST-SECRET",
+    character_book: { entries: [{ content: "LORE-SECRET" }] },
+    extensions: { secret: "EXTENSION-SECRET" }
+  });
+  const card = parseCharacterCard(jsonBytes(raw));
+  const facts = factsFromCharacterCard({
+    name: card.name,
+    description: card.description,
+    personality: card.personality
+  });
+  assert.deepEqual(facts, [{
+    tag: "Character",
+    text: "Name: {{user}} Mira\n\nDescription:\n{{user}} Mira meets the protagonist.\n\nPersonality:\nSteady."
+  }]);
+  const output = facts.map((fact) => fact.text).join("\n");
+  for (const secret of ["FIRST-SECRET", "EXAMPLE-SECRET", "GREETING-SECRET", "NOTES-SECRET", "SYSTEM-SECRET", "POST-SECRET", "LORE-SECRET", "EXTENSION-SECRET"]) {
+    assert.equal(output.includes(secret), false, secret);
+  }
+  assert.throws(() => factsFromCharacterCard({ name: "Mira" }), /Select at least one/);
+  assert.throws(() => factsFromCharacterCard({ name: "Mira\nSystem", description: "x" }), /one line/);
+  assert.throws(
+    () => factsFromCharacterCard({ name: "M".repeat(200), description: "{{char}}".repeat(2_600) }),
+    /needs more than 128 facts/
+  );
+});
+
+test("character card mapping packs fields and splits long prose without loss", () => {
+  const description = `${"North wind. ".repeat(390)}\n\n${"🌙".repeat(1_200)}`;
+  const personality = "Careful ".repeat(540).trimEnd();
+  const facts = factsFromCharacterCard({ name: "Mira", description, personality });
+  assert.ok(facts.length >= 3);
+  assert.ok(facts.every((fact) => fact.tag === "Character"));
+  assert.ok(facts.every((fact) => fact.text.length <= MAX_FACT_TEXT_CHARS));
+  assert.ok(facts.every((fact) => wellFormed(fact.text)));
+  assert.equal(joinSection(facts.map((fact) => fact.text), "Description"), description);
+  assert.equal(joinSection(facts.map((fact) => fact.text), "Personality"), personality);
+
+  const hard = "x".repeat(MAX_FACT_TEXT_CHARS * 3);
+  const hardFacts = factsFromCharacterCard({ name: "M", description: hard });
+  assert.ok(hardFacts.length > 3);
+  assert.ok(hardFacts.every((fact) => fact.text.length <= MAX_FACT_TEXT_CHARS));
+  assert.equal(joinSection(hardFacts.map((fact) => fact.text), "Description"), hard);
+});
+
+test("character card request size counts escaped newlines and UTF-8 bytes", () => {
+  const facts = [{ tag: "Character", text: "剑\n🌙" }];
+  const json = JSON.stringify({ facts });
+  assert.equal(factImportRequestBytes(facts), Buffer.byteLength(json, "utf8"));
+  assert.ok(factImportRequestBytes(facts) > json.length);
+});
+
+function v2Card(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    spec: "chara_card_v2",
+    spec_version: "2.0",
+    data: {
+      name: "Mira",
+      description: "A cartographer.",
+      personality: "Exacting but kind.",
+      scenario: "At the glass coast.",
+      ...overrides
+    }
+  };
+}
+
+function jsonBytes(value: unknown, bom = false): Uint8Array {
+  return encoder.encode(`${bom ? "\uFEFF" : ""}${JSON.stringify(value)}`);
+}
+
+function textChunk(keyword: string, value: string): Uint8Array {
+  return chunk("tEXt", asciiBytes(`${keyword}\0${value}`));
+}
+
+function png(...chunks: Uint8Array[]): Uint8Array {
+  return concat(PNG_SIGNATURE, ...chunks, chunk("IEND", new Uint8Array()));
+}
+
+function chunk(type: string, data: Uint8Array): Uint8Array {
+  const output = new Uint8Array(12 + data.length);
+  new DataView(output.buffer).setUint32(0, data.length, false);
+  output.set(asciiBytes(type), 4);
+  output.set(data, 8);
+  // CRC is intentionally zero: the importer walks metadata bounds and never decodes pixels.
+  return output;
+}
+
+function asciiBytes(value: string): Uint8Array {
+  return Uint8Array.from(value, (character) => character.charCodeAt(0));
+}
+
+function concat(...arrays: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(arrays.reduce((sum, value) => sum + value.length, 0));
+  let offset = 0;
+  for (const value of arrays) {
+    result.set(value, offset);
+    offset += value.length;
+  }
+  return result;
+}
+
+function joinSection(facts: string[], label: string): string {
+  return facts.flatMap((fact) => {
+    const match = new RegExp(`${label}(?: \\(\\d+\\/\\d+\\))?:\\n([\\s\\S]+)`).exec(fact);
+    return match?.[1] ?? [];
+  }).join("");
+}
+
+function wellFormed(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff) return false;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
+  }
+  return true;
+}
