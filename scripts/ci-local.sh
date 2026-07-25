@@ -6,8 +6,8 @@
 # suites: ownedLoopbackHttpSupportedOn is Linux-only, so roughly thirty tests
 # skip silently on macOS and Windows and are never otherwise executed.
 #
-# windows-x64 has no local equivalent. This script never claims to have covered
-# it and says so in the summary and in any commit status it publishes.
+# Every shipped release target is reachable from here. windows-x64 is not a
+# shipped target: see shared/release-targets.ts.
 set -uo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -166,8 +166,6 @@ for i in "${!RESULT_NAMES[@]}"; do
     failed=1
   fi
 done
-printf '  \033[33mNOT COVERED\033[0m  windows-x64 (no local equivalent)\n'
-
 # The pre-push hook reads this. Only a full run may record a pass: --only
 # covers one target and must never satisfy the gate.
 marker="$(git -C "$REPO_ROOT" rev-parse --git-dir)/local-ci-pass"
@@ -183,7 +181,7 @@ if [ "$PUBLISH_STATUS" -eq 1 ]; then
   covered="$(IFS=,; echo "${RESULT_NAMES[*]}")"
   if [ "$failed" -eq 0 ]; then
     state="success"
-    description="passed: ${covered}; windows-x64 not covered"
+    description="passed: ${covered}"
   else
     state="failure"
     description="failed; see local run"

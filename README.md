@@ -148,7 +148,15 @@ Your stories and settings stay on your computer, in the project's `.1667/` folde
 
 ## Current platform limits
 
-Local storage is available on macOS and Linux. Project discovery works everywhere, but the machine tier that holds provider secrets and HTTP auth records still needs a native DACL and reparse-safe adapter on Windows, so the Windows candidate refuses the embedded backend in one line and runs demo mode; HTTP attach, HTTP auth, and legacy serve fail closed there too.
+1667 supports macOS and Linux, on arm64 and x64.
+
+Windows is not a supported environment and no Windows build is published. The
+machine tier that holds provider secrets and HTTP auth records still needs a
+native DACL and reparse-safe adapter there, and no Windows machine is currently
+available to gate a candidate, so shipping one would mean publishing an
+artifact nothing had executed. Running from source on Windows still fails
+closed rather than misbehaving: the embedded backend refuses in one line and
+demo mode runs, while HTTP attach, HTTP auth, and legacy serve refuse too.
 
 Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Attaching with `--url` proves the server holds the matching auth record by HMAC on every request; on Bun that HMAC is the whole proof, because Bun's `node:http` client exposes no stable socket identity to pin the connection to as well. Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
 
@@ -193,8 +201,7 @@ scripts/ci-local.sh --status     # also publish the result as a commit status
 
 Linux targets run in Docker, which is the only way to exercise the plain-HTTP
 loopback provider suites: `ownedLoopbackHttpSupportedOn` is Linux-only, so those
-tests skip entirely on macOS and Windows. `windows-x64` has no local equivalent
-and is the one gap; the run reports it as NOT COVERED rather than implying a pass.
+tests skip entirely on macOS. Every shipped target is covered.
 
 A full green run records a pass for that exact commit, and the pre-push hook
 refuses to publish anything else:

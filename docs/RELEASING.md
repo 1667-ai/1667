@@ -97,8 +97,7 @@ and native-identity evidence. Passing local preflight is necessary package
 evidence, not publication authorization.
 
 The standalone command is a native execution gate, not only a compiler check.
-Run it on `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, and
-`windows-x64`. Each candidate must prove its embedded identity, read-only
+Run it on `darwin-arm64`, `darwin-x64`, `linux-arm64`, and `linux-x64`. Each candidate must prove its embedded identity, read-only
 diagnostic, demo render, and prompt-tokenizer vectors. The macOS and Linux
 candidates must also prove explicit absent-target publication, cold embedded
 render, and install relocation against the unchanged account data target.
