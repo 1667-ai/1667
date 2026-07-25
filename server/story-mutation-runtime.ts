@@ -10,17 +10,14 @@ import {
 export interface ProviderStoryRuntime {
   loadForMutation(id: string): Promise<Story>;
   hydratePath(story: Story, nodeId: string): Promise<void>;
-  withLock<T>(id: string, work: () => Promise<T>): Promise<T>;
-  save(story: Story): Promise<void>;
   commitProviderEffect<Effect extends ProviderStoryEffect>(
     id: string,
     effect: Effect
   ): Promise<ProviderStoryEffectValue<Effect>>;
 }
 
-/** StoryStore-compatible view used while the Q coordinator already owns the
- * story scope and filesystem queues. Saves mark the in-memory draft; the outer
- * receipt transaction performs the one authoritative V6 publication. */
+/** Typed provider view used outside a story claim. The outer receipt
+ * transaction performs the one authoritative V6 publication. */
 export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
   private saved = false;
   private preparedEffect: ProviderStoryEffect | null = null;
@@ -46,16 +43,6 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
   async hydratePath(story: Story, nodeId: string): Promise<void> {
     this.requireSameStory(story);
     await hydrateStoryNodes(story, pathTo(story, nodeId).map((node) => node.id));
-  }
-
-  async withLock<T>(id: string, work: () => Promise<T>): Promise<T> {
-    this.requireStory(id);
-    return await work();
-  }
-
-  async save(story: Story): Promise<void> {
-    this.requireSameStory(story);
-    this.saved = true;
   }
 
   async commitProviderEffect<Effect extends ProviderStoryEffect>(
