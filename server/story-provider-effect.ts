@@ -257,6 +257,12 @@ async function applySummaryTake(
     ? undefined
     : story.nodes.find((node) => node.id === effect.commitIds.summaryNodeId);
   if (existing !== undefined) return { changed: false, value: existing };
+  if (nodeById(story, effect.point.nodeId) === null) {
+    throw new GenerationResultError(
+      409,
+      "The story changed while its summary was being written. Try again."
+    );
+  }
   requireSummaryActive(effect.cancelled);
   await hydratePath(story, effect.point.nodeId);
   requireSummaryActive(effect.cancelled);

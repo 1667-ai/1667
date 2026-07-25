@@ -383,7 +383,7 @@ test("duplicate transaction and provider started evidence must be byte-identical
   })).actions, []);
 });
 
-test("provider terminal recovery requires the started edge and a live error state", () => {
+test("provider terminal recovery requires its started edge", () => {
   const provider = providerEvidence();
   const terminal = providerPrepared();
   const collapsedStartedEdge = parse({
@@ -412,9 +412,13 @@ test("provider terminal recovery requires the started edge and a live error stat
   }, "prepared");
   const liveErrorState = stateForPrepared(terminalError);
   assert.ok(liveErrorState?.kind === "story");
-  const deletedErrorState = { ...liveErrorState, summary: null };
+  const deletedErrorState = {
+    ...liveErrorState,
+    summary: null,
+    previousManifestHash: HASH_B
+  };
 
-  assert.throws(() => planMutationLedgerRecovery(evidence({
+  assert.deepEqual(planMutationLedgerRecovery(evidence({
     key: M1,
     aggregate: aggregate(
       HASH_C,
@@ -424,9 +428,9 @@ test("provider terminal recovery requires the started edge and a live error stat
     ),
     started: provider.started,
     prepared: terminalError
-  })), MutationLedgerRecoveryError);
+  })).actions.map((action) => action.kind), ["write-completed"]);
 
-  assert.throws(() => planMutationLedgerRecovery(evidence({
+  assert.deepEqual(planMutationLedgerRecovery(evidence({
     key: M1,
     aggregate: aggregate(
       HASH_B,
@@ -438,7 +442,11 @@ test("provider terminal recovery requires the started edge and a live error stat
     prepared: terminalError,
     replacement: { stateHash: HASH_C, oldStateHash: HASH_B, state: deletedErrorState },
     unresolvedProvider: provider
-  })), MutationLedgerRecoveryError);
+  })).actions.map((action) => action.kind), [
+    "report-provider-outcome",
+    "discard-replacement",
+    "discard-record"
+  ]);
 });
 
 test("strict V5 recovery uses a logical revision-one root and V6 revision-two successor", () => {

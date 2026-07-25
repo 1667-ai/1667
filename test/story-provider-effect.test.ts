@@ -294,6 +294,20 @@ test("summary take validates current source and never changes navigation", async
   }, hydrate);
   assert.equal(current.nodes[0]?.activeChildId, "writer");
   assert.equal(current.nodes.find(({ id }) => id === "summary")?.role, "summary");
+  await assert.rejects(
+    applyProviderStoryEffect(story([], null), {
+      kind: "summary-take",
+      point: { nodeId: "root", offset: null },
+      expected: null,
+      sourceFingerprint,
+      summary: "Summary.",
+      model: "m",
+      instruction: "Summarize",
+      commitIds: { summaryNodeId: "deleted-summary" }
+    }, hydrate),
+    (error: unknown) =>
+      error instanceof GenerationResultError && error.code === "conflict"
+  );
 });
 
 test("chapter summary refresh preserves identity and transfers all summary metadata", async () => {

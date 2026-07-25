@@ -21,6 +21,7 @@ import { MutationLedgerStore } from "../server/mutation-ledger-store.js";
 import { privatePublicationScratchPath } from "../server/private-file-publication.js";
 import { CLEANUP_MARKER_FILENAME } from "../server/story-cleanup.js";
 import { hashStoryV5ManifestBytes } from "../server/story-manifest-hash.js";
+import type { StoryAggregateSession } from "../server/story-aggregate-session.js";
 import {
   STORY_REAP_RETENTION_MS,
   StoryReaper
@@ -46,6 +47,32 @@ const ACK_MUTATION_ID = "m1.1767225600000.3123456789abcdef0123456789abcdef";
 const FINGERPRINT = "a".repeat(64);
 const OTHER_FINGERPRINT = "b".repeat(64);
 const FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
+
+class PinObservingStoryStore extends StoryStore {
+  activeProviderPins = 0;
+  failNextCleanupSchedule = false;
+
+  override pinProviderSnapshot(session: StoryAggregateSession): () => void {
+    const release = super.pinProviderSnapshot(session);
+    this.activeProviderPins += 1;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.activeProviderPins -= 1;
+      }
+      release();
+    };
+  }
+
+  override async schedulePendingCleanup(id: string): Promise<void> {
+    if (this.failNextCleanupSchedule) {
+      this.failNextCleanupSchedule = false;
+      throw new Error("Injected cleanup scheduling failure");
+    }
+    await super.schedulePendingCleanup(id);
+  }
+}
 
 test("Q local mutation upgrades exact V5 to receipt-backed V6 and retries by receipt first", async (t) => {
   const fixture = await setup(t, "1667-q-local-");
@@ -461,6 +488,37 @@ test("Q provider snapshot hydration survives concurrent deletion cleanup", async
   await fixture.stories.waitForMaintenance();
 });
 
+test("Q provider admission releases its snapshot pin when finalization fails", async (t) => {
+  let observed!: PinObservingStoryStore;
+  const fixture = await setup(
+    t,
+    "1667-q-provider-pin-release-",
+    {},
+    (storiesDir) => {
+      observed = new PinObservingStoryStore(storiesDir);
+      return observed;
+    }
+  );
+  observed.failNextCleanupSchedule = true;
+  let workRan = false;
+
+  await assert.rejects(
+    fixture.mutations.runProvider(
+      request(fixture.v5Hash),
+      "autonameStory",
+      async () => {
+        workRan = true;
+        return storyFixture();
+      },
+      storyFixture
+    ),
+    /Injected cleanup scheduling failure/
+  );
+  assert.equal(workRan, false);
+  assert.equal(observed.activeProviderPins, 0);
+  await observed.waitForMaintenance();
+});
+
 test("Q terminal publication waits out a short competing story claim", async (t) => {
   const fixture = await setup(t, "1667-q-provider-terminal-claim-");
   let releaseClaim!: () => void;
@@ -828,6 +886,45 @@ for (const failure of [
   });
 }
 
+test("Q definitive provider failure terminalizes after story deletion", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-failure-after-delete-");
+  const operation = () => fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (_stories, providerStarted) => {
+      await providerStarted();
+      const current = await fixture.stories.loadVersioned(STORY_ID);
+      await fixture.mutations.runDelete(requestFor(
+        DELETE_MUTATION_ID,
+        "c".repeat(64),
+        current.aggregateVersion!
+      ));
+      throw new ProviderError("Rejected after deletion", 400);
+    },
+    storyFixture
+  );
+
+  await assert.rejects(operation(), ProviderError);
+  const stored = await fixture.ledger.loadStoryReceipt(
+    `story:${STORY_ID}`,
+    MUTATION_ID
+  );
+  assert.equal(
+    stored.prepared?.result.kind === "error"
+      ? stored.prepared.result.code
+      : null,
+    "provider_failure"
+  );
+  const manifest = parseStoryManifestBytes(
+    await readFile(fixture.manifestFile),
+    STORY_ID
+  );
+  assert.equal(manifest.kind, "v6-deleted");
+  if (manifest.kind !== "v6-deleted") assert.fail("Expected deleted V6");
+  assert.equal(manifest.manifest.unresolvedProvider, null);
+  await assert.rejects(operation(), hasServiceError("provider_failure"));
+});
+
 test("Q deletion preserves an unknown provider pointer until deleted acknowledgement", async (t) => {
   const fixture = await setup(t, "1667-q-deleted-ack-");
   await makeProviderOutcomeUnknown(fixture);
@@ -981,12 +1078,14 @@ for (const point of ["stage", "prepared", "publish", "acknowledged", "completed"
 async function setup(
   t: Pick<import("node:test").TestContext, "after">,
   prefix: string,
-  hooks: StoryMutationStoreHooks = {}
+  hooks: StoryMutationStoreHooks = {},
+  createStories: (storiesDir: string) => StoryStore =
+    (storiesDir) => new StoryStore(storiesDir)
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), prefix));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const storiesDir = path.join(dataDir, "stories");
-  const stories = new StoryStore(storiesDir);
+  const stories = createStories(storiesDir);
   await stories.init();
   await stories.save(storyFixture());
   const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");

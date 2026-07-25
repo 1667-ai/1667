@@ -154,6 +154,35 @@ test("story V6 reducer: delete preserves unresolved pointer and removes live pay
   });
 });
 
+test("story V6 reducer: provider failure terminalizes a deleted story", () => {
+  const input = deleted(PROVIDER);
+  const output = requireManifest(reduceStoryV6(
+    present(input),
+    terminal({ kind: "error" })
+  ));
+  assert.deepEqual(output, {
+    ...input,
+    revision: "00000000000000000003",
+    previousManifestHash: HASH_A,
+    unresolvedProvider: null,
+    lastTransaction: prepared(PROVIDER_ID)
+  });
+  assert.throws(
+    () => reduceStoryV6(
+      present(input),
+      terminal({
+        kind: "success",
+        content: storyContent("story-one", "replacement"),
+        summary: storySummary(
+          storyContent("story-one", "replacement"),
+          "replacement"
+        )
+      })
+    ),
+    StoryFormatError
+  );
+});
+
 test("story V6 reducer: exact retry and GC reuse input; eligible reap returns absent", () => {
   for (const input of [live(null), live(PROVIDER), deleted(null), deleted(PROVIDER)]) {
     const state = present(input);
@@ -184,7 +213,8 @@ test("story V6 reducer: exhaustive state/event legality table fails closed", () 
       "receipt-retry", "receipt-gc", "physical-reap-after-expiry"
     ]),
     "deleted-pending": new Set<StoryV6Event["kind"]>([
-      "acknowledge-prepared", "receipt-retry", "receipt-gc"
+      "provider-terminal-prepared", "acknowledge-prepared",
+      "receipt-retry", "receipt-gc"
     ])
   };
   const eventKinds: StoryV6Event["kind"][] = [
@@ -242,6 +272,7 @@ test("story V6 reducer: every changing existing edge rejects revision overflow",
     [{ ...live(null), revision: maximum }, makeEvent("local-prepared")],
     [{ ...live(null), revision: maximum }, makeEvent("provider-started")],
     [{ ...live(PROVIDER), revision: maximum }, makeEvent("provider-terminal-prepared")],
+    [{ ...deleted(PROVIDER), revision: maximum }, makeEvent("provider-terminal-prepared")],
     [{ ...live(PROVIDER), revision: maximum }, makeEvent("acknowledge-prepared")],
     [{ ...deleted(PROVIDER), revision: maximum }, makeEvent("acknowledge-prepared")],
     [{ ...live(null), revision: maximum }, makeEvent("delete-prepared")]

@@ -172,48 +172,51 @@ export class StoryProviderMutationStore {
     replayValue: () => Value
   ): Promise<
     | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }
-    | {
-        kind: "open";
-        story: Story;
-        releaseSnapshot: () => void;
-      }
+    | { kind: "open"; story: Story; releaseSnapshot: () => void }
   > {
-    return await this.stories.withAggregateSession(storyId, async (session) => {
-      await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
-      const terminal = await this.recovery.recover(session, request, receipt);
-      if (terminal !== null) {
+    const pin: { release: (() => void) | null } = { release: null };
+    try {
+      return await this.stories.withAggregateSession(storyId, async (session) => {
+        await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
+        const terminal = await this.recovery.recover(session, request, receipt);
+        if (terminal !== null) {
+          return {
+            kind: "replayed",
+            commit: {
+              story: await session.loadLive(),
+              result: terminal,
+              value: replayValue()
+            }
+          };
+        }
+        const current = await this.ledger.loadStoryReceipt(
+          request.scope,
+          request.mutationId
+        );
+        requireMatchingProviderReceipt(current, request, method);
+        const unresolved = session.snapshot.manifest.unresolvedProvider;
+        if (unresolved !== null) {
+          throw providerOutcomeUnknown(unresolved.mutationId);
+        }
+        if (current.started !== null) {
+          throw providerOutcomeUnknown(request.mutationId);
+        }
+        requireExpectedStoryVersion(
+          session.snapshot,
+          request.expectedAggregateVersion
+        );
+        const story = await session.loadLive();
+        pin.release = this.stories.pinProviderSnapshot(session);
         return {
-          kind: "replayed",
-          commit: {
-            story: await session.loadLive(),
-            result: terminal,
-            value: replayValue()
-          }
+          kind: "open",
+          story,
+          releaseSnapshot: pin.release
         };
-      }
-      const current = await this.ledger.loadStoryReceipt(
-        request.scope,
-        request.mutationId
-      );
-      requireMatchingProviderReceipt(current, request, method);
-      const unresolved = session.snapshot.manifest.unresolvedProvider;
-      if (unresolved !== null) {
-        throw providerOutcomeUnknown(unresolved.mutationId);
-      }
-      if (current.started !== null) {
-        throw providerOutcomeUnknown(request.mutationId);
-      }
-      requireExpectedStoryVersion(
-        session.snapshot,
-        request.expectedAggregateVersion
-      );
-      const story = await session.loadLive();
-      return {
-        kind: "open",
-        story,
-        releaseSnapshot: this.stories.pinProviderSnapshot(session)
-      };
-    });
+      });
+    } catch (error) {
+      pin.release?.();
+      throw error;
+    }
   }
 
   /** ADR 006 installs the unresolved-provider pointer durably before network
