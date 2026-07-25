@@ -29,7 +29,6 @@ import {
   type DataDirectoryFormat,
   DATA_DIRECTORY_OWNER_MARKER,
   DATA_DIRECTORY_OWNER_MARKER_NEXT,
-  DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH,
   LEGACY_PREVIEW_DATA_MARKER,
   LEGACY_PREVIEW_DATA_MARKER_TEXT,
   SETTINGS_STATE_V2_FILE,
@@ -127,24 +126,6 @@ export async function writeInitialDataDirectoryFormat(
   await resumeInitialOwnerMarker(dataDir, dataFormat);
 }
 
-/**
- * Read-only validation for an interrupted initialization. Only residue emitted
- * by the exact current initializer is resumable; arbitrary valid settings are
- * not enough because no owner marker committed them to this data directory.
- */
-export async function validateInitialDataDirectoryFormatResidue(
-  dataDir: string,
-  dataFormat: DataDirectoryFormat
-): Promise<void> {
-  await requirePathAbsent(path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER));
-  await inspectInitialOwnerMarker(dataDir, dataFormat);
-  if (dataFormat === 1) {
-    await requireInitialSettingsPathsAbsent(dataDir);
-    return;
-  }
-  await inspectInitialSettingsStateV2(dataDir);
-}
-
 export function parseDataDirectoryOwnerMarkerBytes(
   bytes: Uint8Array,
   markerPath = DATA_DIRECTORY_OWNER_MARKER
@@ -234,20 +215,6 @@ async function resumeInitialOwnerMarker(
   // The complete private `.next` is non-authoritative until this rename and
   // directory barrier. A crash before either point remains resumable.
   await publishSettingsFile(nextPath, markerPath);
-}
-
-async function inspectInitialOwnerMarker(
-  dataDir: string,
-  dataFormat: DataDirectoryFormat
-): Promise<void> {
-  const expected = Buffer.from(dataDirectoryOwnerMarkerText(dataFormat), "utf8");
-  await inspectTypedPublicationResidue(
-    path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT),
-    path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH),
-    expected,
-    MAX_DATA_DIRECTORY_OWNER_MARKER_BYTES,
-    "owner-marker"
-  );
 }
 
 async function resumeInitialSettingsStateV2(dataDir: string): Promise<void> {

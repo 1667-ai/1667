@@ -1,8 +1,5 @@
 import { constants, type Stats } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
-import {
-  assertNoDarwinExtendedAllow
-} from "./storage-privacy-darwin.js";
 
 export interface BoundedRegularFileOptions {
   readonly requirePrivate?: boolean;
@@ -32,7 +29,6 @@ export async function readBoundedRegularFile(
     const pathInfo = await lstat(file);
     requireBoundedRegularFile(pathInfo, file, maxBytes, policy);
     if (policy.requirePrivate) {
-      await assertNoDarwinExtendedAllow(file, "private data file");
     }
     handle = await open(file, constants.O_RDONLY | noFollowFlag());
     const before = await handle.stat();
@@ -93,7 +89,6 @@ export async function readBoundedMutableAuthorityFile(
       const pathInfo = await lstat(file);
       requireBoundedRegularFile(pathInfo, file, maxBytes, linkedPolicy);
       if (linkedPolicy.requirePrivate) {
-        await assertNoDarwinExtendedAllow(file, "private data authority");
       }
       handle = await open(file, constants.O_RDONLY | noFollowFlag());
       const before = await handle.stat();

@@ -19,7 +19,7 @@ import {
 } from "../../shared/build-identity.js";
 import { releaseTargetForRuntime } from "../../shared/release-targets.js";
 import {
-  DATA_DIRECTORY_PROCESS_OWNER_LOCK
+  DATA_DIRECTORY_LOCK
 } from "../../server/data-directory-layout.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { smokeInstalledDefaultData } from "./standalone-smoke-install.js";
@@ -197,7 +197,7 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
     await access(path.join(
       embeddedData,
       PROJECT_DIRECTORY_NAME,
-      DATA_DIRECTORY_PROCESS_OWNER_LOCK
+      DATA_DIRECTORY_LOCK
     ));
     await smokeInstalledDefaultData(executable, directory, environment);
     await smokeSupervisedServe(executable, directory, environment);

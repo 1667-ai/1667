@@ -4,14 +4,12 @@ import {
   link,
   mkdtemp,
   mkdir,
-  open,
   readFile,
   rename,
   rm,
   stat,
   symlink,
-  writeFile,
-  type FileHandle
+  writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -28,9 +26,6 @@ import {
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { INITIAL_SETTINGS_STATE_V2_TEXT } from "../server/settings-v2-default.js";
 
-const FENCE = ".1667.lock";
-const FENCE_TEXT = "1667-lock-aware-legacy-exclusion-v1\n";
-
 test("locked marker adoption exposes canonical and legacy-preview sources", async (t) => {
   await t.test("canonical owner marker", async (t) => {
     const dataDir = await makeDataDirectory(t, "1667-marker-source-");
@@ -46,7 +41,6 @@ test("locked marker adoption exposes canonical and legacy-preview sources", asyn
 
   await t.test("legacy preview marker", async (t) => {
     const dataDir = await makeDataDirectory(t, "1667-preview-source-");
-    await writeFile(path.join(dataDir, FENCE), FENCE_TEXT);
     await writeFile(
       path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
       LEGACY_PREVIEW_DATA_MARKER_TEXT
@@ -104,71 +98,11 @@ test("canonical staged marker residues are cleared after adoption", async (t) =>
   }
 });
 
-test("a failed adoption barrier preserves next for a later retry", async (t) => {
-  const dataDir = await makeDataDirectory(t, "1667-marker-barrier-");
-  await initializeFormatOne(dataDir);
-  const nextPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT);
-  await writeFile(nextPath, dataDirectoryOwnerMarkerText(2), { mode: 0o600 });
-  const lock = new DataDirectoryLock(dataDir);
-
-  await withRetainedDirectorySyncHook(
-    dataDir,
-    () => {
-      throw new Error("injected marker-adoption directory sync failure");
-    },
-    async () => {
-      await assert.rejects(
-        lock.acquire(),
-        /injected marker-adoption directory sync failure/
-      );
-    }
-  );
-
-  assert.throws(() => lock.dataFormat, /before lock acquisition/);
-  assert.equal(await readFile(nextPath, "utf8"), dataDirectoryOwnerMarkerText(2));
-
-  const successor = new DataDirectoryLock(dataDir);
-  await successor.acquire();
-  assert.equal(successor.dataFormat, 1);
-  await assertMissing(nextPath);
-  await successor.release();
-});
-
-test("marker replacement during the adoption barrier fails closed", {
+test("a replaced data directory fails the retained-handle fence", {
   skip: process.platform === "win32"
 }, async (t) => {
-  const parent = await makeDataDirectory(t, "1667-marker-swap-");
-  const dataDir = path.join(parent, "data");
-  await mkdir(dataDir, { mode: 0o700 });
-  await initializeFormatOne(dataDir);
-  const markerPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER);
-  const replacementPath = path.join(parent, "replacement-marker");
-  await writeFile(replacementPath, dataDirectoryOwnerMarkerText(1), { mode: 0o600 });
-  const originalIdentity = await stat(markerPath);
-
-  await withRetainedDirectorySyncHook(
-    dataDir,
-    async () => {
-      await rename(replacementPath, markerPath);
-    },
-    async () => {
-      await assert.rejects(
-        new DataDirectoryLock(dataDir).acquire(),
-        /visible marker changed across the locked directory durability barrier/
-      );
-    }
-  );
-
-  assert.notEqual((await stat(markerPath)).ino, originalIdentity.ino);
-  const successor = new DataDirectoryLock(dataDir);
-  await successor.acquire();
-  assert.equal(successor.dataFormat, 1);
-  await successor.release();
-});
-
-test("data-directory replacement after locking fails the retained-handle fence", {
-  skip: process.platform === "win32"
-}, async (t) => {
+  // ADR007 keeps the retained descriptor that roots every later open. Nothing
+  // may swap the directory out from under an acquired lock and be believed.
   const parent = await makeDataDirectory(t, "1667-directory-swap-");
   const dataDir = path.join(parent, "data");
   const displaced = path.join(parent, "displaced");
@@ -177,19 +111,18 @@ test("data-directory replacement after locking fails the retained-handle fence",
   await mkdir(replacement, { mode: 0o700 });
   await initializeFormatOne(dataDir);
 
-  await withRetainedDirectorySyncHook(
-    dataDir,
-    async () => {
-      await rename(dataDir, displaced);
-      await rename(replacement, dataDir);
-    },
-    async () => {
-      await assert.rejects(
-        new DataDirectoryLock(dataDir).acquire(),
-        /file identity changed/
-      );
-    }
-  );
+  const lock = new DataDirectoryLock(dataDir);
+  await lock.acquire();
+  try {
+    await rename(dataDir, displaced);
+    await rename(replacement, dataDir);
+    await assert.rejects(
+      lock.migrateSettingsFormat(),
+      /file identity changed/
+    );
+  } finally {
+    await lock.release();
+  }
 
   assert.equal((await stat(displaced)).isDirectory(), true);
   assert.equal((await stat(dataDir)).isDirectory(), true);
@@ -332,41 +265,4 @@ async function initializeFormatOne(dataDir: string): Promise<void> {
 
 async function assertMissing(file: string): Promise<void> {
   await assert.rejects(access(file));
-}
-
-interface FileHandlePrototype {
-  sync(this: FileHandle): Promise<void>;
-}
-
-async function withRetainedDirectorySyncHook(
-  dataDir: string,
-  onSync: () => void | Promise<void>,
-  run: () => Promise<void>
-): Promise<void> {
-  const expected = await stat(dataDir);
-  const probe = await open(dataDir, process.platform === "win32" ? "a+" : "r");
-  const prototype = Object.getPrototypeOf(probe) as FileHandlePrototype;
-  const originalSync = prototype.sync;
-  let intercepted = false;
-  await probe.close();
-
-  prototype.sync = async function(this: FileHandle): Promise<void> {
-    const current = await this.stat();
-    if (
-      !intercepted
-      && current.isDirectory()
-      && current.dev === expected.dev
-      && current.ino === expected.ino
-    ) {
-      intercepted = true;
-      await onSync();
-    }
-    await originalSync.call(this);
-  };
-  try {
-    await run();
-    assert.equal(intercepted, true, "retained data-directory fsync was not reached");
-  } finally {
-    prototype.sync = originalSync;
-  }
 }

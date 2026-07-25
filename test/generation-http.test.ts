@@ -393,11 +393,6 @@ function stream(response: ServerResponse, chunks: readonly string[]): void {
 async function testApp(t: test.TestContext, settings: GenerationSettings): Promise<string> {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-generation-http-"));
   await writeFile(
-    path.join(dataDir, ".1667.lock"),
-    "1667-lock-aware-legacy-exclusion-v1\n",
-    { mode: 0o600 }
-  );
-  await writeFile(
     path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
     LEGACY_PREVIEW_DATA_MARKER_TEXT,
     { mode: 0o600 }

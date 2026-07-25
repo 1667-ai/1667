@@ -9,7 +9,7 @@ import {
 import path from "node:path";
 import {
   DATA_DIRECTORY_OWNER_MARKER,
-  DATA_DIRECTORY_PROCESS_OWNER_LOCK
+  DATA_DIRECTORY_LOCK
 } from "../../server/data-directory-layout.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { runStandalone } from "./standalone-smoke-process.js";
@@ -65,7 +65,7 @@ export async function smokeInstalledDefaultData(
   const globalProject = path.join(machineTierRoot(environment), "global");
   await Promise.all([
     access(path.join(globalProject, DATA_DIRECTORY_OWNER_MARKER)),
-    access(path.join(globalProject, DATA_DIRECTORY_PROCESS_OWNER_LOCK))
+    access(path.join(globalProject, DATA_DIRECTORY_LOCK))
   ]);
   await assertMissing(path.join(installA, "data"));
 
