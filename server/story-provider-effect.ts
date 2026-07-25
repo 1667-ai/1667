@@ -107,6 +107,13 @@ export type HydrateProviderPath = (
  * They deliberately do not describe a generic Story diff: fields outside the
  * operation remain current automatically, including fields added in the future.
  */
+export function applyProviderStoryEffect<Effect extends ProviderStoryEffect>(
+  story: Story,
+  effect: Effect,
+  hydratePath: HydrateProviderPath
+): Promise<
+  AppliedProviderStoryEffect<ProviderStoryEffectValue<Effect>>
+>;
 export async function applyProviderStoryEffect(
   story: Story,
   effect: ProviderStoryEffect,

@@ -469,9 +469,17 @@ test("story store: summary cancellation after lazy hydration saves no take", asy
   };
 
   await assert.rejects(
-    () => store.commitSummary(
-      story.id, point, null, fingerprint, "Recap", "test", "Summarize", abort.signal
-    ),
+    () => store.commitProviderEffect(story.id, {
+      kind: "summary-take",
+      point,
+      expected: null,
+      sourceFingerprint: fingerprint,
+      summary: "Recap",
+      model: "test",
+      instruction: "Summarize",
+      commitIds: {},
+      cancelled: abort.signal
+    }),
     (error: unknown) => error instanceof HttpError && error.status === 409 && /cancelled/.test(error.message)
   );
   assert.deepEqual((await store.load(story.id)).nodes.map(({ id }) => id), ["root"]);

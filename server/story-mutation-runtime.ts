@@ -60,7 +60,7 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
     );
     this.preparedEffect = effect;
     this.saved = applied.changed;
-    return applied.value as ProviderStoryEffectValue<Effect>;
+    return applied.value;
   }
 
   private requireStory(id: string): void {
