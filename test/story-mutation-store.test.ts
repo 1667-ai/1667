@@ -434,6 +434,16 @@ for (const cachedKind of ["v5", "v6"] as const) {
       }
     );
     assert.equal(local.story.facts.length, 1);
+    let staleMutationRan = false;
+    await assert.rejects(
+      fixture.mutations.runLocal(
+        requestFor(DELETE_MUTATION_ID, "d".repeat(64), cachedVersion),
+        "createFact",
+        () => { staleMutationRan = true; }
+      ),
+      hasServiceError("revision_conflict")
+    );
+    assert.equal(staleMutationRan, false);
 
     releaseProvider();
     const committed = await provider;
