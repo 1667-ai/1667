@@ -179,6 +179,18 @@ fi
 if [ "$PUBLISH_STATUS" -eq 1 ]; then
   sha="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   covered="$(IFS=,; echo "${RESULT_NAMES[*]}")"
+  # A green status has to mean every target ran. Publishing on failed=0 alone
+  # would let --only report success after one target, and an unrecognised
+  # --only report success having run none at all: a passing required check for
+  # work nothing verified, which is worse than no check.
+  if [ "$failed" -eq 0 ] && [ -n "$ONLY_TARGET" ]; then
+    echo "  refusing to publish: --only ran a partial set (${covered:-none})" >&2
+    exit 2
+  fi
+  if [ "$failed" -eq 0 ] && [ "${#RESULT_NAMES[@]}" -eq 0 ]; then
+    echo "  refusing to publish: no target ran" >&2
+    exit 2
+  fi
   if [ "$failed" -eq 0 ]; then
     state="success"
     description="passed: ${covered}"
