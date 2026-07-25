@@ -32,7 +32,7 @@ const DIRECTORY_FLAG = typeof constants.O_DIRECTORY === "number"
   : 0;
 
 export interface DataDirectoryLockOptions {
-  /** Offline legacy migration stages format 1; ordinary projects use format 2. */
+  /** Offline legacy migration starts at format 1 before upgrading; ordinary projects use format 2. */
   readonly initializeDataFormat?: DataDirectoryFormat;
 }
 
@@ -275,4 +275,3 @@ function lockOpenFlags(): number | string {
 function noFollowFlag(): number {
   return process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
 }
-
