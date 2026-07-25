@@ -1,10 +1,13 @@
 name: CI
 
-# Hosted CI is paused: the monthly Actions allowance is spent, and 61% of it
-# went to jobs that wedged and burned their timeout rather than to useful work.
-# scripts/ci-local.sh covers every shipped target at no cost.
-# To bring hosted CI back, restore the pull_request and push triggers below.
+# Public repositories get unlimited standard-runner minutes, so the allowance
+# that ran out no longer applies. The 15-minute timeouts stay: the spend that
+# exhausted it was 61% wedged jobs riding a 30-35 minute limit, and nothing
+# healthy here takes longer than four minutes.
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Refuses to push a commit that has not passed scripts/ci-local.sh.
 #
-# Hosted CI is paused, and branch protection is unavailable on a private repo
-# on the Free plan, so no required status check can block a merge. This hook is
-# where the gate can still bite: the commit you are about to publish must have
-# a recorded local pass.
+# Optional local gate: the commit you are about to publish must have a recorded
+# pass from scripts/ci-local.sh. CI enforces the same gates on the pull request;
+# this just moves the feedback earlier for anyone who wants it.
 #
 # Install: git config core.hooksPath .githooks
 # Bypass:  git push --no-verify   (deliberate, and visible in the reflog)
@@ -24,7 +23,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
 
   push refused: no local CI run recorded
 
-  Hosted CI is paused, so scripts/ci-local.sh is the gate.
+  This clone has the optional local gate enabled.
 
       scripts/ci-local.sh
 

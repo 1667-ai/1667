@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local replacement for the paused hosted CI.
+# The same gates CI runs, on every target this machine can reach.
 #
 # Runs every gate on every target this machine can reach. Linux runs in Docker
 # because it is the only way to exercise the plain-HTTP loopback provider

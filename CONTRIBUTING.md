@@ -46,11 +46,12 @@ cd tui && bun install
 
 ## Run the gates before you push
 
-Hosted CI is paused while the Actions allowance is exhausted, so **the gate runs
-on your machine**:
+CI runs every gate on each shipped target, and a pull request is not mergeable
+until it passes. Running the same gates locally first is faster than waiting on
+a round trip, and it is the only way to see the Linux-only suites before you
+push:
 
 ```sh
-git config core.hooksPath .githooks   # once per clone
 scripts/ci-local.sh
 ```
 
@@ -60,9 +61,10 @@ not the reason — it is that roughly thirty provider tests are gated on
 `ownedLoopbackHttpSupportedOn`, which is Linux-only, so they skip silently on
 macOS and never run otherwise.
 
-A full green run records the commit it passed, and the pre-push hook refuses to
-publish anything else. `--only <target>` is for iterating and deliberately does
-not satisfy the gate.
+A full green run records the commit it passed. To have pushes refused unless
+that commit passed, opt into the hook with
+`git config core.hooksPath .githooks`. `--only <target>` is for iterating and
+deliberately does not record a pass.
 
 ## Architecture decisions are binding
 

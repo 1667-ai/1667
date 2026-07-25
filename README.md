@@ -192,7 +192,9 @@ bun test
 bun bench/perf.ts      # headless frame performance gates
 ```
 
-Every gate runs locally across the platforms this machine can reach:
+Continuous integration runs every gate on each shipped target. The same gates
+run locally, which is faster to iterate against and catches the Linux-only
+suites before you push:
 
 ```bash
 scripts/ci-local.sh              # darwin-arm64, linux-x64, linux-arm64
@@ -203,15 +205,14 @@ Linux targets run in Docker, which is the only way to exercise the plain-HTTP
 loopback provider suites: `ownedLoopbackHttpSupportedOn` is Linux-only, so those
 tests skip entirely on macOS. Every shipped target is covered.
 
-A full green run records a pass for that exact commit, and the pre-push hook
-refuses to publish anything else:
+A full green run records a pass for that exact commit. If you want pushes gated
+on that locally, opt in:
 
 ```bash
-git config core.hooksPath .githooks   # once per clone
+git config core.hooksPath .githooks   # optional, once per clone
 ```
 
-Hosted CI is paused for the month and its workflow is manual-dispatch only. See
-[.github/workflows/ci.yml](.github/workflows/ci.yml).
+See [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 To collect frame diagnostics from an interactive session, set `AI_1667_TUI_PROFILE=1`. After the terminal restores, 1667 writes one JSON report to standard error.
 
