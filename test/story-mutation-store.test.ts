@@ -741,6 +741,95 @@ test("Q lets two providers prepare but only one publish start before network", a
   );
 });
 
+test("Q a duplicate loser cannot revoke the active provider predecessor", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-duplicate-start-race-");
+  const cachedVersion = {
+    kind: "v5",
+    manifestHash: fixture.v5Hash
+  } as const;
+  let prepared = 0;
+  let releasePrepared!: () => void;
+  const bothPrepared = new Promise<void>((resolve) => {
+    releasePrepared = resolve;
+  });
+  const arrive = () => {
+    prepared += 1;
+    if (prepared === 2) releasePrepared();
+  };
+  let markWinnerPrepared!: () => void;
+  const winnerPrepared = new Promise<void>((resolve) => {
+    markWinnerPrepared = resolve;
+  });
+  let markWinnerStarted!: () => void;
+  const winnerStarted = new Promise<void>((resolve) => {
+    markWinnerStarted = resolve;
+  });
+  let releaseWinner!: () => void;
+  const winnerGate = new Promise<void>((resolve) => {
+    releaseWinner = resolve;
+  });
+
+  const winner = fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
+    "autonameStory",
+    async (stories, start) => {
+      arrive();
+      markWinnerPrepared();
+      await bothPrepared;
+      await start();
+      markWinnerStarted();
+      await winnerGate;
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Generated title"
+      });
+    },
+    storyFixture
+  );
+  await winnerPrepared;
+  const duplicate = fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
+    "autonameStory",
+    async (_stories, start) => {
+      arrive();
+      await bothPrepared;
+      await winnerStarted;
+      await start();
+      assert.fail("The duplicate provider start must be rejected");
+    },
+    storyFixture
+  );
+
+  try {
+    await winnerStarted;
+    await assert.rejects(
+      duplicate,
+      hasServiceError("generation_outcome_unknown")
+    );
+    const local = await fixture.mutations.runLocal(
+      requestFor(OTHER_MUTATION_ID, OTHER_FINGERPRINT, cachedVersion),
+      "createFact",
+      (story) => {
+        story.facts.push({
+          id: "fact-after-duplicate",
+          tag: null,
+          text: "The winner still owns its predecessor proof",
+          createdAt: FIXED_NOW.toISOString(),
+          updatedAt: FIXED_NOW.toISOString()
+        });
+      }
+    );
+    assert.equal(local.story.facts.length, 1);
+  } finally {
+    releaseWinner();
+  }
+  const committed = await winner;
+  assert.equal(committed.story.title, "Generated title");
+  assert.equal(committed.story.facts.length, 1);
+  await fixture.stories.waitForMaintenance();
+});
+
 test("Q blocks a different provider mutation before creating phantom ambiguity", async (t) => {
   const fixture = await setup(t, "1667-q-provider-fence-other-id-");
   await makeProviderOutcomeUnknown(fixture);

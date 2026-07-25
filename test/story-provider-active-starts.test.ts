@@ -22,16 +22,25 @@ test("releasing a provider snapshot forgets its predecessor exactly once", () =>
   } as StoryAggregateSession;
   const starts = new ActiveProviderStarts();
 
-  const release = starts.pinSnapshot(stories, session, "mutation-1");
+  const releaseWinner = starts.pinSnapshot(stories, session, "mutation-1");
+  const releaseDuplicate = starts.pinSnapshot(stories, session, "mutation-1");
   starts.remember("story-1", "mutation-1", snapshot);
   assert.deepEqual(
     starts.predecessor("story-1", "mutation-1"),
     { kind: "v6", revision: "7" }
   );
 
-  release();
-  release();
+  releaseDuplicate();
+  releaseDuplicate();
+  assert.deepEqual(
+    starts.predecessor("story-1", "mutation-1"),
+    { kind: "v6", revision: "7" }
+  );
+  assert.equal(snapshotReleases, 1);
+
+  releaseWinner();
+  releaseWinner();
 
   assert.equal(starts.predecessor("story-1", "mutation-1"), null);
-  assert.equal(snapshotReleases, 1);
+  assert.equal(snapshotReleases, 2);
 });
