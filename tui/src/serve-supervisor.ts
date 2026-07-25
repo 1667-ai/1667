@@ -26,14 +26,11 @@ interface RetainedDescriptor {
 
 export const SERVE_HELP = `1667 serve — run a supervised 1667 backend
 
-Usage: 1667 serve [--data <absolute-path>] [--port <0-65535>]
-                  [--initialize-new --offline-exclusive]
+Usage: 1667 serve [--data <path>] [--port <0-65535>]
 
 Options:
-  --data <path>       Absolute packaged data-directory override
+  --data <path>       Project root to serve, absolute or relative
   --port <number>     Loopback port (default: 7373; 0 selects a free port)
-  --initialize-new    Authorize publication of an absent data target
-  --offline-exclusive Assert every lock-unaware writer is stopped
   -h, --help          Show serve help`;
 
 export class ServeUsageError extends Error {
@@ -58,8 +55,6 @@ export async function runServeSupervisor(argv: readonly string[]): Promise<void>
 interface SupervisorArguments {
   readonly dataDir: string | null;
   readonly port: number;
-  readonly initializeNew: boolean;
-  readonly offlineExclusive: boolean;
 }
 
 class ServeSupervisor {
@@ -110,8 +105,6 @@ class ServeSupervisor {
       "4",
       "--port",
       String(this.options.port),
-      ...(this.options.initializeNew ? ["--initialize-new"] : []),
-      ...(this.options.offlineExclusive ? ["--offline-exclusive"] : []),
       ...(this.options.dataDir === null ? [] : ["--data", this.options.dataDir])
     ];
     const child = spawn(process.execPath, args, {
@@ -320,22 +313,12 @@ export function parseServeArguments(
 ): SupervisorArguments | null {
   let dataDir: string | null = null;
   let port = 7373;
-  let initializeNew = false;
-  let offlineExclusive = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "serve") continue;
     if (argument === "-h" || argument === "--help") {
       process.stdout.write(`${SERVE_HELP}\n`);
       return null;
-    }
-    if (argument === "--initialize-new") {
-      initializeNew = true;
-      continue;
-    }
-    if (argument === "--offline-exclusive") {
-      offlineExclusive = true;
-      continue;
     }
     if (argument === "--data" || argument === "--port") {
       const value = requiredServeValue(argument, argv[++index]);
@@ -353,12 +336,7 @@ export function parseServeArguments(
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
     throw new ServeUsageError("--port must be between 0 and 65535");
   }
-  if (initializeNew !== offlineExclusive) {
-    throw new ServeUsageError(
-      "--initialize-new and --offline-exclusive must be supplied together"
-    );
-  }
-  return { dataDir, port, initializeNew, offlineExclusive };
+  return { dataDir, port };
 }
 
 function requiredServeValue(

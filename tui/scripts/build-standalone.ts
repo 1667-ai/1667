@@ -18,6 +18,10 @@ import {
   type BuildIdentity
 } from "../../shared/build-identity.js";
 import { releaseTargetForRuntime } from "../../shared/release-targets.js";
+import {
+  DATA_DIRECTORY_PROCESS_OWNER_LOCK
+} from "../../server/data-directory-layout.js";
+import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { smokeInstalledDefaultData } from "./standalone-smoke-install.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 import { smokeSupervisedServe } from "./standalone-smoke-serve.js";
@@ -136,87 +140,48 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       environment
     );
     const diagnosticPayload = JSON.parse(diagnostic.stdout) as {
-      dataDirectory?: {
-        path?: unknown;
-        admission?: unknown;
-        error?: { code?: unknown };
+      project?: {
+        source?: unknown;
+        root?: unknown;
+        directory?: unknown;
       };
     };
-    const expectedDiagnostic = process.platform === "win32"
-      ? diagnostic.exitCode === 1
-        && diagnosticPayload.dataDirectory?.path === embeddedData
-        && diagnosticPayload.dataDirectory.admission === "refused"
-        && diagnosticPayload.dataDirectory.error?.code === "data_directory_unowned"
-      : diagnostic.exitCode === 0
-        && diagnosticPayload.dataDirectory?.path === embeddedData
-        && diagnosticPayload.dataDirectory.admission === "absent";
-    if (!expectedDiagnostic
-      || diagnostic.stderr !== "") {
+    if (diagnostic.exitCode !== 0
+      || diagnostic.stderr !== ""
+      || diagnosticPayload.project?.source !== "explicit"
+      || diagnosticPayload.project.root !== embeddedData
+      || diagnosticPayload.project.directory
+        !== path.join(embeddedData, PROJECT_DIRECTORY_NAME)) {
       throw new Error(
         `Standalone diagnostic smoke failed (${diagnostic.exitCode}): `
           + diagnostic.stderr.trim()
       );
     }
-    const refusedDiagnostic = await runStandalone(
+    // ADR007 removed the packaged absolute-path requirement: a relative project
+    // root resolves against the working directory on every build.
+    const relativeDiagnostic = await runStandalone(
       executable,
       ["--data", "relative-diagnostic-data", "--diagnostic"],
       directory,
       environment
     );
-    const refusedPayload = JSON.parse(refusedDiagnostic.stdout) as {
-      dataDirectory?: {
-        path?: unknown;
-        admission?: unknown;
-        error?: { code?: unknown };
-      };
+    const relativePayload = JSON.parse(relativeDiagnostic.stdout) as {
+      project?: { source?: unknown; root?: unknown };
     };
-    if (refusedDiagnostic.exitCode !== 1
-      || refusedDiagnostic.stderr !== ""
-      || refusedPayload.dataDirectory?.path !== "relative-diagnostic-data"
-      || refusedPayload.dataDirectory.admission !== "refused"
-      || refusedPayload.dataDirectory.error?.code !== "invalid_request") {
+    if (relativeDiagnostic.exitCode !== 0
+      || relativeDiagnostic.stderr !== ""
+      || relativePayload.project?.source !== "explicit"
+      || relativePayload.project.root
+        !== path.join(directory, "relative-diagnostic-data")) {
       throw new Error(
-        "Standalone diagnostic refusal did not preserve its JSON envelope"
+        "Standalone diagnostic did not resolve a relative project root"
       );
     }
-    if (process.platform === "win32") {
-      const unsupported = await runStandalone(
-        executable,
-        [
-          "--data",
-          embeddedData,
-          "--initialize-new",
-          "--offline-exclusive",
-          "--render-once",
-          "--size",
-          "20x10"
-        ],
-        directory,
-        environment
-      );
-      if (unsupported.exitCode !== 1
-        || !unsupported.stderr.includes(
-          "Hardened local data directories are unavailable on Windows"
-        )) {
-        throw new Error(
-          "Windows embedded storage did not fail closed without its DACL adapter"
-        );
-      }
-      await smokePromptTokenizer(directory, environment);
-      await smokeSupervisedServe(executable, directory, environment);
-      return;
-    }
+    // Discovery never writes, so reporting a project must not create one.
+    await assertAbsent(path.join(embeddedData, PROJECT_DIRECTORY_NAME));
     const render = await runStandalone(
       executable,
-      [
-        "--data",
-        embeddedData,
-        "--initialize-new",
-        "--offline-exclusive",
-        "--render-once",
-        "--size",
-        "20x10"
-      ],
+      ["--data", embeddedData, "--render-once", "--size", "20x10"],
       directory,
       environment
     );
@@ -229,9 +194,11 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       );
     }
     await smokePromptTokenizer(directory, environment);
-    await access(
-      path.join(directory, "embedded-data", ".1667-data.lock")
-    );
+    await access(path.join(
+      embeddedData,
+      PROJECT_DIRECTORY_NAME,
+      DATA_DIRECTORY_PROCESS_OWNER_LOCK
+    ));
     await smokeInstalledDefaultData(executable, directory, environment);
     await smokeSupervisedServe(executable, directory, environment);
   } finally {
@@ -333,4 +300,13 @@ async function smokeEnvironment(directory: string): Promise<Record<string, strin
     environment.TMPDIR = directory;
   }
   return environment;
+}
+
+async function assertAbsent(target: string): Promise<void> {
+  try {
+    await access(target);
+  } catch {
+    return;
+  }
+  throw new Error(`Standalone smoke unexpectedly created ${target}`);
 }

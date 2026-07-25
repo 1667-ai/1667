@@ -23,15 +23,22 @@ import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
 import {
-  classifyDataDirectoryAdmission
-} from "../../server/data-directory-admission.js";
+  initializeProject,
+  PROJECT_DIRECTORY_NAME,
+  resolveProject,
+  type ProjectRequest,
+  type ResolvedProject
+} from "../../server/project-discovery.js";
+import {
+  canPromptForProject,
+  confirmProjectCreation
+} from "./project-prompt.js";
 
 interface Arguments {
   url: string | null;
   authFile: string | null;
   dataDir: string | null;
-  initializeNew: boolean;
-  offlineExclusive: boolean;
+  global: boolean;
   diagnostic: boolean;
   embedded: boolean;
   storyId: string | null;
@@ -45,11 +52,14 @@ interface Arguments {
 
 const HELP = `1667 — a full-screen 1667 client
 
+Stories live in .1667/ beside your writing, found by walking up from the
+current directory the way git finds .git.
+
 Usage: 1667 [options]
+       1667 init
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
-       1667 serve [--data <absolute-path>] [--port <0-65535>]
-                  [--initialize-new --offline-exclusive]
-       1667 serve --legacy-v1 --offline-exclusive --data <path>
+       1667 serve [--data <path>] [--port <0-65535>]
+       1667 serve --legacy-v1 --data <path>
        1667 upgrade [options]
 
 Options:
@@ -57,10 +67,9 @@ Options:
   --url <base-url>   Connect to a loopback 1667 HTTP server
   --auth-file <path> Use the canonical private auth record for --url
   --embedded         Use the embedded backend (default)
-  --data <path>      Data directory override (packaged builds require absolute)
-  --initialize-new   Authorize publication of an absent data target
-  --offline-exclusive Assert every lock-unaware writer is stopped
-  --diagnostic       Print read-only startup/data eligibility JSON
+  --data <path>      Open this project root instead of discovering one
+  --global           Open the machine-wide project instead of a folder
+  --diagnostic       Print read-only startup/project resolution JSON
   --demo             Use the in-memory lantern keeper fixture
   --render-once      Print one deterministic frame and exit
   --size <WxH>       Render-once dimensions (default: 120x36)
@@ -75,13 +84,18 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await runProcessUpgrade(argv.slice(1));
     return;
   }
+  if (argv[0] === "init") {
+    await runProjectInit(argv.slice(1));
+    return;
+  }
   const parsed = parseArguments(argv);
   if (parsed === null) return;
   if (parsed.diagnostic) {
-    await printStartupDiagnostic(parsed.dataDir);
+    await printStartupDiagnostic(parsed);
     return;
   }
   const loaded = await loadSource(parsed);
+  if (loaded === null) return;
   try {
     if (parsed.renderOnce) {
       process.stdout.write(`${await renderOnce(loaded.source, parsed.width, parsed.height, parsed.keys)}\n`);
@@ -100,8 +114,7 @@ export function parseArguments(argv: string[]): Arguments | null {
   let explicitEmbedded = false;
   let explicitUrl = false;
   let explicitData = false;
-  let initializeNew = false;
-  let offlineExclusive = false;
+  let global = false;
   let diagnostic = false;
   let storyId: string | null = null;
   let demo = false;
@@ -143,8 +156,7 @@ export function parseArguments(argv: string[]): Arguments | null {
     } else if (arg.startsWith("--keys=")) keys = requiredInlineValue(arg, "--keys");
     else if (arg === "--demo") demo = true;
     else if (arg === "--embedded") explicitEmbedded = true;
-    else if (arg === "--initialize-new") initializeNew = true;
-    else if (arg === "--offline-exclusive") offlineExclusive = true;
+    else if (arg === "--global") global = true;
     else if (arg === "--diagnostic") diagnostic = true;
     else if (arg === "--render-once") render = true;
     else if (arg === "--debug-density") dense = true;
@@ -174,12 +186,9 @@ export function parseArguments(argv: string[]): Arguments | null {
   }
   if (authFile !== null && embedded) usageError("--auth-file requires --url");
   if (explicitData && demo) usageError("--data cannot be used with --demo");
-  if (initializeNew !== offlineExclusive) {
-    usageError("--initialize-new and --offline-exclusive must be supplied together");
-  }
-  if (initializeNew && (!embedded || demo)) {
-    usageError("--initialize-new requires the embedded backend");
-  }
+  if (global && explicitData) usageError("--global and --data select different projects");
+  if (global && demo) usageError("--global cannot be used with --demo");
+  if (global && !embedded) usageError("--global requires the embedded backend");
   if (diagnostic && (!embedded || demo)) {
     usageError("--diagnostic requires the embedded backend");
   }
@@ -187,8 +196,7 @@ export function parseArguments(argv: string[]): Arguments | null {
     url,
     authFile,
     dataDir,
-    initializeNew,
-    offlineExclusive,
+    global,
     diagnostic,
     embedded,
     storyId,
@@ -201,35 +209,32 @@ export function parseArguments(argv: string[]): Arguments | null {
   };
 }
 
-async function printStartupDiagnostic(
-  configured: string | null
-): Promise<void> {
-  const hardened = AI_1667_BUILD_IDENTITY.artifactTarget !== "source";
-  let dataDir = configured ?? "<platform-default>";
+/** Read-only startup report. Discovery never writes, so an absent project is
+ * an ordinary answer here rather than a prompt or a refusal. */
+async function printStartupDiagnostic(args: Arguments): Promise<void> {
+  const base = {
+    schema: 2,
+    buildIdentity: AI_1667_BUILD_IDENTITY,
+    backend: "embedded",
+    packaged: AI_1667_BUILD_IDENTITY.artifactTarget !== "source"
+  };
   try {
-    dataDir = resolveEmbeddedDataDirectory(configured);
-    const admission = hardened
-      ? await classifyDataDirectoryAdmission(dataDir)
-      : { kind: "source-preview" as const };
+    const outcome = await resolveProject(projectRequest(args, { create: false }));
     process.stdout.write(`${JSON.stringify({
-      schema: 1,
-      buildIdentity: AI_1667_BUILD_IDENTITY,
-      backend: "embedded",
-      hardened,
-      dataDirectory: {
-        path: dataDir,
-        admission: admission.kind
-      }
+      ...base,
+      project: outcome.kind === "absent"
+        ? { source: "absent", cwd: outcome.cwd }
+        : {
+            source: outcome.project.source,
+            root: outcome.project.root,
+            directory: outcome.project.directory
+          }
     })}\n`);
   } catch (error) {
     process.stdout.write(`${JSON.stringify({
-      schema: 1,
-      buildIdentity: AI_1667_BUILD_IDENTITY,
-      backend: "embedded",
-      hardened,
-      dataDirectory: {
-        path: dataDir,
-        admission: "refused",
+      ...base,
+      project: {
+        source: "refused",
         error: {
           code: serviceErrorCode(error),
           message: error instanceof Error ? error.message : String(error)
@@ -238,6 +243,53 @@ async function printStartupDiagnostic(
     })}\n`);
     process.exitCode = 1;
   }
+}
+
+async function runProjectInit(argv: readonly string[]): Promise<void> {
+  for (const argument of argv) {
+    if (argument === "--adopt") {
+      usageError("init --adopt is not available yet");
+    }
+    usageError(`unknown init option: ${argument}`);
+  }
+  const project = await initializeProject(process.cwd());
+  process.stdout.write(`1667 story project: ${project.directory}\n`);
+}
+
+function projectRequest(
+  args: Arguments,
+  options: { readonly create: boolean }
+): ProjectRequest {
+  return {
+    cwd: process.cwd(),
+    create: options.create,
+    ...(args.dataDir === null ? {} : { data: args.dataDir }),
+    ...(args.global ? { global: true } : {})
+  };
+}
+
+/**
+ * Open the project this invocation names, asking once when none exists.
+ * Returns null when the person declines, which is not an error.
+ */
+async function openProject(args: Arguments): Promise<ResolvedProject | null> {
+  const outcome = await resolveProject(projectRequest(args, { create: true }));
+  if (outcome.kind === "project") return outcome.project;
+  const streams = { input: process.stdin, output: process.stdout };
+  if (!canPromptForProject(streams)) {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent. `
+        + "Run '1667 init', or use --global."
+    );
+  }
+  if (!await confirmProjectCreation(outcome.cwd, streams)) {
+    process.stdout.write(
+      "1667: no story project created. Run '1667 init' here, "
+        + "or '1667 --global' for one shared library.\n"
+    );
+    return null;
+  }
+  return await initializeProject(outcome.cwd);
 }
 
 function serviceErrorCode(error: unknown): string {
@@ -281,19 +333,18 @@ interface LoadedSource {
   dispose(): Promise<void>;
 }
 
-async function loadSource(args: Arguments): Promise<LoadedSource> {
+async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   if (args.demo) return { source: demoAppSource(args.dense), dispose: async () => {} };
-  const dataDir = args.embedded
-    ? resolveEmbeddedDataDirectory(args.dataDir)
-    : null;
+  let dataDir: string | null = null;
+  if (args.embedded) {
+    const project = await openProject(args);
+    if (project === null) return null;
+    dataDir = project.directory;
+  }
   const storyFolder = dataDir === null
     ? ""
     : storyFolderForBackend(true, dataDir);
-  const worker = dataDir === null ? null : await createWorkerStoryApi({
-    dataDir,
-    initializeNew: args.initializeNew,
-    offlineExclusive: args.offlineExclusive
-  });
+  const worker = dataDir === null ? null : await createWorkerStoryApi({ dataDir });
   const httpAttach = worker === null
     ? await attachHttpServer(args.url ?? "http://127.0.0.1:7373", args.authFile)
     : null;

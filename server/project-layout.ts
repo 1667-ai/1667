@@ -1,0 +1,37 @@
+import path from "node:path";
+import {
+  DATA_DIRECTORY_HARDENED_PROCESS_LOCK,
+  DATA_DIRECTORY_LEGACY_EXCLUSION_FENCE,
+  DATA_DIRECTORY_PROCESS_OWNER_LOCK,
+  PROJECT_RUN_RECORD_FILE,
+  PROVIDER_SECRETS_FILE,
+  PROVIDER_SECRETS_NEXT_FILE,
+  PROVIDER_SECRETS_NEXT_SCRATCH
+} from "./data-directory-layout.js";
+
+/** ADR007: 1667 finds its stories the way git finds its objects. */
+export const PROJECT_DIRECTORY_NAME = ".1667";
+export const PROJECT_GITIGNORE_FILE = ".gitignore";
+
+export function projectDirectory(projectRoot: string): string {
+  return path.join(projectRoot, PROJECT_DIRECTORY_NAME);
+}
+
+/**
+ * Names 1667 owns inside a project tier that must never travel with it: a
+ * plaintext key, a lock that means nothing on another machine, and a record of
+ * a process that is not running there. Derived from the layout constants so a
+ * rename cannot leave this list behind.
+ */
+export function projectGitignoreContent(): string {
+  const ignored = [
+    PROVIDER_SECRETS_FILE,
+    PROVIDER_SECRETS_NEXT_FILE,
+    PROVIDER_SECRETS_NEXT_SCRATCH,
+    DATA_DIRECTORY_PROCESS_OWNER_LOCK,
+    DATA_DIRECTORY_HARDENED_PROCESS_LOCK,
+    DATA_DIRECTORY_LEGACY_EXCLUSION_FENCE,
+    PROJECT_RUN_RECORD_FILE
+  ];
+  return `${[...new Set(ignored)].sort().join("\n")}\n`;
+}

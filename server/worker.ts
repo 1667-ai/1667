@@ -21,6 +21,7 @@ import {
   ServiceError,
   toPublicServiceError
 } from "./errors.js";
+import { resolveMachineTierRoot } from "./machine-tier.js";
 import { StoryService } from "./story-service.js";
 import { validateWorkerRequestSize } from "./worker-request-size.js";
 import { WorkerDeltaBatcher } from "./worker-delta-batcher.js";
@@ -380,7 +381,7 @@ async function bootstrap(message: Extract<MainToWorkerMessage, { type: "bootstra
   initializing = true;
   const candidate = new StoryService({
     dataDir: message.dataDir,
-    machineDir: message.machineDir,
+    machineDir: await resolveMachineTierRoot(),
     dataLock: "external",
     mutationRecovery: "external",
     starterVault: "seed-when-new",

@@ -37,21 +37,17 @@ test("source data defaults remain explicit checkout or launch fixtures", () => {
   }), "/checkout/data");
 });
 
-test("packaged data overrides must be absolute", () => {
-  assert.throws(() => resolvePlatformDataDirectory({
-    configured: "relative-data",
-    packaged: true,
-    platform: "linux",
-    home: "/home/reader",
-    cwd: "/app"
-  }), /must be absolute/);
-  assert.equal(resolvePlatformDataDirectory({
-    configured: "relative-data",
-    packaged: false,
-    platform: "linux",
-    home: "/home/reader",
-    cwd: "/app"
-  }), "/app/relative-data");
+test("a relative data override resolves against the launch directory", () => {
+  // ADR007: `1667 --data book` is ordinary usage on every build.
+  for (const packaged of [false, true]) {
+    assert.equal(resolvePlatformDataDirectory({
+      configured: "relative-data",
+      packaged,
+      platform: "linux",
+      home: "/home/reader",
+      cwd: "/app"
+    }), "/app/relative-data");
+  }
 });
 
 test("an empty data override never resolves to the launch directory", () => {

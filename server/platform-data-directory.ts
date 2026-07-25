@@ -27,13 +27,8 @@ export function resolvePlatformDataDirectory(
         "invalid_request"
       );
     }
-    if (options.packaged === true && !pathFor(platform).isAbsolute(configured)) {
-      throw new ServiceError(
-        400,
-        "Packaged 1667 data overrides must be absolute",
-        "invalid_request"
-      );
-    }
+    // ADR007: a relative override is ordinary. `1667 --data book` resolves
+    // against the working directory on every build, packaged included.
     return pathFor(platform).resolve(cwd, configured);
   }
   if (options.packaged !== true) {

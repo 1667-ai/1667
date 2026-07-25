@@ -14,6 +14,8 @@ export const SETTINGS_STATE_V2_FILE = "settings.v2.state.json";
 export const SETTINGS_STATE_V2_NEXT_FILE = "settings.v2.state.json.next";
 export const PROVIDER_SECRETS_FILE = "secrets.json";
 export const PROVIDER_SECRETS_NEXT_FILE = "secrets.json.next";
+/** Advisory record of the process serving this project. Never authoritative. */
+export const PROJECT_RUN_RECORD_FILE = "run.json";
 export const DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH =
   privatePublicationScratchPath(DATA_DIRECTORY_OWNER_MARKER_NEXT);
 export const SETTINGS_STATE_V2_NEXT_SCRATCH =

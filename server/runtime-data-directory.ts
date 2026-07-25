@@ -1,41 +1,20 @@
-import type { Server } from "node:net";
-import { AI_1667_BUILD_IDENTITY } from "../shared/build-identity.js";
-import {
-  acquireOwnedDataDirectoryFence,
-  classifyDataDirectoryAdmission,
-  closeDataDirectoryGuard,
-  initializeAbsentDataDirectory
-} from "./data-directory-admission.js";
 import { DataDirectoryLock } from "./data-directory-lock.js";
 import type { DataDirectoryFormat } from "./data-directory-layout.js";
-
-export interface RuntimeDataDirectoryLockOptions {
-  readonly hardened?: boolean;
-  readonly initializeNew?: boolean;
-  readonly offlineExclusive?: boolean;
-  readonly offlineGuardHeld?: boolean;
-}
 
 /**
  * Runtime-only data-directory lease. Acquisition cannot succeed until every
  * required settings migration has completed under the retained process lock.
+ *
+ * ADR007 gives the project tier a `.git`-equivalent threat model, so every
+ * build — packaged included — opens it the same way: create it when missing,
+ * take one advisory lock, and refuse a format this build cannot read.
  */
 export class RuntimeDataDirectoryLock {
   private readonly lock: DataDirectoryLock;
-  private readonly hardened: boolean;
-  private guard: Server | null = null;
-  private publishedNewDirectory = false;
   private acquired = false;
 
-  constructor(
-    private readonly dataDir: string,
-    private readonly options: RuntimeDataDirectoryLockOptions = {}
-  ) {
-    this.hardened = options.hardened
-      ?? AI_1667_BUILD_IDENTITY.artifactTarget !== "source";
-    this.lock = new DataDirectoryLock(dataDir, this.hardened
-      ? { initializeIfMissing: false, hardenedLock: true }
-      : {});
+  constructor(dataDir: string) {
+    this.lock = new DataDirectoryLock(dataDir);
   }
 
   get dataFormat(): DataDirectoryFormat {
@@ -46,9 +25,8 @@ export class RuntimeDataDirectoryLock {
     return this.lock.authorityPath;
   }
 
-  /** True when this acquisition created the data directory. Hardened builds
-   * publish a fresh payload; source builds mkdir in place. Either way it is a
-   * first run, and never an emptied library.
+  /** True when this acquisition created the data directory. It is then a first
+   * run, and never an emptied library.
    *
    * Throws before acquisition rather than answering `false`, which would be
    * indistinguishable from "not fresh" and would silently skip the seed. */
@@ -56,27 +34,18 @@ export class RuntimeDataDirectoryLock {
     if (!this.acquired) {
       throw new Error("Data-directory freshness is unavailable before acquisition");
     }
-    return this.publishedNewDirectory || this.lock.initializedNewDirectory;
+    return this.lock.initializedNewDirectory;
   }
 
   async acquire(): Promise<string> {
-    const publication = this.hardened
-      ? await this.acquirePublicationFence()
-      : null;
     try {
       const canonicalDir = await this.lock.acquire();
       await this.lock.migrateSettingsFormat();
-      if (publication !== null) {
-        this.guard = publication.guard;
-        await publication.release();
-      }
       this.acquired = true;
       return canonicalDir;
     } catch (error) {
       try {
         await this.lock.release();
-        await publication?.release();
-        await closeDataDirectoryGuard(publication?.guard ?? null);
       } catch (releaseError) {
         throw attachReleaseFailure(error, releaseError);
       }
@@ -85,33 +54,7 @@ export class RuntimeDataDirectoryLock {
   }
 
   async release(): Promise<void> {
-    try {
-      await this.lock.release();
-    } finally {
-      const guard = this.guard;
-      this.guard = null;
-      await closeDataDirectoryGuard(guard);
-    }
-  }
-
-  private async acquirePublicationFence() {
-    if (this.options.initializeNew !== this.options.offlineExclusive) {
-      throw new Error(
-        "--initialize-new and --offline-exclusive must be supplied together"
-      );
-    }
-    const admission = await classifyDataDirectoryAdmission(this.dataDir);
-    if (admission.kind === "absent") {
-      if (this.options.initializeNew !== true) {
-        return await acquireOwnedDataDirectoryFence(this.dataDir);
-      }
-      const published = await initializeAbsentDataDirectory(this.dataDir, {
-        offlineGuardHeld: this.options.offlineGuardHeld
-      });
-      this.publishedNewDirectory = true;
-      return published;
-    }
-    return await acquireOwnedDataDirectoryFence(this.dataDir);
+    await this.lock.release();
   }
 }
 

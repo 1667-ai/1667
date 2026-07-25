@@ -27,7 +27,7 @@ export async function smokeSupervisedServe(
     environment
   );
   if (help.exitCode !== 0
-    || !help.stdout.includes("1667 serve [--data <absolute-path>]")
+    || !help.stdout.includes("1667 serve [--data <path>]")
     || help.stderr !== "") {
     throw new Error("Packaged serve help is unavailable or noisy");
   }
@@ -69,36 +69,12 @@ export async function smokeSupervisedServe(
     }
     return;
   }
-  const relativeData = "relative-serve-data";
-  const relativeRefusal = await runStandalone(
-    executable,
-    [
-      "serve",
-      "--data",
-      relativeData,
-      "--initialize-new",
-      "--offline-exclusive",
-      "--port",
-      "0"
-    ],
-    directory,
-    environment
-  );
-  if (relativeRefusal.exitCode !== 1
-    || !/absolute/.test(relativeRefusal.stderr)
-    || relativeRefusal.stderr.includes("\n    at ")) {
-    throw new Error("Relative supervised data did not fail cleanly");
-  }
-  await assertMissing(path.join(directory, relativeData));
-
   const child = Bun.spawn(
     [
       executable,
       "serve",
       "--data",
       dataDir,
-      "--initialize-new",
-      "--offline-exclusive",
       "--port",
       "0"
     ],
@@ -202,11 +178,9 @@ async function smokeLockGuidance(
     environment
   );
   if (contention.exitCode !== 1
-    || !contention.stderr.includes("1667 --url <owning-server-url>")
-    || contention.stderr.includes("1667 --url http://127.0.0.1:7373")
-    || !contention.stderr.includes(
-      "1667 --data <absolute-absent-path> --initialize-new --offline-exclusive"
-    )) {
+    || !contention.stderr.includes("already open by")
+    || !contention.stderr.includes("1667 --url")
+    || !contention.stderr.includes("1667 --data <project-root>")) {
     throw new Error("Packaged lock contention guidance was not actionable");
   }
   const attached = await runStandalone(
@@ -231,8 +205,6 @@ async function smokeAlternateDataGuidance(
     [
       "--data",
       alternative,
-      "--initialize-new",
-      "--offline-exclusive",
       "--render-once",
       "--size",
       "20x10"
@@ -256,9 +228,7 @@ async function smokeDefaultPortInitialization(
       executable,
       "serve",
       "--data",
-      dataDir,
-      "--initialize-new",
-      "--offline-exclusive"
+      dataDir
     ],
     {
       cwd: directory,

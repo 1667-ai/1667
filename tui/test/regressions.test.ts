@@ -568,21 +568,16 @@ describe("review regressions", () => {
     expect(parseArguments(["--data", "stories-v2"])?.embedded).toBeTrue();
     expect(() => parseArguments(["--demo", "--embedded", "--data", "stories-v2"]))
       .toThrow("--data cannot be used with --demo");
-    expect(parseArguments([
-      "--initialize-new",
-      "--offline-exclusive"
-    ])).toMatchObject({
+    expect(parseArguments(["--global"])).toMatchObject({
       embedded: true,
-      initializeNew: true,
-      offlineExclusive: true
+      global: true
     });
-    expect(() => parseArguments(["--initialize-new"]))
-      .toThrow("must be supplied together");
-    expect(() => parseArguments([
-      "--url=http://127.0.0.1:9999",
-      "--initialize-new",
-      "--offline-exclusive"
-    ])).toThrow("--initialize-new requires the embedded backend");
+    expect(() => parseArguments(["--global", "--data", "book"]))
+      .toThrow("--global and --data select different projects");
+    expect(() => parseArguments(["--global", "--demo"]))
+      .toThrow("--global cannot be used with --demo");
+    expect(() => parseArguments(["--url=http://127.0.0.1:9999", "--global"]))
+      .toThrow("--global requires the embedded backend");
     expect(parseArguments(["--diagnostic"])?.diagnostic).toBeTrue();
     expect(() => parseArguments([
       "--url=http://127.0.0.1:9999",

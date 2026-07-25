@@ -109,12 +109,10 @@ export async function startLegacyServe(
 async function runLegacyServe(argv: string[]): Promise<void> {
   let dataDir: string | null = null;
   let legacy = false;
-  let offlineExclusive = false;
   let portSupplied = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--legacy-v1") legacy = true;
-    else if (argument === "--offline-exclusive") offlineExclusive = true;
     else if (argument === "--data" || argument === "--port") {
       const value = argv[++index];
       if (value === undefined) throw new Error(`${argument} requires a value`);
@@ -130,15 +128,10 @@ async function runLegacyServe(argv: string[]): Promise<void> {
     }
   }
   if (!legacy) throw new Error("serve currently requires --legacy-v1");
-  if (!offlineExclusive) {
-    throw new Error(
-      "--offline-exclusive is required: stop every old server, import, and maintenance process first"
-    );
-  }
   if (portSupplied) throw new Error("serve --legacy-v1 rejects --port");
   if (dataDir === null) throw new Error("serve requires --data <path>");
   process.stderr.write(
-    "Legacy offline-exclusive mode: no automatic restart; an interrupted mutation may have an unknown outcome.\n"
+    "Legacy read-only preview: no automatic restart; an interrupted mutation may have an unknown outcome.\n"
   );
   await runHttpListenerUntilSignal(
     async () => await startLegacyServe(dataDir),

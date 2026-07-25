@@ -53,11 +53,7 @@ export async function runSupervisedServeChild(
   if (secretFd !== 4) throw new Error("Supervised child secret channel is invalid");
   const messages = new MessageInbox();
   const recovery = await messages.next("recover");
-  const dataLock = new RuntimeDataDirectoryLock(dataDir, {
-    initializeNew: argv.includes("--initialize-new"),
-    offlineExclusive: argv.includes("--offline-exclusive"),
-    offlineGuardHeld: port === 7373
-  });
+  const dataLock = new RuntimeDataDirectoryLock(dataDir);
   let listener: HttpListener | null = null;
   let service: StoryService | null = null;
   let admissionOpen = false;

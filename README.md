@@ -49,9 +49,11 @@ bun install
 Run these commands from `tui/`.
 
 ```sh
-bun start                                    # embedded backend, most recent story
+bun start                                    # open the project found by walking up
+bun start -- init                            # create .1667/ in the current folder
+bun start -- --global                        # one machine-wide library, no folders
 bun start -- --story <id>                    # open a specific story
-bun start -- --data /path/to/1667-data
+bun start -- --data path/to/book             # open this project root
 bun start -- --url http://127.0.0.1:7373     # connect to a loopback HTTP backend
 ```
 
@@ -71,11 +73,41 @@ bun start -- --demo --render-once --size 120x36 --keys "m"
 
 `--render-once` prints one frame and exits. `--keys` sends each character through the normal key handler before 1667 captures that frame. Both flags help you check layout changes without an interactive session.
 
-## Data directory
+## Where your stories live
 
-The embedded backend creates `./data` in the directory where you start 1667. To use another location, set `--data <path>` or the `AI_1667_DATA` environment variable. Precedence is `--data`, then `AI_1667_DATA`, then `./data`. Relative paths stay relative to the launch directory. Empty overrides are invalid.
+1667 finds its stories the way git finds its history: it walks up from the
+current directory looking for a `.1667/` folder. That folder is the project, and
+the folder holding it is your project root — so `book/` and `screenplay/` keep
+separate stories, and starting 1667 anywhere inside either one opens the right
+library.
 
-One backend owns a data directory at a time. A second lock-aware process refuses to open a directory that another process already holds.
+```sh
+mkdir book && cd book
+1667 init      # creates book/.1667/
+1667          # opens it from book/ or any subdirectory
+```
+
+Starting outside any project asks once whether to create one here. A
+non-interactive start refuses instead of guessing. `--global` opens one
+machine-wide library for people who would rather not think about folders, and
+`--data <project-root>` opens an explicit one (relative paths welcome).
+
+Three tiers hold three different things:
+
+| Tier | Where | What |
+| --- | --- | --- |
+| Machine | platform state root | provider secrets, HTTP auth records |
+| Project | `.1667/` in the project root | stories, settings, `lock`, `run.json` |
+| Working | the project folder | markdown you exported |
+
+Secrets never leave the machine tier: the settings document stores an opaque id,
+so a project can be committed, copied, or synced while each machine supplies its
+own key. `.1667/.gitignore` keeps the machine-local files out of your commits.
+
+One writer owns a project at a time, enforced by an advisory lock on
+`.1667/lock`. A second start refuses and names the process holding it. The lock
+lives in the kernel, so a crash releases it — there is nothing to clean up.
+See [ADR 007](docs/adr/007-project-anchored-storage.md).
 
 ## Keyboard orientation
 
@@ -101,15 +133,15 @@ One backend owns a data directory at a time. A second lock-aware process refuses
 
 1667 supports three provider modes: `dry-run`, `openai-compatible`, and `anthropic`. Settings include presets for OpenAI, OpenRouter, Anthropic, LM Studio, Ollama, llama.cpp, KoboldCpp, and a custom endpoint. Use `dry-run` to exercise the interface without a network call.
 
-Settings store a credential reference, never the key itself: either paste an API key — kept only in the private per-data-directory `secrets.json` (mode `0600`), with an opaque id in the settings document — or name an environment variable and export it. Local servers like Ollama need no key. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](docs/adr/004-prompt-caching.md).
+Settings store a credential reference, never the key itself: either paste an API key — kept only in the machine tier's private `secrets.json` (mode `0600`), with an opaque id in the settings document — or name an environment variable and export it. Local servers like Ollama need no key. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](docs/adr/004-prompt-caching.md).
 
 ## Privacy
 
-Your stories and settings stay on your computer, in the data directory. 1667 does not upload them. When you generate text, 1667 sends prompt context to the model provider that you select in settings. That context can include story prose, facts, chapter summaries, and your instructions. Choose a provider that matches how you want that text handled. In demo mode and `dry-run` mode, 1667 sends nothing to any provider.
+Your stories and settings stay on your computer, in the project's `.1667/` folder. 1667 does not upload them. When you generate text, 1667 sends prompt context to the model provider that you select in settings. That context can include story prose, facts, chapter summaries, and your instructions. Choose a provider that matches how you want that text handled. In demo mode and `dry-run` mode, 1667 sends nothing to any provider.
 
 ## Current platform limits
 
-Embedded local storage is available on macOS and Linux. The Windows candidate builds and runs demo mode, but local data, HTTP attach, HTTP auth, and legacy serve fail closed until the native DACL and reparse-safe adapters are complete.
+Project storage works on macOS, Linux, and Windows. The machine tier — provider secrets and HTTP auth records — still needs a native DACL and reparse-safe adapter on Windows and fails closed there, along with HTTP attach, HTTP auth, and legacy serve.
 
 Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
 
@@ -120,10 +152,8 @@ cd tui
 bun run build:standalone
 ./dist/1667 --version
 ./dist/1667 --version --json
-./dist/1667 --initialize-new --offline-exclusive
+./dist/1667 init && ./dist/1667 --render-once
 ```
-
-On macOS and Linux, the first packaged start needs an absent data target and your explicit assertion that every older writer is stopped. Later starts need no initialization flags.
 
 The compiled executable contains the TUI, the backend worker, the dependencies, and the Bun runtime. It runs from any directory and needs no separate Bun installation.
 

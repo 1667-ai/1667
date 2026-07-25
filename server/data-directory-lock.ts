@@ -45,6 +45,7 @@ import {
   validateHardenedDataLock
 } from "./data-directory-process-lock.js";
 import { assertSupportedDataFilesystem } from "./storage-filesystem.js";
+import { PROJECT_GITIGNORE_FILE } from "./project-layout.js";
 import { writeDurableFile } from "./story-lifecycle.js";
 
 export { readDataDirectoryFormat } from "./data-directory-format.js";
@@ -72,7 +73,7 @@ export class DataDirectoryLock {
   private canonicalDir: string | null = null;
   private selectedDataFormat: DataDirectoryFormat | null = null;
   private selectedDataFormatSource: DataDirectoryFormatSource | null = null;
-  private createdDirectory = false;
+  private publishedFormat = false;
 
   constructor(
     private readonly dataDir: string,
@@ -93,11 +94,15 @@ export class DataDirectoryLock {
     return this.selectedDataFormatSource;
   }
 
-  /** True when this acquisition created the directory rather than adopting an
-   * existing one. Callers use it to distinguish a first run from an emptied
-   * library, which must not be refilled behind the writer's back. */
+  /** True when this acquisition published the format marker, meaning the
+   * directory held no 1667 data yet.
+   *
+   * ADR007 makes the directory itself a poor signal: `1667 init` creates the
+   * project tier in an earlier process, and a project may arrive by clone. The
+   * marker is what distinguishes a first open from an emptied library, which
+   * must not be refilled behind the writer's back. */
   get initializedNewDirectory(): boolean {
-    return this.createdDirectory;
+    return this.publishedFormat;
   }
 
   get authorityPath(): string {
@@ -125,12 +130,7 @@ export class DataDirectoryLock {
     if (this.options.initializeIfMissing === false) {
       await requireExistingDataDirectory(this.dataDir, legacyDataError);
     } else {
-      // `recursive` mkdir reports the first path it created, which is the only
-      // trustworthy first-run signal available before the lock exists.
-      this.createdDirectory = await mkdir(this.dataDir, {
-        recursive: true,
-        mode: 0o700
-      }) !== undefined;
+      await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     }
     const canonicalDir = await realpath(this.dataDir);
     const initializeDataFormat = this.options.initializeDataFormat ?? 2;
@@ -157,7 +157,7 @@ export class DataDirectoryLock {
         await ensurePrivateDataRoot(canonicalDir);
       }
       await assertSupportedDataFilesystem(canonicalDir);
-      await ensureLockAwareDirectory(
+      this.publishedFormat = await ensureLockAwareDirectory(
         canonicalDir,
         initializeDataFormat,
         recoveredFence
@@ -350,14 +350,14 @@ async function inspectDataDirectoryBeforeMutation(
   if (await hasLockAwareDataMarker(dataDir)) return "marked";
   if (entries.length === 0) return "empty";
 
+  const allowed = admissibleUnmarkedEntries(initializeDataFormat);
+  if (entries.some((entry) => !allowed.has(entry))) throw legacyDataError(dataDir);
+  // Nothing of ours is published yet — a project tier `1667 init` just created
+  // holds only its .gitignore — so this is a first open, not legacy content.
+  if (!entries.includes(LEGACY_EXCLUSION_FENCE)) return "empty";
   const fencePath = path.join(dataDir, LEGACY_EXCLUSION_FENCE);
-  if (!entries.includes(LEGACY_EXCLUSION_FENCE)) throw legacyDataError(dataDir);
   const fenceInfo = await lstat(fencePath);
   if (fenceInfo.isDirectory()) throw legacyLockError(fencePath);
-
-  const allowed = initialDataDirectoryResidueEntries(initializeDataFormat);
-  allowed.add(LEGACY_EXCLUSION_FENCE);
-  if (entries.some((entry) => !allowed.has(entry))) throw legacyDataError(dataDir);
   return "initialization-residue";
 }
 
@@ -372,24 +372,39 @@ async function inspectInitializationResidueUnderFence(
 ): Promise<void> {
   if (await hasLockAwareDataMarker(dataDir)) return;
   const entries = await readdir(dataDir);
-  const allowed = initialDataDirectoryResidueEntries(initializeDataFormat);
-  allowed.add(LEGACY_EXCLUSION_FENCE);
+  const allowed = admissibleUnmarkedEntries(initializeDataFormat);
   if (entries.some((entry) => !allowed.has(entry))) throw legacyDataError(dataDir);
   await validateInitialDataDirectoryFormatResidue(dataDir, initializeDataFormat);
 }
 
+/**
+ * Entries an unmarked directory may hold and still be ours to initialize: the
+ * initializer's own residue, its fence, and the project tier's .gitignore,
+ * which `1667 init` writes before any lock exists.
+ */
+function admissibleUnmarkedEntries(
+  initializeDataFormat: DataDirectoryFormat
+): Set<string> {
+  const allowed = initialDataDirectoryResidueEntries(initializeDataFormat);
+  allowed.add(LEGACY_EXCLUSION_FENCE);
+  allowed.add(PROJECT_GITIGNORE_FILE);
+  return allowed;
+}
+
 /** Empty directories become lock-aware by atomically claiming the legacy lock
  * pathname first. The permanent regular-file fence makes every older binary's
- * lock-directory mkdir fail, including after this process releases ownership. */
+ * lock-directory mkdir fail, including after this process releases ownership.
+ *
+ * Returns whether this call published the format marker. */
 async function ensureLockAwareDirectory(
   dataDir: string,
   initializeDataFormat: DataDirectoryFormat,
   recoveredFence: InitializationFenceLease | null
-): Promise<void> {
+): Promise<boolean> {
   const fencePath = path.join(dataDir, LEGACY_EXCLUSION_FENCE);
   if (await hasLockAwareDataMarker(dataDir)) {
     await validateLegacyExclusionFence(fencePath);
-    return;
+    return false;
   }
   const fence = recoveredFence ?? await claimLegacyExclusionFence(fencePath);
   try {
@@ -397,12 +412,13 @@ async function ensureLockAwareDirectory(
     // preflight and this OS lock acquisition.
     if (await hasLockAwareDataMarker(dataDir)) {
       await validateLegacyExclusionFence(fencePath);
-      return;
+      return false;
     }
     if (recoveredFence === null) {
       await inspectInitializationResidueUnderFence(dataDir, initializeDataFormat);
     }
     await writeInitialDataDirectoryFormat(dataDir, initializeDataFormat);
+    return true;
   } finally {
     if (recoveredFence === null) await fence.release();
   }
