@@ -1,3 +1,4 @@
+import type { StarterKeyId } from "./starter-keys.js";
 import type { BookmarkLabel } from "./types.js";
 
 /**
@@ -8,65 +9,9 @@ import type { BookmarkLabel } from "./types.js";
  * is always written in the current schema instead of thawing a snapshot that
  * rots at the next migration.
  *
- * Every key named in the prose is declared in {@link STARTER_KEYS} and spelled
- * `[token]` in the text. Tests bind those two directions together against the
- * real resolver, so a rebound key fails CI instead of teaching a lie.
+ * Every key named in the prose is declared in `./starter-keys.js` and spelled
+ * `[token]` in the text.
  */
-
-export interface StarterKey {
-  /** `KeyEvent.name` exactly as the TUI resolver observes it. */
-  readonly name: string;
-  /** How the prose spells the key, wrapped in square brackets. */
-  readonly token: string;
-  readonly mode: "NAV" | "MAP";
-  readonly shift?: true;
-  readonly ctrl?: true;
-  /** Map bindings that only exist in a particular view. */
-  readonly mapView?: "path" | "tree" | "mass";
-}
-
-export const STARTER_KEYS = {
-  takeNext: { name: "right", token: "→", mode: "NAV" },
-  takePrevious: { name: "left", token: "←", mode: "NAV" },
-  focusNext: { name: "down", token: "↓", mode: "NAV" },
-  focusPrevious: { name: "up", token: "↑", mode: "NAV" },
-  scrollLineDown: { name: "down", token: "⇧↓", mode: "NAV", shift: true },
-  scrollLineUp: { name: "up", token: "⇧↑", mode: "NAV", shift: true },
-  continue: { name: "space", token: "space", mode: "NAV" },
-  compose: { name: "return", token: "enter", mode: "NAV" },
-  write: { name: "w", token: "w", mode: "NAV" },
-  edit: { name: "e", token: "e", mode: "NAV" },
-  regenerate: { name: "r", token: "r", mode: "NAV" },
-  reprompt: { name: "r", token: "R", mode: "NAV", shift: true },
-  undo: { name: "u", token: "u", mode: "NAV" },
-  top: { name: "g", token: "g", mode: "NAV" },
-  leaf: { name: "g", token: "G", mode: "NAV", shift: true },
-  instructions: { name: "p", token: "p", mode: "NAV" },
-  bookmark: { name: "b", token: "b", mode: "NAV" },
-  prune: { name: "d", token: "d", mode: "NAV" },
-  openMap: { name: "m", token: "m", mode: "NAV" },
-  openLibrary: { name: "o", token: "o", mode: "NAV" },
-  openFacts: { name: "f", token: "f", mode: "NAV" },
-  openChapters: { name: "c", token: "c", mode: "NAV" },
-  createChapter: { name: "c", token: "C", mode: "NAV", shift: true },
-  newStory: { name: "n", token: "n", mode: "NAV" },
-  actions: { name: "x", token: "x", mode: "NAV" },
-  keys: { name: "?", token: "?", mode: "NAV" },
-  settings: { name: ",", token: ",", mode: "NAV" },
-  commands: { name: ":", token: ":", mode: "NAV" },
-  quit: { name: "q", token: "q", mode: "NAV" },
-  mapCycleView: { name: "m", token: "m", mode: "MAP" },
-  mapDetail: { name: "a", token: "a", mode: "MAP" },
-  mapJump: { name: "return", token: "enter", mode: "MAP" },
-  mapBookmark: { name: "b", token: "b", mode: "MAP", mapView: "path" }
-} as const satisfies Record<string, StarterKey>;
-
-export type StarterKeyId = keyof typeof STARTER_KEYS;
-
-/** The bracketed spelling the prose must use for a declared key. */
-export function starterKeyToken(id: StarterKeyId): string {
-  return `[${STARTER_KEYS[id].token}]`;
-}
 
 export interface StarterTake {
   /** Stable slug; the seeder derives a deterministic node id from it. */
@@ -80,8 +25,9 @@ export interface StarterTake {
 }
 
 export interface StarterBeat {
-  /** Alternatives for one position. The first take carries the line onward. */
-  readonly takes: readonly StarterTake[];
+  /** Alternatives for one position. The first take carries the line onward, so a
+   * beat always has at least one; an empty beat would re-root the story. */
+  readonly takes: readonly [StarterTake, ...StarterTake[]];
   /** Opens a chapter whose break sits above this beat. */
   readonly chapter?: string;
 }

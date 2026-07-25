@@ -88,6 +88,12 @@ export abstract class StoryServiceRuntime {
     this.settingsActivation = options.settingsActivation ?? "activation-capable";
     this.legacyData = options.legacyData;
     this.starterVault = options.starterVault;
+    // Only an external-lock owner can observe directory creation on the
+    // service's behalf. Accepting the flag alongside a service-owned lock and
+    // then ignoring it would hide a wiring mistake behind a missing vault.
+    if (options.freshDataDirectory !== undefined && options.dataLock !== "external") {
+      throw new Error("freshDataDirectory is only meaningful with an external data lock");
+    }
     this.externalFreshDataDirectory = options.freshDataDirectory === true;
     this.configureStorage(dataDir, dataDir);
     this.dataLock = options.dataLock === "external"

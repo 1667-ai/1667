@@ -29,12 +29,12 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
     : null;
   if (dataLock !== null) await dataLock.acquire();
   const lockedDataDir = dataLock?.authorityPath ?? null;
-  const transportOptions = lockedDataDir === null
+  const transportOptions = dataLock === null
     ? options
     : {
         ...options,
-        dataDir: lockedDataDir,
-        freshDataDirectory: dataLock?.initializedNewDirectory === true
+        dataDir: dataLock.authorityPath,
+        freshDataDirectory: dataLock.initializedNewDirectory
       };
   let transport: WorkerTransport;
   try {

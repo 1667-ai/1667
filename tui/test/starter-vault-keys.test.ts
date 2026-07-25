@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import {
   STARTER_KEYS,
-  STARTER_STORIES,
   type StarterKey,
   type StarterKeyId
-} from "../../shared/starter-vault.js";
+} from "../../shared/starter-keys.js";
+import { STARTER_STORIES } from "../../shared/starter-vault.js";
 import { resolveKey } from "../src/keys.js";
 import { KEYS_MODAL_MODEL } from "../src/screens/keys-modal.js";
 

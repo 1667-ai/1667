@@ -3,12 +3,10 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { starterKeyToken } from "../shared/starter-keys.js";
 import {
   STARTER_OPENING_STORY_ID,
-  STARTER_STORIES,
-  STARTER_KEYS,
-  starterKeyToken,
-  type StarterKeyId
+  STARTER_STORIES
 } from "../shared/starter-vault.js";
 import { StoryService } from "../server/story-service.js";
 
@@ -148,27 +146,17 @@ test("maintenance entry points leave a fresh directory empty", async () => {
   });
 });
 
-test("starter prose only names keys the build still binds", async () => {
-  // The reverse direction matters most: prose may not mention a key that is
-  // not declared, so a rebound key cannot survive as a bracketed lie.
-  const declared = new Set(Object.keys(STARTER_KEYS) as StarterKeyId[]);
+test("starter prose spells every key it declares", async () => {
+  // Only this direction lives here. The opposite one — prose may not spell a
+  // key it never declared — needs the real resolver and the keys overlay, so it
+  // is asserted once in tui/test/starter-vault-keys.test.ts rather than twice.
   for (const story of STARTER_STORIES) {
     for (const beat of story.beats) {
       for (const take of beat.takes) {
-        const keys = take.keys ?? [];
-        for (const id of keys) {
-          assert.ok(declared.has(id), `${take.slug} declares unknown key: ${id}`);
+        for (const id of take.keys ?? []) {
           assert.ok(
             take.text.includes(starterKeyToken(id)),
             `${take.slug} declares ${id} but never spells ${starterKeyToken(id)}`
-          );
-        }
-        const spelled = [...take.text.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]!);
-        const allowed = new Set<string>(keys.map((id) => STARTER_KEYS[id].token));
-        for (const token of spelled) {
-          assert.ok(
-            allowed.has(token),
-            `${take.slug} spells [${token}] without declaring it`
           );
         }
       }
