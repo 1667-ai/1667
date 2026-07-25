@@ -129,7 +129,7 @@ describe("keys reference", () => {
     const frame = text(120, 60);
     for (const item of entries) expect(frame).toContain(`  ${item.description}`);
     expect(frame).not.toContain("scrolls");
-    expect(frame).not.toContain("/27");
+    expect(frame).not.toContain("/29");
     expect(frame).toContain("esc closes");
     expect(render(120, 60, 4).scrollTop).toBe(0);
   });
@@ -140,7 +140,7 @@ describe("keys reference", () => {
     expect(top.scrollTop).toBe(0);
     expect(frame).toContain("● MOVE");
     // The range reads the way every other windowed panel's title does.
-    expect(frame).toContain("keys · what every key does · 1–15/27");
+    expect(frame).toContain("keys · what every key does · 1–15/29");
     expect(frame).toContain("↑↓ scrolls · esc closes");
 
     const scrolled = render(80, 24, 8);
@@ -162,11 +162,12 @@ describe("keys reference", () => {
       const painted = frameText(bottom.composition.lines)
         .split("\n")
         .filter((line) => line.includes("┃")).length - 1;
-      const shown = `${height}:${frameText(bottom.composition.lines).includes("d / b  prune · bookmark · path")}`;
+      // The note is the last row by construction: reaching it proves the bound.
+      const shown = `${height}:${frameText(bottom.composition.lines).includes("chapter rows differ")}`;
       expect(shown).toBe(`${height}:true`);
-      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:27`);
+      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:29`);
       expect(frameText(bottom.composition.lines))
-        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/27`);
+        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/29`);
     }
   });
 
@@ -180,6 +181,15 @@ describe("keys reference", () => {
       for (const view of views) {
         expect(`${item.token}:${item.description.includes(view!)}`).toBe(`${item.token}:true`);
       }
+    }
+  });
+
+  test("it says where a chapter row's own keys are named", () => {
+    // `directChapterRowAction` runs before NAV, so `e` renames a chapter and
+    // `d` removes its break. The reference points at the story's hint line
+    // rather than claiming one meaning for both.
+    for (const [width, height] of [[80, 60], [120, 60]] as const) {
+      expect(text(width, height)).toContain("chapter rows differ · the line under the story says how");
     }
   });
 

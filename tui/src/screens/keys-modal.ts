@@ -275,6 +275,13 @@ function columnCount(interior: number): number {
  *  zipped back into rows the panel can draw. Dealing whole sections keeps a
  *  heading with its keys; the scroll offset then applies to every column at
  *  once, so a clipped panel reads as one table rather than five. */
+/** Chapter dividers and summaries answer to their own verbs — `e` renames a
+ *  chapter, `d` removes its break — because `directChapterRowAction` runs
+ *  before NAV. No static list can hold both meanings of a key, and the story
+ *  already names the focused row's keys in the line beneath it, so the
+ *  reference says where to look rather than guessing which row you are on. */
+const CONTEXT_NOTE = "◦ chapter rows differ · the line under the story says how";
+
 function layoutRows(interior: number, columns: number): FrameLine[] {
   const cellWidth = columns === 1
     ? interior
@@ -292,6 +299,7 @@ function layoutRows(interior: number, columns: number): FrameLine[] {
     }
     rows.push(line);
   }
+  rows.push([], ...boundedContent([[raisedSegment(CONTEXT_NOTE, "prose · dim")]], interior));
   return rows;
 }
 
