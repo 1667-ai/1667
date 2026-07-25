@@ -98,7 +98,9 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("[", "NAV", "chapter-previous"),
         binding("]", "NAV", "chapter-next")
       ]),
-      entry("u", "undo the last change", [binding("u", "NAV", "undo")])
+      // Undo consumes take switches and chapter breaks, and nothing else. It
+      // must not read as a safety net beside `d`, which it cannot reverse.
+      entry("u", "undo take switch · break", [binding("u", "NAV", "undo")])
     ]
   },
   {
