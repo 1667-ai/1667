@@ -232,13 +232,13 @@ export class StoryProviderMutationStore {
         request.mutationId
       );
       requireMatchingProviderReceipt(receipt, request, method);
-      if (receipt.started !== null) {
+      if (receipt.started !== null) throw providerOutcomeUnknown(request.mutationId);
+      if (receipt.prepared !== null) {
+        await this.recovery.recover(session, request, receipt);
         throw providerOutcomeUnknown(request.mutationId);
       }
       const unresolved = session.snapshot.manifest.unresolvedProvider;
-      if (unresolved !== null) {
-        throw providerOutcomeUnknown(unresolved.mutationId);
-      }
+      if (unresolved !== null) throw providerOutcomeUnknown(unresolved.mutationId);
       if (session.snapshot.manifest.kind !== "live") {
         throw new GenerationResultError(
           409,

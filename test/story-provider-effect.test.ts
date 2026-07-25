@@ -74,7 +74,8 @@ test("provider effects are exhaustively operation-specific", () => {
       nodeId: "generated",
       expectedParentActiveChildId: null,
       expectedAppendActiveChildId: null,
-      expectedActiveRootId: "root"
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root"
     },
     rewrite: {
       kind: "rewrite",
@@ -160,7 +161,8 @@ test("continue preserves concurrent writer state and does not steal its line", a
     nodeId: "generated",
     expectedParentActiveChildId: null,
     expectedAppendActiveChildId: null,
-    expectedActiveRootId: "root"
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "root"
   }, hydrate);
   assert.deepEqual(current.nodes.map(({ id }) => id), [
     "root",
@@ -171,6 +173,34 @@ test("continue preserves concurrent writer state and does not steal its line", a
   assert.equal(current.bookmarks[0]?.nodeId, "human");
   assert.deepEqual(current.recentNodeIds, ["human"]);
   assert.equal(current.origin?.storyId, "origin-story");
+});
+
+test("continue preserves a writer extension below its requested parent", async () => {
+  const current = story([
+    node("root", null, "Opening.", { activeChildId: "child" }),
+    node("child", "root", "Original ending.", { activeChildId: "extension" }),
+    node("extension", "child", "Writer extension.", { human: true })
+  ]);
+  await applyProviderStoryEffect(current, {
+    kind: "continue",
+    parentId: "root",
+    appendTo: null,
+    expectedTextHash: null,
+    instruction: "Retake",
+    text: "Model alternative.",
+    model: "m",
+    genId: "g-deep-move",
+    nodeId: "generated",
+    expectedParentActiveChildId: "child",
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "child"
+  }, hydrate);
+
+  assert.equal(current.activeRootId, "root");
+  assert.equal(current.nodes[0]?.activeChildId, "child");
+  assert.equal(current.nodes[1]?.activeChildId, "extension");
+  assert.equal(current.nodes.at(-1)?.id, "generated");
 });
 
 test("continue deduplicates a Stop save with the same generation ID", async () => {
@@ -190,7 +220,8 @@ test("continue deduplicates a Stop save with the same generation ID", async () =
     nodeId: "completed",
     expectedParentActiveChildId: null,
     expectedAppendActiveChildId: null,
-    expectedActiveRootId: "root"
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "root"
   }, hydrate);
   assert.equal(applied.changed, false);
   assert.deepEqual(current.nodes.map(({ id }) => id), ["root", "partial"]);
@@ -212,7 +243,8 @@ test("append completion stays on its source after the writer switches lines", as
     genId: "g-append",
     expectedParentActiveChildId: null,
     expectedAppendActiveChildId: null,
-    expectedActiveRootId: "source"
+    expectedActiveRootId: "source",
+    expectedActiveLeafId: "source"
   }, hydrate);
   assert.equal(current.nodes[0]?.text, "The latch was unlocked.");
   assert.equal(current.nodes[0]?.genId, "g-append");
@@ -234,7 +266,8 @@ test("continue fails when its parent was deleted", async () => {
       nodeId: "generated",
       expectedParentActiveChildId: null,
       expectedAppendActiveChildId: null,
-      expectedActiveRootId: "root"
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root"
     }, hydrate),
     GenerationResultError
   );

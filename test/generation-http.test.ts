@@ -152,6 +152,51 @@ providerTest("generation HTTP: a take under a parent preserves the old child as 
   ]);
 });
 
+providerTest("generation HTTP: a deep writer extension keeps the current line", async (t) => {
+  let base = "";
+  let storyId = "";
+  let oldChildId = "";
+  const model = await fakeModel(t, async (_body, response) => {
+    await json(`${base}/api/stories/${storyId}/nodes`, post({
+      parentId: oldChildId,
+      instruction: "Keep writing.",
+      text: "The writer extended the current line."
+    }));
+    stream(response, ["A generated alternative."]);
+  });
+  base = await testApp(t, modelSettings(model.baseUrl));
+  let story = await seededStory(base, "Opening.");
+  const root = story.path[0]!;
+  story = await json(`${base}/api/stories/${story.id}/nodes`, post({
+    parentId: root.id,
+    text: "Original continuation."
+  }));
+  storyId = story.id;
+  oldChildId = story.path[1]!.id;
+
+  const response = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post({
+      parentId: root.id,
+      instruction: "Try another turn.",
+      genId: "retake-after-deep-extension"
+    })
+  );
+  const returned = doneStory(await response.text());
+  const saved = await getStory(base, story.id);
+  assert.deepEqual(returned, saved);
+  assert.equal(saved.path[1]?.id, oldChildId);
+  assert.equal(
+    saved.path[2]?.text,
+    "The writer extended the current line."
+  );
+  const generated = saved.nodes.find(
+    (node) => node.parentId === root.id && node.id !== oldChildId
+  );
+  assert.equal(generated?.parentId, root.id);
+  assert.equal(generated?.preview, "A generated alternative.");
+});
+
 providerTest("generation HTTP: a committed genId returns before target validation or provider work", async (t) => {
   const model = await fakeModel(t, (_body, response) => stream(response, ["First result."]));
   const base = await testApp(t, modelSettings(model.baseUrl));

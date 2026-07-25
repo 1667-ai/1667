@@ -235,6 +235,7 @@ export async function continueStory(
         ? null
         : nodeById(story, appendTo)?.activeChildId ?? null,
       expectedActiveRootId: story.activeRootId,
+      expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
       cancelled: signal
     });
   } catch (error) {

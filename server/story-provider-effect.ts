@@ -35,6 +35,7 @@ export interface ContinueStoryEffect extends TakeCommit {
   readonly expectedParentActiveChildId: string | null;
   readonly expectedAppendActiveChildId: string | null;
   readonly expectedActiveRootId: string | null;
+  readonly expectedActiveLeafId: string | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -199,14 +200,15 @@ async function applyContinuation(
     : nodeById(story, commit.appendTo);
   const appendWriterMoved = appendTarget !== null
     && activePath(story).at(-1)?.id !== appendTarget.id;
+  const currentActiveLeafId = activePath(story).at(-1)?.id ?? null;
   const writerMoved = commit.appendTo === null && (
-    parent === null
-      ? story.activeRootId !== effect.expectedActiveRootId
-      : parent.activeChildId !== (
-        appendCrossesNewBreak
-          ? effect.expectedAppendActiveChildId
-          : effect.expectedParentActiveChildId
-      )
+    story.activeRootId !== effect.expectedActiveRootId
+    || currentActiveLeafId !== effect.expectedActiveLeafId
+    || (parent !== null && parent.activeChildId !== (
+      appendCrossesNewBreak
+        ? effect.expectedAppendActiveChildId
+        : effect.expectedParentActiveChildId
+    ))
   );
   try {
     if (appendWriterMoved) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { ProviderError } from "../server/errors.js";
+import { ProviderError, ServiceError } from "../server/errors.js";
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
 import {
@@ -15,6 +15,85 @@ import {
   storyFixture,
   THIRD_MUTATION_ID
 } from "./story-mutation-fixtures.js";
+
+test("Q a receipt-only duplicate terminalizes before another start", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-receipt-race-");
+  let arrivals = 0;
+  let releasePrepared!: () => void;
+  const bothPrepared = new Promise<void>((resolve) => {
+    releasePrepared = resolve;
+  });
+  const arrive = () => {
+    arrivals += 1;
+    if (arrivals === 2) releasePrepared();
+  };
+  let markWinnerPrepared!: () => void;
+  const winnerPrepared = new Promise<void>((resolve) => {
+    markWinnerPrepared = resolve;
+  });
+  let releaseLoserTerminal!: () => void;
+  const loserTerminal = new Promise<void>((resolve) => {
+    releaseLoserTerminal = resolve;
+  });
+  t.after(() => {
+    releasePrepared();
+    releaseLoserTerminal();
+  });
+  let providerStarts = 0;
+
+  const winner = fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, {
+      kind: "v5",
+      manifestHash: fixture.v5Hash
+    }),
+    "autonameStory",
+    async (stories, start) => {
+      arrive();
+      markWinnerPrepared();
+      await bothPrepared;
+      await loserTerminal;
+      await start();
+      providerStarts += 1;
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Must not commit"
+      });
+    },
+    storyFixture
+  );
+  await winnerPrepared;
+  const loser = fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, {
+      kind: "v5",
+      manifestHash: fixture.v5Hash
+    }),
+    "autonameStory",
+    async () => {
+      arrive();
+      await bothPrepared;
+      throw new ServiceError(409, "Duplicate rejected", "conflict");
+    },
+    storyFixture
+  );
+
+  await assert.rejects(loser, hasServiceError("conflict"));
+  releaseLoserTerminal();
+  await assert.rejects(winner, hasServiceError("conflict"));
+  assert.equal(providerStarts, 0);
+  const receipt = await fixture.ledger.loadStoryReceipt(
+    `story:${STORY_ID}`,
+    MUTATION_ID
+  );
+  assert.equal(receipt.started, null);
+  assert.equal(
+    receipt.prepared?.result.kind === "error"
+      ? receipt.prepared.result.code
+      : null,
+    "conflict"
+  );
+  assert.notEqual(receipt.completed, null);
+});
 
 for (const cachedKind of ["v5", "v6"] as const) {
   test(`Q provider failure terminalizes after cached ${cachedKind.toUpperCase()} deletion`, async (t) => {
