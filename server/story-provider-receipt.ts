@@ -1,4 +1,5 @@
 import {
+  GenerationResultError,
   isDefinitiveProviderFailure,
   ProviderError,
   ServiceError
@@ -96,6 +97,26 @@ export function providerOutcomeAcknowledged(mutationId: string): ServiceError {
     `Provider outcome was acknowledged for mutation ${mutationId}.`,
     "generation_outcome_unknown_acknowledged"
   );
+}
+
+export function terminalProviderConflict(
+  error: unknown
+): {
+  error: GenerationResultError;
+  code: PreparedDomainError;
+} | null {
+  if (error instanceof GenerationResultError
+    && isPreparedDomainError(error.code)) {
+    return { error, code: error.code };
+  }
+  if (error instanceof ServiceError && error.status >= 400
+    && error.status < 500) {
+    const terminal = new GenerationResultError(error.status, error.message);
+    if (isPreparedDomainError(terminal.code)) {
+      return { error: terminal, code: terminal.code };
+    }
+  }
+  return null;
 }
 
 function providerIdempotencyConflict(): ServiceError {

@@ -65,9 +65,10 @@ export async function fakeModel(
     server.listen(0, "127.0.0.1", resolve)
   );
   t.after(async () => {
+    const closed = closeServer(server);
     server.closeAllConnections();
     for (const socket of sockets) socket.destroy();
-    await closeServer(server);
+    await closeServerWithin(closed, server, sockets);
     if (handlerErrors.length > 0) {
       throw new AggregateError(
         handlerErrors,
@@ -179,6 +180,26 @@ async function closeServer(
   await new Promise<void>((resolve, reject) =>
     server.close((error) => error === undefined ? resolve() : reject(error))
   );
+}
+
+async function closeServerWithin(
+  closed: Promise<void>,
+  server: ReturnType<typeof createServer>,
+  sockets: ReadonlySet<Socket>
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const bounded = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      server.closeAllConnections();
+      for (const socket of sockets) socket.destroy();
+      reject(new Error("Fake provider server did not close within 1 second"));
+    }, 1_000);
+  });
+  try {
+    await Promise.race([closed, bounded]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 async function stopApp(server: ChildProcess): Promise<void> {

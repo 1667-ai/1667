@@ -16,6 +16,7 @@ import {
 } from "./mutation-ledger-store.js";
 import type {
   MutationResult,
+  PreparedDomainError,
   PreparedUserMutationRecord,
   ProviderMutationMethod,
   StartedMutationRecord
@@ -34,8 +35,10 @@ import {
   providerOutcomeUnknown,
   receiptOnlyProviderError,
   requireMatchingAcknowledgedProviderReceipt,
-  requireMatchingProviderReceipt
+  requireMatchingProviderReceipt,
+  terminalProviderConflict
 } from "./story-provider-receipt.js";
+import { runTerminalStoryPhase } from "./story-provider-phase.js";
 import {
   commitPreparedStoryTransaction,
   commitReceiptOnlyStoryTransaction,
@@ -136,7 +139,8 @@ export class StoryProviderMutationStore {
     }
 
     try {
-      const committed = await this.coordinator.runStoryPhase(
+      const committed = await runTerminalStoryPhase(
+        this.coordinator,
         request,
         async () => await this.commitTerminal(
           storyId,
@@ -276,9 +280,16 @@ export class StoryProviderMutationStore {
   ): Promise<void> {
     if (started !== null) {
       if (!isDefinitiveProviderFailure(error)) return;
+      const code = receiptOnlyProviderError(error) ?? "provider_failure";
       try {
-        await this.coordinator.runStoryPhase(request, async () =>
-          await this.commitTerminalError(storyId, request, method, started)
+        await runTerminalStoryPhase(this.coordinator, request, async () =>
+          await this.commitTerminalError(
+            storyId,
+            request,
+            method,
+            started,
+            code
+          )
         );
       } catch (terminalError) {
         if (terminalError instanceof ServiceError
@@ -335,7 +346,7 @@ export class StoryProviderMutationStore {
           request,
           method,
           started,
-          story
+          { kind: "success", story }
         );
         return { story, result };
       } catch (error) {
@@ -346,9 +357,9 @@ export class StoryProviderMutationStore {
           request,
           method,
           started,
-          null
+          { kind: "error", code: terminal.code }
         );
-        throw terminal;
+        throw terminal.error;
       }
     });
   }
@@ -357,7 +368,8 @@ export class StoryProviderMutationStore {
     storyId: string,
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     method: ProviderMutationMethod,
-    started: StartedMutationRecord
+    started: StartedMutationRecord,
+    code: PreparedDomainError
   ): Promise<void> {
     await this.stories.withAggregateSession(storyId, async (session) => {
       await this.prepareTerminalPhase(session, request, method, started);
@@ -366,7 +378,7 @@ export class StoryProviderMutationStore {
         request,
         method,
         started,
-        null
+        { kind: "error", code }
       );
     });
   }
@@ -404,12 +416,14 @@ export class StoryProviderMutationStore {
     request: MutationCoordinatorRequest<StoryMutationTarget>,
     method: ProviderMutationMethod,
     started: StartedMutationRecord,
-    story: Story | null
+    outcome:
+      | { kind: "success"; story: Story }
+      | { kind: "error"; code: PreparedDomainError }
   ): Promise<Extract<MutationResult, { kind: "story" }>> {
     const oldStateHash = session.snapshot.manifestHash;
-    const replacement = story === null
-      ? null
-      : await session.prepareContent(story);
+    const replacement = outcome.kind === "success"
+      ? await session.prepareContent(outcome.story)
+      : null;
     const provider = {
       mutationId: request.mutationId,
       fingerprintHash: request.fingerprint
@@ -444,11 +458,11 @@ export class StoryProviderMutationStore {
       oldStateHash,
       newStateHash: hashStoryManifest(manifest),
       startedRecordHash: hashStartedMutationRecord(started),
-      result: replacement !== null
+      result: outcome.kind === "success"
         ? storyResult(manifest)
         : {
           kind: "error",
-          code: "provider_failure",
+          code: outcome.code,
           aggregateVersion: {
             kind: "story",
             revision: manifest.revision
@@ -466,15 +480,4 @@ export class StoryProviderMutationStore {
     });
     return storyResult(manifest);
   }
-}
-
-function terminalProviderConflict(
-  error: unknown
-): GenerationResultError | null {
-  if (error instanceof GenerationResultError) return error;
-  if (error instanceof ServiceError && error.status >= 400
-    && error.status < 500) {
-    return new GenerationResultError(error.status, error.message);
-  }
-  return null;
 }

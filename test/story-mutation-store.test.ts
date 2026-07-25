@@ -416,6 +416,105 @@ test("Q provider work releases story admission and commits onto the current stor
   );
 });
 
+test("Q terminal publication waits out a short competing story claim", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-terminal-claim-");
+  let releaseClaim!: () => void;
+  const claimGate = new Promise<void>((resolve) => {
+    releaseClaim = resolve;
+  });
+  t.after(() => releaseClaim());
+  let holder: Promise<void> | null = null;
+
+  const committed = await fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      const draft = await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Generated after contention"
+      });
+      let claimStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        claimStarted = resolve;
+      });
+      holder = fixture.coordinator.runStory(
+        requestFor(
+          OTHER_MUTATION_ID,
+          OTHER_FINGERPRINT,
+          { kind: "v5", manifestHash: fixture.v5Hash }
+        ),
+        async () => {
+          claimStarted();
+          await claimGate;
+        }
+      );
+      await started;
+      setTimeout(releaseClaim, 25);
+      return draft;
+    },
+    storyFixture
+  );
+
+  await holder;
+  assert.equal(committed.story.title, "Generated after contention");
+  assert.deepEqual(
+    committed.story,
+    (await fixture.stories.loadVersioned(STORY_ID)).story
+  );
+});
+
+test("Q terminal effect conflicts retain their durable conflict result", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-terminal-conflict-");
+  let workCalls = 0;
+  const operation = () => fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      workCalls += 1;
+      await start();
+      const draft = await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Generated title"
+      });
+      const current = await fixture.stories.loadVersioned(STORY_ID);
+      await fixture.mutations.runLocal(
+        requestFor(
+          OTHER_MUTATION_ID,
+          OTHER_FINGERPRINT,
+          current.aggregateVersion!
+        ),
+        "renameStory",
+        (story) => {
+          story.title = "Writer title";
+        }
+      );
+      return draft;
+    },
+    storyFixture
+  );
+
+  await assert.rejects(operation(), hasServiceError("conflict"));
+  const receipt = await fixture.ledger.loadStoryReceipt(
+    `story:${STORY_ID}`,
+    MUTATION_ID
+  );
+  assert.equal(
+    receipt.prepared?.result.kind === "error"
+      ? receipt.prepared.result.code
+      : null,
+    "conflict"
+  );
+  await assert.rejects(operation(), hasServiceError("conflict"));
+  assert.equal(workCalls, 1);
+  assert.equal(
+    (await fixture.stories.loadVersioned(STORY_ID)).story.title,
+    "Writer title"
+  );
+});
+
 test("Q lets two providers prepare but only one publish start before network", async (t) => {
   const fixture = await setup(t, "1667-q-provider-start-race-");
   let ready = 0;
@@ -848,14 +947,23 @@ async function setup(
   const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");
   const v5Hash = hashStoryV5ManifestBytes(await readFile(manifestFile));
   const ledger = new MutationLedgerStore(dataDir);
+  const coordinator = createMutationCoordinator();
   const mutations = new StoryMutationStore(
     stories,
-    createMutationCoordinator(),
+    coordinator,
     dataDir,
     { ledger, hooks, now: () => FIXED_NOW }
   );
   await mutations.init();
-  return { dataDir, stories, ledger, mutations, manifestFile, v5Hash };
+  return {
+    dataDir,
+    stories,
+    ledger,
+    coordinator,
+    mutations,
+    manifestFile,
+    v5Hash
+  };
 }
 
 function request(manifestHash: string) {
