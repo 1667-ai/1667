@@ -49,12 +49,14 @@ bun install
 Run these commands from `tui/`.
 
 ```sh
-bun start                                    # open the project found by walking up
-bun start -- init                            # create .1667/ in the current folder
-bun start -- --global                        # one machine-wide library, no folders
-bun start -- --story <id>                    # open a specific story
-bun start -- --data path/to/book             # open this project root
-bun start -- --url http://127.0.0.1:7373     # connect to a loopback HTTP backend
+bun start                            # open the project found by walking up
+bun start -- init                    # create .1667/ in the current folder
+bun start -- init --adopt            # adopt a pre-0.2 data directory as this project
+bun start -- --global                # one machine-wide library, no folders
+bun start -- --story <id>            # open a specific story
+bun start -- --data path/to/book     # open this project root
+bun start -- export --force          # write the selected branch to <Title>.md
+bun start -- --url                   # attach to the server this project published
 ```
 
 1667 selects a backend in this order: `--demo`, then explicit `--embedded`, then `--url`, then `AI_1667_URL`, then the embedded worker.
@@ -106,8 +108,14 @@ own key. `.1667/.gitignore` keeps the machine-local files out of your commits.
 
 One writer owns a project at a time, enforced by an advisory lock on
 `.1667/lock`. A second start refuses and names the process holding it. The lock
-lives in the kernel, so a crash releases it — there is nothing to clean up.
-See [ADR 007](docs/adr/007-project-anchored-storage.md).
+lives in the kernel, so a crash releases it — there is nothing to clean up. A
+filesystem that accepts every lock is refused by name rather than silently
+allowing two writers.
+
+`1667 export` writes the selected branch to `<Story Title>.md` in the project
+root, with chapters as `##` headings. 1667 never reads a file it exported: the
+loom in `.1667` is the only source of truth, and `e` (your `$EDITOR`) is how text
+comes back in. See [ADR 007](docs/adr/007-project-anchored-storage.md).
 
 ## Keyboard orientation
 
