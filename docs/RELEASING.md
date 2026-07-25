@@ -106,5 +106,5 @@ containment. macOS proves lock-aware serve fails closed. Windows proves that
 embedded storage and HTTP authority fail closed until their native DACL and
 reparse-safe adapters are complete.
 
-See [ADR 005](adr/005-trusted-releases-and-upgrades.md) for the exact matrix,
+See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md) for the exact matrix,
 bounds, and deferred decisions.
