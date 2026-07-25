@@ -531,7 +531,6 @@ async function waitForPoll(
   if (shutdownSignal.aborted) return false;
   return await new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => finish(true), delayMs);
-    timer.unref?.();
     const onShutdown = () => finish(false);
     const finish = (completed: boolean) => {
       clearTimeout(timer);
