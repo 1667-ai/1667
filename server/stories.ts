@@ -623,6 +623,7 @@ export class StoryStore {
             : null;
         if (liveRevisionIds === null) return;
         const pinned = this.providerSnapshotPins.get(id);
+        const beganWithPins = pinned !== undefined;
         const protectedRevisionIds = pinned === undefined
           ? liveRevisionIds
           : [...new Set([...liveRevisionIds, ...pinned.keys()])];
@@ -631,7 +632,9 @@ export class StoryStore {
           protectedRevisionIds,
           signal
         );
-        if (completed && !this.providerSnapshotPins.has(id)) {
+        if (completed
+          && !beganWithPins
+          && !this.providerSnapshotPins.has(id)) {
           await clearCleanupPending(this.bundlePath(id), id);
         }
       });

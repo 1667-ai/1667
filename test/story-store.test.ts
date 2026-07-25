@@ -129,6 +129,62 @@ test("story store: lazy reads bound concurrent cleanup sweeps without a startup 
   assert.equal(maxActive, STORY_CLEANUP_IO_CONCURRENCY);
 });
 
+test("story store: releasing the last provider pin preserves cleanup intent for a second sweep", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-cleanup-pin-release-"));
+  const seed = new StoryStore(dir);
+  await seed.init();
+  const story = fixture(
+    "cleanup-pin-release",
+    [node("root", null, "Opening")],
+    "root"
+  );
+  await seed.save(story);
+  await seed.waitForMaintenance();
+
+  let releaseSweep!: () => void;
+  const sweepGate = new Promise<void>((resolve) => { releaseSweep = resolve; });
+  let markSweepStarted!: () => void;
+  const sweepStarted = new Promise<void>((resolve) => {
+    markSweepStarted = resolve;
+  });
+  let sweeps = 0;
+  const observed = new StoryStore(dir, async () => {
+    sweeps += 1;
+    if (sweeps === 1) {
+      markSweepStarted();
+      await sweepGate;
+    }
+    return true;
+  });
+  await observed.init();
+  t.after(async () => {
+    releaseSweep();
+    await observed.waitForMaintenance();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  let releasePin!: () => void;
+  await observed.withAggregateSession(story.id, async (session) => {
+    releasePin = observed.pinProviderSnapshot(session);
+  });
+  await observed.waitForMaintenance();
+  await markCleanupPending(path.join(dir, story.id), story.id);
+  await observed.schedulePendingCleanup(story.id);
+  await sweepStarted;
+  releasePin();
+  releaseSweep();
+  await observed.waitForMaintenance();
+
+  assert.equal(sweeps, 2);
+  await assert.rejects(
+    () => readFile(path.join(dir, story.id, CLEANUP_MARKER_FILENAME)),
+    (error: unknown) =>
+      error instanceof Error
+      && "code" in error
+      && error.code === "ENOENT"
+  );
+});
+
 test("story store: subtree deletion re-anchors by sibling order and guards the confirmed count", async (t) => {
   const { store } = await testStore(t);
   const story = fixture("delete", [
