@@ -381,7 +381,9 @@ async function bootstrap(message: Extract<MainToWorkerMessage, { type: "bootstra
   const candidate = new StoryService({
     dataDir: message.dataDir,
     dataLock: "external",
-    mutationRecovery: "external"
+    mutationRecovery: "external",
+    starterVault: "seed-when-new",
+    freshDataDirectory: message.freshDataDirectory === true
   });
   try {
     await candidate.init();

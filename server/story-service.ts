@@ -19,6 +19,7 @@ import type { DeltaConsumer } from "./generation-stream.js";
 import { MAX_IMPORT_BYTES, partsFromSillyTavernJsonl, storyFromImport } from "./import-st.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
+import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
 import type { MutatingWorkerMethod } from "../shared/worker-protocol.js";
@@ -31,6 +32,37 @@ export type { StoryServiceOptions } from "./story-service-runtime.js";
 
 /** Canonical application boundary shared by HTTP and the embedded worker. */
 export class StoryService extends StoryServiceRuntime {
+  /** In flight or settled once seeding has been attempted for this service. */
+  private starterVaultWrite: Promise<void> | null = null;
+
+  /**
+   * Seeding runs after the lifecycle reports ready, because every authoring
+   * command asserts an open service. That puts it outside the lifecycle's
+   * once-only guard, so it carries its own: a repeat or concurrent init()
+   * awaits the same write instead of replaying the vault onto a seam that
+   * already has a chapter break.
+   *
+   * A first run interrupted mid-vault leaves a partial one — the directory now
+   * exists, so the next launch skips seeding. That is accepted. Recording
+   * durable seed state would add a file to a directory whose contents are
+   * governed by the admission and migration rules, and being wrong there costs
+   * far more than half a tutorial nobody has read yet.
+   */
+  override async init(): Promise<void> {
+    await super.init();
+    if (!this.shouldSeedStarterVault) return;
+    this.starterVaultWrite ??= seedStarterVault(this);
+    try {
+      await this.starterVaultWrite;
+    } catch (error) {
+      // The directory was created moments ago by this process, so a failure
+      // here means storage is unusable rather than merely unseeded. Release the
+      // lock instead of leaving a half-open service behind.
+      await this.dispose();
+      throw error;
+    }
+  }
+
   async inspectMutationReceipt(
     mutationId: string,
     method?: WorkerMethod

@@ -24,6 +24,8 @@ export interface WorkerStoryApiOptions {
   dataDir?: string;
   initializeNew?: boolean;
   offlineExclusive?: boolean;
+  /** Set by the lock owner when startup created the data directory. */
+  freshDataDirectory?: boolean;
   readyTimeoutMs?: number;
   startupTimeoutMs?: number;
   unaryTimeoutMs?: number;

@@ -24,6 +24,7 @@ export class RuntimeDataDirectoryLock {
   private readonly lock: DataDirectoryLock;
   private readonly hardened: boolean;
   private guard: Server | null = null;
+  private publishedNewDirectory = false;
 
   constructor(
     private readonly dataDir: string,
@@ -42,6 +43,13 @@ export class RuntimeDataDirectoryLock {
 
   get authorityPath(): string {
     return this.lock.authorityPath;
+  }
+
+  /** True when this acquisition created the data directory. Hardened builds
+   * publish a fresh payload; source builds mkdir in place. Either way it is a
+   * first run, and never an emptied library. */
+  get initializedNewDirectory(): boolean {
+    return this.publishedNewDirectory || this.lock.initializedNewDirectory;
   }
 
   async acquire(): Promise<string> {
@@ -89,9 +97,11 @@ export class RuntimeDataDirectoryLock {
       if (this.options.initializeNew !== true) {
         return await acquireOwnedDataDirectoryFence(this.dataDir);
       }
-      return await initializeAbsentDataDirectory(this.dataDir, {
+      const published = await initializeAbsentDataDirectory(this.dataDir, {
         offlineGuardHeld: this.options.offlineGuardHeld
       });
+      this.publishedNewDirectory = true;
+      return published;
     }
     return await acquireOwnedDataDirectoryFence(this.dataDir);
   }

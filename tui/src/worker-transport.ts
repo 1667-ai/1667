@@ -89,7 +89,8 @@ export class WorkerTransport {
       this.worker.postMessage({
         type: "bootstrap",
         dataDir: resolveDataDirectory(options.dataDir),
-        externalDataLock: true
+        externalDataLock: true,
+        ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
       });
     }
   }

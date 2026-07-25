@@ -28,6 +28,12 @@ interface StoryServiceCommonOptions {
   mutationRecovery?: "refuse" | "external";
   /** Maintenance recovers interrupted activation but never begins staged work. */
   settingsActivation?: "activation-capable" | "recover-only";
+  /** Interactive entry points fill a directory this run created with the
+   * starter stories. Maintenance CLIs leave a fresh directory empty. */
+  starterVault?: "seed-when-new";
+  /** External-lock owners report the freshness their own lock observed; a
+   * service-owned lock answers for itself. */
+  freshDataDirectory?: boolean;
 }
 
 export type StoryServiceOptions = StoryServiceCommonOptions & (
@@ -63,6 +69,8 @@ export abstract class StoryServiceRuntime {
   private readonly externalMutationRecovery: boolean;
   private readonly settingsActivation: "activation-capable" | "recover-only";
   private readonly legacyData: ValidatedLegacyV1DataDirectory | undefined;
+  private readonly starterVault: "seed-when-new" | undefined;
+  private readonly externalFreshDataDirectory: boolean;
   private readonly active = new Set<AbortController>();
   private readonly activeOperations = new Set<Promise<unknown>>();
   private readonly generationAdmission = new GenerationAdmissionRegistry();
@@ -79,10 +87,22 @@ export abstract class StoryServiceRuntime {
     this.externalMutationRecovery = options.mutationRecovery === "external";
     this.settingsActivation = options.settingsActivation ?? "activation-capable";
     this.legacyData = options.legacyData;
+    this.starterVault = options.starterVault;
+    this.externalFreshDataDirectory = options.freshDataDirectory === true;
     this.configureStorage(dataDir, dataDir);
     this.dataLock = options.dataLock === "external"
       ? null
       : new RuntimeDataDirectoryLock(dataDir);
+  }
+
+  /** Whether this run should write the starter stories. Only ever true for an
+   * opted-in entry point opening a directory that did not exist a moment ago,
+   * so deleting the starter stories keeps them deleted. */
+  protected get shouldSeedStarterVault(): boolean {
+    if (this.starterVault !== "seed-when-new") return false;
+    return this.dataLock === null
+      ? this.externalFreshDataDirectory
+      : this.dataLock.initializedNewDirectory;
   }
 
   async init(): Promise<void> {

@@ -85,7 +85,9 @@ export async function runSupervisedServeChild(
         );
         return service = new StoryService({
           dataDir: lockedDataDir,
-          dataLock: "external"
+          dataLock: "external",
+          starterVault: "seed-when-new",
+          freshDataDirectory: dataLock.initializedNewDirectory
         });
       },
       operationSessions: {
