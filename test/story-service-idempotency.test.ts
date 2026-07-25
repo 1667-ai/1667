@@ -274,7 +274,7 @@ test("pending autoname resumes before admission and reconciles after commit", as
     const pendingId = mutationId("e");
     await writePendingReceipt(service, pendingId, "autonameStory", input);
     const generated = await runWorkerMutation(service, pendingId, "autonameStory", input);
-    assert.equal(generated.title, "The Tavern After Rain");
+    assert.equal(generated.title, "The Quiet After Rain");
 
     let other = await service.createStory("Another original");
     other = await service.createNode(other.id, { parentId: null, text: "Another detailed opening." });

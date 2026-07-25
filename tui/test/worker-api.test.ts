@@ -165,8 +165,8 @@ describe("embedded backend worker", () => {
       expect((await api.loadStory(story.id)).path.some(({ genId }) => genId === "worker-cancel")).toBeFalse();
 
       const named = await api.autonameStory(story.id);
-      expect(named.title).toBe("The Tavern After Rain");
-      expect(await api.exportMarkdown(story.id)).toContain("# The Tavern After Rain");
+      expect(named.title).toBe("The Quiet After Rain");
+      expect(await api.exportMarkdown(story.id)).toContain("# The Quiet After Rain");
 
       const imported = await api.importSillyTavern([
         JSON.stringify({ character_name: "Mira", user_name: "You" }),

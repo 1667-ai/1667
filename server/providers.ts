@@ -306,7 +306,7 @@ async function* streamDryRun(
   const text = prompt.operation === "rewrite"
     ? dryRunRewrite(prompt)
     : prompt.operation === "title"
-      ? instruction.includes("fork of the different story") ? "Embers on Another Road" : "The Tavern After Rain"
+      ? instruction.includes("fork of the different story") ? "Embers on Another Road" : "The Quiet After Rain"
       : prompt.operation === "summary"
         ? dryRunSummary(prompt)
         : dryRunContinuation(instruction);
@@ -372,11 +372,11 @@ function dryRunContinuation(instruction: string): string {
       : "Continue the unfinished passage"
   ).trim().replace(/[.!?]+$/, "");
   return (
-    `${echo} The tavern had gone quiet when the request arrived: "${quoted}". ` +
-    "No model is connected yet, so the house storyteller improvises. Rain ticked against the shutters, " +
-    "the fire settled in its grate, and somewhere above the rafters something that was not quite a cat " +
-    "began to pace. This is dry-run text; open Settings to connect a real model and the story will " +
-    "continue in earnest from exactly this point."
+    `${echo} The page had gone quiet when the request arrived: "${quoted}". ` +
+    "No model is connected yet, so 1667 improvises in its place. Rain ticked against the window, " +
+    "the lamp settled into its work, and somewhere past the margin a sentence that was not quite " +
+    "finished began to pace. This is dry-run text; open Settings to connect a real model and the " +
+    "story will continue in earnest from exactly this point."
   );
 }
 

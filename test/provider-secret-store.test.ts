@@ -32,7 +32,7 @@ const STORED_SECRET = "sk-stored-fixture-value";
 test("provider secret store publishes mode 0600 and prunes unreferenced IDs", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-provider-secrets-"
+    "1667-provider-secrets-"
   );
   await writeProviderSecret(dataDir, "connection:one", "first-secret");
   await writeProviderSecret(dataDir, "connection:two", "second-secret");
@@ -60,7 +60,7 @@ test("provider secret store publishes mode 0600 and prunes unreferenced IDs", as
 test("settings init removes provider secrets scratch residue", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-provider-secrets-scratch-"
+    "1667-provider-secrets-scratch-"
   );
   const scratch = path.join(dataDir, PROVIDER_SECRETS_NEXT_FILE);
   await writeFile(scratch, `{"orphan":"${STORED_SECRET}"}`, { mode: 0o600 });
@@ -79,7 +79,7 @@ test("settings init removes provider secrets scratch residue", async (t) => {
 test("settings sidecar stays out of state and ledger, then activates stored auth", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-stored-activation-"
+    "1667-stored-activation-"
   );
   const secretId = "builtin:dry-run";
   const document = storedDocument(secretId);
@@ -143,7 +143,7 @@ test("settings sidecar stays out of state and ledger, then activates stored auth
 test("missing stored auth fails activation as credential_unresolved", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-missing-stored-"
+    "1667-missing-stored-"
   );
   const secretId = "builtin:dry-run";
   const first = new SettingsStore(dataDir, {
@@ -172,7 +172,7 @@ test("missing stored auth fails activation as credential_unresolved", async (t) 
 test("pending replacement retains the active revision secret until activation", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-pending-secret-union-"
+    "1667-pending-secret-union-"
   );
   const secretId = "builtin:dry-run";
   const stored = storedDocument(secretId);
@@ -230,7 +230,7 @@ test("pending replacement retains the active revision secret until activation", 
 test("a failed document stage does not replace the active stored secret", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-provider-secret-stage-failure-"
+    "1667-provider-secret-stage-failure-"
   );
   const secretId = "builtin:dry-run";
   const document = storedDocument(secretId);
@@ -271,7 +271,7 @@ test("a failed document stage does not replace the active stored secret", async 
 test("discarding a candidate prunes its newly stored connection secret", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
-    "storytavern-provider-secret-discard-"
+    "1667-provider-secret-discard-"
   );
   const secretId = "candidate:connection";
   const document = candidateStoredConnectionDocument(secretId);
@@ -299,7 +299,7 @@ test("discarding a candidate prunes its newly stored connection secret", async (
 });
 
 function storedDocument(secretId: string): SettingsDocumentV2 {
-  const base = credentialedDocument("STORYTAVERN_REPLACED_ENV_KEY");
+  const base = credentialedDocument("AI_1667_REPLACED_ENV_KEY");
   const connection = base.connections["builtin:dry-run"]!;
   return {
     ...base,
@@ -314,7 +314,7 @@ function storedDocument(secretId: string): SettingsDocumentV2 {
 }
 
 function candidateStoredConnectionDocument(secretId: string): SettingsDocumentV2 {
-  const base = credentialedDocument("STORYTAVERN_REPLACED_ENV_KEY");
+  const base = credentialedDocument("AI_1667_REPLACED_ENV_KEY");
   const model = base.models["builtin:dry-run"]!;
   const connection = base.connections["builtin:dry-run"]!;
   return {
