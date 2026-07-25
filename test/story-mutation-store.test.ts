@@ -416,6 +416,51 @@ test("Q provider work releases story admission and commits onto the current stor
   );
 });
 
+test("Q provider snapshot hydration survives concurrent deletion cleanup", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-snapshot-pin-");
+  let story = await fixture.stories.createNode(
+    STORY_ID,
+    null,
+    "Inactive source text",
+    "Old line"
+  );
+  const inactiveId = story.activeRootId!;
+  story = await fixture.stories.createNode(
+    STORY_ID,
+    null,
+    "Current source text",
+    "Current line"
+  );
+  assert.notEqual(story.activeRootId, inactiveId);
+  const admitted = await fixture.stories.loadVersioned(STORY_ID);
+  let hydratedText = "";
+
+  await fixture.mutations.runProvider(
+    requestFor(MUTATION_ID, FINGERPRINT, admitted.aggregateVersion!),
+    "continueStory",
+    async (stories) => {
+      const snapshot = await stories.loadForMutation(STORY_ID);
+      await fixture.stories.deleteNode(STORY_ID, inactiveId, 1);
+      await fixture.stories.waitForMaintenance();
+      await stories.hydratePath(snapshot, inactiveId);
+      hydratedText = snapshot.nodes.find(
+        (node) => node.id === inactiveId
+      )?.text ?? "";
+      return hydratedText;
+    },
+    () => ""
+  );
+
+  assert.equal(hydratedText, "Inactive source text");
+  assert.equal(
+    (await fixture.stories.loadVersioned(STORY_ID)).story.nodes.some(
+      (node) => node.id === inactiveId
+    ),
+    false
+  );
+  await fixture.stories.waitForMaintenance();
+});
+
 test("Q terminal publication waits out a short competing story claim", async (t) => {
   const fixture = await setup(t, "1667-q-provider-terminal-claim-");
   let releaseClaim!: () => void;

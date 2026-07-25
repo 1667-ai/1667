@@ -105,57 +105,61 @@ export class StoryProviderMutationStore {
     }
 
     const { request, storyId } = admitted;
-    const { story } = admitted.opened;
-    const runtime = new ScopedProviderStoryRuntime(story);
-    let started: StartedMutationRecord | null = null;
-    let startedPromise: Promise<StartedMutationRecord> | null = null;
-    const startProvider = async (): Promise<void> => {
-      startedPromise ??= this.coordinator.runStoryPhase(
-        request,
-        async () => await this.publishStarted(storyId, request, method)
-      );
-      started = await startedPromise;
-    };
-
-    let value: Value;
+    const { story, releaseSnapshot } = admitted.opened;
     try {
-      value = await work(runtime, startProvider);
-    } catch (error) {
-      await this.recordFailure(storyId, request, method, started, error);
-      throw error;
-    }
-    if (started === null && runtime.didSave) await startProvider();
-    if (started === null) {
-      return await this.coordinator.runStoryPhase(request, async () =>
-        await this.stories.withAggregateSession(storyId, async (session) => ({
-          story: await session.loadLive(),
-          result: storyResult(session.snapshot.manifest),
-          value
-        }))
-      );
-    }
-    if (!runtime.didSave || runtime.effect === null) {
-      throw providerOutcomeUnknown(request.mutationId);
-    }
-
-    try {
-      const committed = await runTerminalStoryPhase(
-        this.coordinator,
-        request,
-        async () => await this.commitTerminal(
-          storyId,
+      const runtime = new ScopedProviderStoryRuntime(story);
+      let started: StartedMutationRecord | null = null;
+      let startedPromise: Promise<StartedMutationRecord> | null = null;
+      const startProvider = async (): Promise<void> => {
+        startedPromise ??= this.coordinator.runStoryPhase(
           request,
-          method,
-          started!,
-          runtime
-        )
-      );
-      return { ...committed, value };
-    } catch (error) {
-      if (error instanceof ServiceError && error.code === "resource_busy") {
+          async () => await this.publishStarted(storyId, request, method)
+        );
+        started = await startedPromise;
+      };
+
+      let value: Value;
+      try {
+        value = await work(runtime, startProvider);
+      } catch (error) {
+        await this.recordFailure(storyId, request, method, started, error);
+        throw error;
+      }
+      if (started === null && runtime.didSave) await startProvider();
+      if (started === null) {
+        return await this.coordinator.runStoryPhase(request, async () =>
+          await this.stories.withAggregateSession(storyId, async (session) => ({
+            story: await session.loadLive(),
+            result: storyResult(session.snapshot.manifest),
+            value
+          }))
+        );
+      }
+      if (!runtime.didSave || runtime.effect === null) {
         throw providerOutcomeUnknown(request.mutationId);
       }
-      throw error;
+
+      try {
+        const committed = await runTerminalStoryPhase(
+          this.coordinator,
+          request,
+          async () => await this.commitTerminal(
+            storyId,
+            request,
+            method,
+            started!,
+            runtime
+          )
+        );
+        return { ...committed, value };
+      } catch (error) {
+        if (error instanceof ServiceError && error.code === "resource_busy") {
+          throw providerOutcomeUnknown(request.mutationId);
+        }
+        throw error;
+      }
+    } finally {
+      releaseSnapshot();
     }
   }
 
@@ -168,7 +172,11 @@ export class StoryProviderMutationStore {
     replayValue: () => Value
   ): Promise<
     | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }
-    | { kind: "open"; story: Story }
+    | {
+        kind: "open";
+        story: Story;
+        releaseSnapshot: () => void;
+      }
   > {
     return await this.stories.withAggregateSession(storyId, async (session) => {
       await this.recovery.finalizeAggregateTransaction(session, request.mutationId);
@@ -199,7 +207,12 @@ export class StoryProviderMutationStore {
         session.snapshot,
         request.expectedAggregateVersion
       );
-      return { kind: "open", story: await session.loadLive() };
+      const story = await session.loadLive();
+      return {
+        kind: "open",
+        story,
+        releaseSnapshot: this.stories.pinProviderSnapshot(session)
+      };
     });
   }
 

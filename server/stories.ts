@@ -116,6 +116,8 @@ export class StoryStore {
   }
 
   private readonly snapshots = new WeakMap<Story, StoryRevisionSnapshot>();
+  private readonly providerSnapshotPins =
+    new Map<string, Map<ObjectHash, number>>();
   /** One writer at a time per story. Read-modify-write is otherwise not atomic:
    *  a Stop and the stream's own commit can both load an unstamped story, both
    *  decide to write, and race — duplicating a node or losing the other's text.
@@ -170,6 +172,40 @@ export class StoryStore {
    * tests and orderly shutdowns may use this to observe a settled filesystem. */
   async waitForMaintenance(): Promise<void> {
     await this.cleanupQueue.waitForIdle();
+  }
+
+  /** Keep an admitted provider snapshot's immutable objects readable while
+   * provider preparation runs outside the story claim. Cleanup retains the
+   * union of live and pinned revisions until the returned lease is released. */
+  pinProviderSnapshot(
+    session: StoryAggregateSession
+  ): () => void {
+    const manifest = session.snapshot.manifest;
+    if (manifest.kind !== "live") {
+      throw new Error("Cannot pin a deleted provider snapshot");
+    }
+    const storyId = session.storyId;
+    const revisionIds = [
+      ...new Set(manifestRevisionIds(manifest.content))
+    ];
+    const pins = this.providerSnapshotPins.get(storyId)
+      ?? new Map<ObjectHash, number>();
+    this.providerSnapshotPins.set(storyId, pins);
+    for (const revisionId of revisionIds) {
+      pins.set(revisionId, (pins.get(revisionId) ?? 0) + 1);
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const revisionId of revisionIds) {
+        const count = pins.get(revisionId);
+        if (count === undefined || count <= 1) pins.delete(revisionId);
+        else pins.set(revisionId, count - 1);
+      }
+      if (pins.size === 0) this.providerSnapshotPins.delete(storyId);
+      this.cleanupQueue.schedule(storyId);
+    };
   }
 
   async list(): Promise<StorySummary[]> {
@@ -586,12 +622,18 @@ export class StoryStore {
             ? []
             : null;
         if (liveRevisionIds === null) return;
+        const pinned = this.providerSnapshotPins.get(id);
+        const protectedRevisionIds = pinned === undefined
+          ? liveRevisionIds
+          : [...new Set([...liveRevisionIds, ...pinned.keys()])];
         const completed = await this.sweep(
           this.bundlePath(id),
-          liveRevisionIds,
+          protectedRevisionIds,
           signal
         );
-        if (completed) await clearCleanupPending(this.bundlePath(id), id);
+        if (completed && !this.providerSnapshotPins.has(id)) {
+          await clearCleanupPending(this.bundlePath(id), id);
+        }
       });
     }, true);
   }
