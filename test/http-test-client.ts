@@ -21,6 +21,31 @@ export const API_PROTOCOL_HEADERS: Record<string, string> = {
 };
 let operationClient: HttpOperationClient | null = null;
 
+export async function waitForTestServer(
+  server: {
+    readonly exitCode: number | null;
+    readonly signalCode: NodeJS.Signals | null;
+  },
+  origin: string,
+  output: () => string
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null || server.signalCode !== null) {
+      throw new Error(`server exited: ${output()}`);
+    }
+    try {
+      const response = await fetch(`${origin}/api/health`);
+      if (response.ok) {
+        await rememberServerInstance(await response.json(), origin);
+        return;
+      }
+    } catch { /* startup */ }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`server did not start within 10 seconds: ${output()}`);
+}
+
 export async function rememberServerInstance(metadata: unknown, origin: string): Promise<void> {
   const serverInstanceId = metadata !== null && typeof metadata === "object"
     ? (metadata as { serverInstanceId?: unknown }).serverInstanceId

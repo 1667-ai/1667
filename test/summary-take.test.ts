@@ -18,7 +18,7 @@ import type { GenerationSettings, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
-  rememberServerInstance
+  waitForTestServer
 } from "./http-test-client.js";
 
 const providerTest = ownedLoopbackHttpSupported() ? test : test.skip;
@@ -282,18 +282,8 @@ async function testApp(t: test.TestContext, settings: GenerationSettings): Promi
   server.stderr?.on("data", (chunk) => { output += String(chunk); });
   t.after(async () => { await stopApp(server); await rm(dataDir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${port}`;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (server.exitCode !== null) throw new Error(`server exited: ${output}`);
-    try {
-      const response = await fetch(`${base}/api/health`);
-      if (response.ok) {
-        await rememberServerInstance(await response.json(), base);
-        return base;
-      }
-    } catch { /* startup */ }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`server did not start: ${output}`);
+  await waitForTestServer(server, base, () => output);
+  return base;
 }
 
 async function availablePort(): Promise<number> {
