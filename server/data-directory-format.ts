@@ -19,6 +19,7 @@ import {
 } from "./settings-file-io.js";
 import {
   inspectTypedPrivatePublicationResidue,
+  removePrivateFile,
   privatePublicationScratchPath,
   publishPrivateFileNoReplace,
   readOptionalPrivateFile,
@@ -29,7 +30,6 @@ import {
   type DataDirectoryFormat,
   DATA_DIRECTORY_OWNER_MARKER,
   DATA_DIRECTORY_OWNER_MARKER_NEXT,
-  DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH,
   LEGACY_PREVIEW_DATA_MARKER,
   LEGACY_PREVIEW_DATA_MARKER_TEXT,
   SETTINGS_STATE_V2_FILE,
@@ -78,6 +78,23 @@ export async function readDataDirectoryFormat(
   dataDir: string,
   options: DataDirectoryFormatReadOptions = {}
 ): Promise<DataDirectoryFormat> {
+  return (await readDataDirectoryFormatSource(dataDir, options)).dataFormat;
+}
+
+/**
+ * Read the declared format and which marker declared it.
+ *
+ * The two facts come from one read because they come from one file. Reading it
+ * twice to compare the answers only detects a writer that ignored the lock,
+ * which ADR007 stopped defending against.
+ */
+export async function readDataDirectoryFormatSource(
+  dataDir: string,
+  options: DataDirectoryFormatReadOptions = {}
+): Promise<{
+  readonly dataFormat: DataDirectoryFormat;
+  readonly source: DataDirectoryFormatSource;
+}> {
   const ownerMarker = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER);
   let ownerBytes: Buffer;
   try {
@@ -92,7 +109,7 @@ export async function readDataDirectoryFormat(
     }
     const dataFormat = await readLegacyPreviewDataFormat(dataDir, error);
     requireSupportedDataDirectoryFormat(dataFormat, options.supportedFormats);
-    return dataFormat;
+    return { dataFormat, source: "legacy-preview" };
   }
 
   if (await pathExists(path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER))) {
@@ -101,8 +118,27 @@ export async function readDataDirectoryFormat(
   const dataFormat = parseDataDirectoryOwnerMarkerBytes(ownerBytes, ownerMarker).dataFormat;
   requireSupportedDataDirectoryFormat(dataFormat, options.supportedFormats);
   if (dataFormat === 2) await validateSettingsStateV2(dataDir);
-  return dataFormat;
+  return { dataFormat, source: "owner-marker" };
 }
+
+/**
+ * A crash between staging and publication leaves the `.next` name behind. It
+ * carries no state, so recognizing and removing it is the whole recovery.
+ */
+export async function discardOwnerMarkerNextResidue(dataDir: string): Promise<void> {
+  const nextPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT);
+  await inspectTypedPrivatePublicationResidue(
+    nextPath,
+    ([1, 2] as const).map((dataFormat) =>
+      Buffer.from(dataDirectoryOwnerMarkerText(dataFormat), "utf8")),
+    OWNER_MARKER_POLICY,
+    (detail, cause) => invalidMarkerError(nextPath, detail, cause)
+  );
+  await removePrivateFile(nextPath, OWNER_MARKER_POLICY);
+}
+
+/** Which marker a directory's format came from. Legacy-preview stays on v1. */
+export type DataDirectoryFormatSource = "owner-marker" | "legacy-preview";
 
 export async function hasDataDirectoryFormatMarker(dataDir: string): Promise<boolean> {
   try {
@@ -124,25 +160,7 @@ export async function writeInitialDataDirectoryFormat(
     await requireInitialSettingsPathsAbsent(dataDir);
   }
 
-  await resumeInitialOwnerMarker(dataDir, dataFormat);
-}
-
-/**
- * Read-only validation for an interrupted initialization. Only residue emitted
- * by the exact current initializer is resumable; arbitrary valid settings are
- * not enough because no owner marker committed them to this data directory.
- */
-export async function validateInitialDataDirectoryFormatResidue(
-  dataDir: string,
-  dataFormat: DataDirectoryFormat
-): Promise<void> {
-  await requirePathAbsent(path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER));
-  await inspectInitialOwnerMarker(dataDir, dataFormat);
-  if (dataFormat === 1) {
-    await requireInitialSettingsPathsAbsent(dataDir);
-    return;
-  }
-  await inspectInitialSettingsStateV2(dataDir);
+  await publishDataDirectoryOwnerMarker(dataDir, dataFormat);
 }
 
 export function parseDataDirectoryOwnerMarkerBytes(
@@ -216,7 +234,12 @@ async function validateSettingsStateV2(dataDir: string): Promise<void> {
   }
 }
 
-async function resumeInitialOwnerMarker(
+/**
+ * Publish only the owner marker, resuming an interrupted attempt. Adoption uses
+ * this to carry a legacy directory's format across without letting the
+ * initializer touch the settings state it just moved.
+ */
+export async function publishDataDirectoryOwnerMarker(
   dataDir: string,
   dataFormat: DataDirectoryFormat
 ): Promise<void> {
@@ -234,20 +257,6 @@ async function resumeInitialOwnerMarker(
   // The complete private `.next` is non-authoritative until this rename and
   // directory barrier. A crash before either point remains resumable.
   await publishSettingsFile(nextPath, markerPath);
-}
-
-async function inspectInitialOwnerMarker(
-  dataDir: string,
-  dataFormat: DataDirectoryFormat
-): Promise<void> {
-  const expected = Buffer.from(dataDirectoryOwnerMarkerText(dataFormat), "utf8");
-  await inspectTypedPublicationResidue(
-    path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT),
-    path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH),
-    expected,
-    MAX_DATA_DIRECTORY_OWNER_MARKER_BYTES,
-    "owner-marker"
-  );
 }
 
 async function resumeInitialSettingsStateV2(dataDir: string): Promise<void> {

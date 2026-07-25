@@ -27,8 +27,11 @@ import { SETTINGS_STATE_V2_FILE } from "./data-directory-layout.js";
 import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { startHttpListener, type HttpListener } from "./http-listener.js";
+import { resolveMachineTierRoot } from "./machine-tier.js";
+import { announceProjectServer } from "./project-run-record.js";
 import { StoryService } from "./story-service.js";
-import { resolveDataDirectory } from "./data-directory.js";
+import { createProjectTier, resolveProject } from "./project-discovery.js";
+import { PROJECT_DIRECTORY_NAME } from "./project-layout.js";
 
 interface IpcProcess extends NodeJS.Process {
   send?: (message: ChildToSupervisorMessage) => boolean;
@@ -43,7 +46,21 @@ export async function runSupervisedServeChild(
     throw new Error("Supervised child requires a private IPC channel");
   }
   const configuredDataDir = optionalValueAfter(argv, "--data");
-  const dataDir = resolveDataDirectory(configuredDataDir ?? undefined);
+  // ADR007: `--data` names a project root here exactly as it does for the TUI,
+  // so a served project and an opened project are the same lock.
+  const outcome = await resolveProject({
+    cwd: process.cwd(),
+    ...(configuredDataDir === null ? {} : { data: configuredDataDir })
+  });
+  if (outcome.kind === "absent") {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any `
+        + "parent. Run '1667 init' there first, or pass --data <project-root>."
+    );
+  }
+  const dataDir = outcome.project.exists
+    ? outcome.project.directory
+    : await createProjectTier(outcome.project.directory);
   const port = Number(valueAfter(argv, "--port"));
   const secretFd = Number(valueAfter(argv, "--secret-fd"));
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
@@ -52,11 +69,7 @@ export async function runSupervisedServeChild(
   if (secretFd !== 4) throw new Error("Supervised child secret channel is invalid");
   const messages = new MessageInbox();
   const recovery = await messages.next("recover");
-  const dataLock = new RuntimeDataDirectoryLock(dataDir, {
-    initializeNew: argv.includes("--initialize-new"),
-    offlineExclusive: argv.includes("--offline-exclusive"),
-    offlineGuardHeld: port === 7373
-  });
+  const dataLock = new RuntimeDataDirectoryLock(dataDir);
   let listener: HttpListener | null = null;
   let service: StoryService | null = null;
   let admissionOpen = false;
@@ -85,6 +98,7 @@ export async function runSupervisedServeChild(
         );
         return service = new StoryService({
           dataDir: lockedDataDir,
+          machineDir: await resolveMachineTierRoot(),
           dataLock: "external",
           starterVault: "seed-when-new",
           freshDataDirectory: dataLock.initializedNewDirectory
@@ -127,6 +141,10 @@ export async function runSupervisedServeChild(
       await messages.next("activate");
     }
     admissionOpen = true;
+    await announceProjectServer(displayDataDir, {
+      port: listenerPort(listener.origin),
+      url: listener.origin
+    });
     send({
       type: "ready",
       origin: listener.origin,
@@ -322,4 +340,10 @@ function optionalValueAfter(
 
 function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+/** The listener reports the port it was given; the origin is the only carrier. */
+function listenerPort(origin: string): number {
+  const port = Number(new URL(origin).port);
+  return Number.isSafeInteger(port) && port > 0 ? port : 80;
 }

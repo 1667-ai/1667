@@ -14,6 +14,7 @@ import { SettingsStore } from "./settings.js";
 import { StoryCatalog } from "./story-catalog.js";
 import { StoryCreationMutationStore } from "./story-creation-mutation.js";
 import { StoryMutationStore } from "./story-mutation-store.js";
+import { assertNoProjectTierSecrets } from "./project-secret-fence.js";
 import { buildStoryPayload } from "./story-payload.js";
 import { StoryReaper } from "./story-reaper.js";
 import { StoryServiceChapters } from "./story-service-chapters.js";
@@ -22,6 +23,8 @@ import { StoryServiceLocal } from "./story-service-local.js";
 import { StoryStore } from "./stories.js";
 
 interface StoryServiceCommonOptions {
+  /** ADR007 machine tier holding provider secrets. Absent keeps them in place. */
+  machineDir?: string;
   /** Embedded workers use a lock retained by their main-thread bootstrap. */
   dataLock?: "service" | "external";
   /** Embedded main owns outbox replay before it admits new worker mutations. */
@@ -71,6 +74,7 @@ export abstract class StoryServiceRuntime {
   private readonly legacyData: ValidatedLegacyV1DataDirectory | undefined;
   private readonly starterVault: "seed-when-new" | undefined;
   private readonly externalFreshDataDirectory: boolean;
+  private readonly machineDir: string | undefined;
   private readonly active = new Set<AbortController>();
   private readonly activeOperations = new Set<Promise<unknown>>();
   private readonly generationAdmission = new GenerationAdmissionRegistry();
@@ -95,6 +99,7 @@ export abstract class StoryServiceRuntime {
       throw new Error("freshDataDirectory is only meaningful with an external data lock");
     }
     this.externalFreshDataDirectory = options.freshDataDirectory === true;
+    this.machineDir = options.machineDir;
     this.configureStorage(dataDir, dataDir);
     this.dataLock = options.dataLock === "external"
       ? null
@@ -119,6 +124,9 @@ export abstract class StoryServiceRuntime {
           : await this.dataLock.acquire();
         if (canonicalDir !== undefined) {
           this.configureStorage(this.dataLock!.authorityPath, canonicalDir);
+        }
+        if (this.machineDir !== undefined) {
+          await assertNoProjectTierSecrets(this.dataDir, this.machineDir);
         }
         if (!this.externalMutationRecovery) {
           this.archivedMutationWarnings = await assertNoPendingMutationIntents(
@@ -194,7 +202,8 @@ export abstract class StoryServiceRuntime {
     this.stories = new StoryStore(path.join(storageRoot, "stories"));
     this.settings = new SettingsStore(storageRoot, {
       activationMode: this.settingsActivation,
-      coordinator: this.mutationCoordinator
+      coordinator: this.mutationCoordinator,
+      ...(this.machineDir === undefined ? {} : { secretsDir: this.machineDir })
     });
     this.storyMutations = new StoryMutationStore(
       this.stories,

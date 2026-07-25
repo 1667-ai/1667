@@ -23,6 +23,9 @@ export function parseWorkerBootstrap(
     type: "bootstrap",
     dataDir: requireString(message.dataDir, "dataDir"),
     externalDataLock: true,
+    ...(message.machineDir === undefined
+      ? {}
+      : { machineDir: requireString(message.machineDir, "machineDir") }),
     ...(message.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
   };
 }

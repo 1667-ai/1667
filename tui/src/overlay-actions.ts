@@ -1,5 +1,3 @@
-import { access, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import {
   commandContext,
   commandMatches,
@@ -8,6 +6,7 @@ import {
   type PaletteCommand
 } from "./command-model.js";
 import { connectionFailed, connectionSucceeded } from "./connection.js";
+import { writeStoryExport } from "./export-file.js";
 import { boundedFactCursor, boundedFactSelection, factRows, factTags } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { openFactEditor } from "./editor-action.js";
@@ -244,10 +243,12 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     await context.backend.run("exporting story", async (task) => {
       const markdown = await source.api.exportMarkdown(task.storyId);
       if (!task.owns()) return;
-      const path = await availablePath(safeFilename(title));
-      if (!task.owns()) return;
-      await writeFile(path, markdown, { encoding: "utf8", flag: "wx" });
-      if (task.interactionCurrent()) state.toast = `exported ${path}`;
+      const file = await writeStoryExport({
+        directory: source.exportDirectory,
+        title,
+        markdown
+      });
+      if (task.interactionCurrent()) state.toast = `exported ${file}`;
     });
   } else if (command.id === "summary") await startSummary(state, source, context);
   else if (command.id === "chapters") openChapters(state);
@@ -359,23 +360,3 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
   });
 }
 
-function safeFilename(title: string): string {
-  let name = title.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim() || "story";
-  // Stay well under the 255-byte filesystem component limit, leaving room
-  // for the "-<n>.md" collision suffix.
-  const encoder = new TextEncoder();
-  while (encoder.encode(name).length > 120) name = [...name].slice(0, -1).join("").trimEnd();
-  return name || "story";
-}
-
-/** Never clobber an existing export: story.md, story-2.md, story-3.md, … */
-async function availablePath(base: string): Promise<string> {
-  for (let attempt = 1; ; attempt += 1) {
-    const candidate = resolve(process.cwd(), attempt === 1 ? `${base}.md` : `${base}-${attempt}.md`);
-    try {
-      await access(candidate);
-    } catch {
-      return candidate;
-    }
-  }
-}

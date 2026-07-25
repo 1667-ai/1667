@@ -19,19 +19,34 @@ import { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 import { runProcessUpgrade } from "./upgrade-cli.js";
 import { createBackgroundUpdateStarter } from "./update-runtime.js";
 import { attachHttpServer } from "./http-attach.js";
+import { runStoryExport } from "./export-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
+import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
+import { adoptDataDirectory } from "../../server/project-adoption.js";
 import {
-  classifyDataDirectoryAdmission
-} from "../../server/data-directory-admission.js";
+  createProjectTier,
+  initializeProject,
+  PROJECT_DIRECTORY_NAME,
+  resolveProject,
+  type ProjectOutcome,
+  type ProjectRequest,
+  type ResolvedProject
+} from "../../server/project-discovery.js";
+import {
+  readProjectRunRecord
+} from "../../server/project-run-record.js";
+import {
+  canPromptForProject,
+  confirmProjectCreation
+} from "./project-prompt.js";
 
 interface Arguments {
   url: string | null;
   authFile: string | null;
   dataDir: string | null;
-  initializeNew: boolean;
-  offlineExclusive: boolean;
+  global: boolean;
   diagnostic: boolean;
   embedded: boolean;
   storyId: string | null;
@@ -45,22 +60,25 @@ interface Arguments {
 
 const HELP = `1667 — a full-screen 1667 client
 
+Stories live in .1667/ beside your writing, found by walking up from the
+current directory the way git finds .git.
+
 Usage: 1667 [options]
+       1667 init [--adopt [--from <legacy-data-dir>]]
+       1667 export [--story <id>] [--force]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
-       1667 serve [--data <absolute-path>] [--port <0-65535>]
-                  [--initialize-new --offline-exclusive]
-       1667 serve --legacy-v1 --offline-exclusive --data <path>
+       1667 serve [--data <path>] [--port <0-65535>]
+       1667 serve --legacy-v1 --data <path>
        1667 upgrade [options]
 
 Options:
   --story <id>       Open a story; defaults to the most recently updated
-  --url <base-url>   Connect to a loopback 1667 HTTP server
+  --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
   --auth-file <path> Use the canonical private auth record for --url
   --embedded         Use the embedded backend (default)
-  --data <path>      Data directory override (packaged builds require absolute)
-  --initialize-new   Authorize publication of an absent data target
-  --offline-exclusive Assert every lock-unaware writer is stopped
-  --diagnostic       Print read-only startup/data eligibility JSON
+  --data <path>      Open this project root instead of discovering one
+  --global           Open the machine-wide project instead of a folder
+  --diagnostic       Print read-only startup/project resolution JSON
   --demo             Use the in-memory lantern keeper fixture
   --render-once      Print one deterministic frame and exit
   --size <WxH>       Render-once dimensions (default: 120x36)
@@ -75,13 +93,22 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await runProcessUpgrade(argv.slice(1));
     return;
   }
+  if (argv[0] === "init") {
+    await runProjectInit(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "export") {
+    await runStoryExport(argv.slice(1));
+    return;
+  }
   const parsed = parseArguments(argv);
   if (parsed === null) return;
   if (parsed.diagnostic) {
-    await printStartupDiagnostic(parsed.dataDir);
+    await printStartupDiagnostic(parsed);
     return;
   }
   const loaded = await loadSource(parsed);
+  if (loaded === null) return;
   try {
     if (parsed.renderOnce) {
       process.stdout.write(`${await renderOnce(loaded.source, parsed.width, parsed.height, parsed.keys)}\n`);
@@ -100,8 +127,7 @@ export function parseArguments(argv: string[]): Arguments | null {
   let explicitEmbedded = false;
   let explicitUrl = false;
   let explicitData = false;
-  let initializeNew = false;
-  let offlineExclusive = false;
+  let global = false;
   let diagnostic = false;
   let storyId: string | null = null;
   let demo = false;
@@ -130,6 +156,11 @@ export function parseArguments(argv: string[]): Arguments | null {
       url = requiredInlineValue(arg, "--url");
       explicitUrl = true;
     }
+    else if (arg === "--url" && isBareFlag(argv, index)) {
+      // ADR007: a bare --url attaches to the server this project published.
+      url = null;
+      explicitUrl = true;
+    }
     else if (arg.startsWith("--data=")) {
       dataDir = requiredInlineValue(arg, "--data");
       explicitData = true;
@@ -143,8 +174,7 @@ export function parseArguments(argv: string[]): Arguments | null {
     } else if (arg.startsWith("--keys=")) keys = requiredInlineValue(arg, "--keys");
     else if (arg === "--demo") demo = true;
     else if (arg === "--embedded") explicitEmbedded = true;
-    else if (arg === "--initialize-new") initializeNew = true;
-    else if (arg === "--offline-exclusive") offlineExclusive = true;
+    else if (arg === "--global") global = true;
     else if (arg === "--diagnostic") diagnostic = true;
     else if (arg === "--render-once") render = true;
     else if (arg === "--debug-density") dense = true;
@@ -169,17 +199,17 @@ export function parseArguments(argv: string[]): Arguments | null {
   if (explicitEmbedded && explicitUrl) usageError("--embedded and --url cannot be used together");
   const embedded = explicitEmbedded || (!explicitUrl && url === null);
   if (!embedded && url !== null) parseCanonicalLoopbackOrigin(url);
+  if (explicitUrl && url === null && authFile !== null) {
+    usageError("--auth-file needs the --url it belongs to");
+  }
   if (explicitData && !embedded) {
     usageError("--data requires embedded mode; unset AI_1667_URL or pass --embedded");
   }
   if (authFile !== null && embedded) usageError("--auth-file requires --url");
   if (explicitData && demo) usageError("--data cannot be used with --demo");
-  if (initializeNew !== offlineExclusive) {
-    usageError("--initialize-new and --offline-exclusive must be supplied together");
-  }
-  if (initializeNew && (!embedded || demo)) {
-    usageError("--initialize-new requires the embedded backend");
-  }
+  if (global && explicitData) usageError("--global and --data select different projects");
+  if (global && demo) usageError("--global cannot be used with --demo");
+  if (global && !embedded) usageError("--global requires the embedded backend");
   if (diagnostic && (!embedded || demo)) {
     usageError("--diagnostic requires the embedded backend");
   }
@@ -187,8 +217,7 @@ export function parseArguments(argv: string[]): Arguments | null {
     url,
     authFile,
     dataDir,
-    initializeNew,
-    offlineExclusive,
+    global,
     diagnostic,
     embedded,
     storyId,
@@ -201,35 +230,33 @@ export function parseArguments(argv: string[]): Arguments | null {
   };
 }
 
-async function printStartupDiagnostic(
-  configured: string | null
-): Promise<void> {
-  const hardened = AI_1667_BUILD_IDENTITY.artifactTarget !== "source";
-  let dataDir = configured ?? "<platform-default>";
+/** Read-only startup report. Discovery never writes, so an absent project is
+ * an ordinary answer here rather than a prompt or a refusal. */
+async function printStartupDiagnostic(args: Arguments): Promise<void> {
+  const base = {
+    schema: 2,
+    buildIdentity: AI_1667_BUILD_IDENTITY,
+    backend: "embedded",
+    packaged: AI_1667_BUILD_IDENTITY.artifactTarget !== "source"
+  };
   try {
-    dataDir = resolveEmbeddedDataDirectory(configured);
-    const admission = hardened
-      ? await classifyDataDirectoryAdmission(dataDir)
-      : { kind: "source-preview" as const };
+    const outcome = await resolveProject(projectRequest(args));
     process.stdout.write(`${JSON.stringify({
-      schema: 1,
-      buildIdentity: AI_1667_BUILD_IDENTITY,
-      backend: "embedded",
-      hardened,
-      dataDirectory: {
-        path: dataDir,
-        admission: admission.kind
-      }
+      ...base,
+      project: outcome.kind === "absent"
+        ? { source: "absent", cwd: outcome.cwd }
+        : {
+            source: outcome.project.source,
+            root: outcome.project.root,
+            directory: outcome.project.directory,
+            exists: outcome.project.exists
+          }
     })}\n`);
   } catch (error) {
     process.stdout.write(`${JSON.stringify({
-      schema: 1,
-      buildIdentity: AI_1667_BUILD_IDENTITY,
-      backend: "embedded",
-      hardened,
-      dataDirectory: {
-        path: dataDir,
-        admission: "refused",
+      ...base,
+      project: {
+        source: "refused",
         error: {
           code: serviceErrorCode(error),
           message: error instanceof Error ? error.message : String(error)
@@ -238,6 +265,122 @@ async function printStartupDiagnostic(
     })}\n`);
     process.exitCode = 1;
   }
+}
+
+async function runProjectInit(argv: readonly string[]): Promise<void> {
+  let adopt = false;
+  let from: string | null = null;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (argument === "--adopt") adopt = true;
+    else if (argument.startsWith("--from=")) from = requiredInlineValue(argument, "--from");
+    else if (argument === "--from") {
+      from = requiredSeparatedValue(argv, index, "--from");
+      index += 1;
+    } else usageError(`unknown init option: ${argument}`);
+  }
+  if (from !== null && !adopt) usageError("--from requires --adopt");
+  if (!adopt) {
+    const project = await initializeProject(process.cwd());
+    process.stdout.write(`1667 story project: ${project.directory}\n`);
+    return;
+  }
+  const adoption = await adoptDataDirectory({
+    source: from ?? resolvePlatformDataDirectory({ packaged: true }),
+    projectRoot: process.cwd(),
+    machineDir: await resolveMachineTierRoot()
+  });
+  process.stdout.write(`1667 story project: ${adoption.project.directory}\n`);
+  process.stdout.write(
+    `adopted ${adoption.movedEntries.length} entries from ${adoption.source}\n`
+  );
+  if (adoption.relocatedSecretIds.length > 0) {
+    process.stdout.write(
+      `moved ${adoption.relocatedSecretIds.length} provider secret(s) `
+        + "into the machine tier\n"
+    );
+  }
+}
+
+function projectRequest(args: Arguments): ProjectRequest {
+  return {
+    cwd: process.cwd(),
+    ...(args.dataDir === null ? {} : { data: args.dataDir }),
+    ...(args.global ? { global: true } : {})
+  };
+}
+
+/**
+ * Resolve where to attach. A bare `--url` reads the advisory run record this
+ * project's server published; the record may be stale, so a refused connection
+ * is reported as such rather than treated as a broken project.
+ */
+async function attachOrigin(args: Arguments): Promise<string> {
+  if (args.url !== null) return args.url;
+  const project = requireExistingProject(
+    await resolveProject(projectRequest(args)),
+    "attach to"
+  );
+  const record = await readProjectRunRecord(project.directory);
+  if (record?.url == null) {
+    throw new Error(
+      `no 1667 server is recorded for ${project.directory}. `
+        + "Start one with 1667 serve, or pass --url <base-url>."
+    );
+  }
+  return record.url;
+}
+
+/**
+ * Open the project this invocation names, asking once when none exists.
+ * Returns null when the person declines, which is not an error.
+ */
+async function openProject(args: Arguments): Promise<ResolvedProject | null> {
+  const outcome = await resolveProject(projectRequest(args));
+  if (outcome.kind === "project") {
+    // An explicitly named project — `--data` or `--global` — is explicit intent
+    // to have one, so it is created. Discovery only ever finds existing ones.
+    if (!outcome.project.exists) {
+      await createProjectTier(outcome.project.directory);
+      return { ...outcome.project, exists: true };
+    }
+    return outcome.project;
+  }
+  const streams = { input: process.stdin, output: process.stdout };
+  if (!canPromptForProject(streams)) {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent. `
+        + "Run '1667 init', or use --global."
+    );
+  }
+  if (!await confirmProjectCreation(outcome.cwd, streams)) {
+    process.stdout.write(
+      "1667: no story project created. Run '1667 init' here, "
+        + "or '1667 --global' for one shared library.\n"
+    );
+    return null;
+  }
+  return await initializeProject(outcome.cwd);
+}
+
+/** Attaching and exporting read an existing project; neither invents one. */
+function requireExistingProject(
+  outcome: ProjectOutcome,
+  action: string
+): ResolvedProject {
+  if (outcome.kind === "absent") {
+    throw new Error(
+      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any `
+        + `parent, so there is nothing to ${action}. Run '1667 init' first.`
+    );
+  }
+  if (!outcome.project.exists) {
+    throw new Error(
+      `${outcome.project.directory} is not a 1667 story project yet, so there `
+        + `is nothing to ${action}. Run '1667 init' there first.`
+    );
+  }
+  return outcome.project;
 }
 
 function serviceErrorCode(error: unknown): string {
@@ -253,6 +396,13 @@ function requiredInlineValue(argument: string, flag: string): string {
   const value = argument.slice(flag.length + 1);
   if (value.length === 0) usageError(`${flag} requires a value`);
   return value;
+}
+
+/** A flag is bare when nothing follows it but the end of the line or another
+ * option. An empty value is a mistake, and keeps its own error. */
+function isBareFlag(argv: readonly string[], index: number): boolean {
+  const value = argv[index + 1];
+  return value === undefined || value.startsWith("-");
 }
 
 function requiredSeparatedValue(
@@ -281,21 +431,24 @@ interface LoadedSource {
   dispose(): Promise<void>;
 }
 
-async function loadSource(args: Arguments): Promise<LoadedSource> {
+async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   if (args.demo) return { source: demoAppSource(args.dense), dispose: async () => {} };
-  const dataDir = args.embedded
-    ? resolveEmbeddedDataDirectory(args.dataDir)
-    : null;
+  let dataDir: string | null = null;
+  // ADR007 §4: exports land in the project root, beside the writing. A client
+  // attached to a server has no project of its own and writes where it started.
+  let exportDirectory = process.cwd();
+  if (args.embedded) {
+    const project = await openProject(args);
+    if (project === null) return null;
+    dataDir = project.directory;
+    exportDirectory = project.root;
+  }
   const storyFolder = dataDir === null
     ? ""
     : storyFolderForBackend(true, dataDir);
-  const worker = dataDir === null ? null : await createWorkerStoryApi({
-    dataDir,
-    initializeNew: args.initializeNew,
-    offlineExclusive: args.offlineExclusive
-  });
+  const worker = dataDir === null ? null : await createWorkerStoryApi({ dataDir });
   const httpAttach = worker === null
-    ? await attachHttpServer(args.url ?? "http://127.0.0.1:7373", args.authFile)
+    ? await attachHttpServer(await attachOrigin(args), args.authFile)
     : null;
   const backendRecovery = new RecoveryWarningFeed();
   if (worker !== null) {
@@ -338,7 +491,8 @@ async function loadSource(args: Arguments): Promise<LoadedSource> {
     const startUpdateCheck = createBackgroundUpdateStarter(config);
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,
-      storyFolder, connection, ...(worker === null ? {} : { backendFailure: worker.failure }),
+      storyFolder, exportDirectory, connection,
+      ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
       config };

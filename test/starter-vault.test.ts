@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,12 +11,11 @@ import {
 import { StoryService } from "../server/story-service.js";
 
 async function withService<T>(
-  options: { existingDirectory?: boolean; seed?: boolean },
+  options: { seed?: boolean },
   work: (service: StoryService) => Promise<T>
 ): Promise<T> {
   const root = await mkdtemp(path.join(tmpdir(), "starter-vault-"));
   const dataDir = path.join(root, "data");
-  if (options.existingDirectory === true) await mkdir(dataDir, { mode: 0o700 });
   const service = new StoryService({
     dataDir,
     ...(options.seed === false ? {} : { starterVault: "seed-when-new" as const })
@@ -133,11 +132,32 @@ test("initializing twice does not replay the vault", async () => {
 });
 
 test("an emptied library is never refilled", async () => {
-  // Deleting the starter stories has to stick. Seeding keys off directory
-  // creation, so a directory that already existed stays exactly as found.
-  await withService({ existingDirectory: true }, async (service) => {
-    assert.deepEqual(await service.listStories(), []);
-  });
+  // Deleting the starter stories has to stick. Freshness keys off the format
+  // marker, which an emptied library still carries, so only a directory holding
+  // no 1667 data at all is ever seeded.
+  const root = await mkdtemp(path.join(tmpdir(), "starter-vault-emptied-"));
+  const dataDir = path.join(root, "data");
+  try {
+    const first = new StoryService({ dataDir, starterVault: "seed-when-new" });
+    await first.init();
+    try {
+      const seeded = await first.listStories();
+      assert.equal(seeded.length, STARTER_STORIES.length);
+      for (const story of seeded) await first.deleteStory(story.id);
+    } finally {
+      await first.dispose();
+    }
+
+    const reopened = new StoryService({ dataDir, starterVault: "seed-when-new" });
+    await reopened.init();
+    try {
+      assert.deepEqual(await reopened.listStories(), []);
+    } finally {
+      await reopened.dispose();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("maintenance entry points leave a fresh directory empty", async () => {

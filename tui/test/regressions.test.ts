@@ -548,7 +548,6 @@ describe("review regressions", () => {
     expect(parseArguments(["--embedded"])?.embedded).toBeTrue();
     expect(parseArguments(["--embedded", "--data=stories-v2"])?.dataDir).toBe("stories-v2");
     for (const option of [
-      "--url",
       "--data",
       "--auth-file",
       "--story",
@@ -559,6 +558,14 @@ describe("review regressions", () => {
       expect(() => parseArguments([option, "--diagnostic"]))
         .toThrow("requires a non-option value");
     }
+    // ADR007 made --url optional-valued: bare means "the server this project
+    // published". An empty value is still a mistake.
+    expect(parseArguments(["--url"])).toMatchObject({ url: null, embedded: false });
+    expect(parseArguments(["--url", "--story", "abc"]))
+      .toMatchObject({ url: null, embedded: false, storyId: "abc" });
+    expect(() => parseArguments(["--url", ""])).toThrow("requires a non-option value");
+    expect(() => parseArguments(["--url", "--auth-file", "/tmp/auth.json"]))
+      .toThrow("--auth-file needs the --url it belongs to");
     expect(parseArguments([])?.embedded).toBeTrue();
     expect(parseArguments(["--url=http://127.0.0.1:9999"])?.embedded).toBeFalse();
     expect(() => parseArguments(["--url=http://localhost:9999"]))
@@ -568,21 +575,16 @@ describe("review regressions", () => {
     expect(parseArguments(["--data", "stories-v2"])?.embedded).toBeTrue();
     expect(() => parseArguments(["--demo", "--embedded", "--data", "stories-v2"]))
       .toThrow("--data cannot be used with --demo");
-    expect(parseArguments([
-      "--initialize-new",
-      "--offline-exclusive"
-    ])).toMatchObject({
+    expect(parseArguments(["--global"])).toMatchObject({
       embedded: true,
-      initializeNew: true,
-      offlineExclusive: true
+      global: true
     });
-    expect(() => parseArguments(["--initialize-new"]))
-      .toThrow("must be supplied together");
-    expect(() => parseArguments([
-      "--url=http://127.0.0.1:9999",
-      "--initialize-new",
-      "--offline-exclusive"
-    ])).toThrow("--initialize-new requires the embedded backend");
+    expect(() => parseArguments(["--global", "--data", "book"]))
+      .toThrow("--global and --data select different projects");
+    expect(() => parseArguments(["--global", "--demo"]))
+      .toThrow("--global cannot be used with --demo");
+    expect(() => parseArguments(["--url=http://127.0.0.1:9999", "--global"]))
+      .toThrow("--global requires the embedded backend");
     expect(parseArguments(["--diagnostic"])?.diagnostic).toBeTrue();
     expect(() => parseArguments([
       "--url=http://127.0.0.1:9999",

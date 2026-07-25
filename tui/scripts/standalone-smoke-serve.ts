@@ -5,6 +5,8 @@ import { HttpOperationClient } from "../../shared/http-operation-client.js";
 import {
   HTTP_OPERATION_CANCEL_GRACE_MS
 } from "../../shared/http-operation-protocol.js";
+import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
+import { readProjectRunRecord } from "../../server/project-run-record.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 
 interface SupervisedServeAccess {
@@ -27,7 +29,7 @@ export async function smokeSupervisedServe(
     environment
   );
   if (help.exitCode !== 0
-    || !help.stdout.includes("1667 serve [--data <absolute-path>]")
+    || !help.stdout.includes("1667 serve [--data <path>]")
     || help.stderr !== "") {
     throw new Error("Packaged serve help is unavailable or noisy");
   }
@@ -69,36 +71,12 @@ export async function smokeSupervisedServe(
     }
     return;
   }
-  const relativeData = "relative-serve-data";
-  const relativeRefusal = await runStandalone(
-    executable,
-    [
-      "serve",
-      "--data",
-      relativeData,
-      "--initialize-new",
-      "--offline-exclusive",
-      "--port",
-      "0"
-    ],
-    directory,
-    environment
-  );
-  if (relativeRefusal.exitCode !== 1
-    || !/absolute/.test(relativeRefusal.stderr)
-    || relativeRefusal.stderr.includes("\n    at ")) {
-    throw new Error("Relative supervised data did not fail cleanly");
-  }
-  await assertMissing(path.join(directory, relativeData));
-
   const child = Bun.spawn(
     [
       executable,
       "serve",
       "--data",
       dataDir,
-      "--initialize-new",
-      "--offline-exclusive",
       "--port",
       "0"
     ],
@@ -161,7 +139,7 @@ export async function smokeSupervisedServe(
     dataDir
   );
   await smokeAlternateDataGuidance(executable, directory, environment);
-  await smokeDefaultPortInitialization(executable, directory, environment);
+  await smokeDefaultPortServe(executable, directory, environment);
 }
 
 async function smokeSettledDeadline(
@@ -202,11 +180,9 @@ async function smokeLockGuidance(
     environment
   );
   if (contention.exitCode !== 1
-    || !contention.stderr.includes("1667 --url <owning-server-url>")
-    || contention.stderr.includes("1667 --url http://127.0.0.1:7373")
-    || !contention.stderr.includes(
-      "1667 --data <absolute-absent-path> --initialize-new --offline-exclusive"
-    )) {
+    || !contention.stderr.includes("already open by")
+    || !contention.stderr.includes("1667 --url")
+    || !contention.stderr.includes("1667 --data <project-root>")) {
     throw new Error("Packaged lock contention guidance was not actionable");
   }
   const attached = await runStandalone(
@@ -231,8 +207,6 @@ async function smokeAlternateDataGuidance(
     [
       "--data",
       alternative,
-      "--initialize-new",
-      "--offline-exclusive",
       "--render-once",
       "--size",
       "20x10"
@@ -245,7 +219,7 @@ async function smokeAlternateDataGuidance(
   }
 }
 
-async function smokeDefaultPortInitialization(
+async function smokeDefaultPortServe(
   executable: string,
   directory: string,
   environment: Record<string, string>
@@ -256,9 +230,7 @@ async function smokeDefaultPortInitialization(
       executable,
       "serve",
       "--data",
-      dataDir,
-      "--initialize-new",
-      "--offline-exclusive"
+      dataDir
     ],
     {
       cwd: directory,
@@ -268,9 +240,18 @@ async function smokeDefaultPortInitialization(
     }
   );
   try {
+    // ADR007: the default is a free port, published in the project's run record.
     const origin = await readServeOrigin(supervisor.stdout);
-    if (origin !== "http://127.0.0.1:7373") {
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) {
       throw new Error(`Default serve selected the wrong origin: ${origin}`);
+    }
+    const record = await readProjectRunRecord(
+      path.join(dataDir, PROJECT_DIRECTORY_NAME)
+    );
+    if (record?.url !== origin || record.port !== Number(new URL(origin).port)) {
+      throw new Error(
+        `Serve did not publish its origin in run.json: ${JSON.stringify(record)}`
+      );
     }
   } finally {
     supervisor.kill("SIGTERM");

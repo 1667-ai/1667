@@ -1,11 +1,20 @@
 import { ServiceError } from "./errors.js";
 
-export function lockedDataDirectoryError(): ServiceError {
+/**
+ * ADR007: the kernel lock is the only authority on whether a project is open,
+ * so contention names the holder when a run record says who it is and never
+ * offers to break the lock.
+ */
+export function lockedDataDirectoryError(
+  holder: { readonly pid: number } | null
+): ServiceError {
+  const held = holder === null
+    ? "another 1667 process"
+    : `1667 process ${holder.pid}`;
   return new ServiceError(
     409,
-    "1667 data is already open by another backend. Stop it and retry; connect with "
-      + "1667 --url <owning-server-url> using that backend's printed URL; "
-      + "or initialize another absent target with "
-      + "1667 --data <absolute-absent-path> --initialize-new --offline-exclusive."
+    `This 1667 project is already open by ${held}. Stop it and retry, `
+      + "attach to it with 1667 --url, or open a different project with "
+      + "1667 --data <project-root>."
   );
 }

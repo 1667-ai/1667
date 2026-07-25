@@ -245,6 +245,12 @@ export type MainToWorkerMessage =
       type: "bootstrap";
       dataDir: string;
       externalDataLock: true;
+      /**
+       * ADR007 machine tier, resolved by the parent so a platform that cannot
+       * provide one reports it through the CLI rather than through a dead
+       * worker. Absent only for a directly-posted bootstrap in tests.
+       */
+      machineDir?: string;
       /** Main created this directory during startup, so the worker fills it
        * with the starter stories. Absent on every later run. */
       freshDataDirectory?: true;

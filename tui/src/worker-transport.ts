@@ -90,6 +90,7 @@ export class WorkerTransport {
         type: "bootstrap",
         dataDir: resolveDataDirectory(options.dataDir),
         externalDataLock: true,
+        ...(options.machineDir === undefined ? {} : { machineDir: options.machineDir }),
         ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
       });
     }

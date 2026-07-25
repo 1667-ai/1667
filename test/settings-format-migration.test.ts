@@ -132,10 +132,6 @@ test("malformed v1 fails closed before state, receipt, or marker activation", as
 test("legacy-preview ownership remains format 1 and never starts Release B", async (t) => {
   const dataDir = await temporaryDirectory(t, "1667-settings-migrate-preview-");
   await privateWrite(
-    path.join(dataDir, ".1667.lock"),
-    "1667-lock-aware-legacy-exclusion-v1\n"
-  );
-  await privateWrite(
     path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
     LEGACY_PREVIEW_DATA_MARKER_TEXT
   );

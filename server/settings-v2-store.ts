@@ -91,6 +91,8 @@ export interface SettingsV2StoreOptions {
   readonly now?: Clock;
   readonly validateCandidate?: (settings: GenerationSettings) => Promise<boolean>;
   readonly activationMode?: SettingsActivationMode;
+  /** ADR007 machine tier. Absent means this directory is its own machine tier. */
+  readonly secretsDir?: string;
 }
 
 /** Format-2 settings authority: admission, receipts, aggregate replacement,
@@ -102,11 +104,19 @@ export class SettingsV2Store {
   private readonly now: Clock;
   private readonly validateCandidate: (settings: GenerationSettings) => Promise<boolean>;
   private readonly activationMode: SettingsActivationMode;
+  private readonly secretsDir: string;
+  private readonly prunesSecrets: boolean;
 
   constructor(
     private readonly dataDir: string,
     options: SettingsV2StoreOptions = {}
   ) {
+    this.secretsDir = options.secretsDir ?? dataDir;
+    // A shared machine tier holds every project's keys, and this store only
+    // knows the IDs one project references. Pruning against that view would
+    // delete another project's credentials, so garbage collection is confined
+    // to the case where the secret store belongs to this directory alone.
+    this.prunesSecrets = this.secretsDir === dataDir;
     this.coordinator = options.coordinator ?? createMutationCoordinator();
     this.ledger = options.ledger ?? new MutationLedgerStore(dataDir);
     this.environment = { ...(options.environment ?? process.env) };
@@ -119,8 +129,10 @@ export class SettingsV2Store {
     await this.ledger.init();
     let state = await this.recoverReceiptTransaction();
     state = await this.recoverActivation(state);
-    await removeProviderSecretsScratch(this.dataDir);
-    await pruneProviderSecrets(this.dataDir, storedSecretIdsInState(state));
+    if (this.prunesSecrets) {
+      await removeProviderSecretsScratch(this.secretsDir);
+      await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
+    }
     assertRuntimeDocumentSupported(activeSettingsDocument(state));
     settingsViewFromState(state);
   }
@@ -132,7 +144,7 @@ export class SettingsV2Store {
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
     const [state, storedSecrets] = await Promise.all([
       readSettingsState(this.dataDir),
-      readProviderSecrets(this.dataDir)
+      readProviderSecrets(this.secretsDir)
     ]);
     const runtime = effectiveGenerationRuntime(
       activeSettingsDocument(state),
@@ -157,7 +169,7 @@ export class SettingsV2Store {
     readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
   }[]> {
     const state = await readSettingsState(this.dataDir);
-    const storedSecrets = await readProviderSecrets(this.dataDir);
+    const storedSecrets = await readProviderSecrets(this.secretsDir);
     const document = activeSettingsDocument(state);
     const exact: Array<{
       readonly connectionId: string;
@@ -221,7 +233,7 @@ export class SettingsV2Store {
       {},
       this.environment,
       { allowBlankModel: true },
-      await readProviderSecrets(this.dataDir)
+      await readProviderSecrets(this.secretsDir)
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime.settings;
@@ -360,7 +372,7 @@ export class SettingsV2Store {
           === hashSettingsDocumentV2(activeSettingsDocument(current))
       ) {
         for (const [secretId, value] of connectionSecretEntries) {
-          if (value !== null) await writeProviderSecret(this.dataDir, secretId, value);
+          if (value !== null) await writeProviderSecret(this.secretsDir, secretId, value);
         }
         const prepared = prepareSettingsMutation(
           operation,
@@ -370,10 +382,7 @@ export class SettingsV2Store {
           this.timestamp()
         );
         await this.ledger.writeUserRecord(prepared);
-        await pruneProviderSecrets(
-          this.dataDir,
-          storedSecretIdsInState(current)
-        );
+        await this.pruneUnreferencedSecrets(current);
         await this.ledger.writeUserRecord(
           completeSettingsMutation(prepared, this.timestamp())
         );
@@ -412,7 +421,7 @@ export class SettingsV2Store {
     await stageSettingsState(this.dataDir, next);
     // Replacement takes effect on save by design; a post-stage failure is recoverable by re-entering the key.
     for (const [secretId, value] of connectionSecretEntries) {
-      if (value !== null) await writeProviderSecret(this.dataDir, secretId, value);
+      if (value !== null) await writeProviderSecret(this.secretsDir, secretId, value);
     }
     try {
       await this.ledger.writeUserRecord(prepared);
@@ -421,12 +430,14 @@ export class SettingsV2Store {
       throw error;
     }
     await publishStagedSettingsState(this.dataDir);
-    await pruneProviderSecrets(
-      this.dataDir,
-      storedSecretIdsInState(next)
-    );
+    await this.pruneUnreferencedSecrets(next);
     await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
     return settingsResult(prepared);
+  }
+
+  private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {
+    if (!this.prunesSecrets) return;
+    await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
   }
 
   /** Final is always authoritative. A valid reserved `.next` is either an
@@ -548,7 +559,7 @@ export class SettingsV2Store {
       transactionId: pointer.mutationId
     }));
     const candidate = pendingSettingsDocument(next);
-    const storedSecrets = await readProviderSecrets(this.dataDir);
+    const storedSecrets = await readProviderSecrets(this.secretsDir);
     if (!credentialReferencesResolve(
       candidate,
       this.environment,

@@ -1,3 +1,4 @@
+import { deriveChapters } from "../shared/chapters.js";
 import { activePath } from "../shared/story-tree.js";
 import type {
   SettingsMutationResult,
@@ -203,15 +204,37 @@ export class StoryService extends StoryServiceRuntime {
     return (await this.exportStory(id)).markdown;
   }
 
+  /**
+   * ADR007 §4: write the currently selected branch as one markdown file, with
+   * chapters as `##` headings. It is a hand-off artifact — no anchors, no state,
+   * and nothing here is ever read back.
+   */
   async exportStory(id: string): Promise<{ filename: string; markdown: string }> {
     this.ensureOpen();
     const story = await this.stories.load(id);
     const comment = (value: string) => value.replace(/--!?>/g, "→");
     const header = story.origin === undefined ? "" :
       `<!-- derived from "${comment(story.origin.storyTitle)}" (story ${story.origin.storyId}, node ${story.origin.partId}${story.origin.offset === null ? "" : ` @ ${story.origin.offset}`}) -->\n\n`;
-    const prose = activePath(story).map((node) => `<!-- prompt: ${comment(node.instruction)} -->\n\n${node.text}`).join("\n\n");
+    const chapters = deriveChapters(
+      activePath(story),
+      story.chapterBreaks,
+      story.nodes
+    );
+    const sections = chapters.map((chapter) => {
+      const prose = chapter.parts.map((part) => part.text).join("\n\n");
+      // The document title already names the opening chapter when nothing
+      // renamed it, so an untitled first chapter gets no heading of its own.
+      if (chapter.number === 1 && chapter.title === "") return prose;
+      return `## ${chapter.title === "" ? `Chapter ${chapter.number}` : chapter.title}\n\n${prose}`;
+    });
+    // Deliberately narrower than the on-disk name (`exportFileBase`): this one
+    // goes into a Content-Disposition quoted-string, so it stays ASCII and
+    // punctuation-free rather than needing RFC 5987 encoding.
     const filename = `${story.title.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "story"}.md`;
-    return { filename, markdown: `# ${story.title}\n\n${header}${prose}\n` };
+    return {
+      filename,
+      markdown: `# ${story.title}\n\n${header}${sections.join("\n\n")}\n`
+    };
   }
 
   async switchLine(
