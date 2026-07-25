@@ -72,6 +72,7 @@ test("provider effects are exhaustively operation-specific", () => {
       genId: "g",
       nodeId: "generated",
       expectedParentActiveChildId: null,
+      expectedAppendActiveChildId: null,
       expectedActiveRootId: "root"
     },
     rewrite: {
@@ -157,6 +158,7 @@ test("continue preserves concurrent writer state and does not steal its line", a
     genId: "g1",
     nodeId: "generated",
     expectedParentActiveChildId: null,
+    expectedAppendActiveChildId: null,
     expectedActiveRootId: "root"
   }, hydrate);
   assert.deepEqual(current.nodes.map(({ id }) => id), [
@@ -186,6 +188,7 @@ test("continue deduplicates a Stop save with the same generation ID", async () =
     genId: "g1",
     nodeId: "completed",
     expectedParentActiveChildId: null,
+    expectedAppendActiveChildId: null,
     expectedActiveRootId: "root"
   }, hydrate);
   assert.equal(applied.changed, false);
@@ -205,6 +208,7 @@ test("continue fails when its parent was deleted", async () => {
       genId: "g1",
       nodeId: "generated",
       expectedParentActiveChildId: null,
+      expectedAppendActiveChildId: null,
       expectedActiveRootId: "root"
     }, hydrate),
     GenerationResultError

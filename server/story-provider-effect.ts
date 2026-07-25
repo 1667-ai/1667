@@ -32,6 +32,7 @@ export interface AutonameStoryEffect {
 export interface ContinueStoryEffect extends TakeCommit {
   readonly kind: "continue";
   readonly expectedParentActiveChildId: string | null;
+  readonly expectedAppendActiveChildId: string | null;
   readonly expectedActiveRootId: string | null;
   readonly cancelled?: AbortSignal;
 }
@@ -78,6 +79,15 @@ export type ProviderStoryEffect =
   | RewriteNodeEffect
   | SummaryTakeEffect
   | ChapterSummaryEffect;
+
+export type ProviderStoryEffectValue<Effect extends ProviderStoryEffect> =
+  Effect extends AutonameStoryEffect | ContinueStoryEffect | ChapterSummaryEffect
+    ? Story
+    : Effect extends RewriteNodeEffect
+      ? boolean
+      : Effect extends SummaryTakeEffect
+        ? StoryNode
+        : never;
 
 export interface AppliedProviderStoryEffect<Value = Story | StoryNode | boolean> {
   readonly changed: boolean;
@@ -155,12 +165,12 @@ function applyContinuation(
       (chapterBreak) => chapterBreak.parentPartId === effect.appendTo
     );
   const commit = {
-      ...effect,
-      parentId: appendCrossesNewBreak ? effect.appendTo : effect.parentId,
-      appendTo: appendCrossesNewBreak ? null : effect.appendTo,
-      expectedTextHash: appendCrossesNewBreak
-        ? null
-        : effect.expectedTextHash
+    ...effect,
+    parentId: appendCrossesNewBreak ? effect.appendTo : effect.parentId,
+    appendTo: appendCrossesNewBreak ? null : effect.appendTo,
+    expectedTextHash: appendCrossesNewBreak
+      ? null
+      : effect.expectedTextHash
   };
   const parent = commit.parentId === null
     ? null
@@ -168,7 +178,11 @@ function applyContinuation(
   const writerMoved = commit.appendTo === null && (
     parent === null
       ? story.activeRootId !== effect.expectedActiveRootId
-      : parent.activeChildId !== effect.expectedParentActiveChildId
+      : parent.activeChildId !== (
+        appendCrossesNewBreak
+          ? effect.expectedAppendActiveChildId
+          : effect.expectedParentActiveChildId
+      )
   );
   try {
     if (writerMoved) {
@@ -284,7 +298,7 @@ function applyChapterSummary(
   effect: ChapterSummaryEffect
 ): AppliedProviderStoryEffect<Story> {
   requireNotCancelled(effect.cancelled, "Chapter summarization was cancelled");
-  const chapter = closedChapter(story, effect.breakId);
+  const chapter = chapterSummarySource(story, effect.breakId);
   if (chapterSourceFingerprint(story, effect.breakId)
     !== effect.sourceFingerprint) {
     throw new GenerationResultError(
@@ -326,7 +340,7 @@ function applyChapterSummary(
 }
 
 export function chapterSourceFingerprint(story: Story, breakId: string): string {
-  const chapter = closedChapter(story, breakId);
+  const chapter = chapterSummarySource(story, breakId);
   return sha256(JSON.stringify({
     title: story.title,
     breakId: chapter.closedBy?.id,
@@ -346,7 +360,7 @@ export function chapterSourceFingerprint(story: Story, breakId: string): string 
   }));
 }
 
-function closedChapter(story: Story, breakId: string) {
+export function chapterSummarySource(story: Story, breakId: string) {
   const chapter = deriveChapters(
     activePath(story),
     story.chapterBreaks,

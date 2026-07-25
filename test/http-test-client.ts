@@ -20,6 +20,11 @@ export const API_PROTOCOL_HEADERS: Record<string, string> = {
   [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION)
 };
 let operationClient: HttpOperationClient | null = null;
+let lastReservedMutationId: string | null = null;
+
+export function lastTestMutationId(): string | null {
+  return lastReservedMutationId;
+}
 
 export async function waitForTestServer(
   server: {
@@ -108,6 +113,7 @@ export async function fetchWithApiProtocol(
     undefined,
     expectedAggregateVersion
   );
+  lastReservedMutationId = lease.mutationId;
   const headers = new Headers(init.headers);
   for (const [name, value] of Object.entries(lease.headers)) {
     headers.set(name, value);

@@ -9,9 +9,7 @@ import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewr
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
-import { commitTake, createTake, hasCommittedGeneration, newNode, requireNode } from "./story-nodes.js";
-import { setNodeRewriteId } from "./story-node-text.js";
-import { setStoryAutonameId } from "./story-metadata.js";
+import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
 import { assertFactsFit, factsSystemMessage } from "./story-facts.js";
 import { streamModel, throwIfUncertainAbort, type DeltaConsumer } from "./generation-stream.js";
 import { activeLeaf, activePath, nodeById, pathTo } from "../shared/story-tree.js";
@@ -89,18 +87,11 @@ export async function autonameStory(
     throw error;
   }
   try {
-    return await stories.withLock(id, async () => {
-      const fresh = await stories.loadForMutation(id);
-      // The title names the WORK, not a line: whichever line was visible when the
-      // user asked is a legitimate source, so a branch switch mid-naming does not
-      // invalidate the result. Only a concurrent manual rename wins over it.
-      if (fresh.title !== snapshot.title) {
-        throw new GenerationResultError(409, "The story title changed while the model was naming it. Try again if you still want a new name.");
-      }
-      fresh.title = title;
-      setStoryAutonameId(fresh, autonameId);
-      await stories.save(fresh);
-      return fresh;
+    return await stories.commitProviderEffect(id, {
+      kind: "autoname",
+      expectedTitle: snapshot.title,
+      title,
+      autonameId
     });
   } catch (error) {
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;
@@ -225,55 +216,41 @@ export async function continueStory(
     throw new GenerationResultError(502, "The model did not continue from the exact final characters; nothing was saved.");
   }
   // A continuation owns its first character: it may be a space, punctuation,
-  // newline, or the rest of an unfinished word. Other generations stay tidy.
-  // The whole commit runs under the story's lock, so a racing Stop either sees this
-  // generation's stamp already written (and does nothing) or waits its turn.
-  const result = await stories.withLock(id, async () => {
-    // Reload inside the lock: the story may have been renamed — or deleted — while
-    // the model was streaming, and saving the pre-stream snapshot would clobber that.
-    let fresh: Story;
-    try {
-      fresh = await stories.loadForMutation(id);
-    } catch (error) {
-      if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;
-      return "The story was deleted while writing.";
+  // newline, or the rest of an unfinished word. The prepared effect rechecks
+  // the current story at the short terminal phase and deduplicates a racing
+  // Stop by generation ID.
+  try {
+    const parent = parentId === null ? null : nodeById(story, parentId);
+    return await stories.commitProviderEffect(id, {
+      kind: "continue",
+      parentId,
+      appendTo,
+      expectedTextHash,
+      instruction,
+      text: appendTo === null ? raw.trim() : raw,
+      model,
+      genId,
+      expectedParentActiveChildId: parent?.activeChildId ?? null,
+      expectedAppendActiveChildId: appendTo === null
+        ? null
+        : nodeById(story, appendTo)?.activeChildId ?? null,
+      expectedActiveRootId: story.activeRootId,
+      cancelled: signal
+    });
+  } catch (error) {
+    if (error instanceof HttpError
+      && error.code === "story_manifest_requires_successor") {
+      throw error;
     }
-    if (signal.aborted) {
-      throwIfUncertainAbort(signal);
-      return "aborted";
+    if (error instanceof GenerationResultError) throw error;
+    if (error instanceof HttpError && error.status === 404) {
+      throw new GenerationResultError(
+        409,
+        "The story was deleted while writing."
+      );
     }
-    try {
-      if (appendTo === null && parentId !== null && nodeById(fresh, parentId) === null) {
-        return { conflict: "The parent node was deleted while writing; nothing was saved.", story: null };
-      }
-      // A Stop already saved this generation's partial (duplicate): leave it alone.
-      const appendCrossesNewBreak = appendTo !== null
-        && fresh.chapterBreaks.some((chapterBreak) => chapterBreak.parentPartId === appendTo);
-      const commitAppendTo = appendCrossesNewBreak ? null : appendTo;
-      const { duplicate } = commitTake(fresh, {
-        parentId: appendCrossesNewBreak ? appendTo : parentId,
-        appendTo: commitAppendTo,
-        expectedTextHash: commitAppendTo === null ? null : expectedTextHash,
-        instruction,
-        text: commitAppendTo === null ? raw.trim() : raw,
-        model,
-        genId
-      });
-      if (duplicate) return { conflict: null, story: fresh };
-    } catch (error) {
-      return { conflict: error instanceof Error ? error.message : String(error), story: null };
-    }
-    await stories.save(fresh);
-    return { conflict: null, story: fresh };
-  });
-  if (result === "aborted") return null;
-  if (typeof result === "string") {
-    throw new GenerationResultError(409, result);
+    throw error;
   }
-  if (result.conflict !== null || result.story === null) {
-    throw new GenerationResultError(409, result.conflict ?? "The story changed while writing; nothing was saved.");
-  }
-  return result.story;
 }
 
 export async function rewriteNode(
@@ -421,35 +398,26 @@ export async function rewriteNode(
       );
     }
   }
-  const conflict = await stories.withLock(id, async () => {
-    let fresh: Story;
-    try {
-      fresh = await stories.loadForMutation(id);
-    } catch (error) {
-      if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;
-      return "The story was deleted while writing.";
-    }
-    if (signal.aborted) {
-      throwIfUncertainAbort(signal);
-      return "aborted";
-    }
-    const freshPart = nodeById(fresh, partId);
-    if (freshPart === null || freshPart.text !== originalText) return "The node changed while rewriting; nothing was saved.";
-    const replacementText = plan.leadingWhitespace + cleaned.trim() + plan.trailingWhitespace;
-    freshPart.text = originalText.slice(0, start) + replacementText + originalText.slice(end);
-    setNodeRewriteId(freshPart, rewriteId);
-    freshPart.attribution = attributionAfterReplacement(
-      activeHumanAttribution(freshPart), start, end, replacementText.length, originalText.length
-    );
-    freshPart.updatedAt = new Date().toISOString();
-    await stories.save(fresh);
-    return null;
+  const replacementText =
+    plan.leadingWhitespace + cleaned.trim() + plan.trailingWhitespace;
+  return await stories.commitProviderEffect(id, {
+    kind: "rewrite",
+    nodeId: partId,
+    expectedText: originalText,
+    expectedInstruction: part.instruction,
+    expectedUpdatedAt: part.updatedAt,
+    text: originalText.slice(0, start) + replacementText + originalText.slice(end),
+    attribution: attributionAfterReplacement(
+      activeHumanAttribution(part),
+      start,
+      end,
+      replacementText.length,
+      originalText.length
+    ),
+    updatedAt: new Date().toISOString(),
+    rewriteId,
+    cancelled: signal
   });
-  if (conflict === "aborted") return false;
-  if (conflict !== null) {
-    throw new GenerationResultError(409, conflict);
-  }
-  return true;
 }
 /**
  * A concrete word target beats "about the same length": models act on numbers and

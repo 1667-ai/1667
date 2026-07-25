@@ -72,6 +72,11 @@ import {
 import { buildStorySummary } from "./story-summary.js";
 import { storySummaryFromV6 } from "./story-v6-codec.js";
 import {
+  applyProviderStoryEffect,
+  type ProviderStoryEffect,
+  type ProviderStoryEffectValue
+} from "./story-provider-effect.js";
+import {
   hashStoryV5ManifestBytes
 } from "./story-manifest-hash.js";
 import { isStoryId } from "./story-v5-strict.js";
@@ -296,6 +301,22 @@ export class StoryStore {
       createTake(story, node, { activate: false });
       await this.save(story);
       return node;
+    });
+  }
+
+  async commitProviderEffect<Effect extends ProviderStoryEffect>(
+    id: string,
+    effect: Effect
+  ): Promise<ProviderStoryEffectValue<Effect>> {
+    return await this.withLock(id, async () => {
+      const story = await this.loadForMutation(id);
+      const applied = await applyProviderStoryEffect(
+        story,
+        effect,
+        async (current, nodeId) => await this.hydratePath(current, nodeId)
+      );
+      if (applied.changed) await this.save(story);
+      return applied.value as ProviderStoryEffectValue<Effect>;
     });
   }
 

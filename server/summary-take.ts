@@ -117,17 +117,17 @@ export async function createSummaryTake(
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   let node: StoryNode;
   try {
-    node = await stories.commitSummary(
-      id,
+    node = await stories.commitProviderEffect(id, {
+      kind: "summary-take",
       point,
       expected,
-      fingerprint,
+      sourceFingerprint: fingerprint,
       summary,
       model,
-      summaryNodeInstruction(source.title),
-      signal,
+      instruction: summaryNodeInstruction(source.title),
+      cancelled: signal,
       commitIds
-    );
+    });
   } catch (error) {
     throwIfUncertainAbort(signal);
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;

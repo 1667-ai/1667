@@ -38,6 +38,15 @@ rejected with `409 resource_busy`; success, failure, and cancellation all
 release the process-local claim. The final commit remains an independent
 idempotency boundary for recovery.
 
+Receipt-backed generation uses three short story claims: admission, durable
+provider start, and terminal publication. Provider preparation and streaming
+hold no story claim, so local edits remain available throughout the round-trip.
+Terminal publication applies an operation-specific effect to the current story:
+manual renames beat autoname, rewrites and summaries revalidate their source,
+continuations preserve a line moved by the writer, and a Stop save wins by
+generation ID. An ambiguous provider result retains the durable unresolved
+pointer; retries stay blocked until that exact outcome is acknowledged.
+
 Provider request bodies are built by exact OpenAI Chat Completions and Anthropic
 Messages serializers. The selected ADR 003 cache policy and capability project
 through an exact protocol/preset adapter identity; a custom endpoint is never

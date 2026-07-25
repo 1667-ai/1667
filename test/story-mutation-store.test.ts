@@ -40,6 +40,7 @@ import { StoryDurabilityError } from "../server/story-lifecycle.js";
 const STORY_ID = "q-local-story";
 const MUTATION_ID = "m1.1767225600000.0123456789abcdef0123456789abcdef";
 const OTHER_MUTATION_ID = "m1.1767225600000.1123456789abcdef0123456789abcdef";
+const THIRD_MUTATION_ID = "m1.1767225600000.4123456789abcdef0123456789abcdef";
 const DELETE_MUTATION_ID = "m1.1767225600000.2123456789abcdef0123456789abcdef";
 const ACK_MUTATION_ID = "m1.1767225600000.3123456789abcdef0123456789abcdef";
 const FINGERPRINT = "a".repeat(64);
@@ -343,6 +344,140 @@ test("Q local edits preserve an earlier unresolved provider fence", async (t) =>
   assert.equal(persisted.kind, "v6-live");
   if (persisted.kind !== "v6-live") assert.fail("Expected live V6");
   assert.equal(persisted.manifest.unresolvedProvider?.mutationId, MUTATION_ID);
+});
+
+test("Q provider work releases story admission and commits onto the current story", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-short-claims-");
+  let providerStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    providerStarted = resolve;
+  });
+  let releaseProvider!: () => void;
+  const providerGate = new Promise<void>((resolve) => {
+    releaseProvider = resolve;
+  });
+  t.after(() => releaseProvider());
+
+  const provider = fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      providerStarted();
+      await providerGate;
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Generated title",
+        autonameId: "autoname-1"
+      });
+    },
+    () => storyFixture()
+  );
+  await started;
+
+  const duringProvider = await fixture.stories.loadVersioned(STORY_ID);
+  const local = await fixture.mutations.runLocal(
+    requestFor(
+      OTHER_MUTATION_ID,
+      OTHER_FINGERPRINT,
+      duringProvider.aggregateVersion!
+    ),
+    "createFact",
+    (story) => {
+      story.facts.push({
+        id: "fact-1",
+        tag: null,
+        text: "Written while the provider streamed",
+        createdAt: FIXED_NOW.toISOString(),
+        updatedAt: FIXED_NOW.toISOString()
+      });
+    }
+  );
+  assert.equal(local.story.facts.length, 1);
+
+  releaseProvider();
+  const committed = await provider;
+  const reloaded = await fixture.stories.loadVersioned(STORY_ID);
+  assert.deepEqual(committed.story, reloaded.story);
+  assert.equal(committed.story.title, "Generated title");
+  assert.equal(
+    committed.story.facts[0]?.text,
+    "Written while the provider streamed"
+  );
+  assert.deepEqual(reloaded.aggregateVersion, {
+    kind: "v6",
+    revision: committed.result.storyRevision
+  });
+  await fixture.stories.waitForMaintenance();
+  assert.deepEqual(
+    (await fixture.stories.loadVersioned(STORY_ID)).story,
+    committed.story
+  );
+});
+
+test("Q lets two providers prepare but only one publish start before network", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-start-race-");
+  let ready = 0;
+  let firstPrepared!: () => void;
+  const firstReady = new Promise<void>((resolve) => {
+    firstPrepared = resolve;
+  });
+  let releaseBoth!: () => void;
+  const bothReady = new Promise<void>((resolve) => {
+    releaseBoth = resolve;
+  });
+  let networkStarts = 0;
+
+  const contender = (mutationId: string, fingerprint: string, title: string) =>
+    fixture.mutations.runProvider(
+      requestFor(
+        mutationId,
+        fingerprint,
+        { kind: "v5", manifestHash: fixture.v5Hash }
+      ),
+      "autonameStory",
+      async (stories, start) => {
+        ready += 1;
+        if (ready === 1) firstPrepared();
+        if (ready === 2) releaseBoth();
+        await bothReady;
+        await start();
+        networkStarts += 1;
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title
+        });
+      },
+      storyFixture
+    );
+
+  const first = contender(MUTATION_ID, FINGERPRINT, "First");
+  await firstReady;
+  const second = contender(
+    THIRD_MUTATION_ID,
+    "e".repeat(64),
+    "Second"
+  );
+  const outcomes = await Promise.allSettled([first, second]);
+  assert.equal(networkStarts, 1);
+  assert.equal(
+    outcomes.filter(({ status }) => status === "fulfilled").length,
+    1
+  );
+  const rejected = outcomes.find(
+    (outcome): outcome is PromiseRejectedResult =>
+      outcome.status === "rejected"
+  );
+  assert.ok(rejected);
+  assert.equal(rejected.reason instanceof ServiceError, true);
+  assert.equal(
+    ["resource_busy", "generation_outcome_unknown"].includes(
+      (rejected.reason as ServiceError).code
+    ),
+    true
+  );
 });
 
 test("Q blocks a different provider mutation before creating phantom ambiguity", async (t) => {

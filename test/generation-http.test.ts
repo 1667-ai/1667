@@ -1,29 +1,28 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import {
-  LEGACY_PREVIEW_DATA_MARKER,
-  LEGACY_PREVIEW_DATA_MARKER_TEXT
-} from "../server/data-directory-format.js";
-import {
   ABSENT_SETTINGS_V1,
-  formatGenerationSettingsV1
 } from "../server/settings-v1-codec.js";
-import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { sha256 } from "../server/story-format.js";
 import type { GenerationSettings, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
-  waitForTestServer
+  lastTestMutationId
 } from "./http-test-client.js";
+import {
+  doneStory,
+  fakeModel,
+  modelSettings,
+  providerTest,
+  stream,
+  testApp as providerTestApp
+} from "./provider-http-fixture.js";
 
-const providerTest = ownedLoopbackHttpSupported() ? test : test.skip;
+const testApp = (
+  t: test.TestContext,
+  settings: GenerationSettings
+) => providerTestApp(t, settings, "1667-generation-http-");
 
 test("HTTP API binds mutations to the preflighted server instance before dispatch", async (t) => {
   const base = await testApp(t, ABSENT_SETTINGS_V1);
@@ -50,11 +49,13 @@ providerTest("generation HTTP: append keeps provider wire context and commits in
   const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post({
     appendTo: root.id, expectedTextHash: sha256(root.text), instruction: "", genId: "append-wire"
   }));
-  assert.match(await response.text(), /"type":"done"/);
+  const events = await response.text();
+  const returned = doneStory(events);
   const messages = model.requests[0]!.messages as Array<{ role: string; content: string }>;
   assert.deepEqual(messages.at(-1), { role: "assistant", content: "The latch was unlo" });
   assert.equal(model.requests[0]!.model, "test-model");
   const saved = await getStory(base, story.id);
+  assert.deepEqual(returned, saved);
   assert.equal(saved.path[0]!.id, root.id);
   assert.equal(saved.path[0]!.text, "The latch was unlocked.");
   assert.equal(saved.nodes.length, 1);
@@ -177,7 +178,7 @@ providerTest("generation HTTP: an in-flight story/gen duplicate is rejected befo
   assert.equal(model.requests.length, 1);
 });
 
-providerTest("generation HTTP: ambiguous transport receipt requires a new explicit request", async (t) => {
+providerTest("generation HTTP: ambiguous transport stays blocked until explicit acknowledgement", async (t) => {
   let attempt = 0;
   const model = await fakeModel(t, (_body, response) => {
     attempt += 1;
@@ -198,10 +199,26 @@ providerTest("generation HTTP: ambiguous transport receipt requires a new explic
 
   const failed = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post(request));
   assert.equal(failed.status, 409);
-  assert.match(await failed.text(), /generation_outcome_unknown/);
+  const failedBody = await failed.json() as { error: string; code: string };
+  assert.equal(failedBody.code, "generation_outcome_unknown");
+  const originalMutationId = lastTestMutationId();
+  assert.ok(originalMutationId);
+
   const retried = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post(request));
-  assert.equal(retried.status, 200);
-  assert.match(await retried.text(), /"type":"done"/);
+  assert.equal(retried.status, 409);
+  assert.match(await retried.text(), /generation_outcome_unknown/);
+  assert.equal(model.requests.length, 1);
+
+  await json(
+    `${base}/api/stories/${story.id}/unknown-outcomes/${originalMutationId}/ack`,
+    post({})
+  );
+  const afterAcknowledgement = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post(request)
+  );
+  assert.equal(afterAcknowledgement.status, 200);
+  assert.match(await afterAcknowledgement.text(), /"type":"done"/);
   assert.equal(model.requests.length, 2);
   assert.equal((await getStory(base, story.id)).nodes.length, 2);
 });
@@ -211,6 +228,7 @@ providerTest("generation HTTP: deleting the requested parent during streaming yi
   let requested!: () => void;
   const seen = new Promise<void>((resolve) => { requested = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(() => release());
   const model = await fakeModel(t, async (_body, response) => {
     requested();
     await gate;
@@ -232,6 +250,39 @@ providerTest("generation HTTP: deleting the requested parent during streaming yi
   const response = await pending;
   assert.match(await response.text(), /"type":"error"[\s\S]*parent node was deleted/i);
   assert.deepEqual((await getStory(base, story.id)).nodes, []);
+});
+
+providerTest("generation HTTP: a racing Stop save wins by generation ID", async (t) => {
+  let base = "";
+  let storyId = "";
+  let rootId = "";
+  const genId = "stop-wins";
+  const model = await fakeModel(t, async (_body, response) => {
+    await json(`${base}/api/stories/${storyId}/nodes`, post({
+      parentId: rootId,
+      instruction: "Continue.",
+      text: "Partial saved by Stop.",
+      genId
+    }));
+    stream(response, ["Completed provider text."]);
+  });
+  base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "Opening.");
+  storyId = story.id;
+  rootId = story.path[0]!.id;
+
+  const response = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post({ parentId: rootId, instruction: "Continue.", genId })
+  );
+  const returned = doneStory(await response.text());
+  const saved = await getStory(base, story.id);
+  assert.deepEqual(returned, saved);
+  assert.equal(
+    saved.path.filter((node) => node.genId === genId).length,
+    1
+  );
+  assert.equal(saved.path.at(-1)?.text, "Partial saved by Stop.");
 });
 
 providerTest("generation HTTP: aborting a continuation mid-stream discards the generated take", async (t) => {
@@ -284,6 +335,80 @@ providerTest("generation HTTP: rewrite splices into the same node and keeps desc
   assert.equal(saved.path[0]!.text, "The blue door opened.");
   assert.equal(saved.path[1]!.text, "Dawn followed.");
   assert.ok(saved.path[0]!.updatedAt);
+});
+
+providerTest("generation HTTP: rewrite rejects an instruction-only concurrent edit", async (t) => {
+  let base = "";
+  let storyId = "";
+  let rootId = "";
+  let sourceText = "";
+  const model = await fakeModel(t, async (_body, response) => {
+    await json(`${base}/api/stories/${storyId}/nodes/${rootId}`, {
+      method: "PATCH",
+      headers: {
+        ...API_PROTOCOL_HEADERS,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        instruction: "Writer changed the instruction.",
+        expectedTextHash: sha256(sourceText)
+      })
+    });
+    stream(response, ["blue"]);
+  });
+  base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "The red door opened.");
+  storyId = story.id;
+  rootId = story.path[0]!.id;
+  sourceText = story.path[0]!.text;
+  const start = sourceText.indexOf("red");
+
+  const response = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/nodes/${rootId}/rewrite`,
+    post({
+      start,
+      end: start + 3,
+      instruction: "Change the color.",
+      expected: "red"
+    })
+  );
+  assert.match(
+    await response.text(),
+    /"type":"error"[\s\S]*node changed while rewriting/i
+  );
+  const saved = await getStory(base, story.id);
+  assert.equal(saved.path[0]?.text, sourceText);
+  assert.equal(
+    saved.path[0]?.instruction,
+    "Writer changed the instruction."
+  );
+});
+
+providerTest("generation HTTP: autoname preserves a concurrent manual title", async (t) => {
+  let base = "";
+  let storyId = "";
+  const model = await fakeModel(t, async (_body, response) => {
+    await json(`${base}/api/stories/${storyId}`, {
+      method: "PATCH",
+      headers: {
+        ...API_PROTOCOL_HEADERS,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ title: "Writer title" })
+    });
+    stream(response, ["Model title"]);
+  });
+  base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "Opening.");
+  storyId = story.id;
+
+  const response = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/autoname`,
+    post({ expectedTitle: story.title })
+  );
+  assert.equal(response.status, 409);
+  assert.match(await response.text(), /title changed while the model/i);
+  assert.equal((await getStory(base, story.id)).title, "Writer title");
 });
 
 providerTest("generation HTTP: instructed passage rewrite preserves both semantic seams", async (t) => {
@@ -360,81 +485,6 @@ function post(body: unknown): RequestInit {
     headers: { ...API_PROTOCOL_HEADERS, "content-type": "application/json" },
     body: JSON.stringify(body)
   };
-}
-
-function modelSettings(modelBaseUrl: string): GenerationSettings {
-  return {
-    provider: "openai-compatible", baseUrl: modelBaseUrl, model: "test-model", apiKeyEnv: null,
-    temperature: 0, maxTokens: 128, systemPrompt: "Write coherent prose.", contextWindow: 4096
-  };
-}
-
-async function fakeModel(
-  t: test.TestContext,
-  reply: (body: Record<string, unknown>, response: ServerResponse) => void | Promise<void>
-): Promise<{ baseUrl: string; requests: Record<string, unknown>[] }> {
-  const requests: Record<string, unknown>[] = [];
-  const server = createServer(async (request, response) => {
-    const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
-    requests.push(body);
-    await reply(body, response);
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
-  return { baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests };
-}
-
-function stream(response: ServerResponse, chunks: readonly string[]): void {
-  response.writeHead(200, { "content-type": "text/event-stream" });
-  for (const content of chunks) response.write(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\n`);
-  response.end("data: [DONE]\n\n");
-}
-
-async function testApp(t: test.TestContext, settings: GenerationSettings): Promise<string> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-generation-http-"));
-  await writeFile(
-    path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
-    LEGACY_PREVIEW_DATA_MARKER_TEXT,
-    { mode: 0o600 }
-  );
-  await writeFile(
-    path.join(dataDir, "settings.json"),
-    formatGenerationSettingsV1(settings),
-    { encoding: "utf8", mode: 0o600, flag: "wx" }
-  );
-  const port = await availablePort();
-  const server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
-    cwd: path.resolve(import.meta.dirname, ".."), env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  let output = "";
-  server.stdout?.on("data", (chunk) => { output += String(chunk); });
-  server.stderr?.on("data", (chunk) => { output += String(chunk); });
-  t.after(async () => { await stopApp(server); await rm(dataDir, { recursive: true, force: true }); });
-  const base = `http://127.0.0.1:${port}`;
-  await waitForTestServer(server, base, () => output);
-  return base;
-}
-
-async function availablePort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
-  const port = (probe.address() as AddressInfo).port;
-  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
-  return port;
-}
-
-async function stopApp(server: ChildProcess): Promise<void> {
-  if (server.exitCode !== null || server.signalCode !== null) return;
-  server.kill("SIGTERM");
-  await Promise.race([new Promise<void>((resolve) => server.once("exit", () => resolve())), new Promise((resolve) => setTimeout(resolve, 1_000))]);
-  if (server.exitCode === null && server.signalCode === null) server.kill("SIGKILL");
-}
-
-async function requestText(request: IncomingMessage): Promise<string> {
-  let text = "";
-  for await (const chunk of request) text += String(chunk);
-  return text;
 }
 
 async function getStory(base: string, id: string): Promise<StoryPayload> {
