@@ -127,7 +127,8 @@ test("provider effect preparation rejects an existing cancellation", () => {
       expectedActiveLeafId: "root",
       cancelled: cancelled.signal
     }),
-    /Story writing was cancelled/
+    (error: unknown) => error instanceof GenerationResultError
+      && /Story writing was cancelled/.test(error.message)
   );
 });
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ServiceError } from "./errors.js";
+import { GenerationResultError } from "./errors.js";
 import type {
   ChapterSummaryEffect,
   ContinueStoryEffect,
@@ -94,5 +94,5 @@ function requireEffectActive(effect: ProviderStoryEffect): void {
       : effect.kind === "summary-take"
         ? "The summary was cancelled before it could be saved."
         : "Chapter summarization was cancelled";
-  throw new ServiceError(409, message);
+  throw new GenerationResultError(409, message);
 }

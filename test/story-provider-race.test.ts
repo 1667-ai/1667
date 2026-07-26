@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ServiceError } from "../server/errors.js";
+import {
+  GenerationResultError,
+  ServiceError
+} from "../server/errors.js";
 import { StoryProviderRaceResolver } from "../server/story-provider-race.js";
 import { StoryMutationRecovery } from "../server/story-mutation-transaction.js";
 import {
@@ -131,6 +134,53 @@ test("Q terminal success replay waits out a short story claim", async (t) => {
   assert.equal(replayed.story.title, "Winner");
   assert.deepEqual(replayed.result, winner.result);
   assert.deepEqual(replayed.aggregateVersion, winner.aggregateVersion);
+});
+
+test("Q cancellation at effect preparation terminalizes exactly", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-preparation-cancel-");
+  const cancelled = new AbortController();
+  let workCalls = 0;
+  const operation = () => fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "continueStory",
+    async (stories, start) => {
+      workCalls += 1;
+      await start();
+      cancelled.abort();
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "continue",
+        parentId: null,
+        appendTo: null,
+        expectedTextHash: null,
+        instruction: "Continue",
+        text: "Must not commit",
+        model: "test",
+        genId: "cancelled-at-preparation",
+        expectedParentActiveChildId: null,
+        expectedAppendActiveChildId: null,
+        expectedActiveRootId: null,
+        expectedActiveLeafId: null,
+        cancelled: cancelled.signal
+      });
+    },
+    storyFixture
+  );
+
+  await assert.rejects(operation(), GenerationResultError);
+  assert.equal(workCalls, 1);
+  const receipt = await fixture.ledger.loadStoryReceipt(
+    `story:${STORY_ID}`,
+    MUTATION_ID
+  );
+  assert.equal(
+    receipt.prepared?.result.kind === "error"
+      ? receipt.prepared.result.code
+      : null,
+    "conflict"
+  );
+  assert.notEqual(receipt.completed, null);
+  await assert.rejects(operation(), hasServiceError("conflict"));
+  assert.equal(workCalls, 1);
 });
 
 test("Q delayed success replay returns the current story version", async (t) => {
