@@ -86,8 +86,12 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("up", "NAV", "scroll-line-up", { shift: true }),
         binding("down", "NAV", "scroll-line-down", { shift: true })
       ]),
-      entry("⌃u ⌃d", "page up and down", [
-        binding("u", "NAV", "scroll-up", { ctrl: true }),
+      entry("pgup ⌃u", "page up", [
+        binding("pageup", "NAV", "scroll-up"),
+        binding("u", "NAV", "scroll-up", { ctrl: true })
+      ]),
+      entry("pgdn ⌃d", "page down", [
+        binding("pagedown", "NAV", "scroll-down"),
         binding("d", "NAV", "scroll-down", { ctrl: true })
       ]),
       entry("g / G", "first part · newest leaf", [
@@ -167,7 +171,11 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("g", "COMPOSE", "toggle-context-meter", { ctrl: true })
       ]),
       entry("?", "this key reference", [binding("?", "NAV", "open-keys")]),
-      entry("esc", "close what is open", [binding("escape", "KEYS", "cancel")]),
+      entry("esc", "close what is open", [
+        binding("escape", "NAV", "cancel"),
+        binding("escape", "MAP", "cancel"),
+        binding("escape", "KEYS", "cancel")
+      ]),
       entry("q", "quit 1667", [binding("q", "NAV", "quit")])
     ]
   },

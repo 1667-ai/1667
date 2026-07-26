@@ -25,9 +25,10 @@ function text(width: number, height: number, scrollTop = 0): string {
 
 function key(name: string, options: { shift?: boolean; ctrl?: boolean } = {}): KeyEvent {
   const shift = options.shift ?? false;
+  const resolvedName = shift && /^[a-z]$/.test(name) ? name.toUpperCase() : name;
   return {
-    name,
-    sequence: shift && /^[a-z]$/.test(name) ? name.toUpperCase() : name,
+    name: resolvedName,
+    sequence: resolvedName,
     shift,
     ctrl: options.ctrl ?? false,
     meta: false,
@@ -59,10 +60,12 @@ describe("keys reference", () => {
   });
 
   test("no reachable story or map key does something the reference never names", () => {
-    const explained = new Set(KEYS_MODAL_MODEL.bindings.map((binding) => binding.action));
+    const letters = [
+      "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+      "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
+    ];
     const names = [
-      ...["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-        "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"],
+      ...letters,
       "up", "down", "left", "right", "space", "return", "escape",
       "pageup", "pagedown", "[", "]", ":", ",", "?", ";", "/", "."
     ];
@@ -73,15 +76,33 @@ describe("keys reference", () => {
       { mode: "MAP", mapView: "mass" }
     ];
     for (const surface of surfaces) {
-      for (const name of names) {
-        for (const modifiers of [{}, { shift: true }, { ctrl: true }] as const) {
-          const resolved = resolveKey(key(name, modifiers), surface.mode, {
-            ...(surface.mapView === undefined ? {} : { mapView: surface.mapView })
-          });
-          if (resolved.action === "none") continue;
-          const label = `${surface.mode}/${surface.mapView ?? "-"} ${JSON.stringify(modifiers)}${name}`;
-          expect(`${label}:${explained.has(resolved.action)}`).toBe(`${label}:true`);
-        }
+      const events = [
+        ...names.map((name) => key(name)),
+        ...(surface.mode === "NAV"
+          ? [
+              ...letters.map((name) => key(name, { shift: true })),
+              key("up", { shift: true }),
+              key("down", { shift: true }),
+              ...letters.map((name) => key(name, { ctrl: true }))
+            ]
+          : [])
+      ];
+      for (const event of events) {
+        const resolved = resolveKey(event, surface.mode, {
+          ...(surface.mapView === undefined ? {} : { mapView: surface.mapView })
+        });
+        if (resolved.action === "none") continue;
+        const explained = KEYS_MODAL_MODEL.bindings.some((binding) =>
+          binding.name === event.name
+          && binding.mode === surface.mode
+          && binding.action === resolved.action
+          && (binding.shift ?? false) === event.shift
+          && (binding.ctrl ?? false) === event.ctrl
+          && (binding.mapView === undefined || binding.mapView === surface.mapView)
+        );
+        const modifiers = `${event.shift ? "shift+" : ""}${event.ctrl ? "ctrl+" : ""}`;
+        const label = `${surface.mode}/${surface.mapView ?? "-"} ${modifiers}${event.name}`;
+        expect(`${label}:${explained}`).toBe(`${label}:true`);
       }
     }
   });
