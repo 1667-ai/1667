@@ -303,6 +303,50 @@ providerTest("generation HTTP: ambiguous transport stays blocked until explicit 
   assert.equal((await getStory(base, story.id)).nodes.length, 2);
 });
 
+providerTest("generation HTTP: acknowledgement wins against active provider terminalization", async (t) => {
+  let release!: () => void;
+  let markRequested!: () => void;
+  const requested = new Promise<void>((resolve) => {
+    markRequested = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  t.after(() => release());
+  const model = await fakeModel(t, async (_body, response) => {
+    markRequested();
+    await gate;
+    stream(response, ["Must not commit."]);
+  });
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "Opening.");
+  const pending = fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post({
+      parentId: story.path[0]!.id,
+      instruction: "Continue.",
+      genId: "acknowledged-active-provider"
+    })
+  );
+  await requested;
+  const originalMutationId = lastTestMutationId();
+  assert.ok(originalMutationId);
+
+  await json(
+    `${base}/api/stories/${story.id}/unknown-outcomes/${originalMutationId}/ack`,
+    post({})
+  );
+  release();
+  const events = await (await pending).text();
+
+  assert.match(
+    events,
+    /"code":"generation_outcome_unknown_acknowledged"/
+  );
+  assert.equal(model.requests.length, 1);
+  assert.equal((await getStory(base, story.id)).nodes.length, 1);
+});
+
 providerTest("generation HTTP: deleting the requested parent during streaming yields an error event", async (t) => {
   let release!: () => void;
   let requested!: () => void;
