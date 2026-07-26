@@ -7,13 +7,19 @@ import {
 } from "../src/screens/keys-modal.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 
-function render(width: number, height: number, scrollTop = 0): KeysOverlayRender {
+function render(
+  width: number,
+  height: number,
+  scrollTop = 0,
+  buildIdentity = `1667 ${AI_1667_VERSION_TAG}`
+): KeysOverlayRender {
   return renderKeysOverlay(
     Array.from({ length: height }, () => []),
     Array.from({ length: height }, () => null),
     width,
     height,
-    scrollTop
+    scrollTop,
+    buildIdentity
   );
 }
 
@@ -67,6 +73,23 @@ describe("keys reference", () => {
     const bottom = render(20, 10, 500);
     expect(frameText(bottom.composition.lines))
       .toContain(`? ↑↓${bottom.scrollTop + 1}/${total}`);
+  });
+
+  test("a long valid build identity wraps into reachable compact content", () => {
+    const buildIdentity = "1667 v1.2.3-beta.1+build.7";
+    const top = frameText(render(20, 13, 0, buildIdentity).composition.lines);
+    expect(top).toContain("build ↓");
+    expect(top).not.toContain(buildIdentity);
+    const bottom = render(20, 13, 500, buildIdentity);
+    const frame = frameText(bottom.composition.lines);
+    const content = frame.split("\n")
+      .filter((line) => line.includes("┃"))
+      .map((line) => line.slice(line.indexOf("┃") + 1).trim())
+      .join("")
+      .replace(/\s/g, "");
+    expect(frame).toContain("● BUILD");
+    expect(content).toContain(buildIdentity.replace(/\s/g, ""));
+    expect(frame).toContain("build ↓");
   });
 
   test("the old QWERTY diagram and its unexplained bands are gone", () => {

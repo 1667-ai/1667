@@ -230,11 +230,11 @@ const SECTIONS: readonly KeysModalSection[] = [
       entry("jump to that part", [binding("return", "MAP", "apply")]),
       // Views the map itself names in its tabs. A key that does nothing in the
       // view you are looking at has to say so, or the reference lies again.
-      entry("follow it · tree, mass", [
+      entry("follow tree · open mass", [
         binding("l", "MAP", "map-follow", { mapView: "tree" }),
         binding("l", "MAP", "map-follow", { mapView: "mass" })
       ]),
-      entry("mass sort · tree, mass", [
+      entry("tree→mass · mass sorts", [
         binding("s", "MAP", "map-cycle-sort", { mapView: "tree" }),
         binding("s", "MAP", "map-cycle-sort", { mapView: "mass" })
       ]),
@@ -275,12 +275,25 @@ export function renderKeysOverlay(
   hits: HitRows,
   width: number,
   height: number,
-  scrollTop = 0
+  scrollTop = 0,
+  buildIdentity = `1667 ${AI_1667_VERSION_TAG}`
 ): KeysOverlayRender {
   const panelWidth = panelWidthFor(width, PANEL_MAX_WIDTH);
   const interior = panelWidth - visibleWidth("┃ ");
   const columns = columnCount(interior);
-  const rows = layoutRows(interior, columns);
+  const footerCapacity = panelWidth - 4;
+  const wrappedBuildIdentity = visibleWidth(buildIdentity) > footerCapacity;
+  const rows = [
+    ...layoutRows(interior, columns),
+    ...(wrappedBuildIdentity
+      ? [
+          [],
+          [{ ...raisedSegment("● BUILD", "brass dim"), bold: true }],
+          ...wrapText(buildIdentity, [], interior)
+            .map((line) => [raisedSegment(line.text, "prose · dim")])
+        ]
+      : [])
+  ];
   // Slicing more than the panel will paint would leave rows behind a bound
   // that never reaches them, and make the title's range a lie.
   const visibleRows = panelContentRows(height);
@@ -290,15 +303,18 @@ export function renderKeysOverlay(
   const range = panelRange(rows.length, window);
   // The status bar hides its build tag on a narrow terminal, so the reference
   // is where `1667 v…` is always reachable.
-  const buildIdentity = `1667 ${AI_1667_VERSION_TAG}`;
   const footerCopy = range === ""
     ? "drag selects · ctrl+c copies · esc closes"
     : "↑↓ scrolls · esc closes";
   const expandedFooter = `${buildIdentity} · ${footerCopy}`;
-  const compactFooter = visibleWidth(expandedFooter) > panelWidth - 4;
-  const footer = compactFooter ? buildIdentity : expandedFooter;
-  // When the footer has exactly enough room for required build identity, the
-  // short title keeps overflow and the current position visible.
+  const compactFooter = visibleWidth(expandedFooter) > footerCapacity;
+  const footer = !compactFooter
+    ? expandedFooter
+    : wrappedBuildIdentity
+      ? "build ↓"
+      : buildIdentity;
+  // When the footer cannot carry scroll guidance, the short title keeps
+  // overflow and the current position visible.
   const title = range !== "" && compactFooter
     ? `? ↑↓${window.start + 1}/${rows.length}`
     : `keys · and what they do${range}`;
