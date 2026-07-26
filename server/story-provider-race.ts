@@ -15,6 +15,7 @@ import type {
 } from "./mutation-ledger-types.js";
 import type { ProviderStoryMutationCommit } from "./story-provider-contract.js";
 import { runTerminalStoryPhase } from "./story-provider-phase.js";
+import { storyAggregateVersion } from "./story-aggregate-state.js";
 import {
   providerOutcomeUnknown,
   receiptOnlyProviderError,
@@ -77,7 +78,7 @@ export class StoryProviderRaceResolver {
     }
     const code = receiptOnlyProviderError(error);
     if (code === null) return;
-    await this.coordinator.runStoryPhase(request, async () =>
+    await runTerminalStoryPhase(this.coordinator, request, async () =>
       await this.stories.withAggregateSession(storyId, async (session) => {
         await this.recovery.finalizeAggregateTransaction(
           session,
@@ -126,7 +127,7 @@ export class StoryProviderRaceResolver {
     method: ProviderMutationMethod,
     replayValue: () => Value
   ): Promise<ProviderStoryMutationCommit<Value>> {
-    return await this.coordinator.runStoryPhase(request, async () =>
+    return await runTerminalStoryPhase(this.coordinator, request, async () =>
       await this.stories.withAggregateSession(storyId, async (session) => {
         await this.recovery.finalizeAggregateTransaction(
           session,
@@ -148,6 +149,7 @@ export class StoryProviderRaceResolver {
         return {
           story: await session.loadLive(),
           result: terminal,
+          aggregateVersion: storyAggregateVersion(session.snapshot),
           value: replayValue()
         };
       })

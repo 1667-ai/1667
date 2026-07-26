@@ -21,7 +21,8 @@ import type {
   StartedMutationRecord
 } from "./mutation-ledger-types.js";
 import {
-  requireExpectedStoryVersion
+  requireExpectedStoryVersion,
+  storyAggregateVersion
 } from "./story-aggregate-state.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import type { ActiveProviderStarts } from "./story-provider-active-starts.js";
@@ -145,6 +146,7 @@ export class StoryProviderMutationStore {
             await this.stories.withAggregateSession(storyId, async (session) => ({
               story: await session.loadLive(),
               result: storyResult(session.snapshot.manifest),
+              aggregateVersion: storyAggregateVersion(session.snapshot),
               value
             }))
           );
@@ -207,6 +209,7 @@ export class StoryProviderMutationStore {
             commit: {
               story: await session.loadLive(),
               result: terminal,
+              aggregateVersion: storyAggregateVersion(session.snapshot),
               value: replayValue()
             }
           };
@@ -325,7 +328,10 @@ export class StoryProviderMutationStore {
     method: ProviderMutationMethod,
     started: StartedMutationRecord,
     runtime: ScopedProviderStoryRuntime
-  ): Promise<Pick<ProviderStoryMutationCommit<never>, "story" | "result">> {
+  ): Promise<Pick<
+    ProviderStoryMutationCommit<never>,
+    "story" | "result" | "aggregateVersion"
+  >> {
     return await this.stories.withAggregateSession(storyId, async (session) => {
       await this.prepareTerminalPhase(session, request, method, started);
       if (session.snapshot.manifest.kind !== "live") {
@@ -347,7 +353,11 @@ export class StoryProviderMutationStore {
           started,
           { kind: "success", story }
         );
-        return { story, result };
+        return {
+          story,
+          result,
+          aggregateVersion: storyAggregateVersion(session.snapshot)
+        };
       } catch (error) {
         const terminal = terminalProviderConflict(error);
         if (terminal === null) throw error;
