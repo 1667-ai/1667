@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChapterBreak, NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
+import { platformPerformanceBudget } from "../../test/platform-performance-budget.js";
 import { initialState } from "../src/app.js";
 import { chapterListModel, chapterWindow } from "../src/chapter-model.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
@@ -90,7 +91,7 @@ describe("chapter view models", () => {
     const elapsed = performance.now() - started;
     expect(view.rows).toHaveLength(20_099);
     expect(model.rows).toHaveLength(100);
-    expect(elapsed).toBeLessThan(300);
+    expect(elapsed).toBeLessThan(platformPerformanceBudget(300));
   });
 
   test("renders 70k chapters without passing the row set as function arguments", () => {

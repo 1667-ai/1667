@@ -54,6 +54,7 @@ export const STARTER_KEYS = {
   commands: { name: ":", token: ":", mode: "NAV" },
   quit: { name: "q", token: "q", mode: "NAV" },
   mapCycleView: { name: "m", token: "m", mode: "MAP" },
+  mapClose: { name: "escape", token: "esc", mode: "MAP" },
   mapDetail: { name: "a", token: "a", mode: "MAP" },
   mapJump: { name: "return", token: "enter", mode: "MAP" },
   mapBookmark: { name: "b", token: "b", mode: "MAP", mapView: "path" },
@@ -66,4 +67,3 @@ export type StarterKeyId = keyof typeof STARTER_KEYS;
 export function starterKeyToken(id: StarterKeyId): string {
   return `[${STARTER_KEYS[id].token}]`;
 }
-

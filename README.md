@@ -4,7 +4,6 @@
 
 **A full-screen terminal environment for writing fiction with language models.**
 
-[![CI](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg)](https://github.com/1667-ai/1667/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
@@ -126,7 +125,7 @@ while publishing the converted current settings state in the destination.
 `1667 export` writes the selected branch to `<Story Title>.md` in the project
 root, with chapters as `##` headings. 1667 never reads a file it exported: the
 loom in `.1667` is the only source of truth, and `e` (your `$EDITOR`) is how text
-comes back in. See [ADR 007](docs/adr/007-project-anchored-storage.md).
+comes back in. See [ADR 007](https://github.com/1667-ai/architecture/blob/main/docs/adr/007-project-anchored-storage.md).
 
 ## Keyboard orientation
 
@@ -152,7 +151,7 @@ comes back in. See [ADR 007](docs/adr/007-project-anchored-storage.md).
 
 1667 supports three provider modes: `dry-run`, `openai-compatible`, and `anthropic`. Settings include presets for OpenAI, OpenRouter, Anthropic, LM Studio, Ollama, llama.cpp, KoboldCpp, and a custom endpoint. Use `dry-run` to exercise the interface without a network call.
 
-Settings store a credential reference, never the key itself: either paste an API key — kept only in the machine tier's private `secrets.json` (mode `0600`), with an opaque id in the settings document — or name an environment variable and export it. Local servers like Ollama need no key. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](docs/adr/004-prompt-caching.md).
+Settings store a credential reference, never the key itself: either paste an API key — kept only in the machine tier's private `secrets.json` (mode `0600`), with an opaque id in the settings document — or name an environment variable and export it. Local servers like Ollama need no key. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](https://github.com/1667-ai/architecture/blob/main/docs/adr/004-prompt-caching.md).
 
 ## Privacy
 
@@ -160,9 +159,17 @@ Your stories and settings stay on your computer, in the project's `.1667/` folde
 
 ## Current platform limits
 
-Local storage is available on macOS and Linux. Project discovery works everywhere, but the machine tier that holds provider secrets and HTTP auth records still needs a native DACL and reparse-safe adapter on Windows, so the Windows candidate refuses the embedded backend in one line and runs demo mode; HTTP attach, HTTP auth, and legacy serve fail closed there too.
+1667 supports macOS and Linux, on arm64 and x64.
 
-Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Attaching with `--url` proves the server holds the matching auth record by HMAC on every request; on Bun that HMAC is the whole proof, because Bun's `node:http` client exposes no stable socket identity to pin the connection to as well. Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
+Windows is not a supported environment and no Windows build is published. The
+machine tier that holds provider secrets and HTTP auth records still needs a
+native DACL and reparse-safe adapter there, and no Windows machine is currently
+available to gate a candidate, so shipping one would mean publishing an
+artifact nothing had executed. Running from source on Windows still fails
+closed rather than misbehaving: the embedded backend refuses in one line and
+demo mode runs, while HTTP attach, HTTP auth, and legacy serve refuse too.
+
+Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Attaching with `--url` proves the server holds the matching auth record by HMAC on every request; on Bun that HMAC is the whole proof, because Bun's `node:http` client exposes no stable socket identity to pin the connection to as well. Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
 
 ## Build a standalone executable
 
@@ -176,7 +183,7 @@ bun run build:standalone
 
 The compiled executable contains the TUI, the backend worker, the dependencies, and the Bun runtime. It runs from any directory and needs no separate Bun installation.
 
-The build checks that the root, TUI, and lockfile versions agree. It reads the build identity back from the executable, starts the embedded worker against a hostile-configuration fixture, and runs the prompt tokenizer smoke vectors. The result is a development artifact. Signing, multi-platform packaging, and publication remain separate gates. See [ADR 005](docs/adr/005-trusted-releases-and-upgrades.md) and [docs/RELEASING.md](docs/RELEASING.md).
+The build checks that the root, TUI, and lockfile versions agree. It reads the build identity back from the executable, starts the embedded worker against a hostile-configuration fixture, and runs the prompt tokenizer smoke vectors. The result is a development artifact. Signing, multi-platform packaging, and publication remain separate gates. See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md) and [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Development gates
 
@@ -196,7 +203,27 @@ bun test
 bun bench/perf.ts      # headless frame performance gates
 ```
 
-Continuous integration runs every gate on Linux, then builds and executes a packaged candidate on macOS, Linux, and Windows. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+Continuous integration runs every gate on each shipped target. The same gates
+run locally, which is faster to iterate against and catches the Linux-only
+suites before you push:
+
+```bash
+scripts/ci-local.sh              # darwin-arm64, linux-x64, linux-arm64
+scripts/ci-local.sh --status     # also publish the result as a commit status
+```
+
+Linux targets run in Docker, which is the only way to exercise the plain-HTTP
+loopback provider suites: `ownedLoopbackHttpSupportedOn` is Linux-only, so those
+tests skip entirely on macOS. Every shipped target is covered.
+
+A full green run records a pass for that exact commit. If you want pushes gated
+on that locally, opt in:
+
+```bash
+git config core.hooksPath .githooks   # optional, once per clone
+```
+
+See [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 To collect frame diagnostics from an interactive session, set `AI_1667_TUI_PROFILE=1`. After the terminal restores, 1667 writes one JSON report to standard error.
 
@@ -218,12 +245,10 @@ To collect frame diagnostics from an interactive session, set `AI_1667_TUI_PROFI
 
 An architecture decision record (ADR) states one decision and the reasons for it. Read the ADR before you change the area that it covers.
 
-- [ADR 001: embedded TUI backend worker](docs/adr/001-embedded-tui-backend-worker.md)
-- [ADR 002: TUI frame scheduling](docs/adr/002-tui-frame-scheduling.md)
-- [ADR 003: model connections and generation profiles](docs/adr/003-model-connections-and-generation-profiles.md)
-- [ADR 004: prompt caching](docs/adr/004-prompt-caching.md)
-- [ADR 005: trusted releases and upgrades](docs/adr/005-trusted-releases-and-upgrades.md)
-- [ADR 006: story aggregate and mutation coordination](docs/adr/006-story-aggregate-and-mutation-coordination.md)
+The architecture decision records live in the private
+[1667-ai/architecture](https://github.com/1667-ai/architecture) repository.
+They are normative: they describe invariants this code is required to hold,
+and comments in `server/` and `shared/` cite them by name.
 
 Supporting notes: [generation boundaries](docs/generation-boundaries.md), [summary branches](docs/summary-branches.md), [autoname](docs/autoname.md), [character card import](docs/character-card-import.md), and the [TUI platform plan](docs/1667-tui-platform-plan.md). The [TUI reference](tui/README.md) describes screen behavior in detail.
 

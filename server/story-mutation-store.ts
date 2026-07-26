@@ -19,14 +19,15 @@ import {
   type StoryMutationMethod
 } from "./mutation-ledger-types.js";
 import {
-  StoryProviderMutationStore,
-  type ProviderStoryMutationCommit
+  StoryProviderMutationStore
 } from "./story-provider-mutation.js";
+import type { ProviderStoryMutationCommit } from "./story-provider-contract.js";
 import {
-  requireExpectedStoryVersion,
+  requireExpectedLocalStoryVersion,
   storyAggregateVersion
 } from "./story-aggregate-state.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
+import { ActiveProviderStarts } from "./story-provider-active-starts.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import {
   commitPreparedStoryTransaction,
@@ -117,6 +118,7 @@ export class StoryMutationStore {
   private readonly now: StoryMutationClock;
   private readonly hooks: StoryMutationStoreHooks;
   private readonly recovery: StoryMutationRecovery;
+  private readonly activeProviderStarts: ActiveProviderStarts;
   private readonly providers: StoryProviderMutationStore;
   private readonly unknownOutcomes: StoryUnknownOutcomeStore;
 
@@ -130,11 +132,13 @@ export class StoryMutationStore {
     this.now = options.now ?? (() => new Date());
     this.hooks = options.hooks ?? {};
     this.recovery = new StoryMutationRecovery(this.ledger, this.now);
+    this.activeProviderStarts = new ActiveProviderStarts();
     this.providers = new StoryProviderMutationStore(
       stories,
       coordinator,
       this.ledger,
       this.recovery,
+      this.activeProviderStarts,
       this.now,
       this.hooks
     );
@@ -226,9 +230,13 @@ export class StoryMutationStore {
             value: replayValue()
           };
         }
-        requireExpectedStoryVersion(
+        requireExpectedLocalStoryVersion(
           session.snapshot,
-          request.expectedAggregateVersion
+          request.expectedAggregateVersion,
+          this.activeProviderStarts.predecessor(
+            storyId,
+            session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
+          )
         );
         const story = await session.loadLive();
         let value: unknown;
@@ -316,11 +324,11 @@ export class StoryMutationStore {
     });
   }
 
-  async runProvider<Value>(
+  async runProvider<Method extends ProviderMutationMethod, Value>(
     input: unknown,
-    method: ProviderMutationMethod,
+    method: Method,
     work: (
-      stories: ProviderStoryRuntime,
+      stories: ProviderStoryRuntime<Method>,
       providerStarted: () => Promise<void>
     ) => Promise<Value>,
     replayValue: () => Value
@@ -353,9 +361,13 @@ export class StoryMutationStore {
           receipt
         );
         if (terminal !== null) return { result: terminal };
-        requireExpectedStoryVersion(
+        requireExpectedLocalStoryVersion(
           session.snapshot,
-          request.expectedAggregateVersion
+          request.expectedAggregateVersion,
+          this.activeProviderStarts.predecessor(
+            storyId,
+            session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
+          )
         );
         const oldStateHash = session.snapshot.manifestHash;
         const manifest = reduceStoryV6({

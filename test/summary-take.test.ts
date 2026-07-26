@@ -1,27 +1,23 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
-import {
-  LEGACY_PREVIEW_DATA_MARKER,
-  LEGACY_PREVIEW_DATA_MARKER_TEXT
-} from "../server/data-directory-format.js";
-import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
-import { formatGenerationSettingsV1 } from "../server/settings-v1-codec.js";
 import { SUMMARY_TARGET_TOKENS } from "../shared/chapters.js";
 import { sha256 } from "../server/story-format.js";
 import type { GenerationSettings, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
-  fetchWithApiProtocol,
-  waitForTestServer
+  fetchWithApiProtocol
 } from "./http-test-client.js";
+import {
+  fakeModel,
+  providerTest,
+  stream,
+  testApp as providerTestApp
+} from "./provider-http-fixture.js";
 
-const providerTest = ownedLoopbackHttpSupported() ? test : test.skip;
+const testApp = (
+  t: test.TestContext,
+  settings: GenerationSettings
+) => providerTestApp(t, settings, "1667-summary-take-");
 
 providerTest("summary take: offset source lands beneath a cut sibling, preserves the old continuation, and blocks append", async (t) => {
   const model = await fakeModel(t, (body, response) => {
@@ -174,6 +170,52 @@ providerTest("chapter summary: output budget stays within the compact chapter ta
   assert.ok((model.requests[0]!.max_tokens as number) <= SUMMARY_TARGET_TOKENS);
 });
 
+providerTest("chapter summary rejects an instruction-only source edit", async (t) => {
+  let base = "";
+  let storyId = "";
+  let sourceId = "";
+  let sourceText = "";
+  const model = await fakeModel(t, async (body, response) => {
+    await json(`${base}/api/stories/${storyId}/nodes/${sourceId}`, {
+      method: "PATCH",
+      headers: {
+        ...API_PROTOCOL_HEADERS,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        instruction: "Writer changed the chapter source.",
+        expectedTextHash: sha256(sourceText)
+      })
+    });
+    stream(response, [`Stale recap.\n${markerFrom(promptFrom(body))}`]);
+  });
+  base = await testApp(t, summarySettings(model.baseUrl, 4096, 512));
+  const story = await seededStory(base, "Chapter source.");
+  storyId = story.id;
+  sourceId = story.path[0]!.id;
+  sourceText = story.path[0]!.text;
+  const created = await json<{ payload: StoryPayload; breakId: string }>(
+    `${base}/api/stories/${story.id}/chapter-breaks`,
+    post({ parentPartId: sourceId })
+  );
+
+  const response = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/chapter-breaks/${created.breakId}/summarize`,
+    post({})
+  );
+  assert.equal(response.status, 409);
+  assert.match(await response.text(), /chapter changed while its summary/i);
+  const saved = await getStory(base, story.id);
+  assert.equal(
+    saved.path[0]?.instruction,
+    "Writer changed the chapter source."
+  );
+  assert.equal(
+    saved.nodes.some((node) => node.chapterBreakId === created.breakId),
+    false
+  );
+});
+
 providerTest("summary take: an unset creative temperature still uses the continuity-safe cap", async (t) => {
   const model = await fakeModel(t, (body, response) => stream(response, [`Recap.\n${markerFrom(promptFrom(body))}`]));
   const base = await testApp(t, summarySettings(model.baseUrl, 4096, 512, null));
@@ -234,73 +276,6 @@ function post(body: unknown): RequestInit {
   };
 }
 
-async function fakeModel(
-  t: test.TestContext,
-  reply: (body: Record<string, unknown>, response: ServerResponse) => void | Promise<void>
-): Promise<{ baseUrl: string; requests: Record<string, unknown>[] }> {
-  const requests: Record<string, unknown>[] = [];
-  const server = createServer(async (request, response) => {
-    const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
-    requests.push(body);
-    await reply(body, response);
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
-  return { baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests };
-}
-
-function stream(response: ServerResponse, chunks: readonly string[]): void {
-  response.writeHead(200, { "content-type": "text/event-stream" });
-  for (const content of chunks) response.write(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\n`);
-  response.end("data: [DONE]\n\n");
-}
-
-async function testApp(t: test.TestContext, settings: GenerationSettings): Promise<string> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-take-"));
-  await writeFile(
-    path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
-    LEGACY_PREVIEW_DATA_MARKER_TEXT,
-    { mode: 0o600 }
-  );
-  await writeFile(
-    path.join(dataDir, "settings.json"),
-    formatGenerationSettingsV1(settings),
-    { encoding: "utf8", mode: 0o600, flag: "wx" }
-  );
-  const port = await availablePort();
-  const server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
-    cwd: path.resolve(import.meta.dirname, ".."), env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  let output = "";
-  server.stdout?.on("data", (chunk) => { output += String(chunk); });
-  server.stderr?.on("data", (chunk) => { output += String(chunk); });
-  t.after(async () => { await stopApp(server); await rm(dataDir, { recursive: true, force: true }); });
-  const base = `http://127.0.0.1:${port}`;
-  await waitForTestServer(server, base, () => output);
-  return base;
-}
-
-async function availablePort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
-  const port = (probe.address() as AddressInfo).port;
-  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
-  return port;
-}
-
-async function stopApp(server: ChildProcess): Promise<void> {
-  if (server.exitCode !== null || server.signalCode !== null) return;
-  server.kill("SIGTERM");
-  await Promise.race([new Promise<void>((resolve) => server.once("exit", () => resolve())), new Promise((resolve) => setTimeout(resolve, 1_000))]);
-  if (server.exitCode === null && server.signalCode === null) server.kill("SIGKILL");
-}
-
-async function requestText(request: IncomingMessage): Promise<string> {
-  let text = "";
-  for await (const chunk of request) text += String(chunk);
-  return text;
-}
 
 async function getStory(base: string, id: string): Promise<StoryPayload> {
   return await json(`${base}/api/stories/${id}`);

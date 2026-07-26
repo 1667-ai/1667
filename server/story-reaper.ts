@@ -62,82 +62,88 @@ export class StoryReaper {
   }
 
   async reapIfEligible(storyId: string): Promise<boolean> {
-    return await this.run(storyId, false);
+    return await this.coordinator.runStoryMaintenance(
+      storyId,
+      async () => await this.sweep(storyId, false)
+    );
   }
 
+  /** Read paths call this, so a story already claimed by a live mutation
+   * skips instead of failing the read that asked for it. */
   async recoverResidue(storyId: string): Promise<boolean> {
-    return await this.run(storyId, true);
+    return await this.coordinator.runStoryMaintenanceWhenIdle(
+      storyId,
+      async () => await this.sweep(storyId, true)
+    ) ?? false;
   }
 
-  private async run(
+  private async sweep(
     storyId: string,
     residueOnly: boolean
   ): Promise<boolean> {
-    return await this.coordinator.runStoryMaintenance(storyId, async () => {
-      const paths = this.paths(storyId);
-      await this.recoverIdentityTemp(paths);
-      const [canonical, residue, identity] = await Promise.all([
-        lstatOptional(paths.canonical),
-        lstatOptional(paths.residue),
-        lstatOptional(paths.identity)
-      ]);
-      if (canonical !== null && !canonical.isDirectory()) {
-        throw corruptReap(storyId, "canonical story is not a directory");
+    const paths = this.paths(storyId);
+    await this.recoverIdentityTemp(paths);
+    const [canonical, residue, identity] = await Promise.all([
+      lstatOptional(paths.canonical),
+      lstatOptional(paths.residue),
+      lstatOptional(paths.identity)
+    ]);
+    if (canonical !== null && !canonical.isDirectory()) {
+      throw corruptReap(storyId, "canonical story is not a directory");
+    }
+    if (residue !== null && !residue.isDirectory()) {
+      throw corruptReap(storyId, "reaping residue is not a directory");
+    }
+    if (identity !== null && !identity.isFile()) {
+      throw corruptReap(storyId, "reaping identity is not a regular file");
+    }
+    if (residue !== null) {
+      if (canonical !== null || identity === null) {
+        throw corruptReap(storyId, "reaping residue has conflicting authority");
       }
-      if (residue !== null && !residue.isDirectory()) {
-        throw corruptReap(storyId, "reaping residue is not a directory");
-      }
-      if (identity !== null && !identity.isFile()) {
-        throw corruptReap(storyId, "reaping identity is not a regular file");
-      }
-      if (residue !== null) {
-        if (canonical !== null || identity === null) {
-          throw corruptReap(storyId, "reaping residue has conflicting authority");
-        }
-        await this.readIdentity(paths);
-        await this.requireDeletedBundle(paths.residue, storyId, false);
-        await this.removeResidue(paths);
-        return true;
-      }
-      if (residueOnly && identity === null) return false;
-      if (canonical === null) {
-        if (identity !== null) {
-          await this.readIdentity(paths);
-          await this.cleanupIdentity(paths);
-          await this.hooks.afterCleanup?.();
-        }
-        return false;
-      }
-
-      const manifest = await this.requireDeletedBundle(
-        paths.canonical,
-        storyId,
-        true
-      );
-      if (manifest.unresolvedProvider !== null) return false;
-      if (!this.isEligible(manifest)) return false;
-      const mutationId = manifest.lastTransaction?.mutationId;
-      if (mutationId === undefined) {
-        throw corruptReap(storyId, "deleted story lacks a transaction identity");
-      }
-      if (identity === null) {
-        await this.publishIdentity(paths, storyId, mutationId);
-        await this.hooks.afterIdentity?.();
-      } else {
-        const existing = await this.readIdentity(paths);
-        if (existing.mutationId !== mutationId) {
-          throw corruptReap(storyId, "reaping identity names a different transaction");
-        }
-      }
-      if (await lstatOptional(paths.residue) !== null) {
-        throw corruptReap(storyId, "reaping target already exists");
-      }
-      await rename(paths.canonical, paths.residue);
-      await syncDirectory(this.root);
-      await this.hooks.afterRename?.();
+      await this.readIdentity(paths);
+      await this.requireDeletedBundle(paths.residue, storyId, false);
       await this.removeResidue(paths);
       return true;
-    });
+    }
+    if (residueOnly && identity === null) return false;
+    if (canonical === null) {
+      if (identity !== null) {
+        await this.readIdentity(paths);
+        await this.cleanupIdentity(paths);
+        await this.hooks.afterCleanup?.();
+      }
+      return false;
+    }
+
+    const manifest = await this.requireDeletedBundle(
+      paths.canonical,
+      storyId,
+      true
+    );
+    if (manifest.unresolvedProvider !== null) return false;
+    if (!this.isEligible(manifest)) return false;
+    const mutationId = manifest.lastTransaction?.mutationId;
+    if (mutationId === undefined) {
+      throw corruptReap(storyId, "deleted story lacks a transaction identity");
+    }
+    if (identity === null) {
+      await this.publishIdentity(paths, storyId, mutationId);
+      await this.hooks.afterIdentity?.();
+    } else {
+      const existing = await this.readIdentity(paths);
+      if (existing.mutationId !== mutationId) {
+        throw corruptReap(storyId, "reaping identity names a different transaction");
+      }
+    }
+    if (await lstatOptional(paths.residue) !== null) {
+      throw corruptReap(storyId, "reaping target already exists");
+    }
+    await rename(paths.canonical, paths.residue);
+    await syncDirectory(this.root);
+    await this.hooks.afterRename?.();
+    await this.removeResidue(paths);
+    return true;
   }
 
   private async requireDeletedBundle(

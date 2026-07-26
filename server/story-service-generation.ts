@@ -76,10 +76,10 @@ export class StoryServiceGeneration {
           },
           () => undefined
         );
-        return buildStoryPayload(committed.story, {
-          kind: "v6",
-          revision: committed.result.storyRevision
-        });
+        return buildStoryPayload(
+          committed.story,
+          committed.aggregateVersion
+        );
       });
     }
     return await this.dependencies.cancellable(
@@ -131,10 +131,10 @@ export class StoryServiceGeneration {
             () => true
           );
           if (!committed.value) return null;
-          return buildStoryPayload(committed.story, {
-            kind: "v6",
-            revision: committed.result.storyRevision
-          });
+          return buildStoryPayload(
+            committed.story,
+            committed.aggregateVersion
+          );
         }
         const story = await continueStory(
           id,
@@ -298,10 +298,10 @@ export class StoryServiceGeneration {
           },
           () => undefined
         );
-        return buildStoryPayload(committed.story, {
-          kind: "v6",
-          revision: committed.result.storyRevision
-        });
+        return buildStoryPayload(
+          committed.story,
+          committed.aggregateVersion
+        );
       });
     }
     return await this.dependencies.cancellable(

@@ -15,7 +15,10 @@ import test from "node:test";
 import {
   type PackagedArtifactTarget
 } from "../shared/build-identity.js";
-import { releaseTargetForArtifact } from "../shared/release-targets.js";
+import {
+  RELEASE_PACKAGE_COUNT,
+  releaseTargetForArtifact
+} from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 import { createReleasePackageTemplates } from "../scripts/release-package-templates.js";
 
@@ -45,7 +48,7 @@ const sourceEvidence = {
   }
 } as const;
 
-test("local release preflight CLI validates six tarballs and emits canonical evidence", async (t) => {
+test("local release preflight CLI validates every tarball and emits canonical evidence", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-preflight-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identities = createReleaseIdentitySet(sourceEvidence);
@@ -103,7 +106,9 @@ test("local release preflight CLI validates six tarballs and emits canonical evi
     maxBuffer: 2 * 1024 * 1024
   });
   const output = JSON.parse(stdout) as { artifacts: { name: string }[] };
-  assert.equal(output.artifacts.length, 6);
+  // Derived, so dropping or restoring a release target cannot silently
+  // leave this gate asserting a stale artifact count.
+  assert.equal(output.artifacts.length, RELEASE_PACKAGE_COUNT);
   assert.equal(output.artifacts[0]!.name, "1667");
   assert.match(stderr, /^release-manifest-sha256 [0-9a-f]{64}\n$/);
   assert.equal(JSON.stringify(output), stdout);

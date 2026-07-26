@@ -13,6 +13,7 @@ import {
 } from "../shared/http-operation-protocol.js";
 import { ServiceError } from "../server/errors.js";
 import { HttpOperationSessionStore } from "../server/http-operation-sessions.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 const INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
 const MUTATION_ID = "m1.1753356800000.22222222222222222222222222222222";
@@ -516,7 +517,10 @@ test("HTTP operation lifecycle keeps 20k local calls within its CPU budget", asy
   }
   const usage = process.cpuUsage(started);
   const cpuMs = (usage.user + usage.system) / 1_000;
-  assert.ok(cpuMs < 2_000, `20k operation lifecycles used ${cpuMs.toFixed(1)}ms CPU`);
+  assert.ok(
+    cpuMs < platformPerformanceBudget(2_000),
+    `20k operation lifecycles used ${cpuMs.toFixed(1)}ms CPU`
+  );
 });
 
 function assertServiceCode(

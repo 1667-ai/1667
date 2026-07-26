@@ -1,15 +1,11 @@
 import assert from "node:assert/strict";
 import {
   access,
-  mkdtemp,
   readFile,
-  rm,
   writeFile
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { Story } from "../shared/types.js";
 import {
   GenerationResultError,
   ProviderError,
@@ -31,20 +27,23 @@ import {
   type StoryMutationStoreHooks
 } from "../server/story-mutation-store.js";
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
-import {
-  STORY_UNCHANGED,
-  StoryStore
-} from "../server/stories.js";
+import { STORY_UNCHANGED } from "../server/stories.js";
 import { StoryDurabilityError } from "../server/story-lifecycle.js";
-
-const STORY_ID = "q-local-story";
-const MUTATION_ID = "m1.1767225600000.0123456789abcdef0123456789abcdef";
-const OTHER_MUTATION_ID = "m1.1767225600000.1123456789abcdef0123456789abcdef";
-const DELETE_MUTATION_ID = "m1.1767225600000.2123456789abcdef0123456789abcdef";
-const ACK_MUTATION_ID = "m1.1767225600000.3123456789abcdef0123456789abcdef";
-const FINGERPRINT = "a".repeat(64);
-const OTHER_FINGERPRINT = "b".repeat(64);
-const FIXED_NOW = new Date("2026-01-01T00:00:00.000Z");
+import {
+  ACK_MUTATION_ID,
+  DELETE_MUTATION_ID,
+  FINGERPRINT,
+  FIXED_NOW,
+  hasServiceError,
+  MUTATION_ID,
+  OTHER_FINGERPRINT,
+  OTHER_MUTATION_ID,
+  request,
+  requestFor,
+  setup,
+  STORY_ID,
+  storyFixture
+} from "./story-mutation-fixtures.js";
 
 test("Q local mutation upgrades exact V5 to receipt-backed V6 and retries by receipt first", async (t) => {
   const fixture = await setup(t, "1667-q-local-");
@@ -699,53 +698,6 @@ for (const point of ["stage", "prepared", "publish", "acknowledged", "completed"
   });
 }
 
-async function setup(
-  t: Pick<import("node:test").TestContext, "after">,
-  prefix: string,
-  hooks: StoryMutationStoreHooks = {}
-) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), prefix));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const storiesDir = path.join(dataDir, "stories");
-  const stories = new StoryStore(storiesDir);
-  await stories.init();
-  await stories.save(storyFixture());
-  const manifestFile = path.join(storiesDir, STORY_ID, "manifest.json");
-  const v5Hash = hashStoryV5ManifestBytes(await readFile(manifestFile));
-  const ledger = new MutationLedgerStore(dataDir);
-  const mutations = new StoryMutationStore(
-    stories,
-    createMutationCoordinator(),
-    dataDir,
-    { ledger, hooks, now: () => FIXED_NOW }
-  );
-  await mutations.init();
-  return { dataDir, stories, ledger, mutations, manifestFile, v5Hash };
-}
-
-function request(manifestHash: string) {
-  return requestFor(MUTATION_ID, FINGERPRINT, {
-    kind: "v5",
-    manifestHash
-  });
-}
-
-function requestFor(
-  mutationId: string,
-  fingerprint: string,
-  expectedAggregateVersion: NonNullable<
-    Awaited<ReturnType<StoryStore["loadVersioned"]>>["aggregateVersion"]
-  >
-) {
-  return {
-    transportOperationId: "operation-local",
-    mutationId,
-    fingerprint,
-    scope: `story:${STORY_ID}`,
-    expectedAggregateVersion
-  };
-}
-
 async function makeProviderOutcomeUnknown(
   fixture: Awaited<ReturnType<typeof setup>>
 ): Promise<void> {
@@ -763,27 +715,8 @@ async function makeProviderOutcomeUnknown(
   );
 }
 
-function storyFixture(): Story {
-  return {
-    id: STORY_ID,
-    title: "Original",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    nodes: [],
-    activeRootId: null,
-    bookmarks: [],
-    recentNodeIds: [],
-    facts: [],
-    chapterBreaks: []
-  };
-}
-
 function capitalize(value: string): string {
   return `${value[0]!.toUpperCase()}${value.slice(1)}`;
-}
-
-function hasServiceError(code: string): (error: unknown) => boolean {
-  return (error) => error instanceof ServiceError && error.code === code;
 }
 
 function hasFsCode(code: string): (error: unknown) => boolean {
