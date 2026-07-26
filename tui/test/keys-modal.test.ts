@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AI_1667_VERSION_TAG } from "../../shared/build-identity.js";
 import {
   KEYS_MODAL_MODEL,
   renderKeysOverlay,
@@ -50,7 +51,7 @@ describe("keys reference", () => {
     const body = frame.split("\n").filter((line) => line.includes("┃")).join("\n");
     const words = body.replace(/\n\s*┃\s*/g, " ").replace(/\s+/g, " ");
     expect(body).not.toContain("…");
-    for (const line of frame.split("\n")) expect(visibleWidth(line)).toBeLessThanOrEqual(20);
+    for (const line of frame.split("\n")) expect(visibleWidth(line) <= 20).toBeTrue();
     for (const item of entries) expect(words).toContain(item.description);
     expect(words).toContain("r retake · same prompt");
     expect(words).toContain("R retake · edit prompt");
@@ -59,8 +60,8 @@ describe("keys reference", () => {
   test("a minimum-width short panel keeps build identity and a scroll cue", () => {
     const frame = text(20, 10);
     expect(frame).toContain("keys ↑↓ 1/");
-    expect(frame).toContain("1667 v0.1.0");
-    expect(frame).not.toContain("1667 v0.1.0…");
+    expect(frame).toContain(`1667 ${AI_1667_VERSION_TAG}`);
+    expect(frame).not.toContain(`1667 ${AI_1667_VERSION_TAG}…`);
   });
 
   test("the old QWERTY diagram and its unexplained bands are gone", () => {

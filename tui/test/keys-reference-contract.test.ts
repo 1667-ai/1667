@@ -9,7 +9,7 @@ import { mouseToAction } from "../src/mouse-actions.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
 import { KEYS_MODAL_MODEL } from "../src/screens/keys-modal.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { createWrapCache } from "../src/wrap.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 function key(
   name: string,
@@ -106,7 +106,7 @@ describe("keys reference contract", () => {
   test("KEYS actions mutate, floor, clamp through rendering, and accept wheel input", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
-    const cache = createWrapCache();
+    const cache = createWrapCache<ProseStyle>();
     const backend = new ActionRuntime(state, () => undefined);
     const apply = async (action: Parameters<typeof handleOverlayAction>[0]) => {
       expect(await handleOverlayAction(action, state, source, {
