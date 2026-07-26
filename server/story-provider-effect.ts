@@ -363,7 +363,15 @@ function applyChapterSummary(
   effect: ChapterSummaryEffect
 ): AppliedProviderStoryEffect<Story> {
   requireNotCancelled(effect.cancelled, "Chapter summarization was cancelled");
-  const chapter = chapterSummarySource(story, effect.breakId);
+  let chapter: ReturnType<typeof chapterSummarySource>;
+  try {
+    chapter = chapterSummarySource(story, effect.breakId);
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      throw new GenerationResultError(error.status, error.message);
+    }
+    throw error;
+  }
   if (chapterSourceFingerprint(story, effect.breakId)
     !== effect.sourceFingerprint) {
     throw new GenerationResultError(
@@ -448,5 +456,7 @@ function requireNotCancelled(
   signal: AbortSignal | undefined,
   message: string
 ): void {
-  if (signal?.aborted === true) throw new ServiceError(409, message);
+  if (signal?.aborted === true) {
+    throw new GenerationResultError(409, message);
+  }
 }

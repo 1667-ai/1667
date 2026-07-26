@@ -299,6 +299,34 @@ test("continue fails when its parent was deleted", async () => {
   );
 });
 
+test("late provider-effect cancellation is a definitive terminal conflict", async () => {
+  const current = story([node("root", null, "Opening.")]);
+  const cancelled = new AbortController();
+
+  await assert.rejects(
+    applyProviderStoryEffect(current, {
+      kind: "continue",
+      parentId: null,
+      appendTo: "root",
+      expectedTextHash: sha256("Opening."),
+      instruction: "",
+      text: " Must not commit.",
+      model: "m",
+      genId: "cancelled-after-hydration",
+      expectedParentActiveChildId: null,
+      expectedAppendActiveChildId: null,
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root",
+      cancelled: cancelled.signal
+    }, async () => {
+      cancelled.abort();
+    }),
+    (error: unknown) =>
+      error instanceof GenerationResultError && error.code === "conflict"
+  );
+  assert.equal(current.nodes[0]?.text, "Opening.");
+});
+
 test("rewrite transfers only provider-owned fields and its rewrite ID", async () => {
   const target = node("root", null, "Opening.", {
     attribution: { source: "human", ranges: [{ start: 0, end: 7 }] },
@@ -430,4 +458,21 @@ test("chapter summary refresh preserves identity and transfers all summary metad
   assert.equal(nodeRewriteId(summary), "rewrite-summary");
   assert.equal(summary.coveredExtent?.toPartId, "next");
   assert.notEqual(summary.madeAt, AT);
+});
+
+test("chapter-source drift is a definitive terminal conflict", async () => {
+  const current = story([node("root", null, "Opening.")]);
+
+  await assert.rejects(
+    applyProviderStoryEffect(current, {
+      kind: "chapter-summary",
+      breakId: "removed-break",
+      sourceFingerprint: "provider-input",
+      summary: "Must not commit.",
+      model: "m"
+    }, hydrate),
+    (error: unknown) =>
+      error instanceof GenerationResultError && error.code === "conflict"
+  );
+  assert.equal(current.nodes.length, 1);
 });
