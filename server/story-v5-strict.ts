@@ -60,9 +60,13 @@ export function requireStoryId(value: unknown, label: string): string {
 
 /** Structural closure and resource bounds for the already-shipped V5 wire shape.
  * Existing parsers remain responsible for graph and chapter consistency. */
-export function assertStrictV5Manifest(value: unknown, expectedId: string): asserts value is Record<string, unknown> {
+export function assertStrictV5Manifest(
+  value: unknown,
+  expectedId: string,
+  expectedFormat: "1667-story" | "storytavern-story" = "1667-story"
+): asserts value is Record<string, unknown> {
   const manifest = closedRecord(value, `story ${expectedId} manifest`, ROOT);
-  literal(manifest.format, "1667-story", "manifest.format");
+  literal(manifest.format, expectedFormat, "manifest.format");
   literal(manifest.schemaVersion, 5, "manifest.schemaVersion");
   const id = requireStoryId(manifest.id, "manifest.id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);

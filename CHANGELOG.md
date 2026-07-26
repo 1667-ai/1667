@@ -5,6 +5,9 @@ the [README](README.md#technical-terms).
 
 ## Unreleased
 
+- **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
+  manifest and text-revision identifiers without changing content hashes. New
+  story writes use 1667 identifiers. Thanks @10fra for the migration report.
 - **Unexpected backend failures now have private local diagnostics.** 1667
   writes bounded machine-tier logs, returns safe persisted references across
   HTTP and embedded-worker boundaries, and can mirror new entries with

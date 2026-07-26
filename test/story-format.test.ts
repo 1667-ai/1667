@@ -16,6 +16,9 @@ import {
   parseLegacyStory,
   parseManifest,
   parseRevision,
+  STORY_FORMAT,
+  STORYTAVERN_REVISION_FORMAT,
+  STORYTAVERN_STORY_FORMAT,
   revisionId,
   serializeManifest,
   serializeRevision,
@@ -45,8 +48,37 @@ test("story format: chunking and revision hashes preserve exact prose", () => {
   const raw = serializeRevision(revision);
   assert.deepEqual(parseRevision(raw, revisionId(revision)), revision);
   assert.throws(() => parseRevision(`${raw} `, revisionId(revision)), StoryFormatError);
+  const storyTavernRaw = JSON.stringify({
+    ...revision,
+    format: STORYTAVERN_REVISION_FORMAT
+  });
+  assert.equal(
+    parseRevision(storyTavernRaw, sha256(Buffer.from(storyTavernRaw))).format,
+    STORYTAVERN_REVISION_FORMAT
+  );
   const excessive = Array.from({ length: MAX_CHUNKS_PER_REVISION + 1 }, () => "x").join("\n\n");
   assert.throws(() => chunkText(excessive), /chunk limit/);
+});
+
+test("story format: StoryTavern V5 manifests normalize to the current identity", () => {
+  const parsed = parseManifest(JSON.stringify({
+    format: STORYTAVERN_STORY_FORMAT,
+    schemaVersion: 5,
+    id: "storytavern-v5",
+    title: "Legacy",
+    createdAt: NOW,
+    updatedAt: NOW,
+    activeWordCount: 0,
+    nodes: [],
+    facts: [],
+    activeRootId: null,
+    bookmarks: [],
+    recentNodeIds: [],
+    chapterBreaks: []
+  }), "storytavern-v5");
+
+  assert.equal(parsed.format, STORY_FORMAT);
+  assert.equal(parsed.schemaVersion, 5);
 });
 
 test("story objects: foreground cancellation leaves cleanup safe to retry", async (t) => {
@@ -259,6 +291,13 @@ test("story format: V2 and legacy JSON normalize to V5 trees", () => {
   assert.equal(parsed.nodes[0]!.id, "p1");
   assert.equal(parsed.activeRootId, "p1");
   assert.equal(JSON.parse(serializeManifest(parsed)).schemaVersion, 5);
+  assert.deepEqual(
+    parseManifest(
+      JSON.stringify({ ...v2, format: STORYTAVERN_STORY_FORMAT }),
+      v2.id
+    ),
+    parsed
+  );
 
   const legacy = {
     id: "legacy", title: "Legacy", createdAt: NOW, updatedAt: NOW,

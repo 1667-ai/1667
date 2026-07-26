@@ -6,6 +6,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
+  STORY_FORMAT,
+  STORYTAVERN_STORY_FORMAT
+} from "../server/story-format.js";
+import {
   formatV6,
   MAX_DELETED_STORY_MANIFEST_BYTES,
   parseStoryManifestBytes,
@@ -72,6 +76,21 @@ test("story V6: formatter and summary adapter preserve the canonical live contra
     forked: false,
     lineCount: 0
   });
+});
+
+test("story V6: StoryTavern identities normalize without changing story state", () => {
+  const fixture = corpus.cases.find((entry) => entry.name === "v6-live-revision-1");
+  assert.ok(fixture);
+  const legacyText = fixture.text.replaceAll(
+    STORY_FORMAT,
+    STORYTAVERN_STORY_FORMAT
+  );
+  const parsed = parseStoryManifestText(legacyText, fixture.expectedId);
+  if (parsed.kind !== "v6-live") assert.fail("Expected the StoryTavern V6 fixture to parse as live");
+
+  assert.equal(parsed.manifest.format, STORY_FORMAT);
+  assert.equal(parsed.manifest.content.format, STORY_FORMAT);
+  assert.equal(formatV6(parsed.manifest), fixture.text);
 });
 
 test("story manifests: byte ceilings and UTF-8 failures reject before wire parsing", () => {
