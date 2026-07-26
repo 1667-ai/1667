@@ -1,51 +1,50 @@
 # Changelog
 
-All notable changes to 1667 will be documented in this file.
+This file records notable changes to 1667. Product terms use the definitions in
+the [README](README.md#technical-terms).
 
 ## Unreleased
 
-- **Repository documentation now shows build status and uses a defined language
-  standard.** The README shows CI and packaged-build status for `main`.
+- **Public documentation now describes the current repository.** The README
+  states the public status and exact CI coverage. The release guide specifies
+  five release packages and four release targets. Obsolete plan documents are
+  removed. Thanks @10fra for the documentation audit.
+- **Repository documentation shows build status and uses a defined language
+  standard.** The README shows CI and standalone-build status for `main`.
   `AGENTS.md` requires ASD-STE100 for technical documentation and README files.
   Thanks @10fra for defining the standard.
-- **Generation stays out of the writer's way.** Provider work now runs between
-  short durable phases, then applies an operation-specific result to the
-  current story without losing intervening edits. Linux race coverage includes
-  Stop saves, deleted sources, manual renames, and provider teardown. Thanks
-  @10fra for tracing the CI-only failures and driving the recovery work.
-- **Stories are anchored to the folder you start 1667 in.** `1667` walks up for a
-  `.1667/` project the way git walks up for `.git`; `1667 init` creates one, and
-  `1667 --global` keeps a single machine-wide library instead. `--data` now names
-  a project root and accepts relative paths. Starting outside any project asks
-  once, and refuses in one line when nobody can answer.
-- **Provider secrets moved to a machine tier** beside the HTTP auth records, so a
-  project directory can be committed or synced while each machine supplies its
-  own key. A project holding a stray `secrets.json` now fails closed and says
-  where to move it.
-- **`1667 export` writes the selected branch to the project root**, with chapters
-  as `##` headings, a suffix for collisions, and `--force` to overwrite. 1667
-  never reads a file it exported.
-- **Concurrency is per project.** Servers bind a free port and publish
-  `.1667/run.json`; `1667 --url` with no value attaches to it. Lock contention
-  names the process holding the project, and a crash needs no cleanup.
-- **`1667 init --adopt` migrates a pre-0.2 data directory** into this folder's
-  project, moving provider secrets to the machine tier first and refusing before
-  it moves anything if the source cannot be adopted whole.
-- Removed the `--initialize-new` and `--offline-exclusive` flags, the fixed
-  `127.0.0.1:7373` listener and its initialization guard, the packaged
-  absolute-path requirement for `--data`, and the filesystem allowlist,
-  ancestor-permission walk, and Darwin ACL scan that refused ordinary folders.
-  A locking-capability probe replaces the allowlist, so iCloud, exFAT, and SMB
-  work exactly when they work. Strict privacy checks now apply to the machine
-  tier, which 1667 creates itself. 1,800 lines net removed. See
-  [ADR 007](docs/adr/007-project-anchored-storage.md).
-- **`?` now explains every key it shows.** The QWERTY diagram and its colour
-  bands are gone; each key sits beside a plain description of what it does,
-  grouped into move, write, shape, open, and map. The reference takes as many
-  columns as the terminal is wide and scrolls with the arrows when a short one
-  cannot hold it. Thanks @10fra for rebuilding the reference around what
-  writers need to know.
-- **The running build shows in the status-bar corner**, and in the key
-  reference's footer where a narrow terminal hides the status bar.
-- Extracted the 1667 terminal application and its embedded runtime into an
-  independent repository.
+- **Generation does not block local writer actions.** Provider work uses short
+  durable phases. The final phase applies an operation-specific result to the
+  current story. Concurrent edits remain unchanged. Linux tests cover Stop
+  saves, deleted sources, manual names, and provider termination. Thanks
+  @10fra for the CI failure analysis.
+- **Stories use project-root storage.** 1667 searches parent directories for a
+  `.1667/` project. `1667 init` creates a project. `1667 --global` opens one
+  machine-wide project. `--data` selects a project root and accepts a relative
+  path. An interactive start can create an absent project.
+- **Provider secrets use the machine tier.** Project settings contain an
+  opaque secret identifier. Each machine supplies its own secret. A project
+  with a legacy `secrets.json` file fails closed and identifies the machine
+  tier.
+- **`1667 export` writes the selected story line to the project root.** Chapter
+  titles use `##` headings. A name collision adds a suffix. `--force` permits
+  replacement. 1667 does not read an exported file.
+- **Project locks control concurrent writers.** A server selects a free port
+  and writes `.1667/run.json`. A bare `1667 --url` uses this record. Lock
+  contention identifies the owner process. The operating system releases a
+  lock after a process failure.
+- **`1667 init --adopt` moves legacy data into a project.** It first moves
+  provider secrets to the machine tier. It refuses the operation before any
+  move when it cannot adopt the complete source.
+- **Project storage accepts ordinary file systems that enforce locks.** This
+  change removes `--initialize-new`, `--offline-exclusive`, and the fixed
+  `127.0.0.1:7373` listener. It also removes the old file-system allowlist,
+  absolute `--data` requirement, and project-tier privacy scan. Strict privacy
+  checks apply to the machine tier.
+- **The key reference explains each visible key.** The reference groups keys
+  by task. It uses available terminal columns and supports arrow-key scroll.
+  Thanks @10fra for the new reference design.
+- **The TUI shows the build identity.** The status bar shows the identity. The
+  key reference also shows it when a narrow terminal hides the status bar.
+- **1667 has an independent repository.** The terminal application and its
+  embedded runtime moved out of the previous repository.
