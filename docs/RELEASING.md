@@ -1,51 +1,122 @@
 ---
-summary: Local ADR-005 release-package preflight and its trust boundary
+summary: Local release-package preflight and its trust boundary
 read_when:
   - preparing or inspecting 1667 release packages
   - changing release identity, package layout, SBOMs, or artifact manifests
   - proposing hosted publication
 ---
 
-# Releasing 1667
+# Release preflight for 1667
 
-Hosted publication is not enabled. ADR 005 implements local identity and
-package-policy preflight only. Do not reserve names, publish packages, move
-registry tags, or describe an artifact as an official release until a separate
-publication ADR is accepted and implemented.
+This repository does not support hosted publication. It supports local release
+preflight only.
+
+Do not reserve package names. Do not publish packages. Do not move registry
+tags. Do not describe a candidate as an official release.
+
+Maintainers must approve a separate publication ADR. The repository must
+implement that ADR before publication.
+
+## Technical terms
+
+This document uses these Technical Names:
+
+| Term | Meaning |
+| --- | --- |
+| release target | One supported operating system and processor architecture |
+| release package | One npm tarball in the release matrix |
+| launcher package | The JavaScript package named `1667` |
+| platform package | A package that contains one native executable |
+| candidate | A possible release package that has not received publication approval |
+| build identity | Version, source, time, protocol, and target data in a native executable |
+| source evidence | Trusted source, tag, version, and time data |
+| release plan | The strict JSON input for release preflight |
+| artifact manifest | The canonical JSON output from release preflight |
+| SBOM | The SPDX Software Bill of Materials in each release package |
+| preflight | Local validation of release packages and their evidence |
+
+## Publication boundary
+
+Preflight validates package evidence. Preflight does not authorize
+publication.
+
+The preflight tool does not:
+
+- Invoke Git
+- Build a native executable
+- Build an npm tarball
+- Extract a tarball
+- Sign a file
+- Access the network
+- Publish a package
+
+## Release package matrix
+
+The release matrix contains exactly five release packages:
+
+| Release target | Package name | `buildIdentity` |
+| --- | --- | --- |
+| Launcher | `1667` | `null` |
+| macOS arm64 | `1667-darwin-arm64` | Trusted native identity |
+| macOS x64 | `1667-darwin-x64` | Trusted native identity |
+| Linux arm64 | `1667-linux-arm64` | Trusted native identity |
+| Linux x64 | `1667-linux-x64` | Trusted native identity |
+
+The matrix contains one launcher package and four platform packages. The
+release matrix does not contain a Windows package.
 
 ## Required trusted inputs
 
-Before preflight, collect:
+Collect these inputs before preflight:
 
-1. A clean source commit and matching annotated `v<SemVer>` tag.
-2. A successful trusted local `git verify-tag <tag>` result.
-3. One millisecond-precision UTC build timestamp shared by all targets.
-4. Matching root, TUI, and lockfile versions.
-5. A trusted `--version --json` observation from each native executable.
-6. Exactly six already-packed tarballs: launcher plus five platform packages.
+1. Use a clean source commit.
+2. Create an annotated `v<SemVer>` tag that targets the source commit.
+3. Run trusted signature verification with `git verify-tag <tag>`.
+4. Select one millisecond-precision UTC build timestamp for all targets.
+5. Use the same version in the root package, TUI package, and root lockfile.
+6. Run `--version --json` on each of the four native executables.
+7. Pack the launcher package and the four platform packages.
 
-The plan's `tagSignature: "verified"` and native `buildIdentity` fields are
-claims representing steps 2 and 5. The tool checks their internal agreement
-and binds them to tarball digests; it does not invoke Git, build, execute, sign,
-or publish.
+Each release package must contain `build-manifest.json` and
+`sbom.spdx.json`. Each platform package must also contain its native
+executable.
 
-## Preflight
+The release plan uses `tagSignature: "verified"` for step 3. Each native
+`buildIdentity` records the result from step 6. Preflight trusts both fields.
+
+Preflight checks agreement between the claims and package contents. Preflight
+also binds the claims to the tarball digests.
+
+## Run preflight
+
+Run this command:
 
 ```sh
 node --import tsx scripts/release-preflight.ts /absolute/path/to/plan.json \
   > /absolute/path/to/release-artifact-manifest.json
 ```
 
-The canonical artifact manifest is written to stdout without a trailing
-newline. Its SHA-256 is calculated over those exact stdout bytes and written to
-stderr as:
+Run the command from the repository root. The tool resolves relative tarball
+paths from the directory that contains `plan.json`.
+
+The tool writes the canonical artifact manifest to standard output. The output
+does not have a trailing newline.
+
+The tool writes this SHA-256 record to standard error:
 
 ```text
 release-manifest-sha256 <64 lowercase hex characters>
 ```
 
-The plan is strict JSON. This shape excerpt is not runnable until `artifacts`
-contains the required launcher plus five native entries:
+The SHA-256 value covers the exact standard-output bytes.
+
+## Release plan
+
+The release plan must use strict JSON. The `artifacts` array must contain
+exactly five entries.
+
+This excerpt shows the source evidence and one launcher entry. The excerpt is
+not a complete release plan.
 
 ```json
 {
@@ -76,35 +147,78 @@ contains the required launcher plus five native entries:
 }
 ```
 
-`artifacts` must contain exactly six entries. The launcher identity is `null`;
-each native entry contains its trusted observed build identity.
+Use `buildIdentity: null` only for the launcher package. Each platform entry
+must contain the trusted build identity from its native executable.
 
-## Local gate
+Preflight rejects missing, duplicate, extra, or unsupported packages. It also
+rejects package identities that do not agree with the source evidence.
 
-Before handing package evidence to any future publication system:
+## Local gates
+
+Run the root gates from the repository root:
 
 ```sh
-npm run typecheck
+npm run build
 npm test
-cd tui
+```
+
+Run the TUI gates from `tui/`:
+
+```sh
 bun run typecheck
 bun test
+bun bench/perf.ts
 bun run build:standalone
 ```
 
-Also inspect the canonical manifest and independently retain the tag-verification
-and native-identity evidence. Passing local preflight is necessary package
-evidence, not publication authorization.
+`bun run build:standalone` compiles and runs one native executable. By default,
+the executable contains a development build identity.
 
-The standalone command is a native execution gate, not only a compiler check.
-Run it on `darwin-arm64`, `darwin-x64`, `linux-arm64`, and `linux-x64`. Each candidate must prove its embedded identity, read-only
-diagnostic, demo render, and prompt-tokenizer vectors. The macOS and Linux
-candidates must also prove explicit absent-target publication, cold embedded
-render, and install relocation against the unchanged account data target.
-Linux additionally proves supervised child replacement and parent-death
-containment. macOS proves lock-aware serve fails closed. Windows proves that
-embedded storage and HTTP authority fail closed until their native DACL and
-reparse-safe adapters are complete.
+Supply the target-specific release build identity for a release candidate:
 
-See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md) for the exact matrix,
-bounds, and deferred decisions.
+```sh
+AI_1667_BUILD_IDENTITY_JSON='<trusted release identity JSON>' \
+  bun run build:standalone
+```
+
+Use an identity that agrees with the source evidence. Run the release-candidate
+build on each release target:
+
+- `darwin-arm64`
+- `darwin-x64`
+- `linux-arm64`
+- `linux-x64`
+
+All four candidates verify:
+
+- Embedded build identity
+- Protection from host `bunfig.toml` and `.env` files
+- Demo frame output
+- Command-line value validation
+- Read-only project diagnostics
+- Cold embedded frame output
+- Prompt-tokenizer vectors
+- Executable relocation
+- Stable machine-wide project storage
+- Safe use of existing project roots
+
+The macOS candidates verify that supervised server mode refuses the unsupported
+platform. The Linux candidates also verify supervised child replacement,
+parent-death containment, default-port publication, and lock guidance.
+
+Windows is not a release target. Repository tests verify the Windows
+fail-closed contracts separately.
+
+## Retain release evidence
+
+Inspect the canonical artifact manifest. Retain the artifact manifest and its
+SHA-256 value.
+
+Retain the tag-verification evidence. Retain the native build-identity
+observations.
+
+A successful preflight is necessary package evidence. It is not publication
+authorization.
+
+See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md)
+for the normative release policy.

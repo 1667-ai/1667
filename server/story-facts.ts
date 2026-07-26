@@ -94,9 +94,9 @@ export function factsSystemMessage(story: Story): string | null {
  *  shared ~4-chars/token average; non-ASCII counts two tokens per code point,
  *  covering CJK (~1) and most emoji (~2-3). This is deliberately a screen, not
  *  a tokenizer — a scope decision, not an oversight: exact provider tokenizers
- *  are out of scope by plan (plans/003, plans/002 out-of-scope), so dense
- *  ASCII/JSON facts or multi-token emoji can slip past, and the autoname
- *  budget shares the same char-level approximations. The invariant this
+ *  are outside the current scope, so dense ASCII/JSON facts or multi-token
+ *  emoji can slip past. The autoname budget shares the same char-level
+ *  approximations. The invariant this
  *  screen serves is "never silently lose or truncate a fact": a prompt that
  *  slips past is rejected by the provider with a visible error and nothing is
  *  saved. Do not "fix" this with byte-level bounds — they refuse legitimate

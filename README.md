@@ -2,46 +2,84 @@
 
 # 1667
 
-**A full-screen terminal environment for writing fiction with language models.**
+**A full-screen terminal environment for fiction writing with language models.**
 
-[![CI and packaged builds](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/1667-ai/1667/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI and standalone builds](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/1667-ai/1667/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
 
-1667 gives you a keyboard-driven writing surface, a branching story model, and a direct connection to the model provider that you choose. This repository holds the terminal user interface (TUI) and the embedded backend runtime that the TUI needs.
+1667 provides a keyboard interface and a story model with alternative takes.
+1667 also provides a direct connection to a selected model provider. This
+repository contains the terminal user interface (TUI) and its backend runtime.
 
 ## Status
 
-This repository is private during pre-release work for 1667.ai. There is no published installer, package, or release build. You build and run 1667 from source.
+This public repository contains pre-release source.
+
+| Item | Current status |
+| --- | --- |
+| Source repository | GitHub provides public access. |
+| Standalone candidates | CI builds and tests four targets. CI does not publish these files. |
+| Installer | The repository does not contain an `install.sh` script. |
+| npm package | 1667 does not publish an npm package. |
+| GitHub release | 1667 does not publish a GitHub release. |
+
+Build and run 1667 from source. You can also build a local standalone
+executable.
+
+## Technical terms
+
+This README uses these Technical Names:
+
+| Term | Meaning |
+| --- | --- |
+| TUI | The terminal user interface |
+| backend | The service that stores stories and sends provider requests |
+| project | A project root and its `.1667/` directory |
+| story part | One unit of story prose |
+| take | One alternative version of a story part |
+| story line | The selected path through story parts |
+| mass map | A map that shows all takes |
+| provider | A local or hosted service that supplies a language model |
+| machine tier | Private 1667 data for one machine |
+| project tier | Story data and settings in a `.1667/` directory |
+| working tier | User files in a project root |
+| frame | One complete terminal screen |
+| standalone executable | One executable that contains the runtime dependencies |
+| release target | One supported operating system and processor architecture |
 
 ## Features
 
 - Write in a full-screen terminal interface with six themes.
-- Branch any part of the story into sibling takes, then switch between them.
-- Read your story as a path, a tree, or a mass map of every branch.
-- Track facts, chapters, and remaining context space in a side rail.
-- Edit any part, fact, or chapter summary in a built-in full-screen editor.
-- Run one process, because the backend runs in an embedded worker with no network port.
-- Cancel a generation at any time, and keep the story consistent.
-- Connect to hosted or local models over an OpenAI-compatible or Anthropic Messages endpoint.
+- Add sibling takes to any story part.
+- Select a take for each story part.
+- Read a story as a story line, a tree, or a mass map.
+- View facts and estimated request context in the side rail.
+- Manage chapter boundaries and chapter summaries in the Chapters view.
+- Edit story parts, facts, and chapter summaries in the full-screen editor.
+- Use the embedded backend worker without a network port.
+- Cancel a generation. 1667 does not change committed story data.
+- Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
 
-## Requirements
+## Source requirements
 
-- Bun 1.3.14 or newer.
-- Node.js 22.
-- A terminal that supports 256 colors. Mouse support is optional.
+- Bun 1.3.14 or a later compatible version
+- Node.js 22
+- A terminal with support for 256 colors
+- Optional mouse support
 
-Use npm at the repository root. Use Bun in `tui/`. The TUI worker runs the shared modules in `server/`, so you need both dependency trees.
+Use npm in the repository root. Use Bun in `tui/`. The TUI worker uses shared
+modules from `server/`. Therefore, install both dependency trees.
 
-## Set up the source workspace
+## Prepare the source workspace
 
 ```sh
 git clone https://github.com/1667-ai/1667.git
 cd 1667
-npm install
+npm ci
 cd tui
-bun install
+bun install --frozen-lockfile
 ```
 
 ## Start 1667
@@ -49,23 +87,30 @@ bun install
 Run these commands from `tui/`.
 
 ```sh
-bun start                            # open the project found by walking up
-bun start -- init                    # create .1667/ in the current folder
-bun start -- init --adopt            # adopt a pre-0.2 data directory as this project
-bun start -- --global                # one machine-wide library, no folders
-bun start -- --story <id>            # open a specific story
-bun start -- --data path/to/book     # open this project root
-bun start -- export --force          # write the selected branch to <Title>.md
-bun start -- --url                   # attach to the server this project published
+bun start                            # Open the nearest project
+bun start -- init                    # Create .1667/ in this directory
+bun start -- init --adopt            # Adopt the default legacy data
+bun start -- --global                # Open the machine-wide project
+bun start -- --story <id>            # Open one story
+bun start -- --data path/to/book     # Open one project root
+bun start -- export --force          # Export the selected story line
+bun start -- --url                   # Use the server in run.json
 ```
 
-1667 selects a backend in this order: `--demo`, then explicit `--embedded`, then `--url`, then `AI_1667_URL`, then the embedded worker.
+1667 selects a backend in this order:
 
-Run `bun start -- --help` to see every command and flag.
+1. `--demo`
+2. Explicit `--embedded`
+3. `--url`
+4. `AI_1667_URL`
+5. The embedded worker
 
-## Try the demo
+Run `bun start -- --help` for all commands and options.
 
-Demo mode uses a fixed sample story and never contacts a provider.
+## Use the demo
+
+Demo mode uses a fixed sample story. Demo mode does not contact a model
+provider.
 
 ```sh
 bun start -- --demo
@@ -73,104 +118,165 @@ bun start -- --demo --render-once --size 120x36
 bun start -- --demo --render-once --size 120x36 --keys "m"
 ```
 
-`--render-once` prints one frame and exits. `--keys` sends each character through the normal key handler before 1667 captures that frame. Both flags help you check layout changes without an interactive session.
+`--render-once` writes one frame to standard output and then stops. `--keys`
+sends each character to the normal key handler before frame capture.
 
-## Where your stories live
+## Story storage
 
-1667 finds its stories the way git finds its history: it walks up from the
-current directory looking for a `.1667/` folder. That folder is the project, and
-the folder holding it is your project root — so `book/` and `screenplay/` keep
-separate stories, and starting 1667 anywhere inside either one opens the right
-library.
+1667 searches the current directory and its parent directories for a `.1667/`
+directory. The directory that contains `.1667/` is the project root.
+
+Use separate project roots for separate story libraries.
 
 ```sh
-mkdir book && cd book
-1667 init      # creates book/.1667/
-1667          # opens it from book/ or any subdirectory
+mkdir book
+cd book
+1667 init
+1667
 ```
 
-Starting outside any project asks once whether to create one here. A
-non-interactive start refuses instead of guessing. `--global` opens one
-machine-wide library for people who would rather not think about folders, and
-`--data <project-root>` opens an explicit one (relative paths welcome).
+`1667 init` creates `book/.1667/`. A start in `book/` or one of its
+subdirectories opens this project.
 
-Three tiers hold three different things:
+An interactive start outside a project asks for permission to create a project.
+A non-interactive start does not create a project. `--global` opens the
+machine-wide project. `--data <project-root>` opens an explicit project root.
+Relative paths are valid.
 
-| Tier | Where | What |
+1667 uses three storage tiers:
+
+| Tier | Location | Contents |
 | --- | --- | --- |
-| Machine | platform state root | provider secrets, HTTP auth records |
-| Project | `.1667/` in the project root | stories, settings, `lock`, `run.json` |
-| Working | the project folder | markdown you exported |
+| Machine | Platform state root | Provider secrets, HTTP authentication records, and the `global/` project |
+| Project | `.1667/` in the project root | Stories, settings, `lock`, and `run.json` |
+| Working | Project root | User files, including exported Markdown files |
 
-Secrets never leave the machine tier: the settings document stores an opaque id,
-so a project can be committed, copied, or synced while each machine supplies its
-own key. `.1667/.gitignore` keeps the machine-local files out of your commits.
+1667 stores provider secrets only in the machine tier. The settings document
+contains an opaque secret identifier. During generation, 1667 sends the
+selected secret only to the configured provider.
 
-One writer owns a project at a time, enforced by an advisory lock on
-`.1667/lock`. A second start refuses and names the process holding it. The lock
-lives in the kernel, so a crash releases it — there is nothing to clean up. A
-filesystem that accepts every lock is refused by name rather than silently
-allowing two writers.
+The project `.gitignore` excludes machine-local provider secret files, `lock`,
+and `run.json`.
 
-To copy a stopped, pre-lock-aware data folder into a new project and upgrade it
-to the current format, run this from the repository root:
+One writer can own a project. An advisory lock on `.1667/lock` enforces this
+limit. A second process refuses to open the project and identifies the owner
+process. The operating system releases the lock after a process failure.
+
+1667 refuses a file system that does not enforce the lock.
+
+Use this command to migrate a stopped legacy data directory:
 
 ```sh
 npm run migrate-data -- /path/to/legacy-data /path/to/project/.1667
 ```
 
-The destination must not exist. Migration also supports a legacy folder that
-contains only `settings.json`; it preserves the source and the v1 settings file
-while publishing the converted current settings state in the destination.
+Run this command from the repository root. The destination must not exist.
+Migration preserves the source. Migration also accepts a legacy directory that
+contains only `settings.json`.
 
-`1667 export` writes the selected branch to `<Story Title>.md` in the project
-root, with chapters as `##` headings. 1667 never reads a file it exported: the
-loom in `.1667` is the only source of truth, and `e` (your `$EDITOR`) is how text
-comes back in. See [ADR 007](https://github.com/1667-ai/architecture/blob/main/docs/adr/007-project-anchored-storage.md).
+`1667 export` writes the selected story line to `<Story Title>.md` in the
+project root. Chapter titles use `##` headings. 1667 does not read an exported
+file. Use the 1667 editor to change story data.
+
+See [ADR 007](https://github.com/1667-ai/architecture/blob/main/docs/adr/007-project-anchored-storage.md).
 
 ## Keyboard orientation
 
 | Task | Keys |
 | --- | --- |
-| Move between parts | `↑` and `↓` |
-| Switch sibling takes | `←` and `→` |
-| Jump to top or leaf | `g` and `G` |
+| Move between story parts | `↑` and `↓` |
+| Select a sibling take | `←` and `→` |
+| Go to the first or last story part | `g` and `G` |
 | Continue the story | `Space` |
 | Open the composer | `Enter` or `i` |
-| Add your own take | `w` |
-| Edit the focused part | `e` |
-| Retake, or retake with a new prompt | `r` and `R` |
+| Add a manual take | `w` |
+| Edit the selected story part | `e` |
+| Generate a new take | `r` or `R` |
 | Undo | `u` |
-| Open map, facts, chapters, library | `m`, `f`, `c`, `o` |
+| Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
 | Open commands | `Ctrl+P` or `:` |
-| Open settings or the key list | `,` and `?` |
+| Open settings or the key list | `,` or `?` |
 | Quit | `q` |
 
-`h`, `j`, `k`, and `l` are not navigation keys. `l` follows or opens the selected line in the map. Press `?` in the application for the complete list.
+The keys `h`, `j`, `k`, and `l` are not navigation keys. In the map, `l`
+follows or opens the selected story line. Press `?` for the complete key list.
 
 ## Model providers
 
-1667 supports three provider modes: `dry-run`, `openai-compatible`, and `anthropic`. Settings include presets for OpenAI, OpenRouter, Anthropic, LM Studio, Ollama, llama.cpp, KoboldCpp, and a custom endpoint. Use `dry-run` to exercise the interface without a network call.
+1667 supports these provider protocols:
 
-Settings store a credential reference, never the key itself: either paste an API key — kept only in the machine tier's private `secrets.json` (mode `0600`), with an opaque id in the settings document — or name an environment variable and export it. Local servers like Ollama need no key. Prompt caching applies only to the exact official provider hosts, because cache and billing behavior is not portable across gateways. For the reasoning behind these rules, read [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md) and [ADR 004](https://github.com/1667-ai/architecture/blob/main/docs/adr/004-prompt-caching.md).
+- Dry run
+- OpenAI Chat Completions
+- Anthropic Messages
+
+Settings contain presets for these providers and local servers:
+
+- OpenAI
+- OpenRouter
+- Anthropic
+- LM Studio
+- Ollama
+- llama.cpp
+- KoboldCpp
+- Custom endpoint
+
+Dry-run mode tests the interface without a provider request.
+
+A connection can refer to a stored credential or an environment variable.
+1667 stores a pasted credential in the private machine-tier `secrets.json`
+file. On POSIX systems, this file has mode `0600`. The project settings contain
+only the opaque secret identifier.
+
+Local servers such as Ollama can use a connection without a credential. 1667
+enables prompt cache controls only for exact official provider hosts.
+
+See [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md)
+and [ADR 004](https://github.com/1667-ai/architecture/blob/main/docs/adr/004-prompt-caching.md).
 
 ## Privacy
 
-Your stories and settings stay on your computer, in the project's `.1667/` folder. 1667 does not upload them. When you generate text, 1667 sends prompt context to the model provider that you select in settings. That context can include story prose, facts, chapter summaries, and your instructions. Choose a provider that matches how you want that text handled. In demo mode and `dry-run` mode, 1667 sends nothing to any provider.
+1667 stores stories and project settings in the project tier. Demo mode and
+dry-run mode send no data to a model provider.
+
+During generation, 1667 sends request context to the selected provider. This
+context can contain:
+
+- Story prose
+- Facts
+- Chapter summaries
+- User instructions
+
+1667 sends the selected credential in the authentication header when a
+connection requires a credential. Select a provider with an acceptable data
+policy.
 
 ## Current platform limits
 
-1667 supports macOS and Linux, on arm64 and x64.
+1667 supports these release targets:
 
-Windows is not a supported environment and no Windows build is published. The
-machine tier that holds provider secrets and HTTP auth records still needs a
-native DACL and reparse-safe adapter there, and no Windows machine is currently
-available to gate a candidate, so shipping one would mean publishing an
-artifact nothing had executed. Running from source on Windows still fails
-closed rather than misbehaving: the embedded backend refuses in one line and
-demo mode runs, while HTTP attach, HTTP auth, and legacy serve refuse too.
+- macOS arm64
+- macOS x64
+- Linux arm64
+- Linux x64
 
-Plain HTTP model endpoints are keyless-only. Loopback needs an exact-socket ownership proof (Linux only today). Attaching with `--url` proves the server holds the matching auth record by HMAC on every request; on Bun that HMAC is the whole proof, because Bun's `node:http` client exposes no stable socket identity to pin the connection to as well. Private-network IPs, `.local` names, and single-label LAN hostnames can be enabled per connection with **Allow insecure HTTP (LAN)**; the transport resolves once, refuses any non-LAN answer, and pins the verified address. Public hostnames and every credentialed connection still require an authenticated HTTPS endpoint. See [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md) for the security boundary and remaining platform work.
+1667 does not support Windows. CI does not test Windows. The release matrix
+does not contain a Windows target.
+
+The Windows machine tier needs a native DACL and reparse-point safety adapter.
+Source execution refuses embedded storage, HTTP attachment, HTTP
+authentication, and legacy server mode on Windows. Demo mode can run on
+Windows.
+
+Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
+endpoint also needs proof that the current user owns the exact socket.
+
+A provider connection can permit plain HTTP on a private network. Enable
+**Allow insecure HTTP (LAN)** for that connection. 1667 resolves the host once
+and requires a private-network address. It then pins the verified address.
+
+Public hosts and all connections with credentials require authenticated HTTPS.
+
+See [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md).
 
 ## Build a standalone executable
 
@@ -179,21 +285,31 @@ cd tui
 bun run build:standalone
 ./dist/1667 --version
 ./dist/1667 --version --json
-./dist/1667 init && ./dist/1667 --render-once
+./dist/1667 --demo --render-once --size 120x36
 ```
 
-The compiled executable contains the TUI, the backend worker, the dependencies, and the Bun runtime. It runs from any directory and needs no separate Bun installation.
+The build writes `tui/dist/1667`. The executable contains the TUI, backend
+worker, dependencies, and Bun runtime. You can move the executable to a
+different directory. The executable does not need Bun or Node.js at run time.
 
-The build checks that the root, TUI, and lockfile versions agree. It reads the build identity back from the executable, starts the embedded worker against a hostile-configuration fixture, and runs the prompt tokenizer smoke vectors. The result is a development artifact. Signing, multi-platform packaging, and publication remain separate gates. See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md) and [docs/RELEASING.md](docs/RELEASING.md).
+The build verifies the root version, TUI version, and lockfile version. It reads
+the build identity from the executable. It also tests the embedded worker and
+the prompt tokenizer.
+
+This file is a development candidate. The build does not sign or publish the
+file. It does not create an archive or an installer.
+
+See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md)
+and [the release instructions](docs/RELEASING.md).
 
 ## Development gates
 
 Run the backend gates from the repository root:
 
 ```sh
-npm run typecheck      # JSON Schema check and TypeScript check
-npm test               # backend runtime tests
-npm run schema:write   # regenerate schema files after a format change
+npm run typecheck      # Check JSON Schema and TypeScript
+npm test               # Run backend runtime tests
+npm run schema:write   # Regenerate schema files
 ```
 
 Run the TUI gates from `tui/`:
@@ -201,68 +317,90 @@ Run the TUI gates from `tui/`:
 ```sh
 bun run typecheck
 bun test
-bun bench/perf.ts      # headless frame performance gates
 ```
 
-Continuous integration runs every gate on each shipped target. The same gates
-run locally, which is faster to iterate against and catches the Linux-only
-suites before you push:
+Run the frame performance gate separately:
 
-```bash
-scripts/ci-local.sh              # darwin-arm64, linux-x64, linux-arm64
-scripts/ci-local.sh --status     # also publish the result as a commit status
+```sh
+bun bench/perf.ts
 ```
 
-Linux targets run in Docker, which is the only way to exercise the plain-HTTP
-loopback provider suites: `ownedLoopbackHttpSupportedOn` is Linux-only, so those
-tests skip entirely on macOS. Every shipped target is covered.
+GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
+standalone build on Linux x64. Each release target also runs the root tests,
+TUI tests, and standalone build. CI does not run the separate frame performance
+gate.
 
-A full green run records a pass for that exact commit. If you want pushes gated
-on that locally, opt in:
+On native macOS arm64, the local CI script runs the root build, root tests, TUI
+type check, TUI tests, and standalone build. The script runs the root tests and
+TUI tests in Docker for Linux arm64 and Linux x64. The local script does not
+build Linux standalone candidates. It does not test macOS x64.
 
-```bash
-git config core.hooksPath .githooks   # optional, once per clone
+```sh
+scripts/ci-local.sh
+scripts/ci-local.sh --status
 ```
 
-See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+`--status` also publishes a commit status. A complete successful run records a
+pass for the exact commit.
 
-To collect frame diagnostics from an interactive session, set `AI_1667_TUI_PROFILE=1`. After the terminal restores, 1667 writes one JSON report to standard error.
+The Linux tests use Docker. These tests include the Linux-only loopback
+ownership tests.
+
+Use the optional pre-push hook only after a complete local run:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+See [the CI workflow](.github/workflows/ci.yml).
+
+Set `AI_1667_TUI_PROFILE=1` to collect frame diagnostics. After terminal
+restoration, 1667 writes one JSON report to standard error.
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
 | `tui/` | Terminal client, Bun workspace, and standalone build scripts |
-| `server/` | Backend runtime: storage, generation, providers, worker, and HTTP adapters |
-| `shared/` | Types and policy that the TUI and the backend both use |
-| `schema/` | Generated JSON Schema files that `npm run schema:check` verifies |
-| `scripts/` | Schema generators and the release preflight tool |
-| `test/` | Node.js test suite for the backend runtime |
-| `docs/` | Architecture decision records and design notes |
-| `release/npm/` | Launcher sources for future packaging work |
-| `plans/` | Implementation plans and working notes |
+| `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
+| `shared/` | Types and policies shared by the TUI and backend |
+| `schema/` | Generated JSON Schema files |
+| `scripts/` | CI, release, and schema tools |
+| `test/` | Node.js tests for the backend runtime |
+| `docs/` | Release instructions and technical design notes |
+| `release/npm/` | Launcher source for future npm packages |
 
-## Architecture docs
+## Architecture documents
 
-An architecture decision record (ADR) states one decision and the reasons for it. Read the ADR before you change the area that it covers.
+An architecture decision record (ADR) states one decision and its reasons.
+Read the applicable ADR before a related code change.
 
-The architecture decision records live in the private
+The ADRs are in the private
 [1667-ai/architecture](https://github.com/1667-ai/architecture) repository.
-They are normative: they describe invariants this code is required to hold,
-and comments in `server/` and `shared/` cite them by name.
+Only authorized maintainers can read them. The ADRs specify required
+invariants. Comments in `server/` and `shared/` identify applicable ADRs.
 
-Supporting notes: [generation boundaries](docs/generation-boundaries.md), [summary branches](docs/summary-branches.md), [autoname](docs/autoname.md), [character card import](docs/character-card-import.md), and the [TUI platform plan](docs/1667-tui-platform-plan.md). The [TUI reference](tui/README.md) describes screen behavior in detail.
+Public supporting documents:
+
+- [Generation boundaries](docs/generation-boundaries.md)
+- [Summary branches](docs/summary-branches.md)
+- [Automatic story names](docs/autoname.md)
+- [Character card import](docs/character-card-import.md)
+- [TUI reference](tui/README.md)
 
 ## Stable names
 
-The `AI_1667_*` environment variables and the `1667` on-disk identifiers are public contracts for this project. Treat them as fixed names.
+The names in this table are public contracts. Do not change a name without a
+compatible migration.
 
 | Name | Purpose |
 | --- | --- |
-| `AI_1667_DATA` | Data directory path |
-| `AI_1667_URL` | Base URL of a loopback HTTP backend |
-| `AI_1667_TUI_PROFILE` | Set to `1` to write one frame profile report at exit |
+| `AI_1667_DATA` | Select an explicit project root for embedded mode |
+| `AI_1667_STATE` | Select an absolute machine-tier directory |
+| `AI_1667_URL` | Select the base URL of a loopback 1667 HTTP backend |
+| `AI_1667_NO_UPDATE_CHECK` | Set to `1` to disable background update checks |
+| `AI_1667_TUI_PROFILE` | Set to `1` to write a frame profile at exit |
 
 ## License
 
-1667 is licensed under the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+1667 uses the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
