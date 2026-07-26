@@ -2,11 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { createComposer } from "../src/composer-model.js";
 import { pasteInto, resolveKey, sanitizePastedText } from "../src/keys.js";
-import {
-  KEYS_MODAL_MODEL,
-  renderKeysOverlay
-} from "../src/screens/keys-modal.js";
-import { frameText } from "../src/screens/story/frame.js";
 
 function key(
   name: string,
@@ -36,6 +31,17 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("left"), "NAV").action).toBe("take-previous");
     for (const dead of ["h", "j", "k", "l"]) {
       expect(resolveKey(key(dead), "NAV").action).toBe("none");
+    }
+  });
+
+  test("shifted arrows keep NAV scrolling and MAP focus semantics", () => {
+    expect(resolveKey(key("up", { shift: true }), "NAV").action).toBe("scroll-line-up");
+    expect(resolveKey(key("down", { shift: true }), "NAV").action).toBe("scroll-line-down");
+    for (const mapView of ["path", "tree", "mass"] as const) {
+      expect(resolveKey(key("up", { shift: true }), "MAP", { mapView }).action)
+        .toBe("focus-previous");
+      expect(resolveKey(key("down", { shift: true }), "MAP", { mapView }).action)
+        .toBe("focus-next");
     }
   });
 
@@ -78,8 +84,17 @@ describe("arrow-first key routing", () => {
     }
   });
 
-  test("keys overlay suppresses NAV and escape peels it", () => {
-    expect(resolveKey(key("down"), "KEYS").action).toBe("none");
+  test("keys overlay scrolls, suppresses NAV, and escape peels it", () => {
+    expect(resolveKey(key("down"), "KEYS").action).toBe("focus-next");
+    expect(resolveKey(key("up"), "KEYS").action).toBe("focus-previous");
+    expect(resolveKey(key("pagedown"), "KEYS").action).toBe("scroll-down");
+    expect(resolveKey(key("pageup"), "KEYS").action).toBe("scroll-up");
+    expect(resolveKey(key("space"), "KEYS").action).toBe("scroll-down");
+    // Story hotkeys stay inert behind the panel: `d` must not prune, and the
+    // scroll vocabulary must not leak the letters that mean something in NAV.
+    for (const inert of ["d", "n", "r", "j", "k", "return"]) {
+      expect(resolveKey(key(inert), "KEYS").action).toBe("none");
+    }
     expect(resolveKey(key("escape"), "KEYS").action).toBe("cancel");
   });
 
@@ -90,48 +105,6 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("d", { shift: true }), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("down"), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("escape"), "MAP", { confirmingPrune: true }).action).toBe("cancel");
-  });
-});
-
-describe("key map", () => {
-  test("renders four ordered groups and every advertised binding resolves", () => {
-    const frame = frameText(renderKeysOverlay(
-      Array.from({ length: 36 }, () => []), Array.from({ length: 36 }, () => null), 120, 36
-    ).lines);
-    const groups = KEYS_MODAL_MODEL.bandGroups.map((group) => group.band);
-    expect(groups).toEqual(["MOVE", "WRITE", "SHAPE", "OPEN"]);
-    expect(groups.map((group) => frame.indexOf(group))).toEqual(
-      groups.map((group) => frame.indexOf(group)).sort((left, right) => left - right)
-    );
-    for (const binding of KEYS_MODAL_MODEL.bindings) {
-      const event = key(binding.name, {
-        sequence: binding.sequence,
-        shift: binding.shift,
-        ctrl: binding.ctrl
-      });
-      expect(resolveKey(event, binding.mode, { mapView: binding.mapView }).action).toBe(binding.action);
-    }
-    const escape = KEYS_MODAL_MODEL.bindings.find((binding) =>
-      binding.name === "escape" && binding.mode === "KEYS")!;
-    expect(frame).toContain("esc");
-    expect(resolveKey(key(escape.name), escape.mode).action).toBe(escape.action);
-    expect(frame).toContain("↑↓");
-    expect(frame).toContain("←→");
-  });
-
-  test("h/j/k caps are inactive while map-follow l and sketches a stay lit", () => {
-    const caps = new Map(KEYS_MODAL_MODEL.capRows.flat().map((item) => [item.key, item]));
-    for (const dead of ["h", "j", "k"]) {
-      expect(caps.get(dead)?.band).toBe("INACTIVE");
-      expect(caps.get(dead)?.bindings).toHaveLength(0);
-    }
-    expect(caps.get("l")?.band).not.toBe("INACTIVE");
-    expect(caps.get("l")?.bindings.some((binding) => binding.action === "map-follow")).toBeTrue();
-    expect(caps.get("a")?.band).not.toBe("INACTIVE");
-    expect(caps.get("a")?.bindings.some((binding) => binding.action === "toggle-sketches")).toBeTrue();
-    expect(KEYS_MODAL_MODEL.discoveries.some((item) =>
-      item.token === "R" && item.bindings.some((binding) => binding.action === "retake-with-prompt")
-    )).toBeTrue();
   });
 });
 
@@ -211,7 +184,12 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key(":"), "NAV").action).toBe("open-commands");
     expect(resolveKey(key("g", { ctrl: true }), "NAV").action).toBe("toggle-context-meter");
     expect(resolveKey(key("g", { ctrl: true }), "COMPOSE").action).toBe("toggle-context-meter");
+    expect(resolveKey(key("G", { ctrl: true, shift: true }), "COMPOSE").action)
+      .toBe("toggle-context-meter");
+    expect(resolveKey(key("up", { ctrl: true, shift: true }), "COMPOSE").action)
+      .toBe("history-previous");
     expect(resolveKey(key("/"), "NAV").action).toBe("none");
+    expect(resolveKey(key("?", { shift: true }), "NAV").action).toBe("open-keys");
     expect(resolveKey(key("/"), "LIBRARY").action).toBe("filter");
   });
 

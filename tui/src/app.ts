@@ -541,7 +541,6 @@ export async function dispatch(
   else if (state.mode === "BOOKMARK") await bookmarkAction(resolved, state, source, context);
   else if (state.mode === "COMPOSE") await composeAction(resolved, state, source, context);
   else if (state.mode === "EDITOR") await inlineEditorAction(resolved, state, source, context);
-  else if (state.mode === "KEYS") { if (resolved.action === "cancel") state.mode = "NAV"; }
   else if (state.mode === "NAV" && await directChapterRowAction(resolved, state, source, context)) { /* handled */ }
   else await navAction(resolved, state, source, context, requestQuit);
   // Native buffer offsets must not leak between the story, Direct, and the
@@ -590,6 +589,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     lastViewportStart: 0,
     composerScrollTop: 0,
     editorScrollTop: 0,
+    keysScrollTop: 0,
     composerSelectionProjection: null,
     storySelectionProjection: null,
     demo: source.demo,

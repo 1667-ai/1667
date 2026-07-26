@@ -2,6 +2,7 @@ import type { KeyEvent } from "@opentui/core";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
+import { resolveReferenceBinding } from "./reference-bindings.js";
 import type { StorySelectionSpan } from "./selection-projection.js";
 import type {
   InlineEditorSession,
@@ -240,7 +241,10 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, bookmarkChoosingLabel = false, connectionDown = false,
     overlayTyping = false, commandsBookmarks = false, mapView = "path" } = options;
-  if (key.name === "escape") return { action: "cancel" };
+  const globalReference = resolveReferenceBinding("global", key, mode, mapView);
+  if (globalReference !== null || key.name === "escape") {
+    return { action: "cancel" };
+  }
   const ownsText = textOwnsKeyboard(mode, {
     overlayTyping, commandsBookmarks, bookmarkChoosingLabel
   });
@@ -252,28 +256,19 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (confirmingPrune) {
     return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
   }
-  // Capital letters are distinct terminal commands. Route the declared NAV
-  // capitals before rejecting every other shifted spelling; otherwise
-  // lowercase-name terminal events can silently trigger lowercase hotkeys.
-  if (!key.ctrl && !key.meta && mode === "NAV") {
-    if (shiftedLetter(key, "c")) return { action: "create-chapter" };
-    if (shiftedLetter(key, "f")) return { action: "toggle-rail" };
-    if (shiftedLetter(key, "g")) return { action: "leaf" };
-    if (shiftedLetter(key, "r")) return { action: "retake-with-prompt" };
-    if (shiftedLetter(key, "y")) return { action: "copy-line" };
-  }
+  const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
+  if (shiftedReference !== null) return { action: shiftedReference.action };
+  // Capital letters are distinct terminal commands. Declared reference routes
+  // resolve above; reject every other shifted spelling so lowercase-name
+  // terminal events cannot silently trigger lowercase hotkeys.
   if (!ownsText && shiftedAsciiLetter(key)) return { action: "none" };
-  if ((mode === "NAV" || mode === "COMPOSE") && key.ctrl && key.name.toLowerCase() === "g") {
-    return { action: "toggle-context-meter" };
-  }
-  if (mode === "NAV" && key.ctrl && key.name.toLowerCase() === "p") return { action: "open-commands" };
-  if (mode === "NAV" && key.ctrl && key.name === "d") return { action: "scroll-down" };
-  if (mode === "NAV" && key.ctrl && key.name === "u") return { action: "scroll-up" };
+  const navChord = resolveReferenceBinding("nav-chord", key, mode, mapView);
+  if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
+    const composeChord = resolveReferenceBinding("compose-chord", key, mode, mapView);
+    if (composeChord !== null) return { action: composeChord.action };
     if (key.ctrl && key.name.toLowerCase() === "f") return { action: "toggle-compose-fullscreen" };
     if (key.name === "return") return { action: key.shift ? "newline" : "send" };
-    if (key.ctrl && key.name === "up") return { action: "history-previous" };
-    if (key.ctrl && key.name === "down") return { action: "history-next" };
     return multilineInput(key);
   }
   if (mode === "EDITOR") {
@@ -372,7 +367,16 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "return") return { action: "apply" };
     return { action: "none" };
   }
-  if (mode === "KEYS") return { action: "none" };
+  // The reference can outgrow a short terminal, so it scrolls with the same
+  // vocabulary every other overlay uses — which also gives it the mouse wheel,
+  // since `mouseToAction` sends wheel gestures over any overlay as focus moves.
+  if (mode === "KEYS") {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "pagedown" || key.name === "space") return { action: "scroll-down" };
+    if (key.name === "pageup") return { action: "scroll-up" };
+    return { action: "none" };
+  }
   if (mode === "SUMMARY") return { action: "none" };
   if (mode === "SETTINGS") {
     if (key.name === "down") return { action: "focus-next" };
@@ -430,54 +434,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "MAP") {
-    if (key.name === "down") return { action: "focus-next" };
-    if (key.name === "up") return { action: "focus-previous" };
-    if (mapView === "path" && key.name === "right") return { action: "take-next" };
-    if (mapView === "path" && key.name === "left") return { action: "take-previous" };
-    if (mapView !== "path" && key.name === "l") return { action: "map-follow" };
-    if (key.name === "m") return { action: "cycle-map-view" };
-    if (key.name === "a") {
-      return { action: mapView === "path" ? "toggle-path-takes" : "toggle-sketches" };
-    }
-    if (mapView !== "path" && key.name === "s") return { action: "map-cycle-sort" };
-    if (key.name === "return") return { action: "apply" };
-    if (mapView === "path" && key.name === "d") return { action: "prune" };
-    if (mapView === "path" && key.name === "b") return { action: "bookmark" };
-    return { action: "none" };
+    const mapReference = resolveReferenceBinding("map", key, mode, mapView);
+    return { action: mapReference?.action ?? "none" };
   }
-  // Shifted arrows nudge the viewport one line, for reading past the focused
-  // part without moving focus; ctrl+d/u still jump by a screenful.
-  if (key.shift && key.name === "down") return { action: "scroll-line-down" };
-  if (key.shift && key.name === "up") return { action: "scroll-line-up" };
-  if (key.name === "pagedown") return { action: "scroll-down" };
-  if (key.name === "pageup") return { action: "scroll-up" };
-  if (key.name === "down") return { action: "focus-next" };
-  if (key.name === "up") return { action: "focus-previous" };
-  if (key.name === "right") return { action: "take-next" };
-  if (key.name === "left") return { action: "take-previous" };
-  if (key.name === "u") return { action: "undo" };
-  if (key.name === "g") return { action: "top" };
-  if (key.name === "p") return { action: "toggle-instructions" };
-  if (key.name === "return" || key.name === "i") return { action: "compose" };
-  if (key.name === "space") return { action: "continue" };
-  if (key.name === "n") return { action: "new-item" };
-  if (key.name === "c") return { action: "open-chapters" };
-  if (key.name === "[") return { action: "chapter-previous" };
-  if (key.name === "]") return { action: "chapter-next" };
-  if (key.name === "m") return { action: "open-map" };
-  if (key.name === "f") return { action: "open-facts" };
-  if (key.name === "o") return { action: "open-library" };
-  if (key.name === ":") return { action: "open-commands" };
-  if (key.name === ",") return { action: "open-settings" };
-  if (key.name === "?" || key.sequence === "?") return { action: "open-keys" };
-  if (key.name === "d") return { action: "prune" };
-  if (key.name === "b") return { action: "bookmark" };
-  if (key.name === "y") return { action: "copy-part" };
-  if (key.name === "x") return { action: "open-actions" };
-  if (key.name === "z") return { action: "typewriter" };
-  if (key.name === "e") return { action: "edit" };
-  if (key.name === "w") return { action: "write" };
-  if (key.name === "r") return { action: "regenerate" };
-  if (key.name === "q") return { action: "quit" };
-  return { action: "none" };
+  const navReference = resolveReferenceBinding("nav", key, mode, mapView);
+  return { action: navReference?.action ?? "none" };
 }

@@ -68,6 +68,17 @@ describe("starter vault key contract", () => {
     expect(compared).toBeGreaterThan(20);
   });
 
+  test("the tour describes the key reference the app actually opens", () => {
+    // `?` drew a QWERTY diagram once, and the tour promised one. Onboarding
+    // that confidently describes a removed screen is the same failure as
+    // teaching a rebound key.
+    const prose = STARTER_STORIES
+      .flatMap((story) => story.beats.flatMap((beat) => beat.takes.map((take) => take.text)))
+      .join("\n");
+    expect(prose).toContain("[?] is the key reference");
+    expect(prose).not.toContain("keyboard");
+  });
+
   test("prose declares a key for every bracketed token it shows", () => {
     for (const story of STARTER_STORIES) {
       for (const beat of story.beats) {

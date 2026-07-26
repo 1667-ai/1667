@@ -1,3 +1,4 @@
+import { AI_1667_VERSION_TAG } from "../../../../shared/build-identity.js";
 import { lineName } from "../../../../shared/loom-model.js";
 import type { Bookmark } from "../../../../shared/types.js";
 import { bookmarkGlyph, bookmarkRole } from "../../bookmark-presentation.js";
@@ -95,21 +96,29 @@ export function renderStatus(
     narrowRight = state.backendTask === null ? requestMeter : `working · ${requestMeter}`;
   }
   if (minimumLeftWidth + visibleWidth(narrowRight) + 2 > width) narrowRight = requestMeter;
+  // Which build is running, in the corner where it stays out of the way. It is
+  // reference rather than status, so it takes slack and nothing else: never a
+  // cell from the story's title, line name, location, or word count. `?`
+  // carries it where this line cannot.
+  const wideRight = (buildTag: boolean): FrameLine => [
+    segment(" ", "chrome"),
+    segment(state.model, "chrome", { kind: "settings-row", row: "model" }),
+    segment(" · ", "chrome"),
+    segment(
+      backendStatus,
+      "chrome",
+      state.backendTask === null
+        ? { kind: "settings-row", row: "provider" }
+        : undefined
+    ),
+    segment(`${centered}${buildTag ? ` · ${AI_1667_VERSION_TAG}` : ""} `, "chrome")
+  ];
+  const tagged = wideRight(true);
   const right: FrameLine = narrow
     ? [segment(` ${narrowRight} `, contextSeverity(window) === "over" ? "danger text" : "chrome")]
-    : [
-        segment(" ", "chrome"),
-        segment(state.model, "chrome", { kind: "settings-row", row: "model" }),
-        segment(" · ", "chrome"),
-        segment(
-          backendStatus,
-          "chrome",
-          state.backendTask === null
-            ? { kind: "settings-row", row: "provider" }
-            : undefined
-        ),
-        segment(`${centered} `, "chrome")
-      ];
+    : visibleWidth(plainLine(left)) + visibleWidth(plainLine(tagged)) <= width
+      ? tagged
+      : wideRight(false);
   const rightWidth = visibleWidth(plainLine(right));
   if (rightWidth >= width) return fitLine(right, width);
   const leftWidth = width - rightWidth;
