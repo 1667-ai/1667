@@ -23,16 +23,27 @@ import {
   LEGACY_PREVIEW_DATA_MARKER_TEXT,
   SETTINGS_STATE_V2_FILE,
   SETTINGS_STATE_V2_NEXT_SCRATCH,
-  dataDirectoryOwnerMarkerText
+  dataDirectoryOwnerMarkerText,
+  readDataDirectoryFormat
 } from "../server/data-directory-format.js";
+import {
+  ABSENT_SETTINGS_V1,
+  formatGenerationSettingsV1
+} from "../server/settings-v1-codec.js";
 
-test("offline migration copies data, marks the destination, and leaves legacy untouched", async (t) => {
+const LEGACY_SETTINGS = formatGenerationSettingsV1(ABSENT_SETTINGS_V1);
+const CHANGED_LEGACY_SETTINGS = formatGenerationSettingsV1({
+  ...ABSENT_SETTINGS_V1,
+  temperature: 0.5
+});
+
+test("offline migration copies data, upgrades the destination, and leaves legacy untouched", async (t) => {
   const parent = await mkdtemp(path.join(tmpdir(), "1667-data-migration-"));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const source = path.join(parent, "legacy");
   const destination = path.join(parent, "data-v1");
   await mkdir(path.join(source, "stories"), { recursive: true });
-  await writeFile(path.join(source, "settings.json"), "{\"provider\":\"dry-run\"}\n");
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
   await writeFile(path.join(source, "stories", "one.json"), "{\"id\":\"one\"}\n");
   await writeFile(path.join(source, DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH), "scratch\n");
   await writeFile(path.join(source, SETTINGS_STATE_V2_NEXT_SCRATCH), "scratch\n");
@@ -43,7 +54,7 @@ test("offline migration copies data, marks the destination, and leaves legacy un
     assert.equal((await stat(path.join(destination, "settings.json"))).mode & 0o777, 0o600);
     assert.equal((await stat(path.join(destination, "stories", "one.json"))).mode & 0o777, 0o600);
   }
-  assert.equal(await readFile(path.join(source, "settings.json"), "utf8"), "{\"provider\":\"dry-run\"}\n");
+  assert.equal(await readFile(path.join(source, "settings.json"), "utf8"), LEGACY_SETTINGS);
   await assert.rejects(access(path.join(source, LEGACY_PREVIEW_DATA_MARKER)));
   await assert.rejects(access(path.join(source, DATA_DIRECTORY_OWNER_MARKER)));
   await assert.rejects(access(path.join(source, ".1667.lock")));
@@ -59,13 +70,29 @@ test("offline migration copies data, marks the destination, and leaves legacy un
   );
   assert.equal(
     await readFile(path.join(destination, DATA_DIRECTORY_OWNER_MARKER), "utf8"),
-    dataDirectoryOwnerMarkerText(1)
+    dataDirectoryOwnerMarkerText(2)
   );
-  await assert.rejects(access(path.join(destination, SETTINGS_STATE_V2_FILE)));
+  await access(path.join(destination, SETTINGS_STATE_V2_FILE));
   const lock = new DataDirectoryLock(destination);
   await lock.acquire();
-  assert.equal(lock.dataFormat, 1);
+  assert.equal(lock.dataFormat, 2);
   await lock.release();
+});
+
+test("offline migration upgrades a settings-only legacy directory to the latest format", async (t) => {
+  const parent = await mkdtemp(path.join(tmpdir(), "1667-data-migration-settings-only-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const source = path.join(parent, "legacy");
+  const destination = path.join(parent, "current");
+  await mkdir(source);
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
+
+  await migrateDataDirectory(source, destination);
+
+  assert.equal(await readDataDirectoryFormat(destination), 2);
+  assert.equal(await readFile(path.join(destination, "settings.json"), "utf8"), LEGACY_SETTINGS);
+  await access(path.join(destination, SETTINGS_STATE_V2_FILE));
+  assert.deepEqual(await readdir(source), ["settings.json"]);
 });
 
 test("offline migration rejects source movement and removes its private staging copy", async (t) => {
@@ -74,10 +101,10 @@ test("offline migration rejects source movement and removes its private staging 
   const source = path.join(parent, "legacy");
   const destination = path.join(parent, "data-v1");
   await mkdir(source);
-  await writeFile(path.join(source, "settings.json"), "before\n");
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
 
   await assert.rejects(migrateDataDirectory(source, destination, {
-    afterCopy: () => writeFile(path.join(source, "settings.json"), "after\n")
+    afterCopy: () => writeFile(path.join(source, "settings.json"), CHANGED_LEGACY_SETTINGS)
   }), /changed during migration/);
   await assert.rejects(access(destination));
 });
@@ -88,7 +115,7 @@ test("offline migration never replaces a destination that appears during copy", 
   const source = path.join(parent, "legacy");
   const destination = path.join(parent, "data-v1");
   await mkdir(source);
-  await writeFile(path.join(source, "settings.json"), "legacy\n");
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
 
   await assert.rejects(migrateDataDirectory(source, destination, {
     afterCopy: () => mkdir(destination)
@@ -97,7 +124,7 @@ test("offline migration never replaces a destination that appears during copy", 
   assert.deepEqual(await readdir(destination), []);
   assert.equal(
     await readFile(path.join(source, "settings.json"), "utf8"),
-    "legacy\n"
+    LEGACY_SETTINGS
   );
 });
 
@@ -120,7 +147,7 @@ test("offline migration refreshes its legacy lease during a long copy", async (t
   const destination = path.join(parent, "data-v1");
   const lockPath = path.join(source, ".1667.lock");
   await mkdir(source);
-  await writeFile(path.join(source, "settings.json"), "legacy\n");
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
 
   await migrateDataDirectory(source, destination, {
     afterCopy: async () => {
@@ -138,7 +165,7 @@ test("offline migration never removes a replacement legacy lock", async (t) => {
   const destination = path.join(parent, "data-v1");
   const lockPath = path.join(source, ".1667.lock");
   await mkdir(source);
-  await writeFile(path.join(source, "settings.json"), "legacy\n");
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
 
   await assert.rejects(migrateDataDirectory(source, destination, {
     afterCopy: async () => {
@@ -153,10 +180,10 @@ test("offline migration never removes a replacement legacy lock", async (t) => {
 test("offline migration rejects a destination nested under the legacy source", async (t) => {
   const source = await mkdtemp(path.join(tmpdir(), "1667-data-migration-nested-"));
   t.after(() => rm(source, { recursive: true, force: true }));
-  await writeFile(path.join(source, "settings.json"), "legacy\n");
+  await writeFile(path.join(source, "settings.json"), LEGACY_SETTINGS);
 
   await assert.rejects(migrateDataDirectory(source, path.join(source, "data-v1")), /must be outside/);
-  assert.deepEqual(await readFile(path.join(source, "settings.json"), "utf8"), "legacy\n");
+  assert.deepEqual(await readFile(path.join(source, "settings.json"), "utf8"), LEGACY_SETTINGS);
 });
 
 test("offline migration identifies a current marker before its retained lock file", async (t) => {

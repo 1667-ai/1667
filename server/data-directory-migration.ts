@@ -23,8 +23,9 @@ export interface DataMigrationHooks {
   afterCopy?(): void | Promise<void>;
 }
 
-/** Copy a stopped legacy store into a newly marked directory. Three matching
- * snapshots reject source movement and mixed-version copies. */
+/** Copy a stopped legacy store into a current-format directory. Three matching
+ * source snapshots plus the copied snapshot reject movement and mixed-version
+ * copies before publication. */
 export async function migrateDataDirectory(
   source: string,
   destination: string,
@@ -56,12 +57,16 @@ export async function migrateDataDirectory(
       await hooks.afterCopy?.();
       const sourceAfterCopy = await snapshot(sourceDir);
       const copied = await snapshot(staging);
+      if (!sameSnapshot(initial, sourceAfterCopy)
+        || !sameSnapshot(sourceAfterCopy, copied)) {
+        throw new Error("Legacy data changed during migration; stop every 1667 process and retry");
+      }
+      await lock.migrateSettingsFormat();
       const sourceBeforePublish = await snapshot(sourceDir);
       if (await hasLockAwareDataMarker(sourceDir)) {
         throw new Error("Migration source became lock-aware during migration; retry using that directory directly");
       }
       if (!sameSnapshot(initial, sourceAfterCopy)
-        || !sameSnapshot(sourceAfterCopy, copied)
         || !sameSnapshot(sourceAfterCopy, sourceBeforePublish)) {
         throw new Error("Legacy data changed during migration; stop every 1667 process and retry");
       }

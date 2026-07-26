@@ -111,6 +111,17 @@ lives in the kernel, so a crash releases it — there is nothing to clean up. A
 filesystem that accepts every lock is refused by name rather than silently
 allowing two writers.
 
+To copy a stopped, pre-lock-aware data folder into a new project and upgrade it
+to the current format, run this from the repository root:
+
+```sh
+npm run migrate-data -- /path/to/legacy-data /path/to/project/.1667
+```
+
+The destination must not exist. Migration also supports a legacy folder that
+contains only `settings.json`; it preserves the source and the v1 settings file
+while publishing the converted current settings state in the destination.
+
 `1667 export` writes the selected branch to `<Story Title>.md` in the project
 root, with chapters as `##` headings. 1667 never reads a file it exported: the
 loom in `.1667` is the only source of truth, and `e` (your `$EDITOR`) is how text
