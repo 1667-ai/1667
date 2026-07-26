@@ -57,8 +57,7 @@ export const STARTER_KEYS = {
   mapClose: { name: "escape", token: "esc", mode: "MAP" },
   mapDetail: { name: "a", token: "a", mode: "MAP" },
   mapJump: { name: "return", token: "enter", mode: "MAP" },
-  mapBookmark: { name: "b", token: "b", mode: "MAP", mapView: "path" },
-  mapClose: { name: "escape", token: "esc", mode: "MAP" }
+  mapBookmark: { name: "b", token: "b", mode: "MAP", mapView: "path" }
 } as const satisfies Record<string, StarterKey>;
 
 export type StarterKeyId = keyof typeof STARTER_KEYS;
