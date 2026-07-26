@@ -10,6 +10,7 @@ import {
   chapterSourceFingerprint,
   type ProviderStoryEffect
 } from "../server/story-provider-effect.js";
+import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
 
 const AT = "2026-07-25T12:00:00.000Z";
 const LATER = "2026-07-25T12:01:00.000Z";
@@ -104,6 +105,30 @@ test("provider effects are exhaustively operation-specific", () => {
     }
   } satisfies Record<ProviderStoryEffect["kind"], ProviderStoryEffect>;
   assert.equal(Object.keys(effects).length, 5);
+});
+
+test("provider effect preparation rejects an existing cancellation", () => {
+  const cancelled = new AbortController();
+  cancelled.abort();
+
+  assert.throws(
+    () => prepareProviderStoryEffect({
+      kind: "continue",
+      parentId: "root",
+      appendTo: null,
+      expectedTextHash: null,
+      instruction: "Go",
+      text: "Must not commit",
+      model: "m",
+      genId: "cancelled",
+      expectedParentActiveChildId: null,
+      expectedAppendActiveChildId: null,
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root",
+      cancelled: cancelled.signal
+    }),
+    /Story writing was cancelled/
+  );
 });
 
 test("autoname changes only title metadata and rejects a concurrent rename", async () => {

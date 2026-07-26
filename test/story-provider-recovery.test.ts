@@ -145,6 +145,54 @@ test("Q a delayed duplicate replays a winner completed before start", async (t) 
   assert.deepEqual(replayed.result, winner.result);
 });
 
+test("Q auto-start replays a winner completed after effect preparation", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-auto-start-replay-");
+  let markDuplicatePrepared!: () => void;
+  const duplicatePrepared = new Promise<void>((resolve) => {
+    markDuplicatePrepared = resolve;
+  });
+  let releaseDuplicate!: () => void;
+  const duplicateGate = new Promise<void>((resolve) => {
+    releaseDuplicate = resolve;
+  });
+  t.after(() => releaseDuplicate());
+
+  const duplicate = fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories) => {
+      const draft = await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Duplicate"
+      });
+      markDuplicatePrepared();
+      await duplicateGate;
+      return draft;
+    },
+    storyFixture
+  );
+  await duplicatePrepared;
+  const winner = await fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Winner"
+      });
+    },
+    storyFixture
+  );
+  releaseDuplicate();
+
+  const replayed = await duplicate;
+  assert.equal(replayed.story.title, "Winner");
+  assert.deepEqual(replayed.result, winner.result);
+});
+
 test("Q a pre-start failure observes a contender's durable start", async (t) => {
   const fixture = await setup(t, "1667-q-provider-failure-after-other-start-");
   let markLoserAdmitted!: () => void;

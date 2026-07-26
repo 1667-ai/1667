@@ -113,30 +113,22 @@ export class StoryProviderMutationStore {
     const { request, storyId } = admitted;
     const { story, releaseSnapshot } = admitted.opened;
     try {
-      const runtime = new ScopedProviderStoryRuntime(story);
-      let started: StartedMutationRecord | null = null;
-      let startedPromise: Promise<StartedMutationRecord> | null = null;
-      const startProvider = async (): Promise<void> => {
-        startedPromise ??= this.coordinator.runStoryPhase(
-          request,
-          async () => await this.publishStarted(storyId, request, method)
-        );
-        started = await startedPromise;
-      };
-
-      let value: Value;
       try {
-        value = await work(runtime, startProvider);
-      } catch (error) {
-        if (error instanceof ProviderTerminalReplay) {
-          return await this.races.replayTerminalSuccess(
-            storyId,
+        const runtime = new ScopedProviderStoryRuntime(story);
+        let started: StartedMutationRecord | null = null;
+        let startedPromise: Promise<StartedMutationRecord> | null = null;
+        const startProvider = async (): Promise<void> => {
+          startedPromise ??= this.coordinator.runStoryPhase(
             request,
-            method,
-            replayValue
+            async () => await this.publishStarted(storyId, request, method)
           );
-        }
+          started = await startedPromise;
+        };
+
+        let value: Value;
         try {
+          value = await work(runtime, startProvider);
+        } catch (error) {
           await this.races.recordFailure(
             storyId,
             request,
@@ -151,49 +143,49 @@ export class StoryProviderMutationStore {
               code
             )
           );
-        } catch (failure) {
-          if (failure instanceof ProviderTerminalReplay) {
-            return await this.races.replayTerminalSuccess(
+          throw error;
+        }
+        if (started === null && runtime.effect !== null) await startProvider();
+        if (started === null) {
+          return await this.coordinator.runStoryPhase(request, async () =>
+            await this.stories.withAggregateSession(storyId, async (session) => ({
+              story: await session.loadLive(),
+              result: storyResult(session.snapshot.manifest),
+              value
+            }))
+          );
+        }
+        if (runtime.effect === null) {
+          throw providerOutcomeUnknown(request.mutationId);
+        }
+
+        try {
+          const committed = await runTerminalStoryPhase(
+            this.coordinator,
+            request,
+            async () => await this.commitTerminal(
               storyId,
               request,
               method,
-              replayValue
-            );
+              started!,
+              runtime
+            )
+          );
+          return { ...committed, value };
+        } catch (error) {
+          if (error instanceof ServiceError && error.code === "resource_busy") {
+            throw providerOutcomeUnknown(request.mutationId);
           }
-          throw failure;
+          throw error;
         }
-        throw error;
-      }
-      if (started === null && runtime.effect !== null) await startProvider();
-      if (started === null) {
-        return await this.coordinator.runStoryPhase(request, async () =>
-          await this.stories.withAggregateSession(storyId, async (session) => ({
-            story: await session.loadLive(),
-            result: storyResult(session.snapshot.manifest),
-            value
-          }))
-        );
-      }
-      if (runtime.effect === null) {
-        throw providerOutcomeUnknown(request.mutationId);
-      }
-
-      try {
-        const committed = await runTerminalStoryPhase(
-          this.coordinator,
-          request,
-          async () => await this.commitTerminal(
+      } catch (error) {
+        if (error instanceof ProviderTerminalReplay) {
+          return await this.races.replayTerminalSuccess(
             storyId,
             request,
             method,
-            started!,
-            runtime
-          )
-        );
-        return { ...committed, value };
-      } catch (error) {
-        if (error instanceof ServiceError && error.code === "resource_busy") {
-          throw providerOutcomeUnknown(request.mutationId);
+            replayValue
+          );
         }
         throw error;
       }

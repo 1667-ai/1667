@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ServiceError } from "./errors.js";
 import type {
   ChapterSummaryEffect,
   ContinueStoryEffect,
@@ -34,6 +35,7 @@ export function prepareProviderStoryEffect<Effect extends ProviderStoryEffect>(
 export function prepareProviderStoryEffect(
   effect: ProviderStoryEffect
 ): PreparedProviderStoryEffect {
+  requireEffectActive(effect);
   const committedAt = new Date().toISOString();
   switch (effect.kind) {
     case "continue": {
@@ -81,4 +83,16 @@ export function prepareProviderStoryEffect(
       return exhaustive;
     }
   }
+}
+
+function requireEffectActive(effect: ProviderStoryEffect): void {
+  if (!("cancelled" in effect) || effect.cancelled?.aborted !== true) return;
+  const message = effect.kind === "continue"
+    ? "Story writing was cancelled"
+    : effect.kind === "rewrite"
+      ? "Story rewriting was cancelled"
+      : effect.kind === "summary-take"
+        ? "The summary was cancelled before it could be saved."
+        : "Chapter summarization was cancelled";
+  throw new ServiceError(409, message);
 }
