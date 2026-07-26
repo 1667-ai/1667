@@ -15,10 +15,12 @@ import {
   type StoryAggregateVersion
 } from "../shared/story-aggregate-version.js";
 import { isWorkerMutationMethod } from "../shared/worker-protocol.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 export const API_PROTOCOL_HEADERS: Record<string, string> = {
   [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION)
 };
+const SERVER_START_BUDGET_MS = platformPerformanceBudget(10_000);
 let operationClient: HttpOperationClient | null = null;
 let lastReservedMutationId: string | null = null;
 
@@ -34,7 +36,7 @@ export async function waitForTestServer(
   origin: string,
   output: () => string
 ): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + SERVER_START_BUDGET_MS;
   while (Date.now() < deadline) {
     if (server.exitCode !== null || server.signalCode !== null) {
       throw new Error(`server exited: ${output()}`);
@@ -48,7 +50,9 @@ export async function waitForTestServer(
     } catch { /* startup */ }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`server did not start within 10 seconds: ${output()}`);
+  throw new Error(
+    `server did not start within ${SERVER_START_BUDGET_MS / 1_000} seconds: ${output()}`
+  );
 }
 
 export async function rememberServerInstance(metadata: unknown, origin: string): Promise<void> {
