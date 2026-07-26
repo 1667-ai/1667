@@ -5,6 +5,10 @@ the [README](README.md#technical-terms).
 
 ## Unreleased
 
+- **Unexpected backend failures now have private local diagnostics.** 1667
+  writes bounded machine-tier logs, returns safe persisted references across
+  HTTP and embedded-worker boundaries, and can mirror new entries with
+  `--print-logs`. Thanks @10fra for the failure-reporting design.
 - **Public documentation now describes the current repository.** The README
   states the public status and exact CI coverage. The release guide specifies
   five release packages and four release targets. Obsolete plan documents are
