@@ -4,6 +4,11 @@ All notable changes to 1667 will be documented in this file.
 
 ## Unreleased
 
+- **Generation stays out of the writer's way.** Provider work now runs between
+  short durable phases, then applies an operation-specific result to the
+  current story without losing intervening edits. Linux race coverage includes
+  Stop saves, deleted sources, manual renames, and provider teardown. Thanks
+  @10fra for tracing the CI-only failures and driving the recovery work.
 - **Stories are anchored to the folder you start 1667 in.** `1667` walks up for a
   `.1667/` project the way git walks up for `.git`; `1667 init` creates one, and
   `1667 --global` keeps a single machine-wide library instead. `--data` now names

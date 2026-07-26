@@ -107,6 +107,19 @@ export class MutationCoordinator {
     return await this.run(input, parseStoryTarget, handler);
   }
 
+  /** Re-enter one short phase of a canonical story mutation. Provider-backed
+   * work parses once, then uses this for its durable start and terminal phases
+   * without holding admission across network I/O. */
+  async runStoryPhase<Result>(
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    handler: () => Result | PromiseLike<Result>
+  ): Promise<Result> {
+    return await this.runClaimed(
+      request.scope,
+      async () => await handler()
+    );
+  }
+
   /** Internal single-story maintenance uses the same scope/global admission
    * without inventing a user mutation receipt or catalog-wide lock. */
   async runStoryMaintenance<Result>(

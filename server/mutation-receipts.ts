@@ -486,7 +486,9 @@ function storedFailure(failure: PublicServiceError | undefined): ServiceError {
 }
 
 function isDefinitiveGenerationFailure(error: unknown): boolean {
-  return isDefinitiveProviderFailure(error);
+  return isDefinitiveProviderFailure(error)
+    || (error instanceof ServiceError
+      && error.code === "generation_outcome_unknown_acknowledged");
 }
 
 function isPublicFailure(value: unknown): value is PublicServiceError {

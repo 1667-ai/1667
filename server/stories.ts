@@ -7,7 +7,6 @@ import {
   type EditNodeRequest,
   type PruneUnusedTakesRequest,
   type Story,
-  type StoryNode,
   type StorySummary
 } from "../shared/types.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
@@ -40,7 +39,6 @@ import {
 } from "./story-lifecycle.js";
 import {
   applyHumanEdit,
-  createInactiveTakeFromCut,
   createTake,
   createTakeFromCut as createCutTake,
   deleteSubtree,
@@ -72,16 +70,14 @@ import {
 import { buildStorySummary } from "./story-summary.js";
 import { storySummaryFromV6 } from "./story-v6-codec.js";
 import {
+  applyProviderStoryEffect,
+  type ProviderStoryEffect,
+  type ProviderStoryEffectValue
+} from "./story-provider-effect.js";
+import {
   hashStoryV5ManifestBytes
 } from "./story-manifest-hash.js";
 import { isStoryId } from "./story-v5-strict.js";
-import {
-  requireSummaryActive,
-  summarizedPath,
-  summarySourceFingerprint,
-  type SummaryCommitIds,
-  type SummaryPoint
-} from "./summary-take.js";
 import {
   requirePresentStorySlot,
   StoryAggregateSession
@@ -111,6 +107,8 @@ export class StoryStore {
   }
 
   private readonly snapshots = new WeakMap<Story, StoryRevisionSnapshot>();
+  private readonly providerSnapshotPins =
+    new Map<string, Map<ObjectHash, number>>();
   /** One writer at a time per story. Read-modify-write is otherwise not atomic:
    *  a Stop and the stream's own commit can both load an unstamped story, both
    *  decide to write, and race — duplicating a node or losing the other's text.
@@ -165,6 +163,40 @@ export class StoryStore {
    * tests and orderly shutdowns may use this to observe a settled filesystem. */
   async waitForMaintenance(): Promise<void> {
     await this.cleanupQueue.waitForIdle();
+  }
+
+  /** Keep an admitted provider snapshot's immutable objects readable while
+   * provider preparation runs outside the story claim. Cleanup retains the
+   * union of live and pinned revisions until the returned lease is released. */
+  pinProviderSnapshot(
+    session: StoryAggregateSession
+  ): () => void {
+    const manifest = session.snapshot.manifest;
+    if (manifest.kind !== "live") {
+      throw new Error("Cannot pin a deleted provider snapshot");
+    }
+    const storyId = session.storyId;
+    const revisionIds = [
+      ...new Set(manifestRevisionIds(manifest.content))
+    ];
+    const pins = this.providerSnapshotPins.get(storyId)
+      ?? new Map<ObjectHash, number>();
+    this.providerSnapshotPins.set(storyId, pins);
+    for (const revisionId of revisionIds) {
+      pins.set(revisionId, (pins.get(revisionId) ?? 0) + 1);
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const revisionId of revisionIds) {
+        const count = pins.get(revisionId);
+        if (count === undefined || count <= 1) pins.delete(revisionId);
+        else pins.set(revisionId, count - 1);
+      }
+      if (pins.size === 0) this.providerSnapshotPins.delete(storyId);
+      this.cleanupQueue.schedule(storyId);
+    };
   }
 
   async list(): Promise<StorySummary[]> {
@@ -255,47 +287,19 @@ export class StoryStore {
     return await this.mutate(id, (story) => { removeStoryBookmark(story, nodeId); });
   }
 
-  async commitSummary(
+  async commitProviderEffect<Effect extends ProviderStoryEffect>(
     id: string,
-    point: SummaryPoint,
-    expected: string | null,
-    sourceFingerprint: string,
-    summary: string,
-    model: string,
-    instruction: string,
-    cancelled?: AbortSignal,
-    commitIds: SummaryCommitIds = {}
-  ): Promise<StoryNode> {
+    effect: Effect
+  ): Promise<ProviderStoryEffectValue<Effect>> {
     return await this.withLock(id, async () => {
       const story = await this.loadForMutation(id);
-      const existing = commitIds.summaryNodeId === undefined ? undefined
-        : story.nodes.find((node) => node.id === commitIds.summaryNodeId);
-      if (existing !== undefined) return existing;
-      // Cancel can land while this commit waits for the story lock or the load's
-      // io queue; a summary saved after that would be invisible to the client
-      // that gave up on it. Check after the last await before mutating. An abort
-      // arriving DURING the save below is accepted as unwinnable (fixing it needs
-      // two-phase commit); the client reloads after every cancel, so a summary
-      // that wins that race is visible and one delete away — never silent.
-      requireSummaryActive(cancelled);
-      await this.hydratePath(story, point.nodeId);
-      requireSummaryActive(cancelled);
-      const prefix = summarizedPath(story, point, expected);
-      if (summarySourceFingerprint(story.title, prefix, point) !== sourceFingerprint) {
-        throw new HttpError(409, "The story changed while its summary was being written. Try again.");
-      }
-      const parentId = point.offset === null
-        ? point.nodeId
-        : createInactiveTakeFromCut(story, point.nodeId, point.offset, expected, commitIds.cutNodeId).id;
-      const node = newNode(parentId, instruction, summary, model, {
-        role: "summary",
-        ...(commitIds.summaryNodeId === undefined ? {} : { id: commitIds.summaryNodeId })
-      });
-      // Summary streaming must not steal the active line. The client switches
-      // explicitly only if the reader is still on the unchanged launch line.
-      createTake(story, node, { activate: false });
-      await this.save(story);
-      return node;
+      const applied = await applyProviderStoryEffect(
+        story,
+        effect,
+        async (current, nodeId) => await this.hydratePath(current, nodeId)
+      );
+      if (applied.changed) await this.save(story);
+      return applied.value;
     });
   }
 
@@ -565,12 +569,21 @@ export class StoryStore {
             ? []
             : null;
         if (liveRevisionIds === null) return;
+        const pinned = this.providerSnapshotPins.get(id);
+        const beganWithPins = pinned !== undefined;
+        const protectedRevisionIds = pinned === undefined
+          ? liveRevisionIds
+          : [...new Set([...liveRevisionIds, ...pinned.keys()])];
         const completed = await this.sweep(
           this.bundlePath(id),
-          liveRevisionIds,
+          protectedRevisionIds,
           signal
         );
-        if (completed) await clearCleanupPending(this.bundlePath(id), id);
+        if (completed
+          && !beganWithPins
+          && !this.providerSnapshotPins.has(id)) {
+          await clearCleanupPending(this.bundlePath(id), id);
+        }
       });
     }, true);
   }
