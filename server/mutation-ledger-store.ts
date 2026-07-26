@@ -25,7 +25,7 @@ import type {
 } from "./mutation-ledger-types.js";
 import { canonicalFormatMigrationReceiptRecord } from "./settings-format-migration-receipt.js";
 import {
-  readOptionalPrivateFile,
+  readOptionalPrivateFiles,
 } from "./private-file-publication.js";
 import {
   LEDGER_RECORD_POLICY,
@@ -376,12 +376,13 @@ export class MutationLedgerStore {
     aggregateKey: `story:${string}`,
     mutationId: MutationId
   ): Promise<StoryMutationReceipt> {
-    const [started, prepared, completed, acknowledged] = await Promise.all([
-      this.readOptional(directory, "started", aggregateKey, mutationId),
-      this.readOptional(directory, "prepared", aggregateKey, mutationId),
-      this.readOptional(directory, "completed", aggregateKey, mutationId),
-      this.readOptional(directory, "acknowledged", aggregateKey, mutationId)
-    ]);
+    const [started = null, prepared = null, completed = null, acknowledged = null] =
+      await this.readOptionalRecords(
+        directory,
+        ["started", "prepared", "completed", "acknowledged"],
+        aggregateKey,
+        mutationId
+      );
     if (started !== null && started.kind !== "started") throw corruptReceipt(mutationId);
     if (prepared !== null && prepared.kind !== "prepared") throw corruptReceipt(mutationId);
     if (completed !== null && completed.kind !== "completed") throw corruptReceipt(mutationId);
@@ -427,10 +428,12 @@ export class MutationLedgerStore {
     aggregateKey: LogicalAggregateKey,
     expectedKey: string
   ): Promise<Readonly<{ prepared: PreparedRecord | null; completed: CompletedMutationRecord | null }>> {
-    const [prepared, completed] = await Promise.all([
-      this.readOptional(directory, "prepared", aggregateKey, expectedKey),
-      this.readOptional(directory, "completed", aggregateKey, expectedKey)
-    ]);
+    const [prepared = null, completed = null] = await this.readOptionalRecords(
+      directory,
+      ["prepared", "completed"],
+      aggregateKey,
+      expectedKey
+    );
     if (prepared !== null && prepared.kind !== "prepared") {
       throw corruptReceipt(expectedKey);
     }
@@ -473,52 +476,61 @@ export class MutationLedgerStore {
   }
 
   private async findLedgerDirectory(segments: readonly string[]): Promise<string | null> {
-    try {
-      await inspectPrivateDirectory(this.root);
-    } catch (error) {
-      if (isErrorCode(error, "ENOENT")) return null;
-      throw receiptUnavailable(error);
-    }
+    const directories = [this.root];
     let directory = this.root;
     for (const segment of segments) {
       directory = path.join(directory, segment);
-      try {
-        await inspectPrivateDirectory(directory);
-      } catch (error) {
-        if (isErrorCode(error, "ENOENT")) return null;
-        throw receiptUnavailable(error);
+      directories.push(directory);
+    }
+    const inspected = await Promise.allSettled(
+      directories.map(async (candidate) =>
+        await inspectPrivateDirectory(candidate)
+      )
+    );
+    let missing = false;
+    for (const result of inspected) {
+      if (result.status === "fulfilled") continue;
+      if (isErrorCode(result.reason, "ENOENT")) {
+        missing = true;
+      } else {
+        throw receiptUnavailable(result.reason);
       }
     }
-    return directory;
+    return missing ? null : directory;
   }
 
-  private async readOptional(
+  private async readOptionalRecords(
     directory: string,
-    kind: keyof typeof RECORD_FILES,
+    kinds: readonly (keyof typeof RECORD_FILES)[],
     aggregateKey: LogicalAggregateKey,
     expectedKey: string
-  ): Promise<MutationLedgerRecord | null> {
-    let bytes: Buffer | null;
+  ): Promise<readonly (MutationLedgerRecord | null)[]> {
+    let records: readonly (Buffer | null)[];
     try {
-      bytes = await readOptionalPrivateFile(
-        path.join(directory, RECORD_FILES[kind]),
+      records = await readOptionalPrivateFiles(
+        kinds.map((kind) => path.join(directory, RECORD_FILES[kind])),
         LEDGER_RECORD_POLICY
       );
     } catch (error) {
       throw corruptReceipt(expectedKey, error);
     }
-    if (bytes === null) return null;
-    let record: MutationLedgerRecord;
-    try {
-      record = parseMutationLedgerRecordBytes(bytes);
-    } catch (error) {
-      throw corruptReceipt(expectedKey, error);
-    }
-    const key = "key" in record ? record.key : record.mutationId;
-    if (record.kind !== kind || record.aggregateKey !== aggregateKey || key !== expectedKey) {
-      throw corruptReceipt(expectedKey);
-    }
-    return record;
+    return records.map((bytes, index) => {
+      if (bytes === null) return null;
+      const kind = kinds[index]!;
+      let record: MutationLedgerRecord;
+      try {
+        record = parseMutationLedgerRecordBytes(bytes);
+      } catch (error) {
+        throw corruptReceipt(expectedKey, error);
+      }
+      const key = "key" in record ? record.key : record.mutationId;
+      if (record.kind !== kind
+        || record.aggregateKey !== aggregateKey
+        || key !== expectedKey) {
+        throw corruptReceipt(expectedKey);
+      }
+      return record;
+    });
   }
 
   private async removeCollectedReceipt(
