@@ -134,10 +134,6 @@ export async function createSummaryTake(
     if (error instanceof HttpError) throw new GenerationResultError(error.status, error.message);
     throw error;
   }
-  if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    return null;
-  }
   return node.id;
 }
 
