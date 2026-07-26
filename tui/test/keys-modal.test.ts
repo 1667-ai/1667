@@ -46,7 +46,7 @@ describe("keys reference", () => {
       expect(frame).toContain("space  continue this part");
       expect(frame).toContain("r  retake · same prompt");
       expect(frame).toContain("m  map of the whole story");
-      expect(frame).toContain("↑ ↓  move between parts");
+      expect(frame).toContain("↑ ↓  previous · next row");
       expect(frame).toContain("esc  close what is open");
       for (const line of frame.split("\n")) expect(visibleWidth(line) <= width).toBeTrue();
     }

@@ -100,7 +100,7 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "read and navigate",
     role: "focus / accent",
     entries: [
-      entry("move between parts", [
+      entry("previous · next row", [
         binding("up", "NAV", "focus-previous"),
         binding("down", "NAV", "focus-next"),
         binding("up", "MAP", "focus-previous", { mapView: "path" }),
@@ -227,7 +227,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("a", "MAP", "toggle-sketches", { mapView: "tree" }),
         binding("a", "MAP", "toggle-sketches", { mapView: "mass" })
       ]),
-      entry("jump to that part", [binding("return", "MAP", "apply")]),
+      entry("reroute node or sketch", [binding("return", "MAP", "apply")]),
       // Views the map itself names in its tabs. A key that does nothing in the
       // view you are looking at has to say so, or the reference lies again.
       entry("follow tree · open mass", [

@@ -44,8 +44,12 @@ describe("keys reference contract", () => {
           ...(binding.shift === true ? { shift: true } : {}),
           ...(binding.ctrl === true ? { ctrl: true } : {})
         });
-        expect(resolveKey(event, binding.mode, { mapView: binding.mapView }).action)
-          .toBe(binding.action);
+        const mapViews = binding.mode === "MAP" && binding.mapView === undefined
+          ? (["path", "tree", "mass"] as const)
+          : [binding.mapView];
+        for (const mapView of mapViews) {
+          expect(resolveKey(event, binding.mode, { mapView }).action).toBe(binding.action);
+        }
       }
     }
   });

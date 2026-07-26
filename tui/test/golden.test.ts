@@ -133,7 +133,7 @@ describe("deterministic demo frames", () => {
     const frame = await renderOnce(demoSource(), 120, 36, "?");
     expect(frame).toContain("┏━ keys · and what they do ━");
     expect(frame).toContain("● MOVE  read and navigate");
-    expect(frame).toContain("↑ ↓  move between parts");
+    expect(frame).toContain("↑ ↓  previous · next row");
     expect(frame).toContain("← →  flip between takes");
     expect(frame).toContain("l  follow tree · open mass");
     expect(frame).toContain("s  tree→mass · mass sorts");

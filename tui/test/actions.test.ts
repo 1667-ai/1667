@@ -196,7 +196,7 @@ describe("demo action pipeline", () => {
     expect(state.payload.path.at(-1)?.id).toBe("p13");
   });
 
-  test("arrows reach a cold fold on the tree and l opens it", async () => {
+  test("arrows reach a cold fold, Enter leaves it closed, and l opens it", async () => {
     const { state, press } = harness();
     await press("m");
     await press("m");
@@ -204,6 +204,9 @@ describe("demo action pipeline", () => {
     // fold sits above it among the branch stubs, reachable by walking up.
     let guard = 0;
     while (state.map?.treeCursorId !== "p5-alt" && guard < 20) { await press("up"); guard += 1; }
+    expect(state.map?.treeCursorId).toBe("p5-alt");
+    await press("return", "\r");
+    expect(state.map?.openedColdFolds.has("p5-alt")).toBeFalse();
     expect(state.map?.treeCursorId).toBe("p5-alt");
     await press("l");
     expect(state.map?.openedColdFolds.has("p5-alt")).toBeTrue();
