@@ -62,7 +62,15 @@ export async function resolvePrivatePlatformStateRoot(
       "Library",
       "Application Support"
     );
-    await requireCanonicalDirectory(applicationSupport, "Application Support");
+    // Created, not merely required. macOS ships this directory, so demanding it
+    // held everywhere a real account runs and failed only where one does not:
+    // a fixture HOME, a freshly created account, a sandboxed environment. Linux
+    // already creates its own equivalent below, and each component still passes
+    // the same canonical, non-symlink check either way.
+    await ensureCanonicalDirectoryChain(
+      accountHome,
+      ["Library", "Application Support"]
+    );
     return await preparePrivateChain(applicationSupport, ["1667", "State"]);
   }
 

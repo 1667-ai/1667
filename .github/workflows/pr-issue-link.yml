@@ -1,0 +1,44 @@
+name: PR issue link
+
+# Every change starts with an issue, so a pull request has to name one. This
+# checks the body for a closing keyword plus an issue number and nothing else:
+# it does not judge whether the issue is a good one, only that the trail exists.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  linked:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require a linked issue
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s' "$BODY" | grep -qiE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+'; then
+            printf '%s' "$BODY" | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' | head -1
+            echo "linked issue found"
+            exit 0
+          fi
+          cat >&2 <<'MSG'
+
+            This pull request does not reference an issue.
+
+            Every change starts with an issue: it is where the why gets agreed
+            before anyone spends time on the how, and the only durable record of
+            intent once the diff is old. If the change is obvious, the issue can
+            be three sentences.
+
+            Add a closing reference to the pull request body:
+
+                Closes #123
+
+            Already wrote the code? Open the issue anyway and link it. The order
+            matters less than the trail existing.
+
+          MSG
+          exit 1

@@ -29,9 +29,11 @@ export async function streamResponse<T>(
   } catch (error) {
     if (signal.aborted) return void response.end();
     if (session === null) throw error;
+    const known = toPublicServiceError(error);
     await (session as ReturnType<typeof openSse>).send({
       type: "error",
-      message: toPublicServiceError(error).message
+      code: known.code,
+      message: known.message
     });
     response.end();
   }

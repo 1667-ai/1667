@@ -49,7 +49,7 @@ export function requireSummaryActive(signal?: AbortSignal): void {
 export async function createSummaryTake(
   id: string,
   body: Record<string, unknown>,
-  stories: ProviderStoryRuntime,
+  stories: ProviderStoryRuntime<"createSummaryTake">,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,
@@ -117,26 +117,22 @@ export async function createSummaryTake(
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   let node: StoryNode;
   try {
-    node = await stories.commitSummary(
-      id,
+    node = await stories.commitProviderEffect(id, {
+      kind: "summary-take",
       point,
       expected,
-      fingerprint,
+      sourceFingerprint: fingerprint,
       summary,
       model,
-      summaryNodeInstruction(source.title),
-      signal,
+      instruction: summaryNodeInstruction(source.title),
+      cancelled: signal,
       commitIds
-    );
+    });
   } catch (error) {
     throwIfUncertainAbort(signal);
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;
     if (error instanceof HttpError) throw new GenerationResultError(error.status, error.message);
     throw error;
-  }
-  if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    return null;
   }
   return node.id;
 }

@@ -149,8 +149,10 @@ export class StoryCreationMutationStore {
     });
   }
 
+  /** Read paths call this, so a story already claimed by a live mutation
+   * skips instead of failing the read that asked for it. */
   async recoverResidue(storyId: string): Promise<boolean> {
-    return await this.coordinator.runStoryMaintenance(storyId, async (scope) => {
+    return await this.coordinator.runStoryMaintenanceWhenIdle(storyId, async (scope) => {
       const identity = await this.readCreationIdentity(storyId);
       const residue = path.join(this.root, storyResidueNames(storyId).create);
       if (identity === null) {
@@ -190,7 +192,7 @@ export class StoryCreationMutationStore {
         receipt.completed !== null
       );
       return true;
-    });
+    }) ?? false;
   }
 
   private async create(

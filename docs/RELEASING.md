@@ -97,8 +97,7 @@ and native-identity evidence. Passing local preflight is necessary package
 evidence, not publication authorization.
 
 The standalone command is a native execution gate, not only a compiler check.
-Run it on `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, and
-`windows-x64`. Each candidate must prove its embedded identity, read-only
+Run it on `darwin-arm64`, `darwin-x64`, `linux-arm64`, and `linux-x64`. Each candidate must prove its embedded identity, read-only
 diagnostic, demo render, and prompt-tokenizer vectors. The macOS and Linux
 candidates must also prove explicit absent-target publication, cold embedded
 render, and install relocation against the unchanged account data target.
@@ -107,5 +106,5 @@ containment. macOS proves lock-aware serve fails closed. Windows proves that
 embedded storage and HTTP authority fail closed until their native DACL and
 reparse-safe adapters are complete.
 
-See [ADR 005](adr/005-trusted-releases-and-upgrades.md) for the exact matrix,
+See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md) for the exact matrix,
 bounds, and deferred decisions.

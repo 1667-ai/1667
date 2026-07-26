@@ -175,6 +175,59 @@ test("one coordinator admits settings and different stories but conflicts on the
   await Promise.all([firstStory, settings]);
 });
 
+const MAINTENANCE_STORY_ID =
+  "st1_n3zxisks5umrl45huvqjyeeku7ifobqn2iljtcnuwh5uf7w6d3aq";
+
+test("read-path story maintenance skips a story a live mutation already claims", async () => {
+  const coordinator = createMutationCoordinator();
+  const hold = deferred();
+  const mutation = coordinator.runStory({
+    ...storyRequest(1),
+    scope: `story:${MAINTENANCE_STORY_ID}`
+  }, async () => {
+    await hold.promise;
+    return "mutation";
+  });
+
+  // Reads recover residue opportunistically. A live claim must skip that
+  // sweep, never fail the read that asked for it.
+  let swept = false;
+  assert.equal(
+    await coordinator.runStoryMaintenanceWhenIdle(MAINTENANCE_STORY_ID, () => {
+      swept = true;
+      return true;
+    }),
+    null
+  );
+  assert.equal(swept, false);
+
+  hold.resolve();
+  assert.equal(await mutation, "mutation");
+  assert.equal(
+    await coordinator.runStoryMaintenanceWhenIdle(MAINTENANCE_STORY_ID, () => true),
+    true
+  );
+});
+
+test("maintenance outside a read path still conflicts on a claimed story", async () => {
+  const coordinator = createMutationCoordinator();
+  const hold = deferred();
+  const mutation = coordinator.runStory({
+    ...storyRequest(1),
+    scope: `story:${MAINTENANCE_STORY_ID}`
+  }, async () => {
+    await hold.promise;
+  });
+
+  await assert.rejects(
+    coordinator.runStoryMaintenance(MAINTENANCE_STORY_ID, () => true),
+    hasServiceError("resource_busy", 409)
+  );
+
+  hold.resolve();
+  await mutation;
+});
+
 test("same-scope contention rejects immediately and never queues", async () => {
   const coordinator = createMutationCoordinator();
   const hold = deferred();

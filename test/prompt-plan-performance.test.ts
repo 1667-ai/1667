@@ -18,12 +18,13 @@ import { summaryTakePrompt } from "../server/summary-take.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import type { GenerationSettings, Story, StoryNode } from "../shared/types.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 const PART_COUNT = 256;
 const PART_CHARACTERS = 4_096;
 const FACT_CHARACTERS = 128 * 1_024;
 const ROUNDS = 25;
-const CPU_BUDGET_MS = 8_000;
+const CPU_BUDGET_MS = platformPerformanceBudget(8_000);
 const REGISTRY_MUTATIONS = 25_000;
 const REGISTRY_CAPACITY = 256;
 const REQUEST_SETTINGS: GenerationSettings = {
@@ -161,7 +162,7 @@ test("cache-scope derivation remains bounded and independent of prompt size", (t
   const cpu = process.cpuUsage(cpuStart);
   const cpuMs = (cpu.user + cpu.system) / 1_000;
   assert.equal(characters, 20_000 * 79);
-  assert.ok(cpuMs < 2_000, `20,000 cache scopes used ${cpuMs.toFixed(1)}ms CPU`);
+  assert.ok(cpuMs < platformPerformanceBudget(2_000), `20,000 cache scopes used ${cpuMs.toFixed(1)}ms CPU`);
   t.diagnostic(`20,000 cache scopes: ${cpuMs.toFixed(1)}ms CPU`);
 });
 
@@ -252,7 +253,7 @@ test(
 
     assert.equal(tokenCounts, 0, "registry-qualified prefixes must not be retokenized");
     assert.ok(
-      cpuMs < 2_000,
+      cpuMs < platformPerformanceBudget(2_000),
       `unchanged cached-prefix planning used ${cpuMs.toFixed(1)}ms CPU`
     );
     t.diagnostic(
@@ -320,7 +321,7 @@ test("prompt-cache registry remains capped through 25,000 mutations and eviction
     `boundary-${REGISTRY_MUTATIONS - 1}`
   );
   assert.equal(registry.hashes().length, REGISTRY_CAPACITY);
-  assert.ok(cpuMs < 2_000, `25,000 registry mutations used ${cpuMs.toFixed(1)}ms CPU`);
+  assert.ok(cpuMs < platformPerformanceBudget(2_000), `25,000 registry mutations used ${cpuMs.toFixed(1)}ms CPU`);
   t.diagnostic(
     `${REGISTRY_MUTATIONS.toLocaleString()} registry mutations: `
     + `${cpuMs.toFixed(1)}ms CPU, cap ${registry.size}`

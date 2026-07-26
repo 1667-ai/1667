@@ -142,7 +142,7 @@ const TOUR: StarterStory = {
         {
           slug: "map",
           instruction: "The map, and why it exists.",
-          keys: ["openMap", "mapCycleView", "mapDetail", "mapJump", "mapBookmark"],
+          keys: ["openMap", "mapCycleView", "mapClose", "mapDetail", "mapJump", "mapBookmark"],
           text: "Press [m] to open the map.\n\n"
             + "A story with takes is a tree, not a page, and past a few thousand words the "
             + "tree is the real picture of it. The map draws that tree: the line you "

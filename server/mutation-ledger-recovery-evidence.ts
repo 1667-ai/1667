@@ -259,10 +259,6 @@ function validatePreparedResultState(
       ? state.kind === "story" && version.revision === state.storyRevision
       : state.kind === "settings" && version.stateGeneration === state.settingsStateGeneration;
     if (!matches) throw recoveryError(`Prepared error version does not match the ${label}`);
-    if (prepared.purpose === "mutation" && prepared.startedRecordHash !== null
-      && state.kind === "story" && state.summary === null) {
-      throw recoveryError(`Provider terminal error cannot install a deleted ${label}`);
-    }
     return;
   }
   if (state.kind !== "settings") {
