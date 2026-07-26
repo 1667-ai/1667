@@ -62,6 +62,18 @@ export function requireMatchingProviderReceipt(
   }
 }
 
+export function requireUnacknowledgedProviderReceipt(
+  receipt: StoryMutationReceipt,
+  request: MutationCoordinatorRequest<StoryMutationTarget>,
+  method: ProviderMutationMethod
+): void {
+  if (receipt.acknowledged !== null) {
+    requireMatchingAcknowledgedProviderReceipt(receipt, request, method);
+    throw providerOutcomeAcknowledged(request.mutationId);
+  }
+  requireMatchingProviderReceipt(receipt, request, method);
+}
+
 export function requireMatchingAcknowledgedProviderReceipt(
   receipt: StoryMutationReceipt,
   request: MutationCoordinatorRequest<StoryMutationTarget>,

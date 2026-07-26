@@ -18,7 +18,7 @@ import { runTerminalStoryPhase } from "./story-provider-phase.js";
 import {
   providerOutcomeUnknown,
   receiptOnlyProviderError,
-  requireMatchingProviderReceipt
+  requireUnacknowledgedProviderReceipt
 } from "./story-provider-receipt.js";
 import {
   commitReceiptOnlyStoryTransaction,
@@ -87,7 +87,7 @@ export class StoryProviderRaceResolver {
           request.scope,
           request.mutationId
         );
-        requireMatchingProviderReceipt(receipt, request, method);
+        requireUnacknowledgedProviderReceipt(receipt, request, method);
         if (receipt.prepared !== null) {
           const terminal = await this.recovery.recover(
             session,
@@ -136,7 +136,7 @@ export class StoryProviderRaceResolver {
           request.scope,
           request.mutationId
         );
-        requireMatchingProviderReceipt(receipt, request, method);
+        requireUnacknowledgedProviderReceipt(receipt, request, method);
         const terminal = await this.recovery.recover(
           session,
           request,

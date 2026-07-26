@@ -10,6 +10,8 @@ import {
   FINGERPRINT,
   hasServiceError,
   MUTATION_ID,
+  OTHER_FINGERPRINT,
+  OTHER_MUTATION_ID,
   request,
   requestFor,
   setup,
@@ -341,6 +343,52 @@ test("Q freezes provider effect allocators before terminal publication", async (
     1
   );
   await fixture.stories.waitForMaintenance();
+});
+
+test("Q active provider terminalization observes acknowledgement", async (t) => {
+  const fixture = await setup(t, "1667-q-provider-active-acknowledgement-");
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  let releaseProvider!: () => void;
+  const providerGate = new Promise<void>((resolve) => {
+    releaseProvider = resolve;
+  });
+  t.after(() => releaseProvider());
+
+  const provider = fixture.mutations.runProvider(
+    request(fixture.v5Hash),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      markStarted();
+      await providerGate;
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Must not commit after acknowledgement"
+      });
+    },
+    storyFixture
+  );
+  await started;
+  const active = await fixture.stories.loadVersioned(STORY_ID);
+  await fixture.mutations.runAcknowledge(
+    requestFor(
+      OTHER_MUTATION_ID,
+      OTHER_FINGERPRINT,
+      active.aggregateVersion!
+    ),
+    MUTATION_ID
+  );
+  releaseProvider();
+
+  await assert.rejects(
+    provider,
+    hasServiceError("generation_outcome_unknown_acknowledged")
+  );
+  assert.equal((await fixture.stories.load(STORY_ID)).title, "Original");
 });
 
 for (const cachedKind of ["v5", "v6"] as const) {

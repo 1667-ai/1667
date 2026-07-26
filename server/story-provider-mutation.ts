@@ -33,10 +33,8 @@ import {
   ScopedProviderStoryRuntime
 } from "./story-mutation-runtime.js";
 import {
-  providerOutcomeAcknowledged,
   providerOutcomeUnknown,
-  requireMatchingAcknowledgedProviderReceipt,
-  requireMatchingProviderReceipt,
+  requireUnacknowledgedProviderReceipt,
   terminalProviderConflict
 } from "./story-provider-receipt.js";
 import { runTerminalStoryPhase } from "./story-provider-phase.js";
@@ -97,11 +95,7 @@ export class StoryProviderMutationStore {
         request.mutationId
       );
       requireFreshStoryMutation(receipt, request.mutationId, this.now);
-      if (receipt.acknowledged !== null) {
-        requireMatchingAcknowledgedProviderReceipt(receipt, request, method);
-        throw providerOutcomeAcknowledged(request.mutationId);
-      }
-      requireMatchingProviderReceipt(receipt, request, method);
+      requireUnacknowledgedProviderReceipt(receipt, request, method);
 
       const opened = await this.open(storyId, request, method, receipt, replayValue);
       return { request, storyId, opened };
@@ -221,7 +215,7 @@ export class StoryProviderMutationStore {
           request.scope,
           request.mutationId
         );
-        requireMatchingProviderReceipt(current, request, method);
+        requireUnacknowledgedProviderReceipt(current, request, method);
         const unresolved = session.snapshot.manifest.unresolvedProvider;
         if (unresolved !== null) {
           throw providerOutcomeUnknown(unresolved.mutationId);
@@ -267,7 +261,7 @@ export class StoryProviderMutationStore {
         request.scope,
         request.mutationId
       );
-      requireMatchingProviderReceipt(receipt, request, method);
+      requireUnacknowledgedProviderReceipt(receipt, request, method);
       if (receipt.prepared !== null) {
         const terminal = await this.recovery.recover(session, request, receipt);
         if (terminal !== null) throw new ProviderTerminalReplay();
@@ -402,7 +396,7 @@ export class StoryProviderMutationStore {
       request.scope,
       request.mutationId
     );
-    requireMatchingProviderReceipt(receipt, request, method);
+    requireUnacknowledgedProviderReceipt(receipt, request, method);
     if (receipt.started === null
       || hashStartedMutationRecord(receipt.started)
         !== hashStartedMutationRecord(started)) {
