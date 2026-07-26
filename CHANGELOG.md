@@ -34,7 +34,8 @@ All notable changes to 1667 will be documented in this file.
   bands are gone; each key sits beside a plain description of what it does,
   grouped into move, write, shape, open, and map. The reference takes as many
   columns as the terminal is wide and scrolls with the arrows when a short one
-  cannot hold it.
+  cannot hold it. Thanks @10fra for rebuilding the reference around what
+  writers need to know.
 - **The running build shows in the status-bar corner**, and in the key
   reference's footer where a narrow terminal hides the status bar.
 - Extracted the 1667 terminal application and its embedded runtime into an
