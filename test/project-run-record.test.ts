@@ -5,7 +5,6 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { PROJECT_RUN_RECORD_FILE } from "../server/data-directory-layout.js";
 import {
-  announceProjectServer,
   publishProjectRunRecord,
   readProjectRunRecord,
   removeProjectRunRecord
@@ -52,14 +51,11 @@ test("a malformed or unreadable record reads as absent, never as an error", asyn
 
 test("announcing a server keeps the start time and adds the port", async (t) => {
   const projectDir = await temporaryDirectory(t, "1667-run-record-announce-");
-  await publishProjectRunRecord(projectDir, {
-    pid: process.pid,
-    port: null,
-    url: null,
-    startedAt: RECORD.startedAt
-  });
+  const lock = new RuntimeDataDirectoryLock(projectDir);
+  await lock.acquire();
+  const held = await readProjectRunRecord(projectDir);
 
-  await announceProjectServer(projectDir, {
+  await lock.announceProjectServer({
     port: 51_000,
     url: "http://127.0.0.1:51000"
   });
@@ -68,8 +64,28 @@ test("announcing a server keeps the start time and adds the port", async (t) => 
     pid: process.pid,
     port: 51_000,
     url: "http://127.0.0.1:51000",
-    startedAt: RECORD.startedAt
+    startedAt: held?.startedAt
   });
+  await lock.release();
+});
+
+test("a released owner cannot replace or remove its successor record", async (t) => {
+  const projectDir = await temporaryDirectory(t, "1667-run-record-successor-");
+  const previous = new RuntimeDataDirectoryLock(projectDir);
+  await previous.acquire();
+  await previous.release();
+
+  const successor = new RuntimeDataDirectoryLock(projectDir);
+  await successor.acquire();
+  const successorRecord = await readProjectRunRecord(projectDir);
+
+  await previous.announceProjectServer({
+    port: 51_001,
+    url: "http://127.0.0.1:51001"
+  });
+
+  assert.deepEqual(await readProjectRunRecord(projectDir), successorRecord);
+  await successor.release();
 });
 
 test("an unwritable record never keeps a project from opening", async (t) => {

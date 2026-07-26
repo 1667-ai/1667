@@ -24,7 +24,7 @@ test("service lifecycle retries after an initializer throws synchronously", asyn
 
 test("story service rejects work before initialization without touching storage", async (t) => {
   const dataDir = await temporaryDataDirectory(t, "1667-service-before-init-");
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
 
   await assert.rejects(service.createStory("Too early"), /not initialized/);
   assert.deepEqual(await readdir(dataDir), []);
@@ -36,7 +36,7 @@ test("story service rejects work before initialization without touching storage"
 
 test("story service shares initialization and disposal across concurrent callers", async (t) => {
   const dataDir = await temporaryDataDirectory(t, "1667-service-lifecycle-");
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
 
   const startup = service.init();
   await assert.rejects(service.createStory("Still too early"), /not initialized/);
@@ -55,7 +55,7 @@ test("story service can retry initialization after lock contention", async (t) =
   const owner = new DataDirectoryLock(dataDir);
   await owner.acquire();
   t.after(() => owner.release());
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
 
   await assert.rejects(service.init(), /already open/);
   await owner.release();
@@ -66,7 +66,7 @@ test("story service can retry initialization after lock contention", async (t) =
 
 test("disposal overtaking initialization leaves the service closed", async (t) => {
   const dataDir = await temporaryDataDirectory(t, "1667-service-init-dispose-");
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
 
   const initialization = service.init();
   const disposal = service.dispose();

@@ -2,12 +2,16 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { exactStringPattern } from "./story-wire-patterns.js";
 import {
+  MUTATION_INPUT_PROTOCOL_VERSION,
   LEGACY_WORKER_PROTOCOL_VERSION,
-  WORKER_PROTOCOL_VERSION,
   isMutatingWorkerMethod,
   isWorkerMethod,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
+import {
+  decodeFailureEnvelope,
+  type FailureEnvelope
+} from "../shared/failure-envelope.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { ServiceError } from "./errors.js";
 import {
@@ -36,11 +40,7 @@ export interface MutationOutboxRecord {
   cancelledAt?: string;
 }
 
-export interface MutationOutboxResolution {
-  code: string;
-  message: string;
-  status: number | null;
-}
+export type MutationOutboxResolution = FailureEnvelope;
 
 export interface ArchivedMutationOutboxRecord {
   format: "1667-mutation-outbox-archive";
@@ -102,7 +102,7 @@ export class MutationOutbox {
         schemaVersion: 1,
         mutationId,
         sequence,
-        protocolVersion: WORKER_PROTOCOL_VERSION,
+        protocolVersion: MUTATION_INPUT_PROTOCOL_VERSION,
         method,
         input,
         ...(expectedAggregateVersion === undefined ? {} : {
@@ -343,16 +343,17 @@ function compareAdmissionOrder(left: MutationOutboxRecord, right: MutationOutbox
 function parseArchivedRecord(value: unknown, mutationId: string): ArchivedMutationOutboxRecord {
   if (value === null || typeof value !== "object") throw corruptOutbox(mutationId);
   const archived = value as Partial<ArchivedMutationOutboxRecord>;
-  const resolution = archived.resolution;
+  const resolution = decodeFailureEnvelope(archived.resolution);
   if (archived.format !== "1667-mutation-outbox-archive" || archived.schemaVersion !== 1
     || archived.intent === undefined || parseRecord(archived.intent, mutationId).mutationId !== mutationId
     || typeof archived.resolvedAt !== "string" || !Number.isFinite(Date.parse(archived.resolvedAt))
-    || resolution === undefined || typeof resolution.code !== "string" || resolution.code.length === 0
-    || typeof resolution.message !== "string" || resolution.message.length === 0
-    || (resolution.status !== null && !Number.isSafeInteger(resolution.status))) {
+    || resolution === null) {
     throw corruptOutbox(mutationId);
   }
-  return archived as ArchivedMutationOutboxRecord;
+  return {
+    ...(archived as ArchivedMutationOutboxRecord),
+    resolution
+  };
 }
 
 function parseCancellationMarker(

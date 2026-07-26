@@ -1,4 +1,14 @@
-import { isWorkerMethod, type WorkerMethod } from "./worker-protocol.js";
+import {
+  isWorkerMethod,
+  type WorkerMethod
+} from "./worker-protocol.js";
+import {
+  isDiagnosticReference,
+  type DiagnosticReference
+} from "./diagnostic-reference.js";
+import {
+  isBoundedFailureCode
+} from "./failure-envelope.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_MAX_CLIENT_PROTOCOL_VERSION,
@@ -32,6 +42,8 @@ export interface HttpRecoveryWarning {
   code: string;
   message: string;
   status: number | null;
+  /** Additive protocol-v5 field; older clients ignore it. */
+  diagnosticRef?: DiagnosticReference;
 }
 
 export function isHttpRecoveryWarning(
@@ -42,9 +54,11 @@ export function isHttpRecoveryWarning(
   return typeof warning.mutationId === "string"
     && isWorkerMethod(warning.method)
     && (warning.storyId === null || typeof warning.storyId === "string")
-    && typeof warning.code === "string"
+    && isBoundedFailureCode(warning.code)
     && typeof warning.message === "string"
-    && (warning.status === null || Number.isSafeInteger(warning.status));
+    && (warning.status === null || Number.isSafeInteger(warning.status))
+    && (warning.diagnosticRef === undefined
+      || isDiagnosticReference(warning.diagnosticRef));
 }
 
 export function attachmentFilename(disposition: string | null, fallback: string): string {

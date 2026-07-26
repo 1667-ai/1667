@@ -2,6 +2,10 @@ import { expect, test } from "bun:test";
 import { recoveryNotice } from "../src/app.js";
 import { WorkerApiError, type WorkerRecoveryWarning } from "../src/worker-api.js";
 import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
+import {
+  createFailureEnvelope,
+  type FailureCode
+} from "../../shared/failure-envelope.js";
 
 test("recovery notice exposes the affected action and duplicate-risk guidance", () => {
   const warning: WorkerRecoveryWarning = {
@@ -9,7 +13,7 @@ test("recovery notice exposes the affected action and duplicate-risk guidance", 
     method: "continueStory",
     storyId: "story",
     resolution: "archived",
-    error: new WorkerApiError(
+    error: workerError(
       "The model request may have been billed; retry only with a new mutation ID.",
       "generation_outcome_unknown",
       409
@@ -28,7 +32,11 @@ test("recovery feed replays early warnings and deduplicates live metadata", () =
     method: "autonameStory",
     storyId: "story",
     resolution: "archived",
-    error: new WorkerApiError("Provider outcome unknown.", "generation_outcome_unknown", 409)
+    error: workerError(
+      "Provider outcome unknown.",
+      "generation_outcome_unknown",
+      409
+    )
   };
   const batches: Array<readonly WorkerRecoveryWarning[]> = [];
   feed.publish([warning]);
@@ -49,7 +57,7 @@ test("recovery feed blocks repeated warnings until adoption succeeds", async () 
     method: "renameStory",
     storyId: "story",
     resolution: "archived",
-    error: new WorkerApiError("Reload state.", "mutation_outcome_unknown", 409)
+    error: workerError("Reload state.", "mutation_outcome_unknown", 409)
   };
   let attempts = 0;
   expect(feed.publish([warning])).toBeTrue();
@@ -72,7 +80,7 @@ test("recovery feed admits only the replacement create needed to adopt an empty 
     method: "deleteStory",
     storyId: "story",
     resolution: "archived",
-    error: new WorkerApiError("Reload state.", "mutation_outcome_unknown", 409)
+    error: workerError("Reload state.", "mutation_outcome_unknown", 409)
   };
   expect(feed.publish([warning])).toBeTrue();
   await feed.runAdoptionMutation(async () => {
@@ -80,3 +88,15 @@ test("recovery feed admits only the replacement create needed to adopt an empty 
   });
   expect(feed.publish([warning])).toBeTrue();
 });
+
+function workerError(
+  message: string,
+  code: FailureCode,
+  status: number
+): WorkerApiError {
+  return new WorkerApiError(createFailureEnvelope({
+    code,
+    message,
+    status
+  }));
+}

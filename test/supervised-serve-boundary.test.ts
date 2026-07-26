@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -17,9 +19,19 @@ import {
 } from "../shared/supervised-secret-channel.js";
 import {
   parseServeArguments,
+  ServeSupervisor,
   sanitizedSupervisorChildEnvironment
 } from "../tui/src/serve-supervisor.js";
-import { recoverDescriptors } from "../server/supervised-serve-child.js";
+import {
+  recoverDescriptors
+} from "../server/supervised-serve-child.js";
+import { PlatformStateRootError } from "../server/platform-state-root.js";
+import { toPublicServiceError } from "../server/service-error-policy.js";
+import { localStartupFailure } from "../server/local-startup-failure.js";
+import { StoragePathNotDirectoryError } from "../server/story-lifecycle.js";
+import {
+  diagnosticMachineTierFailure
+} from "../server/diagnostic-machine-tier.js";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -64,6 +76,84 @@ test("serve parser rejects empty separated and inline values", () => {
   ]) {
     assert.throws(() => parseServeArguments(argv), /requires a value/);
   }
+});
+
+test("serve parser forwards explicit diagnostic printing", () => {
+  assert.deepEqual(parseServeArguments([
+    "serve",
+    "--data",
+    "/tmp/story",
+    "--port",
+    "0",
+    "--print-logs"
+  ]), {
+    dataDir: "/tmp/story",
+    port: 0,
+    printLogs: true
+  });
+});
+
+test("serve supervisor rejects a failed child exit during shutdown", async () => {
+  const child = new EventEmitter() as EventEmitter & ChildProcess;
+  Object.assign(child, {
+    connected: true,
+    stdio: [null, null, null, null, null],
+    send(
+      _message: unknown,
+      callback: (error: Error | null) => void
+    ) {
+      callback(null);
+      return true;
+    },
+    kill: () => true
+  });
+  const supervisor = new ServeSupervisor(
+    { dataDir: null, port: 0, printLogs: false },
+    (() => child) as typeof import("node:child_process").spawn
+  );
+  const previousHandlers = new Set(process.listeners("SIGTERM"));
+  const running = supervisor.run();
+  const handler = process.listeners("SIGTERM").find(
+    (candidate) => !previousHandlers.has(candidate)
+  );
+  assert.notEqual(handler, undefined);
+  handler!("SIGTERM");
+  child.emit("exit", 1, null);
+
+  await assert.rejects(running, /Supervised child exited with code 1/);
+});
+
+test("machine-tier startup preserves only actionable state-root failures", () => {
+  const actionable = diagnosticMachineTierFailure(
+    new PlatformStateRootError("Application state root is not private")
+  );
+  assert.equal(
+    toPublicServiceError(actionable).message,
+    "Application state root is not private"
+  );
+  assert.equal(
+    toPublicServiceError(
+      diagnosticMachineTierFailure(new Error("private resolution detail"))
+    ).message,
+    "Internal server error"
+  );
+});
+
+test("local startup storage exposure is shared across transports", () => {
+  const selected = new StoragePathNotDirectoryError(
+    "/selected/project/stories"
+  );
+
+  assert.equal(
+    toPublicServiceError(localStartupFailure(selected)).message,
+    selected.message
+  );
+  assert.equal(
+    toPublicServiceError(
+      localStartupFailure(new Error("private runtime storage detail"))
+    ).message,
+    "Internal server error"
+  );
 });
 
 test("supervised credential slots and operation keys are closed", () => {
@@ -126,6 +216,23 @@ test("supervised lifecycle IPC rejects malformed and unbounded authority", () =>
     requestId: `${descriptor.sessionId}:1`,
     descriptor
   });
+  assert.deepEqual(decodeChildToSupervisorMessage({
+    type: "fatal",
+    message: "Internal server error",
+    diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
+  }), {
+    type: "fatal",
+    message: "Internal server error",
+    diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
+  });
+  assert.throws(
+    () => decodeChildToSupervisorMessage({
+      type: "fatal",
+      message: "Internal server error",
+      diagnosticRef: "invalid"
+    }),
+    /diagnostic reference/
+  );
   assert.deepEqual(decodeSupervisorToChildMessage({
     type: "recover",
     descriptors: [descriptor]

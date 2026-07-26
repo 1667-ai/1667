@@ -2,13 +2,34 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { MAX_IMPORT_BYTES, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 import {
+  PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
 import { ServiceError } from "../server/errors.js";
 import { validateWorkerRequestSize } from "../server/worker-request-size.js";
+import { parseWorkerRequest } from "../server/worker-message.js";
 
 const bytes = (value: string): number => Buffer.byteLength(value, "utf8");
+
+test("protocol-v6 mutation inputs survive the response-wire version bump", () => {
+  const id = {
+    workerInstanceId: "a".repeat(32),
+    sequence: 1n
+  };
+  const parsed = parseWorkerRequest({
+    method: "renameStory",
+    input: { id: "story", title: "Title" },
+    protocolVersion: PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
+    mutationId: "m1.1767225600000.0123456789abcdef0123456789abcdef",
+    deadlineMs: Date.now() + 60_000
+  }, id);
+
+  assert.equal(
+    parsed.protocolVersion,
+    PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
+  );
+});
 
 test("worker import measures raw JSONL bytes rather than escaped protocol bytes", () => {
   const escapedCharacters = 150_000;

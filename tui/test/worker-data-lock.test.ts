@@ -42,6 +42,26 @@ describe("embedded worker hard fence", () => {
     );
   });
 
+  test("prints a validated diagnostic reference through the hard fence", () => {
+    const moduleUrl = new URL("../src/worker-error.ts", import.meta.url).href;
+    const child = spawnSync(process.execPath, [
+      "--eval",
+      `import { BackendRestartRequiredError, exitForBackendRestart } from ${JSON.stringify(moduleUrl)};`
+        + "exitForBackendRestart(new BackendRestartRequiredError('failed', "
+        + "{ diagnosticRef: 'err_deadbeefdeadbeefdeadbeef' }));"
+    ], {
+      encoding: "utf8",
+      timeout: 2_000
+    });
+
+    expect(child.status).toBe(BACKEND_RESTART_REQUIRED_EXIT_CODE);
+    expect(child.stderr).toBe(
+      "1667: backend_restart_required: backend stopped; restart 1667. "
+        + "Interrupted changes will be checked on next launch. "
+        + "Diagnostic reference: err_deadbeefdeadbeefdeadbeef.\n"
+    );
+  });
+
   test("releases the data lock for ordinary startup failure", async () => {
     let releases = 0;
     const lock = {

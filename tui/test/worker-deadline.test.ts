@@ -105,7 +105,7 @@ describe("embedded worker deadlines", () => {
       const expired = await expiredGeneration;
       expect(expired).toMatchObject({
         type: "error",
-        code: "mutation_outcome_unknown",
+        failure: { code: "mutation_outcome_unknown" },
         mutationOutcome: "uncertain"
       });
 
@@ -120,7 +120,7 @@ describe("embedded worker deadlines", () => {
       });
       expect(replayed).toMatchObject({
         type: "error",
-        code: "generation_outcome_unknown",
+        failure: { code: "generation_outcome_unknown" },
         mutationOutcome: "uncertain"
       });
 
@@ -140,7 +140,7 @@ describe("embedded worker deadlines", () => {
       const expiredSummary = await expiredSummaryRequest;
       expect(expiredSummary).toMatchObject({
         type: "error",
-        code: "mutation_outcome_unknown",
+        failure: { code: "mutation_outcome_unknown" },
         mutationOutcome: "uncertain"
       });
 
@@ -155,7 +155,7 @@ describe("embedded worker deadlines", () => {
       });
       expect(replayedSummary).toMatchObject({
         type: "error",
-        code: "generation_outcome_unknown",
+        failure: { code: "generation_outcome_unknown" },
         mutationOutcome: "uncertain"
       });
     } finally {

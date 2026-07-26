@@ -1,7 +1,7 @@
 import { MAX_IMPORT_BYTES, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
-  WORKER_PROTOCOL_VERSION,
+  isCurrentWorkerInputProtocolVersion,
   messageByteLength,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
@@ -45,7 +45,7 @@ function logicalRequestBody(
         if (input.removedFingerprint !== undefined) throw mixedRemovalSchema();
         return input.removed;
       }
-      if (protocolVersion === WORKER_PROTOCOL_VERSION) {
+      if (isCurrentWorkerInputProtocolVersion(protocolVersion)) {
         if (input.removed !== undefined) throw mixedRemovalSchema();
         return { removedFingerprint: input.removedFingerprint };
       }

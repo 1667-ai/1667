@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  WORKER_PROTOCOL_VERSION,
+  MUTATION_INPUT_PROTOCOL_VERSION,
   type MutatingWorkerMethod,
   type WorkerInput,
   type WorkerOutput
@@ -29,7 +29,7 @@ test("pending receipts recover committed entity creation without duplicates afte
   const nodeId = mutationId("2");
   const factId = mutationId("3");
   const cutId = mutationId("4");
-  let service = new StoryService({ dataDir });
+  let service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
 
   await leavePendingAfterCommit(service, createId, "createStory", createInput);
@@ -44,7 +44,7 @@ test("pending receipts recover committed entity creation without duplicates afte
   const committedRevision = (await service.loadStory(storyId)).updatedAt;
   await service.dispose();
 
-  service = new StoryService({ dataDir });
+  service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     const recovered = await runWorkerMutation(service, createId, "createStory", createInput);
@@ -66,7 +66,7 @@ test("pending receipts recover committed entity creation without duplicates afte
 test("deterministic fact recovery wins before the capacity guard", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-capacity-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     const story = await service.createStory("Full facts");
@@ -87,7 +87,7 @@ test("deterministic fact recovery wins before the capacity guard", async (t) => 
 test("pending overwrite recovery never clobbers newer authoritative state", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-overwrite-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     const story = await service.createStory("Original");
@@ -109,7 +109,7 @@ test("pending overwrite recovery never clobbers newer authoritative state", asyn
 test("pending destructive mutations converge and clear without repeat writes", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-destructive-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     let story = await service.createStory("Destructive recovery");
@@ -192,7 +192,7 @@ test("pending destructive mutations converge and clear without repeat writes", a
 test("pending dry-run summaries reconcile by deterministic node ID", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     let story = await service.createStory("Summary recovery");
@@ -215,7 +215,7 @@ test("pending dry-run summaries reconcile by deterministic node ID", async (t) =
 test("pending pre-provider summaries resume with deterministic commit IDs", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-pending-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     let story = await service.createStory("Pending summary");
@@ -235,7 +235,7 @@ test("pending pre-provider summaries resume with deterministic commit IDs", asyn
 test("pending dry-run rewrites reconcile a committed replacement", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-rewrite-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     let story = await service.createStory("Rewrite recovery");
@@ -265,7 +265,7 @@ test("pending dry-run rewrites reconcile a committed replacement", async (t) => 
 test("pending autoname resumes before admission and reconciles after commit", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     let story = await service.createStory("Original title");
@@ -292,7 +292,7 @@ test("pending autoname resumes before admission and reconciles after commit", as
 test("autoname recovery preserves newer manual titles", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-autoname-newer-title-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     let story = await service.createStory("Original title");
@@ -325,7 +325,7 @@ test("autoname recovery preserves newer manual titles", async (t) => {
 test("summary cancellation after provider admission completes as null", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-cancel-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   const originalFetch = globalThis.fetch;
   try {
@@ -411,7 +411,7 @@ async function writePendingReceipt(
     format: "1667-mutation",
     schemaVersion: 1,
     mutationId: mutationIdValue,
-    protocolVersion: WORKER_PROTOCOL_VERSION,
+    protocolVersion: MUTATION_INPUT_PROTOCOL_VERSION,
     fingerprint: mutationFingerprint(method, input),
     method,
     state: "pending",

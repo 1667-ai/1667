@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { MAX_IMPORT_BYTES } from "./import-st.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
+import { InternalErrorReporter } from "./internal-error-reporter.js";
 import { StoryService } from "./story-service.js";
 
 const files = process.argv.slice(2);
@@ -15,8 +16,11 @@ function plain(value: string): string {
   return value.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 }
 
+const machineDir = await resolveMachineTierRoot();
+const errorReporter = await InternalErrorReporter.open(machineDir);
 const service = new StoryService({
-  machineDir: await resolveMachineTierRoot(),
+  machineDir,
+  errorReporter,
   settingsActivation: "recover-only"
 });
 await service.init();
@@ -41,5 +45,6 @@ try {
   }
 } finally {
   await service.dispose();
+  await errorReporter.close();
 }
 if (failed) process.exitCode = 1;

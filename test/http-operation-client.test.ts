@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   HttpOperationClient,
   HttpOperationError,
+  type HttpOperationClientOptions,
   type OperationFetch
 } from "../shared/http-operation-client.js";
 import {
@@ -11,6 +12,10 @@ import {
   HTTP_OPERATION_SESSION_PATH,
   HTTP_OPERATION_TICKET_HEADER
 } from "../shared/http-operation-protocol.js";
+import {
+  createFailureEnvelope,
+  diagnosticReferenceFromFailure
+} from "../shared/failure-envelope.js";
 
 const INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "aa".repeat(16);
@@ -146,6 +151,115 @@ test("operation admission errors preserve HTTP status and service code", async (
     error instanceof HttpOperationError
       && error.status === 429
       && error.code === "resource_busy");
+});
+
+test("operation admission errors use the canonical flat payload fallback", async () => {
+  const client = operationClient(async (input) => {
+    const pathname = new URL(String(input)).pathname;
+    if (pathname === HTTP_OPERATION_SESSION_PATH) {
+      return Response.json({
+        listenerInstanceId: INSTANCE_ID,
+        sessionId: SESSION_ID,
+        scope: "story",
+        capability: "bb".repeat(32),
+        idleTimeoutMs: 60_000,
+        recoveryWarnings: []
+      }, { status: 201 });
+    }
+    return Response.json(
+      {
+        error: "",
+        message: "Operation admission is temporarily unavailable",
+        code: "resource_busy"
+      },
+      { status: 429 }
+    );
+  });
+
+  await assert.rejects(client.run({
+    method: "POST",
+    path: "/api/stories",
+    serverInstanceId: INSTANCE_ID,
+    execute: async () => undefined
+  }), (error: unknown) =>
+    error instanceof HttpOperationError
+      && error.message === "Operation admission is temporarily unavailable"
+      && error.status === 429
+      && error.code === "resource_busy");
+});
+
+test("operation admission errors preserve internal diagnostic references", async () => {
+  const diagnosticRef = "err_deadbeefdeadbeefdeadbeef";
+  const client = operationClient(async (input) => {
+    const pathname = new URL(String(input)).pathname;
+    if (pathname === HTTP_OPERATION_SESSION_PATH) {
+      return Response.json({
+        listenerInstanceId: INSTANCE_ID,
+        sessionId: SESSION_ID,
+        scope: "story",
+        capability: "bb".repeat(32),
+        idleTimeoutMs: 60_000,
+        recoveryWarnings: []
+      }, { status: 201 });
+    }
+    return Response.json(
+      {
+        error: "Internal server error",
+        code: "internal",
+        diagnosticRef
+      },
+      { status: 500 }
+    );
+  });
+
+  await assert.rejects(client.run({
+    method: "POST",
+    path: "/api/stories",
+    serverInstanceId: INSTANCE_ID,
+    execute: async () => undefined
+  }), (error: unknown) =>
+    error instanceof HttpOperationError
+      && error.diagnosticRef === diagnosticRef);
+});
+
+test("operation sessions preserve recovery diagnostic references", async () => {
+  const diagnosticRef = "err_deadbeefdeadbeefdeadbeef";
+  let recoveredReference: string | undefined;
+  let recoveredCode: string | undefined;
+  const fetch = operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
+  }, 2_000, undefined, [{
+    mutationId: "m1.1767225600000.0123456789abcdef0123456789abcdef",
+    method: "createStory",
+    storyId: null,
+    code: "future_warning",
+    message: "Future compatible warning",
+    status: 500,
+    diagnosticRef
+  }]);
+  const client = operationClient(
+    fetch,
+    undefined,
+    undefined,
+    (_scope, session) => {
+      const warning = session.recoveryWarnings[0];
+      recoveredReference = warning === undefined
+        ? undefined
+        : warning.diagnosticRef;
+      recoveredCode = warning?.code;
+    }
+  );
+
+  await client.run({
+    method: "GET",
+    path: "/api/stories",
+    serverInstanceId: INSTANCE_ID,
+    execute: async () => undefined
+  });
+
+  assert.equal(recoveredReference, diagnosticRef);
+  assert.equal(recoveredCode, "future_warning");
 });
 
 test("operation-session creation stops when its only caller cancels", async () => {
@@ -450,7 +564,8 @@ test("proven listener replacement releases settlement after proof loss", async (
 function operationClient(
   fetch: OperationFetch,
   shutdownSignal?: AbortSignal,
-  confirmListenerReplacement?: (previousInstanceId: string) => Promise<boolean>
+  confirmListenerReplacement?: (previousInstanceId: string) => Promise<boolean>,
+  onSession?: HttpOperationClientOptions["onSession"]
 ): HttpOperationClient {
   return new HttpOperationClient({
     root: "http://127.0.0.1:7373",
@@ -465,7 +580,8 @@ function operationClient(
     },
     fetch,
     shutdownSignal,
-    confirmListenerReplacement
+    confirmListenerReplacement,
+    onSession
   });
 }
 
@@ -475,7 +591,8 @@ function operationFixture(
     init: RequestInit | undefined
   ) => Promise<Response>,
   lifetimeMs = 2_000,
-  onReservation?: (init: RequestInit | undefined) => void
+  onReservation?: (init: RequestInit | undefined) => void,
+  recoveryWarnings: unknown[] = []
 ): OperationFetch {
   let sequence = 0;
   return async (input, init) => {
@@ -487,7 +604,7 @@ function operationFixture(
         scope: "story",
         capability: "bb".repeat(32),
         idleTimeoutMs: 60_000,
-        recoveryWarnings: []
+        recoveryWarnings
       }, { status: 201 });
     }
     if (pathname === HTTP_OPERATION_RESERVATION_PATH) {

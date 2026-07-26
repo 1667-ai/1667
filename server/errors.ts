@@ -1,39 +1,40 @@
-export type ServiceErrorCode =
-  | "invalid_request"
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "content_too_large"
-  | "unprocessable"
-  | "provider_failure"
-  | "resource_busy"
-  | "story_manifest_requires_successor"
-  | "idempotency_conflict"
-  | "revision_conflict"
-  | "receipt_storage_unavailable"
-  | "data_directory_unowned"
-  | "data_directory_version_unsupported"
-  | "settings_edit_requires_data_format_2"
-  | "credential_test_requires_activation"
-  | "mutation_expired"
-  | "mutation_outcome_unknown"
-  | "generation_outcome_unknown"
-  | "generation_outcome_unknown_acknowledged"
-  | "catalog_cursor_expired"
-  | "operation_unknown"
-  | "operation_expired"
-  | "operation_session_terminal"
-  | "internal";
+import type { FailureCode } from "../shared/failure-envelope.js";
+
+export type ServiceErrorCode = FailureCode;
 
 /** Transport-neutral application failure. Adapters decide how to encode it. */
 export class ServiceError extends Error {
   readonly code: ServiceErrorCode;
 
-  constructor(readonly status: number, message: string, code?: ServiceErrorCode) {
-    super(message);
+  constructor(
+    readonly status: number,
+    message: string,
+    code?: ServiceErrorCode,
+    options: {
+      readonly cause?: unknown;
+    } = {}
+  ) {
+    super(
+      message,
+      Object.prototype.hasOwnProperty.call(options, "cause")
+        ? { cause: options.cause }
+        : undefined
+    );
     this.name = "ServiceError";
     this.code = code ?? codeForStatus(status);
+  }
+}
+
+/** Safe public outcome that also owns a private diagnostic cause. */
+export class DiagnosticServiceError extends ServiceError {
+  constructor(
+    status: number,
+    message: string,
+    code: ServiceErrorCode,
+    readonly diagnosticCause: unknown
+  ) {
+    super(status, message, code, { cause: diagnosticCause });
+    this.name = "DiagnosticServiceError";
   }
 }
 
@@ -44,11 +45,29 @@ export class ProviderError extends Error {
   }
 }
 
+/** A startup/runtime failure whose message is explicitly safe and actionable
+ * at the local process boundary. Unexpected errors remain private. */
+export class PublicRuntimeError extends Error {
+  constructor(message: string, options: { readonly cause?: unknown } = {}) {
+    super(
+      message,
+      Object.prototype.hasOwnProperty.call(options, "cause")
+        ? { cause: options.cause }
+        : undefined
+    );
+    this.name = "PublicRuntimeError";
+  }
+}
+
 /** The provider finished responding and local validation proved that no commit
  * can still occur. Receipt recovery may safely persist this as terminal. */
 export class GenerationResultError extends ServiceError {
   constructor(status: number, message: string) {
-    super(status, message);
+    super(
+      status,
+      message,
+      status >= 500 && status < 600 ? "provider_failure" : undefined
+    );
     this.name = "GenerationResultError";
   }
 }
@@ -73,23 +92,6 @@ export function isDefinitiveProviderFailure(error: unknown): boolean {
     && error.status !== 408;
 }
 
-export interface PublicServiceError {
-  code: ServiceErrorCode;
-  message: string;
-  status: number;
-}
-
-/** One transport-independent mapping for HTTP JSON/SSE and worker errors. */
-export function toPublicServiceError(error: unknown): PublicServiceError {
-  if (error instanceof ServiceError) {
-    return { code: error.code, message: error.message, status: error.status };
-  }
-  if (error instanceof ProviderError) {
-    return { code: "provider_failure", message: error.message, status: 502 };
-  }
-  return { code: "internal", message: "Internal server error", status: 500 };
-}
-
 function codeForStatus(status: number): ServiceErrorCode {
   if (status === 401) return "unauthorized";
   if (status === 403) return "forbidden";
@@ -97,7 +99,7 @@ function codeForStatus(status: number): ServiceErrorCode {
   if (status === 409) return "conflict";
   if (status === 413) return "content_too_large";
   if (status === 422) return "unprocessable";
-  if (status >= 500 && status < 600) return "provider_failure";
+  if (status >= 500 && status < 600) return "internal";
   if (status >= 400 && status < 500) return "invalid_request";
   return "internal";
 }

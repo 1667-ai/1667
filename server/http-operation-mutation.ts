@@ -1,5 +1,5 @@
 import {
-  WORKER_PROTOCOL_VERSION,
+  MUTATION_INPUT_PROTOCOL_VERSION,
   type MutatingWorkerMethod,
   type WorkerOutput
 } from "../shared/worker-protocol.js";
@@ -31,7 +31,7 @@ export async function runHttpOperationMutation<
   const parse = () => parsed ??= parseWorkerMutation(
     method,
     input,
-    WORKER_PROTOCOL_VERSION
+    MUTATION_INPUT_PROTOCOL_VERSION
   );
   return await service.runMutation(
     mutationId,
@@ -54,7 +54,7 @@ export async function runHttpOperationMutation<
         fingerprint: mutationFingerprint(
           method,
           input,
-          WORKER_PROTOCOL_VERSION
+          MUTATION_INPUT_PROTOCOL_VERSION
         ),
         scope: `story:${storyId}` as const,
         expectedAggregateVersion
@@ -65,7 +65,7 @@ export async function runHttpOperationMutation<
         storyMutationRequest
       });
     },
-    WORKER_PROTOCOL_VERSION,
+    MUTATION_INPUT_PROTOCOL_VERSION,
     () => undefined
   );
 }

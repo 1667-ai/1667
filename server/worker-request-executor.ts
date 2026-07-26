@@ -1,0 +1,254 @@
+import {
+  STREAM_METHODS,
+  isMutatingWorkerMethod,
+  isServiceOwnedSettingsMutation,
+  isWorkerMutationMethod,
+  workerOperationKey,
+  type MainToWorkerMessage,
+  type WorkerMethod,
+  type WorkerToMainMessage
+} from "../shared/worker-protocol.js";
+import {
+  isDefinitiveProviderFailure,
+  ProviderError,
+  ServiceError
+} from "./errors.js";
+import { mutationFingerprint } from "./mutation-receipts.js";
+import { toPublicServiceError } from "./service-error-policy.js";
+import { StoryService } from "./story-service.js";
+import { storyIdForMutation } from "./story-identity.js";
+import { requireRecord, requireString } from "./validation.js";
+import { WorkerDeltaBatcher } from "./worker-delta-batcher.js";
+import {
+  executeWorkerMutation,
+  parseWorkerMutation,
+  preflightWorkerMutation,
+  storyIdForWorkerMutation
+} from "./worker-mutations.js";
+import { WorkerRequestCancellation } from "./worker-request-cancellation.js";
+import { WorkerRequestFailureResponder } from "./worker-request-failure-responder.js";
+
+type WorkerRequest = Extract<MainToWorkerMessage, { type: "request" }>;
+type WorkerTerminalMessage = Extract<
+  WorkerToMainMessage,
+  { type: "result" | "complete" }
+>;
+
+export async function executeWorkerRequest(
+  service: StoryService,
+  message: WorkerRequest,
+  cancellation: WorkerRequestCancellation,
+  deltas: WorkerDeltaBatcher | null,
+  failures: WorkerRequestFailureResponder,
+  publishTerminal: (
+    message: WorkerTerminalMessage,
+    state: "completed" | "canceled"
+  ) => void
+): Promise<void> {
+  const stream = STREAM_METHODS.has(message.method);
+  try {
+    const onDelta = (text: string) => deltas?.push(text);
+    let value: unknown;
+    if (isServiceOwnedSettingsMutation(message.method)) {
+      value = await executeSettingsMutation(service, message);
+    } else if (message.mutationId === undefined) {
+      value = await invokeReadOnly(
+        service,
+        message.method,
+        message.input,
+        cancellation.signal
+      );
+    } else {
+      value = await executeMutation(
+        service,
+        message,
+        onDelta,
+        cancellation.signal
+      );
+    }
+    cancellation.throwIfDeadlineExpired();
+    if (
+      stream
+      && (cancellation.signal.aborted || value === null || value === false)
+    ) {
+      deltas?.dispose();
+      publishTerminal(
+        { type: "complete", id: message.id, value: null },
+        cancellation.signal.aborted ? "canceled" : "completed"
+      );
+      return;
+    }
+    await deltas?.flush();
+    cancellation.throwIfDeadlineExpired();
+    publishTerminal(
+      stream
+        ? { type: "complete", id: message.id, value }
+        : { type: "result", id: message.id, value },
+      "completed"
+    );
+  } catch (error) {
+    const failure = cancellation.failure(error);
+    const outcome = isWorkerMutationMethod(message.method)
+      ? mutationOutcome(failure.error)
+      : undefined;
+    if (outcome === "uncertain") deltas?.dispose();
+    else await deltas?.flush();
+    await failures.tracked(
+      failure.error,
+      outcome
+    );
+  } finally {
+    deltas?.dispose();
+  }
+}
+
+async function executeSettingsMutation(
+  service: StoryService,
+  message: WorkerRequest
+): Promise<unknown> {
+  const input = requireRecord(message.input, `${message.method} input`);
+  const command = requireRecord(input.command, "command");
+  return message.method === "saveSettings"
+    ? await service.saveSettings(command)
+    : await service.discardPendingSettings(command);
+}
+
+async function executeMutation(
+  service: StoryService,
+  message: WorkerRequest,
+  onDelta: (text: string) => void,
+  signal: AbortSignal
+): Promise<unknown> {
+  const method = message.method;
+  if (!isMutatingWorkerMethod(method)) {
+    throw new ServiceError(400, `${method} is not a mutation`);
+  }
+  let parsed:
+    ReturnType<typeof parseWorkerMutation<typeof method>>
+    | undefined;
+  // Exact terminal replays invoke neither callback. New/pending work parses
+  // once after receipt identity wins and preflights before persistence.
+  const input = () => parsed ??= parseWorkerMutation(
+    method,
+    message.input,
+    message.protocolVersion
+  );
+  return await service.runMutation(
+    message.mutationId!,
+    method,
+    message.input,
+    (plan) => {
+      const parsedInput = input();
+      const storyId = message.expectedAggregateVersion !== null
+        && typeof message.expectedAggregateVersion === "object"
+        && "kind" in message.expectedAggregateVersion
+        && message.expectedAggregateVersion.kind === "absent"
+        ? storyIdForMutation(message.mutationId!)
+        : storyIdForWorkerMutation(parsedInput, plan);
+      const storyMutationRequest =
+        message.expectedAggregateVersion === undefined || storyId === null
+          ? undefined
+          : {
+              transportOperationId: workerOperationKey(message.id),
+              mutationId: message.mutationId!,
+              fingerprint: mutationFingerprint(
+                method,
+                message.input,
+                message.protocolVersion
+              ),
+              scope: `story:${storyId}` as const,
+              expectedAggregateVersion: message.expectedAggregateVersion
+            };
+      return executeWorkerMutation(service, parsedInput, plan, {
+        onDelta,
+        signal,
+        ...(storyMutationRequest === undefined
+          ? {}
+          : { storyMutationRequest })
+      });
+    },
+    message.protocolVersion,
+    (plan) => message.expectedAggregateVersion === undefined
+      ? preflightWorkerMutation(service, input(), plan)
+      : undefined
+  );
+}
+
+async function invokeReadOnly(
+  service: StoryService,
+  method: WorkerMethod,
+  value: unknown,
+  signal: AbortSignal
+): Promise<unknown> {
+  if (signal.aborted) {
+    throw new ServiceError(
+      408,
+      "Worker request deadline exceeded or was cancelled"
+    );
+  }
+  const input = requireRecord(value, `${method} input`);
+  switch (method) {
+    case "listStories": return await service.listStories();
+    case "listStoriesPage": return await service.listStoriesPage(input);
+    case "loadStory":
+      return await service.loadStory(requireString(input.id, "id"));
+    case "getUnknownOutcomeStatus":
+      return await service.getUnknownOutcomeStatus(
+        requireString(input.storyId, "storyId"),
+        requireString(
+          input.originalProviderMutationId,
+          "originalProviderMutationId"
+        )
+      );
+    case "previewChapterBreakRemoval": {
+      const preview = await service.previewChapterBreakRemoval(
+        requireString(input.storyId, "storyId"),
+        requireString(input.breakId, "breakId")
+      );
+      return {
+        removedFingerprint: preview.removedFingerprint,
+        aggregateVersion: preview.aggregateVersion
+      };
+    }
+    case "exportMarkdown":
+      return await service.exportMarkdown(requireString(input.id, "id"));
+    case "getSettings": return await service.getSettings();
+    case "checkModelServer":
+      return await service.checkModelServer(
+        requireRecord(input.settings, "settings"),
+        signal
+      );
+    case "probeContextWindow":
+      return await service.probeContextWindow(
+        requireRecord(input.settings, "settings"),
+        signal
+      );
+    case "discoverModels":
+      return await service.discoverModels(
+        requireRecord(input.settings, "settings"),
+        signal
+      );
+    default:
+      throw new ServiceError(
+        400,
+        `${method} is not a read-only worker method`
+      );
+  }
+}
+
+function mutationOutcome(error: unknown): "terminal" | "uncertain" {
+  const code = toPublicServiceError(error).code;
+  if (
+    code === "mutation_outcome_unknown"
+    || code === "generation_outcome_unknown"
+  ) {
+    return "uncertain";
+  }
+  if (error instanceof ProviderError) {
+    return isDefinitiveProviderFailure(error) ? "terminal" : "uncertain";
+  }
+  if (error instanceof ServiceError) {
+    return error.code === "internal" ? "uncertain" : "terminal";
+  }
+  return "uncertain";
+}

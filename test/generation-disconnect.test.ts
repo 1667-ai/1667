@@ -6,6 +6,8 @@ import test from "node:test";
 import { autonameStory, continueStory, rewriteNode } from "../server/generation-http.js";
 import { summarizeChapter } from "../server/chapter-summary.js";
 import { ServiceError } from "../server/errors.js";
+import { InternalErrorReporter } from "../server/internal-error-reporter.js";
+import { internalErrorLogPath } from "../server/internal-error-log.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import type { SettingsStore } from "../server/settings.js";
 import { createSummaryTake } from "../server/summary-take.js";
@@ -13,6 +15,9 @@ import type { StoryStore } from "../server/stories.js";
 import type { Story } from "../shared/types.js";
 import { streamResponse } from "../server/stream-response.js";
 import { PromptCacheRuntime } from "../server/provider-cache-policy.js";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -236,6 +241,106 @@ test("HTTP stream adapter waits for response drain before reading more model out
   assert.equal(response.ends, 1);
 });
 
+test("HTTP streams persist private failures and return their reference", async (t) => {
+  const machineDir = await realpath(
+    await mkdtemp(path.join(tmpdir(), "1667-http-stream-log-"))
+  );
+  const reporter = await InternalErrorReporter.open(machineDir);
+  t.after(async () => {
+    await reporter.close();
+    await rm(machineDir, { recursive: true, force: true });
+  });
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+
+  await streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async (onDelta) => {
+      await onDelta("first");
+      throw new Error("private streaming detail");
+    },
+    (value) => value as Record<string, unknown>,
+    undefined,
+    reporter,
+    "continueStory"
+  );
+
+  const reference = /err_[0-9a-f]{24}/.exec(response.output)?.[0];
+  assert.ok(reference);
+  assert.match(response.output, /Internal server error/);
+  assert.doesNotMatch(response.output, /private streaming detail/);
+  const stored = await readFile(internalErrorLogPath(machineDir), "utf8");
+  assert.match(stored, new RegExp(reference));
+  assert.match(stored, /private streaming detail/);
+});
+
+test("aborted HTTP streams still persist private failures", async (t) => {
+  const machineDir = await realpath(
+    await mkdtemp(path.join(tmpdir(), "1667-http-aborted-stream-log-"))
+  );
+  const reporter = await InternalErrorReporter.open(machineDir);
+  t.after(async () => {
+    await reporter.close();
+    await rm(machineDir, { recursive: true, force: true });
+  });
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  const operation = new AbortController();
+
+  await streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async () => {
+      operation.abort();
+      throw new Error("private failure after stream abort");
+    },
+    (value) => value as Record<string, unknown>,
+    operation.signal,
+    reporter,
+    "continueStory"
+  );
+
+  assert.equal(response.ends, 1);
+  assert.equal(response.writes, 0);
+  const stored = await readFile(internalErrorLogPath(machineDir), "utf8");
+  assert.match(stored, /private failure after stream abort/);
+  assert.match(stored, /continueStory/);
+});
+
+test("routine HTTP stream cancellation does not create an incident", async (t) => {
+  const machineDir = await realpath(
+    await mkdtemp(path.join(tmpdir(), "1667-http-stream-cancel-log-"))
+  );
+  const reporter = await InternalErrorReporter.open(machineDir);
+  t.after(async () => {
+    await reporter.close();
+    await rm(machineDir, { recursive: true, force: true });
+  });
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  const operation = new AbortController();
+
+  await streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async () => {
+      operation.abort();
+      throw operation.signal.reason;
+    },
+    (value) => value as Record<string, unknown>,
+    operation.signal,
+    reporter,
+    "continueStory"
+  );
+
+  assert.equal(response.ends, 1);
+  assert.equal(
+    await readFile(internalErrorLogPath(machineDir), "utf8"),
+    ""
+  );
+});
+
 class FakeResponse extends EventEmitter {
   destroyed = false;
   closed = false;
@@ -243,9 +348,14 @@ class FakeResponse extends EventEmitter {
   headersWritten = 0;
   writes = 0;
   ends = 0;
+  output = "";
   acceptWrites = true;
   writeHead(): this { this.headersWritten += 1; return this; }
-  write(): boolean { this.writes += 1; return this.acceptWrites; }
+  write(value: unknown): boolean {
+    this.writes += 1;
+    this.output += String(value);
+    return this.acceptWrites;
+  }
   end(): this { this.writableEnded = true; this.ends += 1; return this; }
 }
 

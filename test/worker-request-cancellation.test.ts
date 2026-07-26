@@ -5,6 +5,7 @@ import { WorkerRequestCancellation } from "../server/worker-request-cancellation
 
 test("deadline cancellation survives late mutation success as an uncertain outcome", () => {
   const cancellation = new WorkerRequestCancellation(true);
+  const privateFailure = new Error("late private failure");
 
   cancellation.cancel("deadline");
 
@@ -13,10 +14,37 @@ test("deadline cancellation survives late mutation success as an uncertain outco
     () => cancellation.throwIfDeadlineExpired(),
     isServiceError("mutation_outcome_unknown")
   );
+  const failure = cancellation.failure(privateFailure);
+  assert.ok(failure.error instanceof ServiceError);
   assert.match(
-    (cancellation.failure(new Error("late success")) as Error).message,
+    failure.error.message,
     /retained for reconciliation/
   );
+  assert.equal((failure.error as Error).cause, privateFailure);
+});
+
+test("routine deadline cancellation keeps one public failure without diagnostics", () => {
+  const cancellation = new WorkerRequestCancellation(false);
+
+  cancellation.cancel("deadline");
+  const deadlineFailure = cancellation.signal.reason;
+
+  assert.ok(deadlineFailure instanceof ServiceError);
+  assert.equal(
+    cancellation.failure(deadlineFailure).error,
+    deadlineFailure
+  );
+  assert.throws(
+    () => cancellation.throwIfDeadlineExpired(),
+    (error: unknown) => error === deadlineFailure
+  );
+  assert.equal(
+    cancellation.failure(
+      Object.assign(new Error("operation aborted"), { name: "AbortError" })
+    ).error,
+    deadlineFailure
+  );
+  assert.equal((deadlineFailure as Error).cause, undefined);
 });
 
 test("user cancellation stays distinct from a deadline", () => {
@@ -26,7 +54,22 @@ test("user cancellation stays distinct from a deadline", () => {
   cancellation.cancel("user");
 
   cancellation.throwIfDeadlineExpired();
-  assert.equal(cancellation.failure(failure), failure);
+  assert.deepEqual(cancellation.failure(failure), { error: failure });
+});
+
+test("deadline substitution retains its private error separately", () => {
+  const root = new Error("private failure during receipt settlement");
+  const cancellation = new WorkerRequestCancellation(true);
+  cancellation.cancel("deadline");
+
+  const failure = cancellation.failure(root);
+  assert.ok(failure.error instanceof ServiceError);
+
+  assert.match(
+    failure.error.message,
+    /retained for reconciliation/
+  );
+  assert.equal((failure.error as Error).cause, root);
 });
 
 function isServiceError(code: string) {

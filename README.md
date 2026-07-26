@@ -302,6 +302,29 @@ file. It does not create an archive or an installer.
 See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md)
 and [the release instructions](docs/RELEASING.md).
 
+## Troubleshoot internal errors
+
+1667 gives unexpected embedded and HTTP backend errors a safe public message.
+After 1667 saves a diagnostic, the public error includes an `err_…` reference.
+Use that reference to find the entry in the private machine-tier log:
+
+- macOS: `~/Library/Application Support/1667/State/log/1667.log`
+- Linux: `$XDG_STATE_HOME/1667/log/1667.log`, or
+  `~/.local/state/1667/log/1667.log` when unset
+
+If 1667 cannot write the log, it omits the reference. It also prints a safe
+warning to stderr.
+
+Add `--print-logs` to print new diagnostics to stderr:
+
+```sh
+1667 --print-logs
+```
+
+1667 omits provider request and response bodies from the log. The log can
+contain local paths and exception messages. 1667 resets the active log before
+it exceeds 5 MiB. Inspect the log before you share it.
+
 ## Development gates
 
 Run the backend gates from the repository root:

@@ -3,7 +3,10 @@ import {
   type WorkerToMainMessage
 } from "../../shared/worker-protocol.js";
 import { storyIdFromMutationIntent } from "../../server/mutation-outbox.js";
-import { WorkerApiError } from "./worker-error.js";
+import {
+  WorkerApiError,
+  workerApiErrorFromFailure
+} from "./worker-error.js";
 import type { SerializedWorkerOutbox } from "./worker-outbox.js";
 import type { PendingCall, PendingRequestRegistry } from "./worker-pending.js";
 import type {
@@ -62,11 +65,7 @@ async function settleOwnedWorkerTerminal(
   const store = outbox.store;
   if (mutationId !== undefined && store !== null) {
     if (pending.replay && uncertainMutation && message.type === "error") {
-      await outbox.run(() => store.archive(mutationId, {
-        code: message.code,
-        message: message.message,
-        status: message.details?.status ?? null
-      }));
+      await outbox.run(() => store.archive(mutationId, message.failure));
       replayResolution = "archived";
     } else if (!uncertainMutation) {
       await outbox.run(() => store.remove(mutationId));
@@ -112,9 +111,5 @@ async function settleOwnedWorkerTerminal(
 function workerError(
   message: Extract<WorkerToMainMessage, { type: "error" }>
 ): WorkerApiError {
-  return new WorkerApiError(
-    message.message,
-    message.code,
-    message.details?.status ?? null
-  );
+  return workerApiErrorFromFailure(message.failure);
 }

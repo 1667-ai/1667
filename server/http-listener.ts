@@ -1,14 +1,11 @@
 import { createServer, type Server } from "node:http";
-import { BACKEND_SHUTDOWN_GRACE_MS } from "../shared/types.js";
 import type { HttpAuthRecord } from "../shared/http-auth.js";
 import {
   createHttpAuthRecord,
-  type HttpAuthRecordLease,
   type HttpAuthRecordStoreOptions
 } from "./http-auth-record.js";
 import { validateDevelopmentOrigin } from "./http-cors.js";
-import { resolveMachineTierRoot } from "./machine-tier.js";
-import { toPublicServiceError } from "./errors.js";
+import { resolveDiagnosticMachineTier } from "./diagnostic-machine-tier.js";
 import { sendJson } from "./http.js";
 import { handleHttpRequest } from "./http-router.js";
 import { RequestDrain } from "./request-drain.js";
@@ -18,15 +15,49 @@ import {
   HttpOperationSessionStore,
   type HttpOperationSessionStoreOptions
 } from "./http-operation-sessions.js";
+import {
+  InternalErrorReporter,
+  type InternalErrorReporterLease
+} from "./internal-error-reporter.js";
+import {
+  PublicRuntimeError
+} from "./errors.js";
+import type { ProjectAuthority } from "./project-authority.js";
+import { executeHttpRequest } from "./http-request-lifecycle.js";
+import {
+  HttpListenerCloser
+} from "./http-listener-close.js";
+import type {
+  HttpListenerResources
+} from "./http-listener-lifecycle.js";
+import { HttpReadiness } from "./http-readiness.js";
+
+interface HttpRequestContext {
+  readonly authRecord: HttpAuthRecord;
+  readonly errorReporter: InternalErrorReporter;
+  readonly operationSessions: HttpOperationSessionStore;
+  readonly service: StoryService | null;
+}
+
+interface HttpReadyContext extends HttpRequestContext {
+  readonly service: StoryService;
+  readonly projectAuthority: ProjectAuthority;
+}
 
 interface HttpListenerCommonOptions {
   readonly port?: number;
   /** ADR007 machine tier. Defaults to the auth record's own state root. */
   readonly machineDir?: string;
   readonly developmentOrigin?: string | null;
+  /** Also emit full unexpected-error diagnostics to stderr. */
+  readonly printLogs?: boolean;
   readonly authStore?: HttpAuthRecordStoreOptions;
   readonly mutationGate?: HttpMutationGate;
   readonly operationSessions?: HttpOperationSessionStoreOptions;
+  /** Transfers reporter ownership when startup accepts the machine tier. */
+  readonly errorReporterLease?: InternalErrorReporterLease;
+  /** External project authority transferred to the listener lifecycle. */
+  readonly projectAuthority?: ProjectAuthority;
 }
 
 export type HttpListenerOptions = HttpListenerCommonOptions & (
@@ -36,7 +67,10 @@ export type HttpListenerOptions = HttpListenerCommonOptions & (
     }
   | {
       readonly dataDir?: never;
-      readonly serviceFactory: () => Promise<StoryService>;
+      readonly serviceFactory: (
+        errorReporter: InternalErrorReporter,
+        machineDir: string
+      ) => Promise<StoryService>;
     }
 );
 
@@ -44,7 +78,16 @@ export interface HttpListener {
   readonly origin: string;
   readonly dataDir: string;
   readonly authRecord: HttpAuthRecord;
-  close(): Promise<void>;
+  announceProjectServer(signal?: AbortSignal): Promise<void>;
+  trackReadiness(readiness: Promise<void>, signal: AbortSignal): void;
+  close(
+    failure?: HttpListenerFailure
+  ): Promise<void>;
+}
+
+export interface HttpListenerFailure {
+  readonly error: unknown;
+  readonly operation: string;
 }
 
 export async function startHttpListener(
@@ -54,39 +97,80 @@ export async function startHttpListener(
   // the project's run record publishes whatever it gave us.
   const port = options.port ?? 0;
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
-    throw new Error("1667 HTTP port must be between 0 and 65535");
+    throw new PublicRuntimeError(
+      "1667 HTTP port must be between 0 and 65535"
+    );
   }
-  const developmentOrigin = validateDevelopmentOrigin(options.developmentOrigin ?? null);
+  let developmentOrigin: string | null;
+  let machineDir: string;
+  try {
+    developmentOrigin = validateDevelopmentOrigin(
+      options.developmentOrigin ?? null
+    );
+  } catch (error) {
+    throw publicStartupFailure(error);
+  }
+  machineDir = await resolveDiagnosticMachineTier(
+    options.machineDir ?? options.authStore?.stateRoot,
+    {
+      service: "http-server-startup",
+      operation: "machine-tier-resolution"
+    },
+    { print: options.printLogs === true }
+  );
   const requests = new RequestDrain();
-  let authLease: HttpAuthRecordLease | null = null;
-  let operationSessions: HttpOperationSessionStore | null = null;
-  let service: StoryService | null = null;
-  let initializingService: StoryService | null = null;
+  let requestContext: HttpRequestContext | null = null;
   const server = createServer((request, response) => {
-    const authRecord = authLease?.record;
-    if (authRecord === undefined) {
+    const context = requestContext;
+    if (context === null) {
       response.setHeader("connection", "close");
       return sendJson(response, 503, { error: "1667 listener is starting" });
     }
-    void requests.run(() => handleHttpRequest({
-      authRecord,
-      developmentOrigin,
-      service,
-      operationSessions: operationSessions!,
-      mutationGate: options.mutationGate
-    }, request, response)).catch((error: unknown) => {
-      if (response.headersSent) return void response.end();
-      const known = toPublicServiceError(error);
-      if (known.code === "internal") console.error(error);
-      if (known.status === 401 || known.status === 403) {
-        response.setHeader("connection", "close");
+    void executeHttpRequest({
+      requests,
+      errorReporter: context.errorReporter,
+      request,
+      response,
+      handle: async () => {
+        await handleHttpRequest({
+          authRecord: context.authRecord,
+          developmentOrigin,
+          service: context.service,
+          errorReporter: context.errorReporter,
+          operationSessions: context.operationSessions,
+          mutationGate: options.mutationGate
+        }, request, response);
       }
-      sendJson(response, known.status, { error: known.message, code: known.code });
     });
   });
+  const errorReporter = options.errorReporterLease?.transfer()
+    ?? await InternalErrorReporter.open(machineDir, {
+      print: options.printLogs === true
+    });
+  const resources: HttpListenerResources = {
+    server,
+    requests,
+    service: null,
+    authLease: null,
+    operationSessions: null,
+    projectAuthority: options.projectAuthority ?? null
+  };
+  const readiness = new HttpReadiness();
+  const closer = new HttpListenerCloser(
+    resources,
+    readiness,
+    errorReporter,
+    async () => await InternalErrorReporter.open(machineDir, {
+      print: options.printLogs === true
+    })
+  );
 
   try {
-    await listen(server, port);
+    try {
+      await listen(server, port);
+    } catch (error) {
+      throw publicBindFailure(error);
+    }
     const address = server.address();
     if (address === null || typeof address === "string") {
       throw new Error("1667 listener did not expose a TCP address");
@@ -94,144 +178,100 @@ export async function startHttpListener(
     const origin = address.port === 80
       ? "http://127.0.0.1"
       : `http://127.0.0.1:${address.port}`;
-    authLease = await createHttpAuthRecord(origin, options.authStore);
-    operationSessions = new HttpOperationSessionStore(
+    const authLease = await createHttpAuthRecord(origin, options.authStore);
+    resources.authLease = authLease;
+    const operationSessions = new HttpOperationSessionStore(
       authLease.record.instanceId,
       options.operationSessions
     );
-    const machineDir = options.machineDir
-      ?? options.authStore?.stateRoot
-      ?? await resolveMachineTierRoot();
-    initializingService = options.serviceFactory === undefined
+    resources.operationSessions = operationSessions;
+    requestContext = Object.freeze({
+      authRecord: authLease.record,
+      errorReporter,
+      operationSessions,
+      service: null
+    });
+    const service = options.serviceFactory === undefined
       ? new StoryService({
           machineDir,
+          errorReporter,
           ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir })
         })
-      : await options.serviceFactory();
-    await initializingService.init();
-    service = initializingService;
-    initializingService = null;
-    let closing: Promise<void> | null = null;
-    return {
-      origin,
-      dataDir: service.dataDir,
+      : await options.serviceFactory(errorReporter, machineDir);
+    resources.service = service;
+    await service.init();
+    const listenerProjectAuthority = options.projectAuthority
+      ?? borrowedServiceAuthority(service);
+    resources.projectAuthority = listenerProjectAuthority;
+    const context: HttpReadyContext = Object.freeze({
       authRecord: authLease.record,
-      close: () => closing ??= closeListener(
-        server,
-        requests,
-        service!,
-        authLease!,
-        operationSessions!
-      )
+      errorReporter,
+      operationSessions,
+      service,
+      projectAuthority: listenerProjectAuthority
+    });
+    requestContext = context;
+    const listener: HttpListener = {
+      origin,
+      dataDir: context.service.dataDir,
+      authRecord: context.authRecord,
+      announceProjectServer: async (signal) => {
+        await context.projectAuthority.announceProjectServer({
+          port: address.port,
+          url: origin
+        }, signal);
+      },
+      trackReadiness: (publication, signal) => {
+        readiness.track(publication, signal);
+      },
+      close: async (failure) => {
+        const result = await closer.close(failure === undefined
+          ? undefined
+          : { ...failure, phase: "process" });
+        if (result.kind === "failure") throw result.error;
+      }
     };
+    return listener;
   } catch (error) {
-    return await disposeFailedStart(
-      server,
-      requests,
-      service ?? initializingService,
-      authLease,
-      error
-    );
+    const result = await closer.close({
+      error,
+      operation: "startup",
+      phase: "startup"
+    });
+    if (result.kind === "failure") throw result.error;
+    throw error;
   }
 }
 
-async function closeListener(
-  server: Server,
-  requests: RequestDrain,
-  service: StoryService,
-  authLease: HttpAuthRecordLease,
-  operationSessions: HttpOperationSessionStore
-): Promise<void> {
-  await Promise.all([
-    operationSessions.closeAll(),
-    shutDownListener(server, requests, service, authLease)
-  ]);
-}
-
-async function shutDownListener(
-  server: Server,
-  requests: RequestDrain,
-  service: StoryService | null,
-  authLease: HttpAuthRecordLease | null
-): Promise<void> {
-  requests.beginShutdown();
-  service?.cancelActive();
-  const failures: unknown[] = [];
-  let deadlineReached = false;
-  const track = async (operation: Promise<unknown>): Promise<void> => {
-    try {
-      await operation;
-    } catch (error) {
-      failures.push(error);
-      if (deadlineReached) {
-        console.error("1667 HTTP cleanup failed after the shutdown deadline", error);
-      }
-    }
+function borrowedServiceAuthority(
+  service: StoryService
+): ProjectAuthority {
+  return {
+    announceProjectServer: async (server, signal) => {
+      await service.announceProjectServer(server, signal);
+    },
+    // StoryService.dispose() releases its service-owned authority first.
+    release: async () => undefined
   };
-  const shutdown = Promise.all([
-    track(Promise.resolve(authLease?.removeOwnRecord())),
-    track((async () => {
-      await requests.waitForIdle();
-      await service?.dispose();
-    })()),
-    track(closeServer(server))
-  ]);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const completed = await Promise.race([
-      shutdown.then(() => true),
-      new Promise<false>((resolve) => {
-        timer = setTimeout(
-          () => resolve(false),
-          BACKEND_SHUTDOWN_GRACE_MS
-        );
-      })
-    ]);
-    if (!completed) {
-      deadlineReached = true;
-      const deadlineError = new Error("1667 HTTP shutdown exceeded its deadline");
-      if (failures.length > 0) {
-        throw new AggregateError(
-          [deadlineError, ...failures],
-          "1667 HTTP shutdown exceeded its deadline after cleanup failures",
-          { cause: deadlineError }
-        );
-      }
-      throw deadlineError;
-    }
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) {
-      throw new AggregateError(
-        failures,
-        "Multiple 1667 HTTP shutdown operations failed"
-      );
-    }
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    server.closeAllConnections();
-  }
 }
 
-async function disposeFailedStart(
-  server: Server,
-  requests: RequestDrain,
-  service: StoryService | null,
-  authLease: HttpAuthRecordLease | null,
-  startupError: unknown
-): Promise<never> {
-  try {
-    await shutDownListener(server, requests, service, authLease);
-  } catch (cleanupError) {
-    const cleanupFailures = cleanupError instanceof AggregateError
-      ? cleanupError.errors
-      : [cleanupError];
-    throw new AggregateError(
-      [startupError, ...cleanupFailures],
-      "1667 HTTP listener startup failed and cleanup also failed",
-      { cause: startupError }
-    );
+function publicBindFailure(error: unknown): unknown {
+  if (error instanceof Error
+    && "code" in error
+    && (error.code === "EADDRINUSE" || error.code === "EACCES")) {
+    return new PublicRuntimeError(error.message);
   }
-  throw startupError;
+  return error;
+}
+
+function publicStartupFailure(error: unknown): PublicRuntimeError {
+  if (error instanceof PublicRuntimeError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  return new PublicRuntimeError(
+    message.trim().length > 0
+      ? message
+      : "1667 backend startup configuration is invalid"
+  );
 }
 
 async function listen(server: Server, port: number): Promise<void> {
@@ -247,12 +287,5 @@ async function listen(server: Server, port: number): Promise<void> {
     server.once("error", onError);
     server.once("listening", onListening);
     server.listen(port, "127.0.0.1");
-  });
-}
-
-async function closeServer(server: Server): Promise<void> {
-  if (!server.listening) return;
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => error === undefined ? resolve() : reject(error));
   });
 }

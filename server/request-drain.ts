@@ -6,7 +6,13 @@ export class RequestDrain {
   private accepting = true;
 
   run<T>(work: () => Promise<T>): Promise<T> {
-    if (!this.accepting) return Promise.reject(new ServiceError(503, "Story service is shutting down"));
+    if (!this.accepting) {
+      return Promise.reject(new ServiceError(
+        503,
+        "Story service is shutting down",
+        "resource_busy"
+      ));
+    }
     const operation = Promise.resolve().then(work);
     let tracked!: Promise<T>;
     tracked = operation.finally(() => this.active.delete(tracked));

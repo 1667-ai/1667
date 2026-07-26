@@ -320,7 +320,7 @@ test("StoryService startup automatically finishes Release B before opening store
     "1667-settings-migrate-service-",
     FILE_SETTINGS
   );
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   try {
     await service.init();
     const view = await service.settings.loadView();

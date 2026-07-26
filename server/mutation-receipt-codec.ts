@@ -1,0 +1,251 @@
+import {
+  decodeFailureEnvelope
+} from "../shared/failure-envelope.js";
+import type {
+  ChapterBreak,
+  StoryNode,
+  StoryPayload
+} from "../shared/types.js";
+import {
+  isWorkerMethod,
+  type WorkerMethod
+} from "../shared/worker-protocol.js";
+import {
+  chapterBreakRemovalFingerprint,
+  parseRemovedChapterBreak
+} from "./chapter-breaks.js";
+import { ServiceError } from "./errors.js";
+import {
+  restoreStoredServiceFailure,
+  type StoredServiceError
+} from "./service-error-policy.js";
+import { exactStringPattern } from "./story-wire-patterns.js";
+
+const FINGERPRINT_PATTERN = exactStringPattern("[0-9a-f]{64}");
+const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
+
+type StoredResult =
+  | { type: "story"; id: string }
+  | { type: "chapter-break-created"; id: string; breakId: string }
+  | {
+      type: "chapter-break-removed";
+      id: string;
+      /** Compatibility for receipts written before server-side artifacts. */
+      removed?: RemovedChapterBreakResult;
+    }
+  | { type: "value"; value: unknown };
+
+export interface RemovedChapterBreakResult {
+  break: ChapterBreak;
+  summaries: StoryNode[];
+}
+
+export interface MutationReceipt {
+  format: "1667-mutation";
+  schemaVersion: 1;
+  mutationId: string;
+  /** Worker wire version that defined the canonical request fingerprint. */
+  protocolVersion?: number;
+  fingerprint: string;
+  method: WorkerMethod;
+  state: "pending" | "provider_started" | "completed" | "failed";
+  createdAt: string;
+  context?: Record<string, string>;
+  artifact?: {
+    kind: "chapter-break-removal";
+    fingerprint: string;
+    value: RemovedChapterBreakResult;
+  };
+  result?: StoredResult;
+  failure?: StoredServiceError;
+}
+
+export function encodeMutationResult(
+  value: unknown,
+  artifact: MutationReceipt["artifact"]
+): StoredResult {
+  if (isStoryPayload(value)) return { type: "story", id: value.id };
+  if (isChapterBreakCreatedResult(value)) {
+    return {
+      type: "chapter-break-created",
+      id: value.payload.id,
+      breakId: value.breakId
+    };
+  }
+  if (isChapterBreakRemovedResult(value)) {
+    if (artifact !== undefined
+      && artifact.kind === "chapter-break-removal"
+      && chapterBreakRemovalFingerprint(value.removed)
+        === artifact.fingerprint) {
+      return { type: "chapter-break-removed", id: value.payload.id };
+    }
+    return {
+      type: "chapter-break-removed",
+      id: value.payload.id,
+      removed: value.removed
+    };
+  }
+  return { type: "value", value };
+}
+
+export function parseMutationReceipt(
+  value: unknown,
+  mutationId: string
+): MutationReceipt {
+  if (value === null || typeof value !== "object") {
+    throw corruptMutationReceipt(mutationId);
+  }
+  const receipt = value as Partial<MutationReceipt>;
+  if (receipt.format !== "1667-mutation" || receipt.schemaVersion !== 1
+    || receipt.mutationId !== mutationId
+    || !isMutationFingerprint(receipt.fingerprint)
+    || (receipt.protocolVersion !== undefined
+      && (!Number.isSafeInteger(receipt.protocolVersion)
+        || receipt.protocolVersion < 1))
+    || !isWorkerMethod(receipt.method)
+    || typeof receipt.createdAt !== "string"
+    || !Number.isFinite(Date.parse(receipt.createdAt))
+    || !["pending", "provider_started", "completed", "failed"].includes(
+      String(receipt.state)
+    )) {
+    throw corruptMutationReceipt(mutationId);
+  }
+  if (receipt.state === "completed"
+    && (!isStoredResult(receipt.result) || receipt.failure !== undefined)) {
+    throw corruptMutationReceipt(mutationId);
+  }
+  const decodedFailure = receipt.state === "failed"
+    ? decodeFailureEnvelope(receipt.failure)
+    : null;
+  if (receipt.state === "failed" && (decodedFailure === null
+    || decodedFailure.status === null || receipt.result !== undefined)) {
+    throw corruptMutationReceipt(mutationId);
+  }
+  if (decodedFailure !== null) receipt.failure = decodedFailure;
+  if ((receipt.state === "pending" || receipt.state === "provider_started")
+    && (receipt.result !== undefined || receipt.failure !== undefined)) {
+    throw corruptMutationReceipt(mutationId);
+  }
+  if (!isStoredContext(receipt.context)
+    || !isStoredArtifact(receipt.artifact, receipt.method)) {
+    throw corruptMutationReceipt(mutationId);
+  }
+  if (receipt.state === "completed"
+    && receipt.result?.type === "chapter-break-removed"
+    && receipt.result.removed === undefined
+    && receipt.artifact === undefined) {
+    throw corruptMutationReceipt(mutationId);
+  }
+  return receipt as MutationReceipt;
+}
+
+export function isMutationFingerprint(value: unknown): value is string {
+  return typeof value === "string" && FINGERPRINT_PATTERN.test(value);
+}
+
+export function requireRemovalArtifact(
+  receipt: MutationReceipt
+): RemovedChapterBreakResult {
+  if (receipt.artifact?.kind !== "chapter-break-removal") {
+    throw corruptMutationReceipt(receipt.mutationId);
+  }
+  return receipt.artifact.value;
+}
+
+export function restoreMutationReceiptFailure(
+  failure: StoredServiceError | undefined
+): unknown {
+  const decoded = decodeFailureEnvelope(failure);
+  if (decoded === null || decoded.status === null) {
+    throw new ServiceError(
+      500,
+      "Mutation receipt is missing its failure",
+      "internal"
+    );
+  }
+  return restoreStoredServiceFailure(decoded);
+}
+
+export function corruptMutationReceipt(mutationId: string): ServiceError {
+  return new ServiceError(
+    500,
+    `Mutation receipt is corrupt: ${mutationId}`,
+    "internal"
+  );
+}
+
+function isStoryPayload(value: unknown): value is StoryPayload {
+  return value !== null
+    && typeof value === "object"
+    && typeof (value as StoryPayload).id === "string"
+    && Array.isArray((value as StoryPayload).nodes)
+    && Array.isArray((value as StoryPayload).path);
+}
+
+function isChapterBreakCreatedResult(
+  value: unknown
+): value is { payload: StoryPayload; breakId: string } {
+  if (value === null || typeof value !== "object") return false;
+  const result = value as { payload?: unknown; breakId?: unknown };
+  return isStoryPayload(result.payload) && typeof result.breakId === "string";
+}
+
+function isChapterBreakRemovedResult(
+  value: unknown
+): value is {
+  payload: StoryPayload;
+  removed: RemovedChapterBreakResult;
+} {
+  if (value === null || typeof value !== "object") return false;
+  const result = value as { payload?: unknown; removed?: unknown };
+  return isStoryPayload(result.payload)
+    && result.removed !== null
+    && typeof result.removed === "object";
+}
+
+function isStoredResult(value: unknown): value is StoredResult {
+  if (value === null || typeof value !== "object") return false;
+  const result = value as Record<string, unknown>;
+  if (result.type === "story") return typeof result.id === "string";
+  if (result.type === "chapter-break-created") {
+    return typeof result.id === "string"
+      && typeof result.breakId === "string";
+  }
+  if (result.type === "chapter-break-removed") {
+    return typeof result.id === "string"
+      && (result.removed === undefined
+        || (result.removed !== null && typeof result.removed === "object"));
+  }
+  return result.type === "value" && "value" in result;
+}
+
+function isStoredArtifact(
+  value: MutationReceipt["artifact"] | undefined,
+  method: WorkerMethod | undefined
+): boolean {
+  if (value === undefined) return true;
+  if (method !== "removeChapterBreak"
+    || value.kind !== "chapter-break-removal"
+    || !isMutationFingerprint(value.fingerprint)
+    || value.value === null || typeof value.value !== "object") {
+    return false;
+  }
+  try {
+    const parsed = parseRemovedChapterBreak(value.value);
+    return chapterBreakRemovalFingerprint(parsed) === value.fingerprint;
+  } catch {
+    return false;
+  }
+}
+
+function isStoredContext(
+  value: unknown
+): value is Record<string, string> | undefined {
+  if (value === undefined) return true;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.entries(value).every(([key, fingerprint]) =>
+    CONTEXT_KEY_PATTERN.test(key) && isMutationFingerprint(fingerprint)
+  );
+}

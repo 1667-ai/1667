@@ -26,11 +26,12 @@ interface RetainedDescriptor {
 
 export const SERVE_HELP = `1667 serve — run a supervised 1667 backend
 
-Usage: 1667 serve [--data <path>] [--port <0-65535>]
+Usage: 1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
 
 Options:
   --data <path>       Project root to serve, absolute or relative
   --port <number>     Loopback port (default: 0, a free port chosen by the OS)
+  --print-logs        Also print unexpected backend errors to stderr
   -h, --help          Show serve help`;
 
 export class ServeUsageError extends Error {
@@ -52,23 +53,29 @@ export async function runServeSupervisor(argv: readonly string[]): Promise<void>
   await supervisor.run();
 }
 
-interface SupervisorArguments {
+export interface SupervisorArguments {
   readonly dataDir: string | null;
   readonly port: number;
+  readonly printLogs: boolean;
 }
 
-class ServeSupervisor {
+type SupervisorState = "running" | "settled" | "stopping";
+
+export class ServeSupervisor {
   private readonly descriptors = new Map<string, RetainedDescriptor>();
   private child: ChildProcess | null = null;
   private operationWatchdog: ReturnType<typeof setTimeout> | null = null;
   private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
-  private stopping = false;
+  private state: SupervisorState = "running";
   private recoveryAttempt = false;
   private secretsSent = false;
   private resolve!: () => void;
   private reject!: (error: unknown) => void;
 
-  constructor(private readonly options: SupervisorArguments) {}
+  constructor(
+    private readonly options: SupervisorArguments,
+    private readonly spawnProcess: typeof spawn = spawn
+  ) {}
 
   async run(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
@@ -85,10 +92,10 @@ class ServeSupervisor {
   }
 
   private readonly stop = () => {
-    if (this.stopping) return;
-    this.stopping = true;
+    if (this.state !== "running") return;
+    this.state = "stopping";
     const child = this.child;
-    if (child === null) return this.resolve();
+    if (child === null) return this.succeed();
     this.send(child, { type: "shutdown" });
     this.shutdownTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
   };
@@ -105,9 +112,10 @@ class ServeSupervisor {
       "4",
       "--port",
       String(this.options.port),
+      ...(this.options.printLogs ? ["--print-logs"] : []),
       ...(this.options.dataDir === null ? [] : ["--data", this.options.dataDir])
     ];
-    const child = spawn(process.execPath, args, {
+    const child = this.spawnProcess(process.execPath, args, {
       env: sanitizedSupervisorChildEnvironment(process.env),
       stdio: ["ignore", "inherit", "inherit", "ipc", "pipe"],
       windowsHide: true
@@ -135,8 +143,9 @@ class ServeSupervisor {
       this.child = null;
       if (this.shutdownTimer !== null) clearTimeout(this.shutdownTimer);
       this.shutdownTimer = null;
-      if (this.stopping) {
-        if (code === 0 || signal !== null) this.resolve();
+      if (this.state === "settled") return;
+      if (this.state === "stopping") {
+        if (code === 0 || signal !== null) this.succeed();
         else this.fail(new Error(`Supervised child exited with code ${code}`));
         return;
       }
@@ -214,7 +223,11 @@ class ServeSupervisor {
         );
         return;
       case "fatal":
-        return this.fail(new Error(message.message));
+        return this.fail(new Error(
+          message.diagnosticRef === undefined
+            ? message.message
+            : `${message.message} (${message.diagnosticRef})`
+        ));
     }
   }
 
@@ -296,10 +309,16 @@ class ServeSupervisor {
   }
 
   private fail(error: unknown): void {
-    if (this.stopping) return;
-    this.stopping = true;
+    if (this.state === "settled") return;
+    this.state = "settled";
     this.child?.kill("SIGKILL");
     this.reject(error);
+  }
+
+  private succeed(): void {
+    if (this.state === "settled") return;
+    this.state = "settled";
+    this.resolve();
   }
 
   private clearTimers(): void {
@@ -313,12 +332,17 @@ export function parseServeArguments(
 ): SupervisorArguments | null {
   let dataDir: string | null = null;
   let port = 0;
+  let printLogs = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "serve") continue;
     if (argument === "-h" || argument === "--help") {
       process.stdout.write(`${SERVE_HELP}\n`);
       return null;
+    }
+    if (argument === "--print-logs") {
+      printLogs = true;
+      continue;
     }
     if (argument === "--data" || argument === "--port") {
       const value = requiredServeValue(argument, argv[++index]);
@@ -336,7 +360,7 @@ export function parseServeArguments(
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
     throw new ServeUsageError("--port must be between 0 and 65535");
   }
-  return { dataDir, port };
+  return { dataDir, port, printLogs };
 }
 
 function requiredServeValue(

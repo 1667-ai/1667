@@ -47,10 +47,12 @@ import {
   HTTP_SERVER_PROOF_PATH,
   isHttpServerProofNonce
 } from "../shared/http-server-proof.js";
+import type { InternalErrorReporter } from "./internal-error-reporter.js";
 export interface HttpRouterContext {
   readonly authRecord: HttpAuthRecord;
   readonly developmentOrigin: string | null;
   readonly service: StoryService | null;
+  readonly errorReporter: InternalErrorReporter;
   readonly operationSessions: HttpOperationSessionStore;
   readonly mutationGate?: HttpMutationGate;
 }
@@ -161,7 +163,11 @@ async function handleApi(
   }
   const service = context.service;
   if (service === null) {
-    throw new ServiceError(503, "1667 is still opening its data");
+    throw new ServiceError(
+      503,
+      "1667 is still opening its data",
+      "resource_busy"
+    );
   }
   const head = protectedRoute.head;
 
@@ -320,7 +326,9 @@ async function handleApi(
         }
       }, onDelta, signal),
       (story) => ({ type: "done", story }),
-      operation.signal);
+      operation.signal,
+      context.errorReporter,
+      "continueStory");
   }
   if (head === "stories" && id !== undefined && sub === "summary-take" && method === "POST") {
     const body = await jsonBody();
@@ -335,7 +343,9 @@ async function handleApi(
         signal
       ),
       (nodeId) => ({ type: "done", nodeId }),
-      operation.signal);
+      operation.signal,
+      context.errorReporter,
+      "createSummaryTake");
   }
   if (head === "stories" && id !== undefined && sub === "chapter-breaks") {
     if (subId === undefined && method === "POST") {
@@ -435,7 +445,9 @@ async function handleApi(
         signal
       ),
       () => ({ type: "done" }),
-      operation.signal);
+      operation.signal,
+      context.errorReporter,
+      "rewriteNode");
   }
   if (head === "stories" && id !== undefined && sub === "nodes" && subId === undefined && method === "POST") {
     return sendJson(response, 201, await mutate("createNode", {

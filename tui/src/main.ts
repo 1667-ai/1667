@@ -22,6 +22,9 @@ import { attachHttpServer } from "./http-attach.js";
 import { runStoryExport } from "./export-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
+import {
+  createCompatibleHttpFailureEnvelope
+} from "../../shared/failure-envelope.js";
 import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
 import { adoptDataDirectory } from "../../server/project-adoption.js";
@@ -48,6 +51,7 @@ interface Arguments {
   dataDir: string | null;
   global: boolean;
   diagnostic: boolean;
+  printLogs: boolean;
   embedded: boolean;
   storyId: string | null;
   demo: boolean;
@@ -67,8 +71,8 @@ Usage: 1667 [options]
        1667 init [--adopt [--from <legacy-data-dir>]]
        1667 export [--story <id>] [--force]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
-       1667 serve [--data <path>] [--port <0-65535>]
-       1667 serve --legacy-v1 --data <path>
+       1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
+       1667 serve --legacy-v1 --data <path> [--print-logs]
        1667 upgrade [options]
 
 Options:
@@ -79,6 +83,7 @@ Options:
   --data <path>      Open this project root instead of discovering one
   --global           Open the machine-wide project instead of a folder
   --diagnostic       Print read-only startup/project resolution JSON
+  --print-logs       Also print unexpected embedded backend errors to stderr
   --demo             Use the in-memory lantern keeper fixture
   --render-once      Print one deterministic frame and exit
   --size <WxH>       Render-once dimensions (default: 120x36)
@@ -129,6 +134,7 @@ export function parseArguments(argv: string[]): Arguments | null {
   let explicitData = false;
   let global = false;
   let diagnostic = false;
+  let printLogs = false;
   let storyId: string | null = null;
   let demo = false;
   let render = false;
@@ -176,6 +182,7 @@ export function parseArguments(argv: string[]): Arguments | null {
     else if (arg === "--embedded") explicitEmbedded = true;
     else if (arg === "--global") global = true;
     else if (arg === "--diagnostic") diagnostic = true;
+    else if (arg === "--print-logs") printLogs = true;
     else if (arg === "--render-once") render = true;
     else if (arg === "--debug-density") dense = true;
     else if (arg === "--url" || arg === "--data" || arg === "--auth-file"
@@ -213,12 +220,16 @@ export function parseArguments(argv: string[]): Arguments | null {
   if (diagnostic && (!embedded || demo)) {
     usageError("--diagnostic requires the embedded backend");
   }
+  if (printLogs && (!embedded || demo)) {
+    usageError("--print-logs requires the embedded backend");
+  }
   return {
     url,
     authFile,
     dataDir,
     global,
     diagnostic,
+    printLogs,
     embedded,
     storyId,
     demo,
@@ -446,7 +457,10 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   const storyFolder = dataDir === null
     ? ""
     : storyFolderForBackend(true, dataDir);
-  const worker = dataDir === null ? null : await createWorkerStoryApi({ dataDir });
+  const worker = dataDir === null ? null : await createWorkerStoryApi({
+    dataDir,
+    printLogs: args.printLogs
+  });
   const httpAttach = worker === null
     ? await attachHttpServer(await attachOrigin(args), args.authFile)
     : null;
@@ -512,13 +526,16 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   }
 }
 
-function httpRecoveryWarning(warning: HttpRecoveryWarning) {
+export function httpRecoveryWarning(warning: HttpRecoveryWarning) {
   return {
     mutationId: warning.mutationId,
     method: warning.method,
     storyId: warning.storyId,
     resolution: "archived" as const,
-    error: new WorkerApiError(warning.message, warning.code, warning.status)
+    error: new WorkerApiError(createCompatibleHttpFailureEnvelope(
+      warning,
+      warning.diagnosticRef
+    ))
   };
 }
 
@@ -562,7 +579,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<void> {
       process.exitCode = 2;
       return;
     }
-    if (error instanceof BackendRestartRequiredError) exitForBackendRestart();
+    if (error instanceof BackendRestartRequiredError) exitForBackendRestart(error);
     process.stderr.write(`1667: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   }

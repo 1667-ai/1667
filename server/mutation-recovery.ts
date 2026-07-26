@@ -1,5 +1,5 @@
 import type { Story, StoryPayload } from "../shared/types.js";
-import { ServiceError } from "./errors.js";
+import { DiagnosticServiceError, ServiceError } from "./errors.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { StoryStore } from "./stories.js";
 
@@ -13,18 +13,36 @@ export async function reconcileStoryMutation(
   throw mutationOutcomeUnknown();
 }
 
-export function mutationOutcomeUnknown(): ServiceError {
-  return new ServiceError(
+export function mutationOutcomeUnknown(
+  options?: { readonly diagnosticCause: unknown }
+): ServiceError {
+  return options === undefined
+    ? new ServiceError(
     409,
     "The mutation may have completed before the backend stopped. Reload authoritative state before trying again.",
     "mutation_outcome_unknown"
-  );
+      )
+    : new DiagnosticServiceError(
+        409,
+        "The mutation may have completed before the backend stopped. Reload authoritative state before trying again.",
+        "mutation_outcome_unknown",
+        options.diagnosticCause
+      );
 }
 
-export function generationOutcomeUnknown(): ServiceError {
-  return new ServiceError(
+export function generationOutcomeUnknown(
+  options?: { readonly diagnosticCause: unknown }
+): ServiceError {
+  return options === undefined
+    ? new ServiceError(
     409,
     "The model request may have been billed or completed before the backend stopped. Reload state; retry only with a new mutation ID.",
     "generation_outcome_unknown"
-  );
+      )
+    : new DiagnosticServiceError(
+        409,
+        "The model request may have been billed or completed before the backend stopped. Reload state; retry only with a new mutation ID.",
+        "generation_outcome_unknown",
+        options.diagnosticCause
+      );
 }

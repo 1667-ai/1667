@@ -11,6 +11,7 @@ import {
   type MainToWorkerMessage,
   type WorkerOperationId
 } from "../../shared/worker-protocol.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import {
   BackendRestartRequiredError,
@@ -231,10 +232,10 @@ describe("embedded worker transport lifecycle", () => {
 
   test("requires exact stopped and fixes the shutdown grace at five seconds", async () => {
     expect(WORKER_SHUTDOWN_GRACE_MS).toBe(5_000);
-    for (const createWorker of [
-      () => new ProtocolErrorOnShutdownWorker(),
-      () => new InvalidStoppedOnShutdownWorker()
-    ]) {
+    for (const [createWorker, diagnosticRef] of [
+      [() => new ProtocolErrorOnShutdownWorker(), "err_deadbeefdeadbeefdeadbeef"],
+      [() => new InvalidStoppedOnShutdownWorker(), null]
+    ] as const) {
       const worker = createWorker();
       const backend = await createWorkerStoryApi({
         worker,
@@ -242,7 +243,11 @@ describe("embedded worker transport lifecycle", () => {
         shutdownGraceMs: 5
       });
 
-      await expectRestartRequiredDisposal(backend);
+      const error = await rejection(backend.dispose());
+      expect(error).toMatchObject({
+        code: "backend_restart_required",
+        diagnosticRef
+      });
 
       expect(worker.terminateCalls).toBe(1);
       expect(worker.messages.at(-1)).toEqual({ type: "shutdown" });
@@ -429,7 +434,14 @@ class ProtocolErrorOnShutdownWorker extends FakeWorker {
   override postMessage(message: MainToWorkerMessage): void {
     super.postMessage(message);
     if (message.type === "shutdown") {
-      this.message({ type: "protocolError", message: "shutdown failed" });
+      this.message({
+        type: "protocolError",
+        failure: createFailureEnvelope({
+          code: "internal",
+          message: "Internal server error",
+          status: 500
+        }, "err_deadbeefdeadbeefdeadbeef")
+      });
     }
   }
 }

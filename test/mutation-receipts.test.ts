@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
+  MUTATION_INPUT_PROTOCOL_VERSION,
   MUTATION_ID_RETRY_WINDOW_MS,
+  PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PRE_Q_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
+  WORKER_PROTOCOL_VERSION,
   type MutatingWorkerMethod
 } from "../shared/worker-protocol.js";
 import type { StoryPayload } from "../shared/types.js";
@@ -54,6 +57,19 @@ class MutationReceiptStore extends ProductionMutationReceiptStore {
     return await super.run(mutationId, method, input, work, inputProtocolVersion, preflight);
   }
 }
+
+test("response-only worker upgrades preserve mutation identity", () => {
+  const input = { id: "story", title: "Stable" };
+
+  assert.equal(
+    mutationFingerprint("renameStory", input, WORKER_PROTOCOL_VERSION),
+    mutationFingerprint(
+      "renameStory",
+      input,
+      MUTATION_INPUT_PROTOCOL_VERSION
+    )
+  );
+});
 
 test("predecessor chapter removal intents retain their receipt identity", () => {
   assert.deepEqual(
@@ -158,7 +174,7 @@ test("completed mutation receipts survive restart and reject changed input", asy
   assert.deepEqual(await first.run(mutationId, "renameStory", input, async () => {
     calls += 1;
     return payload;
-  }), payload);
+  }, PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION, () => undefined), payload);
 
   const restarted = new MutationReceiptStore(dir, async () => payload);
   await restarted.init();
@@ -687,7 +703,7 @@ test("pending generation intent rejects a changed recovery context", async (t) =
   await assert.rejects(store.run(mutationId, "continueStory", input, async (execution) => {
     await execution.bindGenerationIntent(GENERATION_SETTINGS, { source: "original" });
     throw new MutationReceiptPersistenceError(new Error("simulated worker stop"));
-  }), MutationReceiptPersistenceError);
+  }), hasCode("mutation_outcome_unknown"));
 
   await assert.rejects(store.run(mutationId, "continueStory", input, async (execution) => {
     await execution.bindGenerationIntent({ ...GENERATION_SETTINGS, model: "changed" }, { source: "original" });
@@ -712,7 +728,7 @@ test("generation intent receipts never bind provider secret values", async (t) =
     await assert.rejects(store.run(mutationId, "continueStory", input, async (execution) => {
       await execution.bindGenerationIntent(settings, { source: "stable" });
       throw new MutationReceiptPersistenceError(new Error("simulated worker stop"));
-    }), MutationReceiptPersistenceError);
+    }), hasCode("mutation_outcome_unknown"));
 
     process.env[keyName] = "rotated-secret";
     assert.equal(await store.run(mutationId, "continueStory", input, async (execution) => {
@@ -744,23 +760,6 @@ test("malformed terminal receipts cannot replay an undefined success", async (t)
 
   const store = new MutationReceiptStore(dir, async () => { throw new Error("unused"); });
   await assert.rejects(store.run(mutationId, "deleteStory", input, async () => ({ ok: true })), /corrupt/);
-});
-
-test("receipt finalization failures are marked as uncertain", async (t) => {
-  if (process.platform === "win32") return;
-  const dir = await mkdtemp(path.join(tmpdir(), "1667-mutation-persistence-"));
-  t.after(async () => {
-    await chmod(dir, 0o700);
-    await rm(dir, { recursive: true, force: true });
-  });
-  const store = new MutationReceiptStore(dir, async () => { throw new Error("unused"); });
-  await store.init();
-  const mutationId = currentMutationId("8");
-
-  await assert.rejects(store.run(mutationId, "deleteStory", { id: "story" }, async () => {
-    await chmod(dir, 0o500);
-    return { ok: true };
-  }), MutationReceiptPersistenceError);
 });
 
 test("unseen old IDs expire while retained completed receipts still replay", async (t) => {

@@ -5,15 +5,15 @@ import {
   HTTP_SERVER_INSTANCE_HEADER
 } from "../../shared/http-protocol.js";
 import {
-  AI_1667_BUILD_IDENTITY,
-  parseBuildIdentity
-} from "../../shared/build-identity.js";
-import {
   ApiHttpError,
   HTTP_GENERATION_REQUEST_TIMEOUT_MS
 } from "../src/api.js";
 import { createConnectionMonitor } from "../src/connection.js";
-import { createTestApi as createApi } from "./http-api-fixture.js";
+import {
+  createTestApi as createApi,
+  testHttpMetadata as metadata,
+  testStoryPayload as storyPayload
+} from "./http-api-fixture.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
 import {
@@ -918,48 +918,6 @@ test("HTTP StoryApi stream cancellation covers compatibility preflight", async (
   expect(result).toBe(null);
   expect(calls).toBe(1);
 });
-
-interface ProtocolRange {
-  apiProtocolVersion: number;
-  minClientProtocolVersion: number;
-  maxClientProtocolVersion: number;
-}
-
-function metadata(
-  serverInstanceId = "11111111-1111-4111-8111-111111111111",
-  range: ProtocolRange = {
-    apiProtocolVersion: HTTP_API_PROTOCOL_VERSION,
-    minClientProtocolVersion: HTTP_API_PROTOCOL_VERSION,
-    maxClientProtocolVersion: HTTP_API_PROTOCOL_VERSION
-  }
-) {
-  const buildIdentity = parseBuildIdentity({ ...AI_1667_BUILD_IDENTITY, ...range });
-  return {
-    buildIdentity,
-    serverInstanceId,
-    recoveryWarnings: []
-  };
-}
-
-function storyPayload(id: string, nodes: Array<Record<string, unknown>> = []): Record<string, unknown> {
-  return {
-    id,
-    title: id,
-    createdAt: "2026-07-21T00:00:00.000Z",
-    updatedAt: "2026-07-21T00:00:00.000Z",
-    nodes,
-    path: [],
-    activeRootId: null,
-    bookmarks: [],
-    recentNodeIds: [],
-    facts: [],
-    chapterBreaks: [],
-    aggregateVersion: {
-      kind: "v6",
-      revision: "00000000000000000001"
-    }
-  };
-}
 
 function catalogPage(
   items: Array<Record<string, unknown>> = [],

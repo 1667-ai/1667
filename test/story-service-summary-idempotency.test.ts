@@ -34,7 +34,10 @@ class SummaryIdempotencyService extends StoryService {
 test("summary cancellation after effect preparation replays the committed node", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-summary-prepared-cancel-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  const service = new SummaryIdempotencyService({ dataDir });
+  const service = new SummaryIdempotencyService({
+    dataDir,
+    diagnostics: "disabled"
+  });
   await service.init();
   const originalFetch = globalThis.fetch;
   const originalRunProvider = service.mutationStore.runProvider.bind(

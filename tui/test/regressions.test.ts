@@ -4,17 +4,26 @@ import path from "node:path";
 import { lineName } from "../../shared/loom-model.js";
 import { countWords } from "../../shared/story-text.js";
 import { estimateTokens } from "../../shared/tokens.js";
+import { InternalErrorReporter } from "../../server/internal-error-reporter.js";
+import { PublicRuntimeError } from "../../server/errors.js";
+import { errorFromFailureIncident } from "../../server/reported-service-error.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import { handleKey, initialState } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
 import { resolveKey } from "../src/keys.js";
-import { parseArguments, resolveEmbeddedDataDirectory, storyFolderForBackend } from "../src/main.js";
+import {
+  httpRecoveryWarning,
+  parseArguments,
+  resolveEmbeddedDataDirectory,
+  storyFolderForBackend
+} from "../src/main.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache } from "../src/wrap.js";
 import { adoptStoryState } from "../src/story-adoption.js";
 import type { RuntimeState, StreamView } from "../src/state.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
+import { sanitizeLegacyServeFailure } from "../src/http-commands.js";
 
 const demo = createDemoController();
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -30,6 +39,47 @@ function key(name: string, sequence: string, shift = false): KeyEvent {
 }
 
 describe("review regressions", () => {
+  test("legacy serve sanitizes private failures without a persisted log", async () => {
+    const privateFailure = errorFromFailureIncident(
+      await InternalErrorReporter.disabled().report(
+        new Error("private /machine/path"),
+        { service: "legacy-http" }
+      )
+    );
+
+    const displayed = sanitizeLegacyServeFailure(privateFailure);
+
+    expect(displayed.message).toBe("Internal server error");
+    expect(displayed.message).not.toContain("/machine/path");
+    expect(displayed.cause).toBe(privateFailure);
+  });
+
+  test("legacy serve preserves actionable pre-listener failures", () => {
+    const safeFailure = new PublicRuntimeError(
+      "HTTP auth and legacy serve are unavailable on Windows"
+    );
+
+    const displayed = sanitizeLegacyServeFailure(safeFailure);
+
+    expect(displayed.message).toBe(safeFailure.message);
+    expect(displayed.cause).toBe(safeFailure);
+  });
+
+  test("HTTP recovery warnings retain compatible future codes", () => {
+    const warning = httpRecoveryWarning({
+      mutationId: "m1-future-warning",
+      method: "createStory",
+      storyId: null,
+      code: "future_warning",
+      message: "Future compatible warning",
+      status: 409
+    });
+
+    expect(warning.error.code).toBe("future_warning");
+    expect(warning.error.message).toBe("Future compatible warning");
+    expect(warning.error.status).toBe(409);
+  });
+
   test("viewport follows focus instead of staying pinned to the leaf", () => {
     const frame = renderStoryScreen(baseState, { width: 80, height: 24 }).lines;
     expect(frame.map(plainLine).join("\n")).toContain("§ ch one summary");
@@ -546,6 +596,10 @@ describe("review regressions", () => {
     expect(parsed).toMatchObject({ storyId: "abc", url: "http://127.0.0.1:9999", width: 80, height: 24 });
     expect(() => parseArguments(["--storyy"])).toThrow("unknown option: --storyy");
     expect(parseArguments(["--embedded"])?.embedded).toBeTrue();
+    expect(parseArguments(["--print-logs"])).toMatchObject({
+      embedded: true,
+      printLogs: true
+    });
     expect(parseArguments(["--embedded", "--data=stories-v2"])?.dataDir).toBe("stories-v2");
     for (const option of [
       "--data",
@@ -585,6 +639,10 @@ describe("review regressions", () => {
       .toThrow("--global cannot be used with --demo");
     expect(() => parseArguments(["--url=http://127.0.0.1:9999", "--global"]))
       .toThrow("--global requires the embedded backend");
+    expect(() => parseArguments(["--url=http://127.0.0.1:9999", "--print-logs"]))
+      .toThrow("--print-logs requires the embedded backend");
+    expect(() => parseArguments(["--demo", "--print-logs"]))
+      .toThrow("--print-logs requires the embedded backend");
     expect(parseArguments(["--diagnostic"])?.diagnostic).toBeTrue();
     expect(() => parseArguments([
       "--url=http://127.0.0.1:9999",
