@@ -260,6 +260,46 @@ export async function readOptionalPrivateFile(
   }
 }
 
+/** Batch immutable siblings under one validated private directory. Receipt
+ * reads use this to recover every typed publication first, then validate the
+ * shared directory once more before bounded no-follow reads. */
+export async function readOptionalPrivateFiles(
+  files: readonly string[],
+  policy: PrivateFilePolicy
+): Promise<readonly (Buffer | null)[]> {
+  if (files.length === 0) return [];
+  const directory = path.dirname(files[0]!);
+  if (files.some((file) => path.dirname(file) !== directory)) {
+    throw new Error(`${policy.label} batch crossed directories`);
+  }
+  await Promise.all(files.map(
+    async (file) => await recoverPrivatePublicationBeforeRead(file, policy)
+  ));
+  await inspectPrivateDirectory(directory, policy.label);
+  return await Promise.all(files.map(async (file) => {
+    try {
+      return await readBoundedRegularFile(
+        file,
+        policy.maxBytes,
+        regularFileOptions(policy, 1)
+      );
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return null;
+      throw error;
+    }
+  }));
+}
+
+async function recoverPrivatePublicationBeforeRead(
+  file: string,
+  policy: PrivateFilePolicy
+): Promise<void> {
+  if (await optionalPathInfo(privatePublicationScratchPath(file)) === null) {
+    return;
+  }
+  await recoverPrivatePublication(file, policy);
+}
+
 export async function removePrivateFile(
   file: string,
   policy: PrivateFilePolicy

@@ -79,8 +79,17 @@ export function reduceStoryV6(
       });
     }
     case "provider-terminal-prepared": {
-      requireLive(manifest, event);
       requireMatchingProvider(manifest.unresolvedProvider, event.provider);
+      if (manifest.kind === "deleted") {
+        if (event.outcome.kind !== "error") return illegal(state, event);
+        return {
+          ...manifest,
+          revision: incrementRevision(manifest.revision),
+          previousManifestHash,
+          unresolvedProvider: null,
+          lastTransaction: preparedPointer(event.provider.mutationId)
+        };
+      }
       const replacement = terminalReplacement(manifest, event.outcome);
       return nextLive(manifest, previousManifestHash, preparedPointer(event.provider.mutationId), {
         ...replacement,

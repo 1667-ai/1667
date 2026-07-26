@@ -97,7 +97,7 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.id,
     execute: async (service, input, plan, context) => {
       const id = plan.entityId("autoname");
-      if (plan.recoveryMode !== "new") {
+      if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.id);
         if (plan.generationAction(storyAutonameId(story) === id) === "return-committed") {
           return await loadMutationPayload(service, input.id);
@@ -484,7 +484,7 @@ const MUTATIONS: MutationRegistry = {
     execute: async (service, input, plan, context) => {
       const summaryNodeId = plan.entityId("chapter-summary");
       const rewriteId = plan.entityId("chapter-summary-rewrite");
-      if (plan.recoveryMode !== "new") {
+      if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         const committed = story.nodes.some((node) => node.id === summaryNodeId
           || (node.chapterBreakId === input.breakId && nodeRewriteId(node) === rewriteId));
@@ -530,7 +530,7 @@ const MUTATIONS: MutationRegistry = {
     },
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
-      if (plan.recoveryMode !== "new") {
+      if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         if (plan.generationAction(hasCommittedGeneration(story, input.genId)) === "return-committed") {
           return await loadMutationPayload(service, input.storyId);
@@ -552,7 +552,7 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const rewriteId = plan.entityId("rewrite");
-      if (plan.recoveryMode !== "new") {
+      if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         const node = story.nodes.find((candidate) => candidate.id === input.nodeId);
         if (plan.generationAction(node !== undefined && nodeRewriteId(node) === rewriteId) === "return-committed") {
@@ -570,7 +570,7 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const summaryNodeId = plan.entityId("summary-node");
-      if (plan.recoveryMode !== "new") {
+      if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         if (plan.generationAction(story.nodes.some((node) => node.id === summaryNodeId)) === "return-committed") {
           return summaryNodeId;
@@ -651,6 +651,21 @@ function generationHooks<M extends
     ...(mutationRequest === undefined ? {} : { mutationRequest }),
     ...options
   };
+}
+
+type ProviderWorkerMethod =
+  | "autonameStory"
+  | "summarizeChapter"
+  | "continueStory"
+  | "rewriteNode"
+  | "createSummaryTake";
+
+function needsCompatibilityGenerationRecovery<M extends ProviderWorkerMethod>(
+  plan: MutationPlan<M>,
+  context: MutationHandlerContext
+): boolean {
+  return plan.recoveryMode !== "new"
+    && context.storyMutationRequest === undefined;
 }
 
 function requiredStrings<M extends MutatingWorkerMethod>(

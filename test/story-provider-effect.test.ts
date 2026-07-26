@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Story, StoryNode } from "../shared/types.js";
 import { GenerationResultError } from "../server/errors.js";
+import { sha256 } from "../server/story-format.js";
 import { storyAutonameId } from "../server/story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "../server/story-node-text.js";
 import {
@@ -9,6 +10,7 @@ import {
   chapterSourceFingerprint,
   type ProviderStoryEffect
 } from "../server/story-provider-effect.js";
+import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
 
 const AT = "2026-07-25T12:00:00.000Z";
 const LATER = "2026-07-25T12:01:00.000Z";
@@ -72,7 +74,9 @@ test("provider effects are exhaustively operation-specific", () => {
       genId: "g",
       nodeId: "generated",
       expectedParentActiveChildId: null,
-      expectedActiveRootId: "root"
+      expectedAppendActiveChildId: null,
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root"
     },
     rewrite: {
       kind: "rewrite",
@@ -101,6 +105,31 @@ test("provider effects are exhaustively operation-specific", () => {
     }
   } satisfies Record<ProviderStoryEffect["kind"], ProviderStoryEffect>;
   assert.equal(Object.keys(effects).length, 5);
+});
+
+test("provider effect preparation rejects an existing cancellation", () => {
+  const cancelled = new AbortController();
+  cancelled.abort();
+
+  assert.throws(
+    () => prepareProviderStoryEffect({
+      kind: "continue",
+      parentId: "root",
+      appendTo: null,
+      expectedTextHash: null,
+      instruction: "Go",
+      text: "Must not commit",
+      model: "m",
+      genId: "cancelled",
+      expectedParentActiveChildId: null,
+      expectedAppendActiveChildId: null,
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root",
+      cancelled: cancelled.signal
+    }),
+    (error: unknown) => error instanceof GenerationResultError
+      && /Story writing was cancelled/.test(error.message)
+  );
 });
 
 test("autoname changes only title metadata and rejects a concurrent rename", async () => {
@@ -157,7 +186,9 @@ test("continue preserves concurrent writer state and does not steal its line", a
     genId: "g1",
     nodeId: "generated",
     expectedParentActiveChildId: null,
-    expectedActiveRootId: "root"
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "root"
   }, hydrate);
   assert.deepEqual(current.nodes.map(({ id }) => id), [
     "root",
@@ -168,6 +199,34 @@ test("continue preserves concurrent writer state and does not steal its line", a
   assert.equal(current.bookmarks[0]?.nodeId, "human");
   assert.deepEqual(current.recentNodeIds, ["human"]);
   assert.equal(current.origin?.storyId, "origin-story");
+});
+
+test("continue preserves a writer extension below its requested parent", async () => {
+  const current = story([
+    node("root", null, "Opening.", { activeChildId: "child" }),
+    node("child", "root", "Original ending.", { activeChildId: "extension" }),
+    node("extension", "child", "Writer extension.", { human: true })
+  ]);
+  await applyProviderStoryEffect(current, {
+    kind: "continue",
+    parentId: "root",
+    appendTo: null,
+    expectedTextHash: null,
+    instruction: "Retake",
+    text: "Model alternative.",
+    model: "m",
+    genId: "g-deep-move",
+    nodeId: "generated",
+    expectedParentActiveChildId: "child",
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "child"
+  }, hydrate);
+
+  assert.equal(current.activeRootId, "root");
+  assert.equal(current.nodes[0]?.activeChildId, "child");
+  assert.equal(current.nodes[1]?.activeChildId, "extension");
+  assert.equal(current.nodes.at(-1)?.id, "generated");
 });
 
 test("continue deduplicates a Stop save with the same generation ID", async () => {
@@ -186,10 +245,37 @@ test("continue deduplicates a Stop save with the same generation ID", async () =
     genId: "g1",
     nodeId: "completed",
     expectedParentActiveChildId: null,
-    expectedActiveRootId: "root"
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "root",
+    expectedActiveLeafId: "root"
   }, hydrate);
   assert.equal(applied.changed, false);
   assert.deepEqual(current.nodes.map(({ id }) => id), ["root", "partial"]);
+});
+
+test("append completion stays on its source after the writer switches lines", async () => {
+  const current = story([
+    node("source", null, "The latch was unlo"),
+    node("writer", null, "A different line.", { human: true })
+  ], "writer");
+  await applyProviderStoryEffect(current, {
+    kind: "continue",
+    parentId: null,
+    appendTo: "source",
+    expectedTextHash: sha256("The latch was unlo"),
+    instruction: "",
+    text: "cked.",
+    model: "m2",
+    genId: "g-append",
+    expectedParentActiveChildId: null,
+    expectedAppendActiveChildId: null,
+    expectedActiveRootId: "source",
+    expectedActiveLeafId: "source"
+  }, hydrate);
+  assert.equal(current.nodes[0]?.text, "The latch was unlocked.");
+  assert.equal(current.nodes[0]?.genId, "g-append");
+  assert.equal(current.activeRootId, "writer");
+  assert.equal(current.nodes.length, 2);
 });
 
 test("continue fails when its parent was deleted", async () => {
@@ -205,10 +291,40 @@ test("continue fails when its parent was deleted", async () => {
       genId: "g1",
       nodeId: "generated",
       expectedParentActiveChildId: null,
-      expectedActiveRootId: "root"
+      expectedAppendActiveChildId: null,
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root"
     }, hydrate),
     GenerationResultError
   );
+});
+
+test("late provider-effect cancellation is a definitive terminal conflict", async () => {
+  const current = story([node("root", null, "Opening.")]);
+  const cancelled = new AbortController();
+
+  await assert.rejects(
+    applyProviderStoryEffect(current, {
+      kind: "continue",
+      parentId: null,
+      appendTo: "root",
+      expectedTextHash: sha256("Opening."),
+      instruction: "",
+      text: " Must not commit.",
+      model: "m",
+      genId: "cancelled-after-hydration",
+      expectedParentActiveChildId: null,
+      expectedAppendActiveChildId: null,
+      expectedActiveRootId: "root",
+      expectedActiveLeafId: "root",
+      cancelled: cancelled.signal
+    }, async () => {
+      cancelled.abort();
+    }),
+    (error: unknown) =>
+      error instanceof GenerationResultError && error.code === "conflict"
+  );
+  assert.equal(current.nodes[0]?.text, "Opening.");
 });
 
 test("rewrite transfers only provider-owned fields and its rewrite ID", async () => {
@@ -290,6 +406,20 @@ test("summary take validates current source and never changes navigation", async
   }, hydrate);
   assert.equal(current.nodes[0]?.activeChildId, "writer");
   assert.equal(current.nodes.find(({ id }) => id === "summary")?.role, "summary");
+  await assert.rejects(
+    applyProviderStoryEffect(story([], null), {
+      kind: "summary-take",
+      point: { nodeId: "root", offset: null },
+      expected: null,
+      sourceFingerprint,
+      summary: "Summary.",
+      model: "m",
+      instruction: "Summarize",
+      commitIds: { summaryNodeId: "deleted-summary" }
+    }, hydrate),
+    (error: unknown) =>
+      error instanceof GenerationResultError && error.code === "conflict"
+  );
 });
 
 test("chapter summary refresh preserves identity and transfers all summary metadata", async () => {
@@ -328,4 +458,21 @@ test("chapter summary refresh preserves identity and transfers all summary metad
   assert.equal(nodeRewriteId(summary), "rewrite-summary");
   assert.equal(summary.coveredExtent?.toPartId, "next");
   assert.notEqual(summary.madeAt, AT);
+});
+
+test("chapter-source drift is a definitive terminal conflict", async () => {
+  const current = story([node("root", null, "Opening.")]);
+
+  await assert.rejects(
+    applyProviderStoryEffect(current, {
+      kind: "chapter-summary",
+      breakId: "removed-break",
+      sourceFingerprint: "provider-input",
+      summary: "Must not commit.",
+      model: "m"
+    }, hydrate),
+    (error: unknown) =>
+      error instanceof GenerationResultError && error.code === "conflict"
+  );
+  assert.equal(current.nodes.length, 1);
 });

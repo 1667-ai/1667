@@ -172,6 +172,7 @@ export interface TakeCommit {
   /** null = human take (no generation). */
   genId: string | null;
   nodeId?: string;
+  committedAt?: string;
 }
 
 export function hasCommittedGeneration(
@@ -191,12 +192,29 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
   }
   if (commit.appendTo !== null) {
     if (commit.expectedTextHash === null) throw new HttpError(400, "appendTo requires expectedTextHash");
-    appendToActiveLeaf(story, commit.appendTo, commit.expectedTextHash, commit.text, commit.model, commit.genId ?? undefined);
+    appendToActiveLeaf(
+      story,
+      commit.appendTo,
+      commit.expectedTextHash,
+      commit.text,
+      commit.model,
+      commit.genId ?? undefined,
+      commit.committedAt
+    );
     return { duplicate: false };
   }
-  const node = createTake(story, newNode(commit.parentId, commit.instruction, commit.text, commit.model,
-    { ...(commit.nodeId === undefined ? {} : { id: commit.nodeId }),
-      ...(commit.genId === null ? { human: true as const } : { genId: commit.genId }) }));
+  const node = newNode(
+    commit.parentId,
+    commit.instruction,
+    commit.text,
+    commit.model,
+    {
+      ...(commit.nodeId === undefined ? {} : { id: commit.nodeId }),
+      ...(commit.genId === null ? { human: true as const } : { genId: commit.genId })
+    }
+  );
+  if (commit.committedAt !== undefined) node.createdAt = commit.committedAt;
+  createTake(story, node);
   if (story.nodes.length === 1 && story.title === "Untitled") {
     story.title = titleFrom(commit.genId === null ? node.text : commit.instruction);
   }
@@ -231,13 +249,33 @@ export function appendToActiveLeaf(
   expectedTextHash: string,
   continuation: string,
   model: string,
-  genId?: string
+  genId?: string,
+  committedAt?: string
 ): StoryNode {
   validateTextHash(expectedTextHash);
   const node = requireNode(story, nodeId);
   if (activeLeaf(story)?.id !== node.id) {
     throw new HttpError(409, "The node being continued is no longer the active leaf.");
   }
+  return appendContinuationToNode(
+    node,
+    expectedTextHash,
+    continuation,
+    model,
+    genId,
+    committedAt
+  );
+}
+
+export function appendContinuationToNode(
+  node: StoryNode,
+  expectedTextHash: string,
+  continuation: string,
+  model: string,
+  genId?: string,
+  committedAt?: string
+): StoryNode {
+  validateTextHash(expectedTextHash);
   if (node.role === "summary") {
     throw new HttpError(400, "Cannot write inside a summary — continue the story with a new node.");
   }
@@ -247,7 +285,7 @@ export function appendToActiveLeaf(
   node.text = appendContinuationText(node.text, continuation);
   setNodeRewriteId(node, undefined);
   node.model = model;
-  node.updatedAt = new Date().toISOString();
+  node.updatedAt = committedAt ?? new Date().toISOString();
   if (genId !== undefined) node.genId = genId;
   return node;
 }

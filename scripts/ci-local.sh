@@ -112,6 +112,14 @@ run_linux() {
   wants "$target" || return 0
   step "$target (docker $platform)"
   local name="${CONTAINER}-${target}"
+  local runtime_test="npm test"
+  # Docker exposes every arm64 host CPU to the amd64 emulator. Letting Node
+  # launch one translated benchmark worker per CPU creates artificial
+  # contention that native CI does not have; keep the workload and budgets,
+  # but bound only this emulated lane's file-level scheduling.
+  if [ "$target" = "linux-x64" ] && [ "$(uname -m)" = "arm64" ]; then
+    runtime_test="env AI_1667_TEST_EMULATED_X64=1 npm test -- --test-concurrency=1"
+  fi
   local start; start=$(date +%s)
 
   if ! ensure_container "$platform" "$name"; then
@@ -124,7 +132,7 @@ run_linux() {
   docker exec -u runner "$name" bash -c "
     cd /app
     set -e
-    timeout ${TARGET_TIMEOUT_S} npm test
+    timeout ${TARGET_TIMEOUT_S} ${runtime_test}
     cd tui
     bun install --frozen-lockfile
     bun run typecheck

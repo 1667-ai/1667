@@ -73,18 +73,26 @@ export function requireExpectedStoryVersion(
   snapshot: StoryAggregateSnapshot,
   expected: StoryAggregateVersion
 ): void {
-  const matches = expected.kind === "v5"
-    ? snapshot.storageKind === "v5" && expected.manifestHash === snapshot.manifestHash
-    : expected.kind === "v6"
-      ? snapshot.storageKind === "v6" && expected.revision === snapshot.manifest.revision
-      : false;
-  if (!matches) {
-    throw new ServiceError(
-      409,
-      "Story changed since this operation began; reload before retrying.",
-      "revision_conflict"
-    );
+  if (!matchesExpectedStoryVersion(snapshot, expected)) throwRevisionConflict();
+}
+
+/** Provider start is a durable metadata-only revision that clients cannot
+ * observe until their stream settles. A local edit may therefore present the
+ * exact content version immediately before that hidden revision. */
+export function requireExpectedLocalStoryVersion(
+  snapshot: StoryAggregateSnapshot,
+  expected: StoryAggregateVersion,
+  activeProviderPredecessor: StoryAggregateVersion | null
+): void {
+  if (matchesExpectedStoryVersion(snapshot, expected)
+    || matchesHiddenProviderStart(
+      snapshot,
+      expected,
+      activeProviderPredecessor
+    )) {
+    return;
   }
+  throwRevisionConflict();
 }
 
 export function storyAggregateVersion(
@@ -105,4 +113,59 @@ export function storyProjection(
     summary: manifest.kind === "live" ? manifest.summary : null,
     previousManifestHash: manifest.previousManifestHash
   };
+}
+
+function matchesExpectedStoryVersion(
+  snapshot: StoryAggregateSnapshot,
+  expected: StoryAggregateVersion
+): boolean {
+  return expected.kind === "v5"
+    ? snapshot.storageKind === "v5"
+      && expected.manifestHash === snapshot.manifestHash
+    : expected.kind === "v6"
+      ? snapshot.storageKind === "v6"
+        && expected.revision === snapshot.manifest.revision
+      : false;
+}
+
+function matchesHiddenProviderStart(
+  snapshot: StoryAggregateSnapshot,
+  expected: StoryAggregateVersion,
+  activeProviderPredecessor: StoryAggregateVersion | null
+): boolean {
+  const manifest = snapshot.manifest;
+  if (activeProviderPredecessor === null
+    || !sameStoryAggregateVersion(expected, activeProviderPredecessor)
+    || snapshot.storageKind !== "v6"
+    || manifest.kind !== "live"
+    || manifest.unresolvedProvider === null
+    || manifest.lastTransaction?.phase !== "started"
+    || manifest.lastTransaction.mutationId
+      !== manifest.unresolvedProvider.mutationId) {
+    return false;
+  }
+  if (expected.kind === "v5") {
+    return manifest.previousManifestHash === expected.manifestHash;
+  }
+  return expected.kind === "v6"
+    && BigInt(manifest.revision) === BigInt(expected.revision) + 1n;
+}
+
+export function sameStoryAggregateVersion(
+  left: StoryAggregateVersion,
+  right: StoryAggregateVersion
+): boolean {
+  return left.kind === "v5"
+    ? right.kind === "v5" && left.manifestHash === right.manifestHash
+    : left.kind === "v6"
+      ? right.kind === "v6" && left.revision === right.revision
+      : false;
+}
+
+function throwRevisionConflict(): never {
+  throw new ServiceError(
+    409,
+    "Story changed since this operation began; reload before retrying.",
+    "revision_conflict"
+  );
 }

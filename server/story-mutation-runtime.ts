@@ -1,51 +1,41 @@
-import { activePath, pathTo } from "../shared/story-tree.js";
-import type { Story, StoryNode } from "../shared/types.js";
-import { ServiceError } from "./errors.js";
+import { pathTo } from "../shared/story-tree.js";
+import type { Story } from "../shared/types.js";
 import { hydrateStoryNodes } from "./story-codec.js";
 import {
-  createInactiveTakeFromCut,
-  createTake,
-  newNode
-} from "./story-nodes.js";
+  applyProviderStoryEffect,
+  type ProviderStoryEffect,
+  type ProviderStoryEffectByMethod,
+  type ProviderStoryEffectValue
+} from "./story-provider-effect.js";
+import type { ProviderMutationMethod } from "./mutation-ledger-types.js";
 import {
-  requireSummaryActive,
-  summarizedPath,
-  summarySourceFingerprint,
-  type SummaryCommitIds,
-  type SummaryPoint
-} from "./summary-take.js";
+  prepareProviderStoryEffect,
+  type PreparedProviderStoryEffect
+} from "./story-provider-preparation.js";
 
-export interface ProviderStoryRuntime {
+export interface ProviderStoryRuntime<
+  Method extends ProviderMutationMethod = ProviderMutationMethod
+> {
   loadForMutation(id: string): Promise<Story>;
   hydratePath(story: Story, nodeId: string): Promise<void>;
-  withLock<T>(id: string, work: () => Promise<T>): Promise<T>;
-  save(story: Story): Promise<void>;
-  commitSummary(
+  commitProviderEffect<Effect extends ProviderStoryEffectByMethod[Method]>(
     id: string,
-    point: SummaryPoint,
-    expected: string | null,
-    sourceFingerprint: string,
-    summary: string,
-    model: string,
-    instruction: string,
-    cancelled?: AbortSignal,
-    commitIds?: SummaryCommitIds
-  ): Promise<StoryNode>;
+    effect: Effect
+  ): Promise<ProviderStoryEffectValue<Effect>>;
 }
 
-/** StoryStore-compatible view used while the Q coordinator already owns the
- * story scope and filesystem queues. Saves mark the in-memory draft; the outer
- * receipt transaction performs the one authoritative V6 publication. */
+/** Typed provider view used outside a story claim. The outer receipt
+ * transaction performs the one authoritative V6 publication. */
 export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
-  private saved = false;
+  private preparedEffect: PreparedProviderStoryEffect | null = null;
 
   /** Node text hydrates from the bundle the story itself carries, so this
    * runtime outlives the aggregate session that decoded it. That lets the
    * provider round-trip run without holding story I/O against readers. */
   constructor(private readonly story: Story) {}
 
-  get didSave(): boolean {
-    return this.saved;
+  get effect(): PreparedProviderStoryEffect | null {
+    return this.preparedEffect;
   }
 
   async loadForMutation(id: string): Promise<Story> {
@@ -58,60 +48,22 @@ export class ScopedProviderStoryRuntime implements ProviderStoryRuntime {
     await hydrateStoryNodes(story, pathTo(story, nodeId).map((node) => node.id));
   }
 
-  async withLock<T>(id: string, work: () => Promise<T>): Promise<T> {
-    this.requireStory(id);
-    return await work();
-  }
-
-  async save(story: Story): Promise<void> {
-    this.requireSameStory(story);
-    this.saved = true;
-  }
-
-  async commitSummary(
+  async commitProviderEffect<Effect extends ProviderStoryEffect>(
     id: string,
-    point: SummaryPoint,
-    expected: string | null,
-    sourceFingerprint: string,
-    summary: string,
-    model: string,
-    instruction: string,
-    cancelled?: AbortSignal,
-    commitIds: SummaryCommitIds = {}
-  ): Promise<StoryNode> {
+    effect: Effect
+  ): Promise<ProviderStoryEffectValue<Effect>> {
     this.requireStory(id);
-    const existing = commitIds.summaryNodeId === undefined
-      ? undefined
-      : this.story.nodes.find((node) => node.id === commitIds.summaryNodeId);
-    if (existing !== undefined) return existing;
-    requireSummaryActive(cancelled);
-    await hydrateStoryNodes(this.story, pathTo(this.story, point.nodeId).map((node) => node.id));
-    requireSummaryActive(cancelled);
-    const prefix = summarizedPath(this.story, point, expected);
-    if (summarySourceFingerprint(this.story.title, prefix, point) !== sourceFingerprint) {
-      throw new ServiceError(
-        409,
-        "The story changed while its summary was being written. Try again."
-      );
+    if (this.preparedEffect !== null) {
+      throw new Error("Provider runtime prepared more than one story effect");
     }
-    const parentId = point.offset === null
-      ? point.nodeId
-      : createInactiveTakeFromCut(
-        this.story,
-        point.nodeId,
-        point.offset,
-        expected,
-        commitIds.cutNodeId
-      ).id;
-    const node = newNode(parentId, instruction, summary, model, {
-      role: "summary",
-      ...(commitIds.summaryNodeId === undefined
-        ? {}
-        : { id: commitIds.summaryNodeId })
-    });
-    createTake(this.story, node, { activate: false });
-    this.saved = true;
-    return node;
+    const prepared = prepareProviderStoryEffect(effect);
+    const applied = await applyProviderStoryEffect(
+      this.story,
+      prepared,
+      async (story, nodeId) => await this.hydratePath(story, nodeId)
+    );
+    this.preparedEffect = prepared;
+    return applied.value;
   }
 
   private requireStory(id: string): void {

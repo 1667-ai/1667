@@ -6,6 +6,7 @@ import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { setNodeRewriteId } from "./story-node-text.js";
 import {
+  appendContinuationToNode,
   commitTake,
   createInactiveTakeFromCut,
   createTake,
@@ -32,7 +33,9 @@ export interface AutonameStoryEffect {
 export interface ContinueStoryEffect extends TakeCommit {
   readonly kind: "continue";
   readonly expectedParentActiveChildId: string | null;
+  readonly expectedAppendActiveChildId: string | null;
   readonly expectedActiveRootId: string | null;
+  readonly expectedActiveLeafId: string | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -58,6 +61,7 @@ export interface SummaryTakeEffect {
   readonly model: string;
   readonly instruction: string;
   readonly commitIds: SummaryCommitIds;
+  readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
 }
 
@@ -69,6 +73,7 @@ export interface ChapterSummaryEffect {
   readonly model: string;
   readonly summaryNodeId?: string;
   readonly rewriteId?: string;
+  readonly committedAt?: string;
   readonly cancelled?: AbortSignal;
 }
 
@@ -78,6 +83,27 @@ export type ProviderStoryEffect =
   | RewriteNodeEffect
   | SummaryTakeEffect
   | ChapterSummaryEffect;
+
+export interface ProviderStoryEffectByMethod {
+  readonly autonameStory: AutonameStoryEffect;
+  readonly summarizeChapter: ChapterSummaryEffect;
+  readonly continueStory: ContinueStoryEffect;
+  readonly rewriteNode: RewriteNodeEffect;
+  readonly createSummaryTake: SummaryTakeEffect;
+}
+
+type ProviderStoryEffectValueForKind<
+  Kind extends ProviderStoryEffect["kind"]
+> = Kind extends "autoname" | "continue" | "chapter-summary"
+    ? Story
+    : Kind extends "rewrite"
+      ? boolean
+      : Kind extends "summary-take"
+        ? StoryNode
+        : never;
+
+export type ProviderStoryEffectValue<Effect extends ProviderStoryEffect> =
+  ProviderStoryEffectValueForKind<Effect["kind"]>;
 
 export interface AppliedProviderStoryEffect<Value = Story | StoryNode | boolean> {
   readonly changed: boolean;
@@ -96,6 +122,13 @@ export type HydrateProviderPath = (
  * They deliberately do not describe a generic Story diff: fields outside the
  * operation remain current automatically, including fields added in the future.
  */
+export function applyProviderStoryEffect<Effect extends ProviderStoryEffect>(
+  story: Story,
+  effect: Effect,
+  hydratePath: HydrateProviderPath
+): Promise<
+  AppliedProviderStoryEffect<ProviderStoryEffectValue<Effect>>
+>;
 export async function applyProviderStoryEffect(
   story: Story,
   effect: ProviderStoryEffect,
@@ -105,7 +138,7 @@ export async function applyProviderStoryEffect(
     case "autoname":
       return applyAutoname(story, effect);
     case "continue":
-      return applyContinuation(story, effect);
+      return await applyContinuation(story, effect, hydratePath);
     case "rewrite":
       return await applyRewrite(story, effect, hydratePath);
     case "summary-take":
@@ -134,11 +167,22 @@ function applyAutoname(
   return { changed: true, value: story };
 }
 
-function applyContinuation(
+async function applyContinuation(
   story: Story,
-  effect: ContinueStoryEffect
-): AppliedProviderStoryEffect<Story> {
+  effect: ContinueStoryEffect,
+  hydratePath: HydrateProviderPath
+): Promise<AppliedProviderStoryEffect<Story>> {
   requireNotCancelled(effect.cancelled, "Story writing was cancelled");
+  if (effect.appendTo !== null) {
+    if (nodeById(story, effect.appendTo) === null) {
+      throw new GenerationResultError(
+        409,
+        "The node being continued was deleted while writing; nothing was saved."
+      );
+    }
+    await hydratePath(story, effect.appendTo);
+    requireNotCancelled(effect.cancelled, "Story writing was cancelled");
+  }
   if (effect.genId !== null && hasCommittedGeneration(story, effect.genId)) {
     return { changed: false, value: story };
   }
@@ -155,23 +199,45 @@ function applyContinuation(
       (chapterBreak) => chapterBreak.parentPartId === effect.appendTo
     );
   const commit = {
-      ...effect,
-      parentId: appendCrossesNewBreak ? effect.appendTo : effect.parentId,
-      appendTo: appendCrossesNewBreak ? null : effect.appendTo,
-      expectedTextHash: appendCrossesNewBreak
-        ? null
-        : effect.expectedTextHash
+    ...effect,
+    parentId: appendCrossesNewBreak ? effect.appendTo : effect.parentId,
+    appendTo: appendCrossesNewBreak ? null : effect.appendTo,
+    expectedTextHash: appendCrossesNewBreak
+      ? null
+      : effect.expectedTextHash
   };
   const parent = commit.parentId === null
     ? null
     : nodeById(story, commit.parentId);
+  const appendTarget = commit.appendTo === null
+    ? null
+    : nodeById(story, commit.appendTo);
+  const appendWriterMoved = appendTarget !== null
+    && activePath(story).at(-1)?.id !== appendTarget.id;
+  const currentActiveLeafId = activePath(story).at(-1)?.id ?? null;
   const writerMoved = commit.appendTo === null && (
-    parent === null
-      ? story.activeRootId !== effect.expectedActiveRootId
-      : parent.activeChildId !== effect.expectedParentActiveChildId
+    story.activeRootId !== effect.expectedActiveRootId
+    || currentActiveLeafId !== effect.expectedActiveLeafId
+    || (parent !== null && parent.activeChildId !== (
+      appendCrossesNewBreak
+        ? effect.expectedAppendActiveChildId
+        : effect.expectedParentActiveChildId
+    ))
   );
   try {
-    if (writerMoved) {
+    if (appendWriterMoved) {
+      if (commit.expectedTextHash === null) {
+        throw new Error("appendTo requires expectedTextHash");
+      }
+      appendContinuationToNode(
+        appendTarget,
+        commit.expectedTextHash,
+        commit.text,
+        commit.model,
+        commit.genId ?? undefined,
+        commit.committedAt
+      );
+    } else if (writerMoved) {
       const added = newNode(
         commit.parentId,
         commit.instruction,
@@ -184,6 +250,9 @@ function applyContinuation(
             : { genId: commit.genId })
         }
       );
+      if (commit.committedAt !== undefined) {
+        added.createdAt = commit.committedAt;
+      }
       createTake(story, added, { activate: false });
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
@@ -243,6 +312,12 @@ async function applySummaryTake(
     ? undefined
     : story.nodes.find((node) => node.id === effect.commitIds.summaryNodeId);
   if (existing !== undefined) return { changed: false, value: existing };
+  if (nodeById(story, effect.point.nodeId) === null) {
+    throw new GenerationResultError(
+      409,
+      "The story changed while its summary was being written. Try again."
+    );
+  }
   requireSummaryActive(effect.cancelled);
   await hydratePath(story, effect.point.nodeId);
   requireSummaryActive(effect.cancelled);
@@ -254,15 +329,18 @@ async function applySummaryTake(
       "The story changed while its summary was being written. Try again."
     );
   }
-  const parentId = effect.point.offset === null
-    ? effect.point.nodeId
-    : createInactiveTakeFromCut(
+  let parentId = effect.point.nodeId;
+  if (effect.point.offset !== null) {
+    const cut = createInactiveTakeFromCut(
       story,
       effect.point.nodeId,
       effect.point.offset,
       effect.expected,
       effect.commitIds.cutNodeId
-    ).id;
+    );
+    if (effect.committedAt !== undefined) cut.createdAt = effect.committedAt;
+    parentId = cut.id;
+  }
   const node = newNode(
     parentId,
     effect.instruction,
@@ -275,6 +353,7 @@ async function applySummaryTake(
         : { id: effect.commitIds.summaryNodeId })
     }
   );
+  if (effect.committedAt !== undefined) node.createdAt = effect.committedAt;
   createTake(story, node, { activate: false });
   return { changed: true, value: node };
 }
@@ -284,7 +363,15 @@ function applyChapterSummary(
   effect: ChapterSummaryEffect
 ): AppliedProviderStoryEffect<Story> {
   requireNotCancelled(effect.cancelled, "Chapter summarization was cancelled");
-  const chapter = closedChapter(story, effect.breakId);
+  let chapter: ReturnType<typeof chapterSummarySource>;
+  try {
+    chapter = chapterSummarySource(story, effect.breakId);
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      throw new GenerationResultError(error.status, error.message);
+    }
+    throw error;
+  }
   if (chapterSourceFingerprint(story, effect.breakId)
     !== effect.sourceFingerprint) {
     throw new GenerationResultError(
@@ -293,7 +380,7 @@ function applyChapterSummary(
     );
   }
   const extent = chapter.extent!;
-  const madeAt = new Date().toISOString();
+  const madeAt = effect.committedAt ?? new Date().toISOString();
   const instruction = summaryNodeInstruction(story.title);
   if (chapter.summary === null) {
     const node = newNode(
@@ -309,6 +396,7 @@ function applyChapterSummary(
         madeAt
       }
     );
+    node.createdAt = madeAt;
     setNodeRewriteId(node, effect.rewriteId);
     createTake(story, node, { activate: false });
   } else {
@@ -326,7 +414,7 @@ function applyChapterSummary(
 }
 
 export function chapterSourceFingerprint(story: Story, breakId: string): string {
-  const chapter = closedChapter(story, breakId);
+  const chapter = chapterSummarySource(story, breakId);
   return sha256(JSON.stringify({
     title: story.title,
     breakId: chapter.closedBy?.id,
@@ -346,7 +434,7 @@ export function chapterSourceFingerprint(story: Story, breakId: string): string 
   }));
 }
 
-function closedChapter(story: Story, breakId: string) {
+export function chapterSummarySource(story: Story, breakId: string) {
   const chapter = deriveChapters(
     activePath(story),
     story.chapterBreaks,
@@ -368,5 +456,7 @@ function requireNotCancelled(
   signal: AbortSignal | undefined,
   message: string
 ): void {
-  if (signal?.aborted === true) throw new ServiceError(409, message);
+  if (signal?.aborted === true) {
+    throw new GenerationResultError(409, message);
+  }
 }
