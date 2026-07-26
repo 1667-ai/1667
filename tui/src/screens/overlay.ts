@@ -40,12 +40,30 @@ export function panelWidthFor(width: number, maxWidth = 106): number {
   return Math.max(20, Math.min(width - 8, maxWidth));
 }
 
-/** The other half of that geometry: how many content rows `placePanel` will
- *  paint at this height, once its own minimum is applied. Callers that slice
- *  or window their body must measure against this, or they leave rows behind a
- *  bound that never reaches them. */
+const PANEL_FRAME_ROWS = 4;
+const PANEL_MIN_HEIGHT = 6;
+const PANEL_SCREEN_MARGIN_ROWS = 5;
+const PANEL_CONTENT_PADDING_ROWS = 1;
+
+function panelGeometry(height: number, contentRows: number): {
+  height: number;
+  contentRows: number;
+} {
+  const panelHeight = Math.max(
+    PANEL_MIN_HEIGHT,
+    Math.min(
+      height - PANEL_SCREEN_MARGIN_ROWS,
+      contentRows + PANEL_FRAME_ROWS + PANEL_CONTENT_PADDING_ROWS
+    )
+  );
+  return { height: panelHeight, contentRows: panelHeight - PANEL_FRAME_ROWS };
+}
+
+/** How many content rows `placePanel` can paint at this terminal height.
+ *  Windowed callers and the renderer share `panelGeometry`, so changing panel
+ *  chrome cannot leave either side with a stale capacity formula. */
 export function panelContentRows(height: number): number {
-  return Math.max(2, height - 9);
+  return panelGeometry(height, Number.POSITIVE_INFINITY).contentRows;
 }
 
 export function placePanel(
@@ -60,8 +78,8 @@ export function placePanel(
 ): FrameComposition {
   const panelWidth = panelWidthFor(width, maxWidth);
   const left = Math.max(2, Math.floor((width - panelWidth) / 2));
-  const panelHeight = Math.max(6, Math.min(height - 5, content.length + 5));
-  const top = Math.max(1, Math.floor((height - 1 - panelHeight) / 2));
+  const geometry = panelGeometry(height, content.length);
+  const top = Math.max(1, Math.floor((height - 1 - geometry.height) / 2));
   const panel: FrameLine[] = [];
   const topText = `┏━ ${title} ━`;
   panel.push(fillRaised([raisedSegment(topText, "brass dim")], panelWidth));
@@ -72,7 +90,7 @@ export function placePanel(
     fillRows(hits.rows, 0, hits.rows.length, { target: { kind: "scrim" }, left: 0, right: width });
   }
   const contentTop = 2;
-  for (let row = 0; row < panelHeight - 4; row += 1) {
+  for (let row = 0; row < geometry.contentRows; row += 1) {
     const line = content[row] ?? [];
     if (hits !== undefined && row < content.length) {
       const absolute = top + contentTop + row;

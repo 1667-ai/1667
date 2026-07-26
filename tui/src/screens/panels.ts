@@ -19,7 +19,13 @@ import { chapterListModel, chapterWindow } from "../chapter-model.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../model.js";
 import { formatTokensScaled, formatTokensEstimate } from "../rail.js";
 import type { NextRequestEstimate } from "../request-projection.js";
-import { dimPage, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
+import {
+  dimPage,
+  panelContentRows,
+  panelWidthFor,
+  placePanel,
+  raisedSegment
+} from "./overlay.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import { commandPaletteLine } from "./command-palette-line.js";
 import { bookmarkRole } from "./map-row-labels.js";
@@ -250,7 +256,11 @@ function renderLibrary(
     ...(columns.updated === 0 ? [] : [raisedSegment(cellPad("updated", columns.updated), "chrome")])
   ]);
   const targets: Array<HitTarget | null> = content.map(() => null);
-  const window = panelRowWindow(rows.map(() => 1), overlay.cursor, height - 9 - content.length);
+  const window = panelRowWindow(
+    rows.map(() => 1),
+    overlay.cursor,
+    panelContentRows(height) - content.length
+  );
   for (const [offset, story] of rows.slice(window.start, window.end).entries()) {
     const index = window.start + offset;
     targets.push({ kind: "list", index });
@@ -358,8 +368,11 @@ function renderFacts(base: FrameLine[], state: OverlayState & { payload: StoryPa
     }
     logicalRows.push(lines);
   }
-  const window = panelRowWindow(logicalRows.map((lines) => lines.length), rowCursor,
-    height - 9 - content.length);
+  const window = panelRowWindow(
+    logicalRows.map((lines) => lines.length),
+    rowCursor,
+    panelContentRows(height) - content.length
+  );
   for (let index = window.start; index < window.end; index += 1) {
     const lines = logicalRows[index]!;
     content.push(...lines);
@@ -398,7 +411,11 @@ function renderCommands(
   const content: FrameLine[] = [commandSearchLine(overlay.query, panelWidth - 2)];
   if (overlay.view === "bookmarks") {
     const bookmarks = state.payload.bookmarks;
-    const window = panelRowWindow(bookmarks.map(() => 1), overlay.cursor, height - 9 - content.length);
+    const window = panelRowWindow(
+      bookmarks.map(() => 1),
+      overlay.cursor,
+      panelContentRows(height) - content.length
+    );
     const targets: Array<HitTarget | null> = [null];
     for (const [offset, bookmark] of bookmarks.slice(window.start, window.end).entries()) {
       const index = window.start + offset;
@@ -424,8 +441,8 @@ function renderCommands(
   );
   const cursor = retainCommandSelection(model.selectable, overlay.selectedId, overlay.cursor).cursor;
   const targets: Array<HitTarget | null> = [null];
-  // placePanel can paint height - 9 body rows; Search permanently owns one.
-  const rows = commandPaletteWindow(model, cursor, Math.max(1, height - 10));
+  // Search permanently owns one of the rows the panel can paint.
+  const rows = commandPaletteWindow(model, cursor, Math.max(1, panelContentRows(height) - 1));
   for (const row of rows) {
     content.push(commandPaletteLine(row, cursor, panelWidth - 2));
     targets.push(row.selectableIndex === null ? null : {
