@@ -401,24 +401,38 @@ export async function rewriteNode(
   }
   const replacementText =
     plan.leadingWhitespace + cleaned.trim() + plan.trailingWhitespace;
-  return await stories.commitProviderEffect(id, {
-    kind: "rewrite",
-    nodeId: partId,
-    expectedText: originalText,
-    expectedInstruction: part.instruction,
-    expectedUpdatedAt: part.updatedAt,
-    text: originalText.slice(0, start) + replacementText + originalText.slice(end),
-    attribution: attributionAfterReplacement(
-      activeHumanAttribution(part),
-      start,
-      end,
-      replacementText.length,
-      originalText.length
-    ),
-    updatedAt: new Date().toISOString(),
-    rewriteId,
-    cancelled: signal
-  });
+  try {
+    return await stories.commitProviderEffect(id, {
+      kind: "rewrite",
+      nodeId: partId,
+      expectedText: originalText,
+      expectedInstruction: part.instruction,
+      expectedUpdatedAt: part.updatedAt,
+      text: originalText.slice(0, start) + replacementText + originalText.slice(end),
+      attribution: attributionAfterReplacement(
+        activeHumanAttribution(part),
+        start,
+        end,
+        replacementText.length,
+        originalText.length
+      ),
+      updatedAt: new Date().toISOString(),
+      rewriteId,
+      cancelled: signal
+    });
+  } catch (error) {
+    if (error instanceof HttpError
+      && error.code === "story_manifest_requires_successor") {
+      throw error;
+    }
+    if (error instanceof HttpError && error.status === 404) {
+      throw new GenerationResultError(
+        409,
+        "The story was deleted while rewriting."
+      );
+    }
+    throw error;
+  }
 }
 /**
  * A concrete word target beats "about the same length": models act on numbers and

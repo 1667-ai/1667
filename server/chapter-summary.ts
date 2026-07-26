@@ -1,6 +1,9 @@
 import { SUMMARY_TARGET_TOKENS } from "../shared/chapters.js";
 import type { Story } from "../shared/types.js";
-import { GenerationResultError } from "./errors.js";
+import {
+  GenerationResultError,
+  ServiceError
+} from "./errors.js";
 import type { BindGenerationIntent } from "./generation-http.js";
 import { throwIfUncertainAbort } from "./generation-stream.js";
 import type { SettingsStore } from "./settings.js";
@@ -51,14 +54,28 @@ export async function summarizeChapter(
     throw new GenerationResultError(409, "Chapter summarization was cancelled");
   }
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
-  return await stories.commitProviderEffect(id, {
-    kind: "chapter-summary",
-    breakId,
-    sourceFingerprint: fingerprint,
-    summary,
-    model,
-    summaryNodeId: options.summaryNodeId,
-    rewriteId: options.rewriteId,
-    cancelled: signal
-  });
+  try {
+    return await stories.commitProviderEffect(id, {
+      kind: "chapter-summary",
+      breakId,
+      sourceFingerprint: fingerprint,
+      summary,
+      model,
+      summaryNodeId: options.summaryNodeId,
+      rewriteId: options.rewriteId,
+      cancelled: signal
+    });
+  } catch (error) {
+    if (error instanceof ServiceError
+      && error.code === "story_manifest_requires_successor") {
+      throw error;
+    }
+    if (error instanceof ServiceError && error.status === 404) {
+      throw new GenerationResultError(
+        409,
+        "The story was deleted while its chapter summary was being written."
+      );
+    }
+    throw error;
+  }
 }

@@ -10,9 +10,17 @@ import {
   type MutatingWorkerMethod,
   type WorkerOutput
 } from "../shared/worker-protocol.js";
-import { ProviderError } from "../server/errors.js";
+import {
+  LEGACY_PREVIEW_DATA_MARKER,
+  LEGACY_PREVIEW_DATA_MARKER_TEXT
+} from "../server/data-directory-format.js";
+import {
+  GenerationResultError,
+  ProviderError
+} from "../server/errors.js";
 import { mutationFingerprint } from "../server/mutation-receipts.js";
 import { applyEffectiveGenerationSettings } from "../server/settings-v2-conversion.js";
+import { formatGenerationSettingsV1 } from "../server/settings-v1-codec.js";
 import { StoryService } from "../server/story-service.js";
 import {
   executeWorkerMutation,
@@ -117,6 +125,143 @@ test("provider-uncertain retry replays the durable Q terminal error", async (t) 
   }
 });
 
+test("direct rewrite deletion persists a definitive compatibility conflict", async (t) => {
+  const { dataDir, service } = await legacyProviderService(
+    t,
+    "1667-direct-rewrite-deletion-"
+  );
+  let story = await service.createStory("Rewrite deletion");
+  story = await service.createNode(story.id, {
+    parentId: null,
+    text: "The red door opened."
+  });
+  const root = story.path[0]!;
+  const start = root.text.indexOf("red");
+  const input = {
+    storyId: story.id,
+    nodeId: root.id,
+    body: {
+      start,
+      end: start + 3,
+      instruction: "Change the color.",
+      expected: "red"
+    }
+  };
+  const mutationId = createDurableMutationId();
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  try {
+    globalThis.fetch = (async () => {
+      requests += 1;
+      await service.deleteStory(story.id);
+      return openAiStream("blue");
+    }) as typeof fetch;
+
+    await assert.rejects(
+      runCompatibilityWorkerMutation(
+        service,
+        mutationId,
+        "rewriteNode",
+        input
+      ),
+      (error: unknown) =>
+        error instanceof GenerationResultError
+        && error.code === "conflict"
+        && /deleted while rewriting/i.test(error.message)
+    );
+    await assert.rejects(
+      runCompatibilityWorkerMutation(
+        service,
+        mutationId,
+        "rewriteNode",
+        input
+      ),
+      hasCode("conflict")
+    );
+    assert.equal(requests, 1);
+    const receipt = JSON.parse(await readFile(
+      path.join(dataDir, "mutation-receipts", `${mutationId}.json`),
+      "utf8"
+    )) as { state?: unknown; failure?: { code?: unknown } };
+    assert.equal(receipt.state, "failed");
+    assert.equal(receipt.failure?.code, "conflict");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await service.dispose();
+  }
+});
+
+test("direct chapter-summary deletion persists a definitive compatibility conflict", async (t) => {
+  const { dataDir, service } = await legacyProviderService(
+    t,
+    "1667-direct-chapter-deletion-"
+  );
+  let story = await service.createStory("Chapter deletion");
+  story = await service.createNode(story.id, {
+    parentId: null,
+    text: "The first chapter ended."
+  });
+  const created = await service.createChapterBreak(
+    story.id,
+    story.path[0]!.id,
+    ""
+  );
+  const input = {
+    storyId: story.id,
+    breakId: created.breakId
+  };
+  const mutationId = createDurableMutationId();
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  try {
+    globalThis.fetch = (async (providerRequest, init) => {
+      requests += 1;
+      const requestBody = typeof init?.body === "string"
+        ? init.body
+        : providerRequest instanceof Request
+          ? await providerRequest.clone().text()
+          : "";
+      const marker = /\[\[summary-complete-[a-f0-9]+\]\]/
+        .exec(requestBody)?.[0];
+      assert.ok(marker);
+      await service.deleteStory(story.id);
+      return openAiStream(`Closed chapter summary.\n${marker}`);
+    }) as typeof fetch;
+
+    await assert.rejects(
+      runCompatibilityWorkerMutation(
+        service,
+        mutationId,
+        "summarizeChapter",
+        input
+      ),
+      (error: unknown) =>
+        error instanceof GenerationResultError
+        && error.code === "conflict"
+        && /deleted while its chapter summary/i.test(error.message)
+    );
+    await assert.rejects(
+      runCompatibilityWorkerMutation(
+        service,
+        mutationId,
+        "summarizeChapter",
+        input
+      ),
+      hasCode("conflict")
+    );
+    assert.equal(requests, 1);
+    const receipt = JSON.parse(await readFile(
+      path.join(dataDir, "mutation-receipts", `${mutationId}.json`),
+      "utf8"
+    )) as { state?: unknown; failure?: { code?: unknown } };
+    assert.equal(receipt.state, "failed");
+    assert.equal(receipt.failure?.code, "conflict");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await service.dispose();
+  }
+});
+
 async function runQWorkerMutation<M extends MutatingWorkerMethod>(
   service: StoryService,
   mutationId: string,
@@ -148,6 +293,68 @@ async function runQWorkerMutation<M extends MutatingWorkerMethod>(
     }),
     WORKER_PROTOCOL_VERSION,
     () => {}
+  );
+}
+
+async function runCompatibilityWorkerMutation<M extends MutatingWorkerMethod>(
+  service: StoryService,
+  mutationId: string,
+  method: M,
+  value: unknown
+): Promise<WorkerOutput<M>> {
+  const input = parseWorkerMutation(method, value, WORKER_PROTOCOL_VERSION);
+  return await service.runMutation(
+    mutationId,
+    method,
+    value,
+    (plan) => executeWorkerMutation(service, input, plan, {
+      onDelta: () => {},
+      signal: new AbortController().signal
+    }),
+    WORKER_PROTOCOL_VERSION,
+    () => {}
+  );
+}
+
+async function legacyProviderService(
+  t: test.TestContext,
+  prefix: string
+): Promise<{ dataDir: string; service: StoryService }> {
+  const dataDir = await mkdtemp(path.join(tmpdir(), prefix));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  await writeFile(
+    path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
+    LEGACY_PREVIEW_DATA_MARKER_TEXT,
+    { mode: 0o600 }
+  );
+  await writeFile(
+    path.join(dataDir, "settings.json"),
+    formatGenerationSettingsV1({
+      provider: "openai-compatible",
+      baseUrl: "https://fixture.invalid/v1",
+      model: "fixture",
+      apiKeyEnv: null,
+      temperature: 0,
+      maxTokens: 128,
+      systemPrompt: "Write coherent prose.",
+      contextWindow: 4096
+    }),
+    { encoding: "utf8", mode: 0o600 }
+  );
+  const service = new StoryService({ dataDir });
+  await service.init();
+  return { dataDir, service };
+}
+
+function openAiStream(text: string): Response {
+  return new Response(
+    `data: ${JSON.stringify({
+      choices: [{
+        delta: { content: text },
+        finish_reason: null
+      }]
+    })}\n\ndata: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream" } }
   );
 }
 
