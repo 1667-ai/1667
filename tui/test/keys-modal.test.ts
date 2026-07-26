@@ -56,6 +56,13 @@ describe("keys reference", () => {
     expect(words).toContain("R retake · edit prompt");
   });
 
+  test("a minimum-width short panel keeps build identity and a scroll cue", () => {
+    const frame = text(20, 10);
+    expect(frame).toContain("keys ↑↓ 1/");
+    expect(frame).toContain("1667 v0.1.0");
+    expect(frame).not.toContain("1667 v0.1.0…");
+  });
+
   test("the old QWERTY diagram and its unexplained bands are gone", () => {
     const frame = text(120, 36);
     expect(frame).not.toContain("┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐");

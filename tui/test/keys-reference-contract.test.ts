@@ -11,12 +11,15 @@ import { KEYS_MODAL_MODEL } from "../src/screens/keys-modal.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { createWrapCache } from "../src/wrap.js";
 
-function key(name: string, options: { shift?: boolean; ctrl?: boolean } = {}): KeyEvent {
+function key(
+  name: string,
+  options: { sequence?: string; shift?: boolean; ctrl?: boolean } = {}
+): KeyEvent {
   const shift = options.shift ?? false;
   const resolvedName = shift && /^[a-z]$/.test(name) ? name.toUpperCase() : name;
   return {
     name: resolvedName,
-    sequence: resolvedName,
+    sequence: options.sequence ?? resolvedName,
     shift,
     ctrl: options.ctrl ?? false,
     meta: false,
@@ -37,6 +40,7 @@ describe("keys reference contract", () => {
       for (const binding of item.bindings) {
         expect(binding.display.length).toBeGreaterThan(0);
         const event = key(binding.name, {
+          ...(binding.sequence === undefined ? {} : { sequence: binding.sequence }),
           ...(binding.shift === true ? { shift: true } : {}),
           ...(binding.ctrl === true ? { ctrl: true } : {})
         });
@@ -70,6 +74,7 @@ describe("keys reference contract", () => {
               ...letters.map((name) => key(name, { shift: true })),
               key("up", { shift: true }),
               key("down", { shift: true }),
+              key("/", { sequence: "?", shift: true }),
               ...letters.map((name) => key(name, { ctrl: true }))
             ]
           : [])
@@ -81,6 +86,7 @@ describe("keys reference contract", () => {
           binding.name === event.name
           && binding.mode === surface.mode
           && binding.action === resolved.action
+          && (binding.sequence ?? binding.name) === event.sequence
           && (binding.shift ?? false) === event.shift
           && (binding.ctrl ?? false) === event.ctrl
           && (binding.mapView === undefined || binding.mapView === surface.mapView)

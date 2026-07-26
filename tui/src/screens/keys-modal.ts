@@ -67,7 +67,7 @@ const entry = (
 });
 
 function bindingDisplay(name: string, modifiers: BindingOptions): string {
-  const base = {
+  const base = modifiers.sequence ?? ({
     up: "↑",
     down: "↓",
     left: "←",
@@ -76,7 +76,7 @@ function bindingDisplay(name: string, modifiers: BindingOptions): string {
     pagedown: "pgdn",
     return: "enter",
     escape: "esc"
-  }[name] ?? name;
+  }[name] ?? name);
   if (modifiers.ctrl === true) return `⌃${base}`;
   if (modifiers.shift === true && ["up", "down", "left", "right"].includes(name)) {
     return `⇧${base}`;
@@ -182,7 +182,7 @@ const SECTIONS: readonly KeysModalSection[] = [
       entry("actions for this part", [binding("x", "NAV", "open-actions")]),
       entry("show or hide directions", [binding("p", "NAV", "toggle-instructions")]),
       entry("typewriter mode", [binding("z", "NAV", "typewriter")]),
-      entry("facts rail on or off", [
+      entry("facts rail · auto or off", [
         binding("F", "NAV", "toggle-rail", { shift: true })
       ])
     ]
@@ -200,11 +200,14 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("p", "NAV", "open-commands", { ctrl: true })
       ]),
       entry("generation settings", [binding(",", "NAV", "open-settings")]),
-      entry("context meter details", [
+      entry("wide context details", [
         binding("g", "NAV", "toggle-context-meter", { ctrl: true }),
         binding("g", "COMPOSE", "toggle-context-meter", { ctrl: true })
       ]),
-      entry("this key reference", [binding("?", "NAV", "open-keys")]),
+      entry("this key reference", [
+        binding("?", "NAV", "open-keys"),
+        binding("/", "NAV", "open-keys", { sequence: "?", shift: true })
+      ]),
       entry("close what is open", [
         binding("escape", "NAV", "cancel"),
         binding("escape", "MAP", "cancel"),
@@ -287,16 +290,25 @@ export function renderKeysOverlay(
   const range = panelRange(rows.length, window);
   // The status bar hides its build tag on a narrow terminal, so the reference
   // is where `1667 v…` is always reachable.
-  const footer = `1667 ${AI_1667_VERSION_TAG} · ${range === ""
+  const buildIdentity = `1667 ${AI_1667_VERSION_TAG}`;
+  const footerCopy = range === ""
     ? "drag selects · ctrl+c copies · esc closes"
-    : "↑↓ scrolls · esc closes"}`;
+    : "↑↓ scrolls · esc closes";
+  const expandedFooter = `${buildIdentity} · ${footerCopy}`;
+  const compactFooter = visibleWidth(expandedFooter) > panelWidth - 4;
+  const footer = compactFooter ? buildIdentity : expandedFooter;
+  // When the footer has exactly enough room for required build identity, the
+  // short title keeps overflow and the current position visible.
+  const title = range !== "" && compactFooter
+    ? `keys ↑↓ ${window.start + 1}/${rows.length}`
+    : `keys · and what they do${range}`;
 
   // Inert, not transparent: without hits the story's own rows stay live under
   // the modal, so a click outside would not even dismiss it.
   return {
     composition: placePanel(
       base,
-      `keys · and what they do${range}`,
+      title,
       content,
       footer,
       width,
