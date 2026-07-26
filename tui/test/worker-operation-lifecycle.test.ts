@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DataDirectoryLock } from "../../server/data-directory-lock.js";
+import { SETTINGS_STATE_V2_FILE } from "../../server/data-directory-layout.js";
+import { internalErrorLogLockPath } from "../../server/internal-error-log.js";
+import { lockFile } from "../../server/os-file-lock.js";
 import {
   WORKER_OPERATION_CAPACITY,
   WORKER_PROTOCOL_VERSION,
@@ -36,7 +39,7 @@ test("worker incarnation and high-water mark fence replay, skip, and old control
     });
     expect(replayed.type).toBe("error");
     if (replayed.type !== "error") throw new Error("expected replay error");
-    expect(replayed.message).toContain("replayed");
+    expect(replayed.failure.message).toContain("replayed");
 
     const skipped = { workerInstanceId, sequence: 3n };
     const skippedResult = await request(worker, {
@@ -49,7 +52,7 @@ test("worker incarnation and high-water mark fence replay, skip, and old control
     });
     expect(skippedResult.type).toBe("error");
     if (skippedResult.type !== "error") throw new Error("expected skip error");
-    expect(skippedResult.message).toContain("skipped");
+    expect(skippedResult.failure.message).toContain("skipped");
 
     const wrongIncarnation = {
       workerInstanceId: "f".repeat(32),
@@ -65,7 +68,7 @@ test("worker incarnation and high-water mark fence replay, skip, and old control
     });
     expect(wrongResult.type).toBe("error");
     if (wrongResult.type !== "error") throw new Error("expected incarnation error");
-    expect(wrongResult.message).toContain("different incarnation");
+    expect(wrongResult.failure.message).toContain("different incarnation");
 
     const malformed = operationId();
     const malformedResult = nextMessageForId(worker, malformed);
@@ -79,7 +82,7 @@ test("worker incarnation and high-water mark fence replay, skip, and old control
     });
     expect(await malformedResult).toMatchObject({
       type: "error",
-      code: "invalid_request"
+      failure: { code: "invalid_request" }
     });
     expect(await status(worker, malformed)).toMatchObject({
       type: "operation",
@@ -136,8 +139,10 @@ test("worker capacity rejects before service entry and still consumes sequence",
       deadlineMs: Date.now() + 60_000
     })).toMatchObject({
       type: "error",
-      code: "resource_busy",
-      message: "Worker operation capacity is full",
+      failure: {
+        code: "resource_busy",
+        message: "Worker operation capacity is full"
+      },
       mutationOutcome: "terminal"
     });
     expect(await status(worker, rejected)).toMatchObject({
@@ -158,24 +163,86 @@ test("worker capacity rejects before service entry and still consumes sequence",
   });
 }, 20_000);
 
+test("worker publishes failure state with its diagnostic message", async () => {
+  await withWorker(async (worker, workerInstanceId, dataDir, machineDir) => {
+    await writeFile(path.join(dataDir, SETTINGS_STATE_V2_FILE), "{\n", {
+      mode: 0o600
+    });
+    const logHandle = await open(internalErrorLogLockPath(machineDir), "a");
+    const logLock = await lockFile(logHandle.fd);
+    try {
+      const id = sequenceId(workerInstanceId)();
+      const terminal = nextTerminalMessageForId(worker, id);
+      worker.postMessage({
+        type: "request",
+        id,
+        method: "getSettings",
+        input: {},
+        protocolVersion: WORKER_PROTOCOL_VERSION,
+        deadlineMs: Date.now() + 60_000
+      });
+
+      expect(await Promise.race([
+        terminal.then(() => "posted"),
+        delay(20).then(() => "blocked")
+      ])).toBe("blocked");
+      expect(await status(worker, id)).toMatchObject({
+        state: "running",
+        terminal: false
+      });
+
+      await logLock.unlock();
+      expect(await terminal).toMatchObject({
+        type: "error",
+        failure: { code: "internal" }
+      });
+      expect(await status(worker, id)).toMatchObject({
+        state: "failed",
+        terminal: true
+      });
+    } finally {
+      await logLock.unlock().catch(() => undefined);
+      await logHandle.close();
+    }
+  });
+}, 20_000);
+
 async function withWorker(
-  run: (worker: Worker, workerInstanceId: string) => Promise<void>
+  run: (
+    worker: Worker,
+    workerInstanceId: string,
+    dataDir: string,
+    machineDir: string
+  ) => Promise<void>
 ): Promise<void> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-lifecycle-"));
+  const dataDir = await realpath(
+    await mkdtemp(path.join(tmpdir(), "1667-worker-lifecycle-"))
+  );
+  const machineDir = await realpath(
+    await mkdtemp(path.join(tmpdir(), "1667-worker-machine-"))
+  );
   const dataLock = new DataDirectoryLock(dataDir);
   await dataLock.acquire();
   const worker = new Worker(new URL("../../server/worker.ts", import.meta.url), {
     type: "module"
   });
   try {
-    worker.postMessage({ type: "bootstrap", dataDir, externalDataLock: true });
+    worker.postMessage({
+      type: "bootstrap",
+      dataDir,
+      machineDir,
+      externalDataLock: true
+    });
     const ready = await nextMessageOfType(worker, "ready");
     expect(isWorkerInstanceId(ready.workerInstanceId)).toBeTrue();
-    await run(worker, ready.workerInstanceId);
+    await run(worker, ready.workerInstanceId, dataDir, machineDir);
   } finally {
     await worker.terminate();
     await dataLock.release();
-    await rm(dataDir, { recursive: true, force: true });
+    await Promise.all([
+      rm(dataDir, { recursive: true, force: true }),
+      rm(machineDir, { recursive: true, force: true })
+    ]);
   }
 }
 
@@ -225,6 +292,27 @@ function nextMessageForId(
   });
 }
 
+function nextTerminalMessageForId(
+  worker: Worker,
+  id: WorkerOperationId
+): Promise<WorkerToMainMessage> {
+  return new Promise((resolve) => {
+    const listener = ((event: MessageEvent<WorkerToMainMessage>) => {
+      const message = event.data;
+      if (!("id" in message)
+        || !sameWorkerOperationId(message.id, id)
+        || (message.type !== "result"
+          && message.type !== "complete"
+          && message.type !== "error")) {
+        return;
+      }
+      worker.removeEventListener("message", listener);
+      resolve(message);
+    }) as EventListener;
+    worker.addEventListener("message", listener);
+  });
+}
+
 function nextMessageOfType<T extends WorkerToMainMessage["type"]>(
   worker: Worker,
   type: T
@@ -237,4 +325,8 @@ function nextMessageOfType<T extends WorkerToMainMessage["type"]>(
     }) as EventListener;
     worker.addEventListener("message", listener);
   });
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

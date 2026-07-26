@@ -21,6 +21,7 @@ import { StoryServiceChapters } from "./story-service-chapters.js";
 import { StoryServiceGeneration } from "./story-service-generation.js";
 import { StoryServiceLocal } from "./story-service-local.js";
 import { StoryStore } from "./stories.js";
+import { InternalErrorReporter } from "./internal-error-reporter.js";
 
 interface StoryServiceCommonOptions {
   /** ADR007 machine tier holding provider secrets. Absent keeps them in place. */
@@ -39,7 +40,20 @@ interface StoryServiceCommonOptions {
   freshDataDirectory?: boolean;
 }
 
-export type StoryServiceOptions = StoryServiceCommonOptions & (
+type StoryServiceDiagnostics =
+  | {
+      /** Shared transport reporter; mutation receipts persist references
+       * before making them durable. */
+      errorReporter: InternalErrorReporter;
+      diagnostics?: "enabled";
+    }
+  | {
+      /** Explicit opt-out for isolated maintenance and test runtimes. */
+      diagnostics: "disabled";
+      errorReporter?: never;
+    };
+
+export type StoryServiceUndiagnosedOptions = StoryServiceCommonOptions & (
   | {
       dataDir?: string;
       legacyData?: never;
@@ -51,6 +65,9 @@ export type StoryServiceOptions = StoryServiceCommonOptions & (
       dataLock: "external";
     }
 );
+
+export type StoryServiceOptions =
+  StoryServiceUndiagnosedOptions & StoryServiceDiagnostics;
 
 /** Lifecycle and storage wiring shared by the transport-neutral service facade. */
 export abstract class StoryServiceRuntime {
@@ -81,8 +98,9 @@ export abstract class StoryServiceRuntime {
   private readonly promptCache = new PromptCacheRuntime();
   private readonly lifecycle = new ServiceLifecycle();
   private readonly mutationCoordinator = createMutationCoordinator();
+  private readonly errorReporter: InternalErrorReporter;
 
-  constructor(options: StoryServiceOptions = {}) {
+  constructor(options: StoryServiceOptions) {
     const dataDir = resolveDataDirectory(
       options.legacyData?.dataDir ?? options.dataDir
     );
@@ -100,6 +118,9 @@ export abstract class StoryServiceRuntime {
     }
     this.externalFreshDataDirectory = options.freshDataDirectory === true;
     this.machineDir = options.machineDir;
+    this.errorReporter = options.diagnostics === "disabled"
+      ? InternalErrorReporter.disabled()
+      : options.errorReporter;
     this.configureStorage(dataDir, dataDir);
     this.dataLock = options.dataLock === "external"
       ? null
@@ -169,6 +190,14 @@ export abstract class StoryServiceRuntime {
 
   cancelActive(): void {
     for (const controller of this.active) controller.abort();
+  }
+
+  async announceProjectServer(
+    server: { readonly port: number; readonly url: string },
+    signal?: AbortSignal
+  ): Promise<void> {
+    this.ensureOpen();
+    await this.dataLock?.announceProjectServer(server, signal);
   }
 
   protected async cancellable<T>(
@@ -253,7 +282,11 @@ export abstract class StoryServiceRuntime {
     });
     this.mutationReceipts = new MutationReceiptStore(
       path.join(storageRoot, "mutation-receipts"),
-      async (id) => buildStoryPayload(await this.stories.load(id))
+      async (id) => buildStoryPayload(await this.stories.load(id)),
+      async (error) => await this.errorReporter.report(
+        error,
+        { service: "mutation-receipt" }
+      )
     );
   }
 }

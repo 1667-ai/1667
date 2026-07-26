@@ -1,6 +1,6 @@
 import { mkdir, opendir } from "node:fs/promises";
 import path from "node:path";
-import { ServiceError } from "./errors.js";
+import { DiagnosticServiceError, ServiceError } from "./errors.js";
 import { MUTATION_RETENTION_MS } from "./mutation-id-policy.js";
 import {
   formatMutationLedgerRecordBytes,
@@ -295,13 +295,12 @@ export async function syncPrivateDirectory(directory: string): Promise<void> {
 }
 
 export function receiptUnavailable(cause: unknown): ServiceError {
-  const error = new ServiceError(
+  return new DiagnosticServiceError(
     503,
     "Mutation receipt storage is unavailable.",
-    "receipt_storage_unavailable"
+    "receipt_storage_unavailable",
+    cause
   );
-  error.cause = cause;
-  return error;
 }
 
 export function corruptReceipt(mutationId: string, cause?: unknown): ServiceError {

@@ -1,17 +1,13 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import {
-  chmod,
   lstat,
-  mkdtemp,
   readFile,
   rm,
   symlink,
   writeFile
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
-import test, { type TestContext } from "node:test";
+import test from "node:test";
 import {
   bearerAuthorization,
   decodeHttpAuthRecord,
@@ -25,18 +21,21 @@ import {
   readHttpAuthRecord,
   resolveHttpAuthRecordPaths
 } from "../server/http-auth-record.js";
-import {
-  startHttpListener,
-  type HttpListener
-} from "../server/http-listener.js";
-import { runHttpListenerUntilSignal } from "../server/http-process-lifecycle.js";
-import { StoryService } from "../server/story-service.js";
+import { startHttpListener } from "../server/http-listener.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER
 } from "../shared/http-protocol.js";
 import { HttpOperationClient } from "../shared/http-operation-client.js";
 import { httpRecoveryWarnings } from "../server/http-recovery-warnings.js";
+import {
+  internalErrorReference,
+  toPublicServiceError
+} from "../server/service-error-policy.js";
+import { internalErrorLogPath } from "../server/internal-error-log.js";
+import {
+  privateTemporaryDirectory
+} from "./http-listener-fixture.js";
 
 test("canonical loopback origins reject DNS, aliases, and ambiguous literals", () => {
   for (const accepted of [
@@ -84,6 +83,7 @@ test("story recovery warnings never cross into admin authority", () => {
         input: { id: "st1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
       },
       resolution: {
+        kind: "plain",
         code: "mutation_outcome_unknown",
         message: "Reload before retrying.",
         status: 409
@@ -260,120 +260,17 @@ test("listener tears down even when removing its auth record fails", async (t) =
   const authPath = (await readHttpAuthRecord(listener.origin, { stateRoot })).paths.final;
   await writeFile(authPath, "{", { mode: 0o600 });
 
-  await assert.rejects(listener.close(), /JSON|auth record/i);
+  let reference: string | null = null;
+  await assert.rejects(listener.close(), (error: unknown) => {
+    assert.equal(toPublicServiceError(error).message, "Internal server error");
+    reference = internalErrorReference(error);
+    assert.match(reference ?? "", /^err_[0-9a-f]{24}$/);
+    return true;
+  });
+  const diagnostic = await readFile(internalErrorLogPath(stateRoot), "utf8");
+  assert.match(diagnostic, /JSON|auth record/i);
+  assert.match(diagnostic, new RegExp(reference ?? ""));
   await assert.rejects(fetch(`${listener.origin}/api/health`));
-});
-
-test("listener closes and removes authority when its service factory fails", async (t) => {
-  const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
-  const port = await availableLoopbackPort();
-  const origin = `http://127.0.0.1:${port}`;
-  await assert.rejects(
-    startHttpListener({
-      port,
-      authStore: { stateRoot },
-      serviceFactory: async () => {
-        throw new Error("service factory failed");
-      }
-    }),
-    /service factory failed/
-  );
-  await assert.rejects(readHttpAuthRecord(origin, { stateRoot }), /ENOENT/);
-
-  const rebound = createServer();
-  await new Promise<void>((resolve, reject) => {
-    rebound.once("error", reject);
-    rebound.listen(port, "127.0.0.1", resolve);
-  });
-  await new Promise<void>((resolve, reject) => {
-    rebound.close((error) => error === undefined ? resolve() : reject(error));
-  });
-});
-
-test("listener preserves both startup and failed cleanup errors", async (t) => {
-  const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
-  const port = await availableLoopbackPort();
-  const origin = `http://127.0.0.1:${port}`;
-  class FailingService extends StoryService {
-    override async init(): Promise<void> {
-      const paths = await resolveHttpAuthRecordPaths(origin, { stateRoot });
-      await writeFile(paths.final, "{", { mode: 0o600 });
-      throw new Error("service initialization failed");
-    }
-
-    override async dispose(): Promise<void> {
-      throw new Error("service disposal failed");
-    }
-  }
-
-  await assert.rejects(
-    startHttpListener({
-      port,
-      authStore: { stateRoot },
-      serviceFactory: async () => new FailingService()
-    }),
-    (error: unknown) => {
-      assert(error instanceof AggregateError);
-      const messages = error.errors.map((entry: unknown) =>
-        entry instanceof Error ? entry.message : String(entry));
-      assert.equal(messages.length, 3);
-      assert.equal(messages[0], "service initialization failed");
-      assert.equal(messages.slice(1).includes("service disposal failed"), true);
-      assert.equal(
-        messages.slice(1).some((message) => /JSON|object key|auth record/i.test(message)),
-        true
-      );
-      assert.equal(
-        error.cause instanceof Error ? error.cause.message : null,
-        "service initialization failed"
-      );
-      return true;
-    }
-  );
-});
-
-test("process lifecycle owns signals before listener startup settles", async () => {
-  const previousHandlers = new Set(process.listeners("SIGINT"));
-  let resolveStartup!: (listener: HttpListener) => void;
-  const startup = new Promise<HttpListener>((resolve) => {
-    resolveStartup = resolve;
-  });
-  let closes = 0;
-  let ready = 0;
-  const running = runHttpListenerUntilSignal(
-    () => startup,
-    () => {
-      ready += 1;
-    }
-  );
-  const handler = process.listeners("SIGINT").find(
-    (candidate) => !previousHandlers.has(candidate)
-  );
-  assert.notEqual(handler, undefined);
-  handler!("SIGINT");
-  resolveStartup({
-    origin: "http://127.0.0.1:7373",
-    dataDir: "/unused",
-    authRecord: {
-      schema: 1,
-      origin: "http://127.0.0.1:7373",
-      instanceId: "11111111-1111-4111-8111-111111111111",
-      capabilities: {
-        story: "11".repeat(32),
-        admin: "22".repeat(32)
-      }
-    },
-    close: async () => {
-      closes += 1;
-    }
-  });
-  await running;
-  assert.equal(closes, 1);
-  assert.equal(ready, 0);
-  assert.deepEqual(
-    process.listeners("SIGINT").filter((candidate) => !previousHandlers.has(candidate)),
-    []
-  );
 });
 
 test("development CORS is exact and production never emits wildcard credentials", async (t) => {
@@ -422,27 +319,4 @@ function apiHeaders(
     [HTTP_AUTHORIZATION_HEADER]:
       bearerAuthorization(listener.authRecord.capabilities[scope])
   };
-}
-
-async function privateTemporaryDirectory(t: TestContext, prefix: string): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), prefix));
-  await chmod(directory, 0o700);
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  return directory;
-}
-
-async function availableLoopbackPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", resolve);
-  });
-  const address = probe.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Port probe did not expose a TCP address");
-  }
-  await new Promise<void>((resolve, reject) => {
-    probe.close((error) => error === undefined ? resolve() : reject(error));
-  });
-  return address.port;
 }

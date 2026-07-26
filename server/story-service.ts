@@ -26,13 +26,26 @@ import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
 import type { MutatingWorkerMethod } from "../shared/worker-protocol.js";
 import type { StoryCatalogPage } from "../shared/story-catalog.js";
 import type { GenerationMutationHooks } from "./story-service-generation.js";
-import { StoryServiceRuntime } from "./story-service-runtime.js";
+import {
+  StoryServiceRuntime,
+  type StoryServiceUndiagnosedOptions
+} from "./story-service-runtime.js";
 
 export type { GenerationMutationHooks } from "./story-service-generation.js";
 export type { StoryServiceOptions } from "./story-service-runtime.js";
 
 /** Canonical application boundary shared by HTTP and the embedded worker. */
 export class StoryService extends StoryServiceRuntime {
+  /** Explicit opt-out for isolated maintenance and test runtimes. */
+  static withoutDiagnostics(
+    options: StoryServiceUndiagnosedOptions = {}
+  ): StoryService {
+    return new StoryService({
+      ...options,
+      diagnostics: "disabled"
+    });
+  }
+
   /** In flight or settled once seeding has been attempted for this service. */
   private starterVaultWrite: Promise<void> | null = null;
 

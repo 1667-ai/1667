@@ -22,7 +22,7 @@ const SUCCESSOR_CODE = "story_manifest_requires_successor";
 
 test("story V6 store: existing list, read, and export surfaces support live state and hide deleted state", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-v6-read-"));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   t.after(async () => { await service.dispose(); await rm(dataDir, { recursive: true, force: true }); });
 
@@ -84,7 +84,7 @@ test("story V6 store: every mutation refuses before hydration, writes, deletion,
 
 test("story V6 store: service admission refuses before creating a legacy receipt", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-v6-receipt-refusal-"));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   t.after(async () => { await service.dispose(); await rm(dataDir, { recursive: true, force: true }); });
   const story = fixture("receipt-blocked", "Future prose");

@@ -27,6 +27,8 @@ export interface WorkerStoryApiOptions {
   machineDir?: string;
   /** Set by the lock owner when startup created the data directory. */
   freshDataDirectory?: boolean;
+  /** Echo unexpected embedded errors to stderr as well as the private log. */
+  printLogs?: boolean;
   readyTimeoutMs?: number;
   startupTimeoutMs?: number;
   unaryTimeoutMs?: number;

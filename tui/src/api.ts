@@ -64,59 +64,30 @@ import { isWorkerMutationMethod } from "../../shared/worker-protocol.js";
 import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { HttpStoryVersions } from "./http-story-versions.js";
 import {
   MemoryHttpMutationIntentStore,
   type HttpMutationIntentStore
 } from "./http-mutation-intents.js";
+import {
+  ApiError,
+  ApiHttpError,
+  ApiRecoveryRequiredError,
+  apiHttpErrorFromPayload
+} from "./api-error.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
+export {
+  ApiError,
+  ApiHttpError,
+  ApiRecoveryRequiredError,
+  apiErrorCode
+} from "./api-error.js";
 
 const HTTP_REQUEST_TIMEOUT_MS = 15_000;
 export const HTTP_GENERATION_REQUEST_TIMEOUT_MS =
   HTTP_OPERATION_LIFETIME_MS.generation;
-function messageFrom(payload: unknown, fallback: string): string {
-  if (payload !== null && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string") {
-    return (payload as { error: string }).error;
-  }
-  return fallback;
-}
-
-function codeFrom(payload: unknown): string | null {
-  return payload !== null && typeof payload === "object"
-    && typeof (payload as { code?: unknown }).code === "string"
-    ? (payload as { code: string }).code
-    : null;
-}
-
-/** The server answered but rejected the request (or the generation failed).
- *  These are application errors — the connection monitor must NOT treat them
- *  as transport loss. */
-export class ApiError extends Error {}
-export class ApiRecoveryRequiredError extends ApiError {
-  constructor() {
-    super("Backend recovery changed authoritative state; the operation was not sent. Review the reloaded state and retry.");
-  }
-}
-export class ApiHttpError extends ApiError {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code: string | null = null
-  ) {
-    super(message);
-    this.name = "ApiHttpError";
-  }
-}
-
-export function apiErrorCode(error: unknown): string | null {
-  return error instanceof ApiError
-    && "code" in error
-    && typeof error.code === "string"
-    ? error.code
-    : null;
-}
-
 export interface ContinueTarget {
   parentId?: string | null;
   appendTo?: string;
@@ -256,7 +227,7 @@ export function createApi(
       return await operations.run(options);
     } catch (error) {
       if (error instanceof HttpOperationError) {
-        throw new ApiHttpError(error.message, error.status, error.code);
+        throw new ApiHttpError(error.failure);
       }
       throw error;
     }
@@ -328,10 +299,10 @@ export function createApi(
           });
           const payload: unknown = await response.json().catch(() => null);
           if (!response.ok) {
-            throw new ApiHttpError(
-              messageFrom(payload, `${method} ${path} failed (${response.status})`),
-              response.status,
-              codeFrom(payload)
+            throw apiHttpErrorFromPayload(
+              payload,
+              `${method} ${path} failed (${response.status})`,
+              response.status
             );
           }
           return decode(payload);
@@ -570,7 +541,14 @@ export function createApi(
             signal: lease.signal
           });
           const text = await response.text();
-          if (!response.ok) throw new ApiHttpError(messageFrom(parseJson(text), `GET /api/stories/${id}/export failed (${response.status})`), response.status);
+          if (!response.ok) {
+            const payload = parseJson(text);
+            throw apiHttpErrorFromPayload(
+              payload,
+              `GET /api/stories/${id}/export failed (${response.status})`,
+              response.status
+            );
+          }
           return text;
         }
       });
@@ -775,8 +753,9 @@ export function createApi(
               });
               const payload: unknown = await response.json().catch(() => null);
               if (!response.ok) {
-                throw new ApiHttpError(
-                  messageFrom(payload, `Import failed (${response.status})`),
+                throw apiHttpErrorFromPayload(
+                  payload,
+                  `Import failed (${response.status})`,
                   response.status
                 );
               }
@@ -877,7 +856,11 @@ async function streamSse(
   }
   if (!response.ok || response.body === null) {
     const errorPayload: unknown = await response.json().catch(() => null);
-    throw new ApiHttpError(messageFrom(errorPayload, `Request failed (${response.status})`), response.status);
+    throw apiHttpErrorFromPayload(
+      errorPayload,
+      `Request failed (${response.status})`,
+      response.status
+    );
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -891,9 +874,22 @@ async function streamSse(
       const split = splitSseEvents(buffer);
       buffer = split.rest;
       for (const data of split.events) {
-        const event = JSON.parse(data) as { type: string; text?: string; message?: string };
+        const event = JSON.parse(data) as {
+          type: string;
+          text?: string;
+          message?: string;
+          code?: unknown;
+          status?: unknown;
+          diagnosticRef?: unknown;
+        };
         if (event.type === "delta" && typeof event.text === "string") onDelta(event.text);
-        if (event.type === "error") throw new ApiError(event.message ?? "Generation failed.");
+        if (event.type === "error") {
+          throw apiHttpErrorFromPayload(
+            event,
+            "Generation failed.",
+            event.status
+          );
+        }
         if (event.type === "done") completed = event as Record<string, unknown>;
       }
       if (completed !== null) {
@@ -915,9 +911,10 @@ async function streamSse(
 }
 
 function operationDeadlineError(): ApiHttpError {
-  return new ApiHttpError(
-    "Generation exceeded its operation deadline. Reload the story before retrying.",
-    408,
-    "operation_expired"
-  );
+  return new ApiHttpError(createFailureEnvelope({
+    code: "operation_expired",
+    message:
+      "Generation exceeded its operation deadline. Reload the story before retrying.",
+    status: 408
+  }));
 }

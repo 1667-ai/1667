@@ -15,8 +15,10 @@ import {
  */
 export class RuntimeDataDirectoryLock {
   private readonly lock: DataDirectoryLock;
+  private runRecordQueue: Promise<void> = Promise.resolve();
   private acquired = false;
   private canonicalDir: string | null = null;
+  private startedAt: string | null = null;
 
   constructor(dataDir: string) {
     this.lock = new DataDirectoryLock(dataDir);
@@ -43,53 +45,80 @@ export class RuntimeDataDirectoryLock {
   }
 
   async acquire(): Promise<string> {
-    try {
-      const canonicalDir = await this.lock.acquire();
-      await this.lock.migrateSettingsFormat();
-      this.acquired = true;
-      this.canonicalDir = canonicalDir;
-      // Advisory: it lets the next start name this process instead of guessing.
-      // A record nobody could write is not a reason to refuse the project.
-      await publishProjectRunRecord(canonicalDir, {
-        pid: process.pid,
-        port: null,
-        url: null,
-        startedAt: new Date().toISOString()
-      }).catch(() => undefined);
-      return canonicalDir;
-    } catch (error) {
+    return await this.serializeRunRecord(async () => {
       try {
-        await this.lock.release();
-      } catch (releaseError) {
-        throw attachReleaseFailure(error, releaseError);
+        const canonicalDir = await this.lock.acquire();
+        await this.lock.migrateSettingsFormat();
+        this.acquired = true;
+        this.canonicalDir = canonicalDir;
+        this.startedAt = new Date().toISOString();
+        // Advisory: it lets the next start name this process instead of guessing.
+        // A record nobody could write is not a reason to refuse the project.
+        await publishProjectRunRecord(canonicalDir, {
+          pid: process.pid,
+          port: null,
+          url: null,
+          startedAt: this.startedAt
+        }).catch(() => undefined);
+        return canonicalDir;
+      } catch (error) {
+        try {
+          await this.lock.release();
+        } catch (releaseError) {
+          throw attachReleaseFailure(error, releaseError);
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
+  }
+
+  /** Publish server discovery only while this instance retains project
+   * authority. Release runs through the same queue before it unlocks. */
+  async announceProjectServer(
+    server: { readonly port: number; readonly url: string },
+    signal?: AbortSignal
+  ): Promise<void> {
+    await this.serializeRunRecord(async () => {
+      if (signal?.aborted === true
+        || !this.acquired
+        || this.canonicalDir === null
+        || this.startedAt === null) {
+        return;
+      }
+      await publishProjectRunRecord(this.canonicalDir, {
+        pid: process.pid,
+        port: server.port,
+        url: server.url,
+        startedAt: this.startedAt
+      }).catch(() => undefined);
+    });
   }
 
   async release(): Promise<void> {
-    const canonicalDir = this.canonicalDir;
-    this.canonicalDir = null;
-    try {
-      if (canonicalDir !== null) await removeProjectRunRecord(canonicalDir);
-    } finally {
-      await this.lock.release();
-    }
+    await this.serializeRunRecord(async () => {
+      const canonicalDir = this.canonicalDir;
+      this.acquired = false;
+      this.canonicalDir = null;
+      this.startedAt = null;
+      try {
+        if (canonicalDir !== null) await removeProjectRunRecord(canonicalDir);
+      } finally {
+        await this.lock.release();
+      }
+    });
+  }
+
+  private async serializeRunRecord<T>(operation: () => Promise<T>): Promise<T> {
+    const running = this.runRecordQueue.then(operation, operation);
+    this.runRecordQueue = running.then(
+      () => undefined,
+      () => undefined
+    );
+    return await running;
   }
 }
 
 function attachReleaseFailure(primary: unknown, releaseFailure: unknown): unknown {
-  if ((typeof primary === "object" && primary !== null) || typeof primary === "function") {
-    try {
-      Object.defineProperty(primary, "releaseFailure", {
-        configurable: true,
-        value: releaseFailure
-      });
-      return primary;
-    } catch {
-      // Non-extensible failures are preserved as the aggregate's first error.
-    }
-  }
   const message = primary instanceof Error ? primary.message : String(primary);
   return new AggregateError(
     [primary, releaseFailure],

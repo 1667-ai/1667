@@ -31,10 +31,19 @@ import {
   AI_1667_BUILD_IDENTITY,
   type BuildIdentity
 } from "./build-identity.js";
+import type { FailureEnvelope } from "./failure-envelope.js";
+export {
+  isDiagnosticReference,
+  type DiagnosticReference
+} from "./diagnostic-reference.js";
 export const LEGACY_WORKER_PROTOCOL_VERSION = 3;
 export const PRE_Q_WORKER_PROTOCOL_VERSION = 4;
 export const PREDECESSOR_WORKER_PROTOCOL_VERSION = 5;
-export const WORKER_PROTOCOL_VERSION = 6;
+export const PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION = 6;
+export const WORKER_PROTOCOL_VERSION = 7;
+/** Canonical mutation inputs did not change with the response-envelope bump. */
+export const MUTATION_INPUT_PROTOCOL_VERSION =
+  PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
 export const WORKER_UNARY_TIMEOUT_MS = 15_000;
 export const WORKER_PROVIDER_CHECK_TIMEOUT_MS = 30_000;
@@ -55,6 +64,21 @@ export const MAX_UNACKNOWLEDGED_DELTA_BYTES = MAX_DELTA_BATCH_BYTES * MAX_UNACKN
 export const DELTA_BATCH_WINDOW_MS = 16;
 export const MUTATION_ID_RETRY_WINDOW_MS = 90 * 24 * 60 * 60 * 1_000;
 export const MUTATION_ID_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+
+export function isCurrentWorkerInputProtocolVersion(
+  value: unknown
+): value is number {
+  return value === PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
+    || value === WORKER_PROTOCOL_VERSION;
+}
+
+export function canonicalWorkerInputProtocolVersion(
+  value: number
+): number {
+  return isCurrentWorkerInputProtocolVersion(value)
+    ? MUTATION_INPUT_PROTOCOL_VERSION
+    : value;
+}
 
 export interface WorkerMethodContract {
   listStories: { input: Record<string, never>; output: StorySummary[] };
@@ -251,6 +275,8 @@ export type MainToWorkerMessage =
        * worker. Absent only for a directly-posted bootstrap in tests.
        */
       machineDir?: string;
+      /** Echo unexpected embedded errors to stderr as well as the private log. */
+      printLogs?: true;
       /** Main created this directory during startup, so the worker fills it
        * with the starter stories. Absent on every later run. */
       freshDataDirectory?: true;
@@ -289,9 +315,7 @@ export type WorkerToMainMessage =
   | {
       type: "error";
       id: WorkerOperationId;
-      code: string;
-      message: string;
-      details?: { status?: number };
+      failure: FailureEnvelope;
       mutationOutcome?: "terminal" | "uncertain";
     }
   | { type: "delta"; id: WorkerOperationId; sequence: number; text: string }
@@ -302,7 +326,7 @@ export type WorkerToMainMessage =
       state: WorkerOperationState;
       terminal: boolean;
     }
-  | { type: "protocolError"; message: string }
+  | { type: "protocolError"; failure: FailureEnvelope }
   | { type: "stopped" };
 
 const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([

@@ -16,7 +16,7 @@ async function withService<T>(
 ): Promise<T> {
   const root = await mkdtemp(path.join(tmpdir(), "starter-vault-"));
   const dataDir = path.join(root, "data");
-  const service = new StoryService({
+  const service = StoryService.withoutDiagnostics({
     dataDir,
     ...(options.seed === false ? {} : { starterVault: "seed-when-new" as const })
   });
@@ -113,7 +113,7 @@ test("initializing twice does not replay the vault", async () => {
   // init() is idempotent and concurrency-safe. Seeding outside that guard used
   // to re-run and fail on the chapter seam, disposing a ready service.
   const root = await mkdtemp(path.join(tmpdir(), "starter-vault-"));
-  const service = new StoryService({
+  const service = StoryService.withoutDiagnostics({
     dataDir: path.join(root, "data"),
     starterVault: "seed-when-new"
   });
@@ -138,7 +138,10 @@ test("an emptied library is never refilled", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "starter-vault-emptied-"));
   const dataDir = path.join(root, "data");
   try {
-    const first = new StoryService({ dataDir, starterVault: "seed-when-new" });
+    const first = StoryService.withoutDiagnostics({
+      dataDir,
+      starterVault: "seed-when-new"
+    });
     await first.init();
     try {
       const seeded = await first.listStories();
@@ -148,7 +151,10 @@ test("an emptied library is never refilled", async () => {
       await first.dispose();
     }
 
-    const reopened = new StoryService({ dataDir, starterVault: "seed-when-new" });
+    const reopened = StoryService.withoutDiagnostics({
+      dataDir,
+      starterVault: "seed-when-new"
+    });
     await reopened.init();
     try {
       assert.deepEqual(await reopened.listStories(), []);

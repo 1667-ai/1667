@@ -10,6 +10,7 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import {
@@ -889,11 +890,11 @@ describe("inline settings menu", () => {
       commands.push(command);
       if (commands.length === 1) {
         current = refreshed;
-        throw new WorkerApiError(
-          "Settings changed since this edit began.",
-          "revision_conflict",
-          409
-        );
+        throw new WorkerApiError(createFailureEnvelope({
+          code: "revision_conflict",
+          message: "Settings changed since this edit began.",
+          status: 409
+        }));
       }
       if (!current.editable) throw new Error("refreshed settings must be editable");
       const effective = basicSettingsFromDocument(command.document);

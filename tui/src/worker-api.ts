@@ -1,6 +1,6 @@
 import path from "node:path";
 import { resolveDataDirectory } from "../../server/data-directory.js";
-import { resolveMachineTierRoot } from "../../server/machine-tier.js";
+import { resolveDiagnosticMachineTier } from "../../server/diagnostic-machine-tier.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import { RuntimeDataDirectoryLock } from "../../server/runtime-data-directory.js";
 import { releaseOrRetainDataLock } from "./worker-data-lock.js";
@@ -13,7 +13,8 @@ export {
   BACKEND_RESTART_REQUIRED_EXIT_CODE,
   BackendRestartRequiredError,
   exitForBackendRestart,
-  WorkerApiError
+  WorkerApiError,
+  workerApiErrorFromFailure
 } from "./worker-error.js";
 export type {
   WorkerRecoveryWarning,
@@ -25,7 +26,17 @@ export async function createWorkerStoryApi(options: WorkerStoryApiOptions = {}):
   if (options.worker === undefined && options.machineDir === undefined) {
     // Resolving here, not in the worker, is what turns "this platform has no
     // private state root yet" into one line on stderr instead of a dead backend.
-    options = { ...options, machineDir: await resolveMachineTierRoot() };
+    options = {
+      ...options,
+      machineDir: await resolveDiagnosticMachineTier(
+        undefined,
+        {
+          service: "embedded-worker-startup",
+          operation: "machine-tier-resolution"
+        },
+        { print: options.printLogs === true }
+      )
+    };
   }
   const dataLock = options.worker === undefined
     ? new RuntimeDataDirectoryLock(resolveDataDirectory(options.dataDir))

@@ -7,7 +7,7 @@ import { StoryService } from "../server/story-service.js";
 
 test("cancelled continuation releases its story/gen admission for retry", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-generation-admission-"));
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   t.after(async () => {
     await service.dispose();

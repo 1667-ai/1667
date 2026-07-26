@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { MutationOutbox } from "../server/mutation-outbox.js";
 import { StoryService } from "../server/story-service.js";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
-import { WORKER_PROTOCOL_VERSION } from "../shared/worker-protocol.js";
+import { MUTATION_INPUT_PROTOCOL_VERSION } from "../shared/worker-protocol.js";
 
 test("mutation outbox records survive restart and clear durably", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-"));
@@ -23,7 +23,7 @@ test("mutation outbox records survive restart and clear durably", async (t) => {
     schemaVersion: 1,
     mutationId,
     sequence: 1,
-    protocolVersion: WORKER_PROTOCOL_VERSION,
+    protocolVersion: MUTATION_INPUT_PROTOCOL_VERSION,
     method: "createStory",
     input: { title: "Retained" },
     createdAt: (await outbox.list())[0]!.createdAt
@@ -91,6 +91,7 @@ test("mutation outbox durably dismisses an acknowledged archive", async (t) => {
   await outbox.init();
   await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
   await outbox.archive(mutationId, {
+    kind: "plain",
     code: "generation_outcome_unknown",
     message: "Unknown provider outcome",
     status: 409
@@ -99,6 +100,43 @@ test("mutation outbox durably dismisses an acknowledged archive", async (t) => {
   await outbox.dismissArchived(mutationId);
   await outbox.dismissArchived(mutationId);
   assert.deepEqual(await new MutationOutbox(dir).listArchived(), []);
+});
+
+test("legacy internal archive messages stay private during recovery", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-legacy-error-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const mutationId = `m1-${Date.now().toString(36)}-${"a".padStart(32, "0")}`;
+  const outbox = new MutationOutbox(dir);
+  await outbox.init();
+  await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
+  await outbox.archive(mutationId, {
+    kind: "plain",
+    code: "internal",
+    message: "Internal server error",
+    status: 500
+  });
+  const archiveFile = path.join(
+    path.dirname(dir),
+    `${path.basename(dir)}-archive`,
+    `${mutationId}.json`
+  );
+  const archive = JSON.parse(await readFile(archiveFile, "utf8"));
+  archive.resolution = {
+    code: "internal",
+    message: "Private legacy path: /srv/1667/settings.json",
+    status: 500
+  };
+  await writeFile(archiveFile, `${JSON.stringify(archive)}\n`);
+
+  assert.deepEqual(
+    (await new MutationOutbox(dir).listArchived())[0]?.resolution,
+    {
+      kind: "plain",
+      code: "internal",
+      message: "Internal server error",
+      status: 500
+    }
+  );
 });
 
 test("mutation outbox rejects read-only records", async (t) => {
@@ -129,10 +167,13 @@ test("HTTP-mode services refuse retained embedded mutations", async (t) => {
     { id: "possibly-deleted" }
   );
 
-  const httpService = new StoryService({ dataDir });
+  const httpService = StoryService.withoutDiagnostics({ dataDir });
   await assert.rejects(httpService.init(), /start the TUI with --embedded/);
 
-  const workerService = new StoryService({ dataDir, mutationRecovery: "external" });
+  const workerService = StoryService.withoutDiagnostics({
+    dataDir,
+    mutationRecovery: "external"
+  });
   await workerService.init();
   await workerService.dispose();
 });
@@ -146,12 +187,13 @@ test("HTTP-mode services expose archived ambiguity warnings", async (t) => {
   const mutationId = `m1-${Date.now().toString(36)}-${"4".padStart(32, "0")}`;
   await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
   await outbox.archive(mutationId, {
+    kind: "plain",
     code: "generation_outcome_unknown",
     message: "The provider outcome is unknown.",
     status: 409
   });
 
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   try {
     assert.deepEqual(service.archivedMutationWarnings.map(({ intent, resolution }) => ({

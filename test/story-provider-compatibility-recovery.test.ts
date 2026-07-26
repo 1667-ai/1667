@@ -33,7 +33,7 @@ test("provider-uncertain retry replays the durable Q terminal error", async (t) 
     "1667-provider-terminal-error-recovery-"
   ));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
-  let service = new StoryService({ dataDir });
+  let service = StoryService.withoutDiagnostics({ dataDir });
   const originalFetch = globalThis.fetch;
   let requests = 0;
   try {
@@ -97,7 +97,7 @@ test("provider-uncertain retry replays the durable Q terminal error", async (t) 
     await writeFile(receiptFile, `${JSON.stringify(interrupted)}\n`);
     await service.dispose();
 
-    service = new StoryService({ dataDir });
+    service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     await assert.rejects(
       runQWorkerMutation(
@@ -341,7 +341,7 @@ async function legacyProviderService(
     }),
     { encoding: "utf8", mode: 0o600 }
   );
-  const service = new StoryService({ dataDir });
+  const service = StoryService.withoutDiagnostics({ dataDir });
   await service.init();
   return { dataDir, service };
 }

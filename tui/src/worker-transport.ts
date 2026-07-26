@@ -25,14 +25,19 @@ import { MutationOutbox, storyIdFromMutationIntent,
   type MutationOutboxRecord } from "../../server/mutation-outbox.js";
 import { validateWorkerRequestSize } from "../../server/worker-request-size.js";
 import { WorkerLifecycle, type WorkerLike } from "./worker-lifecycle.js";
-import { isWorkerMessage } from "./worker-message.js";
+import { decodeWorkerMessage } from "./worker-message.js";
 import { createMutationId } from "./worker-mutation-id.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { SerializedWorkerOutbox } from "./worker-outbox.js";
 import { PendingRequestRegistry } from "./worker-pending.js";
 import { loadWorkerRecoveryOutbox, OutboxRecoveryCoordinator } from "./worker-recovery.js";
 import { preparePendingWorkerShutdown } from "./worker-shutdown.js";
-import { BackendRestartRequiredError, WorkerApiError } from "./worker-error.js";
+import {
+  BackendRestartRequiredError,
+  WorkerApiError,
+  workerApiErrorFromFailure
+} from "./worker-error.js";
 import { settleWorkerTerminal } from "./worker-terminal.js";
 import { openPendingWorkerCall } from "./worker-call-allocation.js";
 import { prepareWorkerMutationIntent } from "./worker-mutation-publication.js";
@@ -91,6 +96,7 @@ export class WorkerTransport {
         dataDir: resolveDataDirectory(options.dataDir),
         externalDataLock: true,
         ...(options.machineDir === undefined ? {} : { machineDir: options.machineDir }),
+        ...(options.printLogs === true ? { printLogs: true } as const : {}),
         ...(options.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
       });
     }
@@ -124,11 +130,7 @@ export class WorkerTransport {
         method: archived.intent.method,
         storyId: storyIdFromMutationIntent(archived.intent),
         resolution: "archived",
-        error: new WorkerApiError(
-          archived.resolution.message,
-          archived.resolution.code,
-          archived.resolution.status
-        )
+        error: workerApiErrorFromFailure(archived.resolution)
       });
     }
     this.recoveryCoordinator.start(recoveryRecords);
@@ -174,7 +176,9 @@ export class WorkerTransport {
     try {
       validateWorkerRequestSize(method, input, WORKER_PROTOCOL_VERSION);
     } catch (error) {
-      if (error instanceof ServiceError) throw new WorkerApiError(error.message, error.code, error.status);
+      if (error instanceof ServiceError) {
+        throw new WorkerApiError(createFailureEnvelope(error));
+      }
       throw error;
     }
     const mutationId = mutating && !isServiceOwnedSettingsMutation(method)
@@ -320,8 +324,13 @@ export class WorkerTransport {
   }
 
   private async receive(value: unknown): Promise<void> {
-    if (!isWorkerMessage(value)) return this.fail(new Error("Embedded backend sent a malformed message"), false);
-    const message = value;
+    const message = decodeWorkerMessage(value);
+    if (message === null) {
+      return this.fail(
+        new Error("Embedded backend sent a malformed message"),
+        false
+      );
+    }
     if (message.type === "starting" || message.type === "ready") {
       if (message.protocolVersion !== WORKER_PROTOCOL_VERSION
         || !sameBuildIdentity(message.buildIdentity, WORKER_BUILD_IDENTITY)) {
@@ -343,7 +352,14 @@ export class WorkerTransport {
       }
       return;
     }
-    if (message.type === "protocolError") return this.fail(new Error(message.message), false);
+    if (message.type === "protocolError") {
+      const failure = workerApiErrorFromFailure(message.failure);
+      if (this.lifecycle.hasReachedReady) {
+        this.failForRestart(failure.message, failure);
+        return;
+      }
+      return this.fail(failure, false);
+    }
     if (message.type === "stopped") return;
     const pending = this.pending.get(message.id);
     if (message.type === "delta") {
@@ -374,11 +390,11 @@ export class WorkerTransport {
     if (message.type === "operation") {
       if (pending === undefined || pending.settling || message.state === "running") return;
       if (message.state === "unknown") {
-        const error = new WorkerApiError(
-          "Embedded backend no longer retains this operation",
-          "operation_unknown",
-          410
-        );
+        const error = new WorkerApiError(createFailureEnvelope({
+          code: "operation_unknown",
+          message: "Embedded backend no longer retains this operation",
+          status: 410
+        }));
         if (isWorkerMutationMethod(pending.method)) {
           this.failForRestart(error.message, error);
           return;
@@ -481,7 +497,12 @@ export class WorkerTransport {
   }
   private requireRestart(message: string, cause?: unknown): BackendRestartRequiredError {
     if (this.restartRequired === null) {
-      this.restartRequired = new BackendRestartRequiredError(message, { cause });
+      this.restartRequired = new BackendRestartRequiredError(message, {
+        cause,
+        diagnosticRef: cause instanceof WorkerApiError
+          ? cause.diagnosticRef
+          : null
+      });
       this.resolveRestartSignal(this.restartRequired);
     }
     return this.restartRequired;

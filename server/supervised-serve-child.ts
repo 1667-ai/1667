@@ -27,11 +27,19 @@ import { SETTINGS_STATE_V2_FILE } from "./data-directory-layout.js";
 import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { startHttpListener, type HttpListener } from "./http-listener.js";
-import { resolveMachineTierRoot } from "./machine-tier.js";
-import { announceProjectServer } from "./project-run-record.js";
 import { StoryService } from "./story-service.js";
 import { createProjectTier, resolveProject } from "./project-discovery.js";
 import { PROJECT_DIRECTORY_NAME } from "./project-layout.js";
+import {
+  PublicRuntimeError
+} from "./errors.js";
+import { resolveDiagnosticMachineTier } from "./diagnostic-machine-tier.js";
+import {
+  InternalErrorReporter,
+  InternalErrorReporterLease
+} from "./internal-error-reporter.js";
+import { localStartupFailure } from "./local-startup-failure.js";
+import { failureMessageFields } from "../shared/failure-envelope.js";
 
 interface IpcProcess extends NodeJS.Process {
   send?: (message: ChildToSupervisorMessage) => boolean;
@@ -43,8 +51,49 @@ export async function runSupervisedServeChild(
   argv: readonly string[]
 ): Promise<void> {
   if (ipc.send === undefined) {
-    throw new Error("Supervised child requires a private IPC channel");
+    throw new PublicRuntimeError(
+      "Supervised child requires a private IPC channel"
+    );
   }
+  const printLogs = argv.includes("--print-logs");
+  const machineDir = await resolveDiagnosticMachineTier(
+    undefined,
+    {
+      service: "supervised-child-startup",
+      operation: "machine-tier-resolution"
+    },
+    { print: printLogs }
+  );
+  const errorReporter = await InternalErrorReporter.open(machineDir, {
+    print: printLogs
+  });
+  const errorReporterLease = new InternalErrorReporterLease(errorReporter);
+  try {
+    await runSupervisedServeChildCore(
+      argv,
+      machineDir,
+      errorReporterLease
+    );
+  } catch (error) {
+    const reported = await errorReporter.report(localStartupFailure(error), {
+      service: "supervised-child-startup",
+      operation: "bootstrap"
+    });
+    send({
+      type: "fatal",
+      ...failureMessageFields(reported.failure)
+    });
+    process.exitCode = 1;
+  } finally {
+    await errorReporterLease.close().catch(() => undefined);
+  }
+}
+
+async function runSupervisedServeChildCore(
+  argv: readonly string[],
+  machineDir: string,
+  errorReporterLease: InternalErrorReporterLease
+): Promise<void> {
   const configuredDataDir = optionalValueAfter(argv, "--data");
   // ADR007: `--data` names a project root here exactly as it does for the TUI,
   // so a served project and an opened project are the same lock.
@@ -53,7 +102,7 @@ export async function runSupervisedServeChild(
     ...(configuredDataDir === null ? {} : { data: configuredDataDir })
   });
   if (outcome.kind === "absent") {
-    throw new Error(
+    throw new PublicRuntimeError(
       `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any `
         + "parent. Run '1667 init' there first, or pass --data <project-root>."
     );
@@ -64,11 +113,14 @@ export async function runSupervisedServeChild(
   const port = Number(valueAfter(argv, "--port"));
   const secretFd = Number(valueAfter(argv, "--secret-fd"));
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
-    throw new Error("Supervised child port is invalid");
+    throw new PublicRuntimeError("Supervised child port is invalid");
   }
-  if (secretFd !== 4) throw new Error("Supervised child secret channel is invalid");
+  if (secretFd !== 4) {
+    throw new PublicRuntimeError(
+      "Supervised child secret channel is invalid"
+    );
+  }
   const messages = new MessageInbox();
-  const recovery = await messages.next("recover");
   const dataLock = new RuntimeDataDirectoryLock(dataDir);
   let listener: HttpListener | null = null;
   let service: StoryService | null = null;
@@ -85,11 +137,20 @@ export async function runSupervisedServeChild(
     else waiter.reject(new Error("Supervisor operation capacity is full"));
   };
 
+  let run:
+    | { readonly kind: "success" }
+    | { readonly kind: "failure"; readonly error: unknown } = {
+      kind: "success"
+    };
   try {
     let displayDataDir = dataDir;
     listener = await startHttpListener({
       port,
-      serviceFactory: async () => {
+      machineDir,
+      errorReporterLease,
+      printLogs: argv.includes("--print-logs"),
+      projectAuthority: dataLock,
+      serviceFactory: async (errorReporter, machineDir) => {
         displayDataDir = await dataLock.acquire();
         const lockedDataDir = dataLock.authorityPath;
         await installRequestedSecrets(
@@ -98,8 +159,9 @@ export async function runSupervisedServeChild(
         );
         return service = new StoryService({
           dataDir: lockedDataDir,
-          machineDir: await resolveMachineTierRoot(),
+          machineDir,
           dataLock: "external",
+          errorReporter,
           starterVault: "seed-when-new",
           freshDataDirectory: dataLock.initializedNewDirectory
         });
@@ -133,6 +195,7 @@ export async function runSupervisedServeChild(
       }
     });
 
+    const recovery = await messages.next("recover");
     if (recovery.descriptors.length > 0) {
       send({
         type: "recovered",
@@ -141,10 +204,7 @@ export async function runSupervisedServeChild(
       await messages.next("activate");
     }
     admissionOpen = true;
-    await announceProjectServer(displayDataDir, {
-      port: listenerPort(listener.origin),
-      url: listener.origin
-    });
+    await listener.announceProjectServer();
     send({
       type: "ready",
       origin: listener.origin,
@@ -152,15 +212,25 @@ export async function runSupervisedServeChild(
     });
     await messages.next("shutdown");
   } catch (error) {
-    send({
-      type: "fatal",
-      message: error instanceof Error ? error.message : String(error)
-    });
-    process.exitCode = 1;
-  } finally {
-    await listener?.close().catch(() => undefined);
-    await dataLock.release().catch(() => undefined);
+    run = {
+      kind: "failure",
+      error: listener === null ? localStartupFailure(error) : error
+    };
   }
+  if (listener === null) {
+    if (run.kind === "failure") throw run.error;
+    throw new Error("Supervised child exited without a listener");
+  }
+  if (run.kind === "success") return await listener.close();
+  try {
+    await listener.close({
+      error: run.error,
+      operation: "supervised-child"
+    });
+  } catch (reportedError) {
+    throw reportedError;
+  }
+  throw run.error;
 }
 
 export async function recoverDescriptors(
@@ -340,10 +410,4 @@ function optionalValueAfter(
 
 function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
-}
-
-/** The listener reports the port it was given; the origin is the only carrier. */
-function listenerPort(origin: string): number {
-  const port = Number(new URL(origin).port);
-  return Number.isSafeInteger(port) && port > 0 ? port : 80;
 }

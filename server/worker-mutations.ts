@@ -2,7 +2,7 @@ import { activePath, unusedTakePruneSelection } from "../shared/story-tree.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
-  WORKER_PROTOCOL_VERSION,
+  isCurrentWorkerInputProtocolVersion,
   type MutatingWorkerMethod,
   type WorkerInput,
   type WorkerOutput
@@ -400,7 +400,7 @@ const MUTATIONS: MutationRegistry = {
         };
       }
       if (protocolVersion !== undefined
-        && protocolVersion !== WORKER_PROTOCOL_VERSION) {
+        && !isCurrentWorkerInputProtocolVersion(protocolVersion)) {
         return { lane: "pre-q", storyId, breakId };
       }
       const removedFingerprint = requireString(

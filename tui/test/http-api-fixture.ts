@@ -1,4 +1,11 @@
-import type { HttpApiMetadata } from "../../shared/http-protocol.js";
+import {
+  HTTP_API_PROTOCOL_VERSION,
+  type HttpApiMetadata
+} from "../../shared/http-protocol.js";
+import {
+  AI_1667_BUILD_IDENTITY,
+  parseBuildIdentity
+} from "../../shared/build-identity.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
   createApi,
@@ -16,6 +23,53 @@ import {
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
 
 export const TEST_HTTP_INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
+
+interface TestProtocolRange {
+  readonly apiProtocolVersion: number;
+  readonly minClientProtocolVersion: number;
+  readonly maxClientProtocolVersion: number;
+}
+
+export function testHttpMetadata(
+  serverInstanceId = TEST_HTTP_INSTANCE_ID,
+  range: TestProtocolRange = {
+    apiProtocolVersion: HTTP_API_PROTOCOL_VERSION,
+    minClientProtocolVersion: HTTP_API_PROTOCOL_VERSION,
+    maxClientProtocolVersion: HTTP_API_PROTOCOL_VERSION
+  }
+): HttpApiMetadata {
+  return {
+    buildIdentity: parseBuildIdentity({
+      ...AI_1667_BUILD_IDENTITY,
+      ...range
+    }),
+    serverInstanceId,
+    recoveryWarnings: []
+  };
+}
+
+export function testStoryPayload(
+  id: string,
+  nodes: Array<Record<string, unknown>> = []
+): Record<string, unknown> {
+  return {
+    id,
+    title: id,
+    createdAt: "2026-07-21T00:00:00.000Z",
+    updatedAt: "2026-07-21T00:00:00.000Z",
+    nodes,
+    path: [],
+    activeRootId: null,
+    bookmarks: [],
+    recentNodeIds: [],
+    facts: [],
+    chapterBreaks: [],
+    aggregateVersion: {
+      kind: "v6",
+      revision: "00000000000000000001"
+    }
+  };
+}
 
 export function createTestApi(
   baseUrl: string,

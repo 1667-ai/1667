@@ -15,7 +15,7 @@ test("service storage stays bound to the canonical directory it locked", { skip:
   await mkdir(replacement);
   await symlink(original, alias, "dir");
 
-  const service = new StoryService({ dataDir: alias });
+  const service = StoryService.withoutDiagnostics({ dataDir: alias });
   await service.init();
   try {
     assert.equal(service.dataDir, await realpath(original));

@@ -59,7 +59,9 @@ test("a story with no chapter break exports as plain prose", async (t) => {
 
 async function openService(t: TestContext): Promise<StoryService> {
   const root = await mkdtemp(path.join(tmpdir(), "1667-export-service-"));
-  const service = new StoryService({ dataDir: path.join(root, "project") });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: path.join(root, "project")
+  });
   await service.init();
   t.after(async () => {
     await service.dispose();

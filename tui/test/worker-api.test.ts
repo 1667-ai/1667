@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { MAX_IMPORT_BYTES } from "../../shared/types.js";
 import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PROVIDER_CHECK_METHODS,
@@ -31,6 +38,10 @@ import {
   TEST_WORKER_INSTANCE_ID,
   waitForRequest
 } from "./fixtures/fake-worker.js";
+import {
+  nextWorkerMessage as nextMessage,
+  nextWorkerMessageOfType as nextMessageOfType
+} from "./fixtures/real-worker.js";
 
 describe("embedded backend worker", () => {
   test("implements the complete StoryApi contract without HTTP", async () => {
@@ -294,7 +305,7 @@ describe("embedded backend worker", () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-outbox-"));
     const mutationId = `m1-${Date.now().toString(36)}-${"7".padStart(32, "0")}`;
     const input = { title: "Recovered from outbox" };
-    const service = new StoryService({ dataDir });
+    const service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     await service.runMutation(mutationId, "createStory", input,
       (plan) => service.createStory(input.title, plan.entityId("story")),
@@ -321,7 +332,7 @@ describe("embedded backend worker", () => {
   test("executes an unsent durable caller outbox after restart", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-unsent-outbox-"));
     const mutationId = `m1-${Date.now().toString(36)}-${"8".padStart(32, "0")}`;
-    const service = new StoryService({ dataDir });
+    const service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     let story = await service.createStory("Sent after restart");
     story = await service.createNode(story.id, { parentId: null, text: "A summary source." });
@@ -469,7 +480,7 @@ describe("embedded backend worker", () => {
 
   test("surfaces replay errors without blocking startup", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-replay-warning-"));
-    const service = new StoryService({ dataDir });
+    const service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     let story = await service.createStory("Replay warning");
     story = await service.createNode(story.id, { parentId: null, text: "A detailed opening." });
@@ -517,39 +528,9 @@ describe("embedded backend worker", () => {
     }
   });
 
-  test("surfaces archived ambiguity warnings on every later startup without replay", async () => {
-    const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-archived-warning-"));
-    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
-    await outbox.init();
-    const mutationId = `m1-${Date.now().toString(36)}-${"a".padStart(32, "0")}`;
-    await outbox.enqueue(mutationId, "autonameStory", { id: "story", expectedTitle: "Old" });
-    await outbox.archive(mutationId, {
-      code: "generation_outcome_unknown",
-      message: "The provider outcome is unknown; retry only with a new mutation ID.",
-      status: 409
-    });
-    const worker = new FakeWorker(true);
-    const backend = await createWorkerStoryApi({ worker, outbox, readyTimeoutMs: 100 });
-    try {
-      const warnings = await backend.recovery;
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toMatchObject({
-        mutationId,
-        method: "autonameStory",
-        storyId: "story",
-        resolution: "archived",
-        error: { code: "generation_outcome_unknown", status: 409 }
-      });
-      expect(worker.messages.some((message) => message.type === "request")).toBeFalse();
-    } finally {
-      await backend.dispose();
-      await rm(dataDir, { recursive: true, force: true });
-    }
-  });
-
   test("archives a retained v3 mutation before current-schema parsing can clear it", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-v3-recovery-"));
-    const service = new StoryService({ dataDir });
+    const service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     const story = await service.createStory("Legacy autoname");
     await service.dispose();
@@ -594,7 +575,7 @@ describe("embedded backend worker", () => {
 
   test("archives retained v3 flat settings without replaying them into format 2", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-v3-settings-"));
-    const service = new StoryService({ dataDir });
+    const service = StoryService.withoutDiagnostics({ dataDir });
     await service.init();
     const before = await service.getSettings();
     await service.dispose();
@@ -808,14 +789,18 @@ describe("embedded backend worker", () => {
     worker.message({
       type: "error",
       id: request.id,
-      code: "mutation_outcome_unknown",
-      message: "Mutation receipt durability could not be confirmed",
-      details: { status: 500 },
+      failure: createFailureEnvelope({
+        code: "mutation_outcome_unknown",
+        message: "Mutation receipt durability could not be confirmed",
+        status: 500
+      }),
       mutationOutcome: "uncertain"
     });
 
-    expect((await rejection(pending)).message).toContain("could not be confirmed");
-    expect((await backend.failure).message).toContain("could not be confirmed");
+    const pendingError = await rejection(pending);
+    expect(pendingError.message).toContain("could not be confirmed");
+    const backendFailure = await backend.failure;
+    expect(backendFailure.message).toContain("could not be confirmed");
     expect(worker.terminateCalls).toBe(1);
     await expectRestartRequiredDisposal(backend);
   });
@@ -841,7 +826,11 @@ describe("embedded backend worker", () => {
       worker.postMessage({
         type: "request", id: unknownId, method: "missing", input: {}, protocolVersion: WORKER_PROTOCOL_VERSION, deadlineMs
       });
-      expect(await unknown).toMatchObject({ type: "error", id: unknownId, code: "invalid_request" });
+      expect(await unknown).toMatchObject({
+        type: "error",
+        id: unknownId,
+        failure: { code: "invalid_request" }
+      });
 
       const legacySettingsId = operationId();
       const legacySettings = nextMessage(worker);
@@ -857,13 +846,22 @@ describe("embedded backend worker", () => {
       expect(await legacySettings).toMatchObject({
         type: "error",
         id: legacySettingsId,
-        code: "invalid_request",
-        message: "This worker request must not include an outer mutation ID"
+        failure: {
+          code: "invalid_request",
+          message: "This worker request must not include an outer mutation ID"
+        }
       });
 
       const malformed = nextMessage(worker);
       worker.postMessage({ type: "nonsense" });
-      expect((await malformed).type).toBe("protocolError");
+      expect(await malformed).toMatchObject({
+        type: "protocolError",
+        failure: {
+          code: "invalid_request",
+          message: "Unknown worker message type",
+          status: 400
+        }
+      });
 
       const invalidDtoId = operationId();
       const invalidDto = nextMessage(worker);
@@ -872,7 +870,9 @@ describe("embedded backend worker", () => {
         input: { storyId: "unused", body: { parentId: null, text: 42 } }
       });
       expect(await invalidDto).toMatchObject({
-        type: "error", id: invalidDtoId, code: "invalid_request", details: { status: 400 }
+        type: "error",
+        id: invalidDtoId,
+        failure: { code: "invalid_request", status: 400 }
       });
 
       const mutationId = `m1-${Date.now().toString(36)}-${"1".padStart(32, "0")}`;
@@ -900,7 +900,11 @@ describe("embedded backend worker", () => {
         type: "request", id: createThreeId, method: "createStory", input: { title: "Twice" },
         protocolVersion: WORKER_PROTOCOL_VERSION, deadlineMs, mutationId
       });
-      expect(await conflicted).toMatchObject({ type: "error", id: createThreeId, code: "idempotency_conflict" });
+      expect(await conflicted).toMatchObject({
+        type: "error",
+        id: createThreeId,
+        failure: { code: "idempotency_conflict" }
+      });
 
       const uncertainMutationId = `m1-${Date.now().toString(36)}-${"2".padStart(32, "0")}`;
       const uncertainInput = { id: createdId.id, expectedTitle: "Once" };
@@ -920,7 +924,10 @@ describe("embedded backend worker", () => {
         protocolVersion: WORKER_PROTOCOL_VERSION, deadlineMs, mutationId: uncertainMutationId
       });
       expect(await uncertain).toMatchObject({
-        type: "error", id: uncertainOperationId, code: "generation_outcome_unknown", mutationOutcome: "uncertain"
+        type: "error",
+        id: uncertainOperationId,
+        failure: { code: "generation_outcome_unknown" },
+        mutationOutcome: "uncertain"
       });
 
       const corruptMutationId = `m1-${Date.now().toString(36)}-${"5".padStart(32, "0")}`;
@@ -931,9 +938,20 @@ describe("embedded backend worker", () => {
         type: "request", id: corruptOperationId, method: "createStory", input: { title: "Uncertain" },
         protocolVersion: WORKER_PROTOCOL_VERSION, deadlineMs, mutationId: corruptMutationId
       });
-      expect(await corrupt).toMatchObject({
-        type: "error", id: corruptOperationId, code: "internal", mutationOutcome: "uncertain"
+      const corruptMessage = await corrupt;
+      expect(corruptMessage).toMatchObject({
+        type: "error", id: corruptOperationId,
+        failure: { code: "internal" },
+        mutationOutcome: "uncertain"
       });
+      const corruptFailure = (
+        corruptMessage as Extract<WorkerToMainMessage, { type: "error" }>
+      ).failure;
+      expect(corruptFailure.kind).toBe("diagnostic");
+      if (corruptFailure.kind !== "diagnostic") {
+        throw new Error("expected diagnostic failure");
+      }
+      expect(corruptFailure.diagnosticRef).toMatch(/^err_[0-9a-f]{24}$/);
 
       const missingMutationId = operationId();
       const missingId = nextMessage(worker);
@@ -941,7 +959,11 @@ describe("embedded backend worker", () => {
         type: "request", id: missingMutationId, method: "createStory", input: { title: "Missing" },
         protocolVersion: WORKER_PROTOCOL_VERSION, deadlineMs
       });
-      expect(await missingId).toMatchObject({ type: "error", id: missingMutationId, code: "invalid_request" });
+      expect(await missingId).toMatchObject({
+        type: "error",
+        id: missingMutationId,
+        failure: { code: "invalid_request" }
+      });
 
       const expiredId = `m1-${Date.now().toString(36)}-${"6".padStart(32, "0")}`;
       const expiredOperationId = operationId();
@@ -956,7 +978,10 @@ describe("embedded backend worker", () => {
         mutationId: expiredId
       });
       expect(await expired).toMatchObject({
-        type: "error", id: expiredOperationId, mutationOutcome: "terminal", details: { status: 408 }
+        type: "error",
+        id: expiredOperationId,
+        mutationOutcome: "terminal",
+        failure: { status: 408 }
       });
 
       const listOperationId = operationId();
@@ -1362,24 +1387,4 @@ async function expectRestartRequiredDisposal(
   const error = await rejection(backend.dispose());
   expect(error instanceof BackendRestartRequiredError).toBeTrue();
   expect(error).toMatchObject({ code: "backend_restart_required" });
-}
-
-function nextMessage(worker: Worker): Promise<WorkerToMainMessage> {
-  return new Promise((resolve) => worker.addEventListener("message", (event) => {
-    resolve(event.data as WorkerToMainMessage);
-  }, { once: true }));
-}
-
-function nextMessageOfType<T extends WorkerToMainMessage["type"]>(
-  worker: Worker,
-  type: T
-): Promise<Extract<WorkerToMainMessage, { type: T }>> {
-  return new Promise((resolve) => {
-    const listener = ((event: MessageEvent<WorkerToMainMessage>) => {
-      if (event.data.type !== type) return;
-      worker.removeEventListener("message", listener);
-      resolve(event.data as Extract<WorkerToMainMessage, { type: T }>);
-    }) as EventListener;
-    worker.addEventListener("message", listener);
-  });
 }

@@ -15,6 +15,10 @@ import {
   MAX_CREDENTIAL_NAMES_PER_STATE,
   isCredentialEnvironmentName
 } from "./credential-slot-policy.js";
+import {
+  isDiagnosticReference,
+  type DiagnosticReference
+} from "./diagnostic-reference.js";
 export { isCredentialEnvironmentName } from "./credential-slot-policy.js";
 
 export const SUPERVISED_SERVE_PROTOCOL_VERSION = 1;
@@ -56,7 +60,11 @@ export type ChildToSupervisorMessage =
       }[];
     }
   | { readonly type: "ready"; readonly origin: string; readonly dataDir: string }
-  | { readonly type: "fatal"; readonly message: string };
+  | {
+      readonly type: "fatal";
+      readonly message: string;
+      readonly diagnosticRef?: DiagnosticReference;
+    };
 
 export type SupervisorToChildMessage =
   | { readonly type: "reserve-ack"; readonly requestId: string; readonly accepted: boolean }
@@ -148,10 +156,21 @@ export function decodeChildToSupervisorMessage(
       };
     }
     case "fatal":
-      exactKeys(message, ["type", "message"]);
+      exactKeys(message, [
+        "type",
+        "message",
+        ...(message.diagnosticRef === undefined ? [] : ["diagnosticRef"])
+      ]);
+      if (message.diagnosticRef !== undefined
+        && !isDiagnosticReference(message.diagnosticRef)) {
+        throw invalid("fatal diagnostic reference is invalid");
+      }
       return {
         type: "fatal",
-        message: boundedString(message.message, 4_096, "fatal message")
+        message: boundedString(message.message, 4_096, "fatal message"),
+        ...(message.diagnosticRef === undefined
+          ? {}
+          : { diagnosticRef: message.diagnosticRef })
       };
     default:
       throw invalid("unknown child message type");

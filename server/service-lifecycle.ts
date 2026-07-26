@@ -61,12 +61,20 @@ export class ServiceLifecycle {
   assertReady(): void {
     if (this.state === "ready") return;
     if (this.state === "new" || this.state === "initializing") {
-      throw new ServiceError(503, "Story service is not initialized");
+      throw new ServiceError(
+        503,
+        "Story service is not initialized",
+        "resource_busy"
+      );
     }
     throw shuttingDown();
   }
 }
 
 function shuttingDown(): ServiceError {
-  return new ServiceError(503, "Story service is shutting down");
+  return new ServiceError(
+    503,
+    "Story service is shutting down",
+    "resource_busy"
+  );
 }

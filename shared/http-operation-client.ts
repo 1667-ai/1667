@@ -27,6 +27,11 @@ import {
 } from "./http-protocol.js";
 import type { StoryAggregateVersion } from "./story-aggregate-version.js";
 import { isWorkerMutationMethod } from "./worker-protocol.js";
+import {
+  decodeHttpFailurePayload,
+  diagnosticReferenceFromFailure,
+  type CompatibleHttpFailureEnvelope
+} from "./failure-envelope.js";
 
 export type OperationFetch = (
   input: string | URL,
@@ -69,13 +74,21 @@ export interface HttpOperationRunOptions<T> {
 }
 
 export class HttpOperationError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code: string | null
-  ) {
-    super(message);
+  constructor(readonly failure: CompatibleHttpFailureEnvelope) {
+    super(failure.message);
     this.name = "HttpOperationError";
+  }
+
+  get status(): number {
+    return this.failure.status ?? 500;
+  }
+
+  get code(): string {
+    return this.failure.code;
+  }
+
+  get diagnosticRef(): string | null {
+    return diagnosticReferenceFromFailure(this.failure);
   }
 }
 
@@ -654,7 +667,10 @@ function decodeRecoveryWarnings(value: unknown): HttpRecoveryWarning[] {
       storyId: warning.storyId,
       code: warning.code,
       message: warning.message,
-      status: warning.status
+      status: warning.status,
+      ...(warning.diagnosticRef === undefined
+        ? {}
+        : { diagnosticRef: warning.diagnosticRef })
     };
   });
 }
@@ -709,11 +725,9 @@ function responseError(
   response: Response,
   payload: Record<string, unknown>
 ): Error {
-  return new HttpOperationError(
-    typeof payload.error === "string"
-      ? payload.error
-      : `1667 operation request failed (${response.status})`,
-    response.status,
-    typeof payload.code === "string" ? payload.code : null
-  );
+  return new HttpOperationError(decodeHttpFailurePayload(
+    payload,
+    `1667 operation request failed (${response.status})`,
+    response.status
+  ));
 }

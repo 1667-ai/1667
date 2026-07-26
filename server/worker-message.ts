@@ -2,7 +2,8 @@ import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PRE_Q_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
-  WORKER_PROTOCOL_VERSION,
+  canonicalWorkerInputProtocolVersion,
+  isCurrentWorkerInputProtocolVersion,
   isMutatingWorkerMethod,
   isWorkerMutationMethod,
   isWorkerMethod,
@@ -26,6 +27,7 @@ export function parseWorkerBootstrap(
     ...(message.machineDir === undefined
       ? {}
       : { machineDir: requireString(message.machineDir, "machineDir") }),
+    ...(message.printLogs === true ? { printLogs: true } as const : {}),
     ...(message.freshDataDirectory === true ? { freshDataDirectory: true } as const : {})
   };
 }
@@ -51,7 +53,7 @@ export function parseWorkerRequest(
   }
   const protocolVersion = message.protocolVersion;
   if (!Number.isSafeInteger(protocolVersion)
-    || (protocolVersion !== WORKER_PROTOCOL_VERSION
+    || (!isCurrentWorkerInputProtocolVersion(protocolVersion)
       && !(legacyEnvelopeMutation
         && (protocolVersion === LEGACY_WORKER_PROTOCOL_VERSION
           || protocolVersion === PRE_Q_WORKER_PROTOCOL_VERSION
@@ -63,7 +65,7 @@ export function parseWorkerRequest(
     id,
     method: message.method,
     input: message.input,
-    protocolVersion,
+    protocolVersion: canonicalWorkerInputProtocolVersion(protocolVersion),
     deadlineMs,
     mutationId,
     ...(message.expectedAggregateVersion === undefined ? {} : {

@@ -4,25 +4,38 @@ import path from "node:path";
 import { uuidFromDigestHex } from "./deterministic-uuid.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
+  MUTATION_INPUT_PROTOCOL_VERSION,
   MUTATION_ID_CLOCK_SKEW_MS,
   MUTATION_ID_RETRY_WINDOW_MS,
-  WORKER_PROTOCOL_VERSION,
-  isWorkerMethod,
+  canonicalWorkerInputProtocolVersion,
   type MutatingWorkerMethod,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
-import type { ChapterBreak, StoryNode, StoryPayload } from "../shared/types.js";
 import {
-  chapterBreakRemovalFingerprint,
-  parseRemovedChapterBreak,
-  type RemovedChapterBreak
+  type StoryPayload
+} from "../shared/types.js";
+import {
+  chapterBreakRemovalFingerprint
 } from "./chapter-breaks.js";
 import {
   isDefinitiveProviderFailure,
-  ServiceError,
-  toPublicServiceError,
-  type PublicServiceError
+  ServiceError
 } from "./errors.js";
+import {
+  MutationReceiptFailureTerminalizer,
+  MutationReceiptPersistenceError,
+  isMutationReceiptPersistenceError,
+  type MutationReceiptFailureReporter
+} from "./mutation-receipt-failure.js";
+import {
+  corruptMutationReceipt,
+  encodeMutationResult,
+  isMutationFingerprint,
+  parseMutationReceipt,
+  requireRemovalArtifact,
+  restoreMutationReceiptFailure,
+  type MutationReceipt
+} from "./mutation-receipt-codec.js";
 import {
   createMutationPlan,
   mutationPreflightPlan,
@@ -36,65 +49,27 @@ import { exactStringPattern } from "./story-wire-patterns.js";
 
 const LEGACY_MUTATION_ID_PATTERN = exactStringPattern("m1-([0-9a-z]+)-([0-9a-f]{32})");
 const DURABLE_MUTATION_ID_PATTERN = exactStringPattern("m1\\.([0-9]{13})\\.([0-9a-f]{32})");
-const FINGERPRINT_PATTERN = exactStringPattern("[0-9a-f]{64}");
-const CONTEXT_KEY_PATTERN = exactStringPattern("[a-z][a-z0-9-]{0,63}");
 // Receipts written before protocolVersion was persisted were all emitted by
 // the first embedded-worker protocol shipped on this branch.
 
-type StoredResult =
-  | { type: "story"; id: string }
-  | { type: "chapter-break-created"; id: string; breakId: string }
-  | {
-      type: "chapter-break-removed";
-      id: string;
-      /** Compatibility for receipts written before server-side artifacts. */
-      removed?: RemovedChapterBreakResult;
-    }
-  | { type: "value"; value: unknown };
-
-interface RemovedChapterBreakResult {
-  break: ChapterBreak;
-  summaries: StoryNode[];
-}
-
-interface MutationReceipt {
-  format: "1667-mutation";
-  schemaVersion: 1;
-  mutationId: string;
-  /** Worker wire version that defined the canonical request fingerprint. */
-  protocolVersion?: number;
-  fingerprint: string;
-  method: WorkerMethod;
-  state: "pending" | "provider_started" | "completed" | "failed";
-  createdAt: string;
-  context?: Record<string, string>;
-  artifact?: {
-    kind: "chapter-break-removal";
-    fingerprint: string;
-    value: RemovedChapterBreakResult;
-  };
-  result?: StoredResult;
-  failure?: PublicServiceError;
-}
-
-/** The worker must retain the caller outbox because receipt durability is
- * unknown; terminating the worker turns the next launch into reconciliation. */
-export class MutationReceiptPersistenceError extends ServiceError {
-  constructor(readonly cause: unknown) {
-    super(500,
-      "Mutation receipt durability could not be confirmed; the backend stopped and retained the request for recovery.",
-      "mutation_outcome_unknown");
-    this.name = "MutationReceiptPersistenceError";
-  }
-}
+export {
+  MutationReceiptPersistenceError,
+  isMutationReceiptPersistenceError
+};
 
 export class MutationReceiptStore {
   private readonly queues = new Map<string, Promise<unknown>>();
+  private readonly failureTerminalizer: MutationReceiptFailureTerminalizer;
 
   constructor(
     private readonly dir: string,
-    private readonly resolveStory: (id: string) => Promise<StoryPayload>
-  ) {}
+    private readonly resolveStory: (id: string) => Promise<StoryPayload>,
+    reportFailure?: MutationReceiptFailureReporter
+  ) {
+    this.failureTerminalizer = new MutationReceiptFailureTerminalizer(
+      reportFailure
+    );
+  }
 
   async init(): Promise<void> {
     await mkdirDurable(this.dir);
@@ -125,7 +100,9 @@ export class MutationReceiptStore {
     inputProtocolVersion: number | undefined,
     preflight: (plan: MutationPreflightPlan<M>) => void | Promise<void>
   ): Promise<T> {
-    inputProtocolVersion ??= WORKER_PROTOCOL_VERSION;
+    inputProtocolVersion = canonicalWorkerInputProtocolVersion(
+      inputProtocolVersion ?? MUTATION_INPUT_PROTOCOL_VERSION
+    );
     if (!Number.isSafeInteger(inputProtocolVersion) || inputProtocolVersion < 1) {
       throw new ServiceError(400, "Invalid mutation input protocol version");
     }
@@ -145,7 +122,9 @@ export class MutationReceiptStore {
         if (identityMismatch && existing.state === "provider_started") throw generationOutcomeUnknown();
         if (identityMismatch) throw idempotencyConflict();
         if (existing.state === "completed") return await this.resolve(existing) as T;
-        if (existing.state === "failed") throw storedFailure(existing.failure);
+        if (existing.state === "failed") {
+          throw restoreMutationReceiptFailure(existing.failure);
+        }
         receipt = existing;
         recoveryMode = existing.state === "provider_started" ? "provider-uncertain" : "pending";
       } else {
@@ -184,7 +163,7 @@ export class MutationReceiptStore {
           await this.save(receipt);
         },
         preserveChapterBreakRemoval: async (expectedFingerprint, load) => {
-          if (!FINGERPRINT_PATTERN.test(expectedFingerprint)) {
+          if (!isMutationFingerprint(expectedFingerprint)) {
             throw new ServiceError(400, "Invalid chapter-break removal fingerprint");
           }
           const existingArtifact = receipt.artifact;
@@ -193,7 +172,7 @@ export class MutationReceiptStore {
               || existingArtifact.fingerprint !== expectedFingerprint
               || chapterBreakRemovalFingerprint(existingArtifact.value)
                 !== expectedFingerprint) {
-              throw corruptReceipt(mutationId);
+              throw corruptMutationReceipt(mutationId);
             }
             return structuredClone(existingArtifact.value);
           }
@@ -229,18 +208,31 @@ export class MutationReceiptStore {
       try {
         value = await work(plan);
       } catch (error) {
-        if (error instanceof MutationReceiptPersistenceError) throw error;
-        if (error instanceof StoryDurabilityError) throw mutationOutcomeUnknown();
-        if (receipt.state === "provider_started" && !isDefinitiveGenerationFailure(error)) {
-          throw generationOutcomeUnknown();
+        if (isMutationReceiptPersistenceError(error)) {
+          throw error;
         }
-        receipt.state = "failed";
-        receipt.failure = toPublicServiceError(error);
-        await this.save(receipt);
-        throw error;
+        if (error instanceof StoryDurabilityError) {
+          return await this.failureTerminalizer.reject(
+            mutationOutcomeUnknown({ diagnosticCause: error })
+          );
+        }
+        if (receipt.state === "provider_started"
+          && !isDefinitiveGenerationFailure(error)) {
+          return await this.failureTerminalizer.reject(
+            generationOutcomeUnknown({ diagnosticCause: error })
+          );
+        }
+        return await this.failureTerminalizer.persist(
+          error,
+          async (failure) => {
+            receipt.state = "failed";
+            receipt.failure = failure;
+            await this.save(receipt);
+          }
+        );
       }
       receipt.state = "completed";
-      receipt.result = storedResult(value, receipt.artifact);
+      receipt.result = encodeMutationResult(value, receipt.artifact);
       await this.save(receipt);
       return value;
     });
@@ -267,7 +259,7 @@ export class MutationReceiptStore {
     validateMutationIdSyntax(mutationId);
     try {
       const value: unknown = JSON.parse(await readFile(this.file(mutationId), "utf8"));
-      return parseReceipt(value, mutationId);
+      return parseMutationReceipt(value, mutationId);
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
       throw error;
@@ -279,8 +271,9 @@ export class MutationReceiptStore {
       const commit = await writeDurableAtomic(this.file(receipt.mutationId), `${JSON.stringify(receipt)}\n`);
       requireDurableCommit(commit, `Saving mutation receipt ${receipt.mutationId}`);
     } catch (error) {
-      if (error instanceof MutationReceiptPersistenceError) throw error;
-      throw new MutationReceiptPersistenceError(error);
+      throw await this.failureTerminalizer.persistenceFailure(
+        error
+      );
     }
   }
 
@@ -305,8 +298,9 @@ export class MutationReceiptStore {
 export function mutationFingerprint(
   method: WorkerMethod,
   input: unknown,
-  protocolVersion = WORKER_PROTOCOL_VERSION
+  protocolVersion = MUTATION_INPUT_PROTOCOL_VERSION
 ): string {
+  protocolVersion = canonicalWorkerInputProtocolVersion(protocolVersion);
   const canonical = canonicalJson({ protocolVersion, method, input });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -326,135 +320,6 @@ export function validateUnseenMutationId(mutationId: string, now = Date.now()): 
 function validateMutationIdSyntax(mutationId: string): void {
   if (!LEGACY_MUTATION_ID_PATTERN.test(mutationId)
     && !DURABLE_MUTATION_ID_PATTERN.test(mutationId)) throw invalidMutationId();
-}
-
-function storedResult(
-  value: unknown,
-  artifact: MutationReceipt["artifact"]
-): StoredResult {
-  if (isStoryPayload(value)) return { type: "story", id: value.id };
-  if (isChapterBreakCreatedResult(value)) {
-    return { type: "chapter-break-created", id: value.payload.id, breakId: value.breakId };
-  }
-  if (isChapterBreakRemovedResult(value)) {
-    if (artifact !== undefined
-      && artifact.kind === "chapter-break-removal"
-      && chapterBreakRemovalFingerprint(value.removed)
-        === artifact.fingerprint) {
-      return { type: "chapter-break-removed", id: value.payload.id };
-    }
-    return {
-      type: "chapter-break-removed",
-      id: value.payload.id,
-      removed: value.removed
-    };
-  }
-  return { type: "value", value };
-}
-
-function isStoryPayload(value: unknown): value is StoryPayload {
-  return value !== null && typeof value === "object" && typeof (value as StoryPayload).id === "string"
-    && Array.isArray((value as StoryPayload).nodes) && Array.isArray((value as StoryPayload).path);
-}
-
-function isChapterBreakCreatedResult(
-  value: unknown
-): value is { payload: StoryPayload; breakId: string } {
-  if (value === null || typeof value !== "object") return false;
-  const result = value as { payload?: unknown; breakId?: unknown };
-  return isStoryPayload(result.payload) && typeof result.breakId === "string";
-}
-
-function isChapterBreakRemovedResult(
-  value: unknown
-): value is { payload: StoryPayload; removed: RemovedChapterBreakResult } {
-  if (value === null || typeof value !== "object") return false;
-  const result = value as { payload?: unknown; removed?: unknown };
-  return isStoryPayload(result.payload) && result.removed !== null && typeof result.removed === "object";
-}
-
-function isStoredResult(value: unknown): value is StoredResult {
-  if (value === null || typeof value !== "object") return false;
-  const result = value as Record<string, unknown>;
-  if (result.type === "story") return typeof result.id === "string";
-  if (result.type === "chapter-break-created") {
-    return typeof result.id === "string" && typeof result.breakId === "string";
-  }
-  if (result.type === "chapter-break-removed") {
-    return typeof result.id === "string"
-      && (result.removed === undefined
-        || (result.removed !== null && typeof result.removed === "object"));
-  }
-  return result.type === "value" && "value" in result;
-}
-
-function parseReceipt(value: unknown, mutationId: string): MutationReceipt {
-  if (value === null || typeof value !== "object") throw corruptReceipt(mutationId);
-  const receipt = value as Partial<MutationReceipt>;
-  if (receipt.format !== "1667-mutation" || receipt.schemaVersion !== 1
-    || receipt.mutationId !== mutationId || !FINGERPRINT_PATTERN.test(receipt.fingerprint ?? "")
-    || (receipt.protocolVersion !== undefined
-      && (!Number.isSafeInteger(receipt.protocolVersion) || receipt.protocolVersion < 1))
-    || !isWorkerMethod(receipt.method) || typeof receipt.createdAt !== "string"
-    || !Number.isFinite(Date.parse(receipt.createdAt))
-    || !["pending", "provider_started", "completed", "failed"].includes(String(receipt.state))) {
-    throw corruptReceipt(mutationId);
-  }
-  if (receipt.state === "completed" && (!isStoredResult(receipt.result) || receipt.failure !== undefined)) {
-    throw corruptReceipt(mutationId);
-  }
-  if (receipt.state === "failed" && (!isPublicFailure(receipt.failure) || receipt.result !== undefined)) {
-    throw corruptReceipt(mutationId);
-  }
-  if ((receipt.state === "pending" || receipt.state === "provider_started")
-    && (receipt.result !== undefined || receipt.failure !== undefined)) throw corruptReceipt(mutationId);
-  if (!isStoredContext(receipt.context)
-    || !isStoredArtifact(receipt.artifact, receipt.method)) {
-    throw corruptReceipt(mutationId);
-  }
-  if (receipt.state === "completed"
-    && receipt.result?.type === "chapter-break-removed"
-    && receipt.result.removed === undefined
-    && receipt.artifact === undefined) {
-    throw corruptReceipt(mutationId);
-  }
-  return receipt as MutationReceipt;
-}
-
-function isStoredArtifact(
-  value: MutationReceipt["artifact"] | undefined,
-  method: WorkerMethod | undefined
-): boolean {
-  if (value === undefined) return true;
-  if (method !== "removeChapterBreak"
-    || value.kind !== "chapter-break-removal"
-    || !FINGERPRINT_PATTERN.test(value.fingerprint)
-    || value.value === null || typeof value.value !== "object") {
-    return false;
-  }
-  try {
-    const parsed = parseRemovedChapterBreak(value.value);
-    return chapterBreakRemovalFingerprint(parsed) === value.fingerprint;
-  } catch {
-    return false;
-  }
-}
-
-function requireRemovalArtifact(
-  receipt: MutationReceipt
-): RemovedChapterBreakResult {
-  if (receipt.artifact?.kind !== "chapter-break-removal") {
-    throw corruptReceipt(receipt.mutationId);
-  }
-  return receipt.artifact.value;
-}
-
-function isStoredContext(value: unknown): value is Record<string, string> | undefined {
-  if (value === undefined) return true;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.entries(value).every(([key, fingerprint]) =>
-    CONTEXT_KEY_PATTERN.test(key) && typeof fingerprint === "string" && FINGERPRINT_PATTERN.test(fingerprint)
-  );
 }
 
 function canonicalJson(value: unknown): string {
@@ -480,22 +345,10 @@ function idempotencyConflict(): ServiceError {
   return new ServiceError(409, "Mutation ID was already used with different input", "idempotency_conflict");
 }
 
-function storedFailure(failure: PublicServiceError | undefined): ServiceError {
-  if (!isPublicFailure(failure)) throw new ServiceError(500, "Mutation receipt is missing its failure", "internal");
-  return new ServiceError(failure.status, failure.message, failure.code);
-}
-
 function isDefinitiveGenerationFailure(error: unknown): boolean {
   return isDefinitiveProviderFailure(error)
     || (error instanceof ServiceError
       && error.code === "generation_outcome_unknown_acknowledged");
-}
-
-function isPublicFailure(value: unknown): value is PublicServiceError {
-  return value !== null && typeof value === "object"
-    && typeof (value as PublicServiceError).code === "string"
-    && typeof (value as PublicServiceError).message === "string"
-    && Number.isSafeInteger((value as PublicServiceError).status);
 }
 
 function deterministicEntityId(mutationId: string, namespace: string, index: number): string {
@@ -503,8 +356,4 @@ function deterministicEntityId(mutationId: string, namespace: string, index: num
   return uuidFromDigestHex(
     createHash("sha256").update(`${mutationId}\0${namespace}\0${index}`).digest("hex")
   );
-}
-
-function corruptReceipt(mutationId: string): ServiceError {
-  return new ServiceError(500, `Mutation receipt is corrupt: ${mutationId}`, "internal");
 }

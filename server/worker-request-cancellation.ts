@@ -1,11 +1,15 @@
 import type { WorkerCancelReason } from "../shared/worker-protocol.js";
-import { ServiceError } from "./errors.js";
+import { DiagnosticServiceError, ServiceError } from "./errors.js";
+
+export interface WorkerCancellationFailure {
+  readonly error: unknown;
+}
 
 /** Owns cooperative abort state without letting a late success erase deadline
  * provenance. The main process remains the hard fence for uncooperative work. */
 export class WorkerRequestCancellation {
   private readonly controller = new AbortController();
-  private deadlineExpired = false;
+  private deadlineFailure: ServiceError | null = null;
 
   constructor(private readonly mutation: boolean) {}
 
@@ -14,10 +18,12 @@ export class WorkerRequestCancellation {
   }
 
   cancel(reason: WorkerCancelReason): void {
-    if (reason === "deadline") this.deadlineExpired = true;
+    if (reason === "deadline" && this.deadlineFailure === null) {
+      this.deadlineFailure = deadlineError(this.mutation);
+    }
     this.controller.abort(
       reason === "deadline"
-        ? deadlineError(this.mutation)
+        ? this.deadlineFailure
         : reason === "shutdown" && this.mutation
           ? mutationInterruptedError()
           : undefined
@@ -25,22 +31,61 @@ export class WorkerRequestCancellation {
   }
 
   throwIfDeadlineExpired(): void {
-    if (this.deadlineExpired) throw deadlineError(this.mutation);
+    if (this.deadlineFailure !== null) throw this.deadlineFailure;
   }
 
-  failure(error: unknown): unknown {
-    return this.deadlineExpired ? deadlineError(this.mutation) : error;
+  failure(error: unknown): WorkerCancellationFailure {
+    const deadlineFailure = this.deadlineFailure;
+    if (deadlineFailure === null) return { error };
+    if (isExpectedDeadlineCancellation(
+      error,
+      deadlineFailure,
+      this.controller.signal
+    )) {
+      return { error: deadlineFailure };
+    }
+    return {
+      error: deadlineError(this.mutation, {
+        diagnosticCause: error
+      })
+    };
   }
 }
 
-function deadlineError(mutation: boolean): ServiceError {
+function isExpectedDeadlineCancellation(
+  error: unknown,
+  deadlineFailure: ServiceError,
+  signal: AbortSignal
+): boolean {
+  return error === deadlineFailure
+    || error === signal.reason
+    || (error instanceof Error && error.name === "AbortError");
+}
+
+function deadlineError(
+  mutation: boolean,
+  options?: { readonly diagnosticCause: unknown }
+): ServiceError {
+  const status = 408;
+  const message = mutation
+    ? "Worker mutation recovery deadline exceeded; the request was retained for reconciliation."
+    : "Worker request deadline exceeded";
+  const code = mutation ? "mutation_outcome_unknown" : "invalid_request";
+  if (options !== undefined) {
+    return new DiagnosticServiceError(
+      status,
+      message,
+      code,
+      options.diagnosticCause
+    );
+  }
   return mutation
     ? new ServiceError(
-      408,
-      "Worker mutation recovery deadline exceeded; the request was retained for reconciliation.",
-      "mutation_outcome_unknown"
-    )
-    : new ServiceError(408, "Worker request deadline exceeded");
+        status,
+        message,
+        code
+      )
+    : new ServiceError(status, message);
 }
 
 function mutationInterruptedError(): ServiceError {

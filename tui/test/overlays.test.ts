@@ -14,6 +14,7 @@ import { deriveSummaryProgress, summaryStretch } from "../src/summary-model.js";
 import { promptCacheSummary } from "../src/settings-cache-summary.js";
 import { convertGenerationSettingsV1 } from "../../server/settings-v2-conversion.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import type {
   PromptCachePolicyV2,
   SettingsDocumentV2,
@@ -166,7 +167,13 @@ describe("settings cache summary", () => {
 describe("connection monitor error classes", () => {
   test("application errors never raise the banner; transport errors do", async () => {
     const stub = {
-      listStories: async () => { throw new ApiHttpError("Prune changed (409)", 409); },
+      listStories: async () => {
+        throw new ApiHttpError(createFailureEnvelope({
+          code: "conflict",
+          message: "Prune changed (409)",
+          status: 409
+        }));
+      },
       loadStory: async () => { throw new TypeError("fetch failed"); }
     } as unknown as Parameters<typeof createConnectionMonitor>[0];
     const monitor = createConnectionMonitor(stub);

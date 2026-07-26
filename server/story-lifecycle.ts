@@ -26,6 +26,15 @@ export class StoryDurabilityError extends Error {
   }
 }
 
+/** A caller-selected storage path is structurally unusable. Local process
+ * boundaries may expose this actionable configuration failure explicitly. */
+export class StoragePathNotDirectoryError extends Error {
+  constructor(readonly storagePath: string) {
+    super(`Storage path is not a directory: ${storagePath}`);
+    this.name = "StoragePathNotDirectoryError";
+  }
+}
+
 const UUID_SOURCE = "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}";
 const PORTABLE_COMPONENT_BYTES = 255;
 const EPHEMERAL_BUNDLE_PATTERN = exactStringPattern(
@@ -170,7 +179,9 @@ export async function mkdirDurable(directory: string, syncParent: SyncParent = s
   for (;;) {
     try {
       const info = await stat(cursor);
-      if (!info.isDirectory()) throw new Error(`Storage path is not a directory: ${cursor}`);
+      if (!info.isDirectory()) {
+        throw new StoragePathNotDirectoryError(cursor);
+      }
       break;
     } catch (error) {
       if (!isErrorCode(error, "ENOENT")) throw error;

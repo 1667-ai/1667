@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { toPublicServiceError } from "./errors.js";
+import { toPublicServiceError } from "./service-error-policy.js";
 import { abortOnDisconnect, openSse } from "./http.js";
+import type { InternalErrorReporter } from "./internal-error-reporter.js";
+import {
+  createFailureEnvelope,
+  failureWireFields
+} from "../shared/failure-envelope.js";
 
 export async function streamResponse<T>(
   request: IncomingMessage,
@@ -10,7 +15,9 @@ export async function streamResponse<T>(
     signal: AbortSignal
   ) => Promise<T | null>,
   done: (value: T) => Record<string, unknown>,
-  operationSignal?: AbortSignal
+  operationSignal?: AbortSignal,
+  errorReporter?: InternalErrorReporter,
+  operation?: string
 ): Promise<void> {
   const abort = abortOnDisconnect(request, response);
   const signal = operationSignal === undefined
@@ -27,14 +34,36 @@ export async function streamResponse<T>(
     await open().send(done(value));
     response.end();
   } catch (error) {
-    if (signal.aborted) return void response.end();
+    if (signal.aborted) {
+      if (!isExpectedCancellation(error, signal)) {
+        await errorReporter?.report(error, {
+          service: "http-stream",
+          ...(operation === undefined ? {} : { operation })
+        });
+      }
+      return void response.end();
+    }
     if (session === null) throw error;
-    const known = toPublicServiceError(error);
+    const reported = errorReporter === undefined
+      ? {
+          failure: createFailureEnvelope(toPublicServiceError(error))
+        }
+      : await errorReporter.report(error, {
+          service: "http-stream",
+          ...(operation === undefined ? {} : { operation })
+        });
     await (session as ReturnType<typeof openSse>).send({
       type: "error",
-      code: known.code,
-      message: known.message
+      ...failureWireFields(reported.failure)
     });
     response.end();
   }
+}
+
+function isExpectedCancellation(
+  error: unknown,
+  signal: AbortSignal
+): boolean {
+  if (error === signal.reason) return true;
+  return error instanceof Error && error.name === "AbortError";
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 import { ActionRuntime, beginInteraction } from "../src/action-runtime.js";
 import { ApiHttpError } from "../src/api.js";
@@ -112,7 +113,13 @@ describe("backend recovery orchestration", () => {
     source.connection = onlineMonitor(source.api, async () => { retries += 1; return true; });
     source.api.loadStory = async () => {
       storyLoads += 1;
-      if (failReload) throw new ApiHttpError("story reload failed (404)", 404);
+      if (failReload) {
+        throw new ApiHttpError(createFailureEnvelope({
+          code: "not_found",
+          message: "story reload failed (404)",
+          status: 404
+        }));
+      }
       return recoveredPayload;
     };
     const state = initialState(source, false);
@@ -641,7 +648,11 @@ describe("backend recovery orchestration", () => {
     connection.publish(connectionSucceeded());
     await staleEntered.promise;
     const firstOwnerId = state.backendTask?.id ?? null;
-    staleLoad.reject(new ApiHttpError("obsolete recovery error", 500));
+    staleLoad.reject(new ApiHttpError(createFailureEnvelope({
+      code: "internal",
+      message: "obsolete recovery error",
+      status: 500
+    })));
     // Three chained promise turns place the transition after reconcileOwned's
     // failure result but before its backend owner accepts that result.
     let boundary = Promise.resolve();
@@ -819,7 +830,11 @@ describe("backend recovery orchestration", () => {
       method: "renameStory",
       storyId: source.payload.id,
       resolution: "archived",
-      error: new WorkerApiError("Reload state.", "mutation_outcome_unknown", 409)
+      error: new WorkerApiError(createFailureEnvelope({
+        code: "mutation_outcome_unknown",
+        message: "Reload state.",
+        status: 409
+      }))
     };
     const state = initialState(source, false);
     const cache = createWrapCache();
