@@ -37,7 +37,11 @@ export interface PanelHits {
  *  callers used to re-derive it by hand, which is how a facts body came to be
  *  wrapped against the terminal width instead of the panel's. */
 export function panelWidthFor(width: number, maxWidth = 106): number {
-  return Math.max(20, Math.min(width - 8, maxWidth));
+  const preferred = Math.max(20, Math.min(width - 8, maxWidth));
+  // Preserve a margin even when the terminal is narrower than the preferred
+  // 20-cell panel. Otherwise the panel begins at column two and its right edge
+  // is silently clipped by `fitLine`.
+  return Math.max(1, Math.min(width - 4, preferred));
 }
 
 const PANEL_FRAME_ROWS = 4;

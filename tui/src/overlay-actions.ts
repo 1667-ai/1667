@@ -24,6 +24,7 @@ import {
   openSettingsOverlay,
   settingsOverlayAction
 } from "./settings-overlay-actions.js";
+import { panelContentRows } from "./screens/overlay.js";
 
 import type { AppSource } from "./app.js";
 import type { RuntimeState } from "./state.js";
@@ -88,27 +89,33 @@ export async function handleOverlayAction(
     }
     return true;
   }
-  if (state.mode === "KEYS") { scrollKeysReference(resolved, state); return true; }
+  if (state.mode === "KEYS") {
+    scrollKeysReference(resolved, state, context.renderer?.height);
+    return true;
+  }
   return false;
 }
 
-/** How far each scroll gesture moves the key reference. The renderer owns the
- *  upper bound — it alone knows how many rows the panel drew — and clamps what
- *  it is given back into the state, so an eager offset here is harmless. */
-const KEYS_SCROLL_STEP: Partial<Record<ResolvedKey["action"], number>> = {
-  "focus-next": 1,
-  "focus-previous": -1,
-  "scroll-down": 6,
-  "scroll-up": -6
-};
-
-/** The reference only reads and scrolls; `open-keys` owns the reset. */
-function scrollKeysReference(resolved: ResolvedKey, state: RuntimeState): void {
+/** The reference only reads and scrolls; `open-keys` owns the reset. Page
+ * actions advance by exactly the rows the panel paints at the current height.
+ * The renderer still owns and applies the upper bound. */
+function scrollKeysReference(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  terminalHeight?: number
+): void {
   if (resolved.action === "cancel") {
     state.mode = "NAV";
     return;
   }
-  state.keysScrollTop = Math.max(0, state.keysScrollTop + (KEYS_SCROLL_STEP[resolved.action] ?? 0));
+  const page = terminalHeight === undefined ? 1 : panelContentRows(terminalHeight);
+  const step: Partial<Record<ResolvedKey["action"], number>> = {
+    "focus-next": 1,
+    "focus-previous": -1,
+    "scroll-down": page,
+    "scroll-up": -page
+  };
+  state.keysScrollTop = Math.max(0, state.keysScrollTop + (step[resolved.action] ?? 0));
 }
 
 function initialFacts() {
@@ -379,4 +386,3 @@ async function reconnect(state: RuntimeState, source: AppSource, context: Overla
     repaint: context.repaint
   });
 }
-

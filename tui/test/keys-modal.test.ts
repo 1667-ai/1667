@@ -45,6 +45,17 @@ describe("keys reference", () => {
     }
   });
 
+  test("the minimum-width panel wraps every meaning instead of clipping it", () => {
+    const frame = text(20, 160);
+    const body = frame.split("\n").filter((line) => line.includes("┃")).join("\n");
+    const words = body.replace(/\n\s*┃\s*/g, " ").replace(/\s+/g, " ");
+    expect(body).not.toContain("…");
+    for (const line of frame.split("\n")) expect(visibleWidth(line)).toBeLessThanOrEqual(20);
+    for (const item of entries) expect(words).toContain(item.description);
+    expect(words).toContain("r retake · same prompt");
+    expect(words).toContain("R retake · edit prompt");
+  });
+
   test("the old QWERTY diagram and its unexplained bands are gone", () => {
     const frame = text(120, 36);
     expect(frame).not.toContain("┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐");

@@ -5,6 +5,7 @@ import { AI_1667_VERSION_TAG } from "../../../shared/build-identity.js";
 import { panelContentRows, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
 import { boundedContent, panelRange } from "./panel-table-layout.js";
 import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { wrapText } from "../wrap.js";
 
 export interface KeysModalBinding {
   name: string;
@@ -307,14 +308,15 @@ function layoutRows(interior: number, columns: number): FrameLine[] {
     }
     rows.push(line);
   }
-  rows.push([], ...boundedContent([[raisedSegment(CONTEXT_NOTE, "prose · dim")]], interior));
+  rows.push([], ...wrapText(CONTEXT_NOTE, [], interior)
+    .map((line) => [raisedSegment(line.text, "prose · dim")]));
   return rows;
 }
 
 function sectionLines(section: KeysModalSection, cellWidth: number): FrameLine[] {
   // The heading sits in the key column so its blurb starts where the
   // descriptions do: two aligned columns per cell, not a ragged third edge.
-  return boundedContent([
+  if (cellWidth >= COLUMN_WIDTH) return boundedContent([
     [
       { ...raisedSegment(padKey(heading(section)), section.role), bold: true },
       raisedSegment(`  ${section.blurb}`, "prose · dim")
@@ -324,6 +326,40 @@ function sectionLines(section: KeysModalSection, cellWidth: number): FrameLine[]
       raisedSegment(`  ${item.description}`, "prose · dim")
     ])
   ], cellWidth);
+  return [
+    ...compactRow(heading(section), section.blurb, section.role, cellWidth, true),
+    ...section.entries.flatMap((item) =>
+      compactRow(item.token, item.description, section.role, cellWidth, false))
+  ];
+}
+
+const MIN_INLINE_DESCRIPTION_WIDTH = 12;
+
+/** Narrow terminals keep every meaning by wrapping it. Below the width where
+ * the aligned key gutter would starve the copy, the key and meaning stack. */
+function compactRow(
+  token: string,
+  description: string,
+  role: DisplayRole,
+  width: number,
+  bold: boolean
+): FrameLine[] {
+  const inlineMeasure = width - TOKEN_WIDTH - 2;
+  if (inlineMeasure >= MIN_INLINE_DESCRIPTION_WIDTH) {
+    return wrapText(description, [], inlineMeasure).map((line, index) => [
+      {
+        ...raisedSegment(index === 0 ? padKey(token) : " ".repeat(TOKEN_WIDTH), role),
+        ...(bold ? { bold: true } : {})
+      },
+      raisedSegment(`  ${line.text}`, "prose · dim")
+    ]);
+  }
+  const descriptionMeasure = Math.max(1, width - 2);
+  return [
+    [{ ...raisedSegment(token, role), ...(bold ? { bold: true } : {}) }],
+    ...wrapText(description, [], descriptionMeasure)
+      .map((line) => [raisedSegment(`  ${line.text}`, "prose · dim")])
+  ];
 }
 
 function heading(section: KeysModalSection): string {

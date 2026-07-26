@@ -104,7 +104,7 @@ describe("keys reference contract", () => {
         cache,
         backend,
         repaint: () => undefined,
-        renderer: null,
+        renderer: { height: 10 } as never,
         applyTheme: () => undefined,
         previewTheme: () => undefined
       })).toBeTrue();
@@ -115,6 +115,11 @@ describe("keys reference contract", () => {
     expect(state.keysScrollTop).toBe(0);
     await apply({ action: "focus-next" });
     await apply({ action: "scroll-down" });
+    await apply({ action: "scroll-up" });
+    expect(state.keysScrollTop).toBe(1);
+
+    await apply({ action: "scroll-down" });
+    expect(state.keysScrollTop).toBe(3);
     await apply({ action: "scroll-up" });
     expect(state.keysScrollTop).toBe(1);
 
