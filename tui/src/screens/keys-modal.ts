@@ -300,7 +300,7 @@ export function renderKeysOverlay(
   // When the footer has exactly enough room for required build identity, the
   // short title keeps overflow and the current position visible.
   const title = range !== "" && compactFooter
-    ? `keys ↑↓ ${window.start + 1}/${rows.length}`
+    ? `? ↑↓${window.start + 1}/${rows.length}`
     : `keys · and what they do${range}`;
 
   // Inert, not transparent: without hits the story's own rows stay live under

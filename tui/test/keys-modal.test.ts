@@ -58,10 +58,15 @@ describe("keys reference", () => {
   });
 
   test("a minimum-width short panel keeps build identity and a scroll cue", () => {
-    const frame = text(20, 10);
-    expect(frame).toContain("keys ↑↓ 1/");
-    expect(frame).toContain(`1667 ${AI_1667_VERSION_TAG}`);
-    expect(frame).not.toContain(`1667 ${AI_1667_VERSION_TAG}…`);
+    const top = text(20, 10);
+    const total = Number(top.match(/\? ↑↓1\/(\d+)/)?.[1]);
+    expect(Number.isFinite(total)).toBeTrue();
+    expect(top).toContain(`1667 ${AI_1667_VERSION_TAG}`);
+    expect(top).not.toContain(`1667 ${AI_1667_VERSION_TAG}…`);
+
+    const bottom = render(20, 10, 500);
+    expect(frameText(bottom.composition.lines))
+      .toContain(`? ↑↓${bottom.scrollTop + 1}/${total}`);
   });
 
   test("the old QWERTY diagram and its unexplained bands are gone", () => {
