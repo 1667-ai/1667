@@ -4,6 +4,10 @@ All notable changes to 1667 will be documented in this file.
 
 ## Unreleased
 
+- **Repository documentation now shows build status and uses a defined language
+  standard.** The README shows CI and packaged-build status for `main`.
+  `AGENTS.md` requires ASD-STE100 for technical documentation and README files.
+  Thanks @10fra for defining the standard.
 - **Generation stays out of the writer's way.** Provider work now runs between
   short durable phases, then applies an operation-specific result to the
   current story without losing intervening edits. Linux race coverage includes
