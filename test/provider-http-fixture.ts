@@ -20,7 +20,11 @@ import type {
   GenerationSettings,
   StoryPayload
 } from "../shared/types.js";
-import { waitForTestServer } from "./http-test-client.js";
+import {
+  API_PROTOCOL_HEADERS,
+  fetchWithApiProtocol,
+  waitForTestServer
+} from "./http-test-client.js";
 
 const PROVIDER_TEST_TIMEOUT_MS = 30_000;
 
@@ -120,6 +124,46 @@ export function doneStory(events: string): StoryPayload {
     if (event.type === "done") return event.story as StoryPayload;
   }
   assert.fail(`missing done story in ${events}`);
+}
+
+export function post(body: unknown): RequestInit {
+  return {
+    method: "POST",
+    headers: {
+      ...API_PROTOCOL_HEADERS,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  };
+}
+
+export async function json<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetchWithApiProtocol(url, init);
+  if (!response.ok) {
+    assert.fail(`${response.status} ${await response.text()}`);
+  }
+  return await response.json() as T;
+}
+
+export async function getStory(
+  base: string,
+  id: string
+): Promise<StoryPayload> {
+  return await json(`${base}/api/stories/${id}`);
+}
+
+export async function seededStory(
+  base: string,
+  text: string
+): Promise<StoryPayload> {
+  const created = await json<StoryPayload>(
+    `${base}/api/stories`,
+    post({ title: "Test" })
+  );
+  return await json(
+    `${base}/api/stories/${created.id}/nodes`,
+    post({ parentId: null, instruction: "Write.", text })
+  );
 }
 
 export async function testApp(
