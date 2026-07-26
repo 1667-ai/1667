@@ -272,9 +272,8 @@ export async function readOptionalPrivateFiles(
   if (files.some((file) => path.dirname(file) !== directory)) {
     throw new Error(`${policy.label} batch crossed directories`);
   }
-  await inspectPrivateDirectory(directory, policy.label);
   await Promise.all(files.map(
-    async (file) => await recoverPrivatePublication(file, policy)
+    async (file) => await recoverPrivatePublicationBeforeRead(file, policy)
   ));
   await inspectPrivateDirectory(directory, policy.label);
   return await Promise.all(files.map(async (file) => {
@@ -289,6 +288,16 @@ export async function readOptionalPrivateFiles(
       throw error;
     }
   }));
+}
+
+async function recoverPrivatePublicationBeforeRead(
+  file: string,
+  policy: PrivateFilePolicy
+): Promise<void> {
+  if (await optionalPathInfo(privatePublicationScratchPath(file)) === null) {
+    return;
+  }
+  await recoverPrivatePublication(file, policy);
 }
 
 export async function removePrivateFile(
