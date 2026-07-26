@@ -128,7 +128,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("pagedown", "NAV", "scroll-down"),
         binding("d", "NAV", "scroll-down", { ctrl: true })
       ]),
-      entry("first part · newest leaf", [
+      entry("first part · line's leaf", [
         binding("g", "NAV", "top"),
         binding("G", "NAV", "leaf", { shift: true })
       ]),

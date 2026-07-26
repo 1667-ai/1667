@@ -52,6 +52,14 @@ describe("keys reference", () => {
     }
   });
 
+  test("G names the active line's leaf rather than global recency", () => {
+    const leaf = entries.find((item) =>
+      item.bindings.some((binding) => binding.action === "leaf")
+    );
+    expect(leaf?.description).toBe("first part · line's leaf");
+    expect(leaf?.description).not.toContain("newest");
+  });
+
   test("the minimum-width panel wraps every meaning instead of clipping it", () => {
     const frame = text(20, 160);
     const body = frame.split("\n").filter((line) => line.includes("┃")).join("\n");
