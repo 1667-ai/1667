@@ -56,6 +56,8 @@ describe("keys reference", () => {
     const frame = text(20, 160);
     const body = frame.split("\n").filter((line) => line.includes("┃")).join("\n");
     const words = body.replace(/\n\s*┃\s*/g, " ").replace(/\s+/g, " ");
+    expect(frame).toContain("┏━ ? ━");
+    expect(frame).not.toContain("┏━ keys · and wh");
     expect(body).not.toContain("…");
     for (const line of frame.split("\n")) expect(visibleWidth(line) <= 20).toBeTrue();
     for (const item of entries) expect(words).toContain(item.description);

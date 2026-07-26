@@ -314,10 +314,16 @@ export function renderKeysOverlay(
       ? "build ↓"
       : buildIdentity;
   // When the footer cannot carry scroll guidance, the short title keeps
-  // overflow and the current position visible.
-  const title = range !== "" && compactFooter
-    ? `? ↑↓${window.start + 1}/${rows.length}`
-    : `keys · and what they do${range}`;
+  // overflow and the current position visible. It also protects tall, narrow
+  // panels where no range exists but the explanatory title cannot fit.
+  const expandedTitle = `keys · and what they do${range}`;
+  const compactTitle = range === ""
+    ? "?"
+    : `? ↑↓${window.start + 1}/${rows.length}`;
+  const title = (range !== "" && compactFooter)
+    || visibleWidth(`┏━ ${expandedTitle} ━`) > panelWidth
+    ? compactTitle
+    : expandedTitle;
 
   // Inert, not transparent: without hits the story's own rows stay live under
   // the modal, so a click outside would not even dismiss it.
