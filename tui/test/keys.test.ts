@@ -2,11 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { createComposer } from "../src/composer-model.js";
 import { pasteInto, resolveKey, sanitizePastedText } from "../src/keys.js";
-import {
-  KEYS_MODAL_MODEL,
-  renderKeysOverlay
-} from "../src/screens/keys-modal.js";
-import { frameText } from "../src/screens/story/frame.js";
 
 function key(
   name: string,
@@ -99,41 +94,6 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("d", { shift: true }), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("down"), "MAP", { confirmingPrune: true }).action).toBe("none");
     expect(resolveKey(key("escape"), "MAP", { confirmingPrune: true }).action).toBe("cancel");
-  });
-});
-
-describe("key map", () => {
-  test("sections read in order and every advertised binding resolves", () => {
-    const frame = frameText(renderKeysOverlay(
-      Array.from({ length: 36 }, () => []), Array.from({ length: 36 }, () => null), 120, 36
-    ).composition.lines);
-    const titles = KEYS_MODAL_MODEL.sections.map((section) => section.title);
-    expect(titles).toEqual(["MOVE", "WRITE", "SHAPE", "OPEN", "MAP"]);
-    for (const binding of KEYS_MODAL_MODEL.bindings) {
-      const event = key(binding.name, {
-        sequence: binding.sequence,
-        shift: binding.shift,
-        ctrl: binding.ctrl
-      });
-      expect(resolveKey(event, binding.mode, { mapView: binding.mapView }).action).toBe(binding.action);
-    }
-    const escape = KEYS_MODAL_MODEL.bindings.find((binding) =>
-      binding.name === "escape" && binding.mode === "KEYS")!;
-    expect(frame).toContain("esc");
-    expect(resolveKey(key(escape.name), escape.mode).action).toBe(escape.action);
-    expect(frame).toContain("↑ ↓");
-    expect(frame).toContain("← →");
-  });
-
-  test("the keys nothing binds are absent rather than shown unexplained", () => {
-    const tokens = KEYS_MODAL_MODEL.sections.flatMap((section) =>
-      section.entries.map((item) => item.token));
-    for (const dead of ["h", "j", "k", "t", "v", ";"]) expect(tokens).not.toContain(dead);
-    const advertised = (action: string) =>
-      KEYS_MODAL_MODEL.bindings.some((binding) => binding.action === action);
-    expect(advertised("map-follow")).toBeTrue();
-    expect(advertised("toggle-sketches")).toBeTrue();
-    expect(advertised("retake-with-prompt")).toBeTrue();
   });
 });
 

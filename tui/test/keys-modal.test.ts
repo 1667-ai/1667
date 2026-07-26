@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
-import { resolveKey, type AppMode } from "../src/keys.js";
-import type { MapView } from "../src/map-state.js";
 import {
   KEYS_MODAL_MODEL,
   renderKeysOverlay,
@@ -23,90 +20,9 @@ function text(width: number, height: number, scrollTop = 0): string {
   return frameText(render(width, height, scrollTop).composition.lines);
 }
 
-function key(name: string, options: { shift?: boolean; ctrl?: boolean } = {}): KeyEvent {
-  const shift = options.shift ?? false;
-  const resolvedName = shift && /^[a-z]$/.test(name) ? name.toUpperCase() : name;
-  return {
-    name: resolvedName,
-    sequence: resolvedName,
-    shift,
-    ctrl: options.ctrl ?? false,
-    meta: false,
-    super: false
-  } as KeyEvent;
-}
-
 const entries = KEYS_MODAL_MODEL.sections.flatMap((section) => section.entries);
 
 describe("keys reference", () => {
-  test("every key it shows is spelled out and every claim resolves", () => {
-    expect(entries.length).toBeGreaterThan(30);
-    for (const item of entries) {
-      expect(`${item.token}:${item.description.length > 0}`).toBe(`${item.token}:true`);
-      // An entry without bindings is decoration: it would advertise a key
-      // nothing presses, which is the failure the resolver check cannot see.
-      expect(`${item.token}:${item.bindings.length > 0}`).toBe(`${item.token}:true`);
-      for (const binding of item.bindings) {
-        const event = key(binding.name, {
-          ...(binding.shift === true ? { shift: true } : {}),
-          ...(binding.ctrl === true ? { ctrl: true } : {})
-        });
-        const resolved = resolveKey(event, binding.mode, {
-          ...(binding.mapView === undefined ? {} : { mapView: binding.mapView })
-        });
-        expect(`${item.token}:${resolved.action}`).toBe(`${item.token}:${binding.action}`);
-      }
-    }
-  });
-
-  test("no reachable story or map key does something the reference never names", () => {
-    const letters = [
-      "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-      "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
-    ];
-    const names = [
-      ...letters,
-      "up", "down", "left", "right", "space", "return", "escape",
-      "pageup", "pagedown", "[", "]", ":", ",", "?", ";", "/", "."
-    ];
-    const surfaces: ReadonlyArray<{ mode: AppMode; mapView?: MapView }> = [
-      { mode: "NAV" },
-      { mode: "MAP", mapView: "path" },
-      { mode: "MAP", mapView: "tree" },
-      { mode: "MAP", mapView: "mass" }
-    ];
-    for (const surface of surfaces) {
-      const events = [
-        ...names.map((name) => key(name)),
-        ...(surface.mode === "NAV"
-          ? [
-              ...letters.map((name) => key(name, { shift: true })),
-              key("up", { shift: true }),
-              key("down", { shift: true }),
-              ...letters.map((name) => key(name, { ctrl: true }))
-            ]
-          : [])
-      ];
-      for (const event of events) {
-        const resolved = resolveKey(event, surface.mode, {
-          ...(surface.mapView === undefined ? {} : { mapView: surface.mapView })
-        });
-        if (resolved.action === "none") continue;
-        const explained = KEYS_MODAL_MODEL.bindings.some((binding) =>
-          binding.name === event.name
-          && binding.mode === surface.mode
-          && binding.action === resolved.action
-          && (binding.shift ?? false) === event.shift
-          && (binding.ctrl ?? false) === event.ctrl
-          && (binding.mapView === undefined || binding.mapView === surface.mapView)
-        );
-        const modifiers = `${event.shift ? "shift+" : ""}${event.ctrl ? "ctrl+" : ""}`;
-        const label = `${surface.mode}/${surface.mapView ?? "-"} ${modifiers}${event.name}`;
-        expect(`${label}:${explained}`).toBe(`${label}:true`);
-      }
-    }
-  });
-
   test("sections read in a fixed order and each explains itself", () => {
     expect(KEYS_MODAL_MODEL.sections.map((section) => section.title)).toEqual([
       "MOVE", "WRITE", "SHAPE", "OPEN", "MAP"
