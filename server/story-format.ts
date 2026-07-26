@@ -35,8 +35,12 @@ export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-fact
 export { manifestRevisionIds } from "./story-format-nodes.js";
 export { hasUnpairedSurrogate } from "./story-format-unicode.js";
 export const STORY_FORMAT = "1667-story";
+/** StoryTavern objects are content-addressed. Read their exact identifiers so
+ * migration does not invalidate hashes; every new object uses 1667 instead. */
+export const STORYTAVERN_STORY_FORMAT = "storytavern-story";
 export const STORY_SCHEMA_VERSION = 5;
 export const REVISION_FORMAT = "1667-text-revision";
+export const STORYTAVERN_REVISION_FORMAT = "storytavern-text-revision";
 export const REVISION_SCHEMA_VERSION = 1;
 export const MAX_CHUNK_BYTES = 64 * 1024;
 export const MAX_CHUNKS_PER_REVISION = 65_536;
@@ -163,7 +167,7 @@ export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> 
 }
 
 export interface TextRevisionV1 {
-  format: typeof REVISION_FORMAT;
+  format: typeof REVISION_FORMAT | typeof STORYTAVERN_REVISION_FORMAT;
   schemaVersion: typeof REVISION_SCHEMA_VERSION;
   chunks: ObjectHash[];
   utf16Length: number;
@@ -311,7 +315,7 @@ export function parseLegacyManifestWithoutSizeLimit(raw: string, expectedId: str
 export function parseManifestValueWithVersion(input: unknown, expectedId: string): ParsedManifestVersion {
   const value = recordValue(input, `story ${expectedId} manifest`);
   if (
-    value.format !== STORY_FORMAT
+    !isSupportedStoryFormat(value.format)
     || (
       value.schemaVersion !== 2
       && value.schemaVersion !== 3
@@ -321,7 +325,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   ) {
     throw new StoryFormatError(`Unsupported story format in ${expectedId}`);
   }
-  if (value.schemaVersion === STORY_SCHEMA_VERSION) assertStrictV5Manifest(value, expectedId);
+  if (value.schemaVersion === STORY_SCHEMA_VERSION) {
+    assertStrictV5Manifest(value, expectedId, value.format);
+  }
   const id = stringField(value, "id");
   if (id !== expectedId) throw new StoryFormatError(`Story id mismatch: expected ${expectedId}, found ${id}`);
   const origin = optionalOrigin(value.origin);
@@ -354,7 +360,8 @@ export function parseRevision(raw: string, expectedHash: ObjectHash): TextRevisi
     throw new StoryFormatError(`Revision hash mismatch: ${expectedHash}`);
   }
   const value = parseJsonObject(raw, `revision ${expectedHash}`);
-  if (value.format !== REVISION_FORMAT || value.schemaVersion !== REVISION_SCHEMA_VERSION) {
+  if (!isSupportedRevisionFormat(value.format)
+    || value.schemaVersion !== REVISION_SCHEMA_VERSION) {
     throw new StoryFormatError(`Unsupported revision format: ${expectedHash}`);
   }
   const chunks = arrayField(value, "chunks").map((hash, index) => requireHash(hash, `chunks[${index}]`));
@@ -363,9 +370,24 @@ export function parseRevision(raw: string, expectedHash: ObjectHash): TextRevisi
   }
   const utf16Length = integerField(value, "utf16Length");
   if (utf16Length < 0) throw new StoryFormatError("utf16Length must not be negative");
-  const revision = createRevision(chunks, utf16Length);
+  const revision: TextRevisionV1 = {
+    ...createRevision(chunks, utf16Length),
+    format: value.format
+  };
   if (serializeRevision(revision) !== raw) throw new StoryFormatError(`Revision is not canonically serialized: ${expectedHash}`);
   return revision;
+}
+
+function isSupportedStoryFormat(
+  value: unknown
+): value is typeof STORY_FORMAT | typeof STORYTAVERN_STORY_FORMAT {
+  return value === STORY_FORMAT || value === STORYTAVERN_STORY_FORMAT;
+}
+
+function isSupportedRevisionFormat(
+  value: unknown
+): value is typeof REVISION_FORMAT | typeof STORYTAVERN_REVISION_FORMAT {
+  return value === REVISION_FORMAT || value === STORYTAVERN_REVISION_FORMAT;
 }
 
 export function parseLegacyStory(raw: string, expectedId: string): Story {

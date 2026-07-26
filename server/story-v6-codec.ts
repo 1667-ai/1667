@@ -3,7 +3,9 @@ import { assertNfcJsonStrings, canonicalJson, decodeCanonicalUtf8, encodeUtf8Str
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import {
   parseLegacyManifestWithoutSizeLimit,
-  parseManifestValueWithVersion
+  parseManifestValueWithVersion,
+  STORY_FORMAT,
+  STORYTAVERN_STORY_FORMAT
 } from "./story-format.js";
 import { hasLegacyTopLevelSchemaVersion } from "./json-schema-version.js";
 import { buildStorySummary } from "./story-summary.js";
@@ -189,7 +191,10 @@ function parseDeleted(value: unknown, expectedId: string): DeletedStoryManifestV
 }
 
 function parseCommonLiterals(manifest: Record<string, unknown>): void {
-  literal(manifest.format, "1667-story", "manifest.format");
+  if (manifest.format !== STORY_FORMAT
+    && manifest.format !== STORYTAVERN_STORY_FORMAT) {
+    throw new StoryFormatError("manifest.format is invalid");
+  }
   literal(manifest.schemaVersion, STORY_SCHEMA_VERSION_V6, "manifest.schemaVersion");
 }
 

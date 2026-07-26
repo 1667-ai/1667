@@ -172,7 +172,9 @@ npm run migrate-data -- /path/to/legacy-data /path/to/project/.1667
 
 Run this command from the repository root. The destination must not exist.
 Migration preserves the source. Migration also accepts a legacy directory that
-contains only `settings.json`.
+contains only `settings.json`. Migration accepts StoryTavern story bundles.
+1667 keeps their content hashes valid. It writes 1667 format identifiers when
+it next changes a story.
 
 `1667 export` writes the selected story line to `<Story Title>.md` in the
 project root. Chapter titles use `##` headings. 1667 does not read an exported
