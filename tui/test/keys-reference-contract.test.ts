@@ -3,10 +3,10 @@ import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
-import { resolveKey, type AppMode } from "../src/keys.js";
-import type { MapView } from "../src/map-state.js";
+import { resolveKey } from "../src/keys.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
+import { REFERENCE_BINDING_LIST } from "../src/reference-bindings.js";
 import { KEYS_MODAL_MODEL } from "../src/screens/keys-modal.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -54,50 +54,32 @@ describe("keys reference contract", () => {
     }
   });
 
-  test("every reachable story and map gesture has one concrete reference binding", () => {
-    const letters = [
-      "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-      "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
-    ];
-    const names = [
-      ...letters,
-      "up", "down", "left", "right", "space", "return", "escape",
-      "pageup", "pagedown", "[", "]", ":", ",", "?", ";", "/", "."
-    ];
-    const surfaces: ReadonlyArray<{ mode: AppMode; mapView?: MapView }> = [
-      { mode: "NAV" },
-      { mode: "MAP", mapView: "path" },
-      { mode: "MAP", mapView: "tree" },
-      { mode: "MAP", mapView: "mass" }
-    ];
-    for (const surface of surfaces) {
-      const events = [
-        ...names.map((name) => key(name)),
-        ...(surface.mode === "NAV"
-          ? [
-              ...letters.map((name) => key(name, { shift: true })),
-              key("up", { shift: true }),
-              key("down", { shift: true }),
-              key("/", { sequence: "?", shift: true }),
-              ...letters.map((name) => key(name, { ctrl: true }))
-            ]
-          : [])
+  test("every reference-visible route is grouped exactly once", () => {
+    expect(KEYS_MODAL_MODEL.bindings.length).toBe(REFERENCE_BINDING_LIST.length);
+    for (const binding of REFERENCE_BINDING_LIST) {
+      expect(KEYS_MODAL_MODEL.bindings.filter((item) => item === binding)).toHaveLength(1);
+    }
+  });
+
+  test("shifted-letter routes accept every terminal encoding", () => {
+    const bindings = REFERENCE_BINDING_LIST.filter((binding) =>
+      binding.lane === "nav-shifted" && /^[A-Z]$/.test(binding.name)
+    );
+    for (const binding of bindings) {
+      const lower = binding.name.toLowerCase();
+      const variants = [
+        { name: lower, sequence: binding.name, shift: true },
+        { name: binding.name, sequence: binding.name, shift: true },
+        { name: binding.name, sequence: binding.name, shift: false }
       ];
-      for (const event of events) {
-        const resolved = resolveKey(event, surface.mode, { mapView: surface.mapView });
-        if (resolved.action === "none") continue;
-        const explained = KEYS_MODAL_MODEL.bindings.some((binding) =>
-          binding.name === event.name
-          && binding.mode === surface.mode
-          && binding.action === resolved.action
-          && (binding.sequence ?? binding.name) === event.sequence
-          && (binding.shift ?? false) === event.shift
-          && (binding.ctrl ?? false) === event.ctrl
-          && (binding.mapView === undefined || binding.mapView === surface.mapView)
-        );
-        const modifiers = `${event.shift ? "shift+" : ""}${event.ctrl ? "ctrl+" : ""}`;
-        const label = `${surface.mode}/${surface.mapView ?? "-"} ${modifiers}${event.name}`;
-        expect(`${label}:${explained}`).toBe(`${label}:true`);
+      for (const variant of variants) {
+        const event = {
+          ...variant,
+          ctrl: false,
+          meta: false,
+          super: false
+        } as KeyEvent;
+        expect(resolveKey(event, binding.mode).action).toBe(binding.action);
       }
     }
   });

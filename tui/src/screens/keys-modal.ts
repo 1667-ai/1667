@@ -1,22 +1,21 @@
 import { type HitRows } from "../hit.js";
-import type { AppMode, KeyAction } from "../keys.js";
-import type { MapView } from "../map-state.js";
+import {
+  REFERENCE_BINDINGS,
+  type ReferenceBinding,
+  type ReferenceBindingId
+} from "../reference-bindings.js";
 import { AI_1667_VERSION_TAG } from "../../../shared/build-identity.js";
-import { panelContentRows, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
+import {
+  panelContentRows,
+  panelHorizontalGeometry,
+  placePanel,
+  raisedSegment
+} from "./overlay.js";
 import { boundedContent, panelRange } from "./panel-table-layout.js";
 import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { wrapText } from "../wrap.js";
 
-export interface KeysModalBinding {
-  display: string;
-  name: string;
-  mode: AppMode;
-  action: KeyAction;
-  sequence?: string;
-  shift?: boolean;
-  ctrl?: boolean;
-  mapView?: MapView;
-}
+export type KeysModalBinding = ReferenceBinding;
 
 /** One row of the reference: the keys as a writer would spell them, and what
  *  pressing them does. Every row carries the bindings it claims, so the
@@ -39,23 +38,8 @@ export interface KeysModalModel {
   bindings: readonly KeysModalBinding[];
 }
 
-type BindingOptions = Partial<Pick<
-  KeysModalBinding,
-  "sequence" | "shift" | "ctrl" | "mapView"
->>;
-
-const binding = (
-  name: string,
-  mode: AppMode,
-  action: KeyAction,
-  extra: BindingOptions = {}
-): KeysModalBinding => ({
-  display: bindingDisplay(name, extra),
-  name,
-  mode,
-  action,
-  ...extra
-});
+const binding = (id: ReferenceBindingId): KeysModalBinding =>
+  REFERENCE_BINDINGS[id];
 
 const entry = (
   description: string,
@@ -65,24 +49,6 @@ const entry = (
   description,
   bindings
 });
-
-function bindingDisplay(name: string, modifiers: BindingOptions): string {
-  const base = modifiers.sequence ?? ({
-    up: "↑",
-    down: "↓",
-    left: "←",
-    right: "→",
-    pageup: "pgup",
-    pagedown: "pgdn",
-    return: "enter",
-    escape: "esc"
-  }[name] ?? name);
-  if (modifiers.ctrl === true) return `⌃${base}`;
-  if (modifiers.shift === true && ["up", "down", "left", "right"].includes(name)) {
-    return `⇧${base}`;
-  }
-  return base;
-}
 
 /** The whole key reference, as sections a writer can read top to bottom.
  *
@@ -101,44 +67,40 @@ const SECTIONS: readonly KeysModalSection[] = [
     role: "focus / accent",
     entries: [
       entry("previous · next row", [
-        binding("up", "NAV", "focus-previous"),
-        binding("down", "NAV", "focus-next"),
-        binding("up", "MAP", "focus-previous", { mapView: "path" }),
-        binding("down", "MAP", "focus-next", { mapView: "path" }),
-        binding("up", "MAP", "focus-previous", { mapView: "tree" }),
-        binding("down", "MAP", "focus-next", { mapView: "tree" }),
-        binding("up", "MAP", "focus-previous", { mapView: "mass" }),
-        binding("down", "MAP", "focus-next", { mapView: "mass" })
+        binding("navFocusPrevious"),
+        binding("navFocusNext"),
+        binding("mapFocusPrevious"),
+        binding("mapFocusNext")
       ]),
       entry("flip between takes", [
-        binding("left", "NAV", "take-previous"),
-        binding("right", "NAV", "take-next"),
-        binding("left", "MAP", "take-previous", { mapView: "path" }),
-        binding("right", "MAP", "take-next", { mapView: "path" })
+        binding("navTakePrevious"),
+        binding("navTakeNext"),
+        binding("mapPathTakePrevious"),
+        binding("mapPathTakeNext")
       ]),
       entry("nudge the page a line", [
-        binding("up", "NAV", "scroll-line-up", { shift: true }),
-        binding("down", "NAV", "scroll-line-down", { shift: true })
+        binding("navScrollLineUp"),
+        binding("navScrollLineDown")
       ]),
       entry("page up", [
-        binding("pageup", "NAV", "scroll-up"),
-        binding("u", "NAV", "scroll-up", { ctrl: true })
+        binding("navPageUp"),
+        binding("navCtrlPageUp")
       ]),
       entry("page down", [
-        binding("pagedown", "NAV", "scroll-down"),
-        binding("d", "NAV", "scroll-down", { ctrl: true })
+        binding("navPageDown"),
+        binding("navCtrlPageDown")
       ]),
       entry("first part · line's leaf", [
-        binding("g", "NAV", "top"),
-        binding("G", "NAV", "leaf", { shift: true })
+        binding("navTop"),
+        binding("navLeaf")
       ]),
       entry("chapter back · forward", [
-        binding("[", "NAV", "chapter-previous"),
-        binding("]", "NAV", "chapter-next")
+        binding("navChapterPrevious"),
+        binding("navChapterNext")
       ]),
       // Undo consumes take switches and chapter breaks, and nothing else. It
       // must not read as a safety net beside `d`, which it cannot reverse.
-      entry("undo take switch · break", [binding("u", "NAV", "undo")])
+      entry("undo take switch · break", [binding("navUndo")])
     ]
   },
   {
@@ -146,26 +108,26 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "make the next part",
     role: "human edit",
     entries: [
-      entry("continue this part", [binding("space", "NAV", "continue")]),
+      entry("continue this part", [binding("navContinue")]),
       entry("type what happens next", [
-        binding("return", "NAV", "compose"),
-        binding("i", "NAV", "compose")
+        binding("navComposeEnter"),
+        binding("navComposeI")
       ]),
-      entry("retake · same prompt", [binding("r", "NAV", "regenerate")]),
+      entry("retake · same prompt", [binding("navRegenerate")]),
       entry("retake · edit prompt", [
-        binding("R", "NAV", "retake-with-prompt", { shift: true })
+        binding("navRetakeWithPrompt")
       ]),
-      entry("write a take yourself", [binding("w", "NAV", "write")]),
-      entry("edit prose and prompt", [binding("e", "NAV", "edit")]),
+      entry("write a take yourself", [binding("navWrite")]),
+      entry("edit prose and prompt", [binding("navEdit")]),
       entry("copy part · whole line", [
-        binding("y", "NAV", "copy-part"),
-        binding("Y", "NAV", "copy-line", { shift: true })
+        binding("navCopyPart"),
+        binding("navCopyLine")
       ]),
       entry("past prompts, in direct", [
-        binding("up", "COMPOSE", "history-previous", { ctrl: true }),
-        binding("down", "COMPOSE", "history-next", { ctrl: true })
+        binding("composeHistoryPrevious"),
+        binding("composeHistoryNext")
       ]),
-      entry("start a new story", [binding("n", "NAV", "new-item")])
+      entry("start a new story", [binding("navNewStory")])
     ]
   },
   {
@@ -173,17 +135,17 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "arrange what exists",
     role: "bookmark · alt",
     entries: [
-      entry("delete take and below", [binding("d", "NAV", "prune")]),
-      entry("bookmark the line here", [binding("b", "NAV", "bookmark")]),
+      entry("delete take and below", [binding("navPrune")]),
+      entry("bookmark the line here", [binding("navBookmark")]),
       entry("chapters · end one here", [
-        binding("c", "NAV", "open-chapters"),
-        binding("C", "NAV", "create-chapter", { shift: true })
+        binding("navOpenChapters"),
+        binding("navCreateChapter")
       ]),
-      entry("actions for this part", [binding("x", "NAV", "open-actions")]),
-      entry("show or hide directions", [binding("p", "NAV", "toggle-instructions")]),
-      entry("typewriter mode", [binding("z", "NAV", "typewriter")]),
+      entry("actions for this part", [binding("navOpenActions")]),
+      entry("show or hide directions", [binding("navToggleInstructions")]),
+      entry("typewriter mode", [binding("navTypewriter")]),
       entry("facts rail · auto or off", [
-        binding("F", "NAV", "toggle-rail", { shift: true })
+        binding("navToggleRail")
       ])
     ]
   },
@@ -192,28 +154,28 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "panels and views",
     role: "bookmark · canon",
     entries: [
-      entry("map of the whole story", [binding("m", "NAV", "open-map")]),
-      entry("facts kept for context", [binding("f", "NAV", "open-facts")]),
-      entry("switch story · library", [binding("o", "NAV", "open-library")]),
+      entry("map of the whole story", [binding("navOpenMap")]),
+      entry("facts kept for context", [binding("navOpenFacts")]),
+      entry("switch story · library", [binding("navOpenLibrary")]),
       entry("command palette", [
-        binding(":", "NAV", "open-commands"),
-        binding("p", "NAV", "open-commands", { ctrl: true })
+        binding("navOpenCommandsColon"),
+        binding("navOpenCommandsCtrlP")
       ]),
-      entry("generation settings", [binding(",", "NAV", "open-settings")]),
+      entry("generation settings", [binding("navOpenSettings")]),
       entry("wide context details", [
-        binding("g", "NAV", "toggle-context-meter", { ctrl: true }),
-        binding("g", "COMPOSE", "toggle-context-meter", { ctrl: true })
+        binding("navToggleContext"),
+        binding("composeToggleContext")
       ]),
       entry("this key reference", [
-        binding("?", "NAV", "open-keys"),
-        binding("/", "NAV", "open-keys", { sequence: "?", shift: true })
+        binding("navOpenKeysQuestion"),
+        binding("navOpenKeysShiftSlash")
       ]),
       entry("close what is open", [
-        binding("escape", "NAV", "cancel"),
-        binding("escape", "MAP", "cancel"),
-        binding("escape", "KEYS", "cancel")
+        binding("navClose"),
+        binding("mapClose"),
+        binding("keysClose")
       ]),
-      entry("quit 1667", [binding("q", "NAV", "quit")])
+      entry("quit 1667", [binding("navQuit")])
     ]
   },
   {
@@ -221,26 +183,26 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "while the map is open",
     role: "compose accent",
     entries: [
-      entry("cycle path · tree · mass", [binding("m", "MAP", "cycle-map-view")]),
+      entry("cycle path · tree · mass", [binding("mapCycleView")]),
       entry("all takes · sketches", [
-        binding("a", "MAP", "toggle-path-takes", { mapView: "path" }),
-        binding("a", "MAP", "toggle-sketches", { mapView: "tree" }),
-        binding("a", "MAP", "toggle-sketches", { mapView: "mass" })
+        binding("mapPathAllTakes"),
+        binding("mapTreeSketches"),
+        binding("mapMassSketches")
       ]),
-      entry("reroute node or sketch", [binding("return", "MAP", "apply")]),
+      entry("reroute node or sketch", [binding("mapApply")]),
       // Views the map itself names in its tabs. A key that does nothing in the
       // view you are looking at has to say so, or the reference lies again.
       entry("follow tree · open mass", [
-        binding("l", "MAP", "map-follow", { mapView: "tree" }),
-        binding("l", "MAP", "map-follow", { mapView: "mass" })
+        binding("mapTreeFollow"),
+        binding("mapMassFollow")
       ]),
       entry("tree→mass · mass sorts", [
-        binding("s", "MAP", "map-cycle-sort", { mapView: "tree" }),
-        binding("s", "MAP", "map-cycle-sort", { mapView: "mass" })
+        binding("mapTreeSort"),
+        binding("mapMassSort")
       ]),
       entry("prune · bookmark · path", [
-        binding("d", "MAP", "prune", { mapView: "path" }),
-        binding("b", "MAP", "bookmark", { mapView: "path" })
+        binding("mapPathPrune"),
+        binding("mapPathBookmark")
       ])
     ]
   }
@@ -278,10 +240,10 @@ export function renderKeysOverlay(
   scrollTop = 0,
   buildIdentity = `1667 ${AI_1667_VERSION_TAG}`
 ): KeysOverlayRender {
-  const panelWidth = panelWidthFor(width, PANEL_MAX_WIDTH);
-  const interior = panelWidth - visibleWidth("┃ ");
+  const horizontal = panelHorizontalGeometry(width, PANEL_MAX_WIDTH);
+  const interior = horizontal.contentWidth;
   const columns = columnCount(interior);
-  const footerCapacity = panelWidth - 4;
+  const footerCapacity = horizontal.footerWidth;
   const wrappedBuildIdentity = visibleWidth(buildIdentity) > footerCapacity;
   const rows = [
     ...layoutRows(interior, columns),
@@ -321,7 +283,7 @@ export function renderKeysOverlay(
     ? "?"
     : `? ↑↓${window.start + 1}/${rows.length}`;
   const title = (range !== "" && compactFooter)
-    || visibleWidth(`┏━ ${expandedTitle} ━`) > panelWidth
+    || visibleWidth(expandedTitle) > horizontal.titleWidth
     ? compactTitle
     : expandedTitle;
 

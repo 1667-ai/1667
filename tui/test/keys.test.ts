@@ -34,6 +34,17 @@ describe("arrow-first key routing", () => {
     }
   });
 
+  test("shifted arrows keep NAV scrolling and MAP focus semantics", () => {
+    expect(resolveKey(key("up", { shift: true }), "NAV").action).toBe("scroll-line-up");
+    expect(resolveKey(key("down", { shift: true }), "NAV").action).toBe("scroll-line-down");
+    for (const mapView of ["path", "tree", "mass"] as const) {
+      expect(resolveKey(key("up", { shift: true }), "MAP", { mapView }).action)
+        .toBe("focus-previous");
+      expect(resolveKey(key("down", { shift: true }), "MAP", { mapView }).action)
+        .toBe("focus-next");
+    }
+  });
+
   test("map path uses arrows, applies with Enter, and cycles with m", () => {
     const path = { mapView: "path" as const };
     expect(resolveKey(key("down"), "MAP", path).action).toBe("focus-next");
@@ -173,7 +184,12 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key(":"), "NAV").action).toBe("open-commands");
     expect(resolveKey(key("g", { ctrl: true }), "NAV").action).toBe("toggle-context-meter");
     expect(resolveKey(key("g", { ctrl: true }), "COMPOSE").action).toBe("toggle-context-meter");
+    expect(resolveKey(key("G", { ctrl: true, shift: true }), "COMPOSE").action)
+      .toBe("toggle-context-meter");
+    expect(resolveKey(key("up", { ctrl: true, shift: true }), "COMPOSE").action)
+      .toBe("history-previous");
     expect(resolveKey(key("/"), "NAV").action).toBe("none");
+    expect(resolveKey(key("?", { shift: true }), "NAV").action).toBe("open-keys");
     expect(resolveKey(key("/"), "LIBRARY").action).toBe("filter");
   });
 

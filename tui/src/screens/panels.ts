@@ -22,7 +22,7 @@ import type { NextRequestEstimate } from "../request-projection.js";
 import {
   dimPage,
   panelContentRows,
-  panelWidthFor,
+  panelHorizontalGeometry,
   placePanel,
   raisedSegment
 } from "./overlay.js";
@@ -133,7 +133,7 @@ function renderActions(
   const actions = currentPartActions(state);
   const view = createStoryViewModel(state.payload, state.stream);
   const part = rowPart(view, rowIndexForNode(view, overlay.partId));
-  const contentWidth = panelWidthFor(width, 64) - 2;
+  const contentWidth = panelHorizontalGeometry(width, 64).contentWidth;
   const leadWidth = Math.min(4, contentWidth);
   const widestName = Math.max(0, ...actions.map((action) => visibleWidth(action.name)));
   const nameWidth = Math.min(widestName + 2, Math.max(0, contentWidth - leadWidth));
@@ -161,7 +161,7 @@ function renderChapters(
 ): FrameComposition {
   const overlay = state.chapters!;
   const model = chapterListModel(state.payload, state.contextWindow ?? null, estimate);
-  const contentWidth = panelWidthFor(width) - 2;
+  const contentWidth = panelHorizontalGeometry(width).contentWidth;
   // Chapter numbers are contiguous and one-based, so the final row owns the
   // widest label. Avoid passing a user-sized chapter list as function args.
   const chapterDigits = Math.max(2, String(model.rows.length).length);
@@ -242,7 +242,7 @@ function renderLibrary(
   const overlay = state.library!;
   const rows = libraryRows(overlay.stories, overlay.query);
   const totals = libraryTotals(overlay.stories);
-  const contentWidth = panelWidthFor(width) - 2;
+  const contentWidth = panelHorizontalGeometry(width).contentWidth;
   const columns = libraryColumns(contentWidth);
   const folder = state.storyFolder.length === 0 ? "" : ` · ${state.storyFolder}`;
   const content: FrameLine[] = [];
@@ -320,7 +320,7 @@ function renderFacts(base: FrameLine[], state: OverlayState & { payload: StoryPa
   // would still answer clicks — `hitAt` consults overrides before row bounds — but
   // dropping the overflow would hide tags that `tab` still cycles through. So
   // the chips wrap: every tag stays visible, clickable, and in bounds.
-  const contentWidth = panelWidthFor(width) - 2;
+  const contentWidth = panelHorizontalGeometry(width).contentWidth;
   const columns = factColumns(contentWidth);
   const chipLimit = contentWidth;
   const chipLines: FrameLine[] = [[raisedSegment("  tags  ", "chrome")]];
@@ -362,8 +362,7 @@ function renderFacts(base: FrameLine[], state: OverlayState & { payload: StoryPa
       raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag), "accent · deep"),
       raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome")
     ]];
-    const panelWidth = panelWidthFor(width);
-    if (expanded) for (const line of wrapText(fact.text, [], Math.max(20, panelWidth - 8))) {
+    if (expanded) for (const line of wrapText(fact.text, [], Math.max(20, contentWidth - 6))) {
       lines.push([raisedSegment("      "), raisedSegment(line.text, "prose")]);
     }
     logicalRows.push(lines);
@@ -407,8 +406,8 @@ function renderCommands(
   height: number
 ): FrameComposition {
   const overlay = state.commands!;
-  const panelWidth = panelWidthFor(width, 72);
-  const content: FrameLine[] = [commandSearchLine(overlay.query, panelWidth - 2)];
+  const horizontal = panelHorizontalGeometry(width, 72);
+  const content: FrameLine[] = [commandSearchLine(overlay.query, horizontal.contentWidth)];
   if (overlay.view === "bookmarks") {
     const bookmarks = state.payload.bookmarks;
     const window = panelRowWindow(
@@ -444,7 +443,7 @@ function renderCommands(
   // Search permanently owns one of the rows the panel can paint.
   const rows = commandPaletteWindow(model, cursor, Math.max(1, panelContentRows(height) - 1));
   for (const row of rows) {
-    content.push(commandPaletteLine(row, cursor, panelWidth - 2));
+    content.push(commandPaletteLine(row, cursor, horizontal.contentWidth));
     targets.push(row.selectableIndex === null ? null : {
       kind: "list", index: row.selectableIndex, selected: row.selectableIndex === cursor
     });

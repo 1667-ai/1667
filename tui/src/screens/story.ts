@@ -17,7 +17,7 @@ import type { StoryScreenState } from "../state.js";
 import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-layout.js";
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
-import { dimPage, panelWidthFor, placePanel, raisedSegment } from "./overlay.js";
+import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./overlay.js";
 import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
 import { renderPanels } from "./panels.js";
@@ -322,7 +322,10 @@ function renderMapBookmark(
   const prompt = state.bookmark!;
   const selected = bookmarkLabelChoice(BOOKMARK_LABELS[prompt.labelIndex] ?? "");
   const namePrefix = "  Name  ";
-  const nameWidth = Math.max(0, panelWidthFor(width, 64) - 2 - visibleWidth(namePrefix) - 1);
+  const nameWidth = Math.max(
+    0,
+    panelHorizontalGeometry(width, 64).contentWidth - visibleWidth(namePrefix) - 1
+  );
   const input: FrameLine = [
     raisedSegment(namePrefix, "chrome"),
     raisedSegment(truncateTail(prompt.name, nameWidth), "streaming"),

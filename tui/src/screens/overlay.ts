@@ -44,6 +44,57 @@ export function panelWidthFor(width: number, maxWidth = 106): number {
   return Math.max(1, Math.min(width - 4, preferred));
 }
 
+const PANEL_TITLE_PREFIX = "┏━ ";
+const PANEL_TITLE_SUFFIX = " ━";
+const PANEL_CONTENT_PREFIX = "┃ ";
+const PANEL_FOOTER_PREFIX = "  ";
+const PANEL_FOOTER_SUFFIX = "  ";
+
+export interface PanelHorizontalGeometry {
+  left: number;
+  right: number;
+  panelWidth: number;
+  contentInset: number;
+  contentLeft: number;
+  contentWidth: number;
+  footerInset: number;
+  footerLeft: number;
+  footerWidth: number;
+  titleOverhead: number;
+  titleWidth: number;
+}
+
+/** Horizontal measures shared by panel chrome and responsive callers.
+ *  Keeping the prefixes and reserved trailing cells here prevents a caller
+ *  from selecting copy against dimensions `placePanel` will later truncate. */
+export function panelHorizontalGeometry(
+  width: number,
+  maxWidth = 106
+): PanelHorizontalGeometry {
+  const panelWidth = panelWidthFor(width, maxWidth);
+  const left = Math.max(2, Math.floor((width - panelWidth) / 2));
+  const contentInset = visibleWidth(PANEL_CONTENT_PREFIX);
+  const footerInset = visibleWidth(PANEL_FOOTER_PREFIX);
+  const titleOverhead =
+    visibleWidth(PANEL_TITLE_PREFIX) + visibleWidth(PANEL_TITLE_SUFFIX);
+  return {
+    left,
+    right: left + panelWidth,
+    panelWidth,
+    contentInset,
+    contentLeft: left + contentInset,
+    contentWidth: Math.max(0, panelWidth - contentInset),
+    footerInset,
+    footerLeft: left + footerInset,
+    footerWidth: Math.max(
+      0,
+      panelWidth - footerInset - visibleWidth(PANEL_FOOTER_SUFFIX)
+    ),
+    titleOverhead,
+    titleWidth: Math.max(0, panelWidth - titleOverhead)
+  };
+}
+
 const PANEL_FRAME_ROWS = 4;
 const PANEL_MIN_HEIGHT = 6;
 const PANEL_SCREEN_MARGIN_ROWS = 5;
@@ -80,14 +131,15 @@ export function placePanel(
   maxWidth = 106,
   hits?: PanelHits
 ): FrameComposition {
-  const panelWidth = panelWidthFor(width, maxWidth);
-  const left = Math.max(2, Math.floor((width - panelWidth) / 2));
+  const horizontal = panelHorizontalGeometry(width, maxWidth);
+  const panelWidth = horizontal.panelWidth;
+  const { left, right } = horizontal;
   const geometry = panelGeometry(height, content.length);
   const top = Math.max(1, Math.floor((height - 1 - geometry.height) / 2));
   const panel: FrameLine[] = [];
-  const topText = `┏━ ${title} ━`;
+  const topText = `${PANEL_TITLE_PREFIX}${title}${PANEL_TITLE_SUFFIX}`;
   panel.push(fillRaised([raisedSegment(topText, "brass dim")], panelWidth));
-  panel.push(fillRaised([raisedSegment("┃ ", "brass dim")], panelWidth));
+  panel.push(fillRaised([raisedSegment(PANEL_CONTENT_PREFIX, "brass dim")], panelWidth));
   // An open panel owns the whole screen: everything outside it is scrim, so
   // a stray click dismisses rather than acting on the page underneath.
   if (hits !== undefined) {
@@ -102,14 +154,16 @@ export function placePanel(
       const relativeOverrides = hits.overrides?.[row] ?? [];
       if (absolute < hits.rows.length && (target !== null || relativeOverrides.length > 0)) {
         addHit(hits.rows, absolute, {
-          target: target ?? { kind: "panel" }, left, right: left + panelWidth
+          target: target ?? { kind: "panel" }, left, right
         });
         for (const region of relativeOverrides) addHit(hits.rows, absolute, {
-          ...region, left: left + 2 + region.left, right: left + 2 + region.right
+          ...region,
+          left: horizontal.contentLeft + region.left,
+          right: horizontal.contentLeft + region.right
         });
       }
     }
-    panel.push(fillRaised([raisedSegment("┃ ", "brass dim"), ...line], panelWidth));
+    panel.push(fillRaised([raisedSegment(PANEL_CONTENT_PREFIX, "brass dim"), ...line], panelWidth));
   }
   panel.push([raisedSegment("┗" + "━".repeat(Math.max(0, panelWidth - 1)), "brass dim")]);
   // Overrides are located in the footer AS DRAWN. Searching the untruncated string
@@ -117,8 +171,10 @@ export function placePanel(
   // consults overrides before row bounds. The throw below then fires the moment a
   // footer outgrows its panel — the failure plan 013 §8b describes, caught here
   // instead of only by a test.
-  const shownFooter = truncate(footer, panelWidth - 4);
-  panel.push(fillRaised([raisedSegment(`  ${shownFooter}`, "chrome")], panelWidth));
+  const shownFooter = truncate(footer, horizontal.footerWidth);
+  panel.push(fillRaised([
+    raisedSegment(`${PANEL_FOOTER_PREFIX}${shownFooter}`, "chrome")
+  ], panelWidth));
   const output = [...base];
   // A cleared gap floats the panel: without it, dimmed page text cut mid-word
   // sits flush against the raised surface and reads as panel content.
@@ -130,12 +186,12 @@ export function placePanel(
       const index = shownFooter.indexOf(item.token, offset);
       if (index === -1) throw new Error(`footer token not found: ${item.token}`);
       offset = index + item.token.length;
-      const regionLeft = left + 2 + visibleWidth(shownFooter.slice(0, index));
+      const regionLeft = horizontal.footerLeft + visibleWidth(shownFooter.slice(0, index));
       return { target: { kind: "action", action: item.action }, left: regionLeft, right: regionLeft + visibleWidth(item.token) };
     });
     const footerRow = top + panel.length - 1;
     if (footerRow < hits.rows.length) {
-      addHit(hits.rows, footerRow, { target: { kind: "panel" }, left, right: left + panelWidth });
+      addHit(hits.rows, footerRow, { target: { kind: "panel" }, left, right });
       for (const region of overrides) addHit(hits.rows, footerRow, region);
     }
   }
@@ -143,14 +199,14 @@ export function placePanel(
     // Panel chrome is inert, not scrim. Content controls were added first;
     // untouched panel rows receive one broad inert override here.
     if (hits !== undefined && (hits.rows[top + row]?.overrides?.length ?? 0) === 0) {
-      addHit(hits.rows, top + row, { target: { kind: "panel" }, left, right: left + panelWidth });
+      addHit(hits.rows, top + row, { target: { kind: "panel" }, left, right });
     }
     output[top + row] = fitLine([
       ...takeWidth(base[top + row] ?? [], Math.max(0, left - gap)),
       gapSegment(),
       ...panel[row]!,
       gapSegment(),
-      ...takeTail(base[top + row] ?? [], left + panelWidth + gap)
+      ...takeTail(base[top + row] ?? [], right + gap)
     ], width);
   }
   return {
@@ -158,7 +214,7 @@ export function placePanel(
     selectable: {
       left,
       top,
-      right: left + panelWidth,
+      right,
       bottom: Math.min(top + panel.length, height - 1)
     }
   };

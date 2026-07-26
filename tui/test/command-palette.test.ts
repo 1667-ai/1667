@@ -10,7 +10,7 @@ import {
 } from "../src/command-model.js";
 import { demoAppSource } from "../src/demo.js";
 import { hitAt, type HitRows } from "../src/hit.js";
-import { panelWidthFor } from "../src/screens/overlay.js";
+import { panelHorizontalGeometry } from "../src/screens/overlay.js";
 import { renderPanels } from "../src/screens/panels.js";
 import { plainLine, visibleWidth, type FrameLine } from "../src/screens/story/frame.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
@@ -125,10 +125,11 @@ describe("grouped command palette rendering", () => {
     const selectedWidth = lines[selectedRow]!
       .filter((segment) => segment.background === "focus / accent")
       .reduce((sum, segment) => sum + visibleWidth(segment.text), 0);
-    expect(selectedWidth).toBe(panelWidthFor(120, 72) - 2);
+    const horizontal = panelHorizontalGeometry(120, 72);
+    expect(selectedWidth).toBe(horizontal.contentWidth);
 
-    const panelLeft = Math.floor((120 - panelWidthFor(120, 72)) / 2);
-    const panelText = plainLine(lines[bookmarkRow]!).slice(panelLeft, panelLeft + panelWidthFor(120, 72));
+    const panelText = plainLine(lines[bookmarkRow]!)
+      .slice(horizontal.left, horizontal.right);
     expect(panelText.trimEnd().endsWith("b")).toBeTrue();
   });
 
@@ -155,7 +156,7 @@ describe("grouped command palette rendering", () => {
     const selectedWidth = lines[selectedRow]!
       .filter((segment) => segment.background === "focus / accent")
       .reduce((sum, segment) => sum + visibleWidth(segment.text), 0);
-    expect(selectedWidth).toBe(panelWidthFor(120, 72) - 2);
+    expect(selectedWidth).toBe(panelHorizontalGeometry(120, 72).contentWidth);
     expect(hitAt(hits, 30, selectedRow)).toEqual({ kind: "list", index: retainedCursor, selected: true });
   });
 });
