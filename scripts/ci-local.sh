@@ -118,7 +118,7 @@ run_linux() {
   # contention that native CI does not have; keep the workload and budgets,
   # but bound only this emulated lane's file-level scheduling.
   if [ "$target" = "linux-x64" ] && [ "$(uname -m)" = "arm64" ]; then
-    runtime_test="npm test -- --test-concurrency=1"
+    runtime_test="env AI_1667_TEST_EMULATED_X64=1 npm test -- --test-concurrency=1"
   fi
   local start; start=$(date +%s)
 
