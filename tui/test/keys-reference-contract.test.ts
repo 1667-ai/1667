@@ -32,7 +32,10 @@ describe("keys reference contract", () => {
     for (const item of entries) {
       expect(item.description.length).toBeGreaterThan(0);
       expect(item.bindings.length).toBeGreaterThan(0);
+      const displays = [...new Set(item.bindings.map((binding) => binding.display))];
+      expect(item.token).toBe(displays.join(" "));
       for (const binding of item.bindings) {
+        expect(binding.display.length).toBeGreaterThan(0);
         const event = key(binding.name, {
           ...(binding.shift === true ? { shift: true } : {}),
           ...(binding.ctrl === true ? { ctrl: true } : {})

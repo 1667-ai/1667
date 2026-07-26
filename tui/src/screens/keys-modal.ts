@@ -8,6 +8,7 @@ import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine }
 import { wrapText } from "../wrap.js";
 
 export interface KeysModalBinding {
+  display: string;
   name: string;
   mode: AppMode;
   action: KeyAction;
@@ -38,18 +39,50 @@ export interface KeysModalModel {
   bindings: readonly KeysModalBinding[];
 }
 
+type BindingOptions = Partial<Pick<
+  KeysModalBinding,
+  "sequence" | "shift" | "ctrl" | "mapView"
+>>;
+
 const binding = (
   name: string,
   mode: AppMode,
   action: KeyAction,
-  extra: Partial<KeysModalBinding> = {}
-): KeysModalBinding => ({ name, mode, action, ...extra });
+  extra: BindingOptions = {}
+): KeysModalBinding => ({
+  display: bindingDisplay(name, extra),
+  name,
+  mode,
+  action,
+  ...extra
+});
 
 const entry = (
-  token: string,
   description: string,
   bindings: readonly KeysModalBinding[]
-): KeysModalEntry => ({ token, description, bindings });
+): KeysModalEntry => ({
+  token: [...new Set(bindings.map((item) => item.display))].join(" "),
+  description,
+  bindings
+});
+
+function bindingDisplay(name: string, modifiers: BindingOptions): string {
+  const base = {
+    up: "↑",
+    down: "↓",
+    left: "←",
+    right: "→",
+    pageup: "pgup",
+    pagedown: "pgdn",
+    return: "enter",
+    escape: "esc"
+  }[name] ?? name;
+  if (modifiers.ctrl === true) return `⌃${base}`;
+  if (modifiers.shift === true && ["up", "down", "left", "right"].includes(name)) {
+    return `⇧${base}`;
+  }
+  return base;
+}
 
 /** The whole key reference, as sections a writer can read top to bottom.
  *
@@ -67,7 +100,7 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "read and navigate",
     role: "focus / accent",
     entries: [
-      entry("↑ ↓", "move between parts", [
+      entry("move between parts", [
         binding("up", "NAV", "focus-previous"),
         binding("down", "NAV", "focus-next"),
         binding("up", "MAP", "focus-previous", { mapView: "path" }),
@@ -77,35 +110,35 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("up", "MAP", "focus-previous", { mapView: "mass" }),
         binding("down", "MAP", "focus-next", { mapView: "mass" })
       ]),
-      entry("← →", "flip between takes", [
+      entry("flip between takes", [
         binding("left", "NAV", "take-previous"),
         binding("right", "NAV", "take-next"),
         binding("left", "MAP", "take-previous", { mapView: "path" }),
         binding("right", "MAP", "take-next", { mapView: "path" })
       ]),
-      entry("⇧↑ ⇧↓", "nudge the page a line", [
+      entry("nudge the page a line", [
         binding("up", "NAV", "scroll-line-up", { shift: true }),
         binding("down", "NAV", "scroll-line-down", { shift: true })
       ]),
-      entry("pgup ⌃u", "page up", [
+      entry("page up", [
         binding("pageup", "NAV", "scroll-up"),
         binding("u", "NAV", "scroll-up", { ctrl: true })
       ]),
-      entry("pgdn ⌃d", "page down", [
+      entry("page down", [
         binding("pagedown", "NAV", "scroll-down"),
         binding("d", "NAV", "scroll-down", { ctrl: true })
       ]),
-      entry("g / G", "first part · newest leaf", [
+      entry("first part · newest leaf", [
         binding("g", "NAV", "top"),
         binding("G", "NAV", "leaf", { shift: true })
       ]),
-      entry("[ ]", "chapter back · forward", [
+      entry("chapter back · forward", [
         binding("[", "NAV", "chapter-previous"),
         binding("]", "NAV", "chapter-next")
       ]),
       // Undo consumes take switches and chapter breaks, and nothing else. It
       // must not read as a safety net beside `d`, which it cannot reverse.
-      entry("u", "undo take switch · break", [binding("u", "NAV", "undo")])
+      entry("undo take switch · break", [binding("u", "NAV", "undo")])
     ]
   },
   {
@@ -113,26 +146,26 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "make the next part",
     role: "human edit",
     entries: [
-      entry("space", "continue this part", [binding("space", "NAV", "continue")]),
-      entry("enter i", "type what happens next", [
+      entry("continue this part", [binding("space", "NAV", "continue")]),
+      entry("type what happens next", [
         binding("return", "NAV", "compose"),
         binding("i", "NAV", "compose")
       ]),
-      entry("r", "retake · same prompt", [binding("r", "NAV", "regenerate")]),
-      entry("R", "retake · edit prompt", [
+      entry("retake · same prompt", [binding("r", "NAV", "regenerate")]),
+      entry("retake · edit prompt", [
         binding("R", "NAV", "retake-with-prompt", { shift: true })
       ]),
-      entry("w", "write a take yourself", [binding("w", "NAV", "write")]),
-      entry("e", "edit prose and prompt", [binding("e", "NAV", "edit")]),
-      entry("y / Y", "copy part · whole line", [
+      entry("write a take yourself", [binding("w", "NAV", "write")]),
+      entry("edit prose and prompt", [binding("e", "NAV", "edit")]),
+      entry("copy part · whole line", [
         binding("y", "NAV", "copy-part"),
         binding("Y", "NAV", "copy-line", { shift: true })
       ]),
-      entry("⌃↑ ⌃↓", "past prompts, in direct", [
+      entry("past prompts, in direct", [
         binding("up", "COMPOSE", "history-previous", { ctrl: true }),
         binding("down", "COMPOSE", "history-next", { ctrl: true })
       ]),
-      entry("n", "start a new story", [binding("n", "NAV", "new-item")])
+      entry("start a new story", [binding("n", "NAV", "new-item")])
     ]
   },
   {
@@ -140,16 +173,16 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "arrange what exists",
     role: "bookmark · alt",
     entries: [
-      entry("d", "delete take and below", [binding("d", "NAV", "prune")]),
-      entry("b", "bookmark the line here", [binding("b", "NAV", "bookmark")]),
-      entry("c / C", "chapters · end one here", [
+      entry("delete take and below", [binding("d", "NAV", "prune")]),
+      entry("bookmark the line here", [binding("b", "NAV", "bookmark")]),
+      entry("chapters · end one here", [
         binding("c", "NAV", "open-chapters"),
         binding("C", "NAV", "create-chapter", { shift: true })
       ]),
-      entry("x", "actions for this part", [binding("x", "NAV", "open-actions")]),
-      entry("p", "show or hide directions", [binding("p", "NAV", "toggle-instructions")]),
-      entry("z", "typewriter mode", [binding("z", "NAV", "typewriter")]),
-      entry("F", "facts rail on or off", [
+      entry("actions for this part", [binding("x", "NAV", "open-actions")]),
+      entry("show or hide directions", [binding("p", "NAV", "toggle-instructions")]),
+      entry("typewriter mode", [binding("z", "NAV", "typewriter")]),
+      entry("facts rail on or off", [
         binding("F", "NAV", "toggle-rail", { shift: true })
       ])
     ]
@@ -159,25 +192,25 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "panels and views",
     role: "bookmark · canon",
     entries: [
-      entry("m", "map of the whole story", [binding("m", "NAV", "open-map")]),
-      entry("f", "facts kept for context", [binding("f", "NAV", "open-facts")]),
-      entry("o", "switch story · library", [binding("o", "NAV", "open-library")]),
-      entry(": ⌃p", "command palette", [
+      entry("map of the whole story", [binding("m", "NAV", "open-map")]),
+      entry("facts kept for context", [binding("f", "NAV", "open-facts")]),
+      entry("switch story · library", [binding("o", "NAV", "open-library")]),
+      entry("command palette", [
         binding(":", "NAV", "open-commands"),
         binding("p", "NAV", "open-commands", { ctrl: true })
       ]),
-      entry(",", "generation settings", [binding(",", "NAV", "open-settings")]),
-      entry("⌃g", "context meter details", [
+      entry("generation settings", [binding(",", "NAV", "open-settings")]),
+      entry("context meter details", [
         binding("g", "NAV", "toggle-context-meter", { ctrl: true }),
         binding("g", "COMPOSE", "toggle-context-meter", { ctrl: true })
       ]),
-      entry("?", "this key reference", [binding("?", "NAV", "open-keys")]),
-      entry("esc", "close what is open", [
+      entry("this key reference", [binding("?", "NAV", "open-keys")]),
+      entry("close what is open", [
         binding("escape", "NAV", "cancel"),
         binding("escape", "MAP", "cancel"),
         binding("escape", "KEYS", "cancel")
       ]),
-      entry("q", "quit 1667", [binding("q", "NAV", "quit")])
+      entry("quit 1667", [binding("q", "NAV", "quit")])
     ]
   },
   {
@@ -185,24 +218,24 @@ const SECTIONS: readonly KeysModalSection[] = [
     blurb: "while the map is open",
     role: "compose accent",
     entries: [
-      entry("m", "cycle path · tree · mass", [binding("m", "MAP", "cycle-map-view")]),
-      entry("a", "all takes · sketches", [
+      entry("cycle path · tree · mass", [binding("m", "MAP", "cycle-map-view")]),
+      entry("all takes · sketches", [
         binding("a", "MAP", "toggle-path-takes", { mapView: "path" }),
         binding("a", "MAP", "toggle-sketches", { mapView: "tree" }),
         binding("a", "MAP", "toggle-sketches", { mapView: "mass" })
       ]),
-      entry("enter", "jump to that part", [binding("return", "MAP", "apply")]),
+      entry("jump to that part", [binding("return", "MAP", "apply")]),
       // Views the map itself names in its tabs. A key that does nothing in the
       // view you are looking at has to say so, or the reference lies again.
-      entry("l", "follow it · tree, mass", [
+      entry("follow it · tree, mass", [
         binding("l", "MAP", "map-follow", { mapView: "tree" }),
         binding("l", "MAP", "map-follow", { mapView: "mass" })
       ]),
-      entry("s", "mass sort · tree, mass", [
+      entry("mass sort · tree, mass", [
         binding("s", "MAP", "map-cycle-sort", { mapView: "tree" }),
         binding("s", "MAP", "map-cycle-sort", { mapView: "mass" })
       ]),
-      entry("d / b", "prune · bookmark · path", [
+      entry("prune · bookmark · path", [
         binding("d", "MAP", "prune", { mapView: "path" }),
         binding("b", "MAP", "bookmark", { mapView: "path" })
       ])
