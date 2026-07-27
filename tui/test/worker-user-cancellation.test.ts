@@ -8,6 +8,9 @@ import {
   type WorkerOperationId
 } from "../../shared/worker-protocol.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
+import {
+  platformPerformanceBudget
+} from "../../test/platform-performance-budget.js";
 import { BackendRestartRequiredError } from "../src/worker-api.js";
 import { WorkerTransport } from "../src/worker-transport.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
@@ -210,10 +213,15 @@ test("signal-less stalled intent publication hard-fences disposal", async () => 
 test("a durable cancellation marker prevents replay after publication stalls", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-worker-publication-fence-"));
   try {
+    const durableIoGraceMs = platformPerformanceBudget(50);
     const outbox = new CommittedHangingPublicationOutbox(dir);
     await outbox.init();
     const worker = new FakeWorker();
-    const transport = await startTransport(worker, outbox, 50);
+    const transport = await startTransport(
+      worker,
+      outbox,
+      durableIoGraceMs
+    );
     const cancel = new AbortController();
     const mutation = transport.call(
       "createStory",
@@ -233,7 +241,7 @@ test("a durable cancellation marker prevents replay after publication stalls", a
     const replacement = await startTransport(
       replacementWorker,
       new MutationOutbox(dir),
-      50
+      durableIoGraceMs
     );
     expect(replacementWorker.messages.some((message) => message.type === "request")).toBeFalse();
     expect(await new MutationOutbox(dir).list()).toEqual([]);
