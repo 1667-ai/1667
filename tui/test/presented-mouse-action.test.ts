@@ -375,6 +375,39 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(plain, resolved, captured, interaction(plain, 21))).toBe(null);
   });
 
+  test("keeps clicking usable where a surface has no selection to move", () => {
+    // Tightening identity must not start dropping the clicks this set out to
+    // deliver. The key reference has no rows, so the scrim's `cancel` — the
+    // documented way to close a panel — survives a repaint.
+    const state = initialState(demoAppSource(), false);
+    state.stream = null;
+    state.mode = "KEYS";
+    state.hitRows = [{ target: { kind: "scrim" }, left: 0, right: 20 }];
+    const resolved = mouseToAction(click, state, false)!;
+    expect(resolved).toEqual({ action: "cancel" });
+    expect(reconcile(state, resolved, interaction(state, 20), interaction(state, 21)))
+      .toEqual({ action: "cancel" });
+  });
+
+  test("delivers a command row that has not moved", () => {
+    // Command rows are nameable, so a repaint must not discard them the way an
+    // unnameable row is discarded.
+    const state = initialState(demoAppSource(), false);
+    state.stream = null;
+    state.mode = "COMMANDS";
+    state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" };
+    state.hitRows = [{ target: { kind: "list", index: 3 }, left: 0, right: 20 }];
+    const resolved = mouseToAction(click, state, false)!;
+    expect(resolved).toEqual({ action: "focus-index", index: 3 });
+    expect(reconcile(state, resolved, interaction(state, 20), interaction(state, 21)))
+      .toEqual({ action: "focus-index", index: 3 });
+
+    // …and still refuses when that row now holds a different command.
+    const filtered = { ...state, commands: { ...state.commands, query: "theme" } } as State;
+    expect(reconcile(filtered, resolved, interaction(state, 20), interaction(filtered, 21)))
+      .toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;

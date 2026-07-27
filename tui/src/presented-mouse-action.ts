@@ -2,6 +2,7 @@ import type { MouseEvent } from "@opentui/core";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
 import { factRows } from "./facts-model.js";
+import { commandMatches, commandSelectionId } from "./command-model.js";
 import { libraryRows } from "./library-model.js";
 import { currentPartActions } from "./story-actions.js";
 import { createStoryViewModel, rowPart } from "./model.js";
@@ -129,6 +130,12 @@ function sameMouseTarget(
     if (before.rowId !== undefined || after.rowId !== undefined) {
       return before.rowId !== undefined && before.rowId === after.rowId;
     }
+    // A list row's index is a position: the rows are derived, and a menu's
+    // entries change composition while a generation lands.
+    if (overlayOpen(beforeState) && beforeState.mode !== "MAP") {
+      const row = listRowIdentity(beforeState, before.index);
+      return row !== null && row === listRowIdentity(afterState, after.index);
+    }
     if (beforeState.mode === "MAP" && afterState.mode === "MAP") {
       return beforeState.map?.view === afterState.map?.view
         && mapRowId(beforeState, before.index) !== null
@@ -146,12 +153,11 @@ function sameMouseTarget(
     }
     return true;
   }
-  // An index into a list is a position, not a row: maps re-centre, and a
-  // menu's entries change composition while a generation lands. Any gesture
-  // that names a row by index is proved by the row that index held.
-  if (before.index !== undefined && !overlayOwnsStory(beforeState)) {
-    const row = listRowIdentity(beforeState, before.index);
-    if (row === null || row !== listRowIdentity(afterState, after.index)) return false;
+  // A map take names its row by index, and the map re-centres beneath it.
+  if (before.action === "apply" && before.take !== undefined
+    && (beforeState.mode === "MAP" || afterState.mode === "MAP")) {
+    const row = mapRowId(beforeState, before.index);
+    if (row === null || row !== mapRowId(afterState, after.index)) return false;
   }
   // A gesture that names no cell acts on a selection — the open surface's
   // chosen row, or the focused part when the story has the screen — so the
@@ -182,12 +188,6 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
   return index === undefined ? null : state.map?.rowIds[index] ?? null;
 }
 
-/** True while a surface with its own rows owns the screen. The story's own
- *  rows carry `rowId`, so they are proved without consulting a list. */
-function overlayOwnsStory(state: MouseActionState): boolean {
-  return !overlayOpen(state) && state.map === null;
-}
-
 /** The row an index named, for surfaces whose rows are derived and can be
  *  reordered, inserted into or re-centred between one frame and the next.
  *  Null means the row cannot be named, which reconciliation refuses. */
@@ -198,8 +198,12 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
   if (state.library !== null) {
     return libraryRows(state.library.stories, state.library.query)[index]?.id ?? null;
   }
-  if (state.commands?.view === "bookmarks") {
-    return state.payload.bookmarks[index]?.nodeId ?? null;
+  if (state.commands !== null) {
+    if (state.commands.view === "bookmarks") {
+      return state.payload.bookmarks[index]?.nodeId ?? null;
+    }
+    const match = commandMatches(state.commands.query, state.demo)[index];
+    return match === undefined ? null : commandSelectionId(match.command);
   }
   if (state.facts !== null) {
     return factRows(state.payload.facts, state.facts.selectedTag, state.facts.query)[index]?.id
@@ -219,9 +223,21 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
 function selectionIdentity(state: MouseActionState): string | null {
   const selected = selectedListIdentity(state);
   if (selected !== null) return selected;
-  return overlayOpen(state)
-    ? null
-    : rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex)?.id ?? null;
+  // A surface with rows but no nameable selection refuses. One with no rows at
+  // all — the key reference, a summary, the scrim behind them — has nothing to
+  // move, so `esc`, `retry` and the global opens stay clickable.
+  if (selectableRowsOpen(state)) return null;
+  return createStoryViewModel(state.payload, state.stream).rows[state.focusIndex]?.id
+    ?? NO_SELECTION;
+}
+
+const NO_SELECTION = "none";
+
+/** Whether the open surface has rows a click could land on the wrong one of. */
+function selectableRowsOpen(state: MouseActionState): boolean {
+  return state.map !== null || state.actions !== null || state.library !== null
+    || state.facts !== null || state.commands !== null || state.chapters !== null
+    || state.settings !== null;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
