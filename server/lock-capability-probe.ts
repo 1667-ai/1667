@@ -5,7 +5,7 @@ import { isLockContention, lockFile, type OsFileLock } from "./os-file-lock.js";
 
 export type LockPrimitive = (
   fd: number,
-  file?: string
+  file: string
 ) => Promise<OsFileLock>;
 
 /**

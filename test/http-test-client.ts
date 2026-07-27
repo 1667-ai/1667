@@ -21,11 +21,10 @@ import { platformPerformanceBudget } from "./platform-performance-budget.js";
 export const API_PROTOCOL_HEADERS: Record<string, string> = {
   [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION)
 };
-// Windows Defender can scan each cold native-helper process. The direct
-// adapter contract keeps its independent 10-second production ceiling.
-const SERVER_START_BUDGET_MS = process.platform === "win32"
-  ? 20_000
-  : platformPerformanceBudget(10_000);
+// Windows Defender can scan each cold native-helper process, which the owned
+// platform scale already covers. The direct adapter contract keeps its
+// independent 10-second production ceiling.
+const SERVER_START_BUDGET_MS = platformPerformanceBudget(10_000);
 const SERVER_STOP_BUDGET_MS = platformPerformanceBudget(1_000);
 let operationClient: HttpOperationClient | null = null;
 let lastReservedMutationId: string | null = null;

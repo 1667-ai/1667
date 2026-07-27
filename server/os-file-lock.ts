@@ -12,12 +12,9 @@ interface LockImplementation {
  * primitives through Bun FFI. */
 export async function lockFile(
   fd: number,
-  file?: string
+  file: string
 ): Promise<OsFileLock> {
   if (process.versions.bun !== undefined && process.platform === "win32") {
-    if (file === undefined) {
-      throw new Error("The Windows Bun lock requires a file path");
-    }
     const implementation = await import("./os-file-lock-bun.js");
     return await implementation.lockWindowsFile(file);
   }
