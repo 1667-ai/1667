@@ -2,6 +2,9 @@ import type {
   BunFfi,
   FfiLibrary
 } from "./bun-ffi.js";
+import {
+  WindowsCallError
+} from "./platform-state-root-windows-bun-api.js";
 
 const ACL_REVISION = 2;
 const ACCESS_ALLOWED_ACE_TYPE = 0;
@@ -14,6 +17,8 @@ const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;
 const SE_DACL_PROTECTED = 0x1000;
 const ACL_SIZE_INFORMATION_CLASS = 2;
+
+export type WindowsPrivateObjectKind = "directory" | "file";
 
 export interface WindowsSecurityLibraries {
   readonly kernel: FfiLibrary;
@@ -28,7 +33,8 @@ export interface WindowsSecuritySids {
 export function privateAcl(
   ffi: BunFfi,
   libraries: WindowsSecurityLibraries,
-  sids: WindowsSecuritySids
+  sids: WindowsSecuritySids,
+  kind: WindowsPrivateObjectKind
 ): Buffer {
   const userLength = Number(libraries.advapi.symbols.GetLengthSid!(sids.user));
   const systemLength = Number(
@@ -48,7 +54,7 @@ export function privateAcl(
     if (Number(libraries.advapi.symbols.AddAccessAllowedAceEx!(
       ffi.ptr(acl),
       ACL_REVISION,
-      INHERITANCE_FLAGS,
+      expectedInheritanceFlags(kind),
       FILE_ALL_ACCESS,
       sid
     )) === 0) {
@@ -63,7 +69,8 @@ export function validateHandleSecurity(
   libraries: WindowsSecurityLibraries,
   handle: number | bigint,
   directory: string,
-  sids: WindowsSecuritySids
+  sids: WindowsSecuritySids,
+  kind: WindowsPrivateObjectKind
 ): void {
   const ownerOut = Buffer.alloc(8);
   const daclOut = Buffer.alloc(8);
@@ -92,17 +99,39 @@ export function validateHandleSecurity(
       ownerOut.readBigUInt64LE(),
       "directory owner SID"
     );
-    const dacl = safePointer(
-      daclOut.readBigUInt64LE(),
-      "directory DACL"
-    );
+    const daclValue = daclOut.readBigUInt64LE();
+    if (daclValue === 0n) {
+      throw new WindowsPrivateSecurityMismatch(
+        `Windows private state DACL is null: ${directory}`
+      );
+    }
+    const dacl = safePointer(daclValue, "directory DACL");
     if (Number(libraries.advapi.symbols.EqualSid!(owner, sids.user)) === 0) {
-      throw new Error(`Windows private state owner is unsafe: ${directory}`);
+      throw new WindowsPrivateSecurityMismatch(
+        `Windows private state owner is unsafe: ${directory}`
+      );
     }
     requireProtectedDescriptor(ffi, libraries, descriptor, directory);
-    requireExactPrivateAcl(ffi, libraries, dacl, directory, sids);
+    requireExactPrivateAcl(ffi, libraries, dacl, directory, sids, kind);
   } finally {
     libraries.kernel.symbols.LocalFree!(descriptor);
+  }
+}
+
+export function handleHasExactPrivateSecurity(
+  ffi: BunFfi,
+  libraries: WindowsSecurityLibraries,
+  handle: number | bigint,
+  target: string,
+  sids: WindowsSecuritySids,
+  kind: WindowsPrivateObjectKind
+): boolean {
+  try {
+    validateHandleSecurity(ffi, libraries, handle, target, sids, kind);
+    return true;
+  } catch (error) {
+    if (error instanceof WindowsPrivateSecurityMismatch) return false;
+    throw error;
   }
 }
 
@@ -125,9 +154,7 @@ export function handleHasOwner(
     ffi.ptr(descriptorOut)
   ));
   if (result !== 0) {
-    throw new Error(
-      `Could not inspect directory owner (Windows error ${result})`
-    );
+    throw new WindowsCallError("Could not inspect directory owner", result);
   }
   const descriptor = safePointer(
     descriptorOut.readBigUInt64LE(),
@@ -159,9 +186,14 @@ function requireProtectedDescriptor(
     descriptor,
     ffi.ptr(control),
     ffi.ptr(revision)
-  )) === 0
-    || (control.readUInt16LE() & SE_DACL_PROTECTED) === 0) {
-    throw new Error(
+  )) === 0) {
+    throw lastWindowsError(
+      libraries,
+      `Could not read ${directory} security descriptor`
+    );
+  }
+  if ((control.readUInt16LE() & SE_DACL_PROTECTED) === 0) {
+    throw new WindowsPrivateSecurityMismatch(
       `Windows private state DACL is not protected: ${directory}`
     );
   }
@@ -172,7 +204,8 @@ function requireExactPrivateAcl(
   libraries: WindowsSecurityLibraries,
   dacl: number,
   directory: string,
-  sids: WindowsSecuritySids
+  sids: WindowsSecuritySids,
+  kind: WindowsPrivateObjectKind
 ): void {
   const info = Buffer.alloc(12);
   if (Number(libraries.advapi.symbols.GetAclInformation!(
@@ -180,9 +213,11 @@ function requireExactPrivateAcl(
     ffi.ptr(info),
     info.byteLength,
     ACL_SIZE_INFORMATION_CLASS
-  )) === 0
-    || info.readUInt32LE() !== 2) {
-    throw new Error(
+  )) === 0) {
+    throw lastWindowsError(libraries, `Could not read ${directory} DACL`);
+  }
+  if (info.readUInt32LE() !== 2) {
+    throw new WindowsPrivateSecurityMismatch(
       `Windows private state DACL has unexpected entries: ${directory}`
     );
   }
@@ -203,14 +238,16 @@ function requireExactPrivateAcl(
     const ace = safePointer(aceOut.readBigUInt64LE(), "DACL entry");
     const header = Buffer.from(ffi.toArrayBuffer(ace, 0, 8));
     if (header.readUInt8(0) !== ACCESS_ALLOWED_ACE_TYPE
-      || header.readUInt8(1) !== INHERITANCE_FLAGS
+      || header.readUInt8(1) !== expectedInheritanceFlags(kind)
       || header.readUInt32LE(4) !== FILE_ALL_ACCESS) {
-      throw new Error(`Windows private state DACL is unsafe: ${directory}`);
+      throw new WindowsPrivateSecurityMismatch(
+        `Windows private state DACL is unsafe: ${directory}`
+      );
     }
     const sid = ace + 8;
     if (Number(libraries.advapi.symbols.EqualSid!(sid, sids.user)) !== 0) {
       if (userSeen) {
-        throw new Error(
+        throw new WindowsPrivateSecurityMismatch(
           `Windows private state DACL repeats its user: ${directory}`
         );
       }
@@ -219,20 +256,28 @@ function requireExactPrivateAcl(
       Number(libraries.advapi.symbols.EqualSid!(sid, sids.system)) !== 0
     ) {
       if (systemSeen) {
-        throw new Error(
+        throw new WindowsPrivateSecurityMismatch(
           `Windows private state DACL repeats SYSTEM: ${directory}`
         );
       }
       systemSeen = true;
     } else {
-      throw new Error(
+      throw new WindowsPrivateSecurityMismatch(
         `Windows private state DACL grants another SID: ${directory}`
       );
     }
   }
   if (!userSeen || !systemSeen) {
-    throw new Error(`Windows private state DACL is incomplete: ${directory}`);
+    throw new WindowsPrivateSecurityMismatch(
+      `Windows private state DACL is incomplete: ${directory}`
+    );
   }
+}
+
+class WindowsPrivateSecurityMismatch extends Error {}
+
+function expectedInheritanceFlags(kind: WindowsPrivateObjectKind): number {
+  return kind === "directory" ? INHERITANCE_FLAGS : 0;
 }
 
 function lastWindowsError(
