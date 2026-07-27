@@ -272,6 +272,24 @@ describe("presented mouse reconciliation", () => {
     })).toBe(null);
   });
 
+  test("refuses a focus-relative control once focus has moved", () => {
+    // The status line's verbs name no cell — they act on whatever holds focus.
+    // Clicking `continue` while reading one part must not generate from
+    // another because focus moved before the click's turn came.
+    const state = initialState(demoAppSource(), false);
+    state.stream = null;
+    state.hitRows = [{ target: { kind: "action", action: "continue" }, left: 0, right: 20 }];
+    const captured = interaction(state, 20);
+    const resolved = mouseToAction(click, state, false)!;
+    expect(resolved).toEqual({ action: "continue" });
+
+    expect(reconcile(state, resolved, captured, interaction(state, 21)))
+      .toEqual({ action: "continue" });
+
+    state.focusIndex = 3;
+    expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;

@@ -4,7 +4,7 @@ import type { ResolvedKey } from "./keys.js";
 import { factRows } from "./facts-model.js";
 import { libraryRows } from "./library-model.js";
 import { currentPartActions } from "./story-actions.js";
-import { createStoryViewModel } from "./model.js";
+import { createStoryViewModel, rowPart } from "./model.js";
 import { SETTINGS_ROW_IDS } from "./settings-overlay-model.js";
 import {
   mouseToAction,
@@ -145,6 +145,13 @@ function sameMouseTarget(
     }
     return true;
   }
+  // A gesture that names no cell acts on whatever holds focus, so the focused
+  // part is its identity. `continue` clicked while reading one part must not
+  // generate from another because focus moved before its turn came.
+  if (before.index === undefined && before.rowId === undefined
+    && focusedPartId(beforeState) !== focusedPartId(afterState)) {
+    return false;
+  }
   return before.index === after.index
     && before.rowId === after.rowId
     && before.take === after.take
@@ -163,6 +170,11 @@ function mapRowAt(
 
 function mapRowId(state: MouseActionState, index: number | undefined): string | null {
   return index === undefined ? null : state.map?.rowIds[index] ?? null;
+}
+
+/** The part a focus-relative gesture would act on. */
+function focusedPartId(state: MouseActionState): string | null {
+  return rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex)?.id ?? null;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
