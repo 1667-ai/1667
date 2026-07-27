@@ -202,7 +202,7 @@ test("Node Windows adapter stays inside the server startup budget", {
   );
 });
 
-test("Windows machine tier repairs an existing non-user owner", {
+test("Windows machine tier repairs an owner after a partial maximum open", {
   skip: process.platform !== "win32"
     || (
       process.env.CI !== "true"
@@ -213,8 +213,6 @@ test("Windows machine tier repairs an existing non-user owner", {
   const root = path.join(parent, "state");
   await mkdir(root);
   await setRestrictedNonUserOwner(root);
-  const before = await readSecurity(root);
-  assert.notEqual(before.owner, before.user);
 
   assert.equal(await resolveMachineTierRoot({ override: root }), root);
   await assertPrivateSecurity(root);
@@ -315,7 +313,7 @@ $acl.SetAccessRuleProtection($true, $false)
 [void]$acl.AddAccessRule(
   (New-Object Security.AccessControl.FileSystemAccessRule(
     $user,
-    [Security.AccessControl.FileSystemRights]::Modify,
+    [Security.AccessControl.FileSystemRights]::ReadAttributes,
     $inherit,
     $propagation,
     $allow

@@ -40,6 +40,7 @@ import {
   openWindowsDirectory,
   openWindowsPrivateStateObject,
   READ_CONTROL,
+  requireSingleWindowsFileLink,
   requireStableWindowsPath,
   requireStableWindowsSnapshot,
   snapshotWindowsDirectory,
@@ -281,8 +282,19 @@ function openOwnedObjectForRepair(
     handle = openOwnedObject(ffi, libraries, target, kind);
   } catch (error) {
     if (!isAccessDenied(error)) throw error;
+    if (kind === "file") {
+      requireSingleFileLinkBeforeRepair(ffi, libraries, target);
+    }
     takeObjectOwnership(ffi, libraries, target, sids, kind);
     return requireOwnedObject(ffi, libraries, target, sids, kind);
+  }
+  if (kind === "file") {
+    try {
+      requireSingleWindowsFileLink(ffi, libraries, handle, target);
+    } catch (error) {
+      closeWindowsHandle(libraries, handle, target);
+      throw error;
+    }
   }
   try {
     if (handleHasOwner(ffi, libraries, handle, sids.user)) {
@@ -290,11 +302,35 @@ function openOwnedObjectForRepair(
     }
   } catch (error) {
     closeWindowsHandle(libraries, handle, target);
+    if (isAccessDenied(error)) {
+      takeObjectOwnership(ffi, libraries, target, sids, kind);
+      return requireOwnedObject(ffi, libraries, target, sids, kind);
+    }
     throw error;
   }
   closeWindowsHandle(libraries, handle, target);
   takeObjectOwnership(ffi, libraries, target, sids, kind);
   return requireOwnedObject(ffi, libraries, target, sids, kind);
+}
+
+function requireSingleFileLinkBeforeRepair(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  target: string
+): void {
+  const handle = openWindowsPrivateStateObject(
+    ffi,
+    libraries,
+    target,
+    FILE_READ_ATTRIBUTES,
+    "file",
+    FILE_SHARE_ALL
+  );
+  try {
+    requireSingleWindowsFileLink(ffi, libraries, handle, target);
+  } finally {
+    closeWindowsHandle(libraries, handle, target);
+  }
 }
 
 function takeObjectOwnership(

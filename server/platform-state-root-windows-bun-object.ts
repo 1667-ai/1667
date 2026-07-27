@@ -177,6 +177,33 @@ export function windowsFileIdentity(
   handle: NativeHandle,
   target: string
 ): Buffer {
+  const info = windowsFileInformation(ffi, libraries, handle, target);
+  return Buffer.concat([
+    info.subarray(28, 32),
+    info.subarray(44, 52)
+  ]);
+}
+
+export function requireSingleWindowsFileLink(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  handle: NativeHandle,
+  target: string
+): void {
+  const info = windowsFileInformation(ffi, libraries, handle, target);
+  if (info.readUInt32LE(40) !== 1) {
+    throw new Error(
+      `Windows private state file has multiple hard links: ${target}`
+    );
+  }
+}
+
+function windowsFileInformation(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  handle: NativeHandle,
+  target: string
+): Buffer {
   const info = Buffer.alloc(52);
   if (Number(libraries.kernel.symbols.GetFileInformationByHandle!(
     handle,
@@ -184,10 +211,7 @@ export function windowsFileIdentity(
   )) === 0) {
     throw lastWindowsError(libraries, `Could not identify ${target}`);
   }
-  return Buffer.concat([
-    info.subarray(28, 32),
-    info.subarray(44, 52)
-  ]);
+  return info;
 }
 
 export function wideWindowsString(value: string): Buffer {

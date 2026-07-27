@@ -2,6 +2,9 @@ import type {
   BunFfi,
   FfiLibrary
 } from "./bun-ffi.js";
+import {
+  WindowsCallError
+} from "./platform-state-root-windows-bun-api.js";
 
 const ACL_REVISION = 2;
 const ACCESS_ALLOWED_ACE_TYPE = 0;
@@ -96,10 +99,13 @@ export function validateHandleSecurity(
       ownerOut.readBigUInt64LE(),
       "directory owner SID"
     );
-    const dacl = safePointer(
-      daclOut.readBigUInt64LE(),
-      "directory DACL"
-    );
+    const daclValue = daclOut.readBigUInt64LE();
+    if (daclValue === 0n) {
+      throw new WindowsPrivateSecurityMismatch(
+        `Windows private state DACL is null: ${directory}`
+      );
+    }
+    const dacl = safePointer(daclValue, "directory DACL");
     if (Number(libraries.advapi.symbols.EqualSid!(owner, sids.user)) === 0) {
       throw new WindowsPrivateSecurityMismatch(
         `Windows private state owner is unsafe: ${directory}`
@@ -148,9 +154,7 @@ export function handleHasOwner(
     ffi.ptr(descriptorOut)
   ));
   if (result !== 0) {
-    throw new Error(
-      `Could not inspect directory owner (Windows error ${result})`
-    );
+    throw new WindowsCallError("Could not inspect directory owner", result);
   }
   const descriptor = safePointer(
     descriptorOut.readBigUInt64LE(),
