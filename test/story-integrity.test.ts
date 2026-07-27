@@ -41,7 +41,7 @@ function fixture(id: string): Story {
   return {
     id, title: "Story", createdAt: NOW, updatedAt: NOW,
     nodes: [node("root", null, "Root", "active"), node("active", "root", "Active"), node("hidden", "root", "Hidden")],
-    activeRootId: "root", bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: []
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }
 

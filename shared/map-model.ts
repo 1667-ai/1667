@@ -1,5 +1,5 @@
 import { isChapterSummary, type TreeIndex } from "./story-tree.js";
-import type { Bookmark, NodeStub, StoryPayload } from "./types.js";
+import type { Tag, NodeStub, StoryPayload } from "./types.js";
 
 export interface MapLineClassification {
   /** Lone, uncontinued takes folded by every MAP view. */
@@ -13,15 +13,15 @@ export interface MapLineClassification {
 export function classifyMapLines(
   payload: StoryPayload,
   tree: TreeIndex<NodeStub>,
-  bookmarkByNodeId: ReadonlyMap<string, Bookmark>,
-  bookmarkBelowByNodeId: ReadonlyMap<string, Bookmark>
+  tagByNodeId: ReadonlyMap<string, Tag>,
+  tagBelowByNodeId: ReadonlyMap<string, Tag>
 ): MapLineClassification {
   const activeIds = new Set(payload.path.map((node) => node.id));
   const activeLeafId = payload.path.at(-1)?.id ?? null;
   const mapSketchNodeIds = new Set<string>();
   for (const node of payload.nodes) {
     if (isChapterSummary(node) || node.childCount !== 0 || activeIds.has(node.id)
-      || bookmarkByNodeId.has(node.id) || bookmarkBelowByNodeId.has(node.id)) continue;
+      || tagByNodeId.has(node.id) || tagBelowByNodeId.has(node.id)) continue;
     const parent = node.parentId === null ? null : tree.nodesById.get(node.parentId) ?? null;
     // A continued branch's final leaf is still part of that line. A bare leaf
     // becomes a sketch only where a line can begin: a root fork, a real fork,

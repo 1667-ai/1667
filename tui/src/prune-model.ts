@@ -1,7 +1,7 @@
 import { createStoryIndex } from "../../shared/story-model.js";
 import { subtreeIds, takeIndex, unusedTakePruneSelection } from "../../shared/story-tree.js";
-import type { Bookmark, StoryPayload } from "../../shared/types.js";
-import { bookmarkGlyph } from "./bookmark-presentation.js";
+import type { Tag, StoryPayload } from "../../shared/types.js";
+import { tagGlyph } from "./tag-presentation.js";
 
 export interface SubtreePrunePlan {
   kind: "subtree";
@@ -11,7 +11,7 @@ export interface SubtreePrunePlan {
   takeCount: number;
   parts: number;
   lines: number;
-  bookmarks: Array<Pick<Bookmark, "name" | "label">>;
+  tags: Array<Pick<Tag, "name" | "status">>;
 }
 
 export interface UnusedTakesPrunePlan {
@@ -37,9 +37,9 @@ export function createPrunePlan(payload: StoryPayload, nodeId: string): SubtreeP
     takeCount: position.count,
     parts: index.subtreeCountByNodeId.get(nodeId) ?? ids.size,
     lines: node.leafCount,
-    bookmarks: payload.bookmarks
-      .filter((bookmark) => ids.has(bookmark.nodeId))
-      .map(({ name, label }) => ({ name, label }))
+    tags: payload.tags
+      .filter((tag) => ids.has(tag.nodeId))
+      .map(({ name, status }) => ({ name, status }))
   };
 }
 
@@ -60,10 +60,10 @@ export function pruneConfirmText(plan: PrunePlan): string {
     const partWord = plan.parts === 1 ? "part" : "parts";
     return `${plan.takes} unused ${takeWord} → ${plan.parts} ${partWord} die · keeps continuations, named lines + one leaf/fork · d confirms · esc keeps`;
   }
-  const bookmarks = plan.bookmarks.length === 0
+  const tags = plan.tags.length === 0
     ? ""
-    : `${plan.bookmarks.map((bookmark) => `${bookmarkGlyph(bookmark.label)} ${bookmark.name}`).join(", ")} · `;
+    : `${plan.tags.map((tag) => `${tagGlyph(tag.status)} ${tag.name}`).join(", ")} · `;
   const partWord = plan.parts === 1 ? "part" : "parts";
   const lineWord = plan.lines === 1 ? "line" : "lines";
-  return `${bookmarks}¶ ${plan.part} take ${plan.take}/${plan.takeCount} → ${plan.parts} ${partWord} on ${plan.lines} ${lineWord} die · d confirms · esc keeps`;
+  return `${tags}¶ ${plan.part} take ${plan.take}/${plan.takeCount} → ${plan.parts} ${partWord} on ${plan.lines} ${lineWord} die · d confirms · esc keeps`;
 }

@@ -499,7 +499,7 @@ describe("generation draft restoration", () => {
       (state) => {
         state.prune = {
           kind: "subtree", nodeId: "p13", part: 13, take: 1,
-          takeCount: 1, parts: 1, lines: 1, bookmarks: []
+          takeCount: 1, parts: 1, lines: 1, tags: []
         };
       },
       (state) => { state.chapterDeleteArmedId = "chapter-break-1"; }

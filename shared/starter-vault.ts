@@ -1,11 +1,11 @@
 import type { StarterKeyId } from "./starter-keys.js";
-import type { BookmarkLabel } from "./types.js";
+import type { TagStatus } from "./types.js";
 
 /**
  * Content for the two stories a fresh data directory opens with.
  *
  * This module is the only source of truth for the starter prose. The seeder
- * replays it through the ordinary create/bookmark/chapter paths, so the vault
+ * replays it through the ordinary create/tag/chapter paths, so the vault
  * is always written in the current schema instead of thawing a snapshot that
  * rots at the next migration.
  *
@@ -19,7 +19,7 @@ export interface StarterTake {
   readonly text: string;
   /** Recorded per part and revealed by the instructions toggle. */
   readonly instruction?: string;
-  readonly bookmark?: { readonly name: string; readonly label: BookmarkLabel };
+  readonly tag?: { readonly name: string; readonly status: TagStatus };
   /** Keys this take's prose teaches. Must match its `[token]` spellings. */
   readonly keys?: readonly StarterKeyId[];
 }
@@ -72,11 +72,11 @@ const TOUR: StarterStory = {
         {
           slug: "open-3",
           instruction: "Third take. Close the row and hand the reader downward.",
-          bookmark: { name: "The long way round", label: "Alt" },
+          tag: { name: "The long way round", status: "Alt" },
           keys: ["takeNext", "takePrevious", "focusNext"],
           text: "Take three, and the end of the row — [→] stops here, and [←] walks back.\n\n"
-            + "This one has a bookmark on it, named \"The long way round\". You will see it "
-            + "again in the map later: a bookmark is how you make one take "
+            + "This one has a tag on it, named \"The long way round\". You will see it "
+            + "again in the map later: a tag is how you make one take "
             + "findable months later, when you have forgotten it existed.\n\n"
             + "Now go back to the first take with [←]. And then press [↓]."
         }
@@ -90,7 +90,7 @@ const TOUR: StarterStory = {
           keys: ["focusNext", "focusPrevious", "scrollLineDown", "scrollLineUp", "top", "leaf"],
           text: "[↓] and [↑] move between parts.\n\n"
             + "The focused part is highlighted. It's the one every other key acts on. "
-            + "Bookmarking, regenerating, editing, deleting — they "
+            + "Tagging, regenerating, editing, deleting — they "
             + "all aim at whatever is focused right now.\n\n"
             + "Reading is a separate motion. Hold shift and the view slides without dragging "
             + "focus along: [⇧↓] and [⇧↑] nudge it one line. To travel further, [g] jumps to "
@@ -142,19 +142,20 @@ const TOUR: StarterStory = {
         {
           slug: "map",
           instruction: "The map, and why it exists.",
-          keys: ["openMap", "mapCycleView", "mapClose", "mapDetail", "mapJump", "mapBookmark"],
+          keys: ["openMap", "mapCycleView", "mapClose", "mapDetail", "mapJump", "mapTag"],
           text: "Press [m] to open the map.\n\n"
             + "A story with takes is a tree, not a page, and past a few thousand words the "
             + "tree is the real picture of it. The map draws that tree: the line you "
-            + "are reading, the takes hanging off it, the bookmarks you left behind.\n\n"
+            + "are reading, the takes hanging off it, the tags you left behind.\n\n"
             + "Inside the map, [m] cycles between its views, [esc] closes it, [a] turns "
-            + "detail up or down, and [b] bookmarks whatever row you are on. Press [enter] "
+            + "detail up or down, and [t] tags whatever row you are on. Press [enter] "
             + "to jump the story to that row and land back in the text exactly there.\n\n"
-            + "Bookmarks go on the end of a story line, never in the middle: you are naming "
+            + "Tags go on the end of a story line, never in the middle: you are naming "
             + "where a storyline arrived, not annotating a paragraph. Two of them are already out "
             + "there — one on the take you skipped at the start, one at the end of this tour. "
-            + "Labels are the vocabulary: Canon, Alt, Draft, Discarded, Summary. Use them "
-            + "loosely — they sort the map, they do not police anything."
+            + "Each tag carries a status: Canon, Alt, Draft, Discarded, Summary. Use them "
+            + "loosely — they sort the map, they do not police anything. Name a second line "
+            + "Canon and the first one steps down to Alt, keeping its name."
         }
       ]
     },
@@ -185,7 +186,9 @@ const TOUR: StarterStory = {
             + "[o] opens the library — every story you have, including the second starter "
             + "story sitting next to this one. That is how you switch.\n\n"
             + "[f] holds facts: the names, places, and rules you want kept straight, sent "
-            + "with every request so the model stops renaming your characters.\n\n"
+            + "with every request so the model stops renaming your characters. A fact can "
+            + "carry a tag of its own: a short word for sorting your facts, which is a "
+            + "different thing from tagging a story line back in the map.\n\n"
             + "[x] opens a menu of whatever applies to the focused part, for the days you "
             + "would rather point than recall. [:] is the command palette, which can reach "
             + "things no key is bound to.\n\n"
@@ -202,7 +205,7 @@ const TOUR: StarterStory = {
         {
           slug: "ending",
           instruction: "Close the tour. Give explicit permission to delete it.",
-          bookmark: { name: "End of the tour", label: "Canon" },
+          tag: { name: "End of the tour", status: "Canon" },
           keys: ["openLibrary", "newStory", "quit"],
           text: "That is the whole instrument.\n\n"
             + "Next door is \"A Door in the Hedge\" — one paragraph, no takes, nothing "
@@ -217,7 +220,7 @@ const TOUR: StarterStory = {
         {
           slug: "ending-alt",
           instruction: "A shorter goodbye, kept as a second take so the last beat also has a row.",
-          bookmark: { name: "Short goodbye", label: "Draft" },
+          tag: { name: "Short goodbye", status: "Draft" },
           keys: ["keys"],
           text: "Or, the short version:\n\n"
             + "Arrows move. Space continues. Everything else is on [?].\n\n"

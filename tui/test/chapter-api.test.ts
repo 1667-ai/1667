@@ -67,7 +67,7 @@ test("HTTP chapter transport covers create, rename, remove, restore, summarize, 
 function emptyPayload(): StoryPayload {
   return {
     id: "story", title: "Story", createdAt: "2026-01-01", updatedAt: "2026-01-01",
-    nodes: [], path: [], activeRootId: null, bookmarks: [], recentNodeIds: [],
+    nodes: [], path: [], activeRootId: null, tags: [], recentNodeIds: [],
     facts: [], chapterBreaks: [],
     aggregateVersion: {
       kind: "v6",

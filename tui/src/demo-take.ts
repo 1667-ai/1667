@@ -3,7 +3,7 @@ import type { Story, StoryNode } from "../../shared/types.js";
 import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
 import { makeDemoNode } from "./demo-fixture.js";
 
-/** Mutate the in-memory demo with the same sibling and endpoint-bookmark
+/** Mutate the in-memory demo with the same sibling and endpoint-tag
  * behavior as the backend. Source metadata is copied only for edit-as-sibling. */
 export function createDemoTake(
   story: Story,
@@ -16,8 +16,8 @@ export function createDemoTake(
   if (parentId !== null && !story.nodes.some((node) => node.id === parentId)) {
     throw new Error(`Unknown demo node: ${parentId}`);
   }
-  const endpointBookmark = parentId !== null && activePath(story).at(-1)?.id === parentId
-    ? story.bookmarks.find((bookmark) => bookmark.nodeId === parentId)
+  const endpointTag = parentId !== null && activePath(story).at(-1)?.id === parentId
+    ? story.tags.find((tag) => tag.nodeId === parentId)
     : undefined;
   const id = `demo-take-${story.nodes.length + 1}`;
   const node = makeDemoNode(id, parentId, instruction, text, source === null ? undefined : {
@@ -31,7 +31,7 @@ export function createDemoTake(
   });
   if (human) node.human = true;
   story.nodes.push(node);
-  if (endpointBookmark !== undefined) endpointBookmark.nodeId = id;
+  if (endpointTag !== undefined) endpointTag.nodeId = id;
   switchToNode(story, id, { stopAtNode: true });
 }
 

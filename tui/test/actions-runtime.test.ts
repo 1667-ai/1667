@@ -527,8 +527,8 @@ describe("demo action runtime and input", () => {
     await press("d");
     expect(state.prune).toBe(null);
     expect(state.toast).toBe("stream running · esc stops it first");
-    await press("b");
-    expect(state.bookmark).toBe(null);
+    await press("t");
+    expect(state.tag).toBe(null);
     expect(state.toast).toBe("stream running · esc stops it first");
     await press("r");
     expect(state.toast).toBe("stream running · esc stops it first");

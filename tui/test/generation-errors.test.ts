@@ -66,7 +66,7 @@ describe("generation errors", () => {
     beginInteraction(state);
     openActions(state, streamRow);
     expect(state.actions?.partId).toBe(streamId);
-    expect(currentPartActions(state).map(({ id }) => id)).not.toContain("bookmark");
+    expect(currentPartActions(state).map(({ id }) => id)).not.toContain("tag");
     expect(currentPartActions(state).map(({ id }) => id)).not.toContain("prune");
     expect(currentPartActions(state).map(({ id }) => id)).not.toContain("retake-with-prompt");
 

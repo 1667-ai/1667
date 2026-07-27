@@ -254,17 +254,17 @@ test("continue append rejects stale hashes and targets that are not the active l
   assert.equal(nonLeaf.status, 409);
 });
 
-test("bookmark, switch, facts, and import mutations all return story payloads", async (t) => {
+test("tag, switch, facts, and import mutations all return story payloads", async (t) => {
   const base = await testApp(t);
   const created = await createStory(base, "Payloads");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "Left." }));
   const left = payload.path[0]!;
   payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "Right." }));
   const right = payload.path[0]!;
-  payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/bookmarks/${right.id}`, {
-    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Right", label: "Canon" })
+  payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/tags/${right.id}`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Right", status: "Canon" })
   });
-  assert.equal(payload.bookmarks[0]!.nodeId, right.id);
+  assert.equal(payload.tags[0]!.nodeId, right.id);
   payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/switch`, post({ nodeId: left.id }));
   assert.equal(payload.path[0]!.id, left.id);
   assert.deepEqual(payload.recentNodeIds, [right.id, left.id]);

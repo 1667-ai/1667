@@ -175,7 +175,7 @@ function storyFixture(id: string, index: number): Story {
     updatedAt: instant,
     nodes: [],
     activeRootId: null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

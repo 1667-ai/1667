@@ -64,13 +64,13 @@ function syntheticPayload({ parts, takesEvery, takesper, wordsPerPart }: Synthet
   }
   return {
     id: "bench", title: "bench story", createdAt: "2026-07-19T00:00:00Z", updatedAt: "2026-07-19T00:00:00Z",
-    nodes, path, activeRootId: "p0", bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: []
+    nodes, path, activeRootId: "p0", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }
 
 function wideAtlasPayload(branches: number): StoryPayload {
   const nodes: StoryPayload["nodes"] = [];
-  const bookmarks: StoryPayload["bookmarks"] = [];
+  const tags: StoryPayload["tags"] = [];
   for (let index = 0; index < branches; index += 1) {
     const root = `root-${index}`;
     const leaf = `leaf-${index}`;
@@ -86,7 +86,7 @@ function wideAtlasPayload(branches: number): StoryPayload {
         hasInstruction: false, activeChildId: null
       }
     );
-    bookmarks.push({
+    tags.push({
       nodeId: leaf, name: leaf, label: "Canon", color: "", createdAt: "2026-07-19T00:00:00Z"
     });
   }
@@ -99,7 +99,7 @@ function wideAtlasPayload(branches: number): StoryPayload {
       id: node.id, parentId: node.parentId, instruction: "", text: node.preview,
       model: "bench", createdAt: node.lastTouched, activeChildId: node.activeChildId
     })),
-    activeRootId: firstRoot.id, bookmarks, recentNodeIds: [], facts: [], chapterBreaks: []
+    activeRootId: firstRoot.id, tags, recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }
 
@@ -107,7 +107,7 @@ function deepAtlasPayload(depth: number): StoryPayload {
   const touched = "2026-07-22T00:00:00Z";
   const nodes: StoryPayload["nodes"] = [];
   const path: StoryNode[] = [];
-  const bookmarks: StoryPayload["bookmarks"] = [];
+  const tags: StoryPayload["tags"] = [];
   for (let index = 0; index < depth; index += 1) {
     const id = `trunk-${index}`;
     const parentId = index === 0 ? null : `trunk-${index - 1}`;
@@ -128,13 +128,13 @@ function deepAtlasPayload(depth: number): StoryPayload {
       childCount: 0, leafCount: 1, lastTouched: touched,
       hasInstruction: false, activeChildId: null
     });
-    bookmarks.push({
+    tags.push({
       nodeId: sideId, name: sideId, label: "Canon", color: "", createdAt: touched
     });
   }
   return {
     id: "deep-atlas", title: "deep atlas", createdAt: touched, updatedAt: touched,
-    nodes, path, activeRootId: path[0]?.id ?? null, bookmarks,
+    nodes, path, activeRootId: path[0]?.id ?? null, tags,
     recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }
@@ -147,7 +147,7 @@ function stateFor(payload: StoryPayload): StoryScreenState {
     retakePrompt: null,
     freshLandedAt: new Map(), now: 1_667_000_000_000,
     model: "bench", systemPrompt: "Continue the story.", assistantPrefill: true,
-    map: null, contextMeterExpanded: false, prune: null, bookmark: null, typewriter: false,
+    map: null, contextMeterExpanded: false, prune: null, tag: null, typewriter: false,
     expandedChapterSummaryIds: new Set(), chapterDeleteArmedId: null,
     demo: true, storyFolder: "", library: null, facts: null, commands: null, chapters: null, settings: null,
     summary: null, actions: null, hitRows: [], contextWindow: 32768,

@@ -69,8 +69,8 @@ export function createTake(story: Story, node: StoryNode, options: { activate?: 
   story.nodes.push(node);
   if (!retarget) return node;
   if (parent !== null && parentWasLineEnd) {
-    const bookmark = story.bookmarks.find((candidate) => candidate.nodeId === parent.id);
-    if (bookmark !== undefined) bookmark.nodeId = node.id;
+    const tag = story.tags.find((candidate) => candidate.nodeId === parent.id);
+    if (tag !== undefined) tag.nodeId = node.id;
   }
   switchToNode(story, node.id);
   return node;
@@ -372,7 +372,7 @@ function deleteNodeSet(story: Story, deadIds: Set<string>): void {
   }
 
   story.nodes = story.nodes.filter((candidate) => !deadIds.has(candidate.id));
-  story.bookmarks = story.bookmarks.filter((bookmark) => !deadIds.has(bookmark.nodeId));
+  story.tags = story.tags.filter((tag) => !deadIds.has(tag.nodeId));
   story.recentNodeIds = story.recentNodeIds.filter((recentId) => !deadIds.has(recentId));
   story.chapterBreaks = story.chapterBreaks.filter((chapterBreak) => !removedBreakIds.has(chapterBreak.id));
   for (const fact of story.facts) if (fact.sourcePartId !== undefined && deadIds.has(fact.sourcePartId)) delete fact.sourcePartId;
@@ -387,16 +387,16 @@ export function switchLine(
   if (target === null) throw new HttpError(404, `Node not found: ${nodeId}`);
   if (isChapterSummary(target)) throw new HttpError(404, `Node not found: ${nodeId}`);
   const targetParent = target.parentId === null ? null : requireNode(story, target.parentId);
-  const bookmark = targetParent !== null && targetParent.activeChildId === null
-    ? story.bookmarks.find((candidate) => candidate.nodeId === targetParent.id)
+  const tag = targetParent !== null && targetParent.activeChildId === null
+    ? story.tags.find((candidate) => candidate.nodeId === targetParent.id)
     : undefined;
   const beforeLine = activePath(story).map((node) => node.id);
-  const beforeBookmarkNodeId = bookmark?.nodeId;
+  const beforeTagNodeId = tag?.nodeId;
   switchToNode(story, nodeId, options);
   const nextLeaf = activeLeaf(story);
-  if (bookmark !== undefined && nextLeaf !== null) bookmark.nodeId = nextLeaf.id;
+  if (tag !== undefined && nextLeaf !== null) tag.nodeId = nextLeaf.id;
   const afterLine = activePath(story);
-  return beforeBookmarkNodeId !== bookmark?.nodeId
+  return beforeTagNodeId !== tag?.nodeId
     || beforeLine.length !== afterLine.length
     || beforeLine.some((id, index) => id !== afterLine[index]?.id);
 }

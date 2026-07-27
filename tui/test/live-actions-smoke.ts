@@ -20,14 +20,14 @@ const pruned = await api.deleteNode(created.id, secondId, 1);
 assert(!pruned.nodes.some((node) => node.id === secondId), "prune response retained deleted node");
 process.stdout.write(`prune payload: ${JSON.stringify({ expectedSubtreeCount: 1 })}\n`);
 
-const bookmarked = await api.putBookmark(created.id, firstId, "smoke-canon", "Canon");
-assert(bookmarked.bookmarks.some((bookmark) => bookmark.nodeId === firstId
-  && bookmark.name === "smoke-canon" && bookmark.label === "Canon"), "bookmark response shape mismatch");
-process.stdout.write(`bookmark payload: ${JSON.stringify({ name: "smoke-canon", label: "Canon" })}\n`);
+const tagged = await api.putBookmark(created.id, firstId, "smoke-canon", "Canon");
+assert(tagged.tags.some((tag) => tag.nodeId === firstId
+  && tag.name === "smoke-canon" && tag.status === "Canon"), "tag response shape mismatch");
+process.stdout.write(`tag payload: ${JSON.stringify({ name: "smoke-canon", label: "Canon" })}\n`);
 
-const unbookmarked = await api.deleteBookmark(created.id, firstId);
-assert(!unbookmarked.bookmarks.some((bookmark) => bookmark.nodeId === firstId), "bookmark delete response retained bookmark");
-process.stdout.write(`bookmark delete: ${firstId} absent ✓\n`);
+const untagged = await api.deleteBookmark(created.id, firstId);
+assert(!untagged.tags.some((tag) => tag.nodeId === firstId), "tag delete response retained tag");
+process.stdout.write(`tag delete: ${firstId} absent ✓\n`);
 
 function requiredLeaf(payload: { path: Array<{ id: string }> }): string {
   const id = payload.path.at(-1)?.id;

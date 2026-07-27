@@ -97,7 +97,7 @@ function fixture(nodes: StoryNode[], overrides: Partial<Story> = {}): Story {
     facts: [],
     nodes,
     activeRootId: nodes[0]?.id ?? null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     ...overrides,
     chapterBreaks: overrides.chapterBreaks ?? []

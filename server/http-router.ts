@@ -481,7 +481,7 @@ async function handleApi(
       }));
     }
   }
-  if (head === "stories" && id !== undefined && sub === "bookmarks"
+  if (head === "stories" && id !== undefined && sub === "tags"
     && subId !== undefined && action === undefined) {
     if (method === "PUT") {
       const body = await jsonBody();
@@ -489,9 +489,10 @@ async function handleApi(
         storyId: id,
         nodeId: subId,
         name: requireString(body.name, "name"),
+        // Request body says `status`; the durable mutation input keeps `label`.
         label: requireStringValue(
-          body.label,
-          "label"
+          body.status,
+          "status"
         )
       }));
     }

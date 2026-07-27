@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  type BookmarkLabel,
+  type TagStatus,
   type ChapterBreak,
   type CoveredExtent,
   type HumanEditAttribution,
@@ -79,11 +79,13 @@ export interface StoryManifestV2 {
   facts: StoredFactV1[];
 }
 
+/** Legacy schemaVersion 1 shape. `label` keeps its original spelling: this
+ * reads files already on disk, so the key cannot be renamed. */
 export interface StoredBranchV1 {
   id: string;
   name: string;
   color: string;
-  label: BookmarkLabel;
+  label: TagStatus;
   canon?: true;
   createdAt: string;
   forkPartId: string | null;
@@ -135,10 +137,14 @@ export interface StoredNodeV1 {
   activeChildId: string | null;
 }
 
-export interface StoredBookmarkV1 {
+/** The stored shape of a tag. `label` is the on-disk key and keeps its original
+ * spelling: this interface is serialized straight to JSON, so renaming the field
+ * would rename the key and orphan every story already written. `Tag.status` is
+ * the in-memory name; `story-codec.ts` maps between the two. */
+export interface StoredTagV1 {
   nodeId: string;
   name: string;
-  label: BookmarkLabel;
+  label: TagStatus;
   color: string;
   createdAt: string;
 }
@@ -155,7 +161,8 @@ export interface StoryManifestV4 {
   nodes: StoredNodeV1[];
   facts: StoredFactV1[];
   activeRootId: string | null;
-  bookmarks: StoredBookmarkV1[];
+  /** On-disk key, kept for the reason given on `StoredTagV1`. */
+  bookmarks: StoredTagV1[];
   recentNodeIds: string[];
 }
 
@@ -408,7 +415,7 @@ export function parseLegacyStory(raw: string, expectedId: string): Story {
     ...(origin === undefined ? {} : { origin }),
     nodes,
     activeRootId: parts[0]?.id ?? null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

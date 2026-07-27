@@ -111,7 +111,7 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     invalidNestedV5("v5-unknown-fact-key", richV5, (copy) => {
       copy.facts[0]!.surprise = true;
     }),
-    invalidNestedV5("v5-unknown-bookmark-key", richV5, (copy) => {
+    invalidNestedV5("v5-unknown-tag-key", richV5, (copy) => {
       copy.bookmarks[0]!.surprise = true;
     }),
     invalidNestedV5("v5-unknown-chapter-key", richV5, (copy) => {

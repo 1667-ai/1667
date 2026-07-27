@@ -18,7 +18,7 @@ describe("story view model", () => {
       "part", "part", "part", "part", "part", "chapter-summary", "chapter-divider",
       "part", "part", "part", "part", "part", "chapter-divider", "part", "part", "part"
     ]);
-    expect(payload.bookmarks).toHaveLength(4);
+    expect(payload.tags).toHaveLength(4);
     expect(storyLines(payload).lines).toHaveLength(5);
   });
 

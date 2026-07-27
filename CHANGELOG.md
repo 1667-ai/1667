@@ -5,6 +5,17 @@ the [README](README.md#technical-terms).
 
 ## Unreleased
 
+- **Bookmarks are now tags.** A tag is a name and a status on the end of one
+  story line. The old name told you that the mark kept a reading position. It
+  does not. It names one version of the story, and the reading position is the
+  story line you are on. Press `t` to tag a line. The `b` key no longer tags.
+  Each tag has a status: Canon, Alt, Draft, Discarded, or Summary. Stories on
+  disk do not change, and no migration is necessary. Thanks @10fra for the
+  terminology review.
+- **A displaced Canon line becomes Alt.** Only one story line can be Canon. When
+  you make a second line Canon, the first line becomes Alt and keeps its name,
+  its colour, and its date. Before, the first line lost its status. It then
+  looked the same as a line with no tag. Thanks @10fra for the report.
 - **1667 now supports Windows x64 release candidates.** The Windows machine
   tier installs a protected DACL for the current user and SYSTEM. Native tests
   reject reparse points. CI builds the executable and runs it through the npm

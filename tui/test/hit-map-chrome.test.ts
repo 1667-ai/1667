@@ -14,7 +14,7 @@ import {
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
 import {
-  ACTIONS_FOOTER_ACTIONS, BOOKMARKS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS,
+  ACTIONS_FOOTER_ACTIONS, TAGS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS,
   COMMANDS_FOOTER_ACTIONS, FACTS_FOOTER_ACTIONS, LIBRARY_FOOTER_ACTIONS,
   SETTINGS_FOOTER_ACTIONS
 } from "../src/screens/panels.js";
@@ -78,9 +78,9 @@ const footerCases: FooterCase[] = [
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
-  { name: "bookmark manager", mode: "COMMANDS", actions: BOOKMARKS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("d"), key("escape")], options: { commandsBookmarks: true },
-    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "bookmarks" }; } },
+  { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
+    keys: [key("up"), key("down"), key("d"), key("escape")], options: { commandsTags: true },
+    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags" }; } },
   { name: "part actions", mode: "ACTIONS", actions: ACTIONS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
     setup: (state) => {
@@ -545,7 +545,7 @@ describe("hit map clickable chrome", () => {
         id: node.id, parentId: node.parentId, instruction: "", text: node.preview,
         model: "test", createdAt: node.lastTouched, activeChildId: node.activeChildId
       })),
-      activeRootId: "n0", bookmarks: []
+      activeRootId: "n0", tags: []
     } as never;
     const frame = render(state, 120, 40);
     const rowIndex = state.hitRows.findIndex((row) =>
@@ -598,9 +598,9 @@ describe("hit map clickable chrome", () => {
     expect(new Set(takeSpans.map((span) => (span.target as { take: number }).take)))
       .toEqual(new Set([1, 2]));
 
-    const bookmarked = takeSpans.find((span) =>
+    const tagged = takeSpans.find((span) =>
       span.target.kind === "take" && span.target.take === 2)!;
-    const clicked = mouseToAction(click(bookmarked.left, rowIndex), state)!;
+    const clicked = mouseToAction(click(tagged.left, rowIndex), state)!;
     await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.pathCursorId).toBe("p8-alt-3");
 
@@ -813,8 +813,8 @@ describe("hit map clickable chrome", () => {
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
-      { name: "bookmark manager", expected: "↑↓ move · d delete · esc commands",
-        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "bookmarks" }; } },
+      { name: "tag manager", expected: "↑↓ move · d delete · esc commands",
+        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags" }; } },
       // Context status moved into the panel, so the footer is actions only and
       // no longer grows with `over`/`fix`.
       { name: "chapters", expected: (width) => width < 100

@@ -41,8 +41,8 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
   const factId = facts === null || factSelection === null
     ? null
     : factRows(state.payload.facts, factSelection.selectedTag, facts.query)[factSelection.cursor]?.id ?? null;
-  const commands = state.commands?.view === "bookmarks" ? state.commands : null;
-  const bookmarkNodeId = commands === null ? null : state.payload.bookmarks[commands.cursor]?.nodeId ?? null;
+  const commands = state.commands?.view === "tags" ? state.commands : null;
+  const tagNodeId = commands === null ? null : state.payload.tags[commands.cursor]?.nodeId ?? null;
   const chapters = state.chapters;
   const chapterRows = chapters === null ? [] : createStoryViewModel(state.payload).chapters;
   const chapter = chapters === null
@@ -61,13 +61,13 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
       facts.expandedId = null;
     }
   }
-  if (commands !== null && state.commands === commands && commands.view === "bookmarks") {
-    const preservedIndex = bookmarkNodeId === null
+  if (commands !== null && state.commands === commands && commands.view === "tags") {
+    const preservedIndex = tagNodeId === null
       ? -1
-      : payload.bookmarks.findIndex((bookmark) => bookmark.nodeId === bookmarkNodeId);
+      : payload.tags.findIndex((tag) => tag.nodeId === tagNodeId);
     commands.cursor = preservedIndex >= 0
       ? preservedIndex
-      : Math.min(commands.cursor, Math.max(0, payload.bookmarks.length - 1));
+      : Math.min(commands.cursor, Math.max(0, payload.tags.length - 1));
   }
   if (chapters !== null && state.chapters === chapters) {
     const rows = view.chapters;
@@ -220,23 +220,23 @@ function reconcileStoryBoundIntent(
     else Object.assign(prune, refreshed);
   }
 
-  const bookmark = state.bookmark;
-  const bookmarkNode = bookmark === null
+  const tag = state.tag;
+  const tagNode = tag === null
     ? null
-    : state.payload.nodes.find(({ id }) => id === bookmark.nodeId) ?? null;
-  const existingBookmark = bookmark === null
+    : state.payload.nodes.find(({ id }) => id === tag.nodeId) ?? null;
+  const existingTag = tag === null
     ? null
-    : state.payload.bookmarks.find(({ nodeId }) => nodeId === bookmark.nodeId) ?? null;
-  const bookmarkValid = bookmark !== null
-    && bookmarkNode !== null
-    && (bookmarkNode.activeChildId === null || existingBookmark !== null);
-  if (bookmarkValid) {
-    bookmark.existing = existingBookmark !== null;
-    if (bookmark.returnMode === "MAP" && state.map === null) bookmark.returnMode = "NAV";
+    : state.payload.tags.find(({ nodeId }) => nodeId === tag.nodeId) ?? null;
+  const tagValid = tag !== null
+    && tagNode !== null
+    && (tagNode.activeChildId === null || existingTag !== null);
+  if (tagValid) {
+    tag.existing = existingTag !== null;
+    if (tag.returnMode === "MAP" && state.map === null) tag.returnMode = "NAV";
   } else {
-    const returnMode = bookmark?.returnMode ?? "NAV";
-    state.bookmark = null;
-    if (state.mode === "BOOKMARK") {
+    const returnMode = tag?.returnMode ?? "NAV";
+    state.tag = null;
+    if (state.mode === "TAG") {
       state.mode = returnMode === "MAP" && state.map !== null ? "MAP" : "NAV";
     }
   }
@@ -307,7 +307,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   state.map = null;
   state.contextMeterExpanded = false;
   state.prune = null;
-  state.bookmark = null;
+  state.tag = null;
   state.chapters = null;
   state.expandedChapterSummaryIds = new Set();
   state.expandedPromptIds = new Set();

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Bookmark, NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
+import type { Tag, NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { createAtlasLayout, followAtlasRail, type AtlasLayout } from "../src/atlas-layout.js";
 import { createDemoController } from "../src/demo.js";
@@ -279,7 +279,7 @@ describe("atlas layout model", () => {
     const run = rows.findIndex((row) => row.kind === "run" && row.node.id === "continued-leaf");
     expect(run).toBe(-1);
   });
-  test("a continued or bookmarked fork child is a line; a lone take is a sketch", () => {
+  test("a continued or tagged fork child is a line; a lone take is a sketch", () => {
     const payload = fixture([
       ["root", null], ["continued", "root"], ["continued-leaf", "continued"],
       ["sketch", "root"], ["named", "root"]
@@ -480,14 +480,14 @@ describe("atlas layout model", () => {
   test("high-fanout layouts render only terminal-visible cells in linear time", () => {
     const branches = 1_000;
     const edges: Array<[string, string | null]> = [];
-    const bookmarks: string[] = [];
+    const tags: string[] = [];
     for (let index = 0; index < branches; index += 1) {
       const root = `root-${index}`;
       const leaf = `leaf-${index}`;
       edges.push([root, null], [leaf, root]);
-      bookmarks.push(leaf);
+      tags.push(leaf);
     }
-    const payload = fixture(edges, ["root-0", "leaf-0"], bookmarks);
+    const payload = fixture(edges, ["root-0", "leaf-0"], tags);
     const started = performance.now();
     const layout = createAtlasLayout(payload, { now: NOW, maxRows: 24 });
     const rendered = layout.rows.map((row) => renderMapTreeRow(row, 120, null));
@@ -503,7 +503,7 @@ describe("atlas layout model", () => {
     const depth = 10_000;
     const edges: Array<[string, string | null]> = [];
     const active: string[] = [];
-    const bookmarks: string[] = [];
+    const tags: string[] = [];
     for (let index = 0; index < depth; index += 1) {
       const trunk = `trunk-${index}`;
       edges.push([trunk, index === 0 ? null : `trunk-${index - 1}`]);
@@ -511,10 +511,10 @@ describe("atlas layout model", () => {
       if (index + 1 === depth) continue;
       const side = `side-${index}`;
       edges.push([side, trunk]);
-      bookmarks.push(side);
+      tags.push(side);
     }
 
-    const layout = createAtlasLayout(fixture(edges, active, bookmarks), { now: NOW, maxRows: 24 });
+    const layout = createAtlasLayout(fixture(edges, active, tags), { now: NOW, maxRows: 24 });
 
     expect(layout.totalParts).toBe(19_999);
     expect(layout.totalRows).toBe(19_999);
@@ -535,8 +535,8 @@ describe("atlas layout model", () => {
       path: [{ id: "root-0", parentId: null, instruction: "", text: "root 0", model: "test",
         createdAt: touched, activeChildId: null }],
       activeRootId: "root-0",
-      bookmarks: nodes.map((node) => ({
-        nodeId: node.id, name: node.id, label: "Canon", color: "", createdAt: touched
+      tags: nodes.map((node) => ({
+        nodeId: node.id, name: node.id, status: "Canon", color: "", createdAt: touched
       })),
       recentNodeIds: [], facts: [], chapterBreaks: []
     };
@@ -569,7 +569,7 @@ function chain(edges: Array<[string, string | null]>, prefix: string, from: numb
     previous = id;
   }
 }
-function fixture(edges: Array<[string, string | null]>, activeIds: string[], bookmarked: string[]): StoryPayload {
+function fixture(edges: Array<[string, string | null]>, activeIds: string[], tagged: string[]): StoryPayload {
   const children = new Map<string, string[]>();
   for (const [id, parent] of edges) if (parent !== null) children.set(parent, [...children.get(parent) ?? [], id]);
   const leaves = new Map<string, number>();
@@ -589,11 +589,11 @@ function fixture(edges: Array<[string, string | null]>, activeIds: string[], boo
     return { id, parentId: node.parentId, instruction: "", text: node.preview, model: "test",
       createdAt: node.lastTouched, activeChildId: node.activeChildId };
   });
-  const bookmarks: Bookmark[] = bookmarked.map((nodeId) => ({
-    nodeId, name: nodeId, label: "Canon", color: "", createdAt: "2022-10-25T09:00:00.000Z"
+  const tags: Tag[] = tagged.map((nodeId) => ({
+    nodeId, name: nodeId, status: "Canon", color: "", createdAt: "2022-10-25T09:00:00.000Z"
   }));
   return { id: "atlas", title: "atlas", createdAt: "", updatedAt: "", nodes, path,
-    activeRootId: activeIds[0] ?? null, bookmarks, recentNodeIds: [], facts: [], chapterBreaks: [] };
+    activeRootId: activeIds[0] ?? null, tags, recentNodeIds: [], facts: [], chapterBreaks: [] };
 }
 function touch(payload: StoryPayload, rootId: string, lastTouched: string): StoryPayload {
   const descendants = new Set([rootId]);

@@ -4,7 +4,7 @@ import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { activePath, computeRollups, isChapterSummary, pathTo, subtreeIds, switchToNode, unusedTakePruneSelection } from "../../shared/story-tree.js";
-import type { BookmarkLabel, FactInput, GenerationSettings, NodeStub, PruneUnusedTakesRequest, Story, StoryPayload, StorySummary } from "../../shared/types.js";
+import type { TagStatus, FactInput, GenerationSettings, NodeStub, PruneUnusedTakesRequest, Story, StoryPayload, StorySummary } from "../../shared/types.js";
 import type {
   SettingsDocumentV2,
   SettingsMutationResult,
@@ -22,7 +22,7 @@ import {
   restoreDemoChapterBreak,
   summarizeDemoChapter
 } from "./demo-chapters.js";
-import { buildDemoNodes, DEMO_CREATED_AT, DEMO_EDITED_AT, demoBookmarks, demoFacts, makeDemoNode } from "./demo-fixture.js";
+import { buildDemoNodes, DEMO_CREATED_AT, DEMO_EDITED_AT, demoTags, demoFacts, makeDemoNode } from "./demo-fixture.js";
 import { createDemoTake } from "./demo-take.js";
 
 export { DEMO_SUMMARY_TEXT } from "./demo-chapters.js";
@@ -43,7 +43,7 @@ export interface DemoController {
   editNode(nodeId: string, patch: { instruction?: string; text?: string }): StoryPayload;
   deleteNode(nodeId: string, expectedSubtreeCount: number): StoryPayload;
   pruneUnusedTakes(expected: PruneUnusedTakesRequest): StoryPayload;
-  putBookmark(nodeId: string, name: string, label: BookmarkLabel): StoryPayload;
+  putBookmark(nodeId: string, name: string, status: TagStatus): StoryPayload;
   deleteBookmark(nodeId: string): StoryPayload;
   listStories(): StorySummary[];
   openStory(id: string): StoryPayload;
@@ -73,7 +73,7 @@ export function createDemoController(dense = false): DemoController {
     nodes,
     activeRootId: "p1",
     recentNodeIds: [],
-    bookmarks: demoBookmarks(),
+    tags: demoTags(),
     facts: demoFacts(),
     chapterBreaks: [
       { id: "chapter-break-1", parentPartId: "p5", title: "The Stranger", createdAt: CREATED },
@@ -97,7 +97,7 @@ export function createDemoController(dense = false): DemoController {
     const removed = new Set(ids);
     story.nodes = story.nodes.filter((candidate) => !removed.has(candidate.id));
     story.chapterBreaks = story.chapterBreaks.filter((chapterBreak) => !removed.has(chapterBreak.parentPartId));
-    story.bookmarks = story.bookmarks.filter((bookmark) => !removed.has(bookmark.nodeId));
+    story.tags = story.tags.filter((tag) => !removed.has(tag.nodeId));
     return payloadFrom(story);
   };
   return {
@@ -165,15 +165,15 @@ export function createDemoController(dense = false): DemoController {
       for (const takeId of selection.takeIds) deleteDemoNode(takeId, subtreeIds(story, takeId).length);
       return payloadFrom(story);
     },
-    putBookmark(nodeId, name, label) {
-      const existing = story.bookmarks.find((bookmark) => bookmark.nodeId === nodeId);
-      const bookmark = { nodeId, name, label, color: bookmarkColor(label), createdAt: CREATED };
-      if (existing === undefined) story.bookmarks.push(bookmark);
-      else Object.assign(existing, bookmark);
+    putBookmark(nodeId, name, status) {
+      const existing = story.tags.find((tag) => tag.nodeId === nodeId);
+      const tag = { nodeId, name, status, color: tagColor(status), createdAt: CREATED };
+      if (existing === undefined) story.tags.push(tag);
+      else Object.assign(existing, tag);
       return payloadFrom(story);
     },
     deleteBookmark(nodeId) {
-      story.bookmarks = story.bookmarks.filter((bookmark) => bookmark.nodeId !== nodeId);
+      story.tags = story.tags.filter((tag) => tag.nodeId !== nodeId);
       return payloadFrom(story);
     },
     listStories() {
@@ -188,18 +188,18 @@ export function createDemoController(dense = false): DemoController {
       if (id === story.id) return payloadFrom(story);
       const listed = this.listStories().find((candidate) => candidate.id === id);
       if (listed === undefined) throw new Error(`Unknown demo story: ${id}`);
-      story = { ...story, id, title: listed.title, updatedAt: listed.updatedAt, bookmarks: [], recentNodeIds: [] };
+      story = { ...story, id, title: listed.title, updatedAt: listed.updatedAt, tags: [], recentNodeIds: [] };
       return payloadFrom(story);
     },
     createStory() {
       story = { id: `demo-new-${Date.now()}`, title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
-        nodes: [], activeRootId: null, recentNodeIds: [], bookmarks: [], facts: [], chapterBreaks: [] };
+        nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
       return payloadFrom(story);
     },
     renameStory(title) { story.title = title; story.updatedAt = CREATED; return payloadFrom(story); },
     deleteStory() {
       story = { id: "demo-empty", title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
-        nodes: [], activeRootId: null, recentNodeIds: [], bookmarks: [], facts: [], chapterBreaks: [] };
+        nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
       return payloadFrom(story);
     },
     autonameStory() { story.title = "the compass at sorrow cliff"; return payloadFrom(story); },
@@ -287,7 +287,7 @@ function payloadFrom(story: Story): StoryPayload {
     }),
     path: activePath(story).map((node) => structuredClone(node)),
     activeRootId: story.activeRootId,
-    bookmarks: story.bookmarks.map((bookmark) => ({ ...bookmark })),
+    tags: story.tags.map((tag) => ({ ...tag })),
     recentNodeIds: [...story.recentNodeIds],
     facts: story.facts.map((fact) => ({ ...fact })),
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
@@ -478,7 +478,7 @@ export function demoAppSource(dense = false): AppSource {
   };
 }
 
-function bookmarkColor(label: BookmarkLabel): string {
+function tagColor(label: TagStatus): string {
   if (label === "Canon") return "#E3B341";
   if (label === "Alt") return "#C49AC4";
   if (label === "Draft") return "#9FB6C4";

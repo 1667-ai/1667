@@ -13,7 +13,7 @@ import {
   initialSettingsOverlay
 } from "../src/settings-overlay-model.js";
 import {
-  BOOKMARKS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS, COMMANDS_FOOTER_ACTIONS,
+  TAGS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS, COMMANDS_FOOTER_ACTIONS,
   FACTS_FOOTER_ACTIONS, LIBRARY_FOOTER_ACTIONS, SETTINGS_FOOTER_ACTIONS
 } from "../src/screens/panels.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -78,9 +78,9 @@ const footerCases: FooterCase[] = [
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("return"), key("up"), key("down"), key("escape")],
     setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
-  { name: "bookmark manager", mode: "COMMANDS", actions: BOOKMARKS_FOOTER_ACTIONS,
-    keys: [key("up"), key("down"), key("x"), key("escape")], options: { commandsBookmarks: true },
-    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "bookmarks" }; } },
+  { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
+    keys: [key("up"), key("down"), key("x"), key("escape")], options: { commandsTags: true },
+    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags" }; } },
   { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS,
     keys: [
       key("up"), key("down"), key("left"), key("right"),
@@ -173,7 +173,7 @@ describe("hit map from rendered frames", () => {
     const leafId = state.payload.path.at(-1)?.id;
     state.payload = {
       ...state.payload,
-      bookmarks: state.payload.bookmarks.filter(({ nodeId }) => nodeId !== leafId)
+      tags: state.payload.tags.filter(({ nodeId }) => nodeId !== leafId)
     };
     const ready = commandMatches("", state.demo, commandContext(state.payload, false, false));
     state.backendTask = {
@@ -199,7 +199,7 @@ describe("hit map from rendered frames", () => {
       { action: "focus-previous" }, state, source, createWrapCache(),
       () => {}, async () => {}, () => {}
     );
-    expect(state.commands?.selectedId).toBe("bookmark-line");
+    expect(state.commands?.selectedId).toBe("tag-line");
   });
 
   test("prose rows resolve to the part that drew them", () => {

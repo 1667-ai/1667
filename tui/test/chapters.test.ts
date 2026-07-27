@@ -168,6 +168,6 @@ function largePayload(size: number, chapterCount: number): StoryPayload {
   }
   return {
     id: "large", title: "Large", createdAt: "2026-01-01", updatedAt: "2026-01-01",
-    nodes, path, activeRootId: "p0", bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks
+    nodes, path, activeRootId: "p0", tags: [], recentNodeIds: [], facts: [], chapterBreaks
   };
 }

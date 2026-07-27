@@ -321,7 +321,7 @@ function fixture(text: string): Story {
     facts: [],
     nodes: [part("Write it.", text)],
     activeRootId: "part-1",
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     chapterBreaks: [],
     createdAt: "2026-01-01T00:00:00.000Z",
