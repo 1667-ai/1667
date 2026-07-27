@@ -43,6 +43,12 @@ async function time(
   return measuredRow(label, samples);
 }
 
+function lastPathNode(payload: StoryPayload): StoryPayload["path"][number] {
+  const node = payload.path.at(-1);
+  if (node === undefined) throw new Error("The seeded story has an empty active path");
+  return node;
+}
+
 /** Two sibling takes of one seam, preferring a pair the seeded tour ships. */
 function siblingTakePair(payload: StoryPayload): readonly [string, string] | null {
   const byParent = new Map<string | null, string[]>();
@@ -80,7 +86,7 @@ try {
   let payload = await api.loadStory(storyId);
   let pair = siblingTakePair(payload);
   if (pair === null) {
-    const seam = payload.path.at(-1)!;
+    const seam = lastPathNode(payload);
     payload = await api.createNode(storyId, {
       parentId: seam.parentId,
       instruction: "",
@@ -99,7 +105,7 @@ try {
   payload = await api.loadStory(storyId);
   let editCounter = 0;
   rows.push(await time("editNode (content mutation)", async () => {
-    const target = payload.path.at(-1)!;
+    const target = lastPathNode(payload);
     editCounter += 1;
     payload = await api.editNode(storyId, target, {
       text: `${target.text} +${editCounter}`
