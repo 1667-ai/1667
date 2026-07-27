@@ -55,8 +55,13 @@ test("current settings read remains valid across atomic replacement", {
     }
   });
   try {
+    // The replacement must land before the paused read resumes, or the
+    // assertion below proves nothing. Windows cannot complete the rename while
+    // the read handle is open, so it waits for the contention retry instead.
     if (process.platform === "win32") {
       await Promise.race([contention, publishing]);
+    } else {
+      await publishing;
     }
   } finally {
     pause.release();
