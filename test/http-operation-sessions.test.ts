@@ -13,7 +13,7 @@ import {
 } from "../shared/http-operation-protocol.js";
 import { ServiceError } from "../server/errors.js";
 import { HttpOperationSessionStore } from "../server/http-operation-sessions.js";
-import { platformPerformanceBudget } from "./platform-performance-budget.js";
+import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 
 const INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
 const MUTATION_ID = "m1.1753356800000.22222222222222222222222222222222";
@@ -491,7 +491,7 @@ test("terminal HTTP operations expire to operation_unknown", async () => {
   );
 });
 
-test("HTTP operation lifecycle keeps 20k local calls within its CPU budget", async () => {
+test("HTTP operation lifecycle keeps 20k local calls within its CPU budget", async (t) => {
   let now = 0;
   const store = new HttpOperationSessionStore(INSTANCE_ID, {
     now: () => now,
@@ -499,7 +499,7 @@ test("HTTP operation lifecycle keeps 20k local calls within its CPU budget", asy
     secret: Buffer.alloc(32, 12)
   });
   const session = store.createSession("story", "11".repeat(32));
-  const started = process.cpuUsage();
+  const read = startTiming();
   for (let index = 0; index < 20_000; index += 1) {
     now += 251;
     const reservation = await store.reserve(session.capability, {
@@ -515,12 +515,8 @@ test("HTTP operation lifecycle keeps 20k local calls within its CPU budget", asy
     ).finish("completed");
     store.acknowledge(session.capability, reservation.ticket);
   }
-  const usage = process.cpuUsage(started);
-  const cpuMs = (usage.user + usage.system) / 1_000;
-  assert.ok(
-    cpuMs < platformPerformanceBudget(2_000),
-    `20k operation lifecycles used ${cpuMs.toFixed(1)}ms CPU`
-  );
+  // Pure computation, so this budget measures CPU time.
+  assertWithinBudget(t, "20k operation lifecycles", cpuBudget(2_000), read());
 });
 
 function assertServiceCode(

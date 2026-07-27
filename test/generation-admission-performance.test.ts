@@ -3,20 +3,20 @@ import test from "node:test";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
 import { hasCommittedGeneration } from "../server/story-nodes.js";
 import type { Story, StoryNode } from "../shared/types.js";
-import { platformPerformanceBudget } from "./platform-performance-budget.js";
+import { assertWithinBudget, budgetTimeout, cpuBudget, startTiming } from "./performance-budget.js";
 
 const NODE_COUNT = 20_000;
 const LOOKUP_ROUNDS = 500;
 const REGISTRY_ROUNDS = 25_000;
-const CPU_BUDGET_MS = platformPerformanceBudget(8_000);
+// Pure computation, so this budget measures CPU time.
+const ADMISSION_BUDGET = cpuBudget(8_000);
 
-test("generation lookup and admission churn stay comfortably bounded", { timeout: 30_000 }, async (t) => {
+test("generation lookup and admission churn stay comfortably bounded", { timeout: budgetTimeout([ADMISSION_BUDGET]) }, async (t) => {
   const story = largeStory();
   const registry = new GenerationAdmissionRegistry();
   assert.equal(hasCommittedGeneration(story, "committed-at-the-end"), true);
 
-  const cpuStart = process.cpuUsage();
-  const wallStart = performance.now();
+  const read = startTiming();
   let lookups = 0;
   for (let round = 0; round < LOOKUP_ROUNDS; round += 1) {
     lookups += Number(hasCommittedGeneration(story, "committed-at-the-end"));
@@ -30,20 +30,16 @@ test("generation lookup and admission churn stay comfortably bounded", { timeout
       () => 1
     );
   }
-  const usage = process.cpuUsage(cpuStart);
-  const cpuMs = (usage.user + usage.system) / 1_000;
-  const wallMs = performance.now() - wallStart;
+  const timing = read();
 
   assert.equal(lookups, LOOKUP_ROUNDS);
   assert.equal(churn, REGISTRY_ROUNDS);
-  assert.ok(
-    cpuMs < CPU_BUDGET_MS,
-    `generation admission benchmark used ${cpuMs.toFixed(1)}ms CPU; budget is ${CPU_BUDGET_MS}ms`
-  );
-  t.diagnostic(
+  assertWithinBudget(
+    t,
     `${(NODE_COUNT * LOOKUP_ROUNDS * 2).toLocaleString()} node checks + `
-    + `${REGISTRY_ROUNDS.toLocaleString()} registry cycles: `
-    + `${cpuMs.toFixed(1)}ms CPU, ${wallMs.toFixed(1)}ms wall`
+    + `${REGISTRY_ROUNDS.toLocaleString()} registry cycles`,
+    ADMISSION_BUDGET,
+    timing
   );
 });
 
