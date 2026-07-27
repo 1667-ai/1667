@@ -14,11 +14,11 @@ import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
 import test from "node:test";
 import {
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  PUBLISHED_PACKAGE_COUNT,
   RELEASE_LAUNCHER_PACKAGE,
-  RELEASE_PACKAGE_COUNT,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
@@ -69,10 +69,13 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     const executable = target === "launcher"
       ? "bin/1667.js"
       : releaseTargetForArtifact(target).executable;
-    const executableMode = target === "launcher"
-      || releaseTargetForArtifact(target).platform !== "win32"
-      ? 0o755
-      : 0o644;
+    // Release policy drops the exec bit only for a Windows package. No
+    // published target packs one while windows-x64 is held, so this reads the
+    // descriptor rather than assuming that stays true.
+    const platform: string | null = target === "launcher"
+      ? null
+      : releaseTargetForArtifact(target).platform;
+    const executableMode = platform === "win32" ? 0o644 : 0o755;
     const tarball = gzipSync(tar([
       entry(
         "package/package.json",
@@ -127,7 +130,7 @@ test("local release preflight CLI validates every tarball and emits canonical ev
   };
   // Derived, so dropping or restoring a release target cannot silently
   // leave this gate asserting a stale artifact count.
-  assert.equal(output.artifacts.length, RELEASE_PACKAGE_COUNT);
+  assert.equal(output.artifacts.length, PUBLISHED_PACKAGE_COUNT);
   assert.equal(output.artifacts[0]!.name, RELEASE_LAUNCHER_PACKAGE);
   for (const artifact of output.artifacts) {
     assert.equal(artifact.license.sha256, createHash("sha256").update(license).digest("hex"));

@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
-import { RELEASE_PACKAGE_COUNT } from "../shared/release-targets.js";
+import { PUBLISHED_PACKAGE_COUNT } from "../shared/release-targets.js";
 import {
   createReleaseArtifactManifest,
   type FormattedReleaseArtifactManifest,
@@ -38,8 +38,8 @@ export interface ReleasePreflightPlan {
 }
 
 /**
- * Validates six already-packed npm tarballs without extracting, building,
- * publishing, or accessing the network.
+ * Validates the already-packed npm tarballs — one per published package —
+ * without extracting, building, publishing, or accessing the network.
  */
 export async function runReleasePreflight(
   value: unknown,
@@ -104,9 +104,9 @@ export async function runReleasePreflightFile(
 function parsePlan(value: unknown): ReleasePreflightPlan {
   const input = exactRecord(value, PLAN_KEYS, "Release preflight plan");
   if (input.schemaVersion !== 1) throw new Error("Unsupported release preflight plan schema");
-  if (!Array.isArray(input.artifacts) || input.artifacts.length !== RELEASE_PACKAGE_COUNT) {
+  if (!Array.isArray(input.artifacts) || input.artifacts.length !== PUBLISHED_PACKAGE_COUNT) {
     throw new Error(
-      `Release preflight plan must contain exactly ${RELEASE_PACKAGE_COUNT} artifacts`
+      `Release preflight plan must contain exactly ${PUBLISHED_PACKAGE_COUNT} artifacts`
     );
   }
   const artifacts = input.artifacts.map((value) => {

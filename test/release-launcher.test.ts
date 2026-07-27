@@ -18,6 +18,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import {
+  heldTargetRefusal as launcherHeldTargetRefusal,
   LAUNCHER_PACKAGE_NAME,
   LAUNCHER_RELEASE_TARGETS,
   resolveLaunchPlan,
@@ -25,11 +26,14 @@ import {
   selectTarget
 } from "../release/npm/launcher.mjs";
 import {
+  heldTargetRefusal,
+  PUBLISHED_RELEASE_TARGETS,
   RELEASE_LAUNCHER_PACKAGE,
   RELEASE_TARGETS,
-  type PackagedArtifactTarget,
+  type BuiltArtifactTarget,
   type ReleaseTargetDescriptor,
-  releaseTargetForArtifact
+  releaseTargetForArtifact,
+  releaseTargetForRuntime
 } from "../shared/release-targets.js";
 import {
   createReleasePlatformManifest,
@@ -40,9 +44,21 @@ const VERSION = "3.0.0";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-23T10:20:30.000Z";
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
-const RUNNABLE_TARGET: PackagedArtifactTarget = process.platform === "win32"
-  ? "windows-x64"
+/**
+ * The launcher starts published targets only, so what this host can actually
+ * spawn is a question about the hold, not about the operating system. Deriving
+ * it means clearing `heldFromPublication` re-arms the spawn coverage on the
+ * platform being held — the plumbing a hold otherwise leaves entirely untested —
+ * instead of leaving a hardcoded reduction behind for someone to notice later.
+ */
+const HOST_TARGET = releaseTargetForRuntime(process.platform, process.arch);
+const HOST_LAUNCHABLE = HOST_TARGET !== null && HOST_TARGET.heldFromPublication === null;
+const RUNNABLE_TARGET: BuiltArtifactTarget = HOST_LAUNCHABLE
+  ? HOST_TARGET.artifactTarget
   : "linux-x64";
+const HELD_TARGETS = RELEASE_TARGETS.filter((descriptor) => {
+  return descriptor.heldFromPublication !== null;
+});
 const execFileAsync = promisify(execFile);
 
 test("standalone launcher target table exactly matches canonical release policy", () => {
@@ -55,6 +71,58 @@ test("standalone launcher target table exactly matches canonical release policy"
     assert.equal(
       selectTarget(descriptor.platform, descriptor.arch),
       descriptor.artifactTarget
+    );
+  }
+});
+
+test("launcher refuses a held target as withheld, never as an unsupported platform", async (t) => {
+  assert.deepEqual(
+    RELEASE_TARGETS.length,
+    PUBLISHED_RELEASE_TARGETS.length + HELD_TARGETS.length
+  );
+  // Lifting a hold empties this loop, and the parity check between the
+  // launcher's standalone refusal and the canonical one lives inside it —
+  // nothing else compares those two strings. State the empty case explicitly so
+  // it is a decision on record rather than a check that quietly stopped running.
+  if (HELD_TARGETS.length === 0) {
+    assert.deepEqual(
+      RELEASE_TARGETS.map((descriptor) => descriptor.heldFromPublication),
+      RELEASE_TARGETS.map(() => null),
+      "no target is held, so there is no refusal left to prove"
+    );
+    return;
+  }
+  for (const descriptor of HELD_TARGETS) {
+    const target = descriptor.artifactTarget;
+    // A staged, otherwise valid tree for the held target: the refusal has to
+    // come from the hold, not from anything the filesystem happens to hold.
+    const { base, root } = await launcherFixture(target);
+    t.after(() => rm(base, { recursive: true, force: true }));
+    // The key stays in the launcher's table. Removing it would report the
+    // platform as unsupported, which is a different problem with a different
+    // fix, and would send a user of that platform looking for the wrong thing.
+    assert.equal(selectTarget(descriptor.platform, descriptor.arch), target);
+    const expected = `${descriptor.packageName} is not published yet: `
+      + `${descriptor.heldFromPublication}. The ${target} target is supported `
+      + "and builds from source: https://github.com/1667-ai/1667";
+    assert.equal(heldTargetRefusal(descriptor), expected);
+    assert.throws(
+      () => resolveLaunchPlan({
+        launcherRoot: root,
+        platform: descriptor.platform,
+        arch: descriptor.arch
+      }),
+      (error: unknown) => error instanceof Error
+        && error.message === expected
+        && !error.message.includes("Unsupported 1667 platform")
+        && !error.message.includes("does not pin")
+        && !error.message.includes("Missing")
+    );
+    // The launcher's standalone copy of the refusal must not drift from the
+    // canonical one; nothing else compares the two strings.
+    assert.equal(
+      launcherHeldTargetRefusal(target, LAUNCHER_RELEASE_TARGETS[target]!),
+      expected
     );
   }
 });
@@ -202,11 +270,19 @@ test("scoped launcher resolves and starts from the hoisted npm layout", async (t
     platform: descriptor.platform,
     arch: descriptor.arch
   }).platformRoot, hoisted);
+  // The launcher refuses a held target before it spawns anything, so there is
+  // nothing to start on a host whose own target is held. Everything below —
+  // windowsHide, exit codes, signal plumbing — comes back the moment the hold
+  // is cleared, without another edit here.
+  if (!HOST_LAUNCHABLE) return;
   const child = runLauncher({
     launcherRoot: root,
     platform: descriptor.platform,
     arch: descriptor.arch,
-    args: descriptor.platform === "win32" ? ["--version"] : []
+    // The POSIX stub ignores its arguments and the Windows fixture stages this
+    // host's own Node binary, which would sit in a REPL with none. One argument
+    // that exits either of them keeps this free of a per-platform branch.
+    args: ["--version"]
   });
   const [code, signal] = await once(child, "exit");
   assert.equal(code, 0);
@@ -248,14 +324,14 @@ async function launcherFixture(): Promise<{
   platformRoot: string;
 }>;
 async function launcherFixture(
-  target: PackagedArtifactTarget
+  target: BuiltArtifactTarget
 ): Promise<{
   base: string;
   root: string;
   platformRoot: string;
 }>;
 async function launcherFixture(
-  target: PackagedArtifactTarget = "linux-x64"
+  target: BuiltArtifactTarget = "linux-x64"
 ): Promise<{
   base: string;
   root: string;
@@ -289,7 +365,18 @@ async function launcherFixture(
   );
   const descriptor = releaseTargetForArtifact(target);
   const executable = path.join(platformRoot, descriptor.executable);
-  if (descriptor.platform === "win32") {
+  // Read before the hold is tested: while windows-x64 is held the compiler can
+  // prove no published descriptor is a Windows one, so asking after the check
+  // below would be a comparison it rejects rather than the branch un-holding
+  // brings back.
+  const stagesWindowsImage = descriptor.platform === "win32";
+  if (descriptor.heldFromPublication !== null) {
+    // Nothing spawns a held target's executable: the launcher refuses it before
+    // it reaches the file, so the PE magic bytes are all the resolution checks
+    // that still run need. Clearing the hold takes the branch below instead and
+    // stages a real image again.
+    await writeFile(executable, "MZ");
+  } else if (stagesWindowsImage) {
     await copyFile(process.execPath, executable);
   } else {
     await writeFile(executable, "#!/bin/sh\nexit 0\n");

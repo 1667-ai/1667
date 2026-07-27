@@ -1,10 +1,10 @@
 import {
+  PUBLISHED_PLATFORM_PACKAGES,
   RELEASE_LAUNCHER_PACKAGE,
-  RELEASE_PLATFORM_PACKAGES,
   registryPathForPackage,
   releaseTargetForArtifact,
   releaseTargetForPackage,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 import {
   RELEASE_LICENSE,
@@ -95,8 +95,10 @@ const NAMESPACE_ROOT = "https://1667.invalid/spdx" as const;
  * The launcher package. It ships one dependency-free Node.js file, embeds no
  * runtime, and bundles no third-party code, so the document says that rather
  * than repeating a platform package's inventory. What it does carry is the
- * exact-version pin on all four platform packages, which is the only thing an
- * installation of the launcher actually pulls in.
+ * exact-version pin on every published platform package, which is the only
+ * thing an installation of the launcher actually pulls in — so this list is
+ * the launcher's `optionalDependencies` and excludes any held target for the
+ * same reason that graph does.
  */
 export function launcherSbomDocument(identities: ReleaseIdentitySet): SpdxDocument {
   const version = identities.evidence.productVersion;
@@ -108,7 +110,7 @@ export function launcherSbomDocument(identities: ReleaseIdentitySet): SpdxDocume
       + "no third-party code is bundled.",
     publishedAs: RELEASE_LAUNCHER_PACKAGE
   });
-  const platforms = RELEASE_PLATFORM_PACKAGES.map((packageName) => {
+  const platforms = PUBLISHED_PLATFORM_PACKAGES.map((packageName) => {
     return platformDependencyPackage(packageName, version);
   });
   const relationships = [
@@ -137,7 +139,7 @@ export function launcherSbomDocument(identities: ReleaseIdentitySet): SpdxDocume
  */
 export function platformSbomDocument(
   identities: ReleaseIdentitySet,
-  target: PackagedArtifactTarget,
+  target: BuiltArtifactTarget,
   components: readonly ReleaseBundledComponent[]
 ): SpdxDocument {
   const descriptor = releaseTargetForArtifact(target);

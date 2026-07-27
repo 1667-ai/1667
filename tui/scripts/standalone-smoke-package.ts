@@ -19,6 +19,7 @@ import {
   type BuildIdentity
 } from "../../shared/build-identity.js";
 import {
+  heldTargetRefusal,
   releaseTargetForArtifact
 } from "../../shared/release-targets.js";
 import {
@@ -56,10 +57,23 @@ const execFileAsync = promisify(execFile);
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(tuiRoot);
 const WINDOWS_TARGET = releaseTargetForArtifact("windows-x64");
+/** Widened so this file reads the hold as a fact, not as a compile-time literal. */
+const WINDOWS_HOLD: string | null = WINDOWS_TARGET.heldFromPublication;
 const DEFAULT_STATE_SMOKE_VARIABLE =
   "AI_1667_WINDOWS_DEFAULT_STATE_SMOKE";
 
-/** Stage the exact Windows package layout and execute it through the launcher. */
+/**
+ * How this smoke reaches the installed product: through the launcher when the
+ * target is published, and directly at the executable while it is held. One
+ * decision, taken once, expressed as the call every step below makes.
+ */
+type RunEntry = (
+  args: readonly string[],
+  cwd: string,
+  environment: Record<string, string>
+) => ReturnType<typeof runStandalone>;
+
+/** Stage the exact Windows package layout, pack it, install it, and run it. */
 export async function smokeWindowsNpmPackage(
   executable: string,
   identity: BuildIdentity,
@@ -172,26 +186,30 @@ export async function smokeWindowsNpmPackage(
     platformManifest.name,
     WINDOWS_TARGET.executable
   );
-  const launched = await runStandalone(
-    "node",
-    [installedLauncher, "--version", "--json"],
-    installRoot,
-    environment
-  );
+  // While windows-x64 is held there is no published launcher route onto this
+  // platform, so the smoke proves the refusal a Windows user would actually get
+  // and then drives the installed executable itself. Clearing the hold puts the
+  // launcher back in front of every run below without another edit here.
+  let runEntry: RunEntry;
+  if (WINDOWS_HOLD === null) {
+    runEntry = (args, cwd, env) => runStandalone("node", [installedLauncher, ...args], cwd, env);
+  } else {
+    await smokeHeldLauncherRefusal(installedLauncher, installRoot, environment);
+    runEntry = (args, cwd, env) => runStandalone(installedExecutable, args, cwd, env);
+  }
+  const launched = await runEntry(["--version", "--json"], installRoot, environment);
   if (launched.exitCode !== 0 || launched.stderr !== "") {
     throw new Error(
-      `Windows npm launcher smoke failed (${launched.exitCode}): `
+      `Windows npm package smoke failed (${launched.exitCode}): `
         + launched.stderr.trim()
     );
   }
   const observed = parseBuildIdentity(JSON.parse(launched.stdout));
   if (!sameBuildIdentity(observed, identity)) {
-    throw new Error("Windows npm launcher did not execute the staged candidate");
+    throw new Error("Windows npm package did not execute the staged candidate");
   }
-  const render = await runStandalone(
-    "node",
+  const render = await runEntry(
     [
-      installedLauncher,
       "--data",
       path.join(installRoot, "render-data"),
       "--render-once",
@@ -208,19 +226,40 @@ export async function smokeWindowsNpmPackage(
     );
   }
   if (process.env[DEFAULT_STATE_SMOKE_VARIABLE] === "1") {
-    await smokeDefaultWindowsStateRoot(
-      installedLauncher,
-      installRoot,
-      environment
-    );
+    await smokeDefaultWindowsStateRoot(runEntry, installRoot, environment);
   }
   return createHash("sha256")
     .update(await readFile(installedExecutable))
     .digest("hex");
 }
 
-async function smokeDefaultWindowsStateRoot(
+/**
+ * The installed launcher must name the hold and the source route, on a real
+ * Windows install of the real tarballs. Reporting an unsupported platform here
+ * would send a user looking for support that is already built and verified.
+ */
+async function smokeHeldLauncherRefusal(
   installedLauncher: string,
+  installRoot: string,
+  environment: Record<string, string>
+): Promise<void> {
+  const refused = await runStandalone(
+    "node",
+    [installedLauncher, "--version", "--json"],
+    installRoot,
+    environment
+  );
+  const expected = `1667: ${heldTargetRefusal(WINDOWS_TARGET)}\n`;
+  if (refused.exitCode !== 1 || refused.stdout !== "" || refused.stderr !== expected) {
+    throw new Error(
+      `Windows npm launcher did not refuse the held target (${refused.exitCode}): `
+        + refused.stderr.trim()
+    );
+  }
+}
+
+async function smokeDefaultWindowsStateRoot(
+  runEntry: RunEntry,
   installRoot: string,
   environment: Record<string, string>
 ): Promise<void> {
@@ -238,10 +277,8 @@ async function smokeDefaultWindowsStateRoot(
   delete defaultEnvironment[MACHINE_TIER_OVERRIDE_VARIABLE];
   let created = false;
   try {
-    const render = await runStandalone(
-      "node",
+    const render = await runEntry(
       [
-        installedLauncher,
         "--data",
         path.join(installRoot, "default-state-data"),
         "--render-once",

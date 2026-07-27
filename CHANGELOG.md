@@ -20,10 +20,15 @@ the [README](README.md#technical-terms).
   you make a second line Canon, the first line becomes Alt and keeps its name,
   its colour, and its date. Before, the first line lost its status. It then
   looked the same as a line with no tag. Thanks @10fra for the report.
-- **1667 now supports Windows x64 release candidates.** The Windows machine
-  tier installs a protected DACL for the current user and SYSTEM. Native tests
-  reject reparse points. CI builds the executable and runs it through the npm
-  launcher package.
+- **1667 builds and verifies Windows x64, and withholds its package.** The
+  Windows machine tier installs a protected DACL for the current user and
+  SYSTEM. Native tests reject reparse points. CI builds the executable, stages
+  the exact npm package layout, and validates it on every change. The launcher
+  does not pin `@1667-ai/windows-x64`. npm fails an optional dependency softly,
+  so a launcher that named a package nobody published would install cleanly on
+  Windows and then fail at every launch, and npm does not allow a published
+  version to be replaced. A Windows user who runs the launcher is told that the
+  package is withheld, and is pointed at the source that does build.
 - **Pull requests no longer wait on the macOS x64 build.** CI still builds and
   tests all five release targets on `main` and on demand. Pull requests gate on
   macOS arm64, Linux arm64, Linux x64, and Windows x64. The macOS x64 runner is

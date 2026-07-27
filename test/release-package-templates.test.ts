@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PACKAGED_ARTIFACT_TARGETS } from "../shared/build-identity.js";
+import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
 import { createReleasePackageTemplates } from "../scripts/release-package-templates.js";
@@ -33,7 +33,7 @@ test("release package templates are script-free and satisfy the exact matrix pol
   );
   assert.deepEqual(
     matrix.platforms.map((manifest) => manifest.target),
-    PACKAGED_ARTIFACT_TARGETS
+    PUBLISHED_ARTIFACT_TARGETS
   );
   for (const template of all) {
     assert.equal(Object.hasOwn(template.packageManifest, "scripts"), false);
@@ -62,7 +62,7 @@ test("platform templates bind every sidecar to its embedded release identity", (
     assert.equal(template.buildManifest.productVersion, identity.productVersion);
     assert.equal(template.buildManifest.sourceCommit, identity.sourceCommit);
     assert.equal(template.buildManifest.buildTimestamp, identity.buildTimestamp);
-    assert.equal(identity.artifactTarget, PACKAGED_ARTIFACT_TARGETS[index]);
+    assert.equal(identity.artifactTarget, PUBLISHED_ARTIFACT_TARGETS[index]);
     if (identity.artifactTarget.startsWith("linux-")) {
       assert.ok("libc" in template.packageManifest);
       assert.deepEqual(template.packageManifest.libc, ["glibc"]);

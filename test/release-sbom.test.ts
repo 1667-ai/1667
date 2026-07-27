@@ -6,11 +6,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
+  BUILT_ARTIFACT_TARGETS,
+  PUBLISHED_PLATFORM_PACKAGES,
   RELEASE_LAUNCHER_PACKAGE,
-  RELEASE_PLATFORM_PACKAGES,
+  RELEASE_TARGETS,
   releaseTargetForArtifact,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 import {
@@ -129,7 +130,8 @@ test("release SBOM generation is byte-for-byte deterministic", () => {
   };
   const left = flatten(first);
   const right = flatten(second);
-  assert.equal(left.length, RELEASE_PLATFORM_PACKAGES.length + 1);
+  // One document per staged package: every built platform, plus the launcher.
+  assert.equal(left.length, BUILT_ARTIFACT_TARGETS.length + 1);
   for (const [index, sbom] of left.entries()) {
     const other = right[index];
     if (other === undefined) throw new Error("regeneration produced fewer documents");
@@ -139,7 +141,7 @@ test("release SBOM generation is byte-for-byte deterministic", () => {
     assert.equal(sbom.sha256, createHash("sha256").update(sbom.text, "utf8").digest("hex"));
   }
   const digests = new Set(left.map((sbom) => sbom.sha256));
-  assert.equal(digests.size, left.length, "the five documents must not be copies of one another");
+  assert.equal(digests.size, left.length, "no document may be a copy of another");
 });
 
 test("release SBOM documents carry no time source but the release build timestamp", () => {
@@ -319,14 +321,17 @@ test("each platform SBOM names only its own target's native library", () => {
   const set = createReleaseSboms(identities, repositorySources());
   // Total over the target union, so restoring or adding a target fails to
   // compile here rather than comparing against a silent undefined.
-  const expected: Record<PackagedArtifactTarget, readonly string[]> = {
+  const expected: Record<BuiltArtifactTarget, readonly string[]> = {
     "darwin-arm64": ["@opentui/core-darwin-arm64"],
     "darwin-x64": ["@opentui/core-darwin-x64"],
     "linux-arm64": ["@opentui/core-linux-arm64", "@opentui/core-linux-arm64-musl"],
     "linux-x64": ["@opentui/core-linux-x64", "@opentui/core-linux-x64-musl"],
     "windows-x64": ["@opentui/core-win32-x64"]
   };
-  for (const target of PACKAGED_ARTIFACT_TARGETS) {
+  // Every built target, held or not: a platform document follows staging, and a
+  // held target is staged and packed like any other. Narrowing this loop to the
+  // published targets would leave the windows-x64 row above compared to nothing.
+  for (const target of BUILT_ARTIFACT_TARGETS) {
     const sbom = platformSbom(set, target);
     assert.equal(sbom.packageName, releaseTargetForArtifact(target).packageName);
     const native = sbom.document.packages
@@ -339,12 +344,27 @@ test("each platform SBOM names only its own target's native library", () => {
       `${releaseTargetForArtifact(target).packageName}@3.0.0`
     );
   }
+  // Publication is the other question, and the launcher's document is what
+  // answers it: a held target has its own document and stays out of that list.
+  const launcher = releaseSbomForPackage(set, RELEASE_LAUNCHER_PACKAGE).document;
+  for (const descriptor of RELEASE_TARGETS) {
+    if (descriptor.heldFromPublication === null) continue;
+    assert.equal(
+      releaseSbomForPackage(set, descriptor.packageName).artifactTarget,
+      descriptor.artifactTarget
+    );
+    assert.equal(
+      launcher.packages.some((entry) => entry.name === descriptor.packageName),
+      false,
+      `the launcher must not pin the held ${descriptor.packageName}`
+    );
+  }
 });
 
 test("the launcher SBOM is a different document, not a platform copy", () => {
   const set = createReleaseSboms(identities, repositorySources());
   const launcher = releaseSbomForPackage(set, RELEASE_LAUNCHER_PACKAGE).document;
-  assert.deepEqual(packageNames(launcher), ["1667", ...[...RELEASE_PLATFORM_PACKAGES].sort()]);
+  assert.deepEqual(packageNames(launcher), ["1667", ...[...PUBLISHED_PLATFORM_PACKAGES].sort()]);
   assert.equal(packageNamed(launcher, "1667").packageFileName, "bin/1667.js");
   assert.match(launcher.comment, /embeds no language runtime and bundles no third-party code/u);
   for (const name of ["bun", "@opentui/core", "tiktoken", "fs-ext-extra-prebuilt"]) {
@@ -354,14 +374,14 @@ test("the launcher SBOM is a different document, not a platform copy", () => {
       `the launcher must not claim to ship ${name}`
     );
   }
-  for (const packageName of RELEASE_PLATFORM_PACKAGES) {
+  for (const packageName of PUBLISHED_PLATFORM_PACKAGES) {
     const entry = packageNamed(launcher, packageName);
     assert.equal(entry.versionInfo, "3.0.0");
     assert.equal(entry.licenseDeclared, "Apache-2.0");
     assert.equal(Object.hasOwn(entry, "checksums"), false);
     assert.ok(relationshipExists(launcher, packageName, "OPTIONAL_DEPENDENCY_OF", "1667"));
   }
-  assert.equal(launcher.relationships.length, RELEASE_PLATFORM_PACKAGES.length + 1);
+  assert.equal(launcher.relationships.length, PUBLISHED_PLATFORM_PACKAGES.length + 1);
 
   const platform = platformSbom(set, "linux-x64").document;
   assert.notEqual(launcher.documentNamespace, platform.documentNamespace);
@@ -514,7 +534,7 @@ test("every pinned TUI digest is a digest tui/bun.lockb actually records", () =>
   // ASCII `sha512-<base64>` form npm writes. That is why the pins are checkable
   // at all, and why scanning for the ASCII form would find nothing.
   assert.equal(lockfile.includes(Buffer.from("sha512-", "utf8")), false);
-  for (const target of PACKAGED_ARTIFACT_TARGETS) {
+  for (const target of BUILT_ARTIFACT_TARGETS) {
     for (const component of releaseBundledComponents(sources, target)) {
       if (!component.name.startsWith("@opentui/") && component.name !== "web-tree-sitter") continue;
       assert.equal(component.sha512.length, 128);

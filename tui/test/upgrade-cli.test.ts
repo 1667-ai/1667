@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
-import { releaseTargetForArtifact } from "../../shared/release-targets.js";
 import {
+  PUBLISHED_PLATFORM_PACKAGES,
+  RELEASE_TARGETS,
+  releaseTargetForArtifact
+} from "../../shared/release-targets.js";
+import {
+  currentPlatformPackage,
   executeUpgradeCli,
   parseUpgradeArguments
 } from "../src/upgrade-cli.js";
@@ -12,6 +17,22 @@ const observation: UpgradeObservation = {
   currentVersion: "1.2.3",
   platformPackage: releaseTargetForArtifact("linux-x64").packageName
 };
+
+test("the upgrade path offers no package for a target held from publication", () => {
+  const published: readonly string[] = PUBLISHED_PLATFORM_PACKAGES;
+  for (const descriptor of RELEASE_TARGETS) {
+    const offered = currentPlatformPackage(descriptor.platform, descriptor.arch);
+    if (descriptor.heldFromPublication === null) {
+      expect(offered).toBe(descriptor.packageName);
+      expect(published).toContain(descriptor.packageName);
+      continue;
+    }
+    // No package was published, so there is nothing here to check, fetch or
+    // verify — and the registry would answer 404 for the attempt.
+    expect(offered).toBe(null);
+    expect(published).not.toContain(descriptor.packageName);
+  }
+});
 
 test("upgrade argument parser preserves global version semantics and rejects ambiguity", () => {
   expect(parseUpgradeArguments([

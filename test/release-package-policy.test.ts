@@ -5,15 +5,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
-  type PackagedArtifactTarget
+  BUILT_ARTIFACT_TARGETS,
+  type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  PUBLISHED_ARTIFACT_TARGETS,
+  PUBLISHED_PACKAGE_COUNT,
+  PUBLISHED_RELEASE_TARGETS,
   RELEASE_LAUNCHER_PACKAGE,
+  RELEASE_TARGETS,
   releasePlatformDependencyGraph,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
-import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import {
+  createReleaseIdentitySet,
+  releaseIdentityForTarget
+} from "../scripts/release-identity.js";
 import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
@@ -54,13 +61,56 @@ const identities = createReleaseIdentitySet({
   }
 });
 
+test("a target held from publication is built and verified but never shipped", () => {
+  const held = RELEASE_TARGETS.filter((descriptor) => descriptor.heldFromPublication !== null);
+  // Publication is derived from that one field and nothing else, so clearing it
+  // is the whole of un-holding a target.
+  assert.deepEqual(
+    PUBLISHED_RELEASE_TARGETS,
+    RELEASE_TARGETS.filter((descriptor) => descriptor.heldFromPublication === null)
+  );
+  assert.equal(PUBLISHED_PACKAGE_COUNT, PUBLISHED_RELEASE_TARGETS.length + 1);
+  assert.equal(PUBLISHED_ARTIFACT_TARGETS.length + held.length, BUILT_ARTIFACT_TARGETS.length);
+
+  const optionalDependencies = launcherManifest().optionalDependencies;
+  for (const descriptor of held) {
+    // npm fails an optional dependency soft. Pinning a package that was never
+    // published would install cleanly and throw on first launch, and npm does
+    // not allow replacing a published version to undo that. Checked before the
+    // count below so the failure names the package rather than a number.
+    assert.equal(
+      Object.hasOwn(optionalDependencies, descriptor.packageName),
+      false,
+      `the launcher pins the held ${descriptor.packageName}`
+    );
+    const published: readonly string[] = PUBLISHED_ARTIFACT_TARGETS;
+    assert.equal(published.includes(descriptor.artifactTarget), false);
+    // Still built, still identified, still verified: that is the whole point.
+    assert.ok(BUILT_ARTIFACT_TARGETS.includes(descriptor.artifactTarget));
+    assert.equal(
+      releaseIdentityForTarget(identities, descriptor.artifactTarget).artifactTarget,
+      descriptor.artifactTarget
+    );
+    // And its package is still staged and validated one at a time, so the
+    // layout it will publish under cannot rot while the hold is in force.
+    assert.equal(
+      parseReleasePackageManifest(platformManifest(descriptor.artifactTarget), VERSION).name,
+      descriptor.packageName
+    );
+  }
+  assert.equal(
+    Object.keys(optionalDependencies).length,
+    PUBLISHED_RELEASE_TARGETS.length
+  );
+});
+
 test("release package matrix pins every platform as an exact optional dependency", () => {
-  const values = [launcherManifest(), ...PACKAGED_ARTIFACT_TARGETS.map(platformManifest)];
+  const values = [launcherManifest(), ...PUBLISHED_ARTIFACT_TARGETS.map(platformManifest)];
   const matrix = validateReleasePackageMatrix(values, identities);
   assert.equal(matrix.launcher.name, RELEASE_LAUNCHER_PACKAGE);
   assert.deepEqual(
     matrix.platforms.map((manifest) => manifest.target),
-    PACKAGED_ARTIFACT_TARGETS
+    PUBLISHED_ARTIFACT_TARGETS
   );
   assert.deepEqual(
     matrix.launcher.optionalDependencies,
@@ -86,8 +136,8 @@ test("release package policy rejects scripts, undeclared fields, target skew, an
   }, VERSION), /optional dependencies/);
   assert.throws(() => validateReleasePackageMatrix([
     launcherManifest(),
-    ...PACKAGED_ARTIFACT_TARGETS.slice(1).map(platformManifest)
-  ], identities), /one launcher and every platform/);
+    ...PUBLISHED_ARTIFACT_TARGETS.slice(1).map(platformManifest)
+  ], identities), /one launcher and every published platform/);
 });
 
 test("release package policy requires the repository and Linux-only glibc metadata", () => {
@@ -123,7 +173,7 @@ test("release package policy requires the repository and Linux-only glibc metada
 });
 
 test("release package policy declares Apache-2.0 and ships both licence files", () => {
-  for (const value of [launcherManifest(), ...PACKAGED_ARTIFACT_TARGETS.map(platformManifest)]) {
+  for (const value of [launcherManifest(), ...BUILT_ARTIFACT_TARGETS.map(platformManifest)]) {
     const files: readonly string[] = value.files;
     assert.equal(value.license, "Apache-2.0");
     assert.deepEqual(files.slice(-2), ["LICENSE", "NOTICE"]);
@@ -245,7 +295,7 @@ export function launcherManifest() {
   return releasePackageJson(createReleaseLauncherManifest(VERSION));
 }
 
-export function platformManifest(target: PackagedArtifactTarget) {
+export function platformManifest(target: BuiltArtifactTarget) {
   return releasePackageJson(createReleasePlatformManifest(target, VERSION));
 }
 
