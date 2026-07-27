@@ -12,6 +12,18 @@ import { BackendRestartRequiredError } from "../src/worker-api.js";
 import { WorkerTransport } from "../src/worker-transport.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
 
+// The publication deadline is armed the moment publication starts, so any test
+// work that has to happen before cancellation is racing it. Tests on the
+// in-memory outboxes below can hold that window near zero because their enqueue
+// is a no-op, and they pick single-digit grace values accordingly.
+// CommittedHangingPublicationOutbox cannot: it writes the record to a temp
+// directory for real, because the assertions that follow read that directory
+// back through a second transport. A loaded CI runner has taken over 50ms to
+// land that write, firing the deadline before the test reached cancel.abort()
+// and rejecting a mutation the test expects to resolve. This grace has to
+// outrun a contended filesystem, not merely a fast one.
+const FILE_BACKED_GRACE_MS = 2_000;
+
 test("caller cancellation hard-fences a mutation that never reaches terminal state", async () => {
   const worker = new FakeWorker();
   const outbox = new RecordingCancellationOutbox();
@@ -213,7 +225,7 @@ test("a durable cancellation marker prevents replay after publication stalls", a
     const outbox = new CommittedHangingPublicationOutbox(dir);
     await outbox.init();
     const worker = new FakeWorker();
-    const transport = await startTransport(worker, outbox, 50);
+    const transport = await startTransport(worker, outbox, FILE_BACKED_GRACE_MS);
     const cancel = new AbortController();
     const mutation = transport.call(
       "createStory",
@@ -253,7 +265,7 @@ test("live cancellation bypasses another mutation's stalled publication", async 
     const outbox = new CommittedHangingPublicationOutbox(dir, 2);
     await outbox.init();
     const worker = new FakeWorker();
-    const transport = await startTransport(worker, outbox, 200);
+    const transport = await startTransport(worker, outbox, FILE_BACKED_GRACE_MS);
     const cancel = new AbortController();
     const firstError = rejection(transport.call(
       "createStory",
