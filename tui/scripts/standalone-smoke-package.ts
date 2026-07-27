@@ -35,7 +35,8 @@ import {
 import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
-  releasePackageJson
+  releasePackageJson,
+  RELEASE_LICENSE_FILES
 } from "../../scripts/release-package-manifests.js";
 import {
   createReleasePackageBuildManifest
@@ -122,7 +123,17 @@ export async function smokeWindowsNpmPackage(
     writeJson(
       path.join(platformRoot, "sbom.spdx.json"),
       smokeSbom(identity, platformManifest.name)
-    )
+    ),
+    ...RELEASE_LICENSE_FILES.flatMap((name) => [
+      copyFile(
+        path.join(repositoryRoot, name),
+        path.join(launcherRoot, name)
+      ),
+      copyFile(
+        path.join(repositoryRoot, name),
+        path.join(platformRoot, name)
+      )
+    ])
   ]);
 
   const packRoot = path.join(directory, "npm-pack");

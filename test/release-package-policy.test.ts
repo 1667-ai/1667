@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   PACKAGED_ARTIFACT_TARGETS,
@@ -15,9 +18,12 @@ import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
   releasePackageJson,
+  RELEASE_LICENSE_FILES,
+  RELEASE_LICENSE_FILE_DIGESTS,
   RELEASE_PACKAGE_REPOSITORY
 } from "../scripts/release-package-manifests.js";
 import {
+  MAX_RELEASE_TARBALL_ENTRIES,
   parseReleasePackageManifest,
   tarballFile,
   validateReleasePackageMatrix,
@@ -26,6 +32,10 @@ import {
 
 const VERSION = "2.0.0";
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
+const REPOSITORY_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
 const identities = createReleaseIdentitySet({
   schemaVersion: 1,
   productVersion: VERSION,
@@ -112,6 +122,75 @@ test("release package policy requires the repository and Linux-only glibc metada
   }, VERSION), /unknown or missing/);
 });
 
+test("release package policy declares Apache-2.0 and ships both licence files", () => {
+  for (const value of [launcherManifest(), ...PACKAGED_ARTIFACT_TARGETS.map(platformManifest)]) {
+    const files: readonly string[] = value.files;
+    assert.equal(value.license, "Apache-2.0");
+    assert.deepEqual(files.slice(-2), ["LICENSE", "NOTICE"]);
+  }
+  const { license: _license, ...missingLicense } = launcherManifest();
+  assert.throws(
+    () => parseReleasePackageManifest(missingLicense, VERSION),
+    /unknown or missing/
+  );
+  assert.throws(() => parseReleasePackageManifest({
+    ...launcherManifest(),
+    license: "MIT"
+  }, VERSION), /licence/);
+  assert.throws(() => parseReleasePackageManifest({
+    ...platformManifest("linux-x64"),
+    license: "MIT"
+  }, VERSION), /licence/);
+});
+
+test("tarball policy requires a sound LICENSE and NOTICE in every package", () => {
+  const manifest = parseReleasePackageManifest(platformManifest("linux-x64"), VERSION);
+  const fixture = tarballFixture(manifest);
+  const cases: readonly [unknown, RegExp][] = [
+    [withoutEntry(fixture, "package/LICENSE"), /missing/],
+    [withoutEntry(fixture, "package/NOTICE"), /missing/],
+    [patchEntry(fixture, "package/LICENSE", { size: 0 }), /must not be empty/],
+    [patchEntry(fixture, "package/LICENSE", { mode: 0o755 }), /unsafe mode/],
+    [patchEntry(fixture, "package/NOTICE", { size: 0 }), /must not be empty/],
+    [patchEntry(fixture, "package/NOTICE", { mode: 0o755 }), /unsafe mode/],
+    // Pinned bytes, so a truncated or substituted copy is rejected even when it
+    // is applied to every package at once and they therefore all agree.
+    [
+      patchEntry(fixture, "package/LICENSE", { size: 128 }),
+      /is not the reviewed LICENSE file/
+    ],
+    [
+      patchEntry(fixture, "package/LICENSE", { sha256: sha256("other licence text") }),
+      /is not the reviewed LICENSE file/
+    ],
+    [
+      patchEntry(fixture, "package/NOTICE", { sha256: sha256("other notice text") }),
+      /is not the reviewed NOTICE file/
+    ]
+  ];
+  for (const [value, expected] of cases) {
+    assert.throws(() => validateReleaseTarballInspection(value, manifest), expected);
+  }
+});
+
+// Editing LICENSE or NOTICE requires updating RELEASE_LICENSE_FILE_DIGESTS in
+// the same commit. That coupling is deliberate: changing the licence text a
+// published product ships under should be a reviewed event, not a silent
+// consequence of a staging script, and npm cannot replace a published version.
+test("pinned licence digests match the repository files they authorise", async () => {
+  for (const name of RELEASE_LICENSE_FILES) {
+    const bytes = await readFile(path.join(REPOSITORY_ROOT, name));
+    assert.deepEqual(
+      {
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        bytes: bytes.byteLength
+      },
+      { ...RELEASE_LICENSE_FILE_DIGESTS[name] },
+      `${name} changed without updating its pinned digest`
+    );
+  }
+});
+
 test("bounded tarball inspection accepts only declared regular files", () => {
   const manifest = parseReleasePackageManifest(
     platformManifest("linux-x64"),
@@ -119,7 +198,8 @@ test("bounded tarball inspection accepts only declared regular files", () => {
   );
   const fixture = tarballFixture(manifest);
   const inspection = validateReleaseTarballInspection(fixture, manifest);
-  assert.equal(inspection.entries.length, 6);
+  assert.equal(inspection.entries.length, 8);
+  assert.ok(inspection.entries.length < MAX_RELEASE_TARBALL_ENTRIES);
   assert.equal(
     tarballFile(inspection, "bin/1667").sha256,
     sha256(`${PLATFORM_PACKAGE} executable`)
@@ -189,8 +269,36 @@ export function tarballFixture(
         256,
         sha256(`${manifest.name} build manifest`)
       ),
-      file("package/sbom.spdx.json", 0o644, 768, sha256(`${manifest.name} sbom`))
+      file("package/sbom.spdx.json", 0o644, 768, sha256(`${manifest.name} sbom`)),
+      licenceFile("LICENSE"),
+      licenceFile("NOTICE")
     ]
+  };
+}
+
+/** The pin rejects stand-in bytes, so fixtures present the reviewed digests. */
+function licenceFile(name: "LICENSE" | "NOTICE") {
+  const pinned = RELEASE_LICENSE_FILE_DIGESTS[name];
+  return file(`package/${name}`, 0o644, pinned.bytes, pinned.sha256);
+}
+
+function withoutEntry(fixture: ReturnType<typeof tarballFixture>, path: string) {
+  return {
+    ...fixture,
+    entries: fixture.entries.filter((entry) => entry.path !== path)
+  };
+}
+
+function patchEntry(
+  fixture: ReturnType<typeof tarballFixture>,
+  path: string,
+  patch: { mode?: number; size?: number; sha256?: string }
+) {
+  return {
+    ...fixture,
+    entries: fixture.entries.map((entry) => {
+      return entry.path === path ? { ...entry, ...patch } : entry;
+    })
   };
 }
 

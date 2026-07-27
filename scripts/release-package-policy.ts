@@ -17,6 +17,8 @@ import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
   releasePackageJson,
+  RELEASE_LICENSE_FILES,
+  RELEASE_LICENSE_FILE_DIGESTS,
   type ReleaseLauncherManifest,
   type ReleasePackageManifest,
   type ReleasePlatformManifest
@@ -226,6 +228,9 @@ function commonManifest(
   if (input.name !== expected.name) throw new Error(`Release package must be named ${expected.name}`);
   if (input.version !== expected.version) throw new Error(`${expected.name} has the wrong version`);
   if (input.private !== expected.private) throw new Error(`${expected.name} must be explicitly public`);
+  if (input.license !== expected.license) {
+    throw new Error(`${expected.name} must declare the ${expected.license} licence`);
+  }
   exactStringRecord(
     input.repository,
     expected.repository,
@@ -294,6 +299,24 @@ function assertEntryPolicy(
       ? 8 * 1024 * 1024
       : 1024 * 1024;
   if (entry.size > maximum) throw new Error(`${entry.path} exceeds its size bound`);
+  assertLicenceFileDigest(entry);
+}
+
+/**
+ * Binds the staged licence files to the exact bytes the project publishes under.
+ * Every package stages the same repository-root LICENSE and NOTICE, so a
+ * substituted or truncated copy applied to all five leaves the packages in
+ * agreement with each other and with themselves; only a pinned digest rejects
+ * it, and shipping an invalid licence to a registry is not reversible.
+ */
+function assertLicenceFileDigest(entry: TarballInspectionEntry): void {
+  for (const name of RELEASE_LICENSE_FILES) {
+    if (entry.path !== `package/${name}`) continue;
+    const pinned = RELEASE_LICENSE_FILE_DIGESTS[name];
+    if (entry.sha256 !== pinned.sha256 || entry.size !== pinned.bytes) {
+      throw new Error(`${entry.path} is not the reviewed ${name} file`);
+    }
+  }
 }
 
 function targetForPackageName(name: string): PackagedArtifactTarget | null {
