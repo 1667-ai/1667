@@ -63,6 +63,10 @@ export async function waitForTestServer(
 export async function stopTestServerProcess(
   server: ChildProcess
 ): Promise<void> {
+  operationClient?.dispose();
+  operationClient = null;
+  delete API_PROTOCOL_HEADERS[HTTP_SERVER_INSTANCE_HEADER];
+  delete API_PROTOCOL_HEADERS[HTTP_AUTHORIZATION_HEADER];
   if (server.exitCode !== null || server.signalCode !== null) {
     closeTestServerPipes(server);
     return;
