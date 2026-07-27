@@ -72,20 +72,13 @@ export async function runReleasePreflight(
     if (canonicalJson(parsed.buildManifest) !== canonicalJson(template.buildManifest)) {
       throw new Error(`${packageName} build manifest disagrees with release evidence`);
     }
-    const buildManifest = embeddedFile(parsed.inspection.entries, "build-manifest.json");
-    const sbom = embeddedFile(parsed.inspection.entries, "sbom.spdx.json");
     artifacts.push({
-      packageJson: {
-        manifest: parsed.packageManifest,
-        sha256: parsed.inspection.packageJsonSha256
-      },
+      packageJson: parsed.packageManifest,
       tarball: {
         sha256: parsed.gzip.sha256,
         bytes: parsed.gzip.bytes
       },
       tarEntries: parsed.inspection,
-      buildManifest: { sha256: requiredDigest(buildManifest), bytes: buildManifest.size },
-      sbom: { sha256: requiredDigest(sbom), bytes: sbom.size },
       buildIdentity: artifact.buildIdentity
     });
   }
@@ -142,22 +135,6 @@ function boundedRegularFile(value: string, maximumBytes: number, label: string):
     throw new Error(`${label} must be a bounded regular file`);
   }
   return realpathSync(value);
-}
-
-function embeddedFile(
-  entries: readonly { path: string; type: string; size: number; sha256: string | null }[],
-  relativePath: string
-): { size: number; sha256: string | null } {
-  const entry = entries.find((candidate) => {
-    return candidate.type === "file" && candidate.path === `package/${relativePath}`;
-  });
-  if (entry === undefined) throw new Error(`Tarball is missing ${relativePath}`);
-  return entry;
-}
-
-function requiredDigest(value: { sha256: string | null }): string {
-  if (value.sha256 === null) throw new Error("Tarball file is missing its digest");
-  return value.sha256;
 }
 
 function stringProperty(value: unknown, key: string): string {

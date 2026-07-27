@@ -20,7 +20,8 @@ import {
   validateReleaseTarballInspection,
   type ReleaseLauncherManifest,
   type ReleasePackageManifest,
-  type ReleasePlatformManifest
+  type ReleasePlatformManifest,
+  type ReleaseTarballInspection
 } from "./release-package-policy.js";
 
 export interface ReleaseDigestRecord {
@@ -29,14 +30,9 @@ export interface ReleaseDigestRecord {
 }
 
 export interface ReleasePackageArtifactInput {
-  packageJson: {
-    manifest: unknown;
-    sha256: string;
-  };
+  packageJson: unknown;
   tarball: ReleaseDigestRecord;
   tarEntries: unknown;
-  buildManifest: ReleaseDigestRecord;
-  sbom: ReleaseDigestRecord;
   buildIdentity: unknown | null;
 }
 
@@ -47,6 +43,8 @@ interface ReleaseArtifactRecordBase {
   tarball: ReleaseDigestRecord;
   buildManifest: ReleaseDigestRecord;
   sbom: ReleaseDigestRecord;
+  license: ReleaseDigestRecord;
+  notice: ReleaseDigestRecord;
 }
 
 export interface ReleaseLauncherArtifactRecord extends ReleaseArtifactRecordBase {
@@ -83,11 +81,8 @@ const ARTIFACT_KEYS = new Set([
   "packageJson",
   "tarball",
   "tarEntries",
-  "buildManifest",
-  "sbom",
   "buildIdentity"
 ]);
-const PACKAGE_JSON_KEYS = new Set(["manifest", "sha256"]);
 const DIGEST_RECORD_KEYS = new Set(["sha256", "bytes"]);
 const MAX_TARBALL_BYTES = 320 * 1024 * 1024;
 
@@ -102,12 +97,11 @@ export function createReleaseArtifactManifest(
 ): FormattedReleaseArtifactManifest {
   const inputs = values.map(parseArtifactInput);
   const packageMatrix = validateReleasePackageMatrix(
-    inputs.map((input) => input.packageJson.manifest),
+    inputs.map((input) => input.packageJson),
     identities
   );
   const byName = new Map(inputs.map((input) => {
-    const name = packageName(input.packageJson.manifest);
-    return [name, input] as const;
+    return [packageName(input.packageJson), input] as const;
   }));
   if (byName.size !== inputs.length) throw new Error("Release artifacts repeat a package");
 
@@ -157,18 +151,11 @@ function validateArtifact(
   identities: ReleaseIdentitySet
 ): ReleaseArtifactRecord {
   const tarball = digestRecord(input.tarball, `${manifest.name} tarball`, MAX_TARBALL_BYTES);
-  const buildManifest = digestRecord(
-    input.buildManifest,
-    `${manifest.name} build manifest`,
-    1024 * 1024
-  );
-  const sbom = digestRecord(input.sbom, `${manifest.name} SBOM`, 8 * 1024 * 1024);
   const inspection = validateReleaseTarballInspection(input.tarEntries, manifest);
-  if (inspection.packageJsonSha256 !== input.packageJson.sha256) {
-    throw new Error(`${manifest.name} package.json evidence does not match its tarball`);
-  }
-  assertEmbeddedFile(buildManifest, tarballFile(inspection, "build-manifest.json"));
-  assertEmbeddedFile(sbom, tarballFile(inspection, "sbom.spdx.json"));
+  const buildManifest = fileDigest(inspection, "build-manifest.json");
+  const sbom = fileDigest(inspection, "sbom.spdx.json");
+  const license = fileDigest(inspection, "LICENSE");
+  const notice = fileDigest(inspection, "NOTICE");
 
   if (manifest.kind === "launcher") {
     if (input.buildIdentity !== null) {
@@ -178,10 +165,12 @@ function validateArtifact(
       name: manifest.name,
       target: "launcher" as const,
       version: manifest.version,
-      packageJsonSha256: input.packageJson.sha256,
+      packageJsonSha256: inspection.packageJsonSha256,
       tarball,
       buildManifest,
       sbom,
+      license,
+      notice,
       buildIdentity: null
     });
   }
@@ -199,35 +188,29 @@ function validateArtifact(
     name: manifest.name,
     target: manifest.target,
     version: manifest.version,
-    packageJsonSha256: input.packageJson.sha256,
+    packageJsonSha256: inspection.packageJsonSha256,
     tarball,
     buildManifest,
     sbom,
+    license,
+    notice,
     buildIdentity
   });
 }
 
 interface ParsedArtifactInput {
-  packageJson: { manifest: unknown; sha256: string };
+  packageJson: unknown;
   tarball: unknown;
   tarEntries: unknown;
-  buildManifest: unknown;
-  sbom: unknown;
   buildIdentity: unknown | null;
 }
 
 function parseArtifactInput(value: unknown): ParsedArtifactInput {
   const input = exactRecord(value, ARTIFACT_KEYS, "Release artifact");
-  const packageJson = exactRecord(input.packageJson, PACKAGE_JSON_KEYS, "Artifact package.json");
   return {
-    packageJson: {
-      manifest: packageJson.manifest,
-      sha256: sha256Digest(packageJson.sha256, "Artifact package.json")
-    },
+    packageJson: input.packageJson,
     tarball: input.tarball,
     tarEntries: input.tarEntries,
-    buildManifest: input.buildManifest,
-    sbom: input.sbom,
     buildIdentity: input.buildIdentity
   };
 }
@@ -245,13 +228,22 @@ function digestRecord(value: unknown, label: string, maximumBytes: number): Rele
   });
 }
 
-function assertEmbeddedFile(
-  expected: ReleaseDigestRecord,
-  entry: { sha256: string | null; size: number }
-): void {
-  if (entry.sha256 !== expected.sha256 || entry.size !== expected.bytes) {
-    throw new Error("Embedded release metadata does not match its tarball entry");
-  }
+/**
+ * Reports a file the validated inspection already covers. The inspection is the
+ * single source for what the tarball holds, so the emitted record cannot drift
+ * from the archive it describes, and the entry is bounded and digest-checked by
+ * release package policy before it reaches here.
+ */
+function fileDigest(
+  inspection: ReleaseTarballInspection,
+  relativePath: string
+): ReleaseDigestRecord {
+  const entry = tarballFile(inspection, relativePath);
+  if (entry.sha256 === null) throw new Error("Tarball file is missing its digest");
+  return Object.freeze({
+    sha256: entry.sha256,
+    bytes: entry.size
+  });
 }
 
 function requiredArtifact(

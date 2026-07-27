@@ -11,6 +11,29 @@ export const RELEASE_PACKAGE_REPOSITORY = Object.freeze({
   url: "git+https://github.com/1667-ai/1667.git" as const
 });
 
+export const RELEASE_LICENSE = "Apache-2.0" as const;
+
+/** Repository-root basenames staged verbatim into every release package root. */
+export const RELEASE_LICENSE_FILES = Object.freeze(["LICENSE", "NOTICE"] as const);
+
+/**
+ * Pinned so a uniform staging mistake cannot pass. Comparing the five packages
+ * with each other only proves they agree, which a truncated or wrong-directory
+ * copy applied to all five satisfies; these digests are what the release is
+ * actually authorised to ship. A guard test keeps them honest against the
+ * repository-root files.
+ */
+export const RELEASE_LICENSE_FILE_DIGESTS = Object.freeze({
+  LICENSE: Object.freeze({
+    sha256: "08385ddcf8c5a400d0ace792e968a466e2eadc62d91c4b19a4af71d91f815ef0",
+    bytes: 11327
+  }),
+  NOTICE: Object.freeze({
+    sha256: "ef2779740dd724bc6b83cf89485ac684c4e7fe6622752ffd0b65933fef68b6bd",
+    bytes: 82
+  })
+});
+
 export interface ReleaseLauncherManifest {
   kind: "launcher";
   name: typeof RELEASE_LAUNCHER_PACKAGE;
@@ -18,9 +41,15 @@ export interface ReleaseLauncherManifest {
   private: false;
   type: "module";
   bin: Readonly<{ "1667": "bin/1667.js" }>;
-  files: readonly ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"];
+  files: readonly [
+    "bin/1667.js",
+    "build-manifest.json",
+    "sbom.spdx.json",
+    ...typeof RELEASE_LICENSE_FILES
+  ];
   optionalDependencies: Readonly<Record<ReleasePlatformPackage, string>>;
   repository: typeof RELEASE_PACKAGE_REPOSITORY;
+  license: typeof RELEASE_LICENSE;
   publishConfig: Readonly<{ access: "public" }>;
 }
 
@@ -32,8 +61,14 @@ export interface ReleasePlatformManifest {
   os: readonly ["darwin" | "linux" | "win32"];
   cpu: readonly ["arm64" | "x64"];
   libc: "glibc" | null;
-  files: readonly [string, "build-manifest.json", "sbom.spdx.json"];
+  files: readonly [
+    string,
+    "build-manifest.json",
+    "sbom.spdx.json",
+    ...typeof RELEASE_LICENSE_FILES
+  ];
   repository: typeof RELEASE_PACKAGE_REPOSITORY;
+  license: typeof RELEASE_LICENSE;
   publishConfig: Readonly<{ access: "public" }>;
   target: PackagedArtifactTarget;
 }
@@ -62,10 +97,12 @@ export function createReleaseLauncherManifest(version: string): ReleaseLauncherM
     files: Object.freeze([
       "bin/1667.js",
       "build-manifest.json",
-      "sbom.spdx.json"
+      "sbom.spdx.json",
+      ...RELEASE_LICENSE_FILES
     ] as const),
     optionalDependencies: releasePlatformDependencyGraph(version),
     repository: RELEASE_PACKAGE_REPOSITORY,
+    license: RELEASE_LICENSE,
     publishConfig: Object.freeze({ access: "public" as const })
   });
 }
@@ -86,9 +123,11 @@ export function createReleasePlatformManifest(
     files: Object.freeze([
       descriptor.executable,
       "build-manifest.json",
-      "sbom.spdx.json"
+      "sbom.spdx.json",
+      ...RELEASE_LICENSE_FILES
     ] as const),
     repository: RELEASE_PACKAGE_REPOSITORY,
+    license: RELEASE_LICENSE,
     publishConfig: Object.freeze({ access: "public" as const }),
     target
   });
