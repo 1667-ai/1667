@@ -127,12 +127,12 @@ test("pending destructive mutations converge and clear without repeat writes", a
     assert.equal(factReplay.updatedAt, factFirst.updatedAt);
     assert.equal(factReplay.facts.length, 0);
 
-    const bookmarkInput = { storyId: story.id, nodeId: activeId };
-    const bookmarkId = mutationId("1b");
-    const bookmarkFirst = await leavePendingAfterCommit(service, bookmarkId, "deleteBookmark", bookmarkInput);
-    const bookmarkReplay = await runWorkerMutation(service, bookmarkId, "deleteBookmark", bookmarkInput);
-    assert.equal(bookmarkReplay.updatedAt, bookmarkFirst.updatedAt);
-    assert.equal(bookmarkReplay.bookmarks.length, 0);
+    const tagInput = { storyId: story.id, nodeId: activeId };
+    const tagId = mutationId("1b");
+    const tagFirst = await leavePendingAfterCommit(service, tagId, "deleteBookmark", tagInput);
+    const tagReplay = await runWorkerMutation(service, tagId, "deleteBookmark", tagInput);
+    assert.equal(tagReplay.updatedAt, tagFirst.updatedAt);
+    assert.equal(tagReplay.tags.length, 0);
 
     const nodeInput = { storyId: story.id, nodeId: inactiveId, expectedSubtreeCount: 1 };
     const nodeMutationId = mutationId("1c");

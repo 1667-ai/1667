@@ -141,7 +141,7 @@ test("story tree: unused-take pruning keeps continuations, named lines, single t
   const state = {
     nodes: [root, continued, continuedChild, leafA, leafB, namedLeaf, onlyLeafParent, deep, deepChild, onlyLeaf, soloParent, solo],
     activeRootId: root.id,
-    bookmarks: [{ nodeId: namedLeaf.id }]
+    tags: [{ nodeId: namedLeaf.id }]
   };
 
   assert.deepEqual(unusedTakePruneSelection(state), {
@@ -158,7 +158,7 @@ test("story tree: unused-take pruning keeps the remembered leaf and includes non
   const state = {
     nodes: [root, kept, pruned, summary],
     activeRootId: root.id,
-    bookmarks: []
+    tags: []
   };
 
   assert.deepEqual(unusedTakePruneSelection(state), {
@@ -175,7 +175,7 @@ test("story tree: unused-take pruning keeps the active unnamed leaf beside a nam
   const state = {
     nodes: [root, activeLeaf, namedLeaf, unusedLeaf],
     activeRootId: root.id,
-    bookmarks: [{ nodeId: namedLeaf.id }]
+    tags: [{ nodeId: namedLeaf.id }]
   };
 
   assert.deepEqual(unusedTakePruneSelection(state), {

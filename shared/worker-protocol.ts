@@ -1,5 +1,5 @@
 import type {
-  BookmarkLabel,
+  TagStatus,
   ChapterBreak,
   CreateFactsRequest,
   CreateNodeRequest,
@@ -116,7 +116,7 @@ export interface WorkerMethodContract {
   deleteNode: { input: { storyId: string; nodeId: string; expectedSubtreeCount: number }; output: StoryPayload };
   pruneUnusedTakes: { input: { storyId: string; body: PruneUnusedTakesRequest }; output: StoryPayload };
   takeFromCut: { input: { storyId: string; nodeId: string; body: TakeFromCutRequest }; output: StoryPayload };
-  putBookmark: { input: { storyId: string; nodeId: string; name: string; label: BookmarkLabel }; output: StoryPayload };
+  putBookmark: { input: { storyId: string; nodeId: string; name: string; label: TagStatus }; output: StoryPayload };
   deleteBookmark: { input: { storyId: string; nodeId: string }; output: StoryPayload };
   createFact: { input: { storyId: string; body: CreateFactsRequest }; output: StoryPayload };
   patchFact: { input: { storyId: string; factId: string; body: { tag?: string | null; text?: string } }; output: StoryPayload };

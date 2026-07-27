@@ -251,7 +251,7 @@ describe("presented mouse reconciliation", () => {
 
   test("refuses a menu click when the entry under the cursor became another verb", () => {
     // The part menu stays open while a generation lands, and landing adds
-    // prune and bookmark to the list. The cursor does not move; the verb
+    // prune and tag to the list. The cursor does not move; the verb
     // beneath it does.
     const state = initialState(demoAppSource(), false);
     const leaf = state.payload.path.at(-1)!;
@@ -334,18 +334,18 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(plain, resolved, captured, interaction(plain, 21))).toBe(null);
   });
 
-  test("refuses a bookmark delete once the cursor has moved to another one", () => {
-    // The bookmarks view keeps the id of the command that opened it, so it
-    // cannot say which bookmark is selected. `d` deletes whichever the cursor
-    // is on, so the bookmark itself has to be the identity.
+  test("refuses a tag delete once the cursor has moved to another one", () => {
+    // The tags view keeps the id of the command that opened it, so it
+    // cannot say which tag is selected. `d` deletes whichever the cursor
+    // is on, so the tag itself has to be the identity.
     const base = initialState(demoAppSource(), false);
     base.stream = null;
     base.mode = "COMMANDS";
     base.hitRows = [{ target: { kind: "action", action: "delete-item" }, left: 0, right: 20 }];
-    expect(base.payload.bookmarks.length).toBeGreaterThan(1);
+    expect(base.payload.tags.length).toBeGreaterThan(1);
     const at = (cursor: number) => ({
       ...base,
-      commands: { query: "", cursor, selectedId: "bookmarks", view: "bookmarks" }
+      commands: { query: "", cursor, selectedId: "tags", view: "tags" }
     }) as State;
 
     const resolved = mouseToAction(click, at(0), false)!;

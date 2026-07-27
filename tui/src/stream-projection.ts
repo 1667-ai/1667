@@ -74,11 +74,11 @@ function projectTake(payload: StoryPayload, stream: StreamView, text: string): S
   });
   if (!targetExists) nodes.push(newStreamStub(node, stream.startedAt));
   const previousLeafId = payload.path.at(-1)?.id ?? null;
-  const bookmarks = stream.parentId !== null && stream.parentId === previousLeafId
-    ? payload.bookmarks.map((bookmark) => bookmark.nodeId === stream.parentId
-      ? { ...bookmark, nodeId: stream.targetId }
-      : bookmark)
-    : payload.bookmarks;
+  const tags = stream.parentId !== null && stream.parentId === previousLeafId
+    ? payload.tags.map((tag) => tag.nodeId === stream.parentId
+      ? { ...tag, nodeId: stream.targetId }
+      : tag)
+    : payload.tags;
   const recentNodeIds = previousLeafId === null || previousLeafId === stream.targetId
     ? payload.recentNodeIds
     : [previousLeafId, ...payload.recentNodeIds.filter((id) => id !== previousLeafId)]
@@ -87,7 +87,7 @@ function projectTake(payload: StoryPayload, stream: StreamView, text: string): S
     ...payload,
     path,
     nodes,
-    bookmarks,
+    tags,
     recentNodeIds,
     activeRootId: stream.parentId === null ? stream.targetId : payload.activeRootId
   };

@@ -75,7 +75,7 @@ describe("run C overlay frames", () => {
     expect(maren.match(/Maren/g)).toHaveLength(1);
   });
 
-  test("long library, facts, and bookmark lists keep the selected row visible", () => {
+  test("long library, facts, and tag lists keep the selected row visible", () => {
     const selected = 20;
     const render = (state: ReturnType<typeof initialState>) => {
       const frame = renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() });
@@ -110,17 +110,17 @@ describe("run C overlay frames", () => {
     expect(facts.text).toContain("▸ Fact 21");
     expect(hasSelectedHit(facts.hits)).toBeTrue();
 
-    const bookmarksState = initialState(demoAppSource(), true);
-    const bookmark = bookmarksState.payload.bookmarks[0]!;
-    bookmarksState.payload.bookmarks = Array.from({ length: 25 }, (_, index) => ({
-      ...bookmark, name: `mark ${String(index + 1).padStart(2, "0")}`
+    const tagsState = initialState(demoAppSource(), true);
+    const tag = tagsState.payload.tags[0]!;
+    tagsState.payload.tags = Array.from({ length: 25 }, (_, index) => ({
+      ...tag, name: `mark ${String(index + 1).padStart(2, "0")}`
     }));
-    bookmarksState.mode = "COMMANDS";
-    bookmarksState.commands = { cursor: selected, selectedId: null, query: "", view: "bookmarks" };
-    const bookmarks = render(bookmarksState);
-    expect(bookmarks.text).toContain("8–21/25");
-    expect(bookmarks.text).toContain("▸ mark 21");
-    expect(hasSelectedHit(bookmarks.hits)).toBeTrue();
+    tagsState.mode = "COMMANDS";
+    tagsState.commands = { cursor: selected, selectedId: null, query: "", view: "tags" };
+    const tags = render(tagsState);
+    expect(tags.text).toContain("8–21/25");
+    expect(tags.text).toContain("▸ mark 21");
+    expect(hasSelectedHit(tags.hits)).toBeTrue();
   });
 
   test("command palette groups actions and fuzzy-filters with a live Search field", async () => {
@@ -131,7 +131,7 @@ describe("run C overlay frames", () => {
       .map((section) => grouped.indexOf(section));
     expect(sectionOffsets.every((offset) => offset >= 0)).toBeTrue();
     expect(sectionOffsets).toEqual([...sectionOffsets].sort((left, right) => left - right));
-    expect(grouped).toContain("bookmark this line");
+    expect(grouped).toContain("tag this line");
     expect(grouped).toContain("direct take");
     expect(grouped).toContain("generation settings");
     expect(grouped).toContain("acknowledge unknown gener…  clear");
@@ -360,19 +360,19 @@ describe("run C overlay frames", () => {
     expectNarrowPanelRowsBounded(facts);
   });
 
-  test("bookmark manager pads CJK names and colors every label semantically", () => {
+  test("tag manager pads CJK names and colors every label semantically", () => {
     const state = initialState(demoAppSource(), true);
-    const bookmark = state.payload.bookmarks[0]!;
-    state.payload.bookmarks = [
-      { ...bookmark, name: "灯台守".repeat(7), label: "Canon" },
-      { ...bookmark, name: "plain mark", label: "Alt" },
-      { ...bookmark, name: "rough mark", label: "Draft" },
-      { ...bookmark, name: "dead mark", label: "Discarded" },
-      { ...bookmark, name: "loose mark", label: "" },
-      { ...bookmark, name: "summary mark", label: "Summary" }
+    const tag = state.payload.tags[0]!;
+    state.payload.tags = [
+      { ...tag, name: "灯台守".repeat(7), status: "Canon" },
+      { ...tag, name: "plain mark", status: "Alt" },
+      { ...tag, name: "rough mark", status: "Draft" },
+      { ...tag, name: "dead mark", status: "Discarded" },
+      { ...tag, name: "loose mark", status: "" },
+      { ...tag, name: "summary mark", status: "Summary" }
     ];
     state.mode = "COMMANDS";
-    state.commands = { cursor: 0, selectedId: null, query: "", view: "bookmarks" };
+    state.commands = { cursor: 0, selectedId: null, query: "", view: "tags" };
     const rendered = renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() });
     const text = frameText(rendered.lines);
     const cjk = lineContaining(text, "Canon");
@@ -380,11 +380,11 @@ describe("run C overlay frames", () => {
 
     expect(cellColumn(cjk, "Canon")).toBe(cellColumn(ascii, "Alt"));
     for (const [label, role] of [
-      ["Canon", "bookmark · canon"],
-      ["Alt", "bookmark · alt"],
-      ["Draft", "bookmark · draft"],
-      ["Discarded", "bookmark · discarded"],
-      ["unlabelled", "prose · dim"],
+      ["Canon", "tag · canon"],
+      ["Alt", "tag · alt"],
+      ["Draft", "tag · draft"],
+      ["Discarded", "tag · discarded"],
+      ["none", "prose · dim"],
       ["Summary", "summary"]
     ] as const) {
       expect(rendered.lines.flat().find((part) => part.text === label)?.role).toBe(role);

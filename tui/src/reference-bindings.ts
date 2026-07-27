@@ -76,7 +76,7 @@ const DEFINITIONS = {
   composeHistoryNext: route("compose-chord", "down", "COMPOSE", "history-next", { ctrl: true }),
   navNewStory: route("nav", "n", "NAV", "new-item"),
   navPrune: route("nav", "d", "NAV", "prune"),
-  navBookmark: route("nav", "b", "NAV", "bookmark"),
+  navTag: route("nav", "t", "NAV", "tag"),
   navOpenChapters: route("nav", "c", "NAV", "open-chapters"),
   navCreateChapter: route("nav-shifted", "C", "NAV", "create-chapter", { shift: true }),
   navOpenActions: route("nav", "x", "NAV", "open-actions"),
@@ -110,7 +110,7 @@ const DEFINITIONS = {
   mapTreeSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "tree" }),
   mapMassSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "mass" }),
   mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
-  mapPathBookmark: route("map", "b", "MAP", "bookmark", { mapView: "path" })
+  mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" })
 } as const satisfies Record<string, BindingDefinition>;
 
 export type ReferenceBindingId = keyof typeof DEFINITIONS;

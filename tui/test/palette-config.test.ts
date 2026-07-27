@@ -22,47 +22,47 @@ type CoreRole =
   | "focus / accent"
   | "streaming"
   | "human edit"
-  | "bookmark · canon"
+  | "tag · canon"
   | "danger";
 
 const CORE: Record<ThemeName, Record<CoreRole, string>> = {
   lantern: {
     background: "#14100B", prose: "#E9DFC9", "prose · dim": "#9A8A70",
     chrome: "#6E604C", "focus / accent": "#FFB454", streaming: "#FFF2D8",
-    "human edit": "#8FB4D9", "bookmark · canon": "#E3B341", danger: "#E0603F"
+    "human edit": "#8FB4D9", "tag · canon": "#E3B341", danger: "#E0603F"
   },
   "iron gall": {
     background: "#0D1014", prose: "#D8DEE4", "prose · dim": "#8B96A0",
     chrome: "#4E5A66", "focus / accent": "#A8C0D8", streaming: "#EEF4FA",
-    "human edit": "#D9A96C", "bookmark · canon": "#D4B254", danger: "#E0603F"
+    "human edit": "#D9A96C", "tag · canon": "#D4B254", danger: "#E0603F"
   },
   parchment: {
     background: "#F2EAD9", prose: "#2A2016", "prose · dim": "#5C4E36",
     chrome: "#7A6748", "focus / accent": "#9A5A10", streaming: "#0F0A04",
-    "human edit": "#2C5578", "bookmark · canon": "#8A6510", danger: "#A8331A"
+    "human edit": "#2C5578", "tag · canon": "#8A6510", danger: "#A8331A"
   },
   bond: {
     background: "#F4F2ED", prose: "#222426", "prose · dim": "#55585C",
     chrome: "#6C685E", "focus / accent": "#A8321E", streaming: "#0A0C0E",
-    "human edit": "#235A8C", "bookmark · canon": "#7A6010", danger: "#8E1F10"
+    "human edit": "#235A8C", "tag · canon": "#7A6010", danger: "#8E1F10"
   },
   "hi-contrast dark": {
     background: "#000000", prose: "#FFFFFF", "prose · dim": "#C4C4C4",
     chrome: "#9A9A9A", "focus / accent": "#FFC400", streaming: "#FFFFFF",
-    "human edit": "#6FB8FF", "bookmark · canon": "#FFD84D", danger: "#FF5A45"
+    "human edit": "#6FB8FF", "tag · canon": "#FFD84D", danger: "#FF5A45"
   },
   "hi-contrast light": {
     background: "#FFFFFF", prose: "#000000", "prose · dim": "#333333",
     chrome: "#4A4A4A", "focus / accent": "#9A3800", streaming: "#000000",
-    "human edit": "#144E86", "bookmark · canon": "#6A4A00", danger: "#A00000"
+    "human edit": "#144E86", "tag · canon": "#6A4A00", danger: "#A00000"
   }
 };
 
 const ALL_ROLES: readonly PaletteRole[] = [
   "background", "raised", "chrome", "prose", "prose · dim",
   "focus / accent", "accent · deep", "compose accent", "streaming", "human edit",
-  "summary", "bookmark · canon", "bookmark · alt", "bookmark · draft",
-  "bookmark · discarded", "danger", "dimmed page"
+  "summary", "tag · canon", "tag · alt", "tag · draft",
+  "tag · discarded", "danger", "dimmed page"
 ];
 
 function hex(theme: ThemeName, role: PaletteRole): string {
@@ -185,7 +185,7 @@ describe("theme palette", () => {
       .not.toBe(theme256Index("iron gall", "danger"));
 
     expect(theme256Index("parchment", "focus / accent"))
-      .not.toBe(theme256Index("parchment", "bookmark · canon"));
+      .not.toBe(theme256Index("parchment", "tag · canon"));
     expect(theme256Index("parchment", "summary"))
       .not.toBe(theme256Index("parchment", "chrome"));
 
@@ -197,7 +197,7 @@ describe("theme palette", () => {
   test("keeps parchment 256 chrome and canon readable against paper", () => {
     const background = xtermHex(theme256Index("parchment", "background"));
     const chrome = theme256Index("parchment", "chrome");
-    const canon = theme256Index("parchment", "bookmark · canon");
+    const canon = theme256Index("parchment", "tag · canon");
 
     expect(contrast(background, xtermHex(chrome))).toBeGreaterThan(4.499);
     expect(contrast(background, xtermHex(canon))).toBeGreaterThan(4.499);

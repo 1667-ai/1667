@@ -52,7 +52,7 @@ export function buildStoryPayload(
       })
     })),
     activeRootId: story.activeRootId,
-    bookmarks: story.bookmarks.map((bookmark) => ({ ...bookmark })),
+    tags: story.tags.map((tag) => ({ ...tag })),
     recentNodeIds: [...story.recentNodeIds],
     facts: story.facts.map((fact) => ({ ...fact })),
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak })),

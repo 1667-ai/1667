@@ -597,23 +597,23 @@ describe("honest next-request context meter", () => {
     expect(status.slice(status.indexOf("next"))).not.toContain("…");
   });
 
-  test("status identity uses each bookmark label's glyph and semantic role", () => {
+  test("status identity uses each tag label's glyph and semantic role", () => {
     const variants = [
       ["", "⚑", "prose · dim"],
-      ["Canon", "⚑", "bookmark · canon"],
-      ["Alt", "⚑", "bookmark · alt"],
-      ["Draft", "~", "bookmark · draft"],
-      ["Discarded", "✕", "bookmark · discarded"],
+      ["Canon", "⚑", "tag · canon"],
+      ["Alt", "⚑", "tag · alt"],
+      ["Draft", "~", "tag · draft"],
+      ["Discarded", "✕", "tag · discarded"],
       ["Summary", "◈", "summary"]
     ] as const;
 
     for (const [label, glyph, role] of variants) {
       const state = initialState(demoAppSource(), true);
       const leafId = state.payload.path.at(-1)!.id;
-      const bookmark = state.payload.bookmarks.find((item) => item.nodeId === leafId)!;
-      bookmark.label = label;
+      const tag = state.payload.tags.find((item) => item.nodeId === leafId)!;
+      tag.status = label;
       const status = renderStoryScreen(state, { width: 120, height: 36 }).lines.at(-1)!;
-      const identity = status.find((part) => part.text.includes(`${glyph} ${bookmark.name}`));
+      const identity = status.find((part) => part.text.includes(`${glyph} ${tag.name}`));
 
       expect(identity?.role).toBe(role);
     }
@@ -640,14 +640,14 @@ describe("honest next-request context meter", () => {
       takeCount: 5,
       parts: 123,
       lines: 42,
-      bookmarks: [
-        { name: "canon-storm", label: "Canon" },
-        { name: "a-very-long-bookmark", label: "Draft" }
+      tags: [
+        { name: "canon-storm", status: "Canon" },
+        { name: "a-very-long-tag-name", status: "Draft" }
       ]
     };
     const expected = new Map([
-      [80, " PRUNE   ⚑ canon-storm, ~ a-very-long-bookmark · ¶ 13 … · d confirms · esc keeps"],
-      [100, " PRUNE   ⚑ canon-storm, ~ a-very-long-bookmark · ¶ 13 take 3/5 → 123 parts… · d confirms · esc keeps"]
+      [80, " PRUNE   ⚑ canon-storm, ~ a-very-long-tag-name · ¶ 13 … · d confirms · esc keeps"],
+      [100, " PRUNE   ⚑ canon-storm, ~ a-very-long-tag-name · ¶ 13 take 3/5 → 123 parts… · d confirms · esc keeps"]
     ]);
 
     for (const [width, text] of expected) {
@@ -681,8 +681,8 @@ describe("honest next-request context meter", () => {
 
   test("the build tag takes the corner on slack and yields it on demand", () => {
     const state = initialState(demoAppSource(), true);
-    // A short title and no bookmark leave the room the demo fixture does not.
-    state.payload = { ...state.payload, title: "untitled", bookmarks: [] };
+    // A short title and no tag leave the room the demo fixture does not.
+    state.payload = { ...state.payload, title: "untitled", tags: [] };
 
     const roomy = plainLine(renderStoryScreen(state, { width: 120, height: 24 }).lines.at(-1)!);
     expect(roomy.trimEnd().endsWith(`local ✓ · ${AI_1667_VERSION_TAG}`)).toBeTrue();

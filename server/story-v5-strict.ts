@@ -45,7 +45,7 @@ const EXTENT = closedShape(["fromPartId", "toPartId"]);
 const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
 const RANGE = closedShape(["start", "end"]);
 const FACT = closedShape(["id", "tag", "revisionId", "createdAt", "updatedAt"], ["sourcePartId"]);
-const BOOKMARK = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
+const TAG = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
 const CHAPTER_BREAK = closedShape(["id", "parentPartId", "title", "createdAt"]);
 
 export function isStoryId(value: string): boolean {
@@ -82,7 +82,7 @@ export function assertStrictV5Manifest(
     .forEach((entry, index) => assertFact(entry, `manifest.facts[${index}]`));
   nullableIdentifier(manifest.activeRootId, "manifest.activeRootId");
   boundedArray(manifest.bookmarks, "manifest.bookmarks", MAX_STORY_COLLECTION_ITEMS)
-    .forEach((entry, index) => assertBookmark(entry, `manifest.bookmarks[${index}]`));
+    .forEach((entry, index) => assertTag(entry, `manifest.bookmarks[${index}]`));
   boundedArray(manifest.recentNodeIds, "manifest.recentNodeIds", MAX_RECENT_LINES)
     .forEach((entry, index) => identifier(entry, `manifest.recentNodeIds[${index}]`));
   boundedArray(manifest.chapterBreaks, "manifest.chapterBreaks", MAX_STORY_COLLECTION_ITEMS)
@@ -155,13 +155,13 @@ function assertFact(value: unknown, label: string): void {
   optionalIdentifier(fact.sourcePartId, `${label}.sourcePartId`);
 }
 
-function assertBookmark(value: unknown, label: string): void {
-  const bookmark = closedRecord(value, label, BOOKMARK);
-  identifier(bookmark.nodeId, `${label}.nodeId`);
-  boundedString(bookmark.name, `${label}.name`, 80, { minLength: 1 });
-  boundedString(bookmark.label, `${label}.label`, 16);
-  boundedString(bookmark.color, `${label}.color`, MAX_STORY_COLOR_CHARS);
-  timestamp(bookmark.createdAt, `${label}.createdAt`);
+function assertTag(value: unknown, label: string): void {
+  const tag = closedRecord(value, label, TAG);
+  identifier(tag.nodeId, `${label}.nodeId`);
+  boundedString(tag.name, `${label}.name`, 80, { minLength: 1 });
+  boundedString(tag.label, `${label}.label`, 16);
+  boundedString(tag.color, `${label}.color`, MAX_STORY_COLOR_CHARS);
+  timestamp(tag.createdAt, `${label}.createdAt`);
 }
 
 function assertChapterBreak(value: unknown, label: string): void {

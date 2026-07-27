@@ -144,7 +144,7 @@ export function storyFromImport(
     facts: [],
     nodes,
     activeRootId: nodes[0]?.id ?? null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     chapterBreaks: []
   };

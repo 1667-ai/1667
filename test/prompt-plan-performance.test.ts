@@ -371,7 +371,7 @@ function largeStory(): Story {
     facts: [],
     nodes,
     activeRootId: nodes[0]!.id,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     chapterBreaks: []
   };

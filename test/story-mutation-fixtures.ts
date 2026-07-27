@@ -122,7 +122,7 @@ export function storyFixture(): Story {
     updatedAt: "2026-01-01T00:00:00.000Z",
     nodes: [],
     activeRootId: null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

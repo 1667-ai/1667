@@ -267,10 +267,10 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) => {
-        const bookmark = story.bookmarks.find((candidate) => candidate.nodeId === input.nodeId);
-        return bookmark?.name === input.name && bookmark.label === input.label
-          && (input.label !== "Canon" || story.bookmarks.every((candidate) =>
-            candidate.nodeId === input.nodeId || candidate.label !== "Canon"));
+        const tag = story.tags.find((candidate) => candidate.nodeId === input.nodeId);
+        return tag?.name === input.name && tag.status === input.label
+          && (input.label !== "Canon" || story.tags.every((candidate) =>
+            candidate.nodeId === input.nodeId || candidate.status !== "Canon"));
       });
       return recovered ?? await service.putBookmark(
         input.storyId,
@@ -287,7 +287,7 @@ const MUTATIONS: MutationRegistry = {
     execute: async (service, input, plan, context) => {
       if (plan.recoveryMode !== "new") {
         const story = await loadMutationPayload(service, input.storyId);
-        if (!story.bookmarks.some((bookmark) => bookmark.nodeId === input.nodeId)) return story;
+        if (!story.tags.some((tag) => tag.nodeId === input.nodeId)) return story;
       }
       return service.deleteBookmark(
         input.storyId,

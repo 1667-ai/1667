@@ -4,8 +4,8 @@ import type { ThemeName } from "./config.js";
 export type PaletteRole =
   | "background" | "raised" | "chrome" | "prose" | "prose · dim"
   | "focus / accent" | "accent · deep" | "compose accent" | "streaming" | "human edit"
-  | "summary" | "bookmark · canon" | "bookmark · alt" | "bookmark · draft"
-  | "bookmark · discarded" | "danger" | "dimmed page";
+  | "summary" | "tag · canon" | "tag · alt" | "tag · draft"
+  | "tag · discarded" | "danger" | "dimmed page";
 
 interface ThemeExtras {
   brassDim: string;
@@ -37,8 +37,8 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "focus / accent": "#FFB454", "accent · deep": "#C8933F",
     "compose accent": "#8FB4D9",
     streaming: "#FFF2D8", "human edit": "#8FB4D9", summary: "#C9B58F",
-    "bookmark · canon": "#E3B341", "bookmark · alt": "#C49AC4",
-    "bookmark · draft": "#9FB6C4", "bookmark · discarded": "#7A7166",
+    "tag · canon": "#E3B341", "tag · alt": "#C49AC4",
+    "tag · draft": "#9FB6C4", "tag · discarded": "#7A7166",
     danger: "#E0603F", "dimmed page": "#5A4E3C",
     brassDim: "#8A7440", humanEditDim: "#7E9DBC", dangerText: "#FF8A65", contextWarning: "#D99028",
     freshIntermediate: ["#F8EAD0", "#F0E4CC"], freshBold: false
@@ -49,8 +49,8 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "focus / accent": "#A8C0D8", "accent · deep": "#6E87A0",
     "compose accent": "#D9A96C",
     streaming: "#EEF4FA", "human edit": "#D9A96C", summary: "#A9B4BE",
-    "bookmark · canon": "#D4B254", "bookmark · alt": "#B9A0C9",
-    "bookmark · draft": "#8FB0C4", "bookmark · discarded": "#66707A",
+    "tag · canon": "#D4B254", "tag · alt": "#B9A0C9",
+    "tag · draft": "#8FB0C4", "tag · discarded": "#66707A",
     danger: "#E0603F", "dimmed page": "#3C4750",
     brassDim: "#54687C", humanEditDim: "#B08A5A", dangerText: "#FF8A65", contextWarning: "#D9A96C",
     freshIntermediate: ["#E2E9F0", "#DCE4EC"], freshBold: false
@@ -61,8 +61,8 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "focus / accent": "#9A5A10", "accent · deep": "#7A4A08",
     "compose accent": "#2C5578",
     streaming: "#0F0A04", "human edit": "#2C5578", summary: "#6E5A3A",
-    "bookmark · canon": "#8A6510", "bookmark · alt": "#8A5A8A",
-    "bookmark · draft": "#4A7086", "bookmark · discarded": "#948A7A",
+    "tag · canon": "#8A6510", "tag · alt": "#8A5A8A",
+    "tag · draft": "#4A7086", "tag · discarded": "#948A7A",
     danger: "#A8331A", "dimmed page": "#B4A588",
     brassDim: "#7A6748", humanEditDim: "#466B89", dangerText: "#A8331A", contextWarning: "#8A4A00",
     freshIntermediate: ["#241A0E", "#2A2013"], freshBold: true
@@ -73,8 +73,8 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "focus / accent": "#A8321E", "accent · deep": "#7A2416",
     "compose accent": "#235A8C",
     streaming: "#0A0C0E", "human edit": "#235A8C", summary: "#6A5F4A",
-    "bookmark · canon": "#7A6010", "bookmark · alt": "#7E5A8A",
-    "bookmark · draft": "#3E6E8E", "bookmark · discarded": "#8E8A80",
+    "tag · canon": "#7A6010", "tag · alt": "#7E5A8A",
+    "tag · draft": "#3E6E8E", "tag · discarded": "#8E8A80",
     danger: "#8E1F10", "dimmed page": "#B8B4AA",
     brassDim: "#6C685E", humanEditDim: "#3C6994", dangerText: "#8E1F10", contextWarning: "#8A5A00",
     freshIntermediate: ["#1A1C1E", "#212426"], freshBold: true
@@ -85,8 +85,8 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "focus / accent": "#FFC400", "accent · deep": "#FFC400",
     "compose accent": "#6FB8FF",
     streaming: "#FFFFFF", "human edit": "#6FB8FF", summary: "#E6E6E6",
-    "bookmark · canon": "#FFD84D", "bookmark · alt": "#FFB8FF",
-    "bookmark · draft": "#8FD8FF", "bookmark · discarded": "#C4C4C4",
+    "tag · canon": "#FFD84D", "tag · alt": "#FFB8FF",
+    "tag · draft": "#8FD8FF", "tag · discarded": "#C4C4C4",
     danger: "#FF5A45", "dimmed page": "#9A9A9A",
     brassDim: "#FFD84D", humanEditDim: "#9ACBFF", dangerText: "#FF8A7A", contextWarning: "#FF8C00",
     freshIntermediate: ["#FFFFFF", "#FFFFFF"], freshBold: false
@@ -97,8 +97,8 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "focus / accent": "#9A3800", "accent · deep": "#8A2000",
     "compose accent": "#144E86",
     streaming: "#000000", "human edit": "#144E86", summary: "#333333",
-    "bookmark · canon": "#6A4A00", "bookmark · alt": "#6A2D70",
-    "bookmark · draft": "#164F73", "bookmark · discarded": "#4A4A4A",
+    "tag · canon": "#6A4A00", "tag · alt": "#6A2D70",
+    "tag · draft": "#164F73", "tag · discarded": "#4A4A4A",
     danger: "#A00000", "dimmed page": "#4A4A4A",
     brassDim: "#6A4A00", humanEditDim: "#144E86", dangerText: "#A00000", contextWarning: "#8A5200",
     freshIntermediate: ["#000000", "#000000"], freshBold: true
@@ -118,8 +118,8 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "focus / accent": 215, "accent · deep": 179,
     "compose accent": 110,
     streaming: 230, "human edit": 110, summary: 180,
-    "bookmark · canon": 178, "bookmark · alt": 139,
-    "bookmark · draft": 109, "bookmark · discarded": 243,
+    "tag · canon": 178, "tag · alt": 139,
+    "tag · draft": 109, "tag · discarded": 243,
     danger: 166, "dimmed page": 240,
     brassDim: 137, humanEditDim: 109, dangerText: 209, contextWarning: 172,
     freshIntermediate: [224, 223]
@@ -130,8 +130,8 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "focus / accent": 153, "accent · deep": 110,
     "compose accent": 179,
     streaming: 255, "human edit": 179, summary: 249,
-    "bookmark · canon": 185, "bookmark · alt": 146,
-    "bookmark · draft": 110, "bookmark · discarded": 242,
+    "tag · canon": 185, "tag · alt": 146,
+    "tag · draft": 110, "tag · discarded": 242,
     danger: 203, "dimmed page": 238,
     brassDim: 60, humanEditDim: 179, dangerText: 215, contextWarning: 179,
     freshIntermediate: [254, 253]
@@ -142,8 +142,8 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "focus / accent": 130, "accent · deep": 94,
     "compose accent": 24,
     streaming: 232, "human edit": 24, summary: 95,
-    "bookmark · canon": 94, "bookmark · alt": 96,
-    "bookmark · draft": 60, "bookmark · discarded": 245,
+    "tag · canon": 94, "tag · alt": 96,
+    "tag · draft": 60, "tag · discarded": 245,
     danger: 124, "dimmed page": 144,
     brassDim: 59, humanEditDim: 61, dangerText: 124, contextWarning: 94,
     freshIntermediate: [234, 235]
@@ -154,8 +154,8 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "focus / accent": 130, "accent · deep": 88,
     "compose accent": 25,
     streaming: 232, "human edit": 25, summary: 95,
-    "bookmark · canon": 94, "bookmark · alt": 96,
-    "bookmark · draft": 61, "bookmark · discarded": 245,
+    "tag · canon": 94, "tag · alt": 96,
+    "tag · draft": 61, "tag · discarded": 245,
     danger: 124, "dimmed page": 249,
     brassDim: 241, humanEditDim: 61, dangerText: 124, contextWarning: 94,
     freshIntermediate: [234, 235]
@@ -166,8 +166,8 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "focus / accent": 220, "accent · deep": 220,
     "compose accent": 81,
     streaming: 231, "human edit": 81, summary: 254,
-    "bookmark · canon": 227, "bookmark · alt": 225,
-    "bookmark · draft": 159, "bookmark · discarded": 251,
+    "tag · canon": 227, "tag · alt": 225,
+    "tag · draft": 159, "tag · discarded": 251,
     danger: 203, "dimmed page": 247,
     brassDim: 227, humanEditDim: 153, dangerText: 216, contextWarning: 208,
     freshIntermediate: [231, 231]
@@ -178,8 +178,8 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "focus / accent": 130, "accent · deep": 124,
     "compose accent": 24,
     streaming: 16, "human edit": 24, summary: 236,
-    "bookmark · canon": 58, "bookmark · alt": 53,
-    "bookmark · draft": 24, "bookmark · discarded": 239,
+    "tag · canon": 58, "tag · alt": 53,
+    "tag · draft": 24, "tag · discarded": 239,
     danger: 124, "dimmed page": 239,
     brassDim: 58, humanEditDim: 24, dangerText: 124, contextWarning: 94,
     freshIntermediate: [16, 16]

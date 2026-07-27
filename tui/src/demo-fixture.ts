@@ -1,4 +1,4 @@
-import type { Bookmark, Story, StoryNode } from "../../shared/types.js";
+import type { Tag, Story, StoryNode } from "../../shared/types.js";
 import { demoChapterSummaryNode } from "./demo-chapters.js";
 
 export const DEMO_CREATED_AT = "1667-07-19T16:07:00.000Z";
@@ -53,12 +53,12 @@ export function demoFacts(): Story["facts"] {
   }));
 }
 
-export function demoBookmarks(): Bookmark[] {
+export function demoTags(): Tag[] {
   return [
-    { nodeId: "p13", name: "canon-storm", label: "Canon", color: "#E3B341", createdAt: DEMO_CREATED_AT },
-    { nodeId: "p11-alt", name: "alt-quiet-inn", label: "Alt", color: "#C49AC4", createdAt: DEMO_CREATED_AT },
-    { nodeId: "p5-alt", name: "draft-ledger", label: "Draft", color: "#9FB6C4", createdAt: DEMO_CREATED_AT },
-    { nodeId: "p8-alt-3", name: "burned", label: "Discarded", color: "#7A7166", createdAt: DEMO_CREATED_AT }
+    { nodeId: "p13", name: "canon-storm", status: "Canon", color: "#E3B341", createdAt: DEMO_CREATED_AT },
+    { nodeId: "p11-alt", name: "alt-quiet-inn", status: "Alt", color: "#C49AC4", createdAt: DEMO_CREATED_AT },
+    { nodeId: "p5-alt", name: "draft-ledger", status: "Draft", color: "#9FB6C4", createdAt: DEMO_CREATED_AT },
+    { nodeId: "p8-alt-3", name: "burned", status: "Discarded", color: "#7A7166", createdAt: DEMO_CREATED_AT }
   ];
 }
 

@@ -366,6 +366,6 @@ function fixture(): Story {
       id: "root", parentId: null, instruction: "Begin", text: "Root prose", model: "test",
       createdAt: NOW, activeChildId: null
     }],
-    activeRootId: "root", bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: []
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }

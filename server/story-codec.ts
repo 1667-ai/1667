@@ -111,7 +111,14 @@ export async function encodeStoryBundle(
     nodes,
     facts,
     activeRootId: story.activeRootId,
-    bookmarks: story.bookmarks.map((bookmark) => ({ ...bookmark })),
+    // In memory a tag has `status`; on disk the key is `label`. See StoredTagV1.
+    bookmarks: story.tags.map((tag) => ({
+      nodeId: tag.nodeId,
+      name: tag.name,
+      label: tag.status,
+      color: tag.color,
+      createdAt: tag.createdAt
+    })),
     recentNodeIds: [...story.recentNodeIds],
     chapterBreaks: story.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))
   };
@@ -183,7 +190,13 @@ export async function decodeStoryBundle(
     ...(manifest.origin === undefined ? {} : { origin: { ...manifest.origin } }),
     nodes,
     activeRootId: manifest.activeRootId,
-    bookmarks: manifest.bookmarks.map((bookmark) => ({ ...bookmark })),
+    tags: manifest.bookmarks.map((stored) => ({
+      nodeId: stored.nodeId,
+      name: stored.name,
+      status: stored.label,
+      color: stored.color,
+      createdAt: stored.createdAt
+    })),
     recentNodeIds: [...manifest.recentNodeIds],
     facts,
     chapterBreaks: manifest.chapterBreaks.map((chapterBreak) => ({ ...chapterBreak }))

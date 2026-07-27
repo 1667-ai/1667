@@ -40,7 +40,7 @@ test("a first run opens on a tour and a seed story", async () => {
   });
 });
 
-test("the tour keeps its takes, bookmarks, and chapter on the written line", async () => {
+test("the tour keeps its takes, tags, and chapter on the written line", async () => {
   await withService({}, async (service) => {
     const [tour, seed] = STARTER_STORIES;
     const payload = await service.loadStory(tour!.id);
@@ -59,7 +59,7 @@ test("the tour keeps its takes, bookmarks, and chapter on the written line", asy
     assert.equal(payload.activeRootId, opening.id);
 
     assert.deepEqual(
-      payload.bookmarks.map((bookmark) => bookmark.label).sort(),
+      payload.tags.map((tag) => tag.status).sort(),
       ["Alt", "Canon", "Draft"]
     );
     assert.equal(payload.chapterBreaks.length, 1);
@@ -67,29 +67,29 @@ test("the tour keeps its takes, bookmarks, and chapter on the written line", asy
 
     const seedPayload = await service.loadStory(seed!.id);
     assert.equal(seedPayload.nodes.length, 1);
-    assert.equal(seedPayload.bookmarks.length, 0);
+    assert.equal(seedPayload.tags.length, 0);
   });
 });
 
-test("bookmarks stay on the parts the prose points at", async () => {
+test("tags stay on the parts the prose points at", async () => {
   await withService({}, async (service) => {
     const tour = STARTER_STORIES[0]!;
     const payload = await service.loadStory(tour.id);
-    const byName = new Map(payload.bookmarks.map((bookmark) => [bookmark.name, bookmark]));
+    const byName = new Map(payload.tags.map((tag) => [tag.name, tag]));
 
-    // A bookmark set on a line end migrates onto any child created afterwards.
+    // A tag set on a line end migrates onto any child created afterwards.
     // Each of these sits on a part with prose that names it, so a migration
     // would silently point the tour at the wrong place.
     for (const beat of tour.beats) {
       for (const take of beat.takes) {
-        if (take.bookmark === undefined) continue;
-        const bookmark = byName.get(take.bookmark.name);
-        assert.ok(bookmark, `missing bookmark: ${take.bookmark.name}`);
-        const node = payload.nodes.find((candidate) => candidate.id === bookmark.nodeId);
-        assert.ok(node, `bookmark ${take.bookmark.name} points at no part`);
+        if (take.tag === undefined) continue;
+        const tag = byName.get(take.tag.name);
+        assert.ok(tag, `missing tag: ${take.tag.name}`);
+        const node = payload.nodes.find((candidate) => candidate.id === tag.nodeId);
+        assert.ok(node, `tag ${take.tag.name} points at no part`);
         assert.ok(
           take.text.startsWith(node.preview.slice(0, 40)),
-          `bookmark ${take.bookmark.name} drifted onto another part`
+          `tag ${take.tag.name} drifted onto another part`
         );
       }
     }

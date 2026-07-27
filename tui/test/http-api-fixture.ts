@@ -60,7 +60,7 @@ export function testStoryPayload(
     nodes,
     path: [],
     activeRootId: null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: [],

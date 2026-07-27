@@ -195,34 +195,34 @@ describe("review regressions", () => {
     ]).toEqual([6, 6, 6]);
   });
 
-  test("free viewport scroll keeps bookmark prompt errors visible", () => {
+  test("free viewport scroll keeps tag prompt errors visible", () => {
     const scrolled = {
       ...baseState,
       focusIndex: 12,
       viewScroll: 0,
-      mode: "BOOKMARK" as const,
-      bookmark: {
+      mode: "TAG" as const,
+      tag: {
         nodeId: baseState.payload.path.at(-1)!.id,
         name: "",
-        labelIndex: 0,
-        choosingLabel: false,
+        statusIndex: 0,
+        choosingStatus: false,
         existing: false,
         returnMode: "NAV" as const
       },
-      toast: "bookmark name required"
+      toast: "tag name required"
     };
     const rendered = renderStoryScreen(scrolled, { width: 80, height: 24 }).lines.map(plainLine).join("\n");
 
     expect(rendered).toContain("Maren lit the last lamp");
-    expect(rendered).toContain("bookmark name required");
-    expect(rendered.match(/bookmark name required/g)).toHaveLength(1);
+    expect(rendered).toContain("tag name required");
+    expect(rendered.match(/tag name required/g)).toHaveLength(1);
   });
 
-  test("MAP bookmark prompt names the unlabelled choice at both target sizes", async () => {
+  test("MAP tag prompt names the unset choice at both target sizes", async () => {
     const leafId = baseState.payload.path.at(-1)!.id;
     const state: RuntimeState = {
       ...baseState,
-      mode: "BOOKMARK",
+      mode: "TAG",
       map: {
         view: "path",
         pathCursorId: leafId,
@@ -233,11 +233,11 @@ describe("review regressions", () => {
         openedColdFolds: new Set(),
         massSort: "size"
       },
-      bookmark: {
+      tag: {
         nodeId: leafId,
         name: "storm line",
-        labelIndex: 0,
-        choosingLabel: true,
+        statusIndex: 0,
+        choosingStatus: true,
         existing: false,
         returnMode: "MAP"
       }
@@ -252,21 +252,21 @@ describe("review regressions", () => {
       key("right", "\u001b[C"), state, demoAppSource(), createWrapCache(),
       () => {}, async () => {}, () => {}
     );
-    expect(state.bookmark?.labelIndex).toBe(1);
+    expect(state.tag?.statusIndex).toBe(1);
     for (const [width, height] of [[80, 24], [120, 36]] as const) {
       const rendered = renderStoryScreen(state, { width, height }).lines.map(plainLine).join("\n");
       expect(rendered).toContain("‹ Canon ›");
     }
   });
 
-  test("long bookmark names keep their tail and cursor at both origins and target sizes", () => {
+  test("long tag names keep their tail and cursor at both origins and target sizes", () => {
     const leafId = baseState.payload.path.at(-1)!.id;
     const name = `forgotten-${"x".repeat(100)}-visible-tail`;
-    const bookmark = {
+    const tag = {
       nodeId: leafId,
       name,
-      labelIndex: 0,
-      choosingLabel: false,
+      statusIndex: 0,
+      choosingStatus: false,
       existing: false
     };
     const map = {
@@ -283,19 +283,19 @@ describe("review regressions", () => {
     for (const [width, height] of [[80, 24], [120, 36]] as const) {
       const inline = renderStoryScreen({
         ...baseState,
-        mode: "BOOKMARK",
-        bookmark: { ...bookmark, returnMode: "NAV" }
+        mode: "TAG",
+        tag: { ...tag, returnMode: "NAV" }
       }, { width, height });
-      const inlineName = inline.lines.find((line) => plainLine(line).includes("› bookmark"))!;
+      const inlineName = inline.lines.find((line) => plainLine(line).includes("› tag"))!;
       expect(plainLine(inlineName)).toContain("…");
       expect(plainLine(inlineName)).toContain("-visible-tail");
       expect(inlineName.some((part) => part.text === "▌" && part.role === "focus / accent")).toBeTrue();
 
       const mapped = renderStoryScreen({
         ...baseState,
-        mode: "BOOKMARK",
+        mode: "TAG",
         map,
-        bookmark: { ...bookmark, returnMode: "MAP" }
+        tag: { ...tag, returnMode: "MAP" }
       }, { width, height });
       const mapName = mapped.lines.find((line) => plainLine(line).includes("Name"))!;
       expect(plainLine(mapName)).toContain("…");
@@ -414,7 +414,7 @@ describe("review regressions", () => {
         instruction: "turn toward the flooded road",
         text: "Fresh direct line",
         partNumber: 8,
-        bookmarked: false
+        tagged: false
       },
       {
         targetId: "identity-retake",
@@ -422,14 +422,14 @@ describe("review regressions", () => {
         instruction: "make the compass choose again",
         text: "Fresh retake line",
         partNumber: 12,
-        bookmarked: false
+        tagged: false
       },
       {
-        targetId: "identity-bookmarked-child",
+        targetId: "identity-tagged-child",
         parentId: leaf.id,
         instruction: "continue the named line",
         text: "Fresh named continuation",
-        bookmarked: true
+        tagged: true
       }
     ] as const;
 
@@ -470,8 +470,8 @@ describe("review regressions", () => {
       expect(view.visiblePayload.path.at(-1)?.id).toBe(stream.targetId);
       expect(storyStatus).toContain(expectedIdentity);
       expect(mapStatus).toContain(expectedIdentity);
-      expect(storyStatus.includes("canon-storm")).toBe(item.bookmarked);
-      expect(mapStatus.includes("canon-storm")).toBe(item.bookmarked);
+      expect(storyStatus.includes("canon-storm")).toBe(item.tagged);
+      expect(mapStatus.includes("canon-storm")).toBe(item.tagged);
     }
   });
 
