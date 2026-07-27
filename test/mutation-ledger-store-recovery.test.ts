@@ -28,7 +28,7 @@ import {
 import {
   assertWithinBudget,
   budgetTimeout,
-  fileBudget,
+  cpuBudget,
   startTiming
 } from "./performance-budget.js";
 
@@ -179,8 +179,28 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
   });
 });
 
-// These lookups read receipt files, so this budget measures wall-clock time.
-const LOOKUP_BUDGET = fileBudget(10_000);
+// These lookups read receipt files, but they do not wait for a disk. The files
+// are small, the fixture wrote them a moment ago, and each lookup spends its
+// time in system calls and validation. One lookup inspects six directory
+// levels, checks each record file for publication residue, and then reads the
+// records. The work therefore reports more CPU time than wall-clock time. On
+// the arm64 baseline, 1,000 lookups measured about 1,320ms of CPU time against
+// about 900ms of wall-clock time.
+//
+// A wall-clock budget here measures the scheduler, not the product. Beside 16
+// busy processes the same 1,000 lookups took 3.6 times the wall-clock time and
+// only 1.3 times the CPU time. That is why a full-concurrency run failed this
+// test at random while an isolated run passed with ten times the budget spare.
+//
+// So this budget measures CPU time. CPU time is what keeps a repeated lookup
+// bounded, because more work for each lookup means more system calls. CPU time
+// cannot see a lookup that blocks instead of works. The server-start budget in
+// the HTTP tests covers that.
+//
+// The limit comes from the measurements above. The worst CPU time beside 16
+// busy processes was 1,708ms. This limit keeps 3.5 times that, which leaves
+// room for a slower runner core. Tighten it with new measurements, not by guess.
+const LOOKUP_BUDGET = cpuBudget(6_000);
 
 test("missing receipt lookup is read-only and repeated direct lookup stays bounded", {
   timeout: budgetTimeout([LOOKUP_BUDGET], 10_000)
