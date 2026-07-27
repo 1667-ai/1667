@@ -1,10 +1,31 @@
 # Changelog
 
 This file records notable changes to 1667. Product terms use the definitions in
-the [README](README.md#technical-terms).
+[Technical terms](docs/technical-terms.md).
 
 ## Unreleased
 
+- **A fresh install now opens with facts.** The tour carries five facts about
+  the instrument. "A Door in the Hedge" carries four facts about its own world.
+  The facts overlay no longer opens empty at the point where the tour tells you
+  to look in it. The starter vault writes the facts in the same change that
+  writes the prose, so a first run does not pay a second write for each story.
+- **Settings status text now sits above the footer.** The revision line, the
+  unsaved-draft notice, and the pending-restart notice moved below the fields,
+  beside the check result. The read-only migration banner stays above the
+  fields, because it changes what each field below it means. The notice area
+  keeps a constant height, so a pending restart no longer moves the fields or
+  the rows above them. Thanks @10fra for the placement review.
+- **A toast now always uses the footer line.** Before, a toast printed under the
+  focused story part while the view followed focus, and in the footer after you
+  scrolled away. A message about the application no longer enters the
+  manuscript, and it no longer moves with the focus. Thanks @10fra for the
+  placement review.
+- **1667 no longer announces a clean startup recovery.** The message `startup
+  recovery complete · state reloaded` reported an internal step at each start.
+  1667 still reloads state at each start. It now reports the recovery only with
+  a warning, or when the reload opens a different story. Thanks @10fra for the
+  report.
 - **Bookmarks are now tags.** A tag is a name and a status on the end of one
   story line. The old name told you that the mark kept a reading position. It
   does not. It names one version of the story, and the reading position is the

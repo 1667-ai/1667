@@ -224,7 +224,7 @@ export function renderSettingsPanel(
   const horizontal = panelHorizontalGeometry(width, 76);
   const valueWidth = Math.max(1, horizontal.contentWidth - SETTINGS_VALUE_LEFT);
   const resultVisible = overlay.checking || overlay.probing || overlay.result !== null;
-  const fixedRows = 3 + status.length + (resultVisible ? 1 : 0);
+  const fixedRows = 3 + status.top.length + status.bottom.length + (resultVisible ? 1 : 0);
   const editableRows = rows.slice(2);
   const renderedRows = rows.map((row, index) =>
     settingsLine(row.label, row.value, index, overlay, valueWidth)
@@ -249,7 +249,7 @@ export function renderSettingsPanel(
   if (contentCapacity < fixedRows + 1) {
     const notices = [
       ...(resultLine === null ? [] : [resultLine]),
-      ...status.filter((line) => line.length > 0)
+      ...[...status.top, ...status.bottom].filter((line) => line.length > 0)
     ];
     const noticeCount = Math.min(notices.length, Math.max(0, contentCapacity - 1));
     const rowCapacity = Math.max(1, contentCapacity - noticeCount);
@@ -278,18 +278,20 @@ export function renderSettingsPanel(
       renderedRows[0]!,
       renderedRows[1]!,
       [],
-      ...status,
+      ...status.top,
       ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
+      ...status.bottom,
       ...(resultLine === null ? [] : [resultLine])
     ];
     targets = [
       listTarget(0),
       listTarget(1),
       null,
-      ...status.map(() => null),
+      ...status.top.map(() => null),
       ...editableRows
         .slice(rowWindow.start, rowWindow.end)
         .map((_, index) => listTarget(rowWindow.start + index + 2)),
+      ...status.bottom.map(() => null),
       ...(resultLine === null ? [] : [null])
     ];
   }
@@ -361,40 +363,80 @@ function fittingFooter(
     ?? variants.at(-1)!;
 }
 
+/** The panel's two notice positions.
+ *
+ * `top` is for a precondition: something that changes what every field below it
+ * means. It has to arrive before the fields, not after them.
+ *
+ * `bottom` is for the state of the document being edited. It sits with the
+ * check result, above the footer that advertises the keys it names, because it
+ * describes the whole panel rather than the row it happens to precede — and
+ * because it grows by a line when a restart is pending, which mid-panel would
+ * shift the field list out from under the cursor.
+ *
+ * Each `bottom` variant leads with a blank so the strip stands off the fields.
+ */
 function settingsStatusLines(
   overlay: NonNullable<OverlayState["settings"]>
-): FrameLine[] {
+): { top: FrameLine[]; bottom: FrameLine[] } {
   const view = overlay.view;
   if (!view.editable) {
-    return [
-      [raisedSegment("  ▲ legacy data format 1 · settings are read-only until migration", "danger text")],
-      []
-    ];
+    return {
+      top: [
+        [raisedSegment("  ▲ legacy data format 1 · settings are read-only until migration", "danger text")],
+        []
+      ],
+      bottom: []
+    };
   }
   if (view.pendingRevision !== null) {
-    return [
-      [
-        raisedSegment(
-          `  ⟳ revision ${view.pendingRevision} pending restart · active revision ${view.activeRevision} still running`,
-          "focus / accent"
-        )
-      ],
-      [raisedSegment("  editing frozen · x discards the pending candidate", "chrome")],
-      []
-    ];
+    return {
+      top: [],
+      bottom: bottomStatus([
+        [
+          raisedSegment(
+            `  ⟳ revision ${view.pendingRevision} pending restart · active revision ${view.activeRevision} still running`,
+            "focus / accent"
+          )
+        ],
+        [raisedSegment("  editing frozen · x discards the pending candidate", "chrome")]
+      ])
+    };
   }
   if (settingsDraftChanged(overlay)) {
-    return [
-      [
-        raisedSegment(
-          `  ● unsaved draft · revision ${view.activeRevision} active · s saves`,
-          "focus / accent"
-        )
-      ],
-      []
-    ];
+    return {
+      top: [],
+      bottom: bottomStatus([
+        [
+          raisedSegment(
+            `  ● unsaved draft · revision ${view.activeRevision} active · s saves`,
+            "focus / accent"
+          )
+        ]
+      ])
+    };
   }
-  return [[raisedSegment(`  ✓ revision ${view.activeRevision} active`, "chrome")], []];
+  return {
+    top: [],
+    bottom: bottomStatus([[raisedSegment(`  ✓ revision ${view.activeRevision} active`, "chrome")]])
+  };
+}
+
+/** The tallest `bottom` variant: a separating blank, then the pending pair. */
+const BOTTOM_STATUS_ROWS = 3;
+
+/** Pads a bottom notice to a constant height, anchored to the footer.
+ *
+ * `placePanel` centres the panel on its content, so a variant one line taller
+ * moves the panel top up and drags every field and hit target with it. Before
+ * this notice moved below the fields, the extra pending line pushed them back
+ * down by the same row and hid the effect; below the fields nothing cancels it.
+ * Reserving the tallest variant's height keeps the whole panel still, which is
+ * what the position was chosen for.
+ */
+function bottomStatus(lines: FrameLine[]): FrameLine[] {
+  const padding = Array.from({ length: BOTTOM_STATUS_ROWS - lines.length }, (): FrameLine => []);
+  return [...padding, ...lines];
 }
 
 function settingsLine(
