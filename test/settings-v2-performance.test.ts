@@ -31,6 +31,7 @@ import type {
   SettingsDocumentV2,
   SettingsStateV2
 } from "../shared/settings-v2-types.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 const MUTATION = `m1.1767225600000.${"e".repeat(32)}`;
 const POINTER = { receiptKind: "user", mutationId: MUTATION, phase: "prepared" } as const;
@@ -40,8 +41,13 @@ const PREVIOUS_POINTER = {
   mutationId: PREVIOUS_MUTATION,
   phase: "prepared"
 } as const;
+const TEST_TIMEOUT_MS = platformPerformanceBudget(60_000);
+const WALL_BUDGET_MS = platformPerformanceBudget(15_000);
 
-test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, timeout: 60_000 }, async (t) => {
+test("settings v2 pure operations stay comfortably bounded", {
+  concurrency: 1,
+  timeout: TEST_TIMEOUT_MS
+}, async (t) => {
   await t.test("10,000 canonical document parses", (context) => {
     const iterations = 10_000;
     const text = formatSettingsDocumentV2(INITIAL_SETTINGS_DOCUMENT_V2);
@@ -53,7 +59,7 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     const elapsed = performance.now() - startedAt;
     context.diagnostic(`${iterations.toLocaleString()} document parses in ${elapsed.toFixed(1)}ms`);
     assert.equal(parsed, iterations * 2);
-    assert.ok(elapsed < 15_000, `document parsing took ${elapsed.toFixed(1)}ms`);
+    assert.ok(elapsed < WALL_BUDGET_MS, `document parsing took ${elapsed.toFixed(1)}ms`);
   });
 
   await t.test("5,000 canonical aggregate parses", (context) => {
@@ -66,7 +72,7 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     const elapsed = performance.now() - startedAt;
     context.diagnostic(`${iterations.toLocaleString()} aggregate parses in ${elapsed.toFixed(1)}ms`);
     assert.equal(generations, iterations);
-    assert.ok(elapsed < 15_000, `aggregate parsing took ${elapsed.toFixed(1)}ms`);
+    assert.ok(elapsed < WALL_BUDGET_MS, `aggregate parsing took ${elapsed.toFixed(1)}ms`);
   });
 
   await t.test("500 staged whole-path preflights and bounded recoveries", (context) => {
@@ -95,7 +101,7 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     const elapsed = performance.now() - startedAt;
     context.diagnostic(`${iterations.toLocaleString()} preflight/recovery cycles in ${elapsed.toFixed(1)}ms`);
     assert.equal(recovered, iterations * 4);
-    assert.ok(elapsed < 15_000, `settings preflight/recovery took ${elapsed.toFixed(1)}ms`);
+    assert.ok(elapsed < WALL_BUDGET_MS, `settings preflight/recovery took ${elapsed.toFixed(1)}ms`);
   });
 
   await t.test("near-limit document parse remains linear and bounded", (context) => {
@@ -109,7 +115,7 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     for (let index = 0; index < iterations; index += 1) parseSettingsDocumentV2Text(text);
     const elapsed = performance.now() - startedAt;
     context.diagnostic(`${iterations} parses of ${bytes.toLocaleString()} bytes in ${elapsed.toFixed(1)}ms`);
-    assert.ok(elapsed < 15_000, `near-limit parsing took ${elapsed.toFixed(1)}ms`);
+    assert.ok(elapsed < WALL_BUDGET_MS, `near-limit parsing took ${elapsed.toFixed(1)}ms`);
   });
 
   await t.test("near-limit two-document preflight validates every activation successor", (context) => {
