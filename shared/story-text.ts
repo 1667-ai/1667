@@ -4,7 +4,7 @@ export function appendContinuationText(current: string, continuation: string): s
 }
 
 export function countWords(text: string): number {
-  return appendWordCount({ words: 0, insideWord: false }, text).words;
+  return appendWordCount(WORD_COUNT_START, text).words;
 }
 
 /** Stable bytes hashed by both browser and server before an asynchronous
@@ -20,6 +20,10 @@ export interface IncrementalWordCount {
   words: number;
   insideWord: boolean;
 }
+
+/** The automaton's initial state. appendWordCount never mutates its input,
+ * so every incremental count starts from this one shared value. */
+export const WORD_COUNT_START: IncrementalWordCount = { words: 0, insideWord: false };
 
 const WORD_SEPARATOR = /\s/u;
 
