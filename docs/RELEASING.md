@@ -11,8 +11,8 @@ read_when:
 This repository does not support hosted publication. It supports local release
 preflight only.
 
-The package names are reserved. Do not publish packages. Do not move registry
-tags. Do not describe a candidate as an official release.
+Maintainers reserved the package names. Do not publish packages. Do not move
+registry tags. Do not describe a candidate as an official release.
 
 Publication still requires a separate publication ADR. Maintainers must
 approve that ADR. The repository must implement that ADR before publication.
