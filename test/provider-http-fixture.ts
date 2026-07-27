@@ -185,7 +185,7 @@ export async function testApp(
   const port = await availablePort();
   const server = spawn(
     process.execPath,
-    ["--import", "tsx", "server/index.ts"],
+    ["--import", "tsx", "server/index.ts", "--print-logs"],
     {
       cwd: path.resolve(import.meta.dirname, ".."),
       env: {

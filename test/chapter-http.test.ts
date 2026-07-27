@@ -259,11 +259,15 @@ async function removedSummaryFixture(base: string, title: string): Promise<{
 async function testApp(t: test.TestContext): Promise<string> {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-chapters-http-"));
   const port = await availablePort();
-  const server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
-    cwd: path.resolve(import.meta.dirname, ".."),
-    env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  const server = spawn(
+    process.execPath,
+    ["--import", "tsx", "server/index.ts", "--print-logs"],
+    {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
   let output = "";
   server.stdout?.on("data", (chunk) => { output += String(chunk); });
   server.stderr?.on("data", (chunk) => { output += String(chunk); });
