@@ -10,7 +10,7 @@ import {
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import {
   platformPerformanceBudget
-} from "../../test/platform-performance-budget.js";
+} from "../../test/performance-budget.js";
 import { BackendRestartRequiredError } from "../src/worker-api.js";
 import { WorkerTransport } from "../src/worker-transport.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";

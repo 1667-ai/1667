@@ -20,6 +20,12 @@ import { promisify } from "node:util";
 import { createGzip, gzipSync } from "node:zlib";
 import test from "node:test";
 import {
+  assertWithinBudget,
+  budgetTimeout,
+  fileBudget,
+  wallOnlyTiming
+} from "./performance-budget.js";
+import {
   MAX_RELEASE_TARBALL_FILE_BYTES,
   parseReleasePackageManifest,
   validateReleaseTarballInspection
@@ -53,6 +59,9 @@ const NPM_PACK_EXECUTABLE = process.platform === "win32"
   ? "bin/1667.exe"
   : "bin/1667";
 const execFileAsync = promisify(execFile);
+// The child streams a 64 MiB tarball from disk, so this budget measures
+// wall-clock time.
+const READ_BUDGET = fileBudget(30_000);
 const REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   ".."
@@ -289,7 +298,7 @@ test("reader streams a realistic native payload within a bounded RSS budget", as
   ], {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
-    timeout: 30_000
+    timeout: budgetTimeout([READ_BUDGET])
   });
   const measurement = JSON.parse(stdout) as {
     elapsedMs: number;
@@ -301,13 +310,11 @@ test("reader streams a realistic native payload within a bounded RSS budget", as
     measurement.maxRssBytes < 384 * 1024 * 1024,
     `streaming reader peak RSS ${formatMiB(measurement.maxRssBytes)} MiB`
   );
-  assert.ok(
-    measurement.elapsedMs < 30_000,
-    `streaming reader took ${measurement.elapsedMs.toFixed(1)} ms`
-  );
-  t.diagnostic(
-    `64 MiB native body: ${measurement.elapsedMs.toFixed(1)} ms, `
-      + `${formatMiB(measurement.maxRssBytes)} MiB peak RSS`
+  assertWithinBudget(
+    t,
+    `64 MiB native body, ${formatMiB(measurement.maxRssBytes)} MiB peak RSS`,
+    READ_BUDGET,
+    wallOnlyTiming(measurement.elapsedMs)
   );
 });
 

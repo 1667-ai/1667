@@ -11,12 +11,18 @@ export interface SummaryTakeLock {
 interface Continuation {
   leafId: string;
   parts: number;
-  words: number;
 }
 
 /** One linear pass turns the all-stub payload into the browser's reusable view
  * model. Tree surfaces must share this index instead of rescanning every stub
- * per visible row. */
+ * per visible row.
+ *
+ * Contract: the index derives only structural data — ids, parent links,
+ * activeChildId, childCount, leafCount, roles, tags, and path membership. It
+ * never bakes in a text-bearing stub field (text, preview, words, tokens).
+ * The streamed projection refreshes those fields in place between delta
+ * batches while the payload keeps its identity, so every consumer that needs
+ * them must read the live stubs the index shares (see continuationStats). */
 export interface StoryIndex extends MapLineClassification {
   tree: TreeIndex<NodeStub>;
   tagByNodeId: ReadonlyMap<string, Tag>;
@@ -31,7 +37,10 @@ const STORY_INDEXES = new WeakMap<StoryPayload, StoryIndex>();
 export function createStoryIndex(payload: StoryPayload): StoryIndex {
   // Memoized per payload identity: helpers default to createStoryIndex(payload),
   // so a forgotten index argument must never rebuild the O(nodes) model.
-  // Payloads are immutable adoption units — mutate one and this goes stale.
+  // A payload's STRUCTURE is immutable for its lifetime — adoption replaces
+  // the object. Text-bearing stub fields may refresh in place (the streamed
+  // projection does), which is safe exactly because the index never stores
+  // them; see the StoryIndex contract above.
   const cached = STORY_INDEXES.get(payload);
   if (cached !== undefined) return cached;
   const index = buildStoryIndex(payload);
@@ -57,8 +66,8 @@ function buildStoryIndex(payload: StoryPayload): StoryIndex {
     const child = rememberedChildOf(node, tree);
     const next = child === undefined ? undefined : continuationByNodeId.get(child.id);
     continuationByNodeId.set(node.id, next === undefined || child === undefined
-      ? { leafId: node.id, parts: 0, words: 0 }
-      : { leafId: next.leafId, parts: next.parts + 1, words: next.words + child.words });
+      ? { leafId: node.id, parts: 0 }
+      : { leafId: next.leafId, parts: next.parts + 1 });
 
     const subtreeCount = subtreeCountByNodeId.get(node.id) ?? 1;
     subtreeCountByNodeId.set(node.id, subtreeCount);
@@ -117,9 +126,21 @@ export function recentLeafIds(payload: StoryPayload, activeLeafId: string | null
   return leaves;
 }
 
+/** Word totals come from the live stubs at query time — the structural index
+ * must not cache them, or a streamed part's growing count would freeze at the
+ * count the index was built with. */
 export function continuationStats(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): { parts: number; words: number } {
   const continuation = index.continuationByNodeId.get(nodeId);
-  return continuation === undefined ? { parts: 0, words: 0 } : { parts: continuation.parts, words: continuation.words };
+  if (continuation === undefined) return { parts: 0, words: 0 };
+  let words = 0;
+  let node = nodeById(index.tree, nodeId);
+  while (node !== null) {
+    const child = rememberedChildOf(node, index.tree);
+    if (child === undefined) break;
+    words += child.words;
+    node = child;
+  }
+  return { parts: continuation.parts, words };
 }
 
 export function tagBelow(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): Tag | null {

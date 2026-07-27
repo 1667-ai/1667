@@ -1,23 +1,13 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import { deriveChapters } from "../shared/chapters.js";
 import type { NodeStub, StoryNode, StoryPayload } from "../shared/types.js";
 import { sha256 } from "../server/story-format.js";
-import {
-  API_PROTOCOL_HEADERS,
-  fetchWithApiProtocol,
-  stopTestServerProcess,
-  waitForTestServer
-} from "./http-test-client.js";
+import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
+import { json, testApp } from "./story-server-fixture.js";
 
 test("chapter break routes validate seams and round-trip CRUD", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Breaks");
   payload = await addNode(base, payload.id, null, "Root prose");
   const root = payload.path[0]!;
@@ -48,7 +38,7 @@ test("chapter break routes validate seams and round-trip CRUD", async (t) => {
 });
 
 test("chapter break restore keeps canonical parse failures at 400 and state conflicts at 409", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-chapters-http-");
   const first = await removedSummaryFixture(base, "Restore validation");
   const restoreUrl = `${base}/api/stories/${first.storyId}/chapter-breaks/${first.removed.break.id}/restore`;
 
@@ -90,7 +80,7 @@ test("chapter break restore keeps canonical parse failures at 400 and state conf
 });
 
 test("chapter summaries refresh in place, mark user edits, derive staleness, and restore with a removed break", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Summaries");
   for (const text of ["One", "Two", "Three", "Four"]) {
     payload = await addNode(base, payload.id, payload.path.at(-1)?.id ?? null, text);
@@ -170,7 +160,7 @@ test("chapter summaries refresh in place, mark user edits, derive staleness, and
 });
 
 test("facts persist a validated optional source part", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Facts");
   payload = await addNode(base, payload.id, null, "Source prose");
   const source = payload.path[0]!;
@@ -183,7 +173,7 @@ test("facts persist a validated optional source part", async (t) => {
 });
 
 test("instruction-only PATCH refreshes hydrated node stub tokens", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Instruction tokens");
   payload = await addNode(base, payload.id, null, "Root");
   const root = payload.path[0]!;
@@ -257,40 +247,3 @@ async function removedSummaryFixture(base: string, title: string): Promise<{
   return { storyId: payload.id, root, removed: deleted.removed };
 }
 
-async function testApp(t: test.TestContext): Promise<string> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-chapters-http-"));
-  const port = await availablePort();
-  const server = spawn(
-    process.execPath,
-    ["--import", "tsx", "server/index.ts", "--print-logs"],
-    {
-      cwd: path.resolve(import.meta.dirname, ".."),
-      env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
-      stdio: ["ignore", "pipe", "pipe"]
-    }
-  );
-  let output = "";
-  server.stdout?.on("data", (chunk) => { output += String(chunk); });
-  server.stderr?.on("data", (chunk) => { output += String(chunk); });
-  t.after(async () => {
-    await stopTestServerProcess(server);
-    await rm(dataDir, { recursive: true, force: true });
-  });
-  const base = `http://127.0.0.1:${port}`;
-  await waitForTestServer(server, base, () => output);
-  return base;
-}
-
-async function availablePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  return port;
-}
-
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetchWithApiProtocol(url, init);
-  if (!response.ok) assert.fail(`${response.status} ${await response.text()}`);
-  return await response.json() as T;
-}

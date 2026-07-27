@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { assertWithinBudget, budgetTimeout, cpuBudget, startTiming } from "./performance-budget.js";
 import { ServiceError } from "../server/errors.js";
 import {
   MAX_TRANSPORT_OPERATION_ID_BYTES,
@@ -375,18 +375,19 @@ test("four distinct scopes fill the global slots and the fifth never queues", as
   }
 });
 
+const ADMISSION_BUDGET = cpuBudget(10_000);
+
 test("settings admission remains bounded across repeated claim/release cycles", {
-  timeout: 30_000
+  timeout: budgetTimeout([ADMISSION_BUDGET])
 }, async (context) => {
   const coordinator = createMutationCoordinator();
   const iterations = 20_000;
-  const startedAt = performance.now();
+  const read = startTiming();
   for (let index = 0; index < iterations; index += 1) {
     await coordinator.runSettings(settingsRequest(index + 1), () => undefined);
   }
-  const elapsed = performance.now() - startedAt;
-  context.diagnostic(`${iterations.toLocaleString()} admissions in ${elapsed.toFixed(1)}ms`);
-  assert.ok(elapsed < 10_000, `coordinator admission took ${elapsed.toFixed(1)}ms`);
+  const timing = read();
+  assertWithinBudget(context, `${iterations.toLocaleString()} admissions`, ADMISSION_BUDGET, timing);
 });
 
 function settingsRequest(stateGeneration: number): {

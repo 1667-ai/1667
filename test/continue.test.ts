@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import { sha256 } from "../server/story-format.js";
 import type { StoryPayload } from "../shared/types.js";
-import {
-  API_PROTOCOL_HEADERS,
-  fetchWithApiProtocol,
-  stopTestServerProcess,
-  waitForTestServer
-} from "./http-test-client.js";
+import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
+import { json, testApp } from "./story-server-fixture.js";
 
 test("node routes: human create, optimistic edit, subtree delete, and payload shape", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const empty = await createStory(base, "Nodes");
   assert.deepEqual(empty.nodes, []);
   assert.deepEqual(empty.path, []);
@@ -58,7 +48,7 @@ test("node routes: human create, optimistic edit, subtree delete, and payload sh
 });
 
 test("node routes: human instructions stay verbatim and first-node titles come from prose", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const untitled = await json<StoryPayload>(`${base}/api/stories`, post({}));
   const human = await json<StoryPayload>(`${base}/api/stories/${untitled.id}/nodes`, post({
     parentId: null, instruction: "", text: "Lanterns beneath the rain"
@@ -79,7 +69,7 @@ test("node routes: human instructions stay verbatim and first-node titles come f
 });
 
 test("node routes: committing under an inactive parent leaves the reader on the current take", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Commit race");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "A" }));
   const a = payload.path[0]!;
@@ -98,7 +88,7 @@ test("node routes: committing under an inactive parent leaves the reader on the 
 });
 
 test("node routes: editing as a sibling preserves model lineage and attributes only the edit", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Edited sibling");
   const seeded = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({
     parentId: null,
@@ -155,7 +145,7 @@ test("node routes: editing as a sibling preserves model lineage and attributes o
 });
 
 test("take-from-cut route validates the selection and creates an attributed sibling", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Cut");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({
     parentId: null, instruction: "Open", text: "Alpha beta gamma"
@@ -192,7 +182,7 @@ test("take-from-cut route validates the selection and creates an attributed sibl
 });
 
 test("continue modes: append, default child, regenerate sibling, and genId stop-save dedup", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Generation");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({
     parentId: null, instruction: "Open.", text: "The latch was unlo"
@@ -235,7 +225,7 @@ test("continue modes: append, default child, regenerate sibling, and genId stop-
 });
 
 test("continue append rejects stale hashes and targets that are not the active leaf", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Append guards");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "Root" }));
   const root = payload.path[0]!;
@@ -255,7 +245,7 @@ test("continue append rejects stale hashes and targets that are not the active l
 });
 
 test("tag, switch, facts, and import mutations all return story payloads", async (t) => {
-  const base = await testApp(t);
+  const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Payloads");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "Left." }));
   const left = payload.path[0]!;
@@ -298,40 +288,3 @@ async function getStory(base: string, id: string): Promise<StoryPayload> {
   return await json(`${base}/api/stories/${id}`);
 }
 
-async function testApp(t: test.TestContext): Promise<string> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-node-http-"));
-  const port = await availablePort();
-  const server = spawn(
-    process.execPath,
-    ["--import", "tsx", "server/index.ts", "--print-logs"],
-    {
-      cwd: path.resolve(import.meta.dirname, ".."),
-      env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
-      stdio: ["ignore", "pipe", "pipe"]
-    }
-  );
-  let output = "";
-  server.stdout?.on("data", (chunk) => { output += String(chunk); });
-  server.stderr?.on("data", (chunk) => { output += String(chunk); });
-  t.after(async () => {
-    await stopTestServerProcess(server);
-    await rm(dataDir, { recursive: true, force: true });
-  });
-  const base = `http://127.0.0.1:${port}`;
-  await waitForTestServer(server, base, () => output);
-  return base;
-}
-
-async function availablePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  return port;
-}
-
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetchWithApiProtocol(url, init);
-  if (!response.ok) assert.fail(`${response.status} ${await response.text()}`);
-  return await response.json() as T;
-}

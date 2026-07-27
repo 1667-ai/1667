@@ -26,8 +26,11 @@ import {
   testStore
 } from "./mutation-ledger-store-fixture.js";
 import {
-  platformPerformanceBudget
-} from "./platform-performance-budget.js";
+  assertWithinBudget,
+  budgetTimeout,
+  fileBudget,
+  startTiming
+} from "./performance-budget.js";
 
 test("malformed immutable slots are corruption, never idempotency conflicts", async (t) => {
   const { dataDir, store } = await testStore(t, "1667-ledger-partial-");
@@ -176,8 +179,11 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
   });
 });
 
+// These lookups read receipt files, so this budget measures wall-clock time.
+const LOOKUP_BUDGET = fileBudget(10_000);
+
 test("missing receipt lookup is read-only and repeated direct lookup stays bounded", {
-  timeout: platformPerformanceBudget(30_000)
+  timeout: budgetTimeout([LOOKUP_BUDGET], 10_000)
 }, async (t) => {
   const { dataDir, store } = await testStore(t, "1667-ledger-performance-");
   assert.deepEqual(await store.loadUserReceipt("settings", ID), { prepared: null, completed: null });
@@ -186,16 +192,16 @@ test("missing receipt lookup is read-only and repeated direct lookup stays bound
   const prepared = preparedRecord();
   await store.writeUserRecord(prepared);
   const iterations = 1_000;
-  const startedAt = performance.now();
+  const read = startTiming();
   for (let index = 0; index < iterations; index += 1) {
     const receipt = await store.loadUserReceipt("settings", ID);
     assert.equal(receipt.prepared?.key, ID);
   }
-  const elapsed = performance.now() - startedAt;
-  t.diagnostic(`${iterations.toLocaleString()} direct receipt lookups in ${elapsed.toFixed(1)}ms`);
-  assert.ok(
-    elapsed < platformPerformanceBudget(10_000),
-    `direct receipt lookup took ${elapsed.toFixed(1)}ms`
+  assertWithinBudget(
+    t,
+    `${iterations.toLocaleString()} direct receipt lookups`,
+    LOOKUP_BUDGET,
+    read()
   );
 });
 
