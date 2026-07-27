@@ -53,7 +53,7 @@ import type { RuntimeState, StreamView } from "./state.js";
 import { createStorySurface } from "./story-surface.js";
 import { createComposer } from "./composer-model.js";
 import { mapAction } from "./map-actions.js";
-import { actionsMenuAction, armPrune, bookmarkAction, composeAction, generate, generationBusy, navAction, openBookmark, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
+import { actionsMenuAction, armPrune, tagAction, composeAction, generate, generationBusy, navAction, openTag, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
 import { createWrapCache, type ProseStyle } from "./wrap.js";
 import { deriveGenerationRuntime } from "./runtime-settings.js";
 import {
@@ -489,10 +489,10 @@ export async function handleKey(
   if (key.ctrl && key.name === "c" && state.mode !== "EDITOR") return requestQuit();
   const resolved = resolveKey(key, state.mode, {
     confirmingPrune: state.prune !== null,
-    bookmarkChoosingLabel: state.bookmark?.choosingLabel ?? false,
+    tagChoosingStatus: state.tag?.choosingStatus ?? false,
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
-    commandsBookmarks: state.commands?.view === "bookmarks",
+    commandsTags: state.commands?.view === "tags",
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
@@ -541,9 +541,9 @@ export async function dispatch(
     ...context,
     reroute: rerouteFromMap,
     armPrune,
-    openBookmark
+    openTag
   });
-  else if (state.mode === "BOOKMARK") await bookmarkAction(resolved, state, source, context);
+  else if (state.mode === "TAG") await tagAction(resolved, state, source, context);
   else if (state.mode === "COMPOSE") await composeAction(resolved, state, source, context);
   else if (state.mode === "EDITOR") await inlineEditorAction(resolved, state, source, context);
   else if (state.mode === "NAV" && await directChapterRowAction(resolved, state, source, context)) { /* handled */ }
@@ -603,7 +603,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     map: null,
     contextMeterExpanded: false,
     prune: null,
-    bookmark: null,
+    tag: null,
     expandedChapterSummaryIds: new Set(),
     chapterDeleteArmedId: null,
     typewriter: false,

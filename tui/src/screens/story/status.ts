@@ -1,7 +1,7 @@
 import { AI_1667_VERSION_TAG } from "../../../../shared/build-identity.js";
 import { lineName } from "../../../../shared/story-model.js";
-import type { Bookmark } from "../../../../shared/types.js";
-import { bookmarkGlyph, bookmarkRole } from "../../bookmark-presentation.js";
+import type { Tag } from "../../../../shared/types.js";
+import { tagGlyph, tagRole } from "../../tag-presentation.js";
 import { chapterForRow, rowPart, type StoryViewModel } from "../../model.js";
 import { pruneConfirmText } from "../../prune-model.js";
 import { contextSeverity, formatTokensScaled, formatTokensEstimate, requestWindow } from "../../rail.js";
@@ -28,7 +28,7 @@ export function renderStatus(
   const payload = view.visiblePayload;
   const focused = rowPart(view, state.focusIndex);
   const focusedChapter = chapterForRow(view, state.focusIndex);
-  const bookmark = bookmarkForLeaf(payload.bookmarks, payload.path.at(-1)?.id ?? null);
+  const tag = tagForLeaf(payload.tags, payload.path.at(-1)?.id ?? null);
   const title = narrow ? truncate(payload.title, 20) : payload.title;
   const mode = state.mode === "EDITOR" ? "EDIT"
     : state.mode === "COMPOSE" && state.composer.fullscreen
@@ -46,15 +46,15 @@ export function renderStatus(
   }
   const left: FrameLine = [modeBlock];
   left.push(segment(`  ${title} · `, "chrome"));
-  // The line always has a name (spec: the line chip) — bookmark name when
-  // the leaf is bookmarked, the derived working name otherwise.
+  // The line always has a name (spec: the line chip) — tag name when
+  // the leaf is tagged, the derived working name otherwise.
   const leafId = payload.path.at(-1)?.id;
   let lineIdentity: { text: string; role: DisplayRole } | null = null;
   if (leafId !== undefined) {
     const name = truncate(lineName(payload, leafId), narrow ? 14 : 24);
     lineIdentity = {
-      text: `${bookmark !== null ? `${bookmarkGlyph(bookmark.label)} ` : ""}${name}`,
-      role: bookmarkRole(bookmark)
+      text: `${tag !== null ? `${tagGlyph(tag.status)} ` : ""}${name}`,
+      role: tagRole(tag)
     };
     left.push(segment(lineIdentity.text, lineIdentity.role), segment(" · ", "chrome"));
   }
@@ -177,6 +177,6 @@ function compactStatusIdentity(
   ];
 }
 
-function bookmarkForLeaf(bookmarks: Bookmark[], leafId: string | null): Bookmark | null {
-  return leafId === null ? null : bookmarks.find((bookmark) => bookmark.nodeId === leafId) ?? null;
+function tagForLeaf(tags: Tag[], leafId: string | null): Tag | null {
+  return leafId === null ? null : tags.find((tag) => tag.nodeId === leafId) ?? null;
 }

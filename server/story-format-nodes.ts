@@ -1,4 +1,4 @@
-import { isBookmarkLabel, MAX_RECENT_LINES, type HumanEditAttribution } from "../shared/types.js";
+import { isTagStatus, MAX_RECENT_LINES, type HumanEditAttribution } from "../shared/types.js";
 import {
   StoryFormatError,
   arrayField,
@@ -16,7 +16,7 @@ import { unicodeScalarLength } from "../shared/unicode.js";
 import type {
   ObjectHash,
   StoredBranchV1,
-  StoredBookmarkV1,
+  StoredTagV1,
   StoredNodeV1,
   StoredPartV2,
   StoryManifestV3,
@@ -85,7 +85,7 @@ export function parseLegacyManifest(value: Record<string, unknown>): StoryManife
 
 export function convertV3ToV4(source: StoryManifestV3): StoryManifestV4 {
   const nodes: StoredNodeV1[] = [];
-  const bookmarks: StoredBookmarkV1[] = [];
+  const tags: StoredTagV1[] = [];
   const activeByPart = new Map<string, StoredNodeV1>();
   let previousBase: StoredNodeV1 | null = null;
   for (const part of source.parts) {
@@ -131,7 +131,7 @@ export function convertV3ToV4(source: StoryManifestV3): StoryManifestV4 {
       anchor.activeChildId = head.id;
     }
     const target = activeTail.at(-1) ?? anchor;
-    if (target !== null) addBranchBookmark(bookmarks, branch, target.id);
+    if (target !== null) addBranchTag(tags, branch, target.id);
   }
 
   let activePath = source.activeBranchId === null
@@ -155,7 +155,7 @@ export function convertV3ToV4(source: StoryManifestV3): StoryManifestV4 {
     nodes,
     facts: source.facts,
     activeRootId,
-    bookmarks,
+    bookmarks: tags,
     recentNodeIds: []
   };
 }
@@ -180,7 +180,7 @@ export function parseV4Manifest(input: unknown): StoryManifestV4 {
     }
   }
   const activeRootId = parseActiveRootId(value.activeRootId, nodes, byId);
-  const bookmarks = parseBookmarks(value.bookmarks, ids);
+  const tags = parseTags(value.bookmarks, ids);
   const recentNodeIds = arrayField(value, "recentNodeIds").map((entry, index) => {
     if (typeof entry !== "string" || !ids.has(entry)) {
       throw new StoryFormatError(`recentNodeIds[${index}] references an unknown node`);
@@ -203,7 +203,7 @@ export function parseV4Manifest(input: unknown): StoryManifestV4 {
     nodes,
     facts: parseStoredFacts(value.facts, nodes.filter((node) => node.chapterBreakId === undefined).map((node) => node.id)),
     activeRootId,
-    bookmarks,
+    bookmarks: tags,
     recentNodeIds
   };
 }
@@ -304,17 +304,18 @@ function baseActivePath(parts: StoredPartV2[], activeByPart: Map<string, StoredN
   return parts.map((part) => activeByPart.get(part.id)!);
 }
 
-function addBranchBookmark(bookmarks: StoredBookmarkV1[], branch: StoredBranchV1, nodeId: string): void {
-  if (bookmarks.some((bookmark) => bookmark.nodeId === nodeId)) {
-    console.error(`Story migration drift: bookmark collision on node ${nodeId}; keeping the first branch.`);
+function addBranchTag(tags: StoredTagV1[], branch: StoredBranchV1, nodeId: string): void {
+  if (tags.some((tag) => tag.nodeId === nodeId)) {
+    console.error(`Story migration drift: tag collision on node ${nodeId}; keeping the first branch.`);
     return;
   }
-  bookmarks.push({
+  tags.push({
     nodeId,
     name: branch.name,
     // `canon` was authoritative in V3. The old UI could leave `label: "Canon"`
     // behind when canon moved to another branch, so only preserve that label
-    // when the matching flag is still present.
+    // when the matching flag is still present. `branch.label` keeps its legacy
+    // spelling, and so does the stored tag it becomes.
     label: branch.canon === true ? "Canon" : branch.label === "Canon" ? "" : branch.label,
     color: branch.color,
     createdAt: branch.createdAt
@@ -370,32 +371,32 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
   return stored;
 }
 
-function parseBookmarks(value: unknown, nodeIds: Set<string>): StoredBookmarkV1[] {
+function parseTags(value: unknown, nodeIds: Set<string>): StoredTagV1[] {
   const seen = new Set<string>();
   let canonCount = 0;
   return arrayValue(value, "bookmarks").map((entry, index) => {
     const label = `bookmarks[${index}]`;
-    const bookmark = recordValue(entry, label);
-    const nodeId = stringField(bookmark, "nodeId");
+    const tag = recordValue(entry, label);
+    const nodeId = stringField(tag, "nodeId");
     if (!nodeIds.has(nodeId)) throw new StoryFormatError(`${label}.nodeId references an unknown node`);
-    if (seen.has(nodeId)) throw new StoryFormatError(`Duplicate bookmark node id: ${nodeId}`);
+    if (seen.has(nodeId)) throw new StoryFormatError(`Duplicate tag node id: ${nodeId}`);
     seen.add(nodeId);
-    const name = stringField(bookmark, "name");
+    const name = stringField(tag, "name");
     const nameLength = unicodeScalarLength(name, 80);
     if (nameLength < 1 || nameLength > 80 || name !== name.trim()) {
       throw new StoryFormatError(`${label}.name must be trimmed and contain 1–80 characters`);
     }
-    const bookmarkLabel = stringField(bookmark, "label");
-    if (!isBookmarkLabel(bookmarkLabel)) throw new StoryFormatError(`${label}.label is invalid`);
-    if (bookmarkLabel === "Canon" && ++canonCount > 1) {
-      throw new StoryFormatError("Only one bookmark may be Canon");
+    const tagLabel = stringField(tag, "label");
+    if (!isTagStatus(tagLabel)) throw new StoryFormatError(`${label}.label is invalid`);
+    if (tagLabel === "Canon" && ++canonCount > 1) {
+      throw new StoryFormatError("Only one tag may be Canon");
     }
     return {
       nodeId,
       name,
-      label: bookmarkLabel,
-      color: stringField(bookmark, "color"),
-      createdAt: stringField(bookmark, "createdAt")
+      label: tagLabel,
+      color: stringField(tag, "color"),
+      createdAt: stringField(tag, "createdAt")
     };
   });
 }
@@ -418,7 +419,7 @@ function parseStoredBranches(value: unknown, base: readonly StoredPartV2[]): Sto
       throw new StoryFormatError(`${label}.name must be trimmed and contain 1–80 characters`);
     }
     const branchLabel = stringField(branch, "label");
-    if (!isBookmarkLabel(branchLabel)) throw new StoryFormatError(`${label}.label is invalid`);
+    if (!isTagStatus(branchLabel)) throw new StoryFormatError(`${label}.label is invalid`);
     if (branch.canon !== undefined && branch.canon !== true) throw new StoryFormatError(`${label}.canon must be true or absent`);
     if (branch.canon === true && ++canonCount > 1) throw new StoryFormatError("Only one branch may be canon");
     const forkPartId = nullableString(branch.forkPartId, `${label}.forkPartId`);

@@ -23,7 +23,7 @@ describe("grouped command palette model", () => {
     ]);
     const ids = model.selectable.map((match) => match.command.id);
     for (const id of [
-      "summary", "bookmark-line", "export", "switch-story", "rename-story", "folder",
+      "summary", "tag-line", "export", "switch-story", "rename-story", "folder",
       "direct-take", "retake", "prune", "autoname", "settings",
       "acknowledge-generation", "reconnect"
     ] as const) expect(ids).toContain(id);
@@ -48,10 +48,10 @@ describe("grouped command palette model", () => {
       .toEqual(["settings"]);
   });
 
-  test("Suggested reacts to recovery, request ownership, prose, and an existing line bookmark", () => {
+  test("Suggested reacts to recovery, request ownership, prose, and an existing line tag", () => {
     const source = demoAppSource();
     const ready = commandContext(source.payload, false, false);
-    expect(ready.lineBookmarked).toBeTrue();
+    expect(ready.lineTagged).toBeTrue();
     expect(commandPaletteModel("", false, ready).sections[0]!.matches.map((match) => match.command.id))
       .toEqual(["summary", "export"]);
 
@@ -60,7 +60,7 @@ describe("grouped command palette model", () => {
     expect(active.sections.find((section) => section.id === "take")?.matches.some((match) =>
       match.command.id === "summary")).toBeTrue();
     expect(active.sections.find((section) => section.id === "view")?.matches.some((match) =>
-      match.command.id === "bookmark-line")).toBeTrue();
+      match.command.id === "tag-line")).toBeTrue();
 
     const offline = commandPaletteModel("", false, { ...ready, connectionDown: true });
     expect(offline.sections[0]!.matches.map((match) => match.command.id)).toEqual(["reconnect", "export"]);
@@ -71,7 +71,7 @@ describe("grouped command palette model", () => {
     }).sections[0]!.matches.map((match) => match.command.id)).toEqual(["export"]);
 
     const empty = commandPaletteModel("", false, {
-      connectionDown: false, requestActive: false, hasProse: false, lineBookmarked: false
+      connectionDown: false, requestActive: false, hasProse: false, lineTagged: false
     });
     expect(empty.sections[0]!.matches.map((match) => match.command.id)).toEqual(["export"]);
   });
@@ -119,7 +119,7 @@ describe("grouped command palette rendering", () => {
 
     const headerRow = lines.findIndex((line) => plainLine(line).includes("Suggested"));
     const selectedRow = lines.findIndex((line) => plainLine(line).includes("summary take"));
-    const bookmarkRow = lines.findIndex((line) => plainLine(line).includes("bookmark this line"));
+    const tagRow = lines.findIndex((line) => plainLine(line).includes("tag this line"));
     expect(hitAt(hits, 30, headerRow)).toEqual({ kind: "panel" });
     expect(hitAt(hits, 30, selectedRow)).toEqual({ kind: "list", index: 0, selected: true });
     const selectedWidth = lines[selectedRow]!
@@ -130,9 +130,9 @@ describe("grouped command palette rendering", () => {
 
     // Measure the content band, not the whole panel: the frame's closing edge
     // sits outside it.
-    const panelText = plainLine(lines[bookmarkRow]!)
+    const panelText = plainLine(lines[tagRow]!)
       .slice(horizontal.contentLeft, horizontal.contentLeft + horizontal.contentWidth);
-    expect(panelText.trimEnd().endsWith("b")).toBeTrue();
+    expect(panelText.trimEnd().endsWith("t")).toBeTrue();
   });
 
   test("keeps the selected System command visible at 80×24", () => {
@@ -175,7 +175,7 @@ function renderCommands(
   const state = {
     payload: source.payload,
     mode: "COMMANDS" as const,
-    bookmark: null,
+    tag: null,
     focusIndex: source.payload.path.length - 1,
     now: 1_667_000_000_000,
     contextWindow: source.settings.contextWindow,

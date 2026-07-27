@@ -17,7 +17,7 @@ export interface MapActionContext extends ActionContext {
     nodeId: string | null
   ) => Promise<void>;
   armPrune: (state: RuntimeState) => void;
-  openBookmark: (state: RuntimeState) => void;
+  openTag: (state: RuntimeState) => void;
 }
 
 export function openMap(state: RuntimeState): void {
@@ -103,8 +103,8 @@ async function pathAction(
     map.pathCursorId = movePathCursor(payload, map.pathCursorId, 0, -1, showAllTakes);
   } else if (resolved.action === "prune") {
     context.armPrune(state);
-  } else if (resolved.action === "bookmark") {
-    context.openBookmark(state);
+  } else if (resolved.action === "tag") {
+    context.openTag(state);
   } else if (resolved.action === "apply" && resolved.take !== undefined) {
     const rowNode = payload.nodes.find((node) => node.id === map.rowIds[resolved.index ?? -1]);
     const target = rowNode === undefined ? undefined

@@ -60,7 +60,7 @@ export function storyManifestSchema(): Schema {
       updatedAt: ref("V5Timestamp"),
       sourcePartId: ref("Identifier")
     }, ["id", "tag", "revisionId", "createdAt", "updatedAt"]),
-    StoredBookmarkV5: closed({
+    StoredTagV5: closed({
       nodeId: ref("Identifier"),
       name: { type: "string", minLength: 1, maxLength: 80 },
       label: { enum: ["", "Canon", "Alt", "Draft", "Discarded", "Summary"] },
@@ -156,7 +156,7 @@ function strictV5Schema(): Schema {
     nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredNodeV5") },
     facts: { type: "array", maxItems: MAX_FACTS, items: ref("StoredFactV5") },
     activeRootId: nullable(ref("Identifier")),
-    bookmarks: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredBookmarkV5") },
+    bookmarks: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredTagV5") },
     recentNodeIds: { type: "array", maxItems: MAX_RECENT_LINES, items: ref("Identifier") },
     chapterBreaks: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("ChapterBreakV5") }
   }, [

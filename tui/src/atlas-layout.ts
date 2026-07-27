@@ -1,6 +1,6 @@
 import { createStoryIndex } from "../../shared/story-model.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
-import type { Bookmark, NodeStub, StoryPayload } from "../../shared/types.js";
+import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
 import type { FrameDeadlineCollector } from "./animation-deadline.js";
 
 export type AtlasSort = "graph" | "size" | "recency" | "name";
@@ -10,7 +10,7 @@ export type AtlasRowKind = "node" | "run" | "sketch" | "cold";
 export interface AtlasRow {
   kind: AtlasRowKind; id: string; node: NodeStub; depth: number;
   fragment: string | null; cold: { lineCount: number; weeks: number } | null;
-  active: boolean; cursor: boolean; bookmark: Bookmark | null;
+  active: boolean; cursor: boolean; tag: Tag | null;
   words: number; ownWords: number;
   /** Untouched past the cold threshold. Independent of whether the row sits in
    *  a cold *fold*: the mass view never folds, and still dims what has gone
@@ -59,7 +59,7 @@ type VisualNode = { kind: "segment"; value: SegmentNode } | ColdNode | SketchNod
 interface DrawState {
   rows: AtlasRow[];
   depths: ReadonlyMap<string, number>; active: ReadonlySet<string>;
-  words: ReadonlyMap<string, number>; bookmarks: ReadonlyMap<string, Bookmark>;
+  words: ReadonlyMap<string, number>; tags: ReadonlyMap<string, Tag>;
   now: number;
 }
 interface ClassifyFrame {
@@ -83,7 +83,7 @@ export function createAtlasLayout(payload: StoryPayload, options: AtlasLayoutOpt
     showSketches: options.showSketches === true, sort, now: options.now, deadlines: options.deadlines
   });
   const words = cumulativeWords(payload.nodes);
-  const drawn = drawGraph(visuals, index.depthByNodeId, activeIds, words, index.bookmarkByNodeId, options.now);
+  const drawn = drawGraph(visuals, index.depthByNodeId, activeIds, words, index.tagByNodeId, options.now);
   const massLines: AtlasRow[] = [];
   let massMaximum = 1;
   for (const row of drawn) {
@@ -289,9 +289,9 @@ export function followAtlasRail(layout: AtlasLayout): string | null {
 function drawGraph(
   visuals: VisualNode[], depths: ReadonlyMap<string, number>,
   active: ReadonlySet<string>, words: ReadonlyMap<string, number>,
-  bookmarks: ReadonlyMap<string, Bookmark>, now: number
+  tags: ReadonlyMap<string, Tag>, now: number
 ): AtlasRow[] {
-  const state: DrawState = { rows: [], depths, active, words, bookmarks, now };
+  const state: DrawState = { rows: [], depths, active, words, tags, now };
   const trunkRoot = visuals.find(
     (visual): visual is Extract<VisualNode, { kind: "segment" }> =>
       visual.kind === "segment" && active.has(visual.value.anchor.id)
@@ -376,7 +376,7 @@ function pushRow(state: DrawState, kind: AtlasRowKind, node: NodeStub, extra: Pa
   state.rows.push({
     kind, id: kind === "node" || kind === "cold" || kind === "sketch" ? node.id : `${node.id}:${kind}`,
     node, depth: state.depths.get(node.id) ?? 0, fragment: null, cold: null,
-    active: state.active.has(node.id), cursor: false, bookmark: state.bookmarks.get(node.id) ?? null,
+    active: state.active.has(node.id), cursor: false, tag: state.tags.get(node.id) ?? null,
     words: state.words.get(node.id) ?? node.words, ownWords: node.words,
     stale: ageDays(node.lastTouched, state.now) > COLD_DAYS,
     branch: false, run: 0, lineEnd: false, forkCount: 0, continuesBelow: false, ...extra
@@ -385,7 +385,7 @@ function pushRow(state: DrawState, kind: AtlasRowKind, node: NodeStub, extra: Pa
 /** The by-name sort key is the label the reader sees. Reimplementing the date
  *  format here would let unnamed lines order by something not on screen. */
 function massName(row: AtlasRow): string {
-  return row.bookmark?.name ?? `unnamed · ${shortDate(row.node.lastTouched)}`;
+  return row.tag?.name ?? `unnamed · ${shortDate(row.node.lastTouched)}`;
 }
 export function shortDate(value: string): string {
   const date = new Date(value);

@@ -24,7 +24,7 @@ import {
   type StoryManifestV5
 } from "./story-format.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
-import { putStoryBookmark, removeStoryBookmark } from "./story-bookmarks.js";
+import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
   afterCommit,
   mkdirDurable,
@@ -279,12 +279,12 @@ export class StoryStore {
     return await this.mutate(id, (story) => { pruneUnusedStoryTakes(story, expected); });
   }
 
-  async setBookmark(id: string, nodeId: string, nameValue: string, labelValue: string): Promise<Story> {
-    return await this.mutate(id, (story) => { putStoryBookmark(story, nodeId, nameValue, labelValue); });
+  async setTag(id: string, nodeId: string, nameValue: string, labelValue: string): Promise<Story> {
+    return await this.mutate(id, (story) => { putStoryTag(story, nodeId, nameValue, labelValue); });
   }
 
   async deleteBookmark(id: string, nodeId: string): Promise<Story> {
-    return await this.mutate(id, (story) => { removeStoryBookmark(story, nodeId); });
+    return await this.mutate(id, (story) => { removeStoryTag(story, nodeId); });
   }
 
   async commitProviderEffect<Effect extends ProviderStoryEffect>(
@@ -390,7 +390,7 @@ export class StoryStore {
     const now = new Date().toISOString();
     const story: Story = {
       id: requestedId ?? randomUUID(), title, createdAt: now, updatedAt: now,
-      nodes: [], activeRootId: null, bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: []
+      nodes: [], activeRootId: null, tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
     };
     await this.save(story);
     return story;

@@ -356,7 +356,7 @@ function fixture(text: string): Story {
     facts: [],
     nodes: [source],
     activeRootId: source.id,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     chapterBreaks: []
   };

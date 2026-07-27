@@ -40,7 +40,7 @@ export const STARTER_KEYS = {
   top: { name: "g", token: "g", mode: "NAV" },
   leaf: { name: "g", token: "G", mode: "NAV", shift: true },
   instructions: { name: "p", token: "p", mode: "NAV" },
-  bookmark: { name: "b", token: "b", mode: "NAV" },
+  tag: { name: "t", token: "t", mode: "NAV" },
   prune: { name: "d", token: "d", mode: "NAV" },
   openMap: { name: "m", token: "m", mode: "NAV" },
   openLibrary: { name: "o", token: "o", mode: "NAV" },
@@ -57,7 +57,7 @@ export const STARTER_KEYS = {
   mapClose: { name: "escape", token: "esc", mode: "MAP" },
   mapDetail: { name: "a", token: "a", mode: "MAP" },
   mapJump: { name: "return", token: "enter", mode: "MAP" },
-  mapBookmark: { name: "b", token: "b", mode: "MAP", mapView: "path" }
+  mapTag: { name: "t", token: "t", mode: "MAP", mapView: "path" }
 } as const satisfies Record<string, StarterKey>;
 
 export type StarterKeyId = keyof typeof STARTER_KEYS;

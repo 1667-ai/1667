@@ -1,6 +1,6 @@
-import { BOOKMARK_LABELS } from "../../../shared/types.js";
+import { TAG_STATUSES } from "../../../shared/types.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
-import { bookmarkLabelChoice } from "../bookmark-presentation.js";
+import { tagStatusChoice } from "../tag-presentation.js";
 import { chapterWord } from "../chapter-model.js";
 import type { KeyAction } from "../keys.js";
 import {
@@ -84,7 +84,7 @@ const DEFAULT_CACHE = createWrapCache<ProseStyle>();
 export function renderStoryScreen(state: StoryScreenState, options: StoryScreenOptions): StoryScreenFrame {
   const { height } = options;
   if (state.map !== null && (state.mode === "MAP"
-    || state.mode === "BOOKMARK" && state.bookmark?.returnMode === "MAP")) {
+    || state.mode === "TAG" && state.tag?.returnMode === "MAP")) {
     return renderMap(state, options.width, height, options.deadlines);
   }
   const fullscreen = state.mode === "COMPOSE" && state.composer.fullscreen;
@@ -288,15 +288,15 @@ function renderMap(
     treeCursorId: frame.derived.treeCursorId,
     openedColdFolds: new Set(state.map!.openedColdFolds)
   };
-  const bookmark = state.mode === "BOOKMARK" && state.bookmark !== null
-    ? renderMapBookmark(frame.lines, state, hitRows, width, height)
+  const tag = state.mode === "TAG" && state.tag !== null
+    ? renderMapTag(frame.lines, state, hitRows, width, height)
     : null;
   const lines = state.connection.down
-    ? renderConnectionBanner(bookmark?.lines ?? frame.lines, { ...state, hitRows }, width, deadlines)
-    : bookmark?.lines ?? frame.lines;
+    ? renderConnectionBanner(tag?.lines ?? frame.lines, { ...state, hitRows }, width, deadlines)
+    : tag?.lines ?? frame.lines;
   return {
     lines,
-    selectable: bookmark?.selectable ?? frame.selectable,
+    selectable: tag?.selectable ?? frame.selectable,
     derived: {
       hitRows,
       viewScroll: state.viewScroll,
@@ -312,15 +312,15 @@ function renderMap(
   };
 }
 
-function renderMapBookmark(
+function renderMapTag(
   base: FrameLine[],
   state: StoryScreenState,
   hitRows: HitRows,
   width: number,
   height: number
 ): FrameComposition {
-  const prompt = state.bookmark!;
-  const selected = bookmarkLabelChoice(BOOKMARK_LABELS[prompt.labelIndex] ?? "");
+  const prompt = state.tag!;
+  const selected = tagStatusChoice(TAG_STATUSES[prompt.statusIndex] ?? "");
   const namePrefix = "  Name  ";
   const nameWidth = Math.max(
     0,
@@ -329,18 +329,18 @@ function renderMapBookmark(
   const input: FrameLine = [
     raisedSegment(namePrefix, "chrome"),
     raisedSegment(truncateTail(prompt.name, nameWidth), "streaming"),
-    ...(prompt.choosingLabel ? [] : [{
+    ...(prompt.choosingStatus ? [] : [{
       text: " ", role: "background" as const, background: "focus / accent" as const
     }])
   ];
   const content: FrameLine[] = [input, [], [
-    raisedSegment("  Label  ", "chrome"),
-    raisedSegment(`‹ ${selected} ›`, prompt.choosingLabel ? "focus / accent" : "prose · dim")
+    raisedSegment("  Status  ", "chrome"),
+    raisedSegment(`‹ ${selected} ›`, prompt.choosingStatus ? "focus / accent" : "prose · dim")
   ]];
-  const footer = prompt.choosingLabel
-    ? `←→ label · enter save · esc cancel${prompt.existing ? " · d delete" : ""}`
-    : "enter choose label · esc cancel";
-  return placePanel(dimPage(base), "bookmark line", content, footer, width, height, 64, {
+  const footer = prompt.choosingStatus
+    ? `←→ status · enter save · esc cancel${prompt.existing ? " · d delete" : ""}`
+    : "enter choose status · esc cancel";
+  return placePanel(dimPage(base), "tag line", content, footer, width, height, 64, {
     rows: hitRows,
     targets: content.map(() => null)
   });
@@ -349,19 +349,19 @@ function renderMapBookmark(
 function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width: number, measure: number, narrow: boolean, height: number): { lines: FrameLine[]; scrollTop: number } {
   const indent = narrow ? "  " : " ".repeat(STORY_GUTTER);
   const rule = [segment(indent), segment("─".repeat(measure), "chrome")];
-  if (state.mode === "BOOKMARK" && state.bookmark !== null) {
-    const selected = bookmarkLabelChoice(BOOKMARK_LABELS[state.bookmark.labelIndex] ?? "");
-    const bookmarkPrefix = "› bookmark ";
-    const nameWidth = Math.max(0, measure - visibleWidth(bookmarkPrefix) - 1);
+  if (state.mode === "TAG" && state.tag !== null) {
+    const selected = tagStatusChoice(TAG_STATUSES[state.tag.statusIndex] ?? "");
+    const tagPrefix = "› tag ";
+    const nameWidth = Math.max(0, measure - visibleWidth(tagPrefix) - 1);
     const pinned = isStoryViewportPinned(state);
     const promptHint = state.toast !== null && pinned
       ? state.toast
-      : state.bookmark.choosingLabel
-        ? `label ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.bookmark.existing ? " · d deletes" : ""}`
-        : "enter chooses label · esc cancels";
+      : state.tag.choosingStatus
+        ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? " · d deletes" : ""}`
+        : "enter chooses status · esc cancels";
     return { lines: [
       rule,
-      [segment(indent), segment(bookmarkPrefix, "accent · deep"), segment(truncateTail(state.bookmark.name, nameWidth), "streaming"), segment(state.bookmark.choosingLabel ? "" : "▌", "focus / accent")],
+      [segment(indent), segment(tagPrefix, "accent · deep"), segment(truncateTail(state.tag.name, nameWidth), "streaming"), segment(state.tag.choosingStatus ? "" : "▌", "focus / accent")],
       [segment(indent), segment(promptHint, state.toast !== null && pinned ? "focus / accent" : "chrome")]
     ], scrollTop: state.composerScrollTop };
   }

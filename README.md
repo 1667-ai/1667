@@ -40,6 +40,7 @@ This README uses these Technical Names:
 | story part | One unit of story prose |
 | take | One alternative version of a story part |
 | story line | The selected path through story parts |
+| tag | A name and a status on the end of one story line |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

@@ -4,10 +4,10 @@ import { fuzzyMatch } from "./fuzzy.js";
 
 export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system";
 export type CommandId =
-  | "export" | "summary" | "bookmark-line"
+  | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname"
   | "direct-take" | "retake" | "prune"
-  | "bookmarks" | "chapters" | "chapter" | "prompts"
+  | "tags" | "chapters" | "chapter" | "prompts"
   | "settings" | "acknowledge-generation"
   | "reconnect" | "disconnect" | "theme";
 
@@ -54,14 +54,14 @@ export interface CommandPaletteContext {
   connectionDown: boolean;
   requestActive: boolean;
   hasProse: boolean;
-  lineBookmarked: boolean;
+  lineTagged: boolean;
 }
 
 const DEFAULT_CONTEXT: CommandPaletteContext = {
   connectionDown: false,
   requestActive: false,
   hasProse: true,
-  lineBookmarked: false
+  lineTagged: false
 };
 
 const SECTIONS: ReadonlyArray<{ id: CommandSectionId; label: string }> = [
@@ -74,7 +74,7 @@ const SECTIONS: ReadonlyArray<{ id: CommandSectionId; label: string }> = [
 
 const COMMANDS: readonly PaletteCommand[] = [
   { id: "summary", section: "take", name: "summary take", description: "compress the current prefix into continuity", mutating: true },
-  { id: "bookmark-line", section: "view", name: "bookmark this line", description: "remember this leaf and its current path", shortcut: "b", mutating: true },
+  { id: "tag-line", section: "view", name: "tag this line", description: "remember this leaf and its current path", shortcut: "t", mutating: true },
   { id: "export", section: "story", name: "export markdown", description: "write the current line beside your terminal" },
 
   { id: "switch-story", section: "story", name: "switch story", description: "open another story from the library", shortcut: "o" },
@@ -86,7 +86,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "retake", section: "take", name: "retake", description: "regenerate the focused part as a sibling", shortcut: "r", mutating: true },
   { id: "prune", section: "take", name: "prune drafts & discarded", description: "review unused leaf takes before removal", shortcut: "d", mutating: true },
 
-  { id: "bookmarks", section: "view", name: "bookmark manager", description: "inspect or delete remembered leaves" },
+  { id: "tags", section: "view", name: "tag manager", description: "inspect or delete remembered leaves" },
   { id: "chapters", section: "view", name: "chapters", description: "open the chapter table and context meter", shortcut: "c" },
   { id: "chapter", section: "view", name: "chapter: end here", description: "end the current chapter after this leaf", shortcut: "C", mutating: true },
   { id: "prompts", section: "view", name: "toggle directions", description: "show or hide directions above each part", shortcut: "p" },
@@ -117,7 +117,7 @@ export function commandContext(
     connectionDown,
     requestActive,
     hasProse: payload.path.length > 0,
-    lineBookmarked: leafId !== null && payload.bookmarks.some((bookmark) => bookmark.nodeId === leafId)
+    lineTagged: leafId !== null && payload.tags.some((tag) => tag.nodeId === leafId)
   };
 }
 
@@ -218,8 +218,8 @@ function suggestedCommands(context: CommandPaletteContext): CommandId[] {
   if (context.connectionDown) return ["reconnect", "export"];
   return [
     ...(context.hasProse ? ["summary" as const] : []),
-    ...(context.hasProse && !context.lineBookmarked
-      ? ["bookmark-line" as const]
+    ...(context.hasProse && !context.lineTagged
+      ? ["tag-line" as const]
       : []),
     "export"
   ];

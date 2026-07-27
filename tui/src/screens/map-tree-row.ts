@@ -1,5 +1,5 @@
 import type { AtlasLayout, AtlasRow } from "../atlas-layout.js";
-import { bookmarkRole, formatMapWordsBare, mapLineLabel } from "./map-row-labels.js";
+import { tagRole, formatMapWordsBare, mapLineLabel } from "./map-row-labels.js";
 import {
   lineWidth,
   segment,
@@ -71,11 +71,11 @@ function appendNode(line: FrameLine, row: AtlasRow, streamTargetId: string | nul
   else appendForkNode(line, row, width);
 }
 
-/** A line's endpoint: its bookmark or name, total words at the right edge. The
+/** A line's endpoint: its tag or name, total words at the right edge. The
  *  `◉` already says which line you are on, so nothing else needs to. */
 function appendLineEnd(line: FrameLine, row: AtlasRow, current: boolean, width: number): void {
   appendLabelled(line, mapLineLabel(row), formatMapWordsBare(row.words), width,
-    row.cursor ? "prose" : bookmarkRole(row.bookmark), current ? "focus / accent" : "chrome");
+    row.cursor ? "prose" : tagRole(row.tag), current ? "focus / accent" : "chrome");
 }
 
 /** A fork on the trunk: its prose preview, a `⑂n` badge riding the title where

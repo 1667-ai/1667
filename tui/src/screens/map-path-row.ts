@@ -1,6 +1,6 @@
 import type { PathCell, PathLayout } from "../path-layout.js";
-import type { Bookmark } from "../../../shared/types.js";
-import { bookmarkGlyph, bookmarkRole } from "./map-row-labels.js";
+import type { Tag } from "../../../shared/types.js";
+import { tagGlyph, tagRole } from "./map-row-labels.js";
 import {
   padCells,
   segment,
@@ -23,7 +23,7 @@ export interface MapPathRow {
   previewRole: DisplayRole;
   words: string;
   badgeText: string;
-  bookmark: Bookmark | null;
+  tag: Tag | null;
 }
 
 export function createMapPathRow(
@@ -53,7 +53,7 @@ export function createMapPathRow(
     glyphPosition += markerWidth;
   }
   if (row.hiddenAfter > 0) glyphs.push(segment(` ${row.hiddenAfter}›`, "chrome"));
-  const badge = cursorCell?.bookmark ?? row.cells.find((cell) => cell.node.id === shown.id)?.bookmark ?? null;
+  const badge = cursorCell?.tag ?? row.cells.find((cell) => cell.node.id === shown.id)?.tag ?? null;
   return {
     depth: row.depth,
     cursorHere: row.cursorHere,
@@ -68,8 +68,8 @@ export function createMapPathRow(
     preview: shown.preview.replace(/\s+/g, " "),
     previewRole: row.cursorHere ? "prose" : shown.role === "summary" ? "summary" : "prose · dim",
     words: `${shown.words}w${shown.id === streamTargetId ? "+" : ""}`,
-    badgeText: badge === null ? "" : ` ${bookmarkGlyph(badge.label)} ${truncate(badge.name, 14)}`,
-    bookmark: badge
+    badgeText: badge === null ? "" : ` ${tagGlyph(badge.status)} ${truncate(badge.name, 14)}`,
+    tag: badge
   };
 }
 
@@ -117,6 +117,6 @@ export function renderMapPathRow(
     segment(row.counter.padEnd(counterField), "focus / accent"),
     segment(padCells(truncate(row.preview, previewWidth), previewWidth), row.previewRole),
     segment(row.words.padStart(7), "chrome"),
-    segment(row.badgeText, bookmarkRole(row.bookmark))
+    segment(row.badgeText, tagRole(row.tag))
   ];
 }

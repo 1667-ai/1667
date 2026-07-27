@@ -179,7 +179,7 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (subId !== undefined && action === "rewrite"
       && httpMethod === "POST") return "rewriteNode";
   }
-  if (sub === "bookmarks" && subId !== undefined
+  if (sub === "tags" && subId !== undefined
     && action === undefined && parts.length === 6) {
     if (httpMethod === "PUT") return "putBookmark";
     if (httpMethod === "DELETE") return "deleteBookmark";

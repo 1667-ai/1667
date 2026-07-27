@@ -28,7 +28,7 @@ import {
 } from "./overlay.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import { commandPaletteLine } from "./command-palette-line.js";
-import { bookmarkRole } from "./map-row-labels.js";
+import { tagRole } from "./map-row-labels.js";
 import {
   boundedContent,
   cellPad,
@@ -77,13 +77,13 @@ export const ACTIONS_FOOTER_ACTIONS = [
   { token: "↵ run", action: "apply" },
   { token: "esc close", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-export const BOOKMARKS_FOOTER_ACTIONS = [
+export const TAGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "d delete", action: "delete-item" }, { token: "esc commands", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 type PanelState = Omit<OverlayState, "hitRows"> & {
   mode: StoryScreenState["mode"];
-  bookmark: StoryScreenState["bookmark"];
+  tag: StoryScreenState["tag"];
   payload: StoryPayload;
   focusIndex: number;
   now: number;
@@ -408,26 +408,26 @@ function renderCommands(
   const overlay = state.commands!;
   const horizontal = panelHorizontalGeometry(width, 72);
   const content: FrameLine[] = [commandSearchLine(overlay.query, horizontal.contentWidth)];
-  if (overlay.view === "bookmarks") {
-    const bookmarks = state.payload.bookmarks;
+  if (overlay.view === "tags") {
+    const tags = state.payload.tags;
     const window = panelRowWindow(
-      bookmarks.map(() => 1),
+      tags.map(() => 1),
       overlay.cursor,
       panelContentRows(height) - content.length
     );
     const targets: Array<HitTarget | null> = [null];
-    for (const [offset, bookmark] of bookmarks.slice(window.start, window.end).entries()) {
+    for (const [offset, tag] of tags.slice(window.start, window.end).entries()) {
       const index = window.start + offset;
       targets.push({ kind: "list", index });
       content.push([
       raisedSegment(index === overlay.cursor ? "  ▸ " : "    ", index === overlay.cursor ? "focus / accent" : "chrome"),
-      raisedSegment(cellPad(bookmark.name, 30), "prose"), raisedSegment(bookmark.label || "unlabelled", bookmarkRole(bookmark))
+      raisedSegment(cellPad(tag.name, 30), "prose"), raisedSegment(tag.status || "none", tagRole(tag))
       ]);
     }
-    if (bookmarks.length === 0) { content.push([raisedSegment("  no bookmarks", "prose · dim")]); targets.push(null); }
-    return placePanel(base, `bookmark manager${panelRange(bookmarks.length, window)}`, content,
+    if (tags.length === 0) { content.push([raisedSegment("  no tags", "prose · dim")]); targets.push(null); }
+    return placePanel(base, `tag manager${panelRange(tags.length, window)}`, content,
       "↑↓ move · d delete · esc commands", width, height, 72,
-      { rows: state.hitRows, targets, footerActions: BOOKMARKS_FOOTER_ACTIONS });
+      { rows: state.hitRows, targets, footerActions: TAGS_FOOTER_ACTIONS });
   }
   const model = commandPaletteModel(
     overlay.query,

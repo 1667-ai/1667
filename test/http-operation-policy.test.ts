@@ -24,7 +24,7 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     { method: "exportMarkdown", lifetime: "transfer" }
   );
   for (const [method, path] of [
-    ["PUT", "/api/stories/story/bookmarks/node/extra"],
+    ["PUT", "/api/stories/story/tags/node/extra"],
     ["PATCH", "/api/stories/story/facts/fact/extra"],
     ["GET", "/api/stories/story/export/extra"],
     ["POST", "/api/operations/reservations"]

@@ -387,16 +387,16 @@ describe("responsive input lanes", () => {
     const pending = press(key("right"));
     await entered.promise;
     await press(key("G", "G"));
-    await press(key("b"));
-    const prompt = state.bookmark;
+    await press(key("t"));
+    const prompt = state.tag;
     await press(key("!", "!"));
     gate.resolve();
     await pending;
 
-    expect(state.mode).toBe("BOOKMARK");
-    expect(state.bookmark).toBe(prompt);
-    expect(state.bookmark?.name.endsWith("!")).toBeTrue();
-    expect(state.bookmark?.existing).toBeTrue();
+    expect(state.mode).toBe("TAG");
+    expect(state.tag).toBe(prompt);
+    expect(state.tag?.name.endsWith("!")).toBeTrue();
+    expect(state.tag?.existing).toBeTrue();
   });
 
   test("ordinary mutation adoption closes a newer prompt whose target was deleted", async () => {
@@ -416,18 +416,18 @@ describe("responsive input lanes", () => {
     const pending = press(key("d"));
     await entered.promise;
     await press(key("escape", "\u001b"));
-    await press(key("b"));
-    expect(state.bookmark?.nodeId).toBe("p13");
+    await press(key("t"));
+    expect(state.tag?.nodeId).toBe("p13");
     await press(key("!", "!"));
     gate.resolve();
     await pending;
 
-    expect(state.bookmark).toBe(null);
+    expect(state.tag).toBe(null);
     expect(state.mode).toBe("NAV");
     expect(state.focusIndex).toBeLessThan(createStoryViewModel(state.payload).rows.length);
   });
 
-  test("bookmark deletion preserves label input entered while it settles", async () => {
+  test("tag deletion preserves label input entered while it settles", async () => {
     const source = demoAppSource();
     const entered = deferred<void>();
     const gate = deferred<void>();
@@ -439,24 +439,24 @@ describe("responsive input lanes", () => {
     };
     const { state, press } = harness(source);
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p13");
-    await press(key("b"));
+    await press(key("t"));
     await press(key("return", "\r"));
-    const prompt = state.bookmark!;
+    const prompt = state.tag!;
     expect(prompt.existing).toBeTrue();
-    expect(prompt.choosingLabel).toBeTrue();
+    expect(prompt.choosingStatus).toBeTrue();
 
     const pending = press(key("d"));
     await entered.promise;
-    const submittedLabelIndex = prompt.labelIndex;
+    const submittedStatusIndex = prompt.statusIndex;
     await press(key("right"));
-    expect(prompt.labelIndex).not.toBe(submittedLabelIndex);
+    expect(prompt.statusIndex).not.toBe(submittedStatusIndex);
     gate.resolve();
     await pending;
 
-    expect(state.mode).toBe("BOOKMARK");
-    expect(state.bookmark).toBe(prompt);
-    expect(state.bookmark?.existing).toBeFalse();
-    expect(state.bookmark?.labelIndex).not.toBe(submittedLabelIndex);
+    expect(state.mode).toBe("TAG");
+    expect(state.tag).toBe(prompt);
+    expect(state.tag?.existing).toBeFalse();
+    expect(state.tag?.statusIndex).not.toBe(submittedStatusIndex);
   });
 
   test("summary cancel restores NAV while its authoritative reload keeps ownership", async () => {

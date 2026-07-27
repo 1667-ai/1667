@@ -10,7 +10,7 @@ import { writeStoryExport } from "./export-file.js";
 import { boundedFactCursor, boundedFactSelection, factRows, factTags } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { openFactEditor } from "./editor-action.js";
-import { generationBusy, openBookmark, runPartAction } from "./story-actions.js";
+import { generationBusy, openTag, runPartAction } from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import { createUnusedTakesPrunePlan } from "./prune-model.js";
 import { chaptersAction, createBreakAtFocus, openChapters } from "./chapter-actions.js";
@@ -179,7 +179,7 @@ async function factsAction(
 
 async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source: AppSource, context: OverlayActionContext): Promise<boolean> {
   const overlay = state.commands!;
-  if (overlay.view === "bookmarks") {
+  if (overlay.view === "tags") {
     if (resolved.action === "cancel") {
       overlay.view = "commands";
       Object.assign(overlay, retainCommandSelection(
@@ -187,18 +187,18 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
       ));
     }
     else if (resolved.action === "focus-next") overlay.cursor = Math.max(0,
-      Math.min(state.payload.bookmarks.length - 1, overlay.cursor + 1));
-    else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(state.payload.bookmarks.length - 1, resolved.index ?? overlay.cursor));
+      Math.min(state.payload.tags.length - 1, overlay.cursor + 1));
+    else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(state.payload.tags.length - 1, resolved.index ?? overlay.cursor));
     else if (resolved.action === "focus-previous") overlay.cursor = Math.max(0, overlay.cursor - 1);
     else if (resolved.action === "delete-item") {
-      const bookmark = state.payload.bookmarks[overlay.cursor];
-      if (bookmark !== undefined) {
-        await context.backend.run("deleting bookmark", async (task) => {
-          const payload = await source.api.deleteBookmark(task.storyId, bookmark.nodeId);
+      const tag = state.payload.tags[overlay.cursor];
+      if (tag !== undefined) {
+        await context.backend.run("deleting tag", async (task) => {
+          const payload = await source.api.deleteBookmark(task.storyId, tag.nodeId);
           if (!task.storyCurrent()) return;
           adoptSameStoryPayload(state, payload);
-          if (state.commands === overlay && overlay.view === "bookmarks") {
-            state.toast = "bookmark deleted";
+          if (state.commands === overlay && overlay.view === "tags") {
+            state.toast = "tag deleted";
           }
         });
       }
@@ -246,14 +246,14 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     state.toast = "stream running · esc stops it first";
     return;
   }
-  if (command.id === "bookmarks") { state.commands!.view = "bookmarks"; state.commands!.cursor = 0; return; }
+  if (command.id === "tags") { state.commands!.view = "tags"; state.commands!.cursor = 0; return; }
   if (command.id === "acknowledge-generation") {
     await acknowledgeUnknownGeneration(state, source, context);
     return;
   }
   state.commands = null;
   state.mode = "NAV";
-  if (command.id === "bookmark-line") openBookmark(state);
+  if (command.id === "tag-line") openTag(state);
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {
     const targetId = state.payload.id;

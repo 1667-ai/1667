@@ -1,6 +1,6 @@
 import { classifyMapLines, type MapLineClassification } from "./map-model.js";
 import { childrenOf, indexTree, nodeById, pathTo, type TreeIndex } from "./story-tree.js";
-import type { Bookmark, NodeStub, StoryPayload } from "./types.js";
+import type { Tag, NodeStub, StoryPayload } from "./types.js";
 
 export interface SummaryTakeLock {
   storyId: string;
@@ -19,8 +19,8 @@ interface Continuation {
  * per visible row. */
 export interface StoryIndex extends MapLineClassification {
   tree: TreeIndex<NodeStub>;
-  bookmarkByNodeId: ReadonlyMap<string, Bookmark>;
-  bookmarkBelowByNodeId: ReadonlyMap<string, Bookmark>;
+  tagByNodeId: ReadonlyMap<string, Tag>;
+  tagBelowByNodeId: ReadonlyMap<string, Tag>;
   continuationByNodeId: ReadonlyMap<string, Continuation>;
   depthByNodeId: ReadonlyMap<string, number>;
   subtreeCountByNodeId: ReadonlyMap<string, number>;
@@ -41,8 +41,8 @@ export function createStoryIndex(payload: StoryPayload): StoryIndex {
 
 function buildStoryIndex(payload: StoryPayload): StoryIndex {
   const tree = indexTree(payload);
-  const bookmarkByNodeId = new Map(payload.bookmarks.map((bookmark) => [bookmark.nodeId, bookmark] as const));
-  const bookmarkBelowByNodeId = new Map<string, Bookmark>();
+  const tagByNodeId = new Map(payload.tags.map((tag) => [tag.nodeId, tag] as const));
+  const tagBelowByNodeId = new Map<string, Tag>();
   const continuationByNodeId = new Map<string, Continuation>();
   const depthByNodeId = new Map<string, number>();
   const subtreeCountByNodeId = new Map<string, number>();
@@ -66,26 +66,26 @@ function buildStoryIndex(payload: StoryPayload): StoryIndex {
       subtreeCountByNodeId.set(node.parentId, (subtreeCountByNodeId.get(node.parentId) ?? 1) + subtreeCount);
     }
 
-    const ownBookmark = bookmarkByNodeId.get(node.id);
-    if (ownBookmark !== undefined) {
-      bookmarkBelowByNodeId.set(node.id, ownBookmark);
+    const ownTag = tagByNodeId.get(node.id);
+    if (ownTag !== undefined) {
+      tagBelowByNodeId.set(node.id, ownTag);
     } else {
       for (const descendant of tree.childrenByParentId.get(node.id) ?? []) {
-        const bookmark = bookmarkBelowByNodeId.get(descendant.id);
-        if (bookmark !== undefined) {
-          bookmarkBelowByNodeId.set(node.id, bookmark);
+        const tag = tagBelowByNodeId.get(descendant.id);
+        if (tag !== undefined) {
+          tagBelowByNodeId.set(node.id, tag);
           break;
         }
       }
     }
   }
 
-  const mapLines = classifyMapLines(payload, tree, bookmarkByNodeId, bookmarkBelowByNodeId);
+  const mapLines = classifyMapLines(payload, tree, tagByNodeId, tagBelowByNodeId);
 
   return {
     tree,
-    bookmarkByNodeId,
-    bookmarkBelowByNodeId,
+    tagByNodeId,
+    tagBelowByNodeId,
     continuationByNodeId,
     depthByNodeId,
     subtreeCountByNodeId,
@@ -122,19 +122,19 @@ export function continuationStats(payload: StoryPayload, nodeId: string, index =
   return continuation === undefined ? { parts: 0, words: 0 } : { parts: continuation.parts, words: continuation.words };
 }
 
-export function bookmarkBelow(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): Bookmark | null {
+export function tagBelow(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): Tag | null {
   const remembered = rememberedLeafId(payload, nodeId, index);
-  return index.bookmarkByNodeId.get(remembered) ?? index.bookmarkBelowByNodeId.get(nodeId) ?? null;
+  return index.tagByNodeId.get(remembered) ?? index.tagBelowByNodeId.get(nodeId) ?? null;
 }
 
-/** Bookmark naming for a row that opens the node's remembered continuation.
+/** Tag naming for a row that opens the node's remembered continuation.
  * Unlike structural visibility, an unrelated inactive descendant does not name it. */
-export function rememberedLineBookmark(
+export function rememberedLineTag(
   payload: StoryPayload,
   nodeId: string,
   index = createStoryIndex(payload)
-): Bookmark | null {
-  return index.bookmarkByNodeId.get(rememberedLeafId(payload, nodeId, index)) ?? null;
+): Tag | null {
+  return index.tagByNodeId.get(rememberedLeafId(payload, nodeId, index)) ?? null;
 }
 
 export type MapForkRow =
@@ -307,14 +307,14 @@ export function storyLines(
       if (seen.has(leafId)) continue;
       seen.add(leafId);
       const leaf = nodeById(index.tree, leafId);
-      const bookmark = index.bookmarkByNodeId.get(leafId) ?? null;
+      const tag = index.tagByNodeId.get(leafId) ?? null;
       lines.push({
         leafId,
-        name: bookmark?.name ?? workingName(leaf),
+        name: tag?.name ?? workingName(leaf),
         parts: index.depthByNodeId.get(leafId) ?? 1,
         active: leafId === activeLeafId,
-        canon: bookmark?.label === "Canon",
-        summary: take.role === "summary" || leaf?.role === "summary" || bookmark?.label === "Summary"
+        canon: tag?.status === "Canon",
+        summary: take.role === "summary" || leaf?.role === "summary" || tag?.status === "Summary"
       });
     }
   }
@@ -322,11 +322,11 @@ export function storyLines(
 }
 
 /** The one definition of a discardable regen draft: a childless, unauthored,
- * unbookmarked take. Callers add their own "not the take being read" guard and
+ * untagged take. Callers add their own "not the take being read" guard and
  * the "only groups of ≥2 collapse" rule where it applies. */
 export function isDraftTake(payload: StoryPayload, take: NodeStub, index = createStoryIndex(payload)): boolean {
   return take.childCount === 0 && take.human !== true && take.role !== "summary"
-    && bookmarkBelow(payload, take.id, index) === null;
+    && tagBelow(payload, take.id, index) === null;
 }
 
 export function workingName(stub: NodeStub | null): string {
@@ -336,7 +336,7 @@ export function workingName(stub: NodeStub | null): string {
 }
 
 export function lineName(payload: StoryPayload, leafId: string, index = createStoryIndex(payload)): string {
-  return index.bookmarkByNodeId.get(leafId)?.name ?? workingName(nodeById(index.tree, leafId));
+  return index.tagByNodeId.get(leafId)?.name ?? workingName(nodeById(index.tree, leafId));
 }
 
 export function switchAnnouncement(payload: StoryPayload, targetNodeId: string, index = createStoryIndex(payload)): string | null {

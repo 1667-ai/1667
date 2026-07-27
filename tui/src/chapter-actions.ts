@@ -154,7 +154,7 @@ async function summaryRowAction(
     editSummary(state, row);
     return true;
   }
-  if (["write", "prune", "bookmark", "take-next", "take-previous", "open-actions"].includes(resolved.action)) return true;
+  if (["write", "prune", "tag", "take-next", "take-previous", "open-actions"].includes(resolved.action)) return true;
   return false;
 }
 
@@ -188,7 +188,7 @@ async function dividerRowAction(
     state.toast = "chapter break kept";
     return true;
   }
-  if (["compose", "write", "bookmark", "take-next", "take-previous", "open-actions"].includes(resolved.action)) return true;
+  if (["compose", "write", "tag", "take-next", "take-previous", "open-actions"].includes(resolved.action)) return true;
   return false;
 }
 
