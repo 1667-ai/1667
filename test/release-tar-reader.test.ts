@@ -36,6 +36,14 @@ const PLATFORM_MANIFEST = releasePackageJson(
 const PLATFORM_PACKAGE = PLATFORM_MANIFEST.name;
 const manifest = parseReleasePackageManifest(PLATFORM_MANIFEST, "3.0.0");
 const execFileAsync = promisify(execFile);
+const REPOSITORY_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
+// Release policy pins both licence files to the reviewed repository bytes, so a
+// fixture that must survive validation stages the real files.
+const LICENSE = await readFile(path.join(REPOSITORY_ROOT, "LICENSE"));
+const NOTICE = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"));
 
 test("non-extracting reader hashes a bounded ustar package for policy validation", async () => {
   const tarball = gzipSync(tar([
@@ -47,11 +55,13 @@ test("non-extracting reader hashes a bounded ustar package for policy validation
     ),
     entry("package/bin/1667", "0", 0o755, Buffer.from("native executable")),
     entry("package/build-manifest.json", "0", 0o644, Buffer.from('{"schemaVersion":1}')),
-    entry("package/sbom.spdx.json", "0", 0o644, Buffer.from('{"spdxVersion":"SPDX-2.3"}'))
+    entry("package/sbom.spdx.json", "0", 0o644, Buffer.from('{"spdxVersion":"SPDX-2.3"}')),
+    entry("package/LICENSE", "0", 0o644, LICENSE),
+    entry("package/NOTICE", "0", 0o644, NOTICE)
   ]));
   const result = await readReleaseTarball(tarball);
   const validated = validateReleaseTarballInspection(result.inspection, manifest);
-  assert.equal(validated.entries.length, 4);
+  assert.equal(validated.entries.length, 6);
   assert.equal(validated.packageName, PLATFORM_PACKAGE);
   assert.ok(validated.entries.every((item) => item.type === "file"));
   assert.equal(
@@ -78,6 +88,8 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   await chmod(path.join(root, "bin", "1667"), 0o755);
   await writeFile(path.join(root, "build-manifest.json"), '{"schemaVersion":1}\n');
   await writeFile(path.join(root, "sbom.spdx.json"), '{"spdxVersion":"SPDX-2.3"}\n');
+  await writeFile(path.join(root, "LICENSE"), LICENSE);
+  await writeFile(path.join(root, "NOTICE"), NOTICE);
   const { stdout } = await execFileAsync("npm", [
     "pack",
     "--ignore-scripts",

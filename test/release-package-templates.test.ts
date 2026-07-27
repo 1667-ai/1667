@@ -39,6 +39,9 @@ test("release package templates are script-free and satisfy the exact matrix pol
     assert.equal(Object.hasOwn(template.packageManifest, "scripts"), false);
     assert.equal(Object.hasOwn(template.packageManifest, "dependencies"), false);
     assert.deepEqual(template.packageManifest.repository, RELEASE_PACKAGE_REPOSITORY);
+    assert.equal(template.packageManifest.license, "Apache-2.0");
+    const files: readonly string[] = template.packageManifest.files;
+    assert.deepEqual(files.slice(-2), ["LICENSE", "NOTICE"]);
     assert.equal(template.buildManifest.productVersion, "3.0.0");
     assert.equal(
       template.buildManifest.sourceCommit,

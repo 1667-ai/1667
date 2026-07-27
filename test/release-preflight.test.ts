@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   mkdtemp,
+  readFile,
   rm,
   writeFile
 } from "node:fs/promises";
@@ -54,6 +55,11 @@ test("local release preflight CLI validates every tarball and emits canonical ev
   t.after(() => rm(root, { recursive: true, force: true }));
   const identities = createReleaseIdentitySet(sourceEvidence);
   const templates = createReleasePackageTemplates(identities);
+  // Staging copies these repository-root files into every package root, and
+  // release policy pins both to their reviewed digests, so the fixture stages
+  // the real bytes rather than stand-ins.
+  const license = await readFile(path.join(REPOSITORY_ROOT, "LICENSE"));
+  const notice = await readFile(path.join(REPOSITORY_ROOT, "NOTICE"));
   const artifacts = [];
   for (const [index, template] of [
     templates.launcher,
@@ -83,7 +89,9 @@ test("local release preflight CLI validates every tarball and emits canonical ev
         "package/sbom.spdx.json",
         0o644,
         Buffer.from('{"spdxVersion":"SPDX-2.3"}')
-      )
+      ),
+      entry("package/LICENSE", 0o644, license),
+      entry("package/NOTICE", 0o644, notice)
     ]));
     const tarballPath = `artifact-${index}.tgz`;
     await writeFile(path.join(root, tarballPath), tarball);
@@ -106,11 +114,21 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     encoding: "utf8",
     maxBuffer: 2 * 1024 * 1024
   });
-  const output = JSON.parse(stdout) as { artifacts: { name: string }[] };
+  const output = JSON.parse(stdout) as {
+    artifacts: {
+      name: string;
+      license: { sha256: string };
+      notice: { sha256: string };
+    }[];
+  };
   // Derived, so dropping or restoring a release target cannot silently
   // leave this gate asserting a stale artifact count.
   assert.equal(output.artifacts.length, RELEASE_PACKAGE_COUNT);
   assert.equal(output.artifacts[0]!.name, RELEASE_LAUNCHER_PACKAGE);
+  for (const artifact of output.artifacts) {
+    assert.equal(artifact.license.sha256, createHash("sha256").update(license).digest("hex"));
+    assert.equal(artifact.notice.sha256, createHash("sha256").update(notice).digest("hex"));
+  }
   assert.match(stderr, /^release-manifest-sha256 [0-9a-f]{64}\n$/);
   assert.equal(JSON.stringify(output), stdout);
   assert.equal(

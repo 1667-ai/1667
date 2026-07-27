@@ -69,6 +69,37 @@ All release packages declare the canonical Git repository. The Linux platform
 packages declare `libc: ["glibc"]`. The launcher package and the macOS platform
 packages do not declare `libc`.
 
+## Package contents
+
+Each of the five release packages contains these files:
+
+- `package.json`, which declares `"license": "Apache-2.0"`
+- The executable for the package, which is `bin/1667.js` in the launcher
+  package, or the native executable in a platform package
+- `build-manifest.json`
+- `sbom.spdx.json`
+- `LICENSE`
+- `NOTICE`
+
+The pack step copies `LICENSE` and `NOTICE` from the repository root. Do not
+change these two files for one package. All five packages must contain the same
+bytes.
+
+Preflight pins both files to reviewed digests held in
+`scripts/release-package-manifests.ts`, and rejects any package whose `LICENSE`
+or `NOTICE` entry does not match. Comparing the five packages with each other
+would only prove they agree, which staging the same wrong or truncated file five
+times also satisfies. Editing either file therefore requires updating the pinned
+digests in the same commit; a test compares the pins against the repository
+files, so a stale pin fails the build.
+
+The Apache License, Version 2.0 makes this content necessary. Section 4(a)
+requires a copy of the licence for each recipient of the work. Section 4(d)
+requires the `NOTICE` content in each distribution. An npm tarball is a
+distribution. A package that declares no licence also shows as `UNLICENSED` in
+the registry. npm cannot replace a version after publication. Therefore each
+package must contain this content before publication.
+
 ## Required trusted inputs
 
 Collect these inputs before preflight:
@@ -81,8 +112,8 @@ Collect these inputs before preflight:
 6. Run `--version --json` on each of the four native executables.
 7. Pack the launcher package and the four platform packages.
 
-Each release package must contain `build-manifest.json` and
-`sbom.spdx.json`. Each platform package must also contain its native
+Each release package must contain `build-manifest.json`, `sbom.spdx.json`,
+`LICENSE`, and `NOTICE`. Each platform package must also contain its native
 executable.
 
 The release plan uses `tagSignature: "verified"` for step 3. Each native
