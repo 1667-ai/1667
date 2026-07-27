@@ -22,17 +22,31 @@ import {
   assertWithinBudget,
   budgetTimeout,
   cpuBudget,
-  fileBudget,
   startTiming
 } from "./performance-budget.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const HASH = "a".repeat(64);
 const MIB = 1024 * 1024;
-// Parsing is pure computation. Listing the catalog reads directories.
+// Parsing is pure computation.
 const V5_PARSE_BUDGET = cpuBudget(1_500);
 const V6_PARSE_BUDGET = cpuBudget(4_000);
-const CATALOG_BUDGET = fileBudget(5_000);
+// Listing the catalog reads directories, but the reads run together while each
+// manifest is parsed, so computation rather than waiting decides the time. The
+// listing reports more CPU time than wall-clock time: 1,436ms of CPU against
+// 854ms of wall-clock on an idle arm64 baseline.
+//
+// A wall-clock budget therefore measures the scheduler. Beside 16 busy
+// processes the wall-clock time went up 2.9 times and the CPU time 1.4 times,
+// and a full-concurrency suite run reached 21,590ms, which failed the earlier
+// 5,000ms wall-clock budget while the product did the same work.
+//
+// The limit comes from measurement. The worst CPU time beside 16 busy processes
+// was 2,048ms, and this limit keeps about three times that.
+//
+// CPU time cannot see a listing that blocks instead of works. The test timeout
+// below is the backstop for that.
+const CATALOG_BUDGET = cpuBudget(6_000);
 const CATALOG_ENTRY_COUNT = 4_096;
 const FIXTURE_IO_CONCURRENCY = 64;
 

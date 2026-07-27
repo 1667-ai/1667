@@ -3,14 +3,26 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assertWithinBudget, budgetTimeout, fileBudget, startTiming } from "./performance-budget.js";
+import { assertWithinBudget, budgetTimeout, cpuBudget, startTiming } from "./performance-budget.js";
 import { mapWithConcurrency } from "../server/concurrency.js";
 import { STORY_SCHEMA_VERSION, type StoryManifestV5 } from "../server/story-format.js";
 import { StoryCatalog } from "../server/story-catalog.js";
 
 const ENTRY_COUNT = 1_024;
-// This scan reads 1,024 story directories, so it measures wall-clock time.
-const SCAN_BUDGET = fileBudget(10_000);
+// This scan reads 1,024 story directories, but it parses and validates every
+// manifest it reads, and the reads run together. Computation rather than
+// waiting decides the time, so the scan reports more CPU time than wall-clock
+// time: 520ms of CPU against 361ms of wall-clock on an idle arm64 baseline.
+//
+// A wall-clock budget therefore measures the scheduler. Beside 16 busy
+// processes the wall-clock time went up 4.0 times and the CPU time 2.0 times.
+//
+// The limit comes from measurement. The worst CPU time beside 16 busy processes
+// was 1,039ms, and this limit keeps about four times that.
+//
+// CPU time cannot see a scan that blocks instead of works. The test timeout
+// below is the backstop for that.
+const SCAN_BUDGET = cpuBudget(4_000);
 const NOW = "2026-01-01T00:00:00.000Z";
 
 test("Q catalog performance: one retained scan pages a large catalog in budget", {
