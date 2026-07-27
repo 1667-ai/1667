@@ -290,6 +290,25 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
   });
 
+  test("refuses a map take click when its row now shows another node", () => {
+    // A map row index is a viewport position. The map re-centres, and the row
+    // the click named holds a different node — rerouting there would follow a
+    // branch the writer never pointed at.
+    const state = initialState(demoAppSource(), false);
+    const ids = state.payload.path.map((node) => node.id);
+    showMap(state, ids[0]!, [...ids]);
+    state.hitRows = [{ target: { kind: "take", row: 2, take: 1 }, left: 0, right: 20 }];
+    const captured = interaction(state, 20);
+    const resolved = mouseToAction(click, state, false)!;
+    expect(resolved).toEqual({ action: "apply", index: 2, take: 1 });
+
+    expect(reconcile(state, resolved, captured, interaction(state, 21)))
+      .toEqual({ action: "apply", index: 2, take: 1 });
+
+    state.map!.rowIds = ids.slice(3);
+    expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;

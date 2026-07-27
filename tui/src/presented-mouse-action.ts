@@ -145,6 +145,14 @@ function sameMouseTarget(
     }
     return true;
   }
+  // A map row's index is a viewport position: the map re-centres, and the same
+  // row shows a different node. Take clicks carry an index, so they are proved
+  // by the row it named, the way map focus already is.
+  if (before.index !== undefined
+    && (beforeState.mode === "MAP" || afterState.mode === "MAP")) {
+    const row = mapRowId(beforeState, before.index);
+    if (row === null || row !== mapRowId(afterState, after.index)) return false;
+  }
   // A gesture that names no cell acts on whatever holds focus, so the focused
   // part is its identity. `continue` clicked while reading one part must not
   // generate from another because focus moved before its turn came.
