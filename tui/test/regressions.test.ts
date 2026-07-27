@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import path from "node:path";
-import { lineName } from "../../shared/loom-model.js";
+import { lineName } from "../../shared/story-model.js";
 import { countWords } from "../../shared/story-text.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { InternalErrorReporter } from "../../server/internal-error-reporter.js";
@@ -612,7 +612,7 @@ describe("review regressions", () => {
       expect(() => parseArguments([option, "--diagnostic"]))
         .toThrow("requires a non-option value");
     }
-    // ADR007 made --url optional-valued: bare means "the server this project
+    // --url is optional-valued: bare means "the server this project
     // published". An empty value is still a mistake.
     expect(parseArguments(["--url"])).toMatchObject({ url: null, embedded: false });
     expect(parseArguments(["--url", "--story", "abc"]))

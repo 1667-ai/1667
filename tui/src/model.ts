@@ -1,5 +1,5 @@
 import { deriveChapters } from "../../shared/chapters.js";
-import { createLoomIndex } from "../../shared/loom-model.js";
+import { createStoryIndex } from "../../shared/story-model.js";
 import { childrenOf, takeIndex } from "../../shared/story-tree.js";
 import type { ChapterBreak, NodeStub, StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
 import type { RemovedChapterBreak } from "./api.js";
@@ -145,7 +145,7 @@ export function createStoryViewModel(payload: StoryPayload, stream: StreamView |
 }
 
 function createParts(payload: StoryPayload): StoryPart[] {
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   return payload.path.flatMap((node, pathIndex): StoryPart[] => {
     const stub = index.tree.nodesById.get(node.id);
     if (stub === undefined) return [];
@@ -200,7 +200,7 @@ export function resolveSwitchTarget(
   nodeId: string,
   direction: SwitchDirection
 ): { id: string; index: number; count: number } | null {
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   const node = index.tree.nodesById.get(nodeId);
   if (node === undefined) return null;
   const siblings = childrenOf(index.tree, node.parentId);
@@ -216,7 +216,7 @@ export function resolveTakeTarget(
   nodeId: string,
   take: number
 ): { id: string; index: number; count: number } | null {
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   const node = index.tree.nodesById.get(nodeId);
   if (node === undefined) return null;
   const siblings = childrenOf(index.tree, node.parentId);

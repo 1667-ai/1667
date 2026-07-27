@@ -6,7 +6,7 @@ import { buildStoryPayload } from "../../server/story-payload.js";
 import { createDemoController } from "../src/demo.js";
 import type { HitRows, HitTarget } from "../src/hit.js";
 import type { MapState, MapView } from "../src/map-state.js";
-import { moveLoomCursor } from "../src/loom-layout.js";
+import { movePathCursor } from "../src/path-layout.js";
 import { renderMapScreen } from "../src/screens/map.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import type { StoryScreenState } from "../src/state.js";
@@ -199,13 +199,13 @@ describe("full-bleed map screen", () => {
     expect(folded).toHaveLength(4);
     expect(folded.join("\n")).toContain("kept-deep prose");
     expect(folded.join("\n")).not.toContain("kept-sketch prose");
-    expect(moveLoomCursor(source.payload, "kept", 1, 0)).toBe("kept-leaf");
+    expect(movePathCursor(source.payload, "kept", 1, 0)).toBe("kept-leaf");
 
     // Revealing sketches makes the remembered take reachable, so it returns.
     const revealed = shown(true);
     expect(revealed).toHaveLength(3);
     expect(revealed.join("\n")).toContain("kept-sketch prose");
-    expect(moveLoomCursor(source.payload, "kept", 1, 0, true)).toBe("kept-sketch");
+    expect(movePathCursor(source.payload, "kept", 1, 0, true)).toBe("kept-sketch");
   });
 
   test("a ring on a stopped line still opens", () => {
@@ -227,7 +227,7 @@ describe("full-bleed map screen", () => {
     expect(depths("p10").at(-3)).toContain("◉");
     expect(depths("p10")).toHaveLength(13);
     expect(depths("p11")).toHaveLength(13);
-    expect(moveLoomCursor(source.payload, "p11", 1, 0)).toBe("p12");
+    expect(movePathCursor(source.payload, "p11", 1, 0)).toBe("p12");
   });
 
   test("projects a direct stream into every map view before it lands", () => {

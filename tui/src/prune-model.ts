@@ -1,4 +1,4 @@
-import { createLoomIndex } from "../../shared/loom-model.js";
+import { createStoryIndex } from "../../shared/story-model.js";
 import { subtreeIds, takeIndex, unusedTakePruneSelection } from "../../shared/story-tree.js";
 import type { Bookmark, StoryPayload } from "../../shared/types.js";
 import { bookmarkGlyph } from "./bookmark-presentation.js";
@@ -24,7 +24,7 @@ export interface UnusedTakesPrunePlan {
 export type PrunePlan = SubtreePrunePlan | UnusedTakesPrunePlan;
 
 export function createPrunePlan(payload: StoryPayload, nodeId: string): SubtreePrunePlan | null {
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   const node = index.tree.nodesById.get(nodeId);
   if (node === undefined) return null;
   const ids = new Set(subtreeIds(index.tree, nodeId));

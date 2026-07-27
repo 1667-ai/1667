@@ -58,7 +58,7 @@ export function requireNode(story: Story, nodeId: string): StoryNode {
  * while a model streamed. Parent still on the active path: the new take wins
  * the pointer and any earlier sibling survives as a browsable take. Parent no
  * longer active: silent non-active insert, the reader is never yanked. The
- * pre-Loom refuse-on-branch-change contract died with branches. */
+ * pre-tree refuse-on-branch-change contract died with branches. */
 export function createTake(story: Story, node: StoryNode, options: { activate?: boolean } = {}): StoryNode {
   const parent = node.parentId === null ? null : requireNode(story, node.parentId);
   if (parent !== null && isChapterSummary(parent)) throw new HttpError(400, "A chapter summary is a dead end");
