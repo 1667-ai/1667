@@ -26,6 +26,7 @@ export const API_PROTOCOL_HEADERS: Record<string, string> = {
 const SERVER_START_BUDGET_MS = process.platform === "win32"
   ? 20_000
   : platformPerformanceBudget(10_000);
+const SERVER_STOP_BUDGET_MS = platformPerformanceBudget(1_000);
 let operationClient: HttpOperationClient | null = null;
 let lastReservedMutationId: string | null = null;
 
@@ -75,13 +76,13 @@ export async function stopTestServerProcess(
     server.once("close", () => resolve())
   );
   server.kill("SIGTERM");
-  if (await settlesWithin(closed, 1_000)) return;
+  if (await settlesWithin(closed, SERVER_STOP_BUDGET_MS)) return;
   const killed = server.kill("SIGKILL");
-  if (await settlesWithin(closed, 1_000)) return;
+  if (await settlesWithin(closed, SERVER_STOP_BUDGET_MS)) return;
   closeTestServerPipes(server);
   throw new Error(
     killed
-      ? "Test server did not close within 1 second after SIGKILL"
+      ? `Test server did not close within ${SERVER_STOP_BUDGET_MS}ms after SIGKILL`
       : "Test server could not be sent SIGKILL and did not close"
   );
 }
