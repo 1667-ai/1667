@@ -145,7 +145,9 @@ describe("demo action runtime and input", () => {
     expect(click(0)).toEqual({ action: "focus-index", index: 3, rowId: "p3" });
     state.focusIndex = 3;
     expect(click(0)).toEqual({ action: "focus-index", index: 3, rowId: "p3" });
-    expect(click(2)).toEqual({ action: "open-actions", index: 3 });
+    // The menu carries the row it was opened on, so a part landing above it
+    // cannot slide the menu onto a different one.
+    expect(click(2)).toEqual({ action: "open-actions", index: 3, rowId: "p3" });
   });
 
   test("same-story adoption keeps an action menu anchored across chapter rows", async () => {

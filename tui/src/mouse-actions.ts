@@ -1,6 +1,7 @@
 import type { MouseEvent } from "@opentui/core";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
+import { generationBusy } from "./story-actions.js";
 import type { RuntimeState } from "./state.js";
 
 export type MouseGesture = Pick<
@@ -8,10 +9,21 @@ export type MouseGesture = Pick<
   "type" | "button" | "x" | "y" | "modifiers" | "scroll"
 >;
 
+/** Everything a gesture needs to name what it landed on. The payload and
+ *  stream are here because a cursor position is not an identity: the rows
+ *  under an open menu or list are derived from the story, and reconciliation
+ *  has to compare the row, not its index. */
 export type MouseActionState = Pick<RuntimeState,
-  | "mode" | "focusIndex" | "hitRows" | "map"
+  | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo"
+  | "connection"
   | "actions" | "library" | "facts" | "commands" | "chapters" | "settings"
->;
+> & {
+  /** Derived exactly as the panel renderer derives it, since the palette's
+   *  rows — and therefore their indexes — depend on it. Optional so live
+   *  `RuntimeState` still satisfies this type; a captured snapshot always
+   *  carries it, and only snapshots are reconciled. */
+  requestActive?: boolean;
+};
 
 /** Defer selectable story controls until a click proves it was not the start
  * of native text selection. OpenTUI owns the drag; repainting on mouse-down
@@ -67,6 +79,15 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     mode: state.mode,
     focusIndex: state.focusIndex,
     hitRows: state.hitRows,
+    // Payloads are replaced wholesale, never mutated, so the reference is the
+    // snapshot.
+    payload: state.payload,
+    stream: state.stream,
+    demo: state.demo,
+    // The palette's rows depend on both, so identifying one means seeing what
+    // the frame that drew it saw.
+    connection: state.connection,
+    requestActive: generationBusy(state) || state.summary !== null,
     map: state.map === null ? null : {
       ...state.map,
       rowIds: [...state.map.rowIds],
@@ -138,7 +159,11 @@ export function mouseToAction(
   }
   if (target.kind === "composer" && event.button === 0) return { action: "compose" };
   if (target.kind === "part") {
-    if (event.button === 2) return { action: "open-actions", index: target.index };
+    // Carry the row identity its neighbours carry: an index alone cannot
+    // survive a part landing or leaving above this one.
+    if (event.button === 2) {
+      return { action: "open-actions", index: target.index, rowId: target.rowId };
+    }
     if (event.button !== 0) return null;
     // A click on prose only ever moves focus. Opening direction entry here made
     // dragging to select text start a generation — reported and removed.

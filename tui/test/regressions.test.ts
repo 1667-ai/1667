@@ -8,6 +8,11 @@ import { InternalErrorReporter } from "../../server/internal-error-reporter.js";
 import { PublicRuntimeError } from "../../server/errors.js";
 import { errorFromFailureIncident } from "../../server/reported-service-error.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
+import {
+  STARTER_OPENING_NODE_COUNT,
+  STARTER_OPENING_PART_COUNT,
+  STARTER_OPENING_STORY_ID
+} from "../../shared/starter-vault.js";
 import { handleKey, initialState } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
 import { resolveKey } from "../src/keys.js";
@@ -22,7 +27,7 @@ import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache } from "../src/wrap.js";
 import { adoptStoryState } from "../src/story-adoption.js";
 import type { RuntimeState, StreamView } from "../src/state.js";
-import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
+import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "../src/model.js";
 import { sanitizeLegacyServeFailure } from "../src/http-commands.js";
 
 const demo = createDemoController();
@@ -716,5 +721,58 @@ describe("review regressions", () => {
     expect(state.map).toBe(null);
     expect(state.expandedPromptIds).toEqual(new Set());
     expect(state.quitArmed).toBeFalse();
+  });
+});
+
+describe("where a story opens", () => {
+  /** A story shaped like the seeded tour: `parts` on its line and `nodes`
+   *  nodes in total, which is what tells an untouched tour from a worked one. */
+  const asStory = (id: string, parts: number, nodes = STARTER_OPENING_NODE_COUNT) => {
+    const source = demoAppSource();
+    const line = source.payload.path.slice(0, parts);
+    const stubs = source.payload.nodes;
+    return {
+      ...source,
+      // The demo fixture focuses its own way; this is about a real vault.
+      demo: false,
+      payload: {
+        ...source.payload,
+        id,
+        path: line,
+        nodes: Array.from({ length: nodes }, (_, index) =>
+          stubs[index] ?? { ...stubs[0]!, id: `spare-${index}` })
+      }
+    };
+  };
+
+  test("an unread tour opens at its first part, not its last", () => {
+    // A fresh vault seeds the tour and opens it. Landing on the closing beat
+    // shows a first-time reader the end of a tutorial they have not started.
+    const source = asStory(STARTER_OPENING_STORY_ID, STARTER_OPENING_PART_COUNT);
+    expect(initialState(source, false).focusIndex).toBe(0);
+  });
+
+  test("once the tour has been written into it opens where the writing is", () => {
+    const written = asStory(STARTER_OPENING_STORY_ID, STARTER_OPENING_PART_COUNT + 1);
+    expect(initialState(written, false).focusIndex)
+      .toBe(lastPartRowIndex(createStoryViewModel(written.payload)));
+  });
+
+  test("a retake counts as writing even though the line stays as long", () => {
+    // Retaking, writing a take and editing all add a node while leaving the
+    // path the same length, so a part count alone would call the tour untouched.
+    const retaken = asStory(
+      STARTER_OPENING_STORY_ID,
+      STARTER_OPENING_PART_COUNT,
+      STARTER_OPENING_NODE_COUNT + 1
+    );
+    expect(initialState(retaken, false).focusIndex)
+      .toBe(lastPartRowIndex(createStoryViewModel(retaken.payload)));
+  });
+
+  test("every other story still opens at the end of its line", () => {
+    const other = asStory("2f5d8c31-7a44-4e19-b6d2-8c3f1e50a97b", STARTER_OPENING_PART_COUNT);
+    expect(initialState(other, false).focusIndex)
+      .toBe(lastPartRowIndex(createStoryViewModel(other.payload)));
   });
 });

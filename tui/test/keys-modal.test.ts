@@ -52,11 +52,13 @@ describe("keys reference", () => {
     }
   });
 
-  test("G names the active line's leaf rather than global recency", () => {
+  test("G names a part of the line being read, not global recency", () => {
     const leaf = entries.find((item) =>
       item.bindings.some((binding) => binding.action === "leaf")
     );
-    expect(leaf?.description).toBe("first part · line's leaf");
+    expect(leaf?.description).toBe("first part · last part");
+    // `G` lands on the leaf of the line you are reading. "newest" would promise
+    // the most recent part in the story, which is a different node entirely.
     expect(leaf?.description).not.toContain("newest");
   });
 
