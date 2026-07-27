@@ -17,7 +17,7 @@ export async function detectSettingsContext(
     overlay.probing = true;
     overlay.result = null;
     context.repaint();
-    const editable = overlay.view.editable && overlay.view.pendingRevision === null;
+    const editable = overlay.view.editable;
     const probed = editable ? overlay.draft.generation : overlay.view.effective;
     try {
       if (probed.provider !== "dry-run" && probed.model.trim().length === 0) {
@@ -30,8 +30,7 @@ export async function detectSettingsContext(
       const { contextWindow } = await source.api.probeContextWindow(
         settingsProviderProbeTarget(overlay.view, probed)
       );
-      const currentlyEditable =
-        overlay.view.editable && overlay.view.pendingRevision === null;
+      const currentlyEditable = overlay.view.editable;
       const current = currentlyEditable
         ? overlay.draft.generation
         : overlay.view.effective;
@@ -59,9 +58,7 @@ export async function detectSettingsContext(
       }
       const suffix = editable
         ? " · s saves"
-        : overlay.view.editable
-          ? " · pending settings stay unchanged"
-          : " · legacy settings stay read-only";
+        : " · legacy settings stay read-only";
       overlay.result = {
         state: "ready",
         message: `context window · ${contextWindow.toLocaleString("en-US")} tokens${suffix}`

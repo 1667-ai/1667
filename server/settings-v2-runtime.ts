@@ -28,7 +28,8 @@ export function settingsViewFromState(
     activeRevision: state.activeRevision,
     pendingRevision: state.pendingRevision,
     document: shown,
-    effective: effectiveGenerationSettings(activeSettingsDocument(state))
+    effective: effectiveGenerationSettings(activeSettingsDocument(state)),
+    lastActivationOutcome: state.lastActivationOutcome
   };
 }
 

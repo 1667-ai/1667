@@ -502,7 +502,8 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       ...settings,
       model: "cafe\u0301",
       systemPrompt: "Continue cafe\u0301."
-    }
+    },
+    lastActivationOutcome: null
   };
   response = legacyView;
   expect(await api.getSettings()).toEqual(legacyView);

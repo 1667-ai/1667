@@ -3,6 +3,7 @@ import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
+  settingsActivationFailureText,
   settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowCycles,
@@ -71,6 +72,10 @@ const SETTINGS_LABEL_WIDTH = 17;
 const SETTINGS_VALUE_LEFT = SETTINGS_LEAD_WIDTH + SETTINGS_LABEL_WIDTH;
 
 const SETTINGS_PENDING_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" },
+  { token: "↓", action: "focus-next" },
+  { token: "↵ edit", action: "open-selected" },
+  { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   { token: "x discard", action: "discard-pending" },
   { token: "esc close", action: "cancel" }
@@ -195,12 +200,28 @@ const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "c check · x discard · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · x discard · esc close",
     actions: SETTINGS_PENDING_FOOTER_ACTIONS
   },
   {
-    text: "c · x · esc",
+    text: "↑↓ · ↵ edit · s · c · x · esc",
     actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ edit", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ↵ s c x esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "s", action: "save-edit" },
       { token: "c", action: "check" },
       { token: "x", action: "discard-pending" },
       { token: "esc", action: "cancel" }
@@ -372,14 +393,21 @@ function settingsStatusLines(
     ];
   }
   if (view.pendingRevision !== null) {
+    const failure = view.lastActivationOutcome !== null
+      && view.lastActivationOutcome.candidateRevision === view.pendingRevision
+      && view.lastActivationOutcome.result !== "committed"
+      ? settingsActivationFailureText(view.lastActivationOutcome.errorCode)
+      : null;
     return [
       [
         raisedSegment(
-          `  ⟳ revision ${view.pendingRevision} pending restart · active revision ${view.activeRevision} still running`,
-          "focus / accent"
+          failure === null
+            ? `  ⟳ revision ${view.pendingRevision} saved · not active yet · revision ${view.activeRevision} still running`
+            : `  ▲ revision ${view.pendingRevision} saved, not active · ${failure}`,
+          failure === null ? "focus / accent" : "danger text"
         )
       ],
-      [raisedSegment("  editing frozen · x discards the pending candidate", "chrome")],
+      [raisedSegment("  edit & s retries activation · x discards the saved candidate", "chrome")],
       []
     ];
   }

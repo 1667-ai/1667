@@ -202,7 +202,8 @@ describe("run C overlay frames", () => {
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective: source.settings
+      effective: source.settings,
+      lastActivationOutcome: null
     };
     source.settingsView = legacy;
     source.api.getSettings = async () => legacy;

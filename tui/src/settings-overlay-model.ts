@@ -1,4 +1,7 @@
-import type { SettingsView } from "../../shared/settings-v2-types.js";
+import type {
+  SettingsActivationErrorCodeV2,
+  SettingsView
+} from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import type { UserConfig } from "./config.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
@@ -204,8 +207,7 @@ export function beginSettingsPasteEdit(
     || row === "provider"
     || row === "allow-insecure-http"
   ) return false;
-  if (settingsRowUsesServer(row)
-    && (!overlay.view.editable || overlay.view.pendingRevision !== null)) {
+  if (settingsRowUsesServer(row) && !overlay.view.editable) {
     return false;
   }
   beginSettingsRowEdit(overlay, config);
@@ -286,6 +288,23 @@ export function applySettingsRowEdit(
   overlay.edit = null;
   overlay.result = null;
   return { kind: "draft" };
+}
+
+/** One spelling for every surface that reports why an activation failed. */
+export function settingsActivationFailureText(
+  errorCode: SettingsActivationErrorCodeV2
+): string {
+  switch (errorCode) {
+    case "credential_unresolved":
+      return "credential not found (env var or stored key)";
+    case "candidate_invalid":
+      return "provider check failed";
+    case "activation_crashed":
+      return "activation was interrupted";
+    case "activation_failed":
+    case "readiness_failed":
+      return "activation rolled back";
+  }
 }
 
 export function settingsDraftChanged(overlay: SettingsOverlayState): boolean {

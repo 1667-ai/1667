@@ -127,12 +127,17 @@ export function settingsDocumentsChangeCredentialReferences(
   return canonicalJson(credentialProjection(active)) !== canonicalJson(credentialProjection(candidate));
 }
 
+/** A save is admitted from clean or staged state; a staged save replaces the
+ * pending candidate so a failed activation stays editable without a discard. */
 function saveDocument(
   state: SettingsStateV2,
   rawDocument: SettingsDocumentV2,
   pointer: UserSettingsPointer
 ): SettingsStateV2 {
-  requireRelation(state, "clean", "save settings");
+  const relation = settingsStateRelation(state);
+  if (relation !== "clean" && relation !== "staged") {
+    throw new SettingsFormatError(`save settings requires clean or staged settings state, not ${relation}`);
+  }
   const document = parseSettingsDocumentV2(rawDocument);
   const active = documentAt(state, state.activeRevision);
   if (hashSettingsDocumentV2(active) === hashSettingsDocumentV2(document)) {
@@ -189,6 +194,8 @@ function beginValidation(state: SettingsStateV2, transactionId: string): Setting
   });
 }
 
+/** Validation failure returns to staged instead of clean: the candidate stays
+ * pending and editable, and the surfaced outcome says why it did not activate. */
 function finishValidationFailure(
   state: SettingsStateV2,
   errorCode: Extract<
@@ -202,9 +209,6 @@ function finishValidationFailure(
   return parseSettingsStateV2({
     ...state,
     stateGeneration: generation,
-    documents: { [String(state.activeRevision)]: documentAt(state, state.activeRevision) },
-    pendingRevision: null,
-    previousRevision: null,
     activation: null,
     lastActivationOutcome: {
       transactionId: state.activation!.transactionId,
@@ -348,7 +352,7 @@ function activationSuccessorEvent(
 }
 
 function validationFailureEvent(next: SettingsStateV2): SettingsStateV2Event | null {
-  if (settingsStateRelation(next) !== "clean"
+  if (settingsStateRelation(next) !== "staged"
     || next.lastActivationOutcome?.result !== "validation-failed") {
     return null;
   }

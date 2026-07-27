@@ -1,9 +1,12 @@
-import type {
-  ModelDiscoveryResultV2,
-  ModelDiscoverySourceV2,
-  SettingsDocumentV2,
-  SettingsMutationResult,
-  SettingsView
+import {
+  SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
+  type SettingsActivationErrorCodeV2,
+  type ModelDiscoveryResultV2,
+  type ModelDiscoverySourceV2,
+  type SettingsActivationOutcomeV2,
+  type SettingsDocumentV2,
+  type SettingsMutationResult,
+  type SettingsView
 } from "./settings-v2-types.js";
 import type { GenerationSettings, Provider } from "./types.js";
 
@@ -35,13 +38,13 @@ export function decodeSettingsViewResponse(
 ): SettingsView {
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
-    "pendingRevision", "document", "effective"
+    "pendingRevision", "document", "effective", "lastActivationOutcome"
   ]);
   const effective = decodeGenerationSettingsResponse(response.effective);
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
       || response.activeRevision !== null || response.pendingRevision !== null
-      || response.document !== null) {
+      || response.document !== null || response.lastActivationOutcome !== null) {
       invalid("format-1 settings view");
     }
     return {
@@ -51,7 +54,8 @@ export function decodeSettingsViewResponse(
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective
+      effective,
+      lastActivationOutcome: null
     };
   }
   if (response.dataFormat !== 2 || response.editable !== true) invalid("settings view format");
@@ -65,7 +69,46 @@ export function decodeSettingsViewResponse(
       "settings view.pendingRevision"
     ),
     document: decodeDocument(response.document),
-    effective
+    effective,
+    lastActivationOutcome: response.lastActivationOutcome === null
+      ? null
+      : decodeActivationOutcome(response.lastActivationOutcome)
+  };
+}
+
+function decodeActivationOutcome(value: unknown): SettingsActivationOutcomeV2 {
+  const outcome = closedRecord(value, "settings activation outcome", [
+    "transactionId", "candidateRevision", "result", "errorCode", "atStateGeneration"
+  ]);
+  const common = {
+    transactionId: stringValue(outcome.transactionId, "settings activation outcome.transactionId"),
+    candidateRevision: positiveSafeInteger(
+      outcome.candidateRevision,
+      "settings activation outcome.candidateRevision"
+    ),
+    atStateGeneration: positiveSafeInteger(
+      outcome.atStateGeneration,
+      "settings activation outcome.atStateGeneration"
+    )
+  };
+  if (outcome.result === "committed") {
+    if (outcome.errorCode !== null) invalid("settings activation outcome.errorCode");
+    return { ...common, result: "committed", errorCode: null };
+  }
+  if (outcome.result !== "validation-failed" && outcome.result !== "rolled-back") {
+    invalid("settings activation outcome.result");
+  }
+  const errorCode = outcome.errorCode;
+  if (
+    typeof errorCode !== "string"
+    || !(SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES as readonly string[]).includes(errorCode)
+  ) {
+    invalid("settings activation outcome.errorCode");
+  }
+  return {
+    ...common,
+    result: outcome.result,
+    errorCode: errorCode as SettingsActivationErrorCodeV2
   };
 }
 

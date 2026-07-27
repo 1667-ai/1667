@@ -250,7 +250,8 @@ describe("inline settings menu", () => {
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective: source.settings
+      effective: source.settings,
+      lastActivationOutcome: null
     };
     source.settingsView = legacy;
     source.api.getSettings = async () => legacy;
@@ -831,24 +832,124 @@ describe("inline settings menu", () => {
     expect(state.settings?.checking).toBeFalse();
   });
 
-  test("pending settings keep local rows editable, freeze server rows, and discard durably", async () => {
+  test("a save whose activation fails surfaces the reason and keeps editing available", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const active = source.settingsView;
+    source.api.saveSettings = async (command) => {
+      const candidateRevision = active.activeRevision + 1;
+      source.settingsView = {
+        ...active,
+        stateGeneration: active.stateGeneration + 3,
+        pendingRevision: candidateRevision,
+        document: command.document,
+        lastActivationOutcome: {
+          transactionId: command.mutationId,
+          candidateRevision,
+          result: "validation-failed",
+          errorCode: "candidate_invalid",
+          atStateGeneration: active.stateGeneration + 3
+        }
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: active.stateGeneration + 1,
+        activeSettingsRevision: active.activeRevision,
+        pendingSettingsRevision: candidateRevision
+      };
+    };
+    source.api.getSettings = async () => source.settingsView;
+
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "https://api.openai.com/v1");
+    await draftRow(press, state, "model", "gpt-5.6");
+    await draftRow(press, state, "api-key-env", "NEW_PROVIDER_KEY");
+    await press(key("s"));
+
+    expect(state.toast).toBe("saved, not active · provider check failed");
+    expect(state.settings?.view.pendingRevision).not.toBe(null);
+    // Editing stays available for the retry.
+    await selectRow(press, state, "model");
+    await press(key("return"));
+    expect(state.settings?.edit?.row).toBe("model");
+  });
+
+  test("a save whose activation commits reports active credentials without a restart", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const active = source.settingsView;
+    source.api.saveSettings = async (command) => {
+      const candidateRevision = active.activeRevision + 1;
+      source.settingsView = {
+        ...active,
+        stateGeneration: active.stateGeneration + 6,
+        activeRevision: candidateRevision,
+        pendingRevision: null,
+        document: command.document,
+        effective: basicSettingsFromDocument(command.document),
+        lastActivationOutcome: {
+          transactionId: command.mutationId,
+          candidateRevision,
+          result: "committed",
+          errorCode: null,
+          atStateGeneration: active.stateGeneration + 6
+        }
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: active.stateGeneration + 1,
+        activeSettingsRevision: active.activeRevision,
+        pendingSettingsRevision: candidateRevision
+      };
+    };
+    source.api.getSettings = async () => source.settingsView;
+
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "https://api.openai.com/v1");
+    await draftRow(press, state, "model", "gpt-5.6");
+    await draftRow(press, state, "api-key-env", "NEW_PROVIDER_KEY");
+    await press(key("s"));
+
+    expect(state.toast).toBe("settings saved · credentials active");
+    expect(state.settings?.view.pendingRevision).toBe(null);
+    expect(state.settings?.view.effective.model).toBe("gpt-5.6");
+  });
+
+  test("a staged view stays fully editable and can retry, check, or discard", async () => {
     const { source, state, press } = harness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");
     const active = source.settingsView;
     const candidateSettings = { ...source.settings, model: "candidate-model" };
-    const pending = {
+    const staged = {
       ...active,
+      stateGeneration: active.stateGeneration + 3,
       pendingRevision: active.activeRevision + 1,
-      document: applyBasicSettingsDraft(active.document, candidateSettings)
+      document: applyBasicSettingsDraft(active.document, candidateSettings),
+      lastActivationOutcome: {
+        transactionId: "m1.0000000000000.00000000000000000000000000000000",
+        candidateRevision: active.activeRevision + 1,
+        result: "validation-failed" as const,
+        errorCode: "candidate_invalid" as const,
+        atStateGeneration: active.stateGeneration + 3
+      }
     };
-    source.settingsView = pending;
+    source.settingsView = staged;
     source.api.getSettings = async () => source.settingsView;
+    const probes: ProviderProbeTarget[] = [];
+    source.api.checkModelServer = async (target) => {
+      probes.push(target);
+      return { state: "ready", message: "staged candidate is reachable" };
+    };
     let expectedGeneration: number | null = null;
     source.api.discardPendingSettings = async (command) => {
       expectedGeneration = command.expectedStateGeneration;
       source.settingsView = {
         ...active,
-        stateGeneration: pending.stateGeneration + 1,
+        stateGeneration: staged.stateGeneration + 1,
         pendingRevision: null
       };
       return {
@@ -860,15 +961,19 @@ describe("inline settings menu", () => {
     };
 
     await openSettings(press);
-    await draftRow(press, state, "compose-focus", "on");
-    expect(state.config.composeFocus).toBe("on");
-    await selectRow(press, state, "provider");
-    await press(key("return"));
-    expect(state.settings?.edit).toBe(null);
-    expect(state.toast).toContain("pending restart");
-    await press(key("x"));
+    // The overlay edits the staged candidate document, not the active one.
+    expect(state.settings?.draft.generation.model).toBe("candidate-model");
+    await draftRow(press, state, "model", "fixed-model");
+    expect(state.settings?.draft.generation.model).toBe("fixed-model");
+    expect(settingsDraftChanged(state.settings!)).toBeTrue();
 
-    expect(expectedGeneration).toBe(pending.stateGeneration);
+    // check server probes the edited draft over the staged document.
+    await press(key("c"));
+    expect(probes).toHaveLength(1);
+    expect(generationFromProbeTarget(probes[0]!).model).toBe("fixed-model");
+
+    await press(key("x"));
+    expect(expectedGeneration).toBe(staged.stateGeneration);
     expect(state.settings?.view.pendingRevision).toBe(null);
   });
 

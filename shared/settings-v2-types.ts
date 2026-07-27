@@ -231,6 +231,7 @@ export type SettingsView =
       readonly pendingRevision: null;
       readonly document: null;
       readonly effective: GenerationSettings;
+      readonly lastActivationOutcome: null;
     }
   | {
       readonly dataFormat: 2;
@@ -240,6 +241,7 @@ export type SettingsView =
       readonly pendingRevision: number | null;
       readonly document: SettingsDocumentV2;
       readonly effective: GenerationSettings;
+      readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
     };
 
 export interface SaveSettingsCommand {

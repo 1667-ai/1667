@@ -304,6 +304,7 @@ function cacheView(
     activeRevision: 1,
     pendingRevision: null,
     document,
-    effective: basicSettingsFromDocument(document)
+    effective: basicSettingsFromDocument(document),
+    lastActivationOutcome: null
   };
 }

@@ -6,7 +6,11 @@ import {
   promptCachePolicyPresentation
 } from "../../shared/prompt-cache-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
-import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import type {
+  SettingsDocumentV2,
+  SettingsMutationResult,
+  SettingsView
+} from "../../shared/settings-v2-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
 import {
@@ -37,6 +41,7 @@ import {
   sameGenerationSettings,
   sameSettingsDraft,
   SETTINGS_ROW_IDS,
+  settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowUsesServer,
   settleSettingsOverlaySave
@@ -98,8 +103,6 @@ export async function settingsOverlayAction(
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
         state.toast = "legacy settings are read-only";
-      } else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
       }
     }
   } else if (overlay.edit !== null) {
@@ -115,8 +118,6 @@ export async function settingsOverlayAction(
     const serverBacked = settingsRowUsesServer(row);
     if (serverBacked && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
-    } else if (serverBacked && overlay.view.pendingRevision !== null) {
-      state.toast = "settings pending restart · discard pending before editing";
     } else if (row === "theme") {
       const index = THEME_NAMES.indexOf(state.config.theme);
       applyTheme(state, context, THEME_NAMES[(index + 1) % THEME_NAMES.length]!);
@@ -145,18 +146,10 @@ export async function settingsOverlayAction(
       applyComposeFocus(state, source, state.config.composeFocus === "on" ? "off" : "on");
     } else if (row === "provider") {
       if (!overlay.view.editable) state.toast = "legacy settings are read-only";
-      else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
-      } else {
-        applyProviderChoice(overlay, state, step);
-      }
+      else applyProviderChoice(overlay, state, step);
     } else if (row === "allow-insecure-http") {
       if (!overlay.view.editable) state.toast = "legacy settings are read-only";
-      else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
-      } else {
-        applyAllowInsecureHttp(overlay, state);
-      }
+      else applyAllowInsecureHttp(overlay, state);
     }
   } else if (resolved.action === "discard-pending") {
     await discardPendingSettings(state, source, context, overlay);
@@ -268,9 +261,6 @@ async function saveSettingsDraft(
   overlay: SettingsOverlayState
 ): Promise<void> {
   if (!overlay.view.editable) return void (state.toast = "legacy settings are read-only");
-  if (overlay.view.pendingRevision !== null) {
-    return void (state.toast = "settings pending restart · editing frozen");
-  }
   if (state.connection.down) {
     return void (state.toast = "offline · draft kept until the connection returns");
   }
@@ -362,11 +352,26 @@ async function saveSettingsDraft(
       intent.draft,
       intent.connectionSecrets
     );
-    const message = result.pendingSettingsRevision === null
-      ? "settings saved"
-      : "settings staged · restart required";
+    const message = settingsSaveMessage(result, saved, intent.command.mutationId);
     state.toast = newerEdits ? `${message} · newer edits kept` : message;
   });
+}
+
+/** A credential-touching save activates inside the save request, so the
+ * refreshed view already carries this mutation's activation outcome. */
+function settingsSaveMessage(
+  result: SettingsMutationResult,
+  view: SettingsView,
+  mutationId: string
+): string {
+  if (result.pendingSettingsRevision === null) return "settings saved";
+  const outcome = view.editable
+    && view.lastActivationOutcome?.transactionId === mutationId
+    ? view.lastActivationOutcome
+    : null;
+  if (outcome === null) return "settings saved · activation pending";
+  if (outcome.result === "committed") return "settings saved · credentials active";
+  return `saved, not active · ${settingsActivationFailureText(outcome.errorCode)}`;
 }
 
 async function discardPendingSettings(
@@ -421,13 +426,13 @@ async function checkSettings(
     overlay.result = null;
     context.repaint();
     try {
-      const checked = overlay.view.editable && overlay.view.pendingRevision === null
+      const checked = overlay.view.editable
         ? overlay.draft.generation
         : overlay.view.effective;
       const result = await source.api.checkModelServer(
         settingsProviderProbeTarget(overlay.view, checked)
       );
-      const current = overlay.view.editable && overlay.view.pendingRevision === null
+      const current = overlay.view.editable
         ? overlay.draft.generation
         : overlay.view.effective;
       if (task.owns() && state.settings === overlay

@@ -96,7 +96,9 @@ export interface SettingsV2StoreOptions {
 }
 
 /** Format-2 settings authority: admission, receipts, aggregate replacement,
- * bounded recovery, and restart activation all meet at this one boundary. */
+ * bounded recovery, and activation all meet at this one boundary. A staged
+ * save activates in-process inside the save request; init() activation is
+ * crash recovery plus retry for a staged document an earlier run left behind. */
 export class SettingsV2Store {
   private readonly coordinator: MutationCoordinator;
   private readonly ledger: MutationLedgerStore;
@@ -214,12 +216,18 @@ export class SettingsV2Store {
     const connectionId = route.model.connectionId;
     if (usesCredentialReferences(route.connection)) {
       const state = await readSettingsState(this.dataDir);
-      const activeConnection =
-        activeSettingsDocument(state).connections[connectionId];
-      if (
-        activeConnection === undefined
-        || !sameActivatedCredentialTarget(activeConnection, route.connection)
-      ) {
+      // A staged candidate only exists after its own durable save, so probing
+      // its credential target is as legitimate as probing the active one —
+      // and it is exactly what recovery from a failed activation needs.
+      const savedConnections = [
+        activeSettingsDocument(state).connections[connectionId],
+        ...(state.pendingRevision === null
+          ? []
+          : [pendingSettingsDocument(state).connections[connectionId]])
+      ];
+      if (!savedConnections.some((connection) =>
+        connection !== undefined
+        && sameActivatedCredentialTarget(connection, route.connection))) {
         throw new ServiceError(
           409,
           "A new or changed credential target must be saved and activated before it can be tested.",
@@ -351,8 +359,10 @@ export class SettingsV2Store {
       );
     }
     const relation = settingsStateRelation(current);
-    if (operation.method === "saveSettings" && relation !== "clean") {
-      throw new ServiceError(409, "Pending settings must be activated or discarded before another edit.");
+    // A staged save replaces the pending candidate, so a failed activation
+    // stays directly editable instead of demanding an explicit discard first.
+    if (operation.method === "saveSettings" && relation !== "clean" && relation !== "staged") {
+      throw new ServiceError(409, "Settings activation is incomplete; retry after restarting the backend.");
     }
     if (operation.method === "discardPendingSettings" && relation !== "staged") {
       throw new ServiceError(409, "There are no pending settings to discard.");
@@ -432,6 +442,18 @@ export class SettingsV2Store {
     await publishStagedSettingsState(this.dataDir);
     await this.pruneUnreferencedSecrets(next);
     await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
+    // A credential-touching save activates in the same request: the same
+    // sequence init() uses for crash recovery, still inside the coordinator's
+    // settings scope. The durable receipt keeps its staging result; the view's
+    // lastActivationOutcome carries what happened next. A validation failure
+    // keeps the candidate staged, so nothing is discarded silently.
+    if (
+      operation.method === "saveSettings"
+      && this.activationMode === "activation-capable"
+      && settingsStateRelation(next) === "staged"
+    ) {
+      await this.activateStaged(next);
+    }
     return settingsResult(prepared);
   }
 

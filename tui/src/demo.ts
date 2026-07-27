@@ -356,7 +356,8 @@ export const DEMO_SETTINGS_VIEW: SettingsView = {
   activeRevision: 1,
   pendingRevision: null,
   document: DEMO_SETTINGS_DOCUMENT,
-  effective: DEMO_SETTINGS
+  effective: DEMO_SETTINGS,
+  lastActivationOutcome: null
 };
 
 /** The demo fixture behind the same StoryApi the live server speaks — the app
@@ -409,7 +410,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         activeRevision: settingsView.dataFormat === 2 ? settingsView.activeRevision + 1 : 1,
         pendingRevision: null,
         document: command.document,
-        effective
+        effective,
+        lastActivationOutcome: null
       };
       return settingsMutationResult(settingsView);
     },

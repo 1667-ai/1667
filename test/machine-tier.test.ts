@@ -63,7 +63,9 @@ test("stored provider secrets are published in the machine tier only", async (t)
   const store = new SettingsStore(dataDir, {
     environment: {},
     now: () => FIXED_TIME,
-    secretsDir: machineDir
+    secretsDir: machineDir,
+    // Fail the save-time activation attempt so the restart below activates.
+    validateCandidate: async () => false
   });
   await store.init(2);
   await store.save({
