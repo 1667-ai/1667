@@ -13,7 +13,11 @@ import {
   hydrateStoryNodes
 } from "./story-codec.js";
 import { pathTo } from "../shared/story-tree.js";
-import { manifestRevisionIds } from "./story-format.js";
+import {
+  manifestRevisionIds,
+  type ObjectHash,
+  type TextRevisionV1
+} from "./story-format.js";
 import {
   inspectPrivateDirectory,
   publishPrivateFileNoReplace,
@@ -21,11 +25,13 @@ import {
   removePrivateFile
 } from "./private-file-publication.js";
 import {
+  afterCommit,
   StoryDurabilityError,
   syncDirectory,
 } from "./story-lifecycle.js";
 import {
   cleanupPending,
+  clearCleanupPending,
   markCleanupPending
 } from "./story-cleanup.js";
 import {
@@ -72,6 +78,16 @@ export class StoryAggregateSession {
   private currentSnapshot: StoryAggregateSnapshot;
   private readonly bundleDir: string;
   private stagedManifest: StoryManifestV6 | null = null;
+  /** Revision graph hash-verified while loading the committed manifest that
+   * `manifestHash` names. Stale after any snapshot replacement. */
+  private liveGraph: {
+    readonly manifestHash: string;
+    readonly revisions: ReadonlyMap<ObjectHash, TextRevisionV1>;
+  } | null = null;
+  /** True only when the prepared replacement drops no committed object
+   * references, so the cleanup marker it published can retire at publish
+   * time instead of paying a full sweep. */
+  private clearCleanupOnPublish = false;
 
   get snapshot(): StoryAggregateSnapshot {
     return this.currentSnapshot;
@@ -110,11 +126,18 @@ export class StoryAggregateSession {
     if (this.snapshot.manifest.kind !== "live") {
       throw new ServiceError(404, `Story not found: ${this.storyId}`);
     }
-    return (await decodeStoryBundle(
+    const decoded = await decodeStoryBundle(
       this.snapshot.manifest.content,
       this.bundleDir,
       { activeOnly: true }
-    )).story;
+    );
+    // The decode cache keeps growing through later hydrations; every entry in
+    // it was read back and hash-verified against the committed manifest.
+    this.liveGraph = {
+      manifestHash: this.snapshot.manifestHash,
+      revisions: decoded.revisions
+    };
+    return decoded.story;
   }
 
   async hydratePath(story: Story, nodeId: string): Promise<void> {
@@ -127,21 +150,44 @@ export class StoryAggregateSession {
 
   async prepareContent(story: Story): Promise<PreparedStoryContent> {
     if (story.id !== this.storyId) throw new Error("Story mutation changed aggregate identity");
+    if (this.snapshot.manifest.kind !== "live") {
+      throw new ServiceError(404, `Story not found: ${this.storyId}`);
+    }
+    this.clearCleanupOnPublish = false;
+    const previousRevisionIds = manifestRevisionIds(this.snapshot.manifest.content);
     const previous = Date.parse(story.updatedAt);
     story.updatedAt = new Date(
       Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)
     ).toISOString();
     await hydrateStoryNodes(story, activePath(story).map((node) => node.id));
-    if (!await cleanupPending(this.bundleDir)) {
+    const cleanupWasPending = await cleanupPending(this.bundleDir);
+    let cleanupMarked = cleanupWasPending;
+    const publishCleanupIntent = async (): Promise<void> => {
+      if (cleanupMarked) return;
       // Recovery intent precedes immutable-object publication. A failed or
       // committed write can therefore be swept against the authoritative
       // manifest without retaining orphaned revisions indefinitely.
       await markCleanupPending(this.bundleDir, this.storyId);
+      cleanupMarked = true;
+    };
+    const objects = new StoryObjectStore(this.bundleDir, undefined, publishCleanupIntent);
+    if (this.liveGraph !== null && this.liveGraph.manifestHash === this.snapshot.manifestHash) {
+      // This session already read and hash-verified the live graph, and the
+      // rest of the committed manifest's ids were verified before it could
+      // publish. Adopting both keeps verifyGraph scaled to the objects this
+      // mutation writes, never to story size.
+      objects.adoptKnownGraph(this.liveGraph.revisions, { committed: true });
+      objects.adoptCommittedRevisionIds(previousRevisionIds);
     }
-    const objects = new StoryObjectStore(this.bundleDir);
     const content = await encodeStoryBundle(story, objects);
     await objects.flush();
     await objects.verifyGraph(manifestRevisionIds(content));
+    const nextRevisionIds = new Set(manifestRevisionIds(content));
+    const dropsReferences = previousRevisionIds.some((id) => !nextRevisionIds.has(id));
+    // Dropped references need durable sweep intent before the replacement
+    // manifest can publish without them.
+    if (dropsReferences) await publishCleanupIntent();
+    this.clearCleanupOnPublish = cleanupMarked && !cleanupWasPending && !dropsReferences;
     return {
       story,
       content,
@@ -211,11 +257,21 @@ export class StoryAggregateSession {
       source
     };
     this.stagedManifest = null;
+    if (this.clearCleanupOnPublish) {
+      this.clearCleanupOnPublish = false;
+      // Objects this mutation wrote are referenced by the manifest that just
+      // published, and it dropped nothing, so no sweep is owed. A failed
+      // clear leaves the marker for the ordinary scheduled sweep.
+      await afterCommit(`clearing additive-mutation recovery for story ${this.storyId}`, async () => {
+        await clearCleanupPending(this.bundleDir, this.storyId);
+      });
+    }
   }
 
   async discardStagedManifest(): Promise<void> {
     await removePrivateFile(this.nextManifestPath(), MANIFEST_POLICY);
     this.stagedManifest = null;
+    this.clearCleanupOnPublish = false;
   }
 
   private manifestPath(): string {

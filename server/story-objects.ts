@@ -66,10 +66,15 @@ export class StoryObjectStore {
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
   private readonly dirtyShards = new Set<string>();
+  private firstWriteBarrier: Promise<void> | null = null;
 
   constructor(
     readonly bundleDir: string,
-    private readonly linkObject: typeof link = link
+    private readonly linkObject: typeof link = link,
+    /** Awaited exactly once before this instance's first object write lands,
+     * so callers can publish durable recovery intent only for mutations that
+     * actually create objects. */
+    private readonly beforeFirstWrite?: () => Promise<void>
   ) {}
 
   async init(): Promise<void> {
@@ -161,9 +166,14 @@ export class StoryObjectStore {
     const chunkIds = new Set<ObjectHash>();
     const unverified: ObjectHash[] = [];
     for (const hash of revisionIds) {
-      const known = this.knownRevisions.get(hash);
-      if (known !== undefined && this.verifiedObjects.revisions.has(hash)) {
-        for (const chunkHash of known.chunks) chunkIds.add(chunkHash);
+      if (this.verifiedObjects.revisions.has(hash)) {
+        // A verified revision without a known body was adopted from the
+        // committed manifest; its chunks were verified before that manifest
+        // could publish, so there is nothing left to enumerate.
+        const known = this.knownRevisions.get(hash);
+        if (known !== undefined) {
+          for (const chunkHash of known.chunks) chunkIds.add(chunkHash);
+        }
       } else {
         unverified.push(hash);
       }
@@ -213,6 +223,16 @@ export class StoryObjectStore {
         if (options.committed === true) this.verifiedObjects.chunks.add(chunkHash);
       }
       if (options.committed === true) this.verifiedObjects.revisions.add(hash);
+    }
+  }
+
+  /** Trust bare revision ids published by the currently committed manifest.
+   * Every id a manifest references was verified before that manifest could
+   * publish, so those objects are durable even when this session never read
+   * their bodies; verifyGraph re-reads only ids outside the committed set. */
+  adoptCommittedRevisionIds(revisionIds: readonly ObjectHash[]): void {
+    for (const hash of revisionIds) {
+      this.verifiedObjects.revisions.add(requireHash(hash, "committed revision id"));
     }
   }
 
@@ -326,6 +346,10 @@ export class StoryObjectStore {
         verifyExactObject(existing, bytes, kind, hash);
         this.verifiedObjects[kind].add(hash);
         return;
+      }
+      if (this.beforeFirstWrite !== undefined) {
+        this.firstWriteBarrier ??= this.beforeFirstWrite();
+        await this.firstWriteBarrier;
       }
 
       if (reuseFrom !== undefined) {
