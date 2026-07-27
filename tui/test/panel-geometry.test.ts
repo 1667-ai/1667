@@ -96,4 +96,24 @@ describe("shared panel horizontal geometry", () => {
     expect(hitAt(hits, horizontal.footerLeft, footerRow))
       .toEqual({ kind: "action", action: "cancel" });
   });
+
+  test("a panel too short to paint its footer does not answer clicks there", () => {
+    // `placePanel` floors its own height, so the frame's last rows can fall
+    // outside the paint bound. A row nobody sees must not run `cancel`.
+    for (const height of [5, 6, 7, 8]) {
+      const width = 40;
+      const base: FrameLine[] = Array.from({ length: height }, () => []);
+      const hits: HitRows = Array.from({ length: height }, () => null);
+      const rendered = placePanel(
+        base, "t", [[raisedSegment("body")]], "cancel", width, height, 36,
+        { rows: hits, targets: [null], footerActions: [{ token: "cancel", action: "cancel" }] }
+      );
+      const column = panelHorizontalGeometry(width, 36).contentLeft;
+      const clickableBlanks = rendered.lines.flatMap((line, row) =>
+        plainLine(line).trim().length === 0 && hitAt(hits, column, row)?.kind === "action"
+          ? [row]
+          : []);
+      expect(`${height}:${clickableBlanks.join(",")}`).toBe(`${height}:`);
+    }
+  });
 });

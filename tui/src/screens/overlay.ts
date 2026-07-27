@@ -44,14 +44,37 @@ export function panelWidthFor(width: number, maxWidth = 106): number {
   return Math.max(1, Math.min(width - 4, preferred));
 }
 
-const PANEL_TITLE_PREFIX = "┏━ ";
-const PANEL_TITLE_SUFFIX = " ━";
-const PANEL_CONTENT_PREFIX = "┃ ";
-/** The closing edge every row carries: one cell of margin, then the border. */
-const PANEL_CONTENT_SUFFIX = " ┃";
-const PANEL_TITLE_CORNER = "┓";
-const PANEL_FOOTER_PREFIX = "┃ ";
-const PANEL_FOOTER_SUFFIX = " ┃";
+/** One row's two edges and what fills the gap between them. Every row a panel
+ *  draws — title, blank, content, footer, closing rule — is one of these three
+ *  applied to a line, so a panel cannot end up open on one side, and the
+ *  measures below are read off the same values rather than re-derived. */
+interface PanelEdges {
+  prefix: string;
+  suffix: string;
+  fill: string;
+  fillRole: DisplayRole;
+}
+
+const PANEL_TOP: PanelEdges = {
+  prefix: "┏━ ", suffix: "━┓", fill: "━", fillRole: "brass dim"
+};
+const PANEL_BODY: PanelEdges = {
+  prefix: "┃ ", suffix: " ┃", fill: " ", fillRole: "prose"
+};
+const PANEL_BOTTOM: PanelEdges = {
+  prefix: "┗", suffix: "┛", fill: "━", fillRole: "brass dim"
+};
+
+function interiorWidth(edges: PanelEdges, panelWidth: number): number {
+  return Math.max(0, panelWidth - visibleWidth(edges.prefix) - visibleWidth(edges.suffix));
+}
+
+/** The panel width whose interior is exactly this many cells. Callers that
+ *  size content first — the key reference fits whole columns — ask for the
+ *  width that holds it instead of adding up the frame's glyphs themselves. */
+export function panelWidthForContent(contentWidth: number): number {
+  return contentWidth + visibleWidth(PANEL_BODY.prefix) + visibleWidth(PANEL_BODY.suffix);
+}
 
 export interface PanelHorizontalGeometry {
   left: number;
@@ -76,28 +99,23 @@ export function panelHorizontalGeometry(
 ): PanelHorizontalGeometry {
   const panelWidth = panelWidthFor(width, maxWidth);
   const left = Math.max(2, Math.floor((width - panelWidth) / 2));
-  const contentInset = visibleWidth(PANEL_CONTENT_PREFIX);
-  const footerInset = visibleWidth(PANEL_FOOTER_PREFIX);
-  // The closing corner is part of the title row's overhead: without it a
-  // maximal title would push `━┓` off the panel's own edge.
-  const titleOverhead = visibleWidth(PANEL_TITLE_PREFIX)
-    + visibleWidth(PANEL_TITLE_SUFFIX)
-    + visibleWidth(PANEL_TITLE_CORNER);
+  // The footer is a body row, so its measures are the content's. They keep
+  // their own names because callers reason about the two separately.
+  const contentInset = visibleWidth(PANEL_BODY.prefix);
+  const contentWidth = interiorWidth(PANEL_BODY, panelWidth);
   return {
     left,
     right: left + panelWidth,
     panelWidth,
     contentInset,
     contentLeft: left + contentInset,
-    contentWidth: Math.max(0, panelWidth - contentInset - visibleWidth(PANEL_CONTENT_SUFFIX)),
-    footerInset,
-    footerLeft: left + footerInset,
-    footerWidth: Math.max(
-      0,
-      panelWidth - footerInset - visibleWidth(PANEL_FOOTER_SUFFIX)
-    ),
-    titleOverhead,
-    titleWidth: Math.max(0, panelWidth - titleOverhead)
+    contentWidth,
+    footerInset: contentInset,
+    footerLeft: left + contentInset,
+    footerWidth: contentWidth,
+    // One cell over the glyphs for the space that separates title from rule.
+    titleOverhead: visibleWidth(PANEL_TOP.prefix) + visibleWidth(PANEL_TOP.suffix) + 1,
+    titleWidth: Math.max(0, interiorWidth(PANEL_TOP, panelWidth) - 1)
   };
 }
 
@@ -143,18 +161,16 @@ export function placePanel(
   const geometry = panelGeometry(height, content.length);
   const top = Math.max(1, Math.floor((height - 1 - geometry.height) / 2));
   const panel: FrameLine[] = [];
-  const topText = `${PANEL_TITLE_PREFIX}${title}${PANEL_TITLE_SUFFIX}`;
-  panel.push([
-    ...fillRaised([raisedSegment(topText, "brass dim")], Math.max(0, panelWidth - 1), "━"),
-    raisedSegment(PANEL_TITLE_CORNER, "brass dim")
-  ]);
-  panel.push(closedRow([], panelWidth));
+  // The trailing space is the gap between the title and the rule that runs to
+  // the corner; `titleWidth` reserves it.
+  panel.push(panelRow(PANEL_TOP, [raisedSegment(`${title} `, "brass dim")], panelWidth));
+  panel.push(panelRow(PANEL_BODY, [], panelWidth));
   // An open panel owns the whole screen: everything outside it is scrim, so
   // a stray click dismisses rather than acting on the page underneath.
   if (hits !== undefined) {
     fillRows(hits.rows, 0, hits.rows.length, { target: { kind: "scrim" }, left: 0, right: width });
   }
-  const contentTop = 2;
+  const contentTop = panel.length;
   for (let row = 0; row < geometry.contentRows; row += 1) {
     const line = content[row] ?? [];
     if (hits !== undefined && row < content.length) {
@@ -172,7 +188,7 @@ export function placePanel(
         });
       }
     }
-    panel.push(closedRow(line, panelWidth));
+    panel.push(panelRow(PANEL_BODY, line, panelWidth));
   }
   // Overrides are located in the footer AS DRAWN. Searching the untruncated string
   // would leave an invisible token clickable off the panel's edge, and `hitAt`
@@ -180,10 +196,10 @@ export function placePanel(
   // footer outgrows its panel — the failure plan 013 §8b describes, caught here
   // instead of only by a test.
   const shownFooter = truncate(footer, horizontal.footerWidth);
-  panel.push(closedRow([raisedSegment(shownFooter, "chrome")], panelWidth));
-  panel.push([raisedSegment(
-    `┗${"━".repeat(Math.max(0, panelWidth - 2))}┛`, "brass dim"
-  )]);
+  const footerIndex = panel.push(
+    panelRow(PANEL_BODY, [raisedSegment(shownFooter, "chrome")], panelWidth)
+  ) - 1;
+  panel.push(panelRow(PANEL_BOTTOM, [], panelWidth));
   const output = [...base];
   // A cleared gap floats the panel: without it, dimmed page text cut mid-word
   // sits flush against the raised surface and reads as panel content.
@@ -198,9 +214,10 @@ export function placePanel(
       const regionLeft = horizontal.footerLeft + visibleWidth(shownFooter.slice(0, index));
       return { target: { kind: "action", action: item.action }, left: regionLeft, right: regionLeft + visibleWidth(item.token) };
     });
-    // The footer sits inside the frame, one row above the closing border.
-    const footerRow = top + panel.length - 2;
-    if (footerRow < hits.rows.length) {
+    // Guard on the paint bound below, not the buffer: a row the panel never
+    // draws must not answer a click, however much room the hit map has.
+    const footerRow = top + footerIndex;
+    if (footerRow < Math.min(hits.rows.length, height - 1)) {
       addHit(hits.rows, footerRow, { target: { kind: "panel" }, left, right });
       for (const region of overrides) addHit(hits.rows, footerRow, region);
     }
@@ -230,23 +247,21 @@ export function placePanel(
   };
 }
 
-/** One row of a closed panel: the left border, the row's own cells, filler,
- *  then a cell of margin and the right border. Every row a panel draws goes
- *  through here, so no surface can leave the box open on one side. */
-function closedRow(line: FrameLine, panelWidth: number): FrameLine {
-  const suffixWidth = visibleWidth(PANEL_CONTENT_SUFFIX);
-  const body = fillRaised(
-    [raisedSegment(PANEL_CONTENT_PREFIX, "brass dim"), ...line],
-    Math.max(0, panelWidth - suffixWidth)
-  );
-  return [...body, raisedSegment(PANEL_CONTENT_SUFFIX, "brass dim")];
+/** One row between its own two edges: the opening glyphs, the row's cells,
+ *  whatever fills the rest, then the closing glyphs. */
+function panelRow(edges: PanelEdges, line: FrameLine, panelWidth: number): FrameLine {
+  return [
+    raisedSegment(edges.prefix, "brass dim"),
+    ...fillTo(line, interiorWidth(edges, panelWidth), edges.fill, edges.fillRole),
+    raisedSegment(edges.suffix, "brass dim")
+  ];
 }
 
 export function raisedSegment(text: string, role: DisplayRole = "prose"): FrameSegment {
   return { text, role, background: "raised" };
 }
 
-function fillRaised(line: FrameLine, width: number, fill = " "): FrameLine {
+function fillTo(line: FrameLine, width: number, fill: string, fillRole: DisplayRole): FrameLine {
   const clipped: FrameLine = [];
   let remaining = width;
   for (const part of line) {
@@ -255,9 +270,7 @@ function fillRaised(line: FrameLine, width: number, fill = " "): FrameLine {
     if (text.length > 0) clipped.push({ ...part, text });
     remaining -= visibleWidth(text);
   }
-  if (remaining > 0) {
-    clipped.push(raisedSegment(fill.repeat(remaining), fill === " " ? "prose" : "brass dim"));
-  }
+  if (remaining > 0) clipped.push(raisedSegment(fill.repeat(remaining), fillRole));
   return clipped;
 }
 

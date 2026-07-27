@@ -48,8 +48,8 @@ export const LEGACY_PREVIEW_DATA_MARKER_TEXT =
  */
 /**
  * Names that can hold a plaintext key. The project-tier fence refuses these,
- * because one of them inside a folder the user may commit is the loss this
- * exists to prevent.
+ * because one of them inside a folder the user may commit is the loss that
+ * fence exists to prevent.
  */
 export const PROVIDER_SECRET_VALUE_ENTRY_NAMES = Object.freeze([
   PROVIDER_SECRETS_FILE,
