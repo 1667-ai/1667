@@ -41,32 +41,50 @@ const PREVIOUS_POINTER = {
   phase: "prepared"
 } as const;
 
-test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, timeout: 60_000 }, async (t) => {
+// These budgets exist to catch algorithmic regressions in pure functions, so they
+// measure CPU rather than wall clock. The Intel macOS runner is oversubscribed
+// enough to report wall times near twice its own CPU time, while every other
+// platform runs the two within a few percent; billing that scheduler contention
+// against a pure-computation budget turns the whole matrix red at random.
+function measured(run: () => void): { wallMs: number; cpuMs: number } {
+  const startedCpu = process.cpuUsage();
+  const startedAt = performance.now();
+  run();
+  const wallMs = performance.now() - startedAt;
+  const usage = process.cpuUsage(startedCpu);
+  return { wallMs, cpuMs: (usage.user + usage.system) / 1_000 };
+}
+
+function timing(wallMs: number, cpuMs: number): string {
+  return `${wallMs.toFixed(1)}ms wall / ${cpuMs.toFixed(1)}ms CPU`;
+}
+
+test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, timeout: 180_000 }, async (t) => {
   await t.test("10,000 canonical document parses", (context) => {
     const iterations = 10_000;
     const text = formatSettingsDocumentV2(INITIAL_SETTINGS_DOCUMENT_V2);
-    const startedAt = performance.now();
     let parsed = 0;
-    for (let index = 0; index < iterations; index += 1) {
-      parsed += parseSettingsDocumentV2Text(text).schemaVersion;
-    }
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations.toLocaleString()} document parses in ${elapsed.toFixed(1)}ms`);
+    const { wallMs, cpuMs } = measured(() => {
+      for (let index = 0; index < iterations; index += 1) {
+        parsed += parseSettingsDocumentV2Text(text).schemaVersion;
+      }
+    });
+    context.diagnostic(`${iterations.toLocaleString()} document parses in ${timing(wallMs, cpuMs)}`);
     assert.equal(parsed, iterations * 2);
-    assert.ok(elapsed < 15_000, `document parsing took ${elapsed.toFixed(1)}ms`);
+    assert.ok(cpuMs < 15_000, `document parsing took ${cpuMs.toFixed(1)}ms CPU`);
   });
 
   await t.test("5,000 canonical aggregate parses", (context) => {
     const iterations = 5_000;
-    const startedAt = performance.now();
     let generations = 0;
-    for (let index = 0; index < iterations; index += 1) {
-      generations += parseSettingsStateV2Text(INITIAL_SETTINGS_STATE_V2_TEXT).stateGeneration;
-    }
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations.toLocaleString()} aggregate parses in ${elapsed.toFixed(1)}ms`);
+    const { wallMs, cpuMs } = measured(() => {
+      for (let index = 0; index < iterations; index += 1) {
+        generations += parseSettingsStateV2Text(INITIAL_SETTINGS_STATE_V2_TEXT).stateGeneration;
+      }
+    });
+    context.diagnostic(`${iterations.toLocaleString()} aggregate parses in ${timing(wallMs, cpuMs)}`);
     assert.equal(generations, iterations);
-    assert.ok(elapsed < 15_000, `aggregate parsing took ${elapsed.toFixed(1)}ms`);
+    assert.ok(cpuMs < 15_000, `aggregate parsing took ${cpuMs.toFixed(1)}ms CPU`);
   });
 
   await t.test("500 staged whole-path preflights and bounded recoveries", (context) => {
@@ -78,24 +96,26 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
       model: "performance-model",
       apiKeyEnv: "PERFORMANCE_MODEL_KEY"
     });
-    const startedAt = performance.now();
     let recovered = 0;
-    for (let index = 0; index < iterations; index += 1) {
-      const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
-        kind: "save-document",
-        document: candidate,
-        lastTransaction: POINTER
-      });
-      const validating = reduceSettingsStateV2(staged, {
-        kind: "begin-validation",
-        transactionId: MUTATION
-      });
-      recovered += recoverSettingsStateV2(validating).stateGeneration;
-    }
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations.toLocaleString()} preflight/recovery cycles in ${elapsed.toFixed(1)}ms`);
+    const { wallMs, cpuMs } = measured(() => {
+      for (let index = 0; index < iterations; index += 1) {
+        const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
+          kind: "save-document",
+          document: candidate,
+          lastTransaction: POINTER
+        });
+        const validating = reduceSettingsStateV2(staged, {
+          kind: "begin-validation",
+          transactionId: MUTATION
+        });
+        recovered += recoverSettingsStateV2(validating).stateGeneration;
+      }
+    });
+    context.diagnostic(
+      `${iterations.toLocaleString()} preflight/recovery cycles in ${timing(wallMs, cpuMs)}`
+    );
     assert.equal(recovered, iterations * 4);
-    assert.ok(elapsed < 15_000, `settings preflight/recovery took ${elapsed.toFixed(1)}ms`);
+    assert.ok(cpuMs < 15_000, `settings preflight/recovery took ${cpuMs.toFixed(1)}ms CPU`);
   });
 
   await t.test("near-limit document parse remains linear and bounded", (context) => {
@@ -105,11 +125,13 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     assert.ok(bytes > 220 * 1024, `large fixture is only ${bytes} bytes`);
     assert.ok(bytes <= MAX_SETTINGS_DOCUMENT_BYTES);
     const iterations = 100;
-    const startedAt = performance.now();
-    for (let index = 0; index < iterations; index += 1) parseSettingsDocumentV2Text(text);
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations} parses of ${bytes.toLocaleString()} bytes in ${elapsed.toFixed(1)}ms`);
-    assert.ok(elapsed < 15_000, `near-limit parsing took ${elapsed.toFixed(1)}ms`);
+    const { wallMs, cpuMs } = measured(() => {
+      for (let index = 0; index < iterations; index += 1) parseSettingsDocumentV2Text(text);
+    });
+    context.diagnostic(
+      `${iterations} parses of ${bytes.toLocaleString()} bytes in ${timing(wallMs, cpuMs)}`
+    );
+    assert.ok(cpuMs < 15_000, `near-limit parsing took ${cpuMs.toFixed(1)}ms CPU`);
   });
 
   await t.test("near-limit two-document preflight validates every activation successor", (context) => {
@@ -142,22 +164,18 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     }
 
     const iterations = 3;
-    const startedCpu = process.cpuUsage();
-    const startedAt = performance.now();
     let generations = 0;
-    for (let index = 0; index < iterations; index += 1) {
-      generations += reduceSettingsStateV2(activeState, {
-        kind: "save-document",
-        document: candidate,
-        lastTransaction: POINTER
-      }).stateGeneration;
-    }
-    const elapsed = performance.now() - startedAt;
-    const usage = process.cpuUsage(startedCpu);
-    const cpuMs = (usage.user + usage.system) / 1_000;
+    const { wallMs, cpuMs } = measured(() => {
+      for (let index = 0; index < iterations; index += 1) {
+        generations += reduceSettingsStateV2(activeState, {
+          kind: "save-document",
+          document: candidate,
+          lastTransaction: POINTER
+        }).stateGeneration;
+      }
+    });
     context.diagnostic(
-      `${iterations} preflights of ${stagedBytes.toLocaleString()} bytes in `
-      + `${elapsed.toFixed(1)}ms wall / ${cpuMs.toFixed(1)}ms CPU`
+      `${iterations} preflights of ${stagedBytes.toLocaleString()} bytes in ${timing(wallMs, cpuMs)}`
     );
     assert.equal(generations, iterations * 3);
     assert.ok(cpuMs < 10_000, `near-limit settings preflight took ${cpuMs.toFixed(1)}ms CPU`);
