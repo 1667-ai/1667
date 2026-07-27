@@ -39,6 +39,9 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
 
   const chapters: { parentPartId: string; title: string }[] = [];
   const bookmarks: { nodeId: string; name: string; label: string }[] = [];
+  // Every take and its seam is known before any of them is written, so the
+  // whole vault lands in one aggregate change instead of one for each take.
+  const takes: { value: unknown; nodeId: string }[] = [];
   let parentId: string | null = null;
 
   for (const beat of story.beats) {
@@ -52,15 +55,14 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
     }
     for (const take of beat.takes) {
       const nodeId = derivedId(story.id, "part", take.slug);
-      await service.createNode(
-        story.id,
-        {
+      takes.push({
+        value: {
           text: take.text,
           ...(take.instruction === undefined ? {} : { instruction: take.instruction }),
           parentId
         },
         nodeId
-      );
+      });
       if (take.bookmark !== undefined) {
         bookmarks.push({ nodeId, name: take.bookmark.name, label: take.bookmark.label });
       }
@@ -69,6 +71,7 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
     // as alternatives. A beat always has one, so this never re-roots the story.
     parentId = derivedId(story.id, "part", beat.takes[0].slug);
   }
+  await service.createNodes(story.id, takes);
 
   for (const chapter of chapters) {
     await service.createChapterBreak(
