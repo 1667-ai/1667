@@ -134,10 +134,9 @@ test("Windows machine tier repairs an existing non-user owner", {
     )
 }, async (t) => {
   const parent = await temporaryDirectory(t, "1667-windows-owner-");
-  await grantInheritedEveryone(parent);
   const root = path.join(parent, "state");
   await mkdir(root);
-  await setNonUserOwner(root);
+  await setRestrictedNonUserOwner(root);
   const before = await readSecurity(root);
   assert.notEqual(before.owner, before.user);
 
@@ -213,11 +212,38 @@ $rule = New-Object Security.AccessControl.FileSystemAccessRule(
   await runPowerShell(script, directory);
 }
 
-async function setNonUserOwner(directory: string): Promise<void> {
+async function setRestrictedNonUserOwner(
+  directory: string
+): Promise<void> {
   const script = String.raw`
-$acl = [IO.Directory]::GetAccessControl($env:AI_1667_TEST_WINDOWS_PATH)
-$acl.SetOwner(
-  (New-Object Security.Principal.SecurityIdentifier("S-1-5-32-544"))
+$user = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$admins = New-Object Security.Principal.SecurityIdentifier("S-1-5-32-544")
+$system = New-Object Security.Principal.SecurityIdentifier("S-1-5-18")
+$inherit = (
+  [Security.AccessControl.InheritanceFlags]::ContainerInherit
+) -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+$propagation = [Security.AccessControl.PropagationFlags]::None
+$allow = [Security.AccessControl.AccessControlType]::Allow
+$acl = New-Object Security.AccessControl.DirectorySecurity
+$acl.SetOwner($admins)
+$acl.SetAccessRuleProtection($true, $false)
+[void]$acl.AddAccessRule(
+  (New-Object Security.AccessControl.FileSystemAccessRule(
+    $user,
+    [Security.AccessControl.FileSystemRights]::Modify,
+    $inherit,
+    $propagation,
+    $allow
+  ))
+)
+[void]$acl.AddAccessRule(
+  (New-Object Security.AccessControl.FileSystemAccessRule(
+    $system,
+    [Security.AccessControl.FileSystemRights]::FullControl,
+    $inherit,
+    $propagation,
+    $allow
+  ))
 )
 [IO.Directory]::SetAccessControl($env:AI_1667_TEST_WINDOWS_PATH, $acl)
 `;
@@ -229,6 +255,14 @@ async function denyOwnerWrite(directory: string): Promise<void> {
   if (username === undefined || username === "") {
     throw new Error("Windows test user name is unavailable");
   }
+  await runIcacls(directory, ["/setowner", username]);
+  await runIcacls(directory, ["/deny", `${username}:(WO)`]);
+}
+
+async function runIcacls(
+  directory: string,
+  args: readonly string[]
+): Promise<void> {
   const executable = path.join(
     process.env.SystemRoot!,
     "System32",
@@ -236,7 +270,7 @@ async function denyOwnerWrite(directory: string): Promise<void> {
   );
   await execFileAsync(
     executable,
-    [directory, "/deny", `${username}:(WO)`],
+    [directory, ...args],
     {
       encoding: "utf8",
       env: {
