@@ -215,8 +215,17 @@ test("restart activates a staged credential document when every reference resolv
   }));
   assert.deepEqual(
     await restarted.save({ ...command, transportOperationId: "transport:post-activation-retry" }),
-    staged,
-    "receipt replay returns the original staging result after activation advances state"
+    {
+      ...staged,
+      activationOutcome: {
+        transactionId: MUTATION_A,
+        candidateRevision: 2,
+        result: "committed",
+        errorCode: null,
+        atStateGeneration: 9
+      }
+    },
+    "receipt replay keeps the durable staging result and reports the attempt that has since run"
   );
   assert.deepEqual((await readSettingsState(dataDir)).lastActivationOutcome, {
     transactionId: MUTATION_A,

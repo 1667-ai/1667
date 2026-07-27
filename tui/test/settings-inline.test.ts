@@ -199,7 +199,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;
@@ -454,7 +455,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;
@@ -838,24 +840,26 @@ describe("inline settings menu", () => {
     const active = source.settingsView;
     source.api.saveSettings = async (command) => {
       const candidateRevision = active.activeRevision + 1;
+      const outcome = {
+        transactionId: command.mutationId,
+        candidateRevision,
+        result: "validation-failed" as const,
+        errorCode: "candidate_invalid" as const,
+        atStateGeneration: active.stateGeneration + 3
+      };
       source.settingsView = {
         ...active,
         stateGeneration: active.stateGeneration + 3,
         pendingRevision: candidateRevision,
         document: command.document,
-        lastActivationOutcome: {
-          transactionId: command.mutationId,
-          candidateRevision,
-          result: "validation-failed",
-          errorCode: "candidate_invalid",
-          atStateGeneration: active.stateGeneration + 3
-        }
+        lastActivationOutcome: outcome
       };
       return {
         kind: "settings",
         settingsStateGeneration: active.stateGeneration + 1,
         activeSettingsRevision: active.activeRevision,
-        pendingSettingsRevision: candidateRevision
+        pendingSettingsRevision: candidateRevision,
+        activationOutcome: outcome
       };
     };
     source.api.getSettings = async () => source.settingsView;
@@ -882,6 +886,13 @@ describe("inline settings menu", () => {
     const active = source.settingsView;
     source.api.saveSettings = async (command) => {
       const candidateRevision = active.activeRevision + 1;
+      const outcome = {
+        transactionId: command.mutationId,
+        candidateRevision,
+        result: "committed" as const,
+        errorCode: null,
+        atStateGeneration: active.stateGeneration + 6
+      };
       source.settingsView = {
         ...active,
         stateGeneration: active.stateGeneration + 6,
@@ -889,19 +900,14 @@ describe("inline settings menu", () => {
         pendingRevision: null,
         document: command.document,
         effective: basicSettingsFromDocument(command.document),
-        lastActivationOutcome: {
-          transactionId: command.mutationId,
-          candidateRevision,
-          result: "committed",
-          errorCode: null,
-          atStateGeneration: active.stateGeneration + 6
-        }
+        lastActivationOutcome: outcome
       };
       return {
         kind: "settings",
         settingsStateGeneration: active.stateGeneration + 1,
         activeSettingsRevision: active.activeRevision,
-        pendingSettingsRevision: candidateRevision
+        pendingSettingsRevision: candidateRevision,
+        activationOutcome: outcome
       };
     };
     source.api.getSettings = async () => source.settingsView;
@@ -956,7 +962,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: source.settingsView.stateGeneration,
         activeSettingsRevision: source.settingsView.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
 
@@ -974,6 +981,67 @@ describe("inline settings menu", () => {
 
     await press(key("x"));
     expect(expectedGeneration).toBe(staged.stateGeneration);
+    expect(state.settings?.view.pendingRevision).toBe(null);
+  });
+
+  test("s retries a staged activation without requiring an edit first", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const active = source.settingsView;
+    const candidateSettings = { ...source.settings, model: "candidate-model" };
+    const staged = {
+      ...active,
+      stateGeneration: active.stateGeneration + 3,
+      pendingRevision: active.activeRevision + 1,
+      document: applyBasicSettingsDraft(active.document, candidateSettings),
+      lastActivationOutcome: {
+        transactionId: "m1.0000000000000.00000000000000000000000000000000",
+        candidateRevision: active.activeRevision + 1,
+        result: "validation-failed" as const,
+        errorCode: "candidate_invalid" as const,
+        atStateGeneration: active.stateGeneration + 3
+      }
+    };
+    source.settingsView = staged;
+    source.api.getSettings = async () => source.settingsView;
+    const commands: SaveSettingsCommand[] = [];
+    source.api.saveSettings = async (command) => {
+      commands.push(command);
+      const candidateRevision = staged.pendingRevision + 1;
+      const outcome = {
+        transactionId: command.mutationId,
+        candidateRevision,
+        result: "committed" as const,
+        errorCode: null,
+        atStateGeneration: staged.stateGeneration + 6
+      };
+      source.settingsView = {
+        ...active,
+        stateGeneration: staged.stateGeneration + 6,
+        activeRevision: candidateRevision,
+        pendingRevision: null,
+        document: command.document,
+        effective: basicSettingsFromDocument(command.document),
+        lastActivationOutcome: outcome
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: staged.stateGeneration + 1,
+        activeSettingsRevision: staged.activeRevision,
+        pendingSettingsRevision: candidateRevision,
+        activationOutcome: outcome
+      };
+    };
+
+    await openSettings(press);
+    expect(settingsDraftChanged(state.settings!)).toBeFalse();
+    await press(key("s"));
+
+    expect(commands).toHaveLength(1);
+    expect(basicSettingsFromDocument(commands[0]!.document).model)
+      .toBe("candidate-model");
+    expect(commands[0]!.expectedStateGeneration).toBe(staged.stateGeneration);
+    expect(state.toast).toBe("settings saved · credentials active");
     expect(state.settings?.view.pendingRevision).toBe(null);
   });
 
@@ -1014,7 +1082,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;
@@ -1088,7 +1157,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;

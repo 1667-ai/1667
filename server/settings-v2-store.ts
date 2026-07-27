@@ -1,5 +1,6 @@
 import {
   SETTINGS_ROUTE_PURPOSE_VALUES,
+  type SettingsActivationOutcomeV2,
   type SettingsDocumentV2,
   type SettingsMutationResult,
   type SettingsStateV2,
@@ -35,6 +36,7 @@ import {
   isExactSettingsActivationSuccessor,
   recoveryEventForSettingsStateV2,
   reduceSettingsStateV2,
+  SETTINGS_SAVE_ADMISSIBLE_RELATIONS,
   settingsStateRelation
 } from "./settings-v2-reducer.js";
 import {
@@ -216,18 +218,19 @@ export class SettingsV2Store {
     const connectionId = route.model.connectionId;
     if (usesCredentialReferences(route.connection)) {
       const state = await readSettingsState(this.dataDir);
+      const activeConnection =
+        activeSettingsDocument(state).connections[connectionId];
+      const activeTargetSaved = activeConnection !== undefined
+        && sameActivatedCredentialTarget(activeConnection, route.connection);
       // A staged candidate only exists after its own durable save, so probing
       // its credential target is as legitimate as probing the active one —
       // and it is exactly what recovery from a failed activation needs.
-      const savedConnections = [
-        activeSettingsDocument(state).connections[connectionId],
-        ...(state.pendingRevision === null
-          ? []
-          : [pendingSettingsDocument(state).connections[connectionId]])
-      ];
-      if (!savedConnections.some((connection) =>
-        connection !== undefined
-        && sameActivatedCredentialTarget(connection, route.connection))) {
+      const pendingConnection = state.pendingRevision === null
+        ? undefined
+        : pendingSettingsDocument(state).connections[connectionId];
+      const pendingTargetSaved = pendingConnection !== undefined
+        && sameActivatedCredentialTarget(pendingConnection, route.connection);
+      if (!activeTargetSaved && !pendingTargetSaved) {
         throw new ServiceError(
           409,
           "A new or changed credential target must be saved and activated before it can be tested.",
@@ -344,7 +347,7 @@ export class SettingsV2Store {
         );
       } else {
         requireSettingsReceiptNotAhead(prepared, current);
-        return settingsResult(prepared);
+        return settingsResult(prepared, responseActivationOutcome(current, request.mutationId));
       }
     }
 
@@ -359,9 +362,14 @@ export class SettingsV2Store {
       );
     }
     const relation = settingsStateRelation(current);
-    // A staged save replaces the pending candidate, so a failed activation
-    // stays directly editable instead of demanding an explicit discard first.
-    if (operation.method === "saveSettings" && relation !== "clean" && relation !== "staged") {
+    // One spelling of save admission: the reducer owns the set, this layer
+    // only maps inadmissible relations onto the transport's 409. A staged
+    // save replaces the pending candidate, so a failed activation stays
+    // directly editable instead of demanding an explicit discard first.
+    if (
+      operation.method === "saveSettings"
+      && !SETTINGS_SAVE_ADMISSIBLE_RELATIONS.includes(relation)
+    ) {
       throw new ServiceError(409, "Settings activation is incomplete; retry after restarting the backend.");
     }
     if (operation.method === "discardPendingSettings" && relation !== "staged") {
@@ -396,7 +404,7 @@ export class SettingsV2Store {
         await this.ledger.writeUserRecord(
           completeSettingsMutation(prepared, this.timestamp())
         );
-        return settingsResult(prepared);
+        return settingsResult(prepared, responseActivationOutcome(current, request.mutationId));
       }
     }
 
@@ -444,17 +452,22 @@ export class SettingsV2Store {
     await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
     // A credential-touching save activates in the same request: the same
     // sequence init() uses for crash recovery, still inside the coordinator's
-    // settings scope. The durable receipt keeps its staging result; the view's
-    // lastActivationOutcome carries what happened next. A validation failure
-    // keeps the candidate staged, so nothing is discarded silently.
+    // settings scope. The durable receipt keeps its staging result; the
+    // response and the view's lastActivationOutcome carry what happened next.
+    // A validation failure keeps the candidate staged, so nothing is
+    // discarded silently.
+    let settled = next;
     if (
       operation.method === "saveSettings"
       && this.activationMode === "activation-capable"
       && settingsStateRelation(next) === "staged"
     ) {
-      await this.activateStaged(next);
+      settled = await this.activateStaged(next);
+      // A committed activation may drop the old revision; only now are its
+      // replaced stored secrets unreferenced, so prune again.
+      await this.pruneUnreferencedSecrets(settled);
     }
-    return settingsResult(prepared);
+    return settingsResult(prepared, responseActivationOutcome(settled, request.mutationId));
   }
 
   private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {
@@ -595,8 +608,8 @@ export class SettingsV2Store {
     let candidateReady = false;
     try {
       assertRuntimeDocumentSupported(candidate);
-      candidateReady = true;
       const validatedConnections = new Set<string>();
+      const probeTargets: GenerationSettings[] = [];
       for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
         const route = selectSettingsRoute(candidate, purpose);
         if (validatedConnections.has(route.model.connectionId)) continue;
@@ -609,14 +622,16 @@ export class SettingsV2Store {
           {},
           storedSecrets
         ).settings;
-        if (
-          providerRequestTransportAvailable(effective)
-          && !await this.validateCandidate(effective)
-        ) {
-          candidateReady = false;
-          break;
-        }
+        if (providerRequestTransportAvailable(effective)) probeTargets.push(effective);
       }
+      // Distinct connections validate concurrently, so the whole attempt is
+      // bounded by one probe deadline rather than their sum — an activation
+      // that runs inside a save request must settle well before the client's
+      // own request deadline gives up on it.
+      const results = await Promise.all(
+        probeTargets.map((target) => this.validateCandidate(target))
+      );
+      candidateReady = results.every((ready) => ready);
     } catch {
       candidateReady = false;
     }
@@ -666,11 +681,25 @@ function pointsToUserMutation(state: SettingsStateV2, mutationId: string): boole
     && state.lastTransaction.mutationId === mutationId;
 }
 
-function settingsResult(prepared: PreparedUserMutationRecord): SettingsMutationResult {
+function settingsResult(
+  prepared: PreparedUserMutationRecord,
+  activationOutcome: SettingsActivationOutcomeV2 | null
+): SettingsMutationResult {
   if (prepared.result.kind !== "settings") {
     throw corruptSettingsStateReceipt(prepared.key);
   }
-  return Object.freeze({ ...prepared.result });
+  return Object.freeze({ ...prepared.result, activationOutcome });
+}
+
+/** The response reports an activation attempt only when it belongs to this
+ * mutation; the reducer nulls outcomes whose candidate was since replaced or
+ * discarded, so a stale story can never ride a receipt replay. */
+function responseActivationOutcome(
+  state: SettingsStateV2,
+  mutationId: string
+): SettingsActivationOutcomeV2 | null {
+  const outcome = state.lastActivationOutcome;
+  return outcome !== null && outcome.transactionId === mutationId ? outcome : null;
 }
 
 function storedSecretIdsInDocument(document: SettingsDocumentV2): Set<string> {

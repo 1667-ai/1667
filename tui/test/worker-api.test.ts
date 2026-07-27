@@ -427,7 +427,8 @@ describe("embedded backend worker", () => {
         kind: "settings" as const,
         settingsStateGeneration: 1,
         activeSettingsRevision: 1,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
       worker.message({ type: "result", id: request.id, value: result });
       expect(await saving).toEqual(result);

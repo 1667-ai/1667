@@ -393,10 +393,11 @@ function settingsStatusLines(
     ];
   }
   if (view.pendingRevision !== null) {
-    const failure = view.lastActivationOutcome !== null
-      && view.lastActivationOutcome.candidateRevision === view.pendingRevision
-      && view.lastActivationOutcome.result !== "committed"
-      ? settingsActivationFailureText(view.lastActivationOutcome.errorCode)
+    // The server nulls any outcome whose candidate was replaced or
+    // discarded, so a staged view's outcome always describes this candidate.
+    const outcome = view.lastActivationOutcome;
+    const failure = outcome !== null && outcome.result !== "committed"
+      ? settingsActivationFailureText(outcome.errorCode)
       : null;
     return [
       [
@@ -407,7 +408,7 @@ function settingsStatusLines(
           failure === null ? "focus / accent" : "danger text"
         )
       ],
-      [raisedSegment("  edit & s retries activation · x discards the saved candidate", "chrome")],
+      [raisedSegment("  s retries activation · x discards the saved candidate", "chrome")],
       []
     ];
   }

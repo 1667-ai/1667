@@ -327,7 +327,8 @@ test("HTTP settings reservations retain each command mutation identity", async (
       kind: "settings",
       settingsStateGeneration: 2,
       activeSettingsRevision: 2,
-      pendingSettingsRevision: null
+      pendingSettingsRevision: null,
+      activationOutcome: null
     });
   }) as typeof fetch;
   const api = createApi(
@@ -563,13 +564,15 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       kind: "settings",
       settingsStateGeneration: 2,
       activeSettingsRevision: 2,
-      pendingSettingsRevision: "later"
+      pendingSettingsRevision: "later",
+      activationOutcome: null
     }, () => api.saveSettings(command), "settings mutation result.pendingSettingsRevision"],
     [{
       kind: "settings",
       settingsStateGeneration: Number.MAX_SAFE_INTEGER + 1,
       activeSettingsRevision: 2,
-      pendingSettingsRevision: null
+      pendingSettingsRevision: null,
+      activationOutcome: null
     }, () => api.saveSettings(command), "settings mutation result.settingsStateGeneration"],
     [{ state: "maybe", message: "No" }, () => api.checkModelServer(settings), "model-server check response.state"],
     [{ contextWindow: "large" }, () => api.probeContextWindow(settings), "context-window probe response.contextWindow"]

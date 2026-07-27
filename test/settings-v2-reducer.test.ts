@@ -80,6 +80,19 @@ test("credential edit stages one candidate and a later save replaces it in place
   assert.equal(settingsStateRelation(reverted), "clean");
   assert.equal(reverted.activeRevision, 3);
   assert.deepEqual(Object.keys(reverted.documents), ["3"]);
+
+  // Saving the active document's exact content from staged is the discard
+  // edge, not an "unchanged" error: the candidate leaves, the active stays.
+  const discarded = reduceSettingsStateV2(staged, {
+    kind: "save-document",
+    document: INITIAL_SETTINGS_DOCUMENT_V2,
+    lastTransaction: POINTER_B
+  });
+  assert.equal(settingsStateRelation(discarded), "clean");
+  assert.equal(discarded.activeRevision, 1);
+  assert.deepEqual(Object.keys(discarded.documents), ["1"]);
+  assert.equal(discarded.lastActivationOutcome, null);
+  assert.deepEqual(discarded.lastTransaction, POINTER_B);
 });
 
 test("activation follows the exhaustive role matrix without renumbering documents", () => {
@@ -134,6 +147,20 @@ test("validation failure keeps the candidate staged and rollback restores the ol
   assert.equal(failed.settingsRevisionClock, 2, "failed candidate revision is never reused");
   assert.equal(failed.lastActivationOutcome?.result, "validation-failed");
   assert.equal(failed.lastActivationOutcome?.errorCode, "credential_unresolved");
+
+  // Replacing or discarding the candidate takes its outcome with it, so no
+  // surface can keep rendering a failure for a candidate that is gone.
+  const replaced = reduceSettingsStateV2(failed, {
+    kind: "save-document",
+    document: credentialedDocument("REPLACEMENT_PROVIDER_KEY"),
+    lastTransaction: POINTER_B
+  });
+  assert.equal(replaced.lastActivationOutcome, null);
+  const discardedAfterFailure = reduceSettingsStateV2(failed, {
+    kind: "discard-pending",
+    lastTransaction: POINTER_B
+  });
+  assert.equal(discardedAfterFailure.lastActivationOutcome, null);
 
   const prepared = reduceSettingsStateV2(validating, { kind: "prepare" });
   const promoted = reduceSettingsStateV2(prepared, { kind: "promote" });

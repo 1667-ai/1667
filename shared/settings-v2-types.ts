@@ -259,10 +259,15 @@ export interface DiscardPendingSettingsCommand {
   readonly expectedStateGeneration: number;
 }
 
-/** Exact bounded durable result retained in the settings receipt. */
+/** Settings mutation response. The first four fields are the exact bounded
+ * durable result retained in the settings receipt; `activationOutcome` is
+ * composed at response time from the surfaced activation state, so a save
+ * that ran its in-process activation reports what happened in one round
+ * trip, and an idempotent replay reports the attempt that has since run. */
 export interface SettingsMutationResult {
   readonly kind: "settings";
   readonly settingsStateGeneration: number;
   readonly activeSettingsRevision: number;
   readonly pendingSettingsRevision: number | null;
+  readonly activationOutcome: SettingsActivationOutcomeV2 | null;
 }

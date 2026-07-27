@@ -458,7 +458,8 @@ function settingsMutationResult(view: Extract<SettingsView, { dataFormat: 2 }>):
     kind: "settings",
     settingsStateGeneration: view.stateGeneration,
     activeSettingsRevision: view.activeRevision,
-    pendingSettingsRevision: view.pendingRevision
+    pendingSettingsRevision: view.pendingRevision,
+    activationOutcome: view.lastActivationOutcome
   };
 }
 

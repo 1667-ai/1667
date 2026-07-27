@@ -8,8 +8,7 @@ import {
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import type {
   SettingsDocumentV2,
-  SettingsMutationResult,
-  SettingsView
+  SettingsMutationResult
 } from "../../shared/settings-v2-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
@@ -264,7 +263,10 @@ async function saveSettingsDraft(
   if (state.connection.down) {
     return void (state.toast = "offline · draft kept until the connection returns");
   }
-  if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay)) {
+  // A staged view means the last activation attempt did not commit; saving
+  // the unmodified candidate is the retry, so the no-op guards step aside.
+  const stagedRetry = overlay.view.pendingRevision !== null;
+  if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay) && !stagedRetry) {
     overlay.conflict = null;
     state.toast = "unchanged · no-op";
     return;
@@ -301,7 +303,8 @@ async function saveSettingsDraft(
       return;
     }
     if (
-      document === overlay.view.document
+      !stagedRetry
+      && document === overlay.view.document
       && Object.keys(connectionSecrets).length === 0
     ) {
       overlay.draft = overlay.base;
@@ -352,24 +355,20 @@ async function saveSettingsDraft(
       intent.draft,
       intent.connectionSecrets
     );
-    const message = settingsSaveMessage(result, saved, intent.command.mutationId);
+    const message = settingsSaveMessage(result);
     state.toast = newerEdits ? `${message} · newer edits kept` : message;
   });
 }
 
 /** A credential-touching save activates inside the save request, so the
- * refreshed view already carries this mutation's activation outcome. */
-function settingsSaveMessage(
-  result: SettingsMutationResult,
-  view: SettingsView,
-  mutationId: string
-): string {
-  if (result.pendingSettingsRevision === null) return "settings saved";
-  const outcome = view.editable
-    && view.lastActivationOutcome?.transactionId === mutationId
-    ? view.lastActivationOutcome
-    : null;
-  if (outcome === null) return "settings saved · activation pending";
+ * mutation result itself reports this save's activation outcome. */
+function settingsSaveMessage(result: SettingsMutationResult): string {
+  const outcome = result.activationOutcome;
+  if (outcome === null) {
+    return result.pendingSettingsRevision === null
+      ? "settings saved"
+      : "settings saved · activation pending";
+  }
   if (outcome.result === "committed") return "settings saved · credentials active";
   return `saved, not active · ${settingsActivationFailureText(outcome.errorCode)}`;
 }

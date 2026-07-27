@@ -1,6 +1,5 @@
 import {
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
-  type SettingsActivationErrorCodeV2,
   type ModelDiscoveryResultV2,
   type ModelDiscoverySourceV2,
   type SettingsActivationOutcomeV2,
@@ -98,23 +97,21 @@ function decodeActivationOutcome(value: unknown): SettingsActivationOutcomeV2 {
   if (outcome.result !== "validation-failed" && outcome.result !== "rolled-back") {
     invalid("settings activation outcome.result");
   }
-  const errorCode = outcome.errorCode;
-  if (
-    typeof errorCode !== "string"
-    || !(SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES as readonly string[]).includes(errorCode)
-  ) {
-    invalid("settings activation outcome.errorCode");
-  }
   return {
     ...common,
     result: outcome.result,
-    errorCode: errorCode as SettingsActivationErrorCodeV2
+    errorCode: oneOf(
+      outcome.errorCode,
+      SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
+      "settings activation outcome.errorCode"
+    )
   };
 }
 
 export function decodeSettingsMutationResult(value: unknown): SettingsMutationResult {
   const response = closedRecord(value, "settings mutation result", [
-    "kind", "settingsStateGeneration", "activeSettingsRevision", "pendingSettingsRevision"
+    "kind", "settingsStateGeneration", "activeSettingsRevision", "pendingSettingsRevision",
+    "activationOutcome"
   ]);
   if (response.kind !== "settings") invalid("settings mutation result.kind");
   return {
@@ -130,7 +127,10 @@ export function decodeSettingsMutationResult(value: unknown): SettingsMutationRe
     pendingSettingsRevision: nullablePositiveSafeInteger(
       response.pendingSettingsRevision,
       "settings mutation result.pendingSettingsRevision"
-    )
+    ),
+    activationOutcome: response.activationOutcome === null
+      ? null
+      : decodeActivationOutcome(response.activationOutcome)
   };
 }
 
@@ -215,6 +215,17 @@ function discoverySource(value: unknown, label: string): ModelDiscoverySourceV2 
   if (value !== "anthropic-models" && value !== "openai-models"
     && value !== "lm-studio-models" && value !== "ollama-tags") invalid(label);
   return value;
+}
+
+function oneOf<const T extends readonly string[]>(
+  value: unknown,
+  choices: T,
+  label: string
+): T[number] {
+  if (typeof value !== "string" || !(choices as readonly string[]).includes(value)) {
+    invalid(label);
+  }
+  return value as T[number];
 }
 
 function isCanonicalDate(value: string): boolean {

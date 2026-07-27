@@ -127,20 +127,24 @@ export function settingsDocumentsChangeCredentialReferences(
   return canonicalJson(credentialProjection(active)) !== canonicalJson(credentialProjection(candidate));
 }
 
-/** A save is admitted from clean or staged state; a staged save replaces the
+/** The only relations a save is admitted from. A staged save replaces the
  * pending candidate so a failed activation stays editable without a discard. */
+export const SETTINGS_SAVE_ADMISSIBLE_RELATIONS: readonly SettingsStateRelation[] =
+  ["clean", "staged"];
+
 function saveDocument(
   state: SettingsStateV2,
   rawDocument: SettingsDocumentV2,
   pointer: UserSettingsPointer
 ): SettingsStateV2 {
+  requireRelation(state, SETTINGS_SAVE_ADMISSIBLE_RELATIONS, "save settings");
   const relation = settingsStateRelation(state);
-  if (relation !== "clean" && relation !== "staged") {
-    throw new SettingsFormatError(`save settings requires clean or staged settings state, not ${relation}`);
-  }
   const document = parseSettingsDocumentV2(rawDocument);
   const active = documentAt(state, state.activeRevision);
   if (hashSettingsDocumentV2(active) === hashSettingsDocumentV2(document)) {
+    // Editing a staged candidate back to the active values is a discard of
+    // the candidate, not an error: the state machine already has that edge.
+    if (relation === "staged") return discardPending(state, pointer);
     throw new SettingsFormatError("settings document is unchanged");
   }
   const stateGeneration = increment(state.stateGeneration, "settings state generation");
@@ -157,6 +161,9 @@ function saveDocument(
     pendingRevision: staged ? revision : null,
     previousRevision: null,
     activation: null,
+    // Any earlier outcome described a candidate this save replaces; only the
+    // activation edges themselves may publish an outcome for a live state.
+    lastActivationOutcome: null,
     lastTransaction: pointer
   });
   if (staged) preflightActivationPath(next);
@@ -172,6 +179,9 @@ function discardPending(state: SettingsStateV2, pointer: UserSettingsPointer): S
     pendingRevision: null,
     previousRevision: null,
     activation: null,
+    // The discarded candidate takes its activation outcome with it; nothing
+    // may keep rendering a failure for a candidate that no longer exists.
+    lastActivationOutcome: null,
     lastTransaction: pointer
   });
 }
@@ -263,10 +273,7 @@ function finishCommit(state: SettingsStateV2): SettingsStateV2 {
 }
 
 function beginRollback(state: SettingsStateV2): SettingsStateV2 {
-  const relation = settingsStateRelation(state);
-  if (relation !== "prepared" && relation !== "promoted") {
-    throw new SettingsFormatError(`begin settings rollback requires prepared or promoted, not ${relation}`);
-  }
+  requireRelation(state, ["prepared", "promoted"], "begin settings rollback");
   return nextInternal(state, {
     activeRevision: state.previousRevision!,
     activation: { ...state.activation!, state: "rolling-back" }
@@ -402,12 +409,15 @@ function documentAt(state: SettingsStateV2, revision: number): SettingsDocumentV
 
 function requireRelation(
   state: SettingsStateV2,
-  expected: SettingsStateRelation,
+  expected: SettingsStateRelation | readonly SettingsStateRelation[],
   operation: string
 ): void {
+  const admissible = typeof expected === "string" ? [expected] : expected;
   const actual = settingsStateRelation(state);
-  if (actual !== expected) {
-    throw new SettingsFormatError(`${operation} requires ${expected} settings state, not ${actual}`);
+  if (!admissible.includes(actual)) {
+    throw new SettingsFormatError(
+      `${operation} requires ${admissible.join(" or ")} settings state, not ${actual}`
+    );
   }
 }
 
