@@ -16,6 +16,7 @@ import {
   type PackagedArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  RELEASE_LAUNCHER_PACKAGE,
   RELEASE_PACKAGE_COUNT,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
@@ -109,7 +110,7 @@ test("local release preflight CLI validates every tarball and emits canonical ev
   // Derived, so dropping or restoring a release target cannot silently
   // leave this gate asserting a stale artifact count.
   assert.equal(output.artifacts.length, RELEASE_PACKAGE_COUNT);
-  assert.equal(output.artifacts[0]!.name, "1667");
+  assert.equal(output.artifacts[0]!.name, RELEASE_LAUNCHER_PACKAGE);
   assert.match(stderr, /^release-manifest-sha256 [0-9a-f]{64}\n$/);
   assert.equal(JSON.stringify(output), stdout);
   assert.equal(

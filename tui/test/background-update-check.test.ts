@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  RELEASE_LAUNCHER_PACKAGE,
+  releaseTargetForArtifact
+} from "../../shared/release-targets.js";
+import {
   startBackgroundUpdateCheck,
   updateNotice
 } from "../src/background-update-check.js";
@@ -10,7 +14,7 @@ import type { UpgradeRegistry } from "../src/upgrade-plan.js";
 const cacheKey: UpdateCacheKey = {
   metadataKind: "npm",
   metadataOrigin: "https://registry.npmjs.org",
-  packageName: "1667",
+  packageName: RELEASE_LAUNCHER_PACKAGE,
   installIdentity: "manual:source:0.1.0",
   currentVersion: "0.1.0",
   artifactTarget: "source",
@@ -19,7 +23,7 @@ const cacheKey: UpdateCacheKey = {
 };
 const observation = {
   currentVersion: "0.1.0",
-  platformPackage: "1667-linux-x64" as const
+  platformPackage: releaseTargetForArtifact("linux-x64").packageName
 };
 
 describe("background update checking", () => {
@@ -47,7 +51,9 @@ describe("background update checking", () => {
     expect(fake.delays).toEqual([1_000]);
     await fake.runNext();
     expect(registryCalls).toBe(0);
-    expect(notices).toEqual(["1667 0.2.0 available · see npmjs.com/package/1667"]);
+    expect(notices).toEqual([
+      "1667 0.2.0 available · see npmjs.com/package/@1667-ai/cli"
+    ]);
     stop();
   });
 

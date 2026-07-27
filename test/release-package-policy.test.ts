@@ -6,10 +6,17 @@ import {
   type PackagedArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  RELEASE_LAUNCHER_PACKAGE,
   releasePlatformDependencyGraph,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import {
+  createReleaseLauncherManifest,
+  createReleasePlatformManifest,
+  releasePackageJson,
+  RELEASE_PACKAGE_REPOSITORY
+} from "../scripts/release-package-manifests.js";
 import {
   parseReleasePackageManifest,
   tarballFile,
@@ -18,6 +25,7 @@ import {
 } from "../scripts/release-package-policy.js";
 
 const VERSION = "2.0.0";
+const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
 const identities = createReleaseIdentitySet({
   schemaVersion: 1,
   productVersion: VERSION,
@@ -39,7 +47,7 @@ const identities = createReleaseIdentitySet({
 test("release package matrix pins every platform as an exact optional dependency", () => {
   const values = [launcherManifest(), ...PACKAGED_ARTIFACT_TARGETS.map(platformManifest)];
   const matrix = validateReleasePackageMatrix(values, identities);
-  assert.equal(matrix.launcher.name, "1667");
+  assert.equal(matrix.launcher.name, RELEASE_LAUNCHER_PACKAGE);
   assert.deepEqual(
     matrix.platforms.map((manifest) => manifest.target),
     PACKAGED_ARTIFACT_TARGETS
@@ -63,13 +71,45 @@ test("release package policy rejects scripts, undeclared fields, target skew, an
     ...launcherManifest(),
     optionalDependencies: {
       ...launcherManifest().optionalDependencies,
-      "1667-linux-x64": "2.0.1"
+      [PLATFORM_PACKAGE]: "2.0.1"
     }
   }, VERSION), /optional dependencies/);
   assert.throws(() => validateReleasePackageMatrix([
     launcherManifest(),
     ...PACKAGED_ARTIFACT_TARGETS.slice(1).map(platformManifest)
   ], identities), /one launcher and every platform/);
+});
+
+test("release package policy requires the repository and Linux-only glibc metadata", () => {
+  const { repository: _repository, ...missingRepository } = launcherManifest();
+  assert.throws(
+    () => parseReleasePackageManifest(missingRepository, VERSION),
+    /unknown or missing/
+  );
+  assert.throws(() => parseReleasePackageManifest({
+    ...launcherManifest(),
+    repository: { ...RELEASE_PACKAGE_REPOSITORY, url: "git+https://example.invalid/repo.git" }
+  }, VERSION), /repository/);
+
+  const linuxManifest = platformManifest("linux-x64");
+  assert.ok("libc" in linuxManifest);
+  const { libc: _libc, ...missingLibc } = linuxManifest;
+  assert.throws(
+    () => parseReleasePackageManifest(missingLibc, VERSION),
+    /unknown or missing/
+  );
+  assert.throws(() => parseReleasePackageManifest({
+    ...platformManifest("linux-x64"),
+    libc: ["musl"]
+  }, VERSION), /libc/);
+  assert.throws(() => parseReleasePackageManifest({
+    ...platformManifest("darwin-arm64"),
+    libc: ["glibc"]
+  }, VERSION), /unknown or missing/);
+  assert.throws(() => parseReleasePackageManifest({
+    ...launcherManifest(),
+    libc: ["glibc"]
+  }, VERSION), /unknown or missing/);
 });
 
 test("bounded tarball inspection accepts only declared regular files", () => {
@@ -82,7 +122,7 @@ test("bounded tarball inspection accepts only declared regular files", () => {
   assert.equal(inspection.entries.length, 6);
   assert.equal(
     tarballFile(inspection, "bin/1667").sha256,
-    sha256("1667-linux-x64 executable")
+    sha256(`${PLATFORM_PACKAGE} executable`)
   );
   assert.ok(Object.isFrozen(inspection.entries));
 });
@@ -122,29 +162,11 @@ test("tarball policy rejects links, traversal, extras, unsafe modes, and digest 
 });
 
 export function launcherManifest() {
-  return {
-    name: "1667",
-    version: VERSION,
-    private: false,
-    type: "module",
-    bin: { "1667": "bin/1667.js" },
-    files: ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"],
-    optionalDependencies: releasePlatformDependencyGraph(VERSION),
-    publishConfig: { access: "public" }
-  };
+  return releasePackageJson(createReleaseLauncherManifest(VERSION));
 }
 
 export function platformManifest(target: PackagedArtifactTarget) {
-  const policy = releaseTargetForArtifact(target);
-  return {
-    name: policy.packageName,
-    version: VERSION,
-    private: false,
-    os: [policy.platform],
-    cpu: [policy.arch],
-    files: [policy.executable, "build-manifest.json", "sbom.spdx.json"],
-    publishConfig: { access: "public" }
-  };
+  return releasePackageJson(createReleasePlatformManifest(target, VERSION));
 }
 
 export function tarballFixture(

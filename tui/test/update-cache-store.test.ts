@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { RELEASE_LAUNCHER_PACKAGE } from "../../shared/release-targets.js";
 import { createUpdateCacheEntry, type UpdateCacheKey } from "../src/update-cache.js";
 import {
   UPDATE_CACHE_FILE,
@@ -13,7 +14,7 @@ const roots: string[] = [];
 const key: UpdateCacheKey = {
   metadataKind: "npm",
   metadataOrigin: "https://registry.npmjs.org",
-  packageName: "1667",
+  packageName: RELEASE_LAUNCHER_PACKAGE,
   installIdentity: "manual:source:0.1.0",
   currentVersion: "0.1.0",
   artifactTarget: "source",

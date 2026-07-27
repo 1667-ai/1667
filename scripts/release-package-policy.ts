@@ -212,6 +212,9 @@ function parsePlatformManifest(
   commonManifest(input, expected);
   exactStringArray(input.os, expected.os, `${target} os`);
   exactStringArray(input.cpu, expected.cpu, `${target} cpu`);
+  if (expected.libc !== null) {
+    exactStringArray(input.libc, [expected.libc], `${target} libc`);
+  }
   exactStringArray(input.files, expected.files, `${target} files`);
   return expected;
 }
@@ -223,6 +226,11 @@ function commonManifest(
   if (input.name !== expected.name) throw new Error(`Release package must be named ${expected.name}`);
   if (input.version !== expected.version) throw new Error(`${expected.name} has the wrong version`);
   if (input.private !== expected.private) throw new Error(`${expected.name} must be explicitly public`);
+  exactStringRecord(
+    input.repository,
+    expected.repository,
+    `${expected.name} repository`
+  );
   exactStringRecord(
     input.publishConfig,
     expected.publishConfig,

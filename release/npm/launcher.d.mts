@@ -1,10 +1,16 @@
 import type { ChildProcess } from "node:child_process";
 
+export const LAUNCHER_PACKAGE_NAME: "@1667-ai/cli";
 export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, Readonly<{
-  packageName: string;
-  os: string;
-  cpu: string;
-  executable: string;
+  packageName:
+    | "@1667-ai/darwin-arm64"
+    | "@1667-ai/darwin-x64"
+    | "@1667-ai/linux-arm64"
+    | "@1667-ai/linux-x64";
+  os: "darwin" | "linux";
+  cpu: "arm64" | "x64";
+  libc: "glibc" | null;
+  executable: "bin/1667";
 }>>>;
 
 export interface LaunchPlan {

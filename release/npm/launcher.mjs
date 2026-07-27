@@ -11,29 +11,34 @@ import { fileURLToPath } from "node:url";
 
 // This file ships standalone. test/release-launcher.test.ts enforces exact
 // parity with shared/release-targets.ts, the canonical typed release policy.
+export const LAUNCHER_PACKAGE_NAME = "@1667-ai/cli";
 export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
   "darwin-arm64": Object.freeze({
-    packageName: "1667-darwin-arm64",
+    packageName: "@1667-ai/darwin-arm64",
     os: "darwin",
     cpu: "arm64",
+    libc: null,
     executable: "bin/1667"
   }),
   "darwin-x64": Object.freeze({
-    packageName: "1667-darwin-x64",
+    packageName: "@1667-ai/darwin-x64",
     os: "darwin",
     cpu: "x64",
+    libc: null,
     executable: "bin/1667"
   }),
   "linux-arm64": Object.freeze({
-    packageName: "1667-linux-arm64",
+    packageName: "@1667-ai/linux-arm64",
     os: "linux",
     cpu: "arm64",
+    libc: "glibc",
     executable: "bin/1667"
   }),
   "linux-x64": Object.freeze({
-    packageName: "1667-linux-x64",
+    packageName: "@1667-ai/linux-x64",
     os: "linux",
     cpu: "x64",
+    libc: "glibc",
     executable: "bin/1667"
   }),
   // windows-x64 is not a shipped target: see shared/release-targets.ts. The
@@ -65,10 +70,10 @@ export function resolveLaunchPlan(options = {}) {
   const launcherPackage = readBoundedJson(path.join(launcherRoot, "package.json"));
   const launcherBuild = parseBuildManifest(
     readBoundedJson(path.join(launcherRoot, "build-manifest.json")),
-    "1667",
+    LAUNCHER_PACKAGE_NAME,
     "launcher"
   );
-  if (launcherPackage.name !== "1667"
+  if (launcherPackage.name !== LAUNCHER_PACKAGE_NAME
     || launcherPackage.version !== launcherBuild.productVersion) {
     throw new Error("Launcher package and build manifest disagree");
   }
@@ -99,8 +104,12 @@ export function resolveLaunchPlan(options = {}) {
     || platformBuild.buildTimestamp !== launcherBuild.buildTimestamp) {
     throw new Error("Launcher and platform package identities disagree");
   }
+  const libcMatches = policy.libc === null
+    ? !Object.hasOwn(platformPackage, "libc")
+    : singleValue(platformPackage.libc, policy.libc);
   if (!singleValue(platformPackage.os, policy.os)
-    || !singleValue(platformPackage.cpu, policy.cpu)) {
+    || !singleValue(platformPackage.cpu, policy.cpu)
+    || !libcMatches) {
     throw new Error(`${policy.packageName} declares the wrong target`);
   }
 
@@ -122,10 +131,14 @@ export function resolveLaunchPlan(options = {}) {
 }
 
 function resolveLocalPlatformRoot(launcherRoot, packageName) {
-  const candidates = [
-    path.join(launcherRoot, "node_modules", packageName),
-    path.join(path.dirname(launcherRoot), packageName)
-  ];
+  const peerRoot = path.resolve(
+    launcherRoot,
+    ...LAUNCHER_PACKAGE_NAME.split("/").map(() => "..")
+  );
+  const candidates = [path.join(launcherRoot, "node_modules", packageName)];
+  if (path.basename(peerRoot) === "node_modules") {
+    candidates.push(path.join(peerRoot, packageName));
+  }
   const resolved = [];
   for (const candidate of new Set(candidates)) {
     try {
