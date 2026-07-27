@@ -71,15 +71,23 @@ export function reconcilePresentedMouseAction({
     return null;
   }
 
-  if (captured.version !== currentVersion) {
-    return rebaseAfterSemanticChange(action, captured, state);
-  }
   if (captured.storyId !== presented.storyId
     || captured.state.mode !== presented.state.mode) {
     return null;
   }
   if (captured === presented) return action;
 
+  // A gesture carrying its own stable identity is rebased against live state
+  // first: its row may sit at a different index than any frame recorded.
+  if (captured.version !== currentVersion) {
+    const rebased = rebaseAfterSemanticChange(action, captured, state);
+    if (rebased !== null) return rebased;
+  }
+  // Everything else re-resolves against the presented frame, whose hit map is
+  // what the writer is looking at, and is delivered when it still names the
+  // same thing. A repaint that was only pending when the click arrived moved
+  // nothing — dropping those is what made clicking a control feel unreliable
+  // while the story streamed.
   const latest = mouseToAction(event, presented.state, event.type === "up");
   if (latest === null || !sameMouseTarget(
     action, captured.state, latest, presented.state, event

@@ -213,6 +213,25 @@ describe("presented mouse reconciliation", () => {
     })).toEqual(action);
   });
 
+  test("delivers a control clicked while a repaint was pending", () => {
+    // The queue flushes a pending repaint before running the click, so the
+    // frame it lands on is one version past the one it was captured against.
+    // Nothing moved: the control is still under the pointer, so the click has
+    // to count. Dropping these is why clicking felt unreliable under load.
+    const state = initialState(demoAppSource(), false);
+    state.hitRows = [{ target: { kind: "action", action: "open-map" }, left: 0, right: 20 }];
+    const captured = interaction(state, 20);
+    const rebuilt = interaction(state, 21);
+    const resolved = mouseToAction(click, state, false)!;
+
+    expect(resolved.action).toBe("open-map");
+    expect(reconcile(state, resolved, captured, rebuilt)).toEqual({ action: "open-map" });
+
+    // …and it still refuses when the control is no longer what it names.
+    state.hitRows = [{ target: { kind: "action", action: "open-facts" }, left: 0, right: 20 }];
+    expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;
