@@ -14,7 +14,8 @@ import {
   readOptionalMutableSettingsAuthority,
   readOptionalSettingsFile,
   removeSettingsFile,
-  writePrivateSettingsFile
+  writePrivateSettingsFile,
+  type SettingsPublicationOptions
 } from "./settings-file-io.js";
 
 export interface SettingsStateFiles {
@@ -50,8 +51,15 @@ export async function stageSettingsState(
   await writePrivateSettingsFile(nextPath(dataDir), formatSettingsStateV2Bytes(state));
 }
 
-export async function publishStagedSettingsState(dataDir: string): Promise<void> {
-  await publishSettingsFile(nextPath(dataDir), currentPath(dataDir));
+export async function publishStagedSettingsState(
+  dataDir: string,
+  options: SettingsPublicationOptions = {}
+): Promise<void> {
+  await publishSettingsFile(
+    nextPath(dataDir),
+    currentPath(dataDir),
+    options
+  );
 }
 
 export async function discardStagedSettingsState(dataDir: string): Promise<void> {

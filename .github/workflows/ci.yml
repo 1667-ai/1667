@@ -131,4 +131,6 @@ jobs:
 
       - name: Build and execute packaged candidate
         working-directory: tui
+        env:
+          AI_1667_WINDOWS_DEFAULT_STATE_SMOKE: ${{ matrix.target == 'windows-x64' && '1' || '0' }}
         run: bun run build:standalone

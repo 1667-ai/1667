@@ -4,7 +4,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  rm,
   writeFile
 } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -28,7 +27,10 @@ import {
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { smokeInstalledDefaultData } from "./standalone-smoke-install.js";
 import { smokeWindowsNpmPackage } from "./standalone-smoke-package.js";
-import { runStandalone } from "./standalone-smoke-process.js";
+import {
+  removeSmokeTree,
+  runStandalone
+} from "./standalone-smoke-process.js";
 import { smokeSupervisedServe } from "./standalone-smoke-serve.js";
 
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -261,7 +263,7 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       console.log(`windows-package-sha256 ${digest}`);
     }
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await removeSmokeTree(directory);
   }
 }
 

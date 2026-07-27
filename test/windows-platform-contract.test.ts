@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
+  access,
   mkdir,
   mkdtemp,
   realpath,
@@ -17,6 +18,9 @@ import {
 import {
   createWindowsPrivateStateRootAdapter
 } from "../server/platform-state-root-windows.js";
+import {
+  createNodeWindowsPrivateStateRootAdapter
+} from "../server/platform-state-root-windows-node.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -79,6 +83,65 @@ test("Windows machine tier rejects a junction root", {
     resolveMachineTierRoot({ override: junction }),
     /reparse point/
   );
+});
+
+test("Windows machine tier rejects a junction above its root", {
+  skip: process.platform !== "win32"
+}, async (t) => {
+  const parent = await temporaryDirectory(
+    t,
+    "1667-windows-junction-ancestor-"
+  );
+  const target = path.join(parent, "target");
+  const junction = path.join(parent, "redirect");
+  const root = path.join(junction, "state");
+  await mkdir(target);
+  await symlink(target, junction, "junction");
+
+  await assert.rejects(
+    resolveMachineTierRoot({ override: root }),
+    /reparse/
+  );
+  await assert.rejects(access(path.join(target, "state")), /ENOENT/);
+});
+
+test("Node Windows adapter stays inside the server startup budget", {
+  skip: process.platform !== "win32" || process.versions.bun !== undefined,
+  timeout: 10_000
+}, async (t) => {
+  const parent = await temporaryDirectory(t, "1667-windows-node-adapter-");
+  const roots = Array.from(
+    { length: 4 },
+    (_, index) => path.join(parent, `state-${index}`)
+  );
+  const adapter = createNodeWindowsPrivateStateRootAdapter();
+
+  assert.deepEqual(
+    await Promise.all(
+      roots.map(async (root) =>
+        await adapter.preparePrivateStateRoot(root))
+    ),
+    roots
+  );
+});
+
+test("Windows machine tier repairs an existing non-user owner", {
+  skip: process.platform !== "win32"
+    || (
+      process.env.CI !== "true"
+      && process.env.AI_1667_TEST_FOREIGN_OWNER !== "1"
+    )
+}, async (t) => {
+  const parent = await temporaryDirectory(t, "1667-windows-owner-");
+  await grantInheritedEveryone(parent);
+  const root = path.join(parent, "state");
+  await mkdir(root);
+  await setNonUserOwner(root);
+  const before = await readSecurity(root);
+  assert.notEqual(before.owner, before.user);
+
+  assert.equal(await resolveMachineTierRoot({ override: root }), root);
+  await assertPrivateSecurity(root);
 });
 
 interface SecuritySnapshot {
@@ -144,6 +207,17 @@ $rule = New-Object Security.AccessControl.FileSystemAccessRule(
   [Security.AccessControl.AccessControlType]::Allow
 )
 [void]$acl.AddAccessRule($rule)
+[IO.Directory]::SetAccessControl($env:AI_1667_TEST_WINDOWS_PATH, $acl)
+`;
+  await runPowerShell(script, directory);
+}
+
+async function setNonUserOwner(directory: string): Promise<void> {
+  const script = String.raw`
+$acl = [IO.Directory]::GetAccessControl($env:AI_1667_TEST_WINDOWS_PATH)
+$acl.SetOwner(
+  (New-Object Security.Principal.SecurityIdentifier("S-1-5-32-544"))
+)
 [IO.Directory]::SetAccessControl($env:AI_1667_TEST_WINDOWS_PATH, $acl)
 `;
   await runPowerShell(script, directory);

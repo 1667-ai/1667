@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import {
   access,
   copyFile,
+  lstat,
   mkdir,
   readFile,
   realpath,
+  rmdir,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -19,6 +21,12 @@ import {
 import {
   releaseTargetForArtifact
 } from "../../shared/release-targets.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../../server/machine-tier.js";
+import {
+  createWindowsPrivateStateRootAdapter
+} from "../../server/platform-state-root-windows.js";
 import {
   parseReleasePackageManifest,
   validateReleaseTarballInspection,
@@ -35,12 +43,20 @@ import {
 import {
   readReleaseTarball
 } from "../../scripts/release-tar-reader.js";
-import { runStandalone } from "./standalone-smoke-process.js";
+import {
+  normalizeWindowsNpmLauncherTarball
+} from "../../scripts/windows-npm-launcher-tar.js";
+import {
+  removeSmokeTree,
+  runStandalone
+} from "./standalone-smoke-process.js";
 
 const execFileAsync = promisify(execFile);
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(tuiRoot);
 const WINDOWS_TARGET = releaseTargetForArtifact("windows-x64");
+const DEFAULT_STATE_SMOKE_VARIABLE =
+  "AI_1667_WINDOWS_DEFAULT_STATE_SMOKE";
 
 /** Stage the exact Windows package layout and execute it through the launcher. */
 export async function smokeWindowsNpmPackage(
@@ -173,12 +189,90 @@ export async function smokeWindowsNpmPackage(
   if (render.exitCode !== 0 || render.stderr !== "") {
     throw new Error(
       `Installed Windows npm worker smoke failed (${render.exitCode}): `
-        + render.stderr.trim()
+      + render.stderr.trim()
+    );
+  }
+  if (process.env[DEFAULT_STATE_SMOKE_VARIABLE] === "1") {
+    await smokeDefaultWindowsStateRoot(
+      installedLauncher,
+      installRoot,
+      environment
     );
   }
   return createHash("sha256")
     .update(await readFile(installedExecutable))
     .digest("hex");
+}
+
+async function smokeDefaultWindowsStateRoot(
+  installedLauncher: string,
+  installRoot: string,
+  environment: Record<string, string>
+): Promise<void> {
+  const adapter = await createWindowsPrivateStateRootAdapter();
+  const localAppData = await adapter.localAppDataDirectory();
+  const productRoot = path.join(localAppData, "1667");
+  const stateRoot = path.join(productRoot, "State");
+  const productExisted = await pathExists(productRoot);
+  if (await pathExists(stateRoot)) {
+    throw new Error(
+      `Windows default state smoke requires an absent root: ${stateRoot}`
+    );
+  }
+  const defaultEnvironment = { ...environment };
+  delete defaultEnvironment[MACHINE_TIER_OVERRIDE_VARIABLE];
+  let created = false;
+  try {
+    const render = await runStandalone(
+      "node",
+      [
+        installedLauncher,
+        "--data",
+        path.join(installRoot, "default-state-data"),
+        "--render-once",
+        "--size",
+        "20x10"
+      ],
+      installRoot,
+      defaultEnvironment
+    );
+    if (render.exitCode !== 0 || render.stderr !== "") {
+      throw new Error(
+        `Windows default state smoke failed (${render.exitCode}): `
+          + render.stderr.trim()
+      );
+    }
+    const info = await lstat(stateRoot);
+    const canonical = await realpath(stateRoot);
+    if (!info.isDirectory()
+      || info.isSymbolicLink()
+      || canonical.toLowerCase() !== stateRoot.toLowerCase()) {
+      throw new Error(
+        "Windows package did not create its canonical default state root"
+      );
+    }
+    created = true;
+  } finally {
+    if (created) {
+      await removeSmokeTree(stateRoot);
+      if (!productExisted) await rmdir(productRoot);
+    }
+  }
+  console.log("windows-default-state-smoke ok");
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await lstat(target);
+    return true;
+  } catch (error) {
+    if (error instanceof Error
+      && "code" in error
+      && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 interface NpmInvocation {
@@ -213,13 +307,33 @@ async function packAndValidate(
     throw new Error(`npm pack returned an unsafe filename for ${expected.name}`);
   }
   const tarball = path.join(packRoot, filename);
-  const parsed = await readReleaseTarball(await readFile(tarball));
-  const manifest = parseReleasePackageManifest(
+  let bytes = await readFile(tarball);
+  let parsed = await readReleaseTarball(bytes);
+  let manifest = parseReleasePackageManifest(
     parsed.packageManifest,
     expected.version
   );
   if (manifest.name !== expected.name) {
     throw new Error(`npm pack returned the wrong archive for ${expected.name}`);
+  }
+  const launcher = parsed.inspection.entries.find(
+    (entry) => entry.path === "package/bin/1667.js"
+  );
+  if (process.platform === "win32"
+    && manifest.kind === "launcher"
+    && launcher?.mode === 0o644) {
+    validateReleaseTarballInspection({
+      packageJsonSha256: parsed.inspection.packageJsonSha256,
+      entries: parsed.inspection.entries.map((entry) =>
+        entry === launcher ? { ...entry, mode: 0o755 } : entry)
+    }, manifest);
+    bytes = normalizeWindowsNpmLauncherTarball(bytes);
+    await writeFile(tarball, bytes);
+    parsed = await readReleaseTarball(bytes);
+    manifest = parseReleasePackageManifest(
+      parsed.packageManifest,
+      expected.version
+    );
   }
   validateReleaseTarballInspection(parsed.inspection, manifest);
   return tarball;

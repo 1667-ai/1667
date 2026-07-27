@@ -24,7 +24,14 @@ import {
   parseReleasePackageManifest,
   validateReleaseTarballInspection
 } from "../scripts/release-package-policy.js";
+import {
+  createReleaseLauncherManifest,
+  releasePackageJson
+} from "../scripts/release-package-manifests.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
+import {
+  normalizeWindowsNpmLauncherTarball
+} from "../scripts/windows-npm-launcher-tar.js";
 
 const manifest = parseReleasePackageManifest({
   name: "1667-linux-x64",
@@ -116,6 +123,57 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   assert.equal(
     (result.packageManifest as Record<string, unknown>).version,
     "3.0.0"
+  );
+});
+
+test("Windows npm launcher mode normalization preserves strict policy", async () => {
+  const launcherPackageJson = releasePackageJson(
+    createReleaseLauncherManifest("3.0.0")
+  );
+  const launcher = parseReleasePackageManifest(
+    launcherPackageJson,
+    "3.0.0"
+  );
+  const tarball = gzipSync(tar([
+    entry(
+      "package/package.json",
+      "0",
+      0o644,
+      Buffer.from(JSON.stringify(launcherPackageJson))
+    ),
+    entry(
+      "package/bin/1667.js",
+      "0",
+      0o644,
+      Buffer.from("#!/usr/bin/env node\n")
+    ),
+    entry(
+      "package/build-manifest.json",
+      "0",
+      0o644,
+      Buffer.from('{"schemaVersion":1}')
+    ),
+    entry(
+      "package/sbom.spdx.json",
+      "0",
+      0o644,
+      Buffer.from('{"spdxVersion":"SPDX-2.3"}')
+    )
+  ]));
+  const before = await readReleaseTarball(tarball);
+  assert.throws(() =>
+    validateReleaseTarballInspection(before.inspection, launcher));
+
+  const normalized = await readReleaseTarball(
+    normalizeWindowsNpmLauncherTarball(tarball)
+  );
+  assert.doesNotThrow(() =>
+    validateReleaseTarballInspection(normalized.inspection, launcher));
+  assert.equal(
+    normalized.inspection.entries.find(
+      (item) => item.path === "package/bin/1667.js"
+    )?.mode,
+    0o755
   );
 });
 

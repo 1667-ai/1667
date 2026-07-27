@@ -22,8 +22,7 @@ import {
 } from "./settings-store-fixtures.js";
 
 test("current settings read remains valid across atomic replacement", {
-  timeout: 5_000,
-  skip: process.platform === "win32"
+  timeout: 5_000
 }, async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,
@@ -41,13 +40,31 @@ test("current settings read remains valid across atomic replacement", {
 
   const reading = readSettingsState(dataDir);
   await pause.entered;
+  let contentionResolve!: () => void;
+  let publishResolve!: () => void;
+  const contention = new Promise<void>((resolve) => {
+    contentionResolve = resolve;
+  });
+  const publishReleased = new Promise<void>((resolve) => {
+    publishResolve = resolve;
+  });
+  const publishing = publishStagedSettingsState(dataDir, {
+    waitForWindowsContention: async () => {
+      contentionResolve();
+      await publishReleased;
+    }
+  });
   try {
-    await publishStagedSettingsState(dataDir);
+    if (process.platform === "win32") {
+      await Promise.race([contention, publishing]);
+    }
   } finally {
     pause.release();
   }
 
   assert.deepEqual(await reading, INITIAL_SETTINGS_STATE_V2);
+  publishResolve();
+  await publishing;
   assert.deepEqual(await readSettingsState(dataDir), replacement);
 });
 

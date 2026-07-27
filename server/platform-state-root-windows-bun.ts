@@ -1,5 +1,3 @@
-import { mkdir, realpath } from "node:fs/promises";
-import path from "node:path";
 import {
   loadBunFfi,
   type BunFfi,
@@ -14,15 +12,21 @@ import {
   type WindowsSecurityLibraries,
   type WindowsSecuritySids
 } from "./platform-state-root-windows-bun-security.js";
+import {
+  prepareWindowsPrivateDirectoryPlan,
+  requireCanonicalWindowsDirectory
+} from "./platform-state-root-windows-path.js";
+import {
+  windowsLocalAppDataDirectory
+} from "./platform-state-root-windows-local-app-data.js";
 
-const CSIDL_LOCAL_APP_DATA = 0x001c;
-const SHGFP_TYPE_CURRENT = 0;
 const ERROR_ALREADY_EXISTS = 183;
 const FILE_ATTRIBUTE_DIRECTORY = 0x0000_0010;
 const FILE_ATTRIBUTE_REPARSE_POINT = 0x0000_0400;
 const FILE_READ_ATTRIBUTES = 0x0000_0080;
 const READ_CONTROL = 0x0002_0000;
 const WRITE_DAC = 0x0004_0000;
+const WRITE_OWNER = 0x0008_0000;
 const FILE_SHARE_ALL = 0x0000_0007;
 const OPEN_EXISTING = 3;
 const FILE_FLAG_BACKUP_SEMANTICS = 0x0200_0000;
@@ -32,10 +36,13 @@ const TOKEN_USER = 1;
 const WIN_LOCAL_SYSTEM_SID = 22;
 const SECURITY_MAX_SID_SIZE = 68;
 const SE_FILE_OBJECT = 1;
+const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;
 const PROTECTED_DACL_SECURITY_INFORMATION = 0x8000_0000;
 const PRIVATE_DACL_SECURITY_INFORMATION =
-  PROTECTED_DACL_SECURITY_INFORMATION + DACL_SECURITY_INFORMATION;
+  OWNER_SECURITY_INFORMATION
+  + PROTECTED_DACL_SECURITY_INFORMATION
+  + DACL_SECURITY_INFORMATION;
 const FILE_ATTRIBUTE_TAG_INFO_CLASS = 9;
 const INVALID_HANDLE_VALUE = -1n;
 
@@ -55,22 +62,33 @@ interface UserSids extends WindowsSecuritySids {
   readonly system: number;
 }
 
+interface DirectorySnapshot {
+  readonly directory: string;
+  readonly identity: Buffer;
+}
+
 export function createBunWindowsPrivateStateRootAdapter(): WindowsPrivateStateRootAdapter {
   return {
-    localAppDataDirectory: async () => await localAppDataDirectory(),
+    localAppDataDirectory: async () => await windowsLocalAppDataDirectory(),
     preparePrivateStateRoot: async (root, trustedBase) => {
-      const candidates = await privateDirectoryCandidates(root, trustedBase);
+      const plan = await prepareWindowsPrivateDirectoryPlan(root, trustedBase);
       const ffi = await loadBunFfi();
       const libraries = openLibraries(ffi);
       let sids: UserSids | undefined;
       try {
         sids = currentUserAndSystemSids(ffi, libraries);
-        for (const candidate of candidates) {
+        const ancestors = plan.stableAncestors.map((directory) =>
+          snapshotDirectory(ffi, libraries, directory));
+        for (const candidate of plan.candidates) {
           createDirectory(ffi, libraries, candidate);
           protectDirectory(ffi, libraries, candidate, sids);
         }
-        for (const candidate of candidates) {
+        await requireCanonicalWindowsDirectory(root);
+        for (const candidate of plan.candidates) {
           validateDirectory(ffi, libraries, candidate, sids);
+        }
+        for (const ancestor of ancestors) {
+          requireStableSnapshot(ffi, libraries, ancestor);
         }
       } finally {
         if (sids !== undefined) {
@@ -83,62 +101,6 @@ export function createBunWindowsPrivateStateRootAdapter(): WindowsPrivateStateRo
       return root;
     }
   };
-}
-
-async function localAppDataDirectory(): Promise<string> {
-  const ffi = await loadBunFfi();
-  const shell = ffi.dlopen("shell32.dll", {
-    SHGetFolderPathW: {
-      args: ["ptr", "i32", "ptr", "u32", "ptr"],
-      returns: "i32"
-    }
-  });
-  const storage = Buffer.alloc(32_768 * 2);
-  try {
-    const result = Number(shell.symbols.SHGetFolderPathW!(
-      0,
-      CSIDL_LOCAL_APP_DATA,
-      0,
-      SHGFP_TYPE_CURRENT,
-      ffi.ptr(storage)
-    ));
-    if (result !== 0) {
-      throw new Error(`Windows LocalAppData lookup failed (${result})`);
-    }
-    const observed = decodeWideString(storage);
-    if (observed === "") throw new Error("Windows returned an empty LocalAppData path");
-    return await realpath(observed);
-  } finally {
-    storage.fill(0);
-    shell.close();
-  }
-}
-
-async function privateDirectoryCandidates(
-  root: string,
-  trustedBase: string | undefined
-): Promise<readonly string[]> {
-  if (trustedBase === undefined) {
-    await mkdir(root, { recursive: true });
-    return [root];
-  }
-  const relative = path.win32.relative(trustedBase, root);
-  if (relative === ""
-    || path.win32.isAbsolute(relative)
-    || relative === ".."
-    || relative.startsWith(`..${path.win32.sep}`)) {
-    throw new Error("Windows private state root is outside its trusted base");
-  }
-  const components = relative.split(path.win32.sep);
-  if (components.some((component) =>
-    component === "" || component === "." || component === "..")) {
-    throw new Error("Windows private state root has an invalid component");
-  }
-  let cursor = trustedBase;
-  return components.map((component) => {
-    cursor = path.win32.join(cursor, component);
-    return cursor;
-  });
 }
 
 function openLibraries(ffi: BunFfi): WindowsLibraries {
@@ -297,7 +259,7 @@ function protectDirectory(
         handle,
         SE_FILE_OBJECT,
         PRIVATE_DACL_SECURITY_INFORMATION,
-        0,
+        sids.user,
         0,
         ffi.ptr(acl),
         0
@@ -321,7 +283,12 @@ function validateDirectory(
   directory: string,
   sids: UserSids
 ): void {
-  const handle = openPrivateDirectory(ffi, libraries, directory);
+  const handle = openDirectory(
+    ffi,
+    libraries,
+    directory,
+    FILE_READ_ATTRIBUTES | READ_CONTROL
+  );
   try {
     validateHandleSecurity(ffi, libraries, handle, directory, sids);
     requireStablePath(
@@ -340,11 +307,25 @@ function openPrivateDirectory(
   libraries: WindowsLibraries,
   directory: string
 ): NativeHandle {
+  return openDirectory(
+    ffi,
+    libraries,
+    directory,
+    FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC | WRITE_OWNER
+  );
+}
+
+function openDirectory(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  directory: string,
+  access: number
+): NativeHandle {
   const encoded = wideString(directory);
   try {
     const handle = libraries.kernel.symbols.CreateFileW!(
       ffi.ptr(encoded),
-      FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC,
+      access,
       FILE_SHARE_ALL,
       0,
       OPEN_EXISTING,
@@ -385,7 +366,12 @@ function requireStablePath(
   directory: string,
   expected: Buffer
 ): void {
-  const linked = openPrivateDirectory(ffi, libraries, directory);
+  const linked = openDirectory(
+    ffi,
+    libraries,
+    directory,
+    FILE_READ_ATTRIBUTES
+  );
   try {
     const actual = fileIdentity(ffi, libraries, linked, directory);
     if (!actual.equals(expected)) {
@@ -393,6 +379,55 @@ function requireStablePath(
     }
   } finally {
     closeHandle(libraries, linked, directory);
+  }
+}
+
+function snapshotDirectory(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  directory: string
+): DirectorySnapshot {
+  const handle = openDirectory(
+    ffi,
+    libraries,
+    directory,
+    FILE_READ_ATTRIBUTES
+  );
+  try {
+    return {
+      directory,
+      identity: fileIdentity(ffi, libraries, handle, directory)
+    };
+  } finally {
+    closeHandle(libraries, handle, directory);
+  }
+}
+
+function requireStableSnapshot(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  snapshot: DirectorySnapshot
+): void {
+  const handle = openDirectory(
+    ffi,
+    libraries,
+    snapshot.directory,
+    FILE_READ_ATTRIBUTES
+  );
+  try {
+    const actual = fileIdentity(
+      ffi,
+      libraries,
+      handle,
+      snapshot.directory
+    );
+    if (!actual.equals(snapshot.identity)) {
+      throw new Error(
+        `Windows private state ancestor changed: ${snapshot.directory}`
+      );
+    }
+  } finally {
+    closeHandle(libraries, handle, snapshot.directory);
   }
 }
 
@@ -444,13 +479,4 @@ function safePointer(value: bigint, label: string): number {
 
 function wideString(value: string): Buffer {
   return Buffer.from(`${value}\0`, "utf16le");
-}
-
-function decodeWideString(value: Buffer): string {
-  let end = 0;
-  while (end + 1 < value.byteLength
-    && (value[end] !== 0 || value[end + 1] !== 0)) {
-    end += 2;
-  }
-  return value.subarray(0, end).toString("utf16le");
 }
