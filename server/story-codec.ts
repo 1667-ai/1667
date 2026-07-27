@@ -37,7 +37,12 @@ import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 
 export interface DecodedStoryBundle {
   story: Story;
-  revisions: ReadonlyMap<ObjectHash, TextRevisionV1>;
+  /** Live view of the decode cache's hash-verified revisions: the same map
+   * keeps growing while `hydrateStoryNodes` reads more of the committed
+   * graph. Callers depend on that aliasing — the aggregate session adopts it
+   * at prepare time so hydrated-late nodes stay verified — so it must not be
+   * snapshotted into a copy. */
+  liveRevisions: ReadonlyMap<ObjectHash, TextRevisionV1>;
 }
 
 interface StoryBundleState {
@@ -208,7 +213,7 @@ export async function decodeStoryBundle(
     nodesById: new Map(nodes.map((node) => [node.id, node] as const)),
     storedById: new Map(manifest.nodes.map((node) => [node.id, node] as const))
   });
-  return { story, revisions: cache.revisions };
+  return { story, liveRevisions: cache.revisions };
 }
 
 export async function hydrateStoryNodes(story: Story, nodeIds: readonly string[]): Promise<void> {

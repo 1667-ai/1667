@@ -87,6 +87,47 @@ export class BoundedCleanupQueue {
   }
 }
 
+export type SettledCleanupIntent = "sweep-owed" | "retire-marker" | "no-marker";
+
+/** One writer-side algebra for the durable sweep marker, shared by the V5
+ * store and the V6 aggregate session. Intent must be durable before the
+ * first immutable-object write and before any manifest publishes without
+ * previously committed references; settle names what the committed
+ * replacement owes afterwards. */
+export class StoryCleanupIntent {
+  private published: boolean;
+
+  private constructor(
+    private readonly bundleDir: string,
+    private readonly storyId: string,
+    readonly wasPending: boolean
+  ) {
+    this.published = wasPending;
+  }
+
+  static async begin(bundleDir: string, storyId: string): Promise<StoryCleanupIntent> {
+    return new StoryCleanupIntent(bundleDir, storyId, await cleanupPending(bundleDir));
+  }
+
+  /** Idempotent durable publication; safe as a lazy first-write barrier. */
+  async publish(): Promise<void> {
+    if (this.published) return;
+    await markCleanupPending(this.bundleDir, this.storyId);
+    this.published = true;
+  }
+
+  /** Decide the post-commit obligation once the replacement's references are
+   * known. Dropped references publish intent here, before the manifest that
+   * drops them can stage. A marker that predates this mutation always keeps
+   * its sweep; one published only for this mutation's own writes can retire
+   * at commit because everything written is then referenced. */
+  async settle(droppedReferences: boolean): Promise<SettledCleanupIntent> {
+    if (droppedReferences) await this.publish();
+    if (this.wasPending || droppedReferences) return "sweep-owed";
+    return this.published ? "retire-marker" : "no-marker";
+  }
+}
+
 export async function cleanupPending(bundleDir: string): Promise<boolean> {
   try {
     await readFile(path.join(bundleDir, CLEANUP_MARKER_FILENAME));

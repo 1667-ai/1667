@@ -38,6 +38,15 @@ const OBJECT_TEMP_PATTERN = exactStringPattern(
 );
 const SHARD_PATTERN = exactStringPattern("[a-f0-9]{2}");
 
+export interface StoryObjectStoreOptions {
+  /** Injectable hard-link primitive for reuse-path failure simulation. */
+  readonly linkObject?: typeof link;
+  /** Awaited exactly once before this instance's first object write lands,
+   * so callers can publish durable recovery intent only for mutations that
+   * actually create objects. */
+  readonly beforeFirstWrite?: () => Promise<void>;
+}
+
 export interface StoryReadCache {
   chunks: Map<ObjectHash, string>;
   revisions: Map<ObjectHash, TextRevisionV1>;
@@ -65,17 +74,22 @@ export class StoryObjectStore {
     revisions: new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
+  /** Bare revision ids adopted from the currently committed manifest. Their
+   * bodies were never read by this instance, so they are held apart from
+   * `verifiedObjects`, which only ever contains hashes proven against bytes. */
+  private readonly trustedCommittedRevisions = new Set<ObjectHash>();
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
+  private readonly linkObject: typeof link;
+  private readonly beforeFirstWrite?: () => Promise<void>;
 
   constructor(
     readonly bundleDir: string,
-    private readonly linkObject: typeof link = link,
-    /** Awaited exactly once before this instance's first object write lands,
-     * so callers can publish durable recovery intent only for mutations that
-     * actually create objects. */
-    private readonly beforeFirstWrite?: () => Promise<void>
-  ) {}
+    options: StoryObjectStoreOptions = {}
+  ) {
+    this.linkObject = options.linkObject ?? link;
+    this.beforeFirstWrite = options.beforeFirstWrite;
+  }
 
   async init(): Promise<void> {
     await this.ensureBundleDirectory();
@@ -166,14 +180,12 @@ export class StoryObjectStore {
     const chunkIds = new Set<ObjectHash>();
     const unverified: ObjectHash[] = [];
     for (const hash of revisionIds) {
-      if (this.verifiedObjects.revisions.has(hash)) {
-        // A verified revision without a known body was adopted from the
-        // committed manifest; its chunks were verified before that manifest
-        // could publish, so there is nothing left to enumerate.
-        const known = this.knownRevisions.get(hash);
-        if (known !== undefined) {
-          for (const chunkHash of known.chunks) chunkIds.add(chunkHash);
-        }
+      const known = this.knownRevisions.get(hash);
+      if (known !== undefined && this.verifiedObjects.revisions.has(hash)) {
+        for (const chunkHash of known.chunks) chunkIds.add(chunkHash);
+      } else if (this.trustedCommittedRevisions.has(hash)) {
+        // A bare committed id: its body and chunks were verified before the
+        // committed manifest could publish, so nothing is left to enumerate.
       } else {
         unverified.push(hash);
       }
@@ -232,7 +244,7 @@ export class StoryObjectStore {
    * their bodies; verifyGraph re-reads only ids outside the committed set. */
   adoptCommittedRevisionIds(revisionIds: readonly ObjectHash[]): void {
     for (const hash of revisionIds) {
-      this.verifiedObjects.revisions.add(requireHash(hash, "committed revision id"));
+      this.trustedCommittedRevisions.add(requireHash(hash, "committed revision id"));
     }
   }
 
