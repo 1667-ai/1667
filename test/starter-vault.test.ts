@@ -6,7 +6,8 @@ import test from "node:test";
 import { starterKeyToken } from "../shared/starter-keys.js";
 import {
   STARTER_OPENING_STORY_ID,
-  STARTER_STORIES
+  STARTER_STORIES,
+  starterProse
 } from "../shared/starter-vault.js";
 import { StoryService } from "../server/story-service.js";
 
@@ -96,6 +97,39 @@ test("tags stay on the parts the prose points at", async () => {
   });
 });
 
+test("both starter stories open with facts of their own", async () => {
+  await withService({}, async (service) => {
+    for (const story of STARTER_STORIES) {
+      const payload = await service.loadStory(story.id);
+      assert.deepEqual(
+        payload.facts.map((fact) => ({ tag: fact.tag, text: fact.text })),
+        story.facts.map((fact) => ({ tag: fact.tag, text: fact.text })),
+        `${story.title} seeded the wrong facts`
+      );
+      // The overlay titles a fact by its first line and sorts it by its tag, so
+      // a fact with neither is a blank row in a list the tour points at.
+      for (const fact of payload.facts) {
+        assert.ok(fact.text.split("\n")[0]?.trim(), "a fact needs a first line to be named by");
+        assert.ok(fact.tag !== null && fact.tag.length > 0, "a fact needs a tag to sort under");
+      }
+    }
+  });
+});
+
+test("a story's facts are written in the one change that writes its prose", async () => {
+  // Seeding is the slowest part of a first run and each change rewrites the
+  // whole manifest, so the vault writes a story once. One shared createdAt is
+  // what that leaves behind: a seeder that added facts one command at a time
+  // would spread them over as many timestamps as facts.
+  await withService({}, async (service) => {
+    for (const story of STARTER_STORIES) {
+      const payload = await service.loadStory(story.id);
+      const stamps = new Set(payload.facts.map((fact) => fact.createdAt));
+      assert.equal(stamps.size, 1, `${story.title} wrote its facts in ${stamps.size} changes`);
+    }
+  });
+});
+
 test("a first run opens on the tour, not the story seeded beside it", async () => {
   await withService({}, async (service) => {
     // Clients resolve "which story" by newest updatedAt, so the tour has to be
@@ -176,16 +210,12 @@ test("starter prose spells every key it declares", async () => {
   // Only this direction lives here. The opposite one — prose may not spell a
   // key it never declared — needs the real resolver and the keys overlay, so it
   // is asserted once in tui/test/starter-vault-keys.test.ts rather than twice.
-  for (const story of STARTER_STORIES) {
-    for (const beat of story.beats) {
-      for (const take of beat.takes) {
-        for (const id of take.keys ?? []) {
-          assert.ok(
-            take.text.includes(starterKeyToken(id)),
-            `${take.slug} declares ${id} but never spells ${starterKeyToken(id)}`
-          );
-        }
-      }
+  for (const prose of starterProse()) {
+    for (const id of prose.keys) {
+      assert.ok(
+        prose.text.includes(starterKeyToken(id)),
+        `${prose.slug} declares ${id} but never spells ${starterKeyToken(id)}`
+      );
     }
   }
 });

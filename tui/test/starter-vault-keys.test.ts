@@ -5,7 +5,7 @@ import {
   type StarterKey,
   type StarterKeyId
 } from "../../shared/starter-keys.js";
-import { STARTER_STORIES } from "../../shared/starter-vault.js";
+import { STARTER_STORIES, starterProse } from "../../shared/starter-vault.js";
 import { resolveKey } from "../src/keys.js";
 import { KEYS_MODAL_MODEL } from "../src/screens/keys-modal.js";
 
@@ -72,22 +72,18 @@ describe("starter vault key contract", () => {
     // `?` drew a QWERTY diagram once, and the tour promised one. Onboarding
     // that confidently describes a removed screen is the same failure as
     // teaching a rebound key.
-    const prose = STARTER_STORIES
-      .flatMap((story) => story.beats.flatMap((beat) => beat.takes.map((take) => take.text)))
-      .join("\n");
+    const prose = starterProse().map((entry) => entry.text).join("\n");
     expect(prose).toContain("[?] is the key reference");
     expect(prose).not.toContain("keyboard");
   });
 
   test("prose declares a key for every bracketed token it shows", () => {
-    for (const story of STARTER_STORIES) {
-      for (const beat of story.beats) {
-        for (const take of beat.takes) {
-          const allowed = new Set<string>((take.keys ?? []).map((id) => STARTER_KEYS[id].token));
-          for (const match of take.text.matchAll(/\[([^\]]+)\]/g)) {
-            expect(`${take.slug}:${allowed.has(match[1]!)}`).toBe(`${take.slug}:true`);
-          }
-        }
+    // Facts are prose too, and prose the reader trusts the same way. They go
+    // through the same traversal so a fact cannot teach an undeclared key.
+    for (const entry of starterProse()) {
+      const allowed = new Set<string>(entry.keys.map((id) => STARTER_KEYS[id].token));
+      for (const match of entry.text.matchAll(/\[([^\]]+)\]/g)) {
+        expect(`${entry.slug}:${allowed.has(match[1]!)}`).toBe(`${entry.slug}:true`);
       }
     }
   });

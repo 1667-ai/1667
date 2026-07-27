@@ -44,7 +44,6 @@ import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gut
 import { applyComposePageMode, renderComposerLayout } from "./story/composer.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
-import { isStoryViewportPinned } from "../viewport-intent.js";
 import {
   buildComposerSelectionProjection,
   buildStorySelectionProjection,
@@ -107,8 +106,6 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const rows = view.rows;
   const blocks: ViewportBlock[] = [];
   let focusedGutter: FocusedStickyGutter | null = null;
-  const toastInNavFooter = state.mode !== "COMPOSE" && state.toast !== null
-    && isStoryViewportPinned(state);
   if (view.chapters.length > 1) {
     blocks.push({
       partId: "chapter-one-heading", partIndex: -1,
@@ -117,9 +114,6 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     });
   }
   for (const [rowIndex, row] of rows.entries()) {
-    const toast = !toastInNavFooter && state.mode !== "COMPOSE" && state.toast !== null && rowIndex === state.focusIndex
-      ? state.toast
-      : null;
     const layout = layoutStoryRow(row, rowIndex, parts, state, measure, narrow, cache, options.deadlines);
     if (layout.stickyGutter !== null) {
       focusedGutter = {
@@ -131,20 +125,8 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     blocks.push({
       partId: row.id,
       partIndex: rowIndex,
-      height: layout.height + 1 + (toast === null ? 0 : 2),
-      render: () => [
-        ...layout.render(),
-        [],
-        ...(toast === null ? [] : [[segment("  "), segment(toast, "focus / accent")], []] as FrameLine[])
-      ]
-    });
-  }
-  // A toast must survive even when no part carries it (empty story, focus
-  // beyond the line): fall back to a standalone block above the composer.
-  if (!toastInNavFooter && state.mode !== "COMPOSE" && state.toast !== null && rows[state.focusIndex] === undefined) {
-    blocks.push({
-      partId: "toast", partIndex: -1, height: 2,
-      render: () => [[segment("  "), segment(state.toast!, "focus / accent")], []]
+      height: layout.height + 1,
+      render: () => [...layout.render(), []]
     });
   }
 
@@ -353,8 +335,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     const selected = tagStatusChoice(TAG_STATUSES[state.tag.statusIndex] ?? "");
     const tagPrefix = "› tag ";
     const nameWidth = Math.max(0, measure - visibleWidth(tagPrefix) - 1);
-    const pinned = isStoryViewportPinned(state);
-    const promptHint = state.toast !== null && pinned
+    const promptHint = state.toast !== null
       ? state.toast
       : state.tag.choosingStatus
         ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? " · d deletes" : ""}`
@@ -362,7 +343,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     return { lines: [
       rule,
       [segment(indent), segment(tagPrefix, "accent · deep"), segment(truncateTail(state.tag.name, nameWidth), "streaming"), segment(state.tag.choosingStatus ? "" : "▌", "focus / accent")],
-      [segment(indent), segment(promptHint, state.toast !== null && pinned ? "focus / accent" : "chrome")]
+      [segment(indent), segment(promptHint, state.toast !== null ? "focus / accent" : "chrome")]
     ], scrollTop: state.composerScrollTop };
   }
   if (state.mode !== "COMPOSE") {
@@ -389,13 +370,19 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
   return { lines: composer.lines, scrollTop: composer.scrollTop };
 }
 
-/** The contextual NAV hint under the story: what this focus can do next. */
+/** The contextual NAV hint under the story: what this focus can do next.
+ *
+ * A toast takes this line whatever the viewport is doing. The alternative was
+ * printing it under the focused part, which puts a message about the app inside
+ * the manuscript, reflows two lines of prose to do it, and lands somewhere new
+ * every time focus moves. One fixed line costs the hint for a moment, and the
+ * hint comes back. */
 function navHint(
   state: StoryScreenState,
   view: StoryViewModel,
   budget: number
 ): FrameLine {
-  if (state.toast !== null && isStoryViewportPinned(state)) {
+  if (state.toast !== null) {
     return [segment(state.toast, "focus / accent")];
   }
   if (state.connection.down) {

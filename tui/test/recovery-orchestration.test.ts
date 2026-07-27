@@ -813,6 +813,38 @@ describe("backend recovery orchestration", () => {
     expect(state.toast).not.toBe("reconnected · story reloaded");
   });
 
+  test("a clean startup recovery reloads without announcing itself", async () => {
+    // Every start publishes an empty warning batch to force this reload, so a
+    // toast here fires on every launch and reports bookkeeping the reader never
+    // saw go wrong. The reload still has to happen.
+    const source = demoAppSource();
+    const feed = new RecoveryWarningFeed();
+    const recoveredPayload = { ...source.payload };
+    source.backendRecovery = feed;
+    let reloads = 0;
+    source.api.loadStory = async () => { reloads += 1; return recoveredPayload; };
+    const state = initialState(source, false);
+    const settled = deferred<void>();
+    const repaint = () => {
+      if (state.backendTask === null && state.payload === recoveredPayload) settled.resolve();
+    };
+    const backend = new ActionRuntime(state, repaint);
+    const stop = startRecoveryOrchestration({
+      state,
+      source,
+      backend,
+      invalidateCache: () => undefined,
+      repaint
+    });
+
+    feed.publish([], true);
+    await settled.promise;
+
+    expect(reloads).toBe(1);
+    expect(state.toast).toBe(null);
+    stop();
+  });
+
   test("same-story warnings remain visible and acknowledge after local input", async () => {
     const source = demoAppSource();
     const feed = new RecoveryWarningFeed();

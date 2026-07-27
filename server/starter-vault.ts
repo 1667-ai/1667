@@ -18,6 +18,7 @@ import {
 import type { TagStatus } from "../shared/types.js";
 import { createChapterBreak } from "./chapter-breaks.js";
 import { uuidFromDigestHex } from "./deterministic-uuid.js";
+import { createFacts } from "./story-facts.js";
 import { commitTake, switchLine } from "./story-nodes.js";
 import type { StoryService } from "./story-service.js";
 import { putStoryTag } from "./story-tags.js";
@@ -95,6 +96,18 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
     // marker the tour points at.
     for (const tag of tags) {
       putStoryTag(fresh, tag.nodeId, tag.name, tag.status);
+    }
+
+    // Facts ride this same change. Seeding them through the fact command would
+    // publish a second manifest per story, doubling the write cost of a first
+    // run to buy nothing. One batch also gives every fact one createdAt, which
+    // is what "the vault arrived at once" should look like on disk.
+    if (story.facts.length > 0) {
+      createFacts(
+        fresh,
+        { facts: story.facts.map(({ tag, text }) => ({ tag, text })) },
+        (index) => derivedId(story.id, "fact", story.facts[index]!.slug)
+      );
     }
   });
 }
