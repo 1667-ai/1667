@@ -9,7 +9,7 @@ export type LockPrimitive = (
 ) => Promise<OsFileLock>;
 
 /**
- * ADR007: test the property the filesystem allowlist was reaching for instead
+ * Test the property the filesystem allowlist was reaching for instead
  * of enumerating filesystems.
  *
  * `flock` binds to the open file *description*, so a second `open()` of the

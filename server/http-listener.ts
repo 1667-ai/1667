@@ -46,7 +46,7 @@ interface HttpReadyContext extends HttpRequestContext {
 
 interface HttpListenerCommonOptions {
   readonly port?: number;
-  /** ADR007 machine tier. Defaults to the auth record's own state root. */
+  /** The machine tier. Defaults to the auth record's own state root. */
   readonly machineDir?: string;
   readonly developmentOrigin?: string | null;
   /** Also emit full unexpected-error diagnostics to stderr. */
@@ -93,7 +93,7 @@ export interface HttpListenerFailure {
 export async function startHttpListener(
   options: HttpListenerOptions = {}
 ): Promise<HttpListener> {
-  // ADR007: nothing owns a fixed port. Zero asks the kernel for a free one and
+  // Nothing owns a fixed port. Zero asks the kernel for a free one and
   // the project's run record publishes whatever it gave us.
   const port = options.port ?? 0;
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {

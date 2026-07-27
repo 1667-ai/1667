@@ -69,7 +69,9 @@ describe("run C overlay frames", () => {
 
     const compact = await renderOnce(demoAppSource(), 80, 24, "f");
     const maren = lineContaining(compact, "▸ Maren");
-    expect(maren).toContain("Keeps the lantern-ho");
+    // The closed frame spends two cells on its right edge and margin, so the
+    // note column ends two characters earlier than it did open-sided.
+    expect(maren).toContain("Keeps the lantern-");
     expect(maren.match(/Maren/g)).toHaveLength(1);
   });
 

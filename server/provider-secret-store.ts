@@ -104,7 +104,7 @@ export async function pruneProviderSecrets(
 }
 
 /**
- * ADR007 made this store machine-wide, so two projects can publish into it at
+ * This store is machine-wide, so two projects can publish into it at
  * once. Each publication is a read-modify-write through one reserved `.next`
  * name, which a concurrent writer would either lose or collide with. The lock
  * is on a separate file so the secrets file itself keeps its atomic

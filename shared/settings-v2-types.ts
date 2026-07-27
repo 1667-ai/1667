@@ -257,7 +257,7 @@ export interface DiscardPendingSettingsCommand {
   readonly expectedStateGeneration: number;
 }
 
-/** Exact bounded durable result retained in ADR006's settings receipt. */
+/** Exact bounded durable result retained in the settings receipt. */
 export interface SettingsMutationResult {
   readonly kind: "settings";
   readonly settingsStateGeneration: number;

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { once } from "node:events";
 import {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -16,29 +18,38 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import {
+  LAUNCHER_PACKAGE_NAME,
   LAUNCHER_RELEASE_TARGETS,
   resolveLaunchPlan,
+  runLauncher,
   selectTarget
 } from "../release/npm/launcher.mjs";
-import { RELEASE_TARGETS } from "../shared/release-targets.js";
+import {
+  RELEASE_LAUNCHER_PACKAGE,
+  RELEASE_TARGETS,
+  type PackagedArtifactTarget,
+  type ReleaseTargetDescriptor,
+  releaseTargetForArtifact
+} from "../shared/release-targets.js";
+import {
+  createReleasePlatformManifest,
+  releasePackageJson
+} from "../scripts/release-package-manifests.js";
 
 const VERSION = "3.0.0";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-23T10:20:30.000Z";
+const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
+const RUNNABLE_TARGET: PackagedArtifactTarget = process.platform === "win32"
+  ? "windows-x64"
+  : "linux-x64";
 const execFileAsync = promisify(execFile);
 
 test("standalone launcher target table exactly matches canonical release policy", () => {
+  assert.equal(LAUNCHER_PACKAGE_NAME, RELEASE_LAUNCHER_PACKAGE);
   assert.deepEqual(
-    LAUNCHER_RELEASE_TARGETS,
-    Object.fromEntries(RELEASE_TARGETS.map((descriptor) => [
-      descriptor.artifactTarget,
-      {
-        packageName: descriptor.packageName,
-        os: descriptor.platform,
-        cpu: descriptor.arch,
-        executable: descriptor.executable
-      }
-    ]))
+    launcherReleasePolicy(),
+    canonicalLauncherReleasePolicy()
   );
   for (const descriptor of RELEASE_TARGETS) {
     assert.equal(
@@ -58,31 +69,35 @@ test("script-free launcher resolves the exact local platform package with no fal
     args: ["--version", "--json"]
   });
   assert.equal(plan.target, "linux-x64");
-  assert.equal(plan.packageName, "1667-linux-x64");
+  assert.equal(plan.packageName, PLATFORM_PACKAGE);
   assert.equal(plan.productVersion, VERSION);
   assert.equal(plan.sourceCommit, COMMIT);
   assert.equal(plan.launcherRoot, root);
   assert.equal(
     plan.platformRoot,
-    path.join(root, "node_modules", "1667-linux-x64")
+    path.join(root, "node_modules", PLATFORM_PACKAGE)
   );
   assert.deepEqual(plan.args, ["--version", "--json"]);
   assert.equal(plan.executable, path.join(
     root,
     "node_modules",
-    "1667-linux-x64",
+    PLATFORM_PACKAGE,
     "bin",
     "1667"
   ));
-  await rm(path.join(root, "node_modules", "1667-linux-x64"), {
+  await rm(path.join(root, "node_modules", PLATFORM_PACKAGE), {
     recursive: true,
     force: true
   });
-  assert.throws(() => resolveLaunchPlan({
-    launcherRoot: root,
-    platform: "linux",
-    arch: "x64"
-  }), /Missing 1667-linux-x64/);
+  assert.throws(
+    () => resolveLaunchPlan({
+      launcherRoot: root,
+      platform: "linux",
+      arch: "x64"
+    }),
+    (error: unknown) => error instanceof Error
+      && error.message.includes(`Missing ${PLATFORM_PACKAGE}`)
+  );
 });
 
 test("launcher fails closed on package/build identity skew and unsupported targets", async (t) => {
@@ -91,7 +106,7 @@ test("launcher fails closed on package/build identity skew and unsupported targe
   const buildPath = path.join(
     root,
     "node_modules",
-    "1667-linux-x64",
+    PLATFORM_PACKAGE,
     "build-manifest.json"
   );
   const build = JSON.parse(await readFile(buildPath, "utf8")) as Record<string, unknown>;
@@ -104,33 +119,98 @@ test("launcher fails closed on package/build identity skew and unsupported targe
   assert.throws(() => selectTarget("win32", "arm64"), /Unsupported/);
 });
 
-test("launcher ignores NODE_PATH while accepting one documented hoisted package", async (t) => {
-  const { base, root } = await launcherFixture();
+test("launcher rejects missing or incorrect Linux libc metadata", async (t) => {
+  const { base, root, platformRoot } = await launcherFixture();
   t.after(() => rm(base, { recursive: true, force: true }));
-  const packageName = "1667-linux-x64";
+  const packagePath = path.join(platformRoot, "package.json");
+  const platformPackage = JSON.parse(
+    await readFile(packagePath, "utf8")
+  ) as Record<string, unknown>;
+
+  const { libc: _libc, ...withoutLibc } = platformPackage;
+  await writeFile(packagePath, JSON.stringify(withoutLibc));
+  assert.throws(() => resolveLaunchPlan({
+    launcherRoot: root,
+    platform: "linux",
+    arch: "x64"
+  }), /declares the wrong target/);
+
+  await writeFile(packagePath, JSON.stringify({
+    ...platformPackage,
+    libc: ["musl"]
+  }));
+  assert.throws(() => resolveLaunchPlan({
+    launcherRoot: root,
+    platform: "linux",
+    arch: "x64"
+  }), /declares the wrong target/);
+});
+
+test("launcher rejects libc metadata on a Darwin package", async (t) => {
+  const { base, root, platformRoot } = await launcherFixture("darwin-arm64");
+  t.after(() => rm(base, { recursive: true, force: true }));
+  assert.doesNotThrow(() => resolveLaunchPlan({
+    launcherRoot: root,
+    platform: "darwin",
+    arch: "arm64"
+  }));
+
+  const packagePath = path.join(platformRoot, "package.json");
+  const platformPackage = JSON.parse(
+    await readFile(packagePath, "utf8")
+  ) as Record<string, unknown>;
+  await writeFile(packagePath, JSON.stringify({
+    ...platformPackage,
+    libc: ["glibc"]
+  }));
+  assert.throws(() => resolveLaunchPlan({
+    launcherRoot: root,
+    platform: "darwin",
+    arch: "arm64"
+  }), /declares the wrong target/);
+});
+
+test("scoped launcher resolves and starts from the hoisted npm layout", async (t) => {
+  const descriptor = releaseTargetForArtifact(RUNNABLE_TARGET);
+  const { base, root, platformRoot } = await launcherFixture(RUNNABLE_TARGET);
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const packageName = descriptor.packageName;
   const nested = path.join(root, "node_modules", packageName);
   const ambientRoot = path.join(base, "ambient");
-  await mkdir(ambientRoot);
-  await rename(nested, path.join(ambientRoot, packageName));
+  const ambient = path.join(ambientRoot, packageName);
+  await mkdir(path.dirname(ambient), { recursive: true });
+  await rename(nested, ambient);
 
   const launcherUrl = pathToFileURL(path.resolve("release/npm/launcher.mjs")).href;
   const source = [
     `import assert from "node:assert/strict";`,
     `import { resolveLaunchPlan } from ${JSON.stringify(launcherUrl)};`,
     `assert.throws(() => resolveLaunchPlan({ launcherRoot: ${JSON.stringify(root)},`,
-    `  platform: "linux", arch: "x64" }), /Missing/);`
+    `  platform: ${JSON.stringify(descriptor.platform)},`,
+    `  arch: ${JSON.stringify(descriptor.arch)} }), /Missing/);`
   ].join("\n");
   await execFileAsync(process.execPath, ["--input-type=module", "--eval", source], {
     env: { ...process.env, NODE_PATH: ambientRoot }
   });
 
-  const hoisted = path.join(path.dirname(root), packageName);
-  await rename(path.join(ambientRoot, packageName), hoisted);
+  const hoisted = path.join(base, "node_modules", packageName);
+  assert.notEqual(hoisted, platformRoot);
+  await mkdir(path.dirname(hoisted), { recursive: true });
+  await rename(ambient, hoisted);
   assert.equal(resolveLaunchPlan({
     launcherRoot: root,
-    platform: "linux",
-    arch: "x64"
+    platform: descriptor.platform,
+    arch: descriptor.arch
   }).platformRoot, hoisted);
+  const child = runLauncher({
+    launcherRoot: root,
+    platform: descriptor.platform,
+    arch: descriptor.arch,
+    args: descriptor.platform === "win32" ? ["--version"] : []
+  });
+  const [code, signal] = await once(child, "exit");
+  assert.equal(code, 0);
+  assert.equal(signal, null);
 });
 
 test("launcher preserves an independently signalled child's failure", {
@@ -141,7 +221,7 @@ test("launcher preserves an independently signalled child's failure", {
   const executable = path.join(
     root,
     "node_modules",
-    "1667-linux-x64",
+    PLATFORM_PACKAGE,
     "bin",
     "1667"
   );
@@ -162,35 +242,60 @@ test("launcher preserves an independently signalled child's failure", {
   );
 });
 
-async function launcherFixture(): Promise<{ base: string; root: string }> {
+async function launcherFixture(): Promise<{
+  base: string;
+  root: string;
+  platformRoot: string;
+}>;
+async function launcherFixture(
+  target: PackagedArtifactTarget
+): Promise<{
+  base: string;
+  root: string;
+  platformRoot: string;
+}>;
+async function launcherFixture(
+  target: PackagedArtifactTarget = "linux-x64"
+): Promise<{
+  base: string;
+  root: string;
+  platformRoot: string;
+}> {
   const temporaryBase = await mkdtemp(path.join(tmpdir(), "1667-launcher-test-"));
   const base = await realpath(temporaryBase);
-  const root = path.join(base, "1667");
-  const platformRoot = path.join(root, "node_modules", "1667-linux-x64");
+  const platformManifest = releasePackageJson(
+    createReleasePlatformManifest(target, VERSION)
+  );
+  const platformPackage = platformManifest.name;
+  const root = path.join(base, "node_modules", RELEASE_LAUNCHER_PACKAGE);
+  const platformRoot = path.join(root, "node_modules", platformPackage);
   await mkdir(path.join(platformRoot, "bin"), { recursive: true });
   await writeFile(path.join(root, "package.json"), JSON.stringify({
-    name: "1667",
+    name: RELEASE_LAUNCHER_PACKAGE,
     version: VERSION,
-    optionalDependencies: { "1667-linux-x64": VERSION }
+    optionalDependencies: { [platformPackage]: VERSION }
   }));
   await writeFile(
     path.join(root, "build-manifest.json"),
-    JSON.stringify(buildManifest("1667", "launcher"))
+    JSON.stringify(buildManifest(RELEASE_LAUNCHER_PACKAGE, "launcher"))
   );
-  await writeFile(path.join(platformRoot, "package.json"), JSON.stringify({
-    name: "1667-linux-x64",
-    version: VERSION,
-    os: ["linux"],
-    cpu: ["x64"]
-  }));
+  await writeFile(
+    path.join(platformRoot, "package.json"),
+    JSON.stringify(platformManifest)
+  );
   await writeFile(
     path.join(platformRoot, "build-manifest.json"),
-    JSON.stringify(buildManifest("1667-linux-x64", "linux-x64"))
+    JSON.stringify(buildManifest(platformPackage, target))
   );
-  const executable = path.join(platformRoot, "bin", "1667");
-  await writeFile(executable, "#!/bin/sh\nexit 0\n");
-  await chmod(executable, 0o755);
-  return { base, root };
+  const descriptor = releaseTargetForArtifact(target);
+  const executable = path.join(platformRoot, descriptor.executable);
+  if (descriptor.platform === "win32") {
+    await copyFile(process.execPath, executable);
+  } else {
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+  }
+  return { base, root, platformRoot };
 }
 
 function buildManifest(packageName: string, artifactTarget: string) {
@@ -203,4 +308,36 @@ function buildManifest(packageName: string, artifactTarget: string) {
     packageName,
     artifactTarget
   };
+}
+
+type LauncherReleaseTargetDescriptor = Readonly<
+  Omit<ReleaseTargetDescriptor, "artifactTarget" | "platform" | "arch">
+  & {
+    readonly os: ReleaseTargetDescriptor["platform"];
+    readonly cpu: ReleaseTargetDescriptor["arch"];
+  }
+>;
+type ReleasePolicyByTarget = Readonly<Record<string, ReleaseTargetDescriptor>>;
+
+function launcherReleasePolicy(): ReleasePolicyByTarget {
+  const targets: Readonly<Record<string, LauncherReleaseTargetDescriptor>> =
+    LAUNCHER_RELEASE_TARGETS;
+  return Object.fromEntries(
+    Object.entries(targets).map(([artifactTarget, descriptor]) => {
+      const { os, cpu, ...fields } = descriptor;
+      return [artifactTarget, {
+        artifactTarget,
+        ...fields,
+        platform: os,
+        arch: cpu
+      }];
+    })
+  );
+}
+
+function canonicalLauncherReleasePolicy(): ReleasePolicyByTarget {
+  return Object.fromEntries(RELEASE_TARGETS.map((descriptor) => [
+    descriptor.artifactTarget,
+    descriptor
+  ]));
 }

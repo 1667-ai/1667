@@ -17,7 +17,7 @@ interface Continuation {
 /** One linear pass turns the all-stub payload into the browser's reusable view
  * model. Tree surfaces must share this index instead of rescanning every stub
  * per visible row. */
-export interface LoomIndex extends MapLineClassification {
+export interface StoryIndex extends MapLineClassification {
   tree: TreeIndex<NodeStub>;
   bookmarkByNodeId: ReadonlyMap<string, Bookmark>;
   bookmarkBelowByNodeId: ReadonlyMap<string, Bookmark>;
@@ -26,20 +26,20 @@ export interface LoomIndex extends MapLineClassification {
   subtreeCountByNodeId: ReadonlyMap<string, number>;
 }
 
-const LOOM_INDEXES = new WeakMap<StoryPayload, LoomIndex>();
+const STORY_INDEXES = new WeakMap<StoryPayload, StoryIndex>();
 
-export function createLoomIndex(payload: StoryPayload): LoomIndex {
-  // Memoized per payload identity: helpers default to createLoomIndex(payload),
+export function createStoryIndex(payload: StoryPayload): StoryIndex {
+  // Memoized per payload identity: helpers default to createStoryIndex(payload),
   // so a forgotten index argument must never rebuild the O(nodes) model.
   // Payloads are immutable adoption units — mutate one and this goes stale.
-  const cached = LOOM_INDEXES.get(payload);
+  const cached = STORY_INDEXES.get(payload);
   if (cached !== undefined) return cached;
-  const index = buildLoomIndex(payload);
-  LOOM_INDEXES.set(payload, index);
+  const index = buildStoryIndex(payload);
+  STORY_INDEXES.set(payload, index);
   return index;
 }
 
-function buildLoomIndex(payload: StoryPayload): LoomIndex {
+function buildStoryIndex(payload: StoryPayload): StoryIndex {
   const tree = indexTree(payload);
   const bookmarkByNodeId = new Map(payload.bookmarks.map((bookmark) => [bookmark.nodeId, bookmark] as const));
   const bookmarkBelowByNodeId = new Map<string, Bookmark>();
@@ -101,11 +101,11 @@ export function rememberedChildOf(node: NodeStub, tree: TreeIndex<NodeStub>): No
   return child?.parentId === node.id ? child : undefined;
 }
 
-export function rememberedLeafId(payload: StoryPayload, nodeId: string, index = createLoomIndex(payload)): string {
+export function rememberedLeafId(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): string {
   return index.continuationByNodeId.get(nodeId)?.leafId ?? nodeId;
 }
 
-export function recentLeafIds(payload: StoryPayload, activeLeafId: string | null, index = createLoomIndex(payload)): string[] {
+export function recentLeafIds(payload: StoryPayload, activeLeafId: string | null, index = createStoryIndex(payload)): string[] {
   const seen = new Set<string>();
   const leaves: string[] = [];
   for (const nodeId of payload.recentNodeIds) {
@@ -117,12 +117,12 @@ export function recentLeafIds(payload: StoryPayload, activeLeafId: string | null
   return leaves;
 }
 
-export function continuationStats(payload: StoryPayload, nodeId: string, index = createLoomIndex(payload)): { parts: number; words: number } {
+export function continuationStats(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): { parts: number; words: number } {
   const continuation = index.continuationByNodeId.get(nodeId);
   return continuation === undefined ? { parts: 0, words: 0 } : { parts: continuation.parts, words: continuation.words };
 }
 
-export function bookmarkBelow(payload: StoryPayload, nodeId: string, index = createLoomIndex(payload)): Bookmark | null {
+export function bookmarkBelow(payload: StoryPayload, nodeId: string, index = createStoryIndex(payload)): Bookmark | null {
   const remembered = rememberedLeafId(payload, nodeId, index);
   return index.bookmarkByNodeId.get(remembered) ?? index.bookmarkBelowByNodeId.get(nodeId) ?? null;
 }
@@ -132,7 +132,7 @@ export function bookmarkBelow(payload: StoryPayload, nodeId: string, index = cre
 export function rememberedLineBookmark(
   payload: StoryPayload,
   nodeId: string,
-  index = createLoomIndex(payload)
+  index = createStoryIndex(payload)
 ): Bookmark | null {
   return index.bookmarkByNodeId.get(rememberedLeafId(payload, nodeId, index)) ?? null;
 }
@@ -159,12 +159,12 @@ export interface ActiveContinuationWindow {
 
 const ACTIVE_CONTINUATION_HEAD = 12;
 const ACTIVE_CONTINUATION_TAIL = 13;
-const ACTIVE_CONTINUATION_WINDOWS = new WeakMap<LoomIndex, Map<string, ActiveContinuationWindow>>();
+const ACTIVE_CONTINUATION_WINDOWS = new WeakMap<StoryIndex, Map<string, ActiveContinuationWindow>>();
 
 /** The map repeats the selected take's active continuation only as a fixed-size
  * head/tail window. Scan once per immutable index; never materialize the whole
  * line as React elements or a second full-path array. */
-export function activeContinuationWindow(index: LoomIndex, takeId: string): ActiveContinuationWindow {
+export function activeContinuationWindow(index: StoryIndex, takeId: string): ActiveContinuationWindow {
   let windows = ACTIVE_CONTINUATION_WINDOWS.get(index);
   if (windows === undefined) {
     windows = new Map();
@@ -195,15 +195,15 @@ export function activeContinuationWindow(index: LoomIndex, takeId: string): Acti
 }
 
 const MAP_FORK_GROUPS = new WeakMap<
-  LoomIndex,
+  StoryIndex,
   WeakMap<readonly NodeStub[], Map<string | null, MapForkGroups>>
 >();
 
-/** Classify a large fork once per immutable Loom index, then expose only rows
+/** Classify a large fork once per immutable story index, then expose only rows
  * React will render. Pagination and confirmation renders reuse the grouping. */
 export function mapForkPage(
   payload: StoryPayload,
-  index: LoomIndex,
+  index: StoryIndex,
   takes: readonly NodeStub[],
   readingId: string | null,
   authoredLimit: number,
@@ -226,7 +226,7 @@ export function mapForkPage(
 
 function mapForkGroups(
   payload: StoryPayload,
-  index: LoomIndex,
+  index: StoryIndex,
   takes: readonly NodeStub[],
   readingId: string | null
 ): MapForkGroups {
@@ -263,7 +263,7 @@ function mapForkGroups(
   return groups;
 }
 
-export interface LoomLine {
+export interface StoryLine {
   leafId: string;
   name: string;
   parts: number;
@@ -275,17 +275,17 @@ export interface LoomLine {
 /** One thread per distinct line reachable from any fork (plus the trunk), regen
  * drafts skipped; a line crossing several forks appears once. O(nodes) on the
  * shared index. */
-export function loomLines(
+export function storyLines(
   payload: StoryPayload,
-  index = createLoomIndex(payload)
-): { lines: LoomLine[]; draftCount: number } {
+  index = createStoryIndex(payload)
+): { lines: StoryLine[]; draftCount: number } {
   const activeLeafId = payload.path.at(-1)?.id ?? null;
   const groups: Array<string | null> = [
     null,
     ...payload.nodes.filter((node) => node.childCount > 1).map((node) => node.id)
   ];
   const seen = new Set<string>();
-  const lines: LoomLine[] = [];
+  const lines: StoryLine[] = [];
   let draftCount = 0;
   for (const parentId of groups) {
     const takes = childrenOf(index.tree, parentId);
@@ -324,7 +324,7 @@ export function loomLines(
 /** The one definition of a discardable regen draft: a childless, unauthored,
  * unbookmarked take. Callers add their own "not the take being read" guard and
  * the "only groups of ≥2 collapse" rule where it applies. */
-export function isDraftTake(payload: StoryPayload, take: NodeStub, index = createLoomIndex(payload)): boolean {
+export function isDraftTake(payload: StoryPayload, take: NodeStub, index = createStoryIndex(payload)): boolean {
   return take.childCount === 0 && take.human !== true && take.role !== "summary"
     && bookmarkBelow(payload, take.id, index) === null;
 }
@@ -335,11 +335,11 @@ export function workingName(stub: NodeStub | null): string {
   return words.length === 0 ? "Blank line" : `${words.join(" ")}…`;
 }
 
-export function lineName(payload: StoryPayload, leafId: string, index = createLoomIndex(payload)): string {
+export function lineName(payload: StoryPayload, leafId: string, index = createStoryIndex(payload)): string {
   return index.bookmarkByNodeId.get(leafId)?.name ?? workingName(nodeById(index.tree, leafId));
 }
 
-export function switchAnnouncement(payload: StoryPayload, targetNodeId: string, index = createLoomIndex(payload)): string | null {
+export function switchAnnouncement(payload: StoryPayload, targetNodeId: string, index = createStoryIndex(payload)): string | null {
   const leaf = payload.path.at(-1);
   if (leaf === undefined) return null;
   const targetIndex = payload.path.findIndex((node) => node.id === targetNodeId);
@@ -381,7 +381,7 @@ export function nextAgeChange(date: string, now: number): number | null {
 export function summaryLockedNodeIds(
   lock: SummaryTakeLock | null,
   payload: StoryPayload,
-  index = createLoomIndex(payload)
+  index = createStoryIndex(payload)
 ): ReadonlySet<string> {
   if (lock === null || lock.storyId !== payload.id || nodeById(index.tree, lock.nodeId) === null) return new Set();
   const path = pathTo(index.tree, lock.nodeId);
@@ -395,7 +395,7 @@ export function summaryLockedNodeIds(
 export function summaryPruneLockedNodeIds(
   lock: SummaryTakeLock | null,
   payload: StoryPayload,
-  index = createLoomIndex(payload)
+  index = createStoryIndex(payload)
 ): ReadonlySet<string> {
   if (lock === null || lock.storyId !== payload.id || nodeById(index.tree, lock.nodeId) === null) return new Set();
   return new Set(pathTo(index.tree, lock.nodeId).map((node) => node.id));
@@ -419,11 +419,11 @@ export function deletionCopy(total: number): string {
   return `Delete this take and the ${below} ${below === 1 ? "part" : "parts"} beneath it? ${total} parts total, gone for good.`;
 }
 
-export function pathLength(index: LoomIndex, nodeId: string): number {
+export function pathLength(index: StoryIndex, nodeId: string): number {
   return index.depthByNodeId.get(nodeId) ?? 0;
 }
 
-export function subtreeNodeCount(index: LoomIndex, nodeId: string): number {
+export function subtreeNodeCount(index: StoryIndex, nodeId: string): number {
   return index.subtreeCountByNodeId.get(nodeId) ?? 0;
 }
 

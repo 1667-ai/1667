@@ -80,7 +80,7 @@ export class StoryProviderMutationStore {
     );
   }
 
-  /** Three short ADR 006 claims: admission, durable provider start, terminal
+  /** Three short claims: admission, durable provider start, terminal
    * publication. Provider preparation and streaming run between them, so local
    * edits remain available while the model is working. */
   async run<Method extends ProviderMutationMethod, Value>(
@@ -248,7 +248,7 @@ export class StoryProviderMutationStore {
     }
   }
 
-  /** ADR 006 installs the unresolved-provider pointer durably before network
+  /** The unresolved-provider pointer is installed durably before network
    * bytes, so this reacquires the session for exactly that publication. */
   private async publishStarted(
     storyId: string,

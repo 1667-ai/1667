@@ -199,6 +199,22 @@ export function visibleWidth(value: string): number {
   return cellWidth(value);
 }
 
+/** Cells a rendered line occupies. Every column-aligned view needs this, so it
+ * lives beside `visibleWidth` rather than being redefined per screen. */
+export function lineWidth(line: FrameLine): number {
+  return line.reduce((sum, part) => sum + visibleWidth(part.text), 0);
+}
+
+/** Pad to a column width, measured in cells rather than code units so wide
+ * glyphs cannot drift a column. */
+export function padCells(value: string, width: number): string {
+  return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
+}
+
+export function padStartCells(value: string, width: number): string {
+  return " ".repeat(Math.max(0, width - visibleWidth(value))) + value;
+}
+
 export const HINT_SEPARATOR = " · ";
 
 /** One item in a hint line and how readily it yields its cells. Rank 0 always

@@ -35,7 +35,7 @@ export function settingsFormatMigrationV1Identity(
   });
 }
 
-/** Exact ADR003 logical key; its digest is RFC 4648 base64url without padding. */
+/** Exact logical key; its digest is RFC 4648 base64url without padding. */
 export function deriveSettingsFormatMigrationV1Key(
   sourceTagValue: SettingsFormatMigrationV1SourceTag,
   canonicalV1HashValue: Hash256

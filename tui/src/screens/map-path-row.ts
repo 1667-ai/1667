@@ -1,7 +1,8 @@
-import type { LoomCell, LoomLayout } from "../loom-layout.js";
+import type { PathCell, PathLayout } from "../path-layout.js";
 import type { Bookmark } from "../../../shared/types.js";
 import { bookmarkGlyph, bookmarkRole } from "./map-row-labels.js";
 import {
+  padCells,
   segment,
   truncate,
   visibleWidth,
@@ -26,7 +27,7 @@ export interface MapPathRow {
 }
 
 export function createMapPathRow(
-  row: LoomLayout["rows"][number],
+  row: PathLayout["rows"][number],
   streamTargetId: string | null
 ): MapPathRow {
   const cursorCell = row.cells.find((cell) => cell.cursor);
@@ -79,7 +80,7 @@ export function createMapPathRow(
  * ringed take, `◎` an alternate's; leaves stay `●`/`○`. The cursor's own take is
  * never ringed: its subtakes are the rows below it, and `▸` plus the take
  * counter already say where you are. */
-function pathMarker(cell: LoomCell, streamTargetId: string | null): PathMarker {
+function pathMarker(cell: PathCell, streamTargetId: string | null): PathMarker {
   if (cell.node.role === "summary") return marker("◈", cell, "summary");
   // Streaming outranks both the ring and the cursor, as it always has: where
   // the ink is landing right now is worth more for the seconds it lasts than
@@ -94,7 +95,7 @@ interface PathMarker { glyph: string; role: DisplayRole }
 
 /** Being the cursor, then being on the shown line, outranks a cell's own
  * resting color. */
-function marker(glyph: string, cell: LoomCell, resting: DisplayRole = "prose · dim"): PathMarker {
+function marker(glyph: string, cell: PathCell, resting: DisplayRole = "prose · dim"): PathMarker {
   return { glyph, role: cell.cursor ? "focus / accent" : cell.active ? "accent · deep" : resting };
 }
 
@@ -118,8 +119,4 @@ export function renderMapPathRow(
     segment(row.words.padStart(7), "chrome"),
     segment(row.badgeText, bookmarkRole(row.bookmark))
   ];
-}
-
-function padCells(value: string, width: number): string {
-  return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
 }

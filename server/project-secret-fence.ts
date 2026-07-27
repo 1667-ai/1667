@@ -4,7 +4,7 @@ import { PROVIDER_SECRET_VALUE_ENTRY_NAMES } from "./data-directory-layout.js";
 import { ServiceError } from "./errors.js";
 
 /**
- * ADR007: a plaintext key must never sit in a folder the user may commit or
+ * A plaintext key must never sit in a folder the user may commit or
  * sync. The project tier is one; the machine tier is not, so a project tier
  * that *is* the machine tier has nothing to refuse.
  */

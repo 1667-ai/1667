@@ -270,7 +270,7 @@ export type MainToWorkerMessage =
       dataDir: string;
       externalDataLock: true;
       /**
-       * ADR007 machine tier, resolved by the parent so a platform that cannot
+       * The machine tier, resolved by the parent so a platform that cannot
        * provide one reports it through the CLI rather than through a dead
        * worker. Absent only for a directly-posted bootstrap in tests.
        */

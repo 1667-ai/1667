@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { dispatch, handleKey, initialState, type AppSource } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
-import { demoAppSource } from "../src/demo.js";
+import { createDemoController, demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
@@ -143,14 +143,36 @@ describe("demo action pipeline", () => {
     expect(frame()).toContain("take 3/5");
   });
 
-  test("the 80-column tree keeps rails and the active terminus without windowing", async () => {
+  test("the 80-column tree keeps its branches and the active terminus without windowing", async () => {
     const { state, press } = harness();
     await press("m");
     await press("m");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() }).lines);
     expect(frame).toContain("◉");
     expect(frame).toContain("¶13");
-    expect(frame).toContain("│");
+    // Doc 20c: branches are indentation and one `↳`, never a rail.
+    expect(frame).toContain("      ↳ ");
+    expect(frame).not.toContain("│");
+  });
+
+  test("the page take strip rings an alternate that branches, never the take you are reading", async () => {
+    // The shipped demo happens to branch only on the take being read, so give
+    // one alternate a continuation of its own — that is what wears the ring.
+    const demo = createDemoController();
+    const payload = demo.createChild("p3-alt", "carry on", "The alternate keeps writing.");
+    const { state } = harness();
+    state.payload = payload;
+    const model = createStoryViewModel(payload);
+    const part = model.parts.find((item) => item.id === "p3-alt")!;
+    expect(part).toMatchObject({ takeIndex: 2, siblingCount: 2 });
+    expect(part.takeSubtakes).toEqual([true, true]);
+
+    state.focusIndex = rowIndexForNode(model, "p3-alt");
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: createWrapCache() }).lines);
+    // `p3` branches but is the alternate, so it rings; the take being read
+    // branches too and stays plain, because its subtakes are the page below it.
+    expect(frame).toContain("◎ ●");
+    expect(frame).not.toContain("◉");
   });
 
   test("map view cycling preserves the path cursor", async () => {

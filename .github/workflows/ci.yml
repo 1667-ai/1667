@@ -64,23 +64,22 @@ jobs:
         working-directory: tui
         run: bun run build:standalone
 
+  # darwin-x64 builds on main and on demand, but not on pull requests. It is the
+  # slowest target here by roughly ten times (6m13s against 2m14s for its arm64
+  # sibling on the same commit) and it runs on macos-15-intel, a retiring runner
+  # class heavily enough contended to report wall times near twice its own CPU
+  # time. Gating every merge on it bought latency and flakes, not signal. It
+  # still runs on every push to main, so a regression surfaces on the commit
+  # that caused it rather than at release time.
   packaged-platform:
     name: packaged-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: darwin-arm64
-            runner: macos-15
-          - target: darwin-x64
-            runner: macos-15-intel
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-          - target: linux-x64
-            runner: ubuntu-24.04
-          - target: windows-x64
-            runner: windows-2025
-    runs-on: ${{ matrix.runner }}
+        target: ${{ fromJSON(github.event_name == 'pull_request'
+          && '["darwin-arm64","linux-arm64","linux-x64","windows-x64"]'
+          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64","windows-x64"]') }}
+    runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
     timeout-minutes: 15
     steps:
       - name: Check out source

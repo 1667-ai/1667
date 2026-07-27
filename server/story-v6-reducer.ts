@@ -27,7 +27,7 @@ import type {
 } from "./story-v6-types.js";
 
 /**
- * Apply one already-authorized ADR006 event without I/O or serialization.
+ * Apply one already-authorized event without I/O or serialization.
  * Event content/summary pairs must already have passed the strict wire/domain validators.
  */
 export function reduceStoryV6(

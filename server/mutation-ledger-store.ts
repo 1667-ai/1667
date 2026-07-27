@@ -79,7 +79,7 @@ const EMPTY_MIGRATION_RECEIPT: FormatMigrationReceipt = Object.freeze({
 });
 
 /**
- * Durable, direct-lookup storage for the ADR006 common receipt ledger.
+ * Durable, direct-lookup storage for the common receipt ledger.
  *
  * Release A uses only settings user receipts. The physical and record contract
  * remains aggregate-neutral so Q can add story records without a second store.

@@ -11,11 +11,12 @@ read_when:
 This repository does not support hosted publication. It supports local release
 preflight only.
 
-Do not reserve package names. Do not publish packages. Do not move registry
-tags. Do not describe a candidate as an official release.
+Maintainers reserved the package names. Do not publish packages. Do not move
+registry tags. Do not describe a candidate as an official release.
 
-Maintainers must approve a separate publication ADR. The repository must
-implement that ADR before publication.
+Publication still requires a separate publication decision. Maintainers must
+approve that decision. The repository must implement that decision before
+publication.
 
 ## Technical terms
 
@@ -25,7 +26,7 @@ This document uses these Technical Names:
 | --- | --- |
 | release target | One supported operating system and processor architecture |
 | release package | One npm tarball in the release matrix |
-| launcher package | The JavaScript package named `1667` |
+| launcher package | The JavaScript package named `@1667-ai/cli` |
 | platform package | A package that contains one native executable |
 | candidate | A possible release package that has not received publication approval |
 | build identity | Version, source, time, protocol, and target data in a native executable |
@@ -56,14 +57,18 @@ The release matrix contains exactly six release packages:
 
 | Release target | Package name | `buildIdentity` |
 | --- | --- | --- |
-| Launcher | `1667` | `null` |
-| macOS arm64 | `1667-darwin-arm64` | Trusted native identity |
-| macOS x64 | `1667-darwin-x64` | Trusted native identity |
-| Linux arm64 | `1667-linux-arm64` | Trusted native identity |
-| Linux x64 | `1667-linux-x64` | Trusted native identity |
-| Windows x64 | `1667-windows-x64` | Trusted native identity |
+| Launcher | `@1667-ai/cli` | `null` |
+| macOS arm64 | `@1667-ai/darwin-arm64` | Trusted native identity |
+| macOS x64 | `@1667-ai/darwin-x64` | Trusted native identity |
+| Linux arm64 | `@1667-ai/linux-arm64` | Trusted native identity |
+| Linux x64 | `@1667-ai/linux-x64` | Trusted native identity |
+| Windows x64 | `@1667-ai/windows-x64` | Trusted native identity |
 
 The matrix contains one launcher package and five platform packages.
+
+All release packages declare the canonical Git repository. The Linux platform
+packages declare `libc: ["glibc"]`. The launcher package and the macOS platform
+packages do not declare `libc`.
 
 ## Required trusted inputs
 
@@ -140,7 +145,7 @@ not a complete release plan.
   },
   "artifacts": [
     {
-      "tarballPath": "1667-1.2.3.tgz",
+      "tarballPath": "1667-ai-cli-1.2.3.tgz",
       "buildIdentity": null
     }
   ]
@@ -223,5 +228,4 @@ observations.
 A successful preflight is necessary package evidence. It is not publication
 authorization.
 
-See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md)
-for the normative release policy.
+A successful preflight does not authorize publication on its own.

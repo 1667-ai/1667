@@ -3,7 +3,7 @@ import { countWords } from "../../shared/story-text.js";
 import { createDemoController } from "../src/demo.js";
 import { createStoryViewModel, popUndo, pushUndo, resolveSwitchTarget } from "../src/model.js";
 import type { StreamView } from "../src/state.js";
-import { loomLines } from "../../shared/loom-model.js";
+import { storyLines } from "../../shared/story-model.js";
 
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
 
@@ -19,7 +19,7 @@ describe("story view model", () => {
       "part", "part", "part", "part", "part", "chapter-divider", "part", "part", "part"
     ]);
     expect(payload.bookmarks).toHaveLength(4);
-    expect(loomLines(payload).lines).toHaveLength(5);
+    expect(storyLines(payload).lines).toHaveLength(5);
   });
 
   test("resolves adjacent siblings with wrap-around", () => {

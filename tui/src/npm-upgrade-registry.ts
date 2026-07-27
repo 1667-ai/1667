@@ -3,6 +3,7 @@ import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
   RELEASE_LAUNCHER_PACKAGE,
   RELEASE_PLATFORM_PACKAGES,
+  registryPathForPackage,
   releasePlatformDependencyGraph,
   releaseTargetForPackage,
   type ReleasePlatformPackage
@@ -27,6 +28,7 @@ interface ExactMetadataExpectation {
   platform?: Readonly<{
     os: string;
     cpu: string;
+    libc: string | null;
   }>;
 }
 
@@ -43,7 +45,10 @@ export class NpmUpgradeRegistry {
   ) {}
 
   async channelHead(channel: UpgradeChannel, signal: AbortSignal): Promise<string> {
-    const body = await this.get(`/-/package/${LAUNCHER_PACKAGE}/dist-tags`, signal);
+    const body = await this.get(
+      `/-/package/${registryPathForPackage(LAUNCHER_PACKAGE)}/dist-tags`,
+      signal
+    );
     return parseNpmDistTags(body, channel);
   }
 
@@ -52,7 +57,10 @@ export class NpmUpgradeRegistry {
     signal: AbortSignal
   ): Promise<NpmVersionMetadata> {
     return parseNpmExactVersionMetadata(
-      await this.get(`/${LAUNCHER_PACKAGE}/${encodeURIComponent(version)}`, signal),
+      await this.get(
+        `/${registryPathForPackage(LAUNCHER_PACKAGE)}/${encodeURIComponent(version)}`,
+        signal
+      ),
       {
         name: LAUNCHER_PACKAGE,
         version,
@@ -69,14 +77,18 @@ export class NpmUpgradeRegistry {
     const target = releaseTargetForPackage(packageName);
     if (target === null) throw metadataFailure();
     return parseNpmExactVersionMetadata(
-      await this.get(`/${packageName}/${encodeURIComponent(version)}`, signal),
+      await this.get(
+        `/${registryPathForPackage(packageName)}/${encodeURIComponent(version)}`,
+        signal
+      ),
       {
         name: packageName,
         version,
         optionalDependencies: {},
         platform: {
           os: target.platform,
-          cpu: target.arch
+          cpu: target.arch,
+          libc: target.libc
         }
       }
     );
@@ -185,7 +197,14 @@ export function parseNpmExactVersionMetadata(
   }
   verifyDependencyGraph(value, expected.optionalDependencies ?? {});
   if (expected.platform !== undefined) {
-    verifyPlatformIdentity(value, expected.platform.os, expected.platform.cpu);
+    verifyPlatformIdentity(
+      value,
+      expected.platform.os,
+      expected.platform.cpu,
+      expected.platform.libc
+    );
+  } else if (Object.hasOwn(value, "libc")) {
+    throw platformIdentityFailure();
   }
   return Object.freeze({ name, version, integrity });
 }
@@ -232,13 +251,27 @@ function verifyOptionalDependencies(
   }
 }
 
-function verifyPlatformIdentity(metadata: Record<string, unknown>, os: string, cpu: string): void {
-  if (!singleStringArrayEquals(metadata.os, os) || !singleStringArrayEquals(metadata.cpu, cpu)) {
-    throw new UpgradeFailure(
-      "verification_failed",
-      "Registry platform metadata did not match the target."
-    );
+function verifyPlatformIdentity(
+  metadata: Record<string, unknown>,
+  os: string,
+  cpu: string,
+  libc: string | null
+): void {
+  const libcMatches = libc === null
+    ? !Object.hasOwn(metadata, "libc")
+    : singleStringArrayEquals(metadata.libc, libc);
+  if (!singleStringArrayEquals(metadata.os, os)
+    || !singleStringArrayEquals(metadata.cpu, cpu)
+    || !libcMatches) {
+    throw platformIdentityFailure();
   }
+}
+
+function platformIdentityFailure(): UpgradeFailure {
+  return new UpgradeFailure(
+    "verification_failed",
+    "Registry platform metadata did not match the target."
+  );
 }
 
 function singleStringArrayEquals(value: unknown, expected: string): boolean {

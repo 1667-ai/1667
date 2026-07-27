@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextAgeChange } from "../../shared/loom-model.js";
+import { nextAgeChange } from "../../shared/story-model.js";
 import {
   createAnimationDeadlineScheduler,
   createFrameDeadlineCollector,

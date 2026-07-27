@@ -1,4 +1,4 @@
-import { createLoomIndex, lineName } from "../../../shared/loom-model.js";
+import { createStoryIndex, lineName } from "../../../shared/story-model.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import {
   createAtlasLayout,
@@ -7,19 +7,20 @@ import {
   type AtlasRow
 } from "../atlas-layout.js";
 import { addHit, type HitRegion, type HitRow, type HitRows } from "../hit.js";
-import { createLoomLayout } from "../loom-layout.js";
+import { createPathLayout } from "../path-layout.js";
 import type { KeyAction } from "../keys.js";
 import { MAP_VIEWS, type MapState, type MapView } from "../map-state.js";
 import { pruneConfirmText } from "../prune-model.js";
 import type { StoryScreenState } from "../state.js";
 import { projectStreamedPayload } from "../stream-projection.js";
-import { createMapMassScale, renderMapMassRow, renderMapSketchHairline } from "./map-mass-row.js";
+import { createMapMassScale, renderMapMassRow, renderMapSketchFold } from "./map-mass-row.js";
 import { createMapPathRow, renderMapPathRow, type MapPathRow } from "./map-path-row.js";
-import { bookmarkGlyph, bookmarkRole, formatMapWords } from "./map-row-labels.js";
-import { mapSketchFoldText, renderMapTreeRow } from "./map-tree-row.js";
+import { bookmarkGlyph, bookmarkRole, formatMapWords, formatMapWordsBare } from "./map-row-labels.js";
+import { mapTreeFoldFootnote, renderMapTreeRow } from "./map-tree-row.js";
 import {
   fitLine,
   plainLine,
+  lineWidth,
   segment,
   truncate,
   visibleWidth,
@@ -87,7 +88,7 @@ export function renderMapScreen(
 }
 
 function renderPathBody(state: StoryScreenState, map: MapState, width: number, bodyHeight: number): MapBody {
-  const layout = createLoomLayout(
+  const layout = createPathLayout(
     state.payload, map.pathCursorId, bodyHeight, 5, map.pathShowAllTakes
   );
   const pieces = layout.rows.map((row) => createMapPathRow(row, state.stream?.targetId ?? null));
@@ -175,9 +176,10 @@ function renderTreeBody(
       : { target: { kind: "list", index, mapRow }, left: 0, right: width };
   });
   appendWindowLine(lines, hits, layout);
-  if (layout.sketchCount > 0) {
-    lines.push([segment(`  ${map.showSketches ? `+ ${layout.sketchCount} sketches revealed · a hides` : mapSketchFoldText(layout)}`, "prose · dim")]);
-    hits.push({ target: { kind: "action", action: "toggle-sketches" }, left: 0, right: width });
+  const footnote = mapTreeFoldFootnote(layout, map.showSketches);
+  if (footnote.length > 0) {
+    lines.push([], foldFootnoteLine(footnote, layout.foldedWords, width));
+    hits.push(null, { target: { kind: "action", action: "toggle-sketches" }, left: 0, right: width });
   }
   appendPreview(lines, hits, layout, width);
   const cursor = layout.allRows.find((row) => row.cursor) ?? null;
@@ -200,7 +202,9 @@ function renderMassBody(
   bodyHeight: number,
   deadlines?: FrameDeadlineCollector
 ): MapBody {
-  const reserve = (width >= 100 ? 2 : 0) + 4;
+  // Sketch fold and window line, plus the preview pair where there is room for
+  // it. Doc 26a's removal of the blank + `sort:` pair gave two rows back.
+  const reserve = (width >= 100 ? 2 : 0) + 2;
   const layout = createAtlasLayout(state.payload, {
     now: state.now,
     cursorId: map.treeCursorId,
@@ -217,7 +221,7 @@ function renderMassBody(
   let sketchesDrawn = false;
   for (const [index, row] of layout.rows.entries()) {
     if (row.kind === "sketch" && !sketchesDrawn) {
-      lines.push(renderMapSketchHairline(layout, width));
+      lines.push(renderMapSketchFold(layout, scale));
       hits.push({ target: { kind: "action", action: "toggle-sketches" }, left: 0, right: width });
       sketchesDrawn = true;
     }
@@ -228,20 +232,22 @@ function renderMassBody(
       : { target: { kind: "list", index, mapRow: { id: row.id, kind } }, left: 0, right: width });
   }
   if (!sketchesDrawn && layout.sketchCount > 0) {
-    lines.push(renderMapSketchHairline(layout, width));
+    lines.push(renderMapSketchFold(layout, scale));
     hits.push({ target: { kind: "action", action: "toggle-sketches" }, left: 0, right: width });
   }
   appendWindowLine(lines, hits, layout);
-  lines.push([], renderSortLine(map.massSort));
-  hits.push(null, null);
   appendPreview(lines, hits, layout, width);
-  const massRows = layout.allRows.filter((row) => row.kind === "node" && row.lineEnd);
-  const totalWords = massRows.reduce((sum, row) => sum + row.words, 0);
   const cursor = layout.allRows.find((row) => row.cursor) ?? null;
+  const words = formatTotalWords(layout.storyWords);
+  // Doc 26a left the title rule as the only place the active order is named, so
+  // it has to survive 80 columns — where the full phrasing truncates away.
+  const stats = width < 100
+    ? `${state.payload.title} ━ ${words}w · ${layout.totalLines} lines ━ ${shortSortTitle(map.massSort)}`
+    : `${state.payload.title} ━ ${words} words · ${layout.totalLines} lines ━ ${sortTitle(map.massSort)}`;
   return {
     lines, hits,
-    stats: `${state.payload.title} ━ by ${sortTitle(map.massSort)} · ${formatTotalWords(totalWords)} words across ${layout.totalLines} lines`,
-    crumb: cursor === null ? `${formatTotalWords(totalWords)} words` : `¶ ${cursor.depth} · ${formatTotalWords(totalWords)} words`,
+    stats,
+    crumb: cursor === null ? `${words} words` : `¶ ${cursor.depth} · ${words} words`,
     derived: { rowIds, pathCursorId: map.pathCursorId, treeCursorId: layout.cursorId }
   };
 }
@@ -250,15 +256,14 @@ function mapRowKind(kind: AtlasRow["kind"]): "node" | "sketch" | "cold" | null {
   return kind === "node" || kind === "sketch" || kind === "cold" ? kind : null;
 }
 
-function renderSortLine(active: MapState["massSort"]): FrameLine {
-  const sorts = [
-    ["size", "size"], ["recency", "recent"], ["depth", "depth"], ["name", "alpha"]
-  ] as const;
-  const line: FrameLine = [segment("  sort: ", "prose · dim")];
-  for (const [index, [value, label]] of sorts.entries()) {
-    if (index > 0) line.push(segment(" · ", "chrome"));
-    line.push(segment(label, value === active ? "focus / accent" : "chrome"));
-  }
+/** The fused fold footnote, its weight landing in the same right gutter the
+ *  rows above use, so it reads as one more row rather than a caption. */
+function foldFootnoteLine(text: string, words: number, width: number): FrameLine {
+  const tail = formatMapWordsBare(words);
+  const line: FrameLine = [segment("    ↳ ", "accent · deep"), segment(text, "prose · dim")];
+  const padding = width - visibleWidth(tail) - 2 - lineWidth(line);
+  if (padding > 0) line.push(segment(" ".repeat(padding)));
+  line.push(segment(tail, "chrome"));
   return line;
 }
 
@@ -491,10 +496,18 @@ function saturatingIdentityWidths(title: string, name: string, room: number): [n
 }
 
 function sortTitle(sort: MapState["massSort"]): string {
-  if (sort === "size") return "word count";
+  if (sort === "size") return "largest first";
+  if (sort === "recency") return "recent first";
+  if (sort === "name") return "alphabetical";
+  return "deepest first";
+}
+
+/** The same order named in the cells a narrow title rule can spare. */
+function shortSortTitle(sort: MapState["massSort"]): string {
+  if (sort === "size") return "largest";
   if (sort === "recency") return "recent";
   if (sort === "name") return "alpha";
-  return "depth";
+  return "deepest";
 }
 
 function formatTotalWords(words: number): string {
@@ -503,8 +516,4 @@ function formatTotalWords(words: number): string {
 
 function compactCrumb(crumb: string): string {
   return crumb.replaceAll(" ", "").replace("words", "w");
-}
-
-function lineWidth(line: FrameLine): number {
-  return line.reduce((sum, part) => sum + visibleWidth(part.text), 0);
 }

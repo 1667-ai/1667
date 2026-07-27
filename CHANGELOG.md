@@ -9,6 +9,13 @@ the [README](README.md#technical-terms).
   tier installs a protected DACL for the current user and SYSTEM. Native tests
   reject reparse points. CI builds the executable and runs it through the npm
   launcher package.
+- **Pull requests no longer wait on the macOS x64 build.** CI still builds and
+  tests all five release targets on `main` and on demand. Pull requests gate on
+  macOS arm64, Linux arm64, Linux x64, and Windows x64. The macOS x64 runner is
+  about ten times slower than its siblings. The runner has sufficient
+  contention to cause wall-clock measurement failures. A macOS x64 regression
+  now occurs on the commit that introduced it. Thanks @10fra for the CI latency
+  review.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
   story writes use 1667 identifiers. Thanks @10fra for the migration report.

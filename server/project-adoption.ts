@@ -39,7 +39,7 @@ export interface ProjectAdoption {
 }
 
 /**
- * ADR007: adopt a pre-ADR machine data root as this folder's project.
+ * Adopt a legacy machine data root as this folder's project.
  *
  * Secrets move to the machine tier **first** and are verified there before
  * anything is published into the project tier, so no window exists in which a
@@ -170,7 +170,7 @@ async function requireEmptyProject(projectRoot: string): Promise<ResolvedProject
   return project;
 }
 
-/** Read the format an old directory declares under its pre-ADR marker names. */
+/** Read the format an old directory declares under its legacy marker names. */
 async function legacyDataFormat(source: string): Promise<DataDirectoryFormat> {
   if (!await exists(source)) {
     throw refused(`there is no 1667 data directory at ${source}`);

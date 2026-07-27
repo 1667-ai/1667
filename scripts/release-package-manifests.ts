@@ -6,6 +6,11 @@ import {
   type ReleasePlatformPackage
 } from "../shared/release-targets.js";
 
+export const RELEASE_PACKAGE_REPOSITORY = Object.freeze({
+  type: "git" as const,
+  url: "git+https://github.com/1667-ai/1667.git" as const
+});
+
 export interface ReleaseLauncherManifest {
   kind: "launcher";
   name: typeof RELEASE_LAUNCHER_PACKAGE;
@@ -15,6 +20,7 @@ export interface ReleaseLauncherManifest {
   bin: Readonly<{ "1667": "bin/1667.js" }>;
   files: readonly ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"];
   optionalDependencies: Readonly<Record<ReleasePlatformPackage, string>>;
+  repository: typeof RELEASE_PACKAGE_REPOSITORY;
   publishConfig: Readonly<{ access: "public" }>;
 }
 
@@ -25,14 +31,24 @@ export interface ReleasePlatformManifest {
   private: false;
   os: readonly ["darwin" | "linux" | "win32"];
   cpu: readonly ["arm64" | "x64"];
+  libc: "glibc" | null;
   files: readonly [string, "build-manifest.json", "sbom.spdx.json"];
+  repository: typeof RELEASE_PACKAGE_REPOSITORY;
   publishConfig: Readonly<{ access: "public" }>;
   target: PackagedArtifactTarget;
 }
 
 export type ReleasePackageManifest = ReleaseLauncherManifest | ReleasePlatformManifest;
 export type ReleaseLauncherPackageJson = Omit<ReleaseLauncherManifest, "kind">;
-export type ReleasePlatformPackageJson = Omit<ReleasePlatformManifest, "kind" | "target">;
+type ReleasePlatformPackageJsonBase = Omit<
+  ReleasePlatformManifest,
+  "kind" | "target" | "libc"
+>;
+export type ReleasePlatformPackageJson =
+  | ReleasePlatformPackageJsonBase
+  | (ReleasePlatformPackageJsonBase & {
+      readonly libc: readonly ["glibc"];
+    });
 export type ReleasePackageJson = ReleaseLauncherPackageJson | ReleasePlatformPackageJson;
 
 export function createReleaseLauncherManifest(version: string): ReleaseLauncherManifest {
@@ -49,6 +65,7 @@ export function createReleaseLauncherManifest(version: string): ReleaseLauncherM
       "sbom.spdx.json"
     ] as const),
     optionalDependencies: releasePlatformDependencyGraph(version),
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: Object.freeze({ access: "public" as const })
   });
 }
@@ -65,11 +82,13 @@ export function createReleasePlatformManifest(
     private: false as const,
     os: Object.freeze([descriptor.platform] as const),
     cpu: Object.freeze([descriptor.arch] as const),
+    libc: descriptor.libc,
     files: Object.freeze([
       descriptor.executable,
       "build-manifest.json",
       "sbom.spdx.json"
     ] as const),
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: Object.freeze({ access: "public" as const }),
     target
   });
@@ -89,8 +108,13 @@ export function releasePackageJson(
   manifest: ReleasePackageManifest
 ): ReleasePackageJson {
   if (manifest.kind === "platform") {
-    const { kind: _kind, target: _target, ...packageJson } = manifest;
-    return Object.freeze(packageJson);
+    const { kind: _kind, target: _target, libc, ...packageJson } = manifest;
+    return libc === null
+      ? Object.freeze(packageJson)
+      : Object.freeze({
+          ...packageJson,
+          libc: Object.freeze([libc] as const)
+        });
   }
   const { kind: _kind, ...packageJson } = manifest;
   return Object.freeze(packageJson);

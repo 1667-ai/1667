@@ -86,7 +86,7 @@ export async function readDataDirectoryFormat(
  *
  * The two facts come from one read because they come from one file. Reading it
  * twice to compare the answers only detects a writer that ignored the lock,
- * which ADR007 stopped defending against.
+ * which 1667 stopped defending against.
  */
 export async function readDataDirectoryFormatSource(
   dataDir: string,

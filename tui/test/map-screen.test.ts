@@ -6,7 +6,7 @@ import { buildStoryPayload } from "../../server/story-payload.js";
 import { createDemoController } from "../src/demo.js";
 import type { HitRows, HitTarget } from "../src/hit.js";
 import type { MapState, MapView } from "../src/map-state.js";
-import { moveLoomCursor } from "../src/loom-layout.js";
+import { movePathCursor } from "../src/path-layout.js";
 import { renderMapScreen } from "../src/screens/map.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import type { StoryScreenState } from "../src/state.js";
@@ -199,13 +199,13 @@ describe("full-bleed map screen", () => {
     expect(folded).toHaveLength(4);
     expect(folded.join("\n")).toContain("kept-deep prose");
     expect(folded.join("\n")).not.toContain("kept-sketch prose");
-    expect(moveLoomCursor(source.payload, "kept", 1, 0)).toBe("kept-leaf");
+    expect(movePathCursor(source.payload, "kept", 1, 0)).toBe("kept-leaf");
 
     // Revealing sketches makes the remembered take reachable, so it returns.
     const revealed = shown(true);
     expect(revealed).toHaveLength(3);
     expect(revealed.join("\n")).toContain("kept-sketch prose");
-    expect(moveLoomCursor(source.payload, "kept", 1, 0, true)).toBe("kept-sketch");
+    expect(movePathCursor(source.payload, "kept", 1, 0, true)).toBe("kept-sketch");
   });
 
   test("a ring on a stopped line still opens", () => {
@@ -227,7 +227,7 @@ describe("full-bleed map screen", () => {
     expect(depths("p10").at(-3)).toContain("◉");
     expect(depths("p10")).toHaveLength(13);
     expect(depths("p11")).toHaveLength(13);
-    expect(moveLoomCursor(source.payload, "p11", 1, 0)).toBe("p12");
+    expect(movePathCursor(source.payload, "p11", 1, 0)).toBe("p12");
   });
 
   test("projects a direct stream into every map view before it lands", () => {
@@ -447,7 +447,7 @@ describe("full-bleed map screen", () => {
 
   test("tree keeps graph rows clickable and drops preview only at narrow geometry", () => {
     const narrow = render("tree");
-    expect(narrow.text).toContain("··");
+    expect(narrow.text).toContain("⋯ 1 part");
     expect(narrow.text).toContain("↑↓ row · l follow");
     expect(narrow.text).toContain("sketches");
     expect(narrow.text).not.toContain("  ‥ ");
@@ -460,19 +460,40 @@ describe("full-bleed map screen", () => {
   });
 
   test("mass is a first-class weighted view with all four sort states", () => {
-    const labels = { size: "size", recency: "recent", depth: "depth", name: "alpha" } as const;
-    for (const [sort, label] of Object.entries(labels) as Array<[MapState["massSort"], string]>) {
+    // Doc 26a dropped the in-canvas `sort:` row — the footer already says
+    // `s sort`, so the title rule is the only place the order is named.
+    const titles = {
+      size: ["largest first", "largest"], recency: ["recent first", "recent"],
+      depth: ["deepest first", "deepest"], name: ["alphabetical", "alpha"]
+    } as const;
+    for (const [sort, [title, short]] of
+      Object.entries(titles) as Array<[MapState["massSort"], readonly [string, string]]>) {
       const rendered = render("mass", 80, 24, { massSort: sort });
       expect(rendered.text).toContain("◉");
       expect(rendered.text).toContain("← here");
       expect(rendered.text).toContain("sketches");
       expect(rendered.text).toContain("never continued");
-      expect(rendered.text).toContain("sort: size · recent · depth · alpha");
-      expect(rendered.frame.lines.flat().some((part) => part.text === label && part.role === "focus / accent")).toBeTrue();
+      expect(rendered.text).not.toContain("sort: ");
+      expect(rendered.text).toContain("s sort");
+      expect(plainLine(render("mass", 120, 36, { massSort: sort }).frame.lines[0]!)).toContain(title);
+      // The title rule is the only place the active order is named, so it has
+      // to survive the narrow layout too — abbreviated rather than truncated.
+      const narrowTitle = plainLine(rendered.frame.lines[0]!);
+      expect(narrowTitle).toContain(short);
+      expect(narrowTitle).not.toContain("…");
       expect(rendered.text).not.toContain("  ‥ ");
       expect(targets(rendered.hits).filter((target) => target.kind === "list"))
         .toHaveLength(rendered.frame.derived.rowIds.length);
     }
+  });
+
+  test("the mass header counts the story once, not the shared trunk per line", () => {
+    // Summing each line's cumulative words counted the trunk once per line and
+    // claimed far more prose than the story holds (doc 26a).
+    const rendered = render("mass", 120, 36);
+    const header = plainLine(rendered.frame.lines[0]!);
+    expect(header).toContain("466 words · 4 lines");
+    expect(header).not.toContain("653");
   });
 
   test("mass preserves identity and the numeric crumb at medium width", () => {
@@ -483,13 +504,13 @@ describe("full-bleed map screen", () => {
     const mediumCrumb = plainLine(medium.frame.lines.at(-1)!);
     const wideCrumb = plainLine(wide.frame.lines.at(-1)!);
 
-    expect(narrowCrumb).toContain("the la… · ⚑ cano… · ¶13·653w");
-    expect(narrowCrumb).not.toContain("¶13·6…");
+    expect(narrowCrumb).toContain("the la… · ⚑ cano… · ¶13·466w");
+    expect(narrowCrumb).not.toContain("¶13·4…");
     expect(narrowCrumb).toContain("m path · ↑↓ row · s sort · l open · esc");
-    expect(mediumCrumb).toContain("the lantern keeper · ⚑ canon-storm · ¶ 13 · 653 words");
+    expect(mediumCrumb).toContain("the lantern keeper · ⚑ canon-storm · ¶ 13 · 466 words");
     expect(mediumCrumb).toContain("m path · ↑↓ row · s sort · l open · esc writes");
     expect(mediumCrumb).not.toContain("enter reroute");
-    expect(wideCrumb).toContain("the lantern keeper · ⚑ canon-storm · ¶ 13 · 653 words");
+    expect(wideCrumb).toContain("the lantern keeper · ⚑ canon-storm · ¶ 13 · 466 words");
     expect(wideCrumb).toContain("l open line · enter reroute · esc writes");
   });
 

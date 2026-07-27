@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PACKAGED_ARTIFACT_TARGETS } from "../shared/build-identity.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
 import { createReleasePackageTemplates } from "../scripts/release-package-templates.js";
 import { validateReleasePackageMatrix } from "../scripts/release-package-policy.js";
 
@@ -37,12 +38,14 @@ test("release package templates are script-free and satisfy the exact matrix pol
   for (const template of all) {
     assert.equal(Object.hasOwn(template.packageManifest, "scripts"), false);
     assert.equal(Object.hasOwn(template.packageManifest, "dependencies"), false);
+    assert.deepEqual(template.packageManifest.repository, RELEASE_PACKAGE_REPOSITORY);
     assert.equal(template.buildManifest.productVersion, "3.0.0");
     assert.equal(
       template.buildManifest.sourceCommit,
       "0123456789abcdef0123456789abcdef01234567"
     );
     assert.ok(Object.isFrozen(template.packageManifest));
+    assert.ok(Object.isFrozen(template.packageManifest.repository));
     assert.ok(Object.isFrozen(template.buildManifest));
   }
 });
@@ -57,6 +60,12 @@ test("platform templates bind every sidecar to its embedded release identity", (
     assert.equal(template.buildManifest.sourceCommit, identity.sourceCommit);
     assert.equal(template.buildManifest.buildTimestamp, identity.buildTimestamp);
     assert.equal(identity.artifactTarget, PACKAGED_ARTIFACT_TARGETS[index]);
+    if (identity.artifactTarget.startsWith("linux-")) {
+      assert.ok("libc" in template.packageManifest);
+      assert.deepEqual(template.packageManifest.libc, ["glibc"]);
+    } else {
+      assert.equal(Object.hasOwn(template.packageManifest, "libc"), false);
+    }
   }
   assert.equal(templates.launcher.kind, "launcher");
   assert.equal(templates.launcher.buildIdentity, null);

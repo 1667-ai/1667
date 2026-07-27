@@ -24,7 +24,7 @@ import { StoryStore } from "./stories.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
 
 interface StoryServiceCommonOptions {
-  /** ADR007 machine tier holding provider secrets. Absent keeps them in place. */
+  /** The machine tier holding provider secrets. Absent keeps them in place. */
   machineDir?: string;
   /** Embedded workers use a lock retained by their main-thread bootstrap. */
   dataLock?: "service" | "external";

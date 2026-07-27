@@ -6,7 +6,7 @@ export interface ProjectPromptStreams {
 }
 
 /**
- * ADR007 asks once, and only where a person can answer. A non-interactive
+ * 1667 asks once, and only where a person can answer. A non-interactive
  * start refuses in one line instead of creating a project nobody asked for.
  */
 export function canPromptForProject(streams: ProjectPromptStreams): boolean {

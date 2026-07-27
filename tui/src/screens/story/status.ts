@@ -1,5 +1,5 @@
 import { AI_1667_VERSION_TAG } from "../../../../shared/build-identity.js";
-import { lineName } from "../../../../shared/loom-model.js";
+import { lineName } from "../../../../shared/story-model.js";
 import type { Bookmark } from "../../../../shared/types.js";
 import { bookmarkGlyph, bookmarkRole } from "../../bookmark-presentation.js";
 import { chapterForRow, rowPart, type StoryViewModel } from "../../model.js";
