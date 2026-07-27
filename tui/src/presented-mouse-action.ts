@@ -8,6 +8,7 @@ import { createStoryViewModel, rowPart } from "./model.js";
 import { SETTINGS_ROW_IDS } from "./settings-overlay-model.js";
 import {
   mouseToAction,
+  overlayOpen,
   type MouseActionState,
   type MouseGesture
 } from "./mouse-actions.js";
@@ -153,12 +154,14 @@ function sameMouseTarget(
     const row = mapRowId(beforeState, before.index);
     if (row === null || row !== mapRowId(afterState, after.index)) return false;
   }
-  // A gesture that names no cell acts on whatever holds focus, so the focused
-  // part is its identity. `continue` clicked while reading one part must not
-  // generate from another because focus moved before its turn came.
-  if (before.index === undefined && before.rowId === undefined
-    && focusedPartId(beforeState) !== focusedPartId(afterState)) {
-    return false;
+  // A gesture that names no cell acts on a selection — the open surface's
+  // chosen row, or the focused part when the story has the screen — so the
+  // selection is its identity. `continue` must not generate from a part focus
+  // moved to, and a menu's `↵ run` must not run a verb that replaced the one
+  // under the cursor. An identity that cannot be resolved refuses.
+  if (before.index === undefined && before.rowId === undefined) {
+    const selection = selectionIdentity(beforeState);
+    if (selection === null || selection !== selectionIdentity(afterState)) return false;
   }
   return before.index === after.index
     && before.rowId === after.rowId
@@ -180,9 +183,15 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
   return index === undefined ? null : state.map?.rowIds[index] ?? null;
 }
 
-/** The part a focus-relative gesture would act on. */
-function focusedPartId(state: MouseActionState): string | null {
-  return rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex)?.id ?? null;
+/** What an action that names no cell acts on. An overlay owns its own
+ *  selection; otherwise the story's focused part is the target. Null means the
+ *  selection cannot be named, which reconciliation treats as a refusal. */
+function selectionIdentity(state: MouseActionState): string | null {
+  const selected = selectedListIdentity(state);
+  if (selected !== null) return selected;
+  return overlayOpen(state)
+    ? null
+    : rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex)?.id ?? null;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {

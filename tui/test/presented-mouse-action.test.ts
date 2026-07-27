@@ -309,6 +309,28 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
   });
 
+  test("refuses a menu footer click when the verb under the cursor changed", () => {
+    // `↵ run` names no cell — it runs whatever the menu cursor is on. A
+    // selection appearing inserts an entry above the cursor, so the same
+    // position becomes a different verb while the part stays the same.
+    const base = initialState(demoAppSource(), false);
+    base.stream = null;
+    base.mode = "ACTIONS";
+    base.hitRows = [{ target: { kind: "action", action: "apply" }, left: 0, right: 20 }];
+    const partId = base.payload.path.at(-1)!.id;
+    const selecting = { ...base, actions: { cursor: 7, partId, selectionText: "prose" } } as State;
+    const plain = { ...base, actions: { cursor: 7, partId } } as State;
+    expect(currentPartActions(selecting)[7]?.id).not.toBe(currentPartActions(plain)[7]?.id);
+
+    const resolved = mouseToAction(click, selecting, false)!;
+    expect(resolved).toEqual({ action: "apply" });
+    const captured = interaction(selecting, 20);
+
+    expect(reconcile(selecting, resolved, captured, interaction(selecting, 21)))
+      .toEqual({ action: "apply" });
+    expect(reconcile(plain, resolved, captured, interaction(plain, 21))).toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;
