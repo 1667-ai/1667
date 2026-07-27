@@ -120,12 +120,17 @@ jobs:
         run: npm test -- --test-concurrency=2
 
       - name: Run native TUI tests
-        if: matrix.target != 'darwin-x64'
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         working-directory: tui
         run: bun test
 
       - name: Run Intel macOS TUI tests without filesystem contention
         if: matrix.target == 'darwin-x64'
+        working-directory: tui
+        run: bun test --max-concurrency=1
+
+      - name: Run Windows TUI tests without runtime contention
+        if: matrix.target == 'windows-x64'
         working-directory: tui
         run: bun test --max-concurrency=1
 
