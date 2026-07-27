@@ -97,7 +97,11 @@ export async function smokeWindowsNpmPackage(
     ),
     writeJson(
       path.join(launcherRoot, "build-manifest.json"),
-      createReleasePackageBuildManifest(identity, "1667", "launcher")
+      createReleasePackageBuildManifest(
+        identity,
+        launcherManifest.name,
+        "launcher"
+      )
     ),
     writeJson(
       path.join(launcherRoot, "sbom.spdx.json"),
