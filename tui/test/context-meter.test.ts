@@ -593,7 +593,10 @@ describe("honest next-request context meter", () => {
       expect(railRoles()).toContain(role);
     }
     state.config = { ...state.config, composeFocus: "on" };
-    expect(new Set(railRoles())).toEqual(new Set(["dimmed page"]));
+    // Focus dim leaves nothing lit, but the gauge's inked cells mute to chrome
+    // rather than collapsing into the track: a uniform bar would read as a
+    // full window while the numbers above it said otherwise.
+    expect(new Set(railRoles())).toEqual(new Set(["dimmed page", "chrome"]));
   });
 
   test("80-column status retains the complete next-request value", () => {
