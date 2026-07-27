@@ -128,8 +128,10 @@ describe("grouped command palette rendering", () => {
     const horizontal = panelHorizontalGeometry(120, 72);
     expect(selectedWidth).toBe(horizontal.contentWidth);
 
+    // Measure the content band, not the whole panel: the frame's closing edge
+    // sits outside it.
     const panelText = plainLine(lines[bookmarkRow]!)
-      .slice(horizontal.left, horizontal.right);
+      .slice(horizontal.contentLeft, horizontal.contentLeft + horizontal.contentWidth);
     expect(panelText.trimEnd().endsWith("b")).toBeTrue();
   });
 

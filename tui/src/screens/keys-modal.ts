@@ -223,8 +223,14 @@ const TOKEN_WIDTH = Math.max(...SECTIONS.flatMap((section) => [
 ]));
 const COLUMN_WIDTH = TOKEN_WIDTH + 2 + DESCRIPTION_BUDGET;
 const COLUMN_GUTTER = 2;
+/** `┃ ` on the left and ` ┃` on the right. */
+const PANEL_FRAME_CELLS = 4;
 const MAX_COLUMNS = 3;
-const PANEL_MAX_WIDTH = MAX_COLUMNS * COLUMN_WIDTH + (MAX_COLUMNS - 1) * COLUMN_GUTTER + 2;
+/** Wide enough for every column plus the frame's own cells on both edges, so
+ *  closing the panel's right border did not cost the third column. */
+const PANEL_MAX_WIDTH = MAX_COLUMNS * COLUMN_WIDTH
+  + (MAX_COLUMNS - 1) * COLUMN_GUTTER
+  + PANEL_FRAME_CELLS;
 
 export interface KeysOverlayRender {
   composition: FrameComposition;
