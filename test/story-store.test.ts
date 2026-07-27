@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
 import { activePath } from "../shared/story-tree.js";
 import type { Story, StoryNode } from "../shared/types.js";
@@ -267,23 +268,23 @@ test("story store: unused-take pruning is atomic, preserves intent, and rejects 
   assert.deepEqual(activePath(pruned).map(({ id }) => id), ["root", "continued", "deep"]);
 });
 
-test("story nodes: unused-take pruning stays linear across a 20k-take fork", () => {
+test("story nodes: unused-take pruning stays linear across a 20k-take fork", (context) => {
   const takeCount = 20_000;
   const activeId = `take-${takeCount - 1}`;
   const root = node("root", null, "root", activeId);
   const takes = Array.from({ length: takeCount }, (_, index) => node(`take-${index}`, root.id, `take ${index}`));
   const story = fixture("wide-prune", [root, ...takes], root.id);
-  const started = performance.now();
+  const read = startTiming();
   const pruned = pruneUnusedStoryTakes(story, {
     expectedStoryRevision: story.updatedAt,
     expectedTakeCount: takeCount - 1,
     expectedPartCount: takeCount - 1
   });
-  const elapsed = performance.now() - started;
+  const timing = read();
 
   assert.equal(pruned, takeCount - 1);
   assert.deepEqual(story.nodes.map(({ id }) => id), [root.id, activeId]);
-  assert.ok(elapsed < 1_000, `20k-take prune took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "20k-take prune", cpuBudget(1_000), timing);
 });
 
 test("story store: tag canon, color, advance, and deletion rules persist", async (t) => {

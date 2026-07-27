@@ -20,7 +20,7 @@ import { isWorkerMessage } from "../src/worker-message.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import {
   platformPerformanceBudget
-} from "../../test/platform-performance-budget.js";
+} from "../../test/performance-budget.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
 
 test("embedded internal errors carry the reference written to the private log", async () => {

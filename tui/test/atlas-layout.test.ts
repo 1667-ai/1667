@@ -1,4 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import {
+  CONSOLE_REPORT,
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  startTiming
+} from "../../test/performance-budget.js";
 import type { Tag, NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { createAtlasLayout, followAtlasRail, type AtlasLayout } from "../src/atlas-layout.js";
@@ -10,6 +17,7 @@ import { renderMapTreeRow } from "../src/screens/map-tree-row.js";
 import { frameText, plainLine } from "../src/screens/story/frame.js";
 import type { StoryScreenState } from "../src/state.js";
 const NOW = 1_667_000_000_000;
+const FANOUT_RENDER_BUDGET = cpuBudget(150);
 
 function renderTree(layout: AtlasLayout, streamTargetId: string | null = null): string[] {
   return layout.rows.map((row) => plainLine(renderMapTreeRow(row, 120, streamTargetId)));
@@ -488,16 +496,16 @@ describe("atlas layout model", () => {
       tags.push(leaf);
     }
     const payload = fixture(edges, ["root-0", "leaf-0"], tags);
-    const started = performance.now();
+    const read = startTiming();
     const layout = createAtlasLayout(payload, { now: NOW, maxRows: 24 });
     const rendered = layout.rows.map((row) => renderMapTreeRow(row, 120, null));
-    const elapsed = performance.now() - started;
+    const timing = read();
 
     expect(layout.rows).toHaveLength(24);
     expect(layout.totalLines).toBe(branches);
     expect(Math.max(...rendered.map((line) => plainLine(line).length))).toBeLessThan(120);
-    expect(elapsed).toBeLessThan(150);
-  });
+    assertWithinBudget(CONSOLE_REPORT, "1k-branch layout and render", FANOUT_RENDER_BUDGET, timing);
+  }, budgetTimeout([FANOUT_RENDER_BUDGET]));
 
   test("a 19,999-node forked line does not consume the JavaScript call stack", () => {
     const depth = 10_000;

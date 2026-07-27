@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 import type { StoryManifestV5 } from "../server/story-format.js";
 import { reduceStoryV6 } from "../server/story-v6-reducer.js";
 import type { LiveStoryManifestV6, StorySummaryV6 } from "../server/story-v6-types.js";
@@ -8,14 +8,16 @@ import type { LiveStoryManifestV6, StorySummaryV6 } from "../server/story-v6-typ
 const HASH = "a".repeat(64);
 const MUTATION_ID = "m1.1767225600000.00000000000000000000000000000001";
 const NOW = "2026-01-01T00:00:00.000Z";
+const LARGE_TRANSITION_BUDGET = cpuBudget(250);
+const MANY_TRANSITIONS_BUDGET = cpuBudget(2_000);
 
-test("story V6 reducer performance: transitions do not clone or scan large content", () => {
+test("story V6 reducer performance: transitions do not clone or scan large content", (context) => {
   const giantInstruction = "x".repeat(12 * 1024 * 1024);
   const content = storyContent(giantInstruction);
   const summary = storySummary();
   const input = live(content, summary);
 
-  const started = performance.now();
+  const read = startTiming();
   const output = reduceStoryV6({ kind: "present", manifest: input, manifestHash: HASH }, {
     kind: "local-prepared",
     expectedManifestHash: HASH,
@@ -23,19 +25,19 @@ test("story V6 reducer performance: transitions do not clone or scan large conte
     content,
     summary
   });
-  const elapsed = performance.now() - started;
+  const timing = read();
 
   assert.ok(output?.kind === "live");
   assert.strictEqual(output.content, content);
   assert.strictEqual(output.content.nodes[0]!.instruction, giantInstruction);
-  assert.ok(elapsed < 250, `large immutable transition took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "large immutable transition", LARGE_TRANSITION_BUDGET, timing);
 });
 
-test("story V6 reducer performance: many small transitions stay inexpensive", () => {
+test("story V6 reducer performance: many small transitions stay inexpensive", (context) => {
   const content = storyContent("small");
   const summary = storySummary();
   let manifest = live(content, summary);
-  const started = performance.now();
+  const read = startTiming();
   for (let index = 0; index < 50_000; index += 1) {
     const output = reduceStoryV6({ kind: "present", manifest, manifestHash: HASH }, {
       kind: "local-prepared",
@@ -47,10 +49,10 @@ test("story V6 reducer performance: many small transitions stay inexpensive", ()
     if (output === null || output.kind !== "live") assert.fail("Expected live output");
     manifest = output;
   }
-  const elapsed = performance.now() - started;
+  const timing = read();
 
   assert.equal(manifest.revision, "00000000000000050001");
-  assert.ok(elapsed < 2_000, `50,000 reducer transitions took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "50,000 reducer transitions", MANY_TRANSITIONS_BUDGET, timing);
 });
 
 function storyContent(instruction: string): StoryManifestV5 {

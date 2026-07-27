@@ -2,8 +2,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import {
+  assertWithinBudget,
+  budgetTimeout,
+  fileBudget,
+  startTiming,
+  type Budget,
+  type Timing
+} from "./performance-budget.js";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { SETTINGS_STATE_V1_FILE } from "../server/data-directory-layout.js";
 import { readSettingsState } from "../server/settings-state-file.js";
@@ -19,10 +26,22 @@ import type { GenerationSettings } from "../shared/types.js";
 const MIB = 1024 * 1024;
 const MAX_RSS_GROWTH = 128 * MIB;
 const MAX_HEAP_GROWTH = 64 * MIB;
+// Each migration reads and writes the data directory, so these measure
+// wall-clock time.
+const NEAR_LIMIT_BUDGET = fileBudget(15_000);
+const ABSENT_DEFAULT_BUDGET = fileBudget(15_000);
+const RETRY_BUDGET = fileBudget(30_000);
+const NO_OP_BUDGET = fileBudget(10_000);
 
 test(
   "ADR003 Release B migration stays bounded across first-run, retry, and no-op paths",
-  { concurrency: 1, timeout: 120_000 },
+  {
+    concurrency: 1,
+    timeout: budgetTimeout(
+      [NEAR_LIMIT_BUDGET, ABSENT_DEFAULT_BUDGET, RETRY_BUDGET, NO_OP_BUDGET],
+      20_000
+    )
+  },
   async (t) => {
     await t.test("near-limit file-present v1 migration", async (context) => {
       const settings = nearLimitSettings();
@@ -57,7 +76,7 @@ test(
         migratedModel?.name,
         settings.model.slice(0, MAX_SETTINGS_NAME_SCALARS)
       );
-      assertPerformanceBound(context, "near-limit file migration", measurement, 15_000);
+      assertPerformanceBound(context, "near-limit file migration", measurement, NEAR_LIMIT_BUDGET);
     });
 
     await t.test("absent-default migration", async (context) => {
@@ -77,7 +96,7 @@ test(
       });
 
       assert.equal(measurement.value, 2);
-      assertPerformanceBound(context, "absent-default migration", measurement, 15_000);
+      assertPerformanceBound(context, "absent-default migration", measurement, ABSENT_DEFAULT_BUDGET);
     });
 
     await t.test("crash after staging followed by a convergent retry", async (context) => {
@@ -114,7 +133,7 @@ test(
       });
 
       assert.equal(measurement.value, 2);
-      assertPerformanceBound(context, "post-crash migration retry", measurement, 30_000);
+      assertPerformanceBound(context, "post-crash migration retry", measurement, RETRY_BUDGET);
     });
 
     await t.test("already-format2 startup no-op", async (context) => {
@@ -144,7 +163,7 @@ test(
         context,
         `${iterations.toLocaleString()} format-2 no-ops`,
         measurement,
-        10_000
+        NO_OP_BUDGET
       );
     });
   }
@@ -166,8 +185,7 @@ function nearLimitSettings(): GenerationSettings {
 
 interface Measurement<T> {
   readonly value: T;
-  readonly wallMs: number;
-  readonly cpuMs: number;
+  readonly timing: Timing;
   readonly rssGrowthBytes: number;
   readonly heapGrowthBytes: number;
 }
@@ -183,17 +201,14 @@ async function measure<T>(run: () => Promise<T>): Promise<Measurement<T>> {
   };
   const sampler = setInterval(sampleMemory, 2);
   sampler.unref();
-  const startedCpu = process.cpuUsage();
-  const startedAt = performance.now();
+  const read = startTiming();
   try {
     const value = await run();
-    const elapsed = performance.now() - startedAt;
-    const usage = process.cpuUsage(startedCpu);
+    const timing = read();
     sampleMemory();
     return {
       value,
-      wallMs: elapsed,
-      cpuMs: (usage.user + usage.system) / 1_000,
+      timing,
       rssGrowthBytes: Math.max(0, peakRss - startedMemory.rss),
       heapGrowthBytes: Math.max(0, peakHeap - startedMemory.heapUsed)
     };
@@ -206,17 +221,11 @@ function assertPerformanceBound(
   context: { diagnostic(message: string): void },
   label: string,
   measurement: Measurement<unknown>,
-  wallBudgetMs: number
+  budget: Budget
 ): void {
   context.diagnostic(
-    `${label}: ${measurement.wallMs.toFixed(1)}ms wall / `
-    + `${measurement.cpuMs.toFixed(1)}ms CPU, `
-    + `${formatMiB(measurement.rssGrowthBytes)}MiB peak RSS growth, `
+    `${label}: ${formatMiB(measurement.rssGrowthBytes)}MiB peak RSS growth, `
     + `${formatMiB(measurement.heapGrowthBytes)}MiB peak heap growth`
-  );
-  assert.ok(
-    measurement.wallMs < wallBudgetMs,
-    `${label} took ${measurement.wallMs.toFixed(1)}ms; budget is ${wallBudgetMs}ms`
   );
   assert.ok(
     measurement.rssGrowthBytes < MAX_RSS_GROWTH,
@@ -226,6 +235,7 @@ function assertPerformanceBound(
     measurement.heapGrowthBytes < MAX_HEAP_GROWTH,
     `${label} grew the heap by ${formatMiB(measurement.heapGrowthBytes)}MiB`
   );
+  assertWithinBudget(context, label, budget, measurement.timing);
 }
 
 async function initializedFormat1Directory(
