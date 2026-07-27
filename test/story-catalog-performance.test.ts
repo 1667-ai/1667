@@ -3,31 +3,36 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assertWithinBudget, budgetTimeout, cpuBudget, startTiming } from "./performance-budget.js";
+import {
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  fileBudget,
+  startTiming
+} from "./performance-budget.js";
 import { mapWithConcurrency } from "../server/concurrency.js";
 import { STORY_SCHEMA_VERSION, type StoryManifestV5 } from "../server/story-format.js";
 import { StoryCatalog } from "../server/story-catalog.js";
 
 const ENTRY_COUNT = 1_024;
-// This scan reads 1,024 story directories, but it parses and validates every
-// manifest it reads, and the reads run together. Computation rather than
-// waiting decides the time, so the scan reports more CPU time than wall-clock
-// time: 520ms of CPU against 361ms of wall-clock on an idle arm64 baseline.
-//
-// A wall-clock budget therefore measures the scheduler. Beside 16 busy
-// processes the wall-clock time went up 4.0 times and the CPU time 2.0 times.
+// This scan reads 1,024 story directories, and a reader waits for it. So the
+// scan keeps its wall-clock budget, which is what holds that wait down. The
+// budget has never failed: the scan measures 361ms when idle and 1,428ms beside
+// 16 busy processes, against a limit of 10,000ms.
+const SCAN_BUDGET = fileBudget(10_000);
+// The scan also parses and validates every manifest it reads, and the reads run
+// together, so it uses more CPU time than wall-clock time: 520ms of CPU against
+// 361ms of wall-clock when idle. Wall-clock time alone therefore hides work
+// growth behind the margin above, and this second budget bounds the work.
 //
 // The limit comes from measurement. The worst CPU time beside 16 busy processes
 // was 1,039ms, and this limit keeps about four times that.
-//
-// CPU time cannot see a scan that blocks instead of works. The test timeout
-// below is the backstop for that.
-const SCAN_BUDGET = cpuBudget(4_000);
+const SCAN_CPU_BUDGET = cpuBudget(4_000);
 const NOW = "2026-01-01T00:00:00.000Z";
 
 test("Q catalog performance: one retained scan pages a large catalog in budget", {
   concurrency: 1,
-  timeout: budgetTimeout([SCAN_BUDGET], 20_000)
+  timeout: budgetTimeout([SCAN_BUDGET, SCAN_CPU_BUDGET], 20_000)
 }, async (context) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-q-catalog-performance-"));
   const storiesDir = path.join(dataDir, "stories");
@@ -66,12 +71,9 @@ test("Q catalog performance: one retained scan pages a large catalog in budget",
   // An exact page-boundary scan needs one empty terminal page to observe EOF
   // without reading a 65th directory entry into the preceding page.
   assert.equal(pages, ENTRY_COUNT / 64 + 1);
-  assertWithinBudget(
-    context,
-    `${ENTRY_COUNT.toLocaleString()} stories in ${pages} retained-cursor pages`,
-    SCAN_BUDGET,
-    timing
-  );
+  const label = `${ENTRY_COUNT.toLocaleString()} stories in ${pages} retained-cursor pages`;
+  assertWithinBudget(context, label, SCAN_BUDGET, timing);
+  assertWithinBudget(context, `${label} — work`, SCAN_CPU_BUDGET, timing);
 });
 
 function manifest(id: string): StoryManifestV5 {
