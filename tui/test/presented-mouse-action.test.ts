@@ -331,6 +331,29 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(plain, resolved, captured, interaction(plain, 21))).toBe(null);
   });
 
+  test("refuses a bookmark delete once the cursor has moved to another one", () => {
+    // The bookmarks view keeps the id of the command that opened it, so it
+    // cannot say which bookmark is selected. `d` deletes whichever the cursor
+    // is on, so the bookmark itself has to be the identity.
+    const base = initialState(demoAppSource(), false);
+    base.stream = null;
+    base.mode = "COMMANDS";
+    base.hitRows = [{ target: { kind: "action", action: "delete-item" }, left: 0, right: 20 }];
+    expect(base.payload.bookmarks.length).toBeGreaterThan(1);
+    const at = (cursor: number) => ({
+      ...base,
+      commands: { query: "", cursor, selectedId: "bookmarks", view: "bookmarks" }
+    }) as State;
+
+    const resolved = mouseToAction(click, at(0), false)!;
+    expect(resolved).toEqual({ action: "delete-item" });
+    const captured = interaction(at(0), 20);
+
+    expect(reconcile(at(0), resolved, captured, interaction(at(0), 21)))
+      .toEqual({ action: "delete-item" });
+    expect(reconcile(at(1), resolved, captured, interaction(at(1), 21))).toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;

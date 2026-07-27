@@ -9,6 +9,7 @@ import { PublicRuntimeError } from "../../server/errors.js";
 import { errorFromFailureIncident } from "../../server/reported-service-error.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import {
+  STARTER_OPENING_NODE_COUNT,
   STARTER_OPENING_PART_COUNT,
   STARTER_OPENING_STORY_ID
 } from "../../shared/starter-vault.js";
@@ -724,8 +725,12 @@ describe("review regressions", () => {
 });
 
 describe("where a story opens", () => {
-  const asStory = (id: string, parts: number) => {
+  /** A story shaped like the seeded tour: `parts` on its line and `nodes`
+   *  nodes in total, which is what tells an untouched tour from a worked one. */
+  const asStory = (id: string, parts: number, nodes = STARTER_OPENING_NODE_COUNT) => {
     const source = demoAppSource();
+    const line = source.payload.path.slice(0, parts);
+    const stubs = source.payload.nodes;
     return {
       ...source,
       // The demo fixture focuses its own way; this is about a real vault.
@@ -733,7 +738,9 @@ describe("where a story opens", () => {
       payload: {
         ...source.payload,
         id,
-        path: source.payload.path.slice(0, parts)
+        path: line,
+        nodes: Array.from({ length: nodes }, (_, index) =>
+          stubs[index] ?? { ...stubs[0]!, id: `spare-${index}` })
       }
     };
   };
@@ -749,6 +756,18 @@ describe("where a story opens", () => {
     const written = asStory(STARTER_OPENING_STORY_ID, STARTER_OPENING_PART_COUNT + 1);
     expect(initialState(written, false).focusIndex)
       .toBe(lastPartRowIndex(createStoryViewModel(written.payload)));
+  });
+
+  test("a retake counts as writing even though the line stays as long", () => {
+    // Retaking, writing a take and editing all add a node while leaving the
+    // path the same length, so a part count alone would call the tour untouched.
+    const retaken = asStory(
+      STARTER_OPENING_STORY_ID,
+      STARTER_OPENING_PART_COUNT,
+      STARTER_OPENING_NODE_COUNT + 1
+    );
+    expect(initialState(retaken, false).focusIndex)
+      .toBe(lastPartRowIndex(createStoryViewModel(retaken.payload)));
   });
 
   test("every other story still opens at the end of its line", () => {

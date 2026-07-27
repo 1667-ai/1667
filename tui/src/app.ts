@@ -7,6 +7,7 @@ import {
 import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
 import {
+  STARTER_OPENING_NODE_COUNT,
   STARTER_OPENING_PART_COUNT,
   STARTER_OPENING_STORY_ID
 } from "../../shared/starter-vault.js";
@@ -561,15 +562,20 @@ export async function dispatch(
  *  parts it was seeded with, unchanged in number. A fresh vault would
  *  otherwise open a tutorial on its closing beat.
  *
- *  There is deliberately no notion of having read it. A reader who returns to
- *  an unedited tour gets its beginning again, which is what a tutorial should
- *  do; knowing better would mean persisting a reading position, and a durable
- *  per-story marker is a decision the storage rules make on its own terms.
- *  Writing into the tour — adding or removing a part — makes it that writer's
- *  story, and it opens at the end like every other one. */
+ *  Counting nodes rather than parts is what makes "unchanged" mean it: a
+ *  retake, a written take or an inline edit all add a node while leaving the
+ *  line the same length. Continuing at the last part extends that part's prose
+ *  without adding either, and is the one edit this cannot see.
+ *
+ *  There is deliberately no notion of having read it, so a reader who returns
+ *  to an untouched tour gets its beginning again — which is what a tutorial
+ *  should do. Knowing better means persisting a reading position, which is a
+ *  storage decision of its own: see the follow-up issue rather than widening
+ *  this guess. */
 function opensAtItsBeginning(payload: StoryPayload): boolean {
   return payload.id === STARTER_OPENING_STORY_ID
-    && payload.path.length === STARTER_OPENING_PART_COUNT;
+    && payload.path.length === STARTER_OPENING_PART_COUNT
+    && payload.nodes.length === STARTER_OPENING_NODE_COUNT;
 }
 
 export function initialState(source: AppSource, renderMode: boolean): RuntimeState {

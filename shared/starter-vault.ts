@@ -260,3 +260,8 @@ export const STARTER_OPENING_STORY_ID = TOUR.id;
  *  to decide whether the tour is still the tour or has become someone's
  *  story, so it has to be derived here rather than counted by hand. */
 export const STARTER_OPENING_PART_COUNT = TOUR.beats.length;
+/** Every node the tour seeds, takes included. A retake, a written take or an
+ *  inline edit adds one, which is how a client tells the tour from a story
+ *  someone has started working in. */
+export const STARTER_OPENING_NODE_COUNT = TOUR.beats
+  .reduce((total, beat) => total + beat.takes.length, 0);
