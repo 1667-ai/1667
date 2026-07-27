@@ -117,7 +117,7 @@ jobs:
 
       - name: Run Windows platform tests without process contention
         if: matrix.target == 'windows-x64'
-        run: npm test -- --test-concurrency=4
+        run: npm test -- --test-concurrency=2
 
       - name: Run native TUI tests
         if: matrix.target != 'darwin-x64'
