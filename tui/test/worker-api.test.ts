@@ -13,6 +13,7 @@ import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
+import { platformPerformanceBudget } from "../../test/platform-performance-budget.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PROVIDER_CHECK_METHODS,
@@ -256,7 +257,7 @@ describe("embedded backend worker", () => {
     await contender.acquire();
     await contender.release();
     await rm(dataDir, { recursive: true, force: true });
-  });
+  }, platformPerformanceBudget(10_000));
 
   test("preserves actionable storage failures during worker bootstrap", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-bootstrap-failure-"));
