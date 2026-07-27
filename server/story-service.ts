@@ -273,15 +273,6 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
-  /** Write several takes as one aggregate change. There is no mutation-receipt
-   * form, because a receipt covers one client request. */
-  async createNodes(
-    id: string,
-    takes: readonly { value: unknown; nodeId?: string }[]
-  ): Promise<StoryPayload> {
-    return await this.storyLocal.createNodes(id, takes);
-  }
-
   async editNode(
     id: string,
     nodeId: string,

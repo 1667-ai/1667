@@ -5,7 +5,7 @@ import { ServiceError } from "./errors.js";
 import { currentModel } from "./generation-http.js";
 import { DEFAULT_INSTRUCTION } from "./generation-prompts.js";
 import type { GenerationAdmissionRegistry } from "./generation-admission.js";
-import { commitNode, commitNodes } from "./node-commit.js";
+import { commitNode } from "./node-commit.js";
 import {
   parseCreateNode,
   parseEditNode,
@@ -174,25 +174,6 @@ export class StoryServiceLocal {
       id,
       body,
       nodeId
-    ));
-  }
-
-  /** Write several takes as one aggregate change. Callers that already hold
-   * every take avoid one durable write for each of them. */
-  async createNodes(
-    id: string,
-    takes: readonly { value: unknown; nodeId?: string }[]
-  ): Promise<StoryPayload> {
-    this.dependencies.ensureOpen();
-    return buildStoryPayload(await commitNodes(
-      this.dependencies.stories,
-      this.dependencies.settings,
-      this.dependencies.generationAdmission,
-      id,
-      takes.map((take) => ({
-        body: parseCreateNode(take.value),
-        ...(take.nodeId === undefined ? {} : { nodeId: take.nodeId })
-      }))
     ));
   }
 

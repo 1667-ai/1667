@@ -1,8 +1,4 @@
 import type { ChildProcess } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import nodePath from "node:path";
-import { StoryService } from "../server/story-service.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -35,27 +31,6 @@ let lastReservedMutationId: string | null = null;
 
 export function lastTestMutationId(): string | null {
   return lastReservedMutationId;
-}
-
-/**
- * Make a data directory that already holds an empty library.
- *
- * The product entry point writes the starter vault only when it publishes the
- * format marker itself. This function publishes that marker first, so the
- * spawned server opens an existing library and writes no starter vault. The
- * server-start budget then covers the behavior under test. Seeding costs more
- * than a second of durable writes, which is most of the budget on a loaded
- * machine.
- *
- * Tests of the starter vault operate StoryService directly in
- * starter-vault.test.ts, so this function does not reduce their cover.
- */
-export async function emptyLibraryDataDirectory(prefix: string): Promise<string> {
-  const dataDir = await mkdtemp(nodePath.join(tmpdir(), prefix));
-  const service = StoryService.withoutDiagnostics({ dataDir });
-  await service.init();
-  await service.dispose();
-  return dataDir;
 }
 
 export async function waitForTestServer(
