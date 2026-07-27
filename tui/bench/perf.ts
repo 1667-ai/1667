@@ -310,6 +310,29 @@ const rows: BenchRow[] = [];
     cache.invalidate("p499");
     renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache });
   }, 20));
+  // The real interactive path: a live append stream is SET on the state, so
+  // every repaint walks projection → story index → wrap. Each iteration lands
+  // one delta batch, exactly like a generation frame.
+  {
+    const streamTarget = payload.path.at(-1)!;
+    state.stream = {
+      targetId: streamTarget.id,
+      parentId: streamTarget.parentId,
+      append: true,
+      startedAt: "2026-07-23T00:00:00Z",
+      instruction: "",
+      ...emptyStreamText()
+    };
+    let delta = 0;
+    rows.push(time("live-stream delta repaint on 500-part line", 16, () => {
+      delta += 1;
+      appendStreamText(state.stream!, ` and the stream landed delta ${delta} of the take`);
+      renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache });
+    }, 20));
+    state.stream = null;
+    cache.invalidate("p499");
+    renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache });
+  }
   rows.push(time("view model rebuild, 500 parts", 8, () => createStoryViewModel(payload), 20));
   rows.push(time("switch-target resolve on 500-part payload", 4, () => resolveSwitchTarget(payload, "p350", 1), 50));
 

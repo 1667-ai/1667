@@ -1,6 +1,7 @@
 import { appendContinuationText } from "../../shared/story-text.js";
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { createAppendPlanWrap } from "./append-wrap.js";
+import { combinedAppendText } from "./stream-projection.js";
 import { storyProseMeasure } from "./screens/story.js";
 import {
   storyPartWrapPlan,
@@ -316,8 +317,15 @@ function* storyWrapPlans(input: PlanInput): Generator<StoryPartWrapPlan> {
 
   for (const node of payload.path) {
     const partStream = stream?.targetId === node.id ? stream : null;
+    // The projection already materialized this exact settled+streamed string;
+    // reuse it instead of concatenating a second copy per delta batch.
     const projected = partStream?.append === true && substantive
-      ? { ...node, text: appendContinuationText(node.text, partStream.text) }
+      ? {
+        ...node,
+        text: streamIdentity === null
+          ? appendContinuationText(node.text, partStream.text)
+          : combinedAppendText(streamIdentity, node.text, partStream.text)
+      }
       : node;
     yield storyPartWrapPlan(
       wrapInput(projected),
