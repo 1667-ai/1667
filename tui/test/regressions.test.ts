@@ -130,6 +130,27 @@ describe("review regressions", () => {
     expect(rendered.match(/facts rail · off/g)).toHaveLength(1);
   });
 
+  test("NAV toasts take the footer line while the viewport follows focus", () => {
+    // A toast used to print under the focused part whenever the viewport was
+    // following it: a message about the app, set inside the manuscript, two
+    // lines of reflowed prose to fit, landing somewhere new each time focus
+    // moved. It belongs on one line, and always the same one.
+    const following = {
+      ...baseState,
+      focusIndex: 12,
+      viewScroll: null,
+      viewScrollDelta: 0,
+      toast: "facts rail · off"
+    };
+    const lines = renderStoryScreen(following, { width: 80, height: 24 }).lines.map(plainLine);
+    const rendered = lines.join("\n");
+
+    expect(rendered).toContain("›  facts rail · off");
+    expect(rendered.match(/facts rail · off/g)).toHaveLength(1);
+    // Second from the bottom: the footer line, with the status bar under it.
+    expect(lines.findIndex((line) => line.includes("facts rail · off"))).toBe(lines.length - 2);
+  });
+
   test("pending free-scroll intent places NAV toasts in the stable footer", () => {
     const scrolled = {
       ...baseState,
