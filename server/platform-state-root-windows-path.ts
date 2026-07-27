@@ -24,7 +24,8 @@ export async function prepareWindowsPrivateDirectoryPlan(
       stableAncestors: ancestors
     };
   }
-  await requireCanonicalWindowsDirectory(trustedBase);
+  const trustedAncestors = directoryAncestors(trustedBase);
+  await preflightExistingAncestors(trustedAncestors);
   const relative = path.win32.relative(trustedBase, root);
   if (relative === ""
     || path.win32.isAbsolute(relative)
@@ -44,17 +45,24 @@ export async function prepareWindowsPrivateDirectoryPlan(
   });
   return {
     candidates,
-    stableAncestors: [trustedBase]
+    stableAncestors: trustedAncestors
   };
 }
 
 export async function requireCanonicalWindowsDirectory(
   directory: string
 ): Promise<void> {
-  const canonical = await realpath(directory);
-  if (!sameWindowsPath(canonical, directory)) {
+  const info = await lstat(directory);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
     throw new Error(
-      `Windows private state path has a reparse ancestor: ${directory}`
+      `Windows private state path is a reparse point: ${directory}`
+    );
+  }
+  const canonical = await realpath(directory);
+  const canonicalInfo = await lstat(canonical);
+  if (info.dev !== canonicalInfo.dev || info.ino !== canonicalInfo.ino) {
+    throw new Error(
+      `Windows private state path identity changed: ${directory}`
     );
   }
 }
@@ -64,12 +72,6 @@ async function preflightExistingAncestors(
 ): Promise<void> {
   for (const ancestor of ancestors) {
     try {
-      const info = await lstat(ancestor);
-      if (!info.isDirectory() || info.isSymbolicLink()) {
-        throw new Error(
-          `Windows private state path is a reparse point: ${ancestor}`
-        );
-      }
       await requireCanonicalWindowsDirectory(ancestor);
     } catch (error) {
       if (isErrorCode(error, "ENOENT")) return;
@@ -88,11 +90,6 @@ function directoryAncestors(directory: string): readonly string[] {
       cursor = path.win32.join(cursor, component);
       return cursor;
     });
-}
-
-function sameWindowsPath(left: string, right: string): boolean {
-  return path.win32.normalize(left).toLowerCase()
-    === path.win32.normalize(right).toLowerCase();
 }
 
 function isErrorCode(error: unknown, code: string): boolean {

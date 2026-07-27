@@ -106,6 +106,21 @@ test("Windows machine tier rejects a junction above its root", {
   await assert.rejects(access(path.join(target, "state")), /ENOENT/);
 });
 
+test("Windows machine tier accepts an 8.3 ancestor alias", {
+  skip: process.platform !== "win32"
+}, async (t) => {
+  const parent = await temporaryDirectory(t, "1667-windows-short-name-");
+  const shortParent = await shortWindowsPath(parent);
+  if (shortParent.toLowerCase() === parent.toLowerCase()) {
+    t.skip("Windows 8.3 names are unavailable on the temporary volume");
+    return;
+  }
+  const root = path.join(shortParent, "state");
+
+  assert.equal(await resolveMachineTierRoot({ override: root }), root);
+  await assertPrivateSecurity(root);
+});
+
 test("Node Windows adapter stays inside the server startup budget", {
   skip: process.platform !== "win32" || process.versions.bun !== undefined,
   timeout: 10_000
@@ -280,6 +295,27 @@ async function runIcacls(
       windowsHide: true
     }
   );
+}
+
+async function shortWindowsPath(directory: string): Promise<string> {
+  const executable = path.join(process.env.SystemRoot!, "System32", "cmd.exe");
+  const { stdout } = await execFileAsync(
+    executable,
+    ["/d", "/c", "for %I in (\"%AI_1667_TEST_WINDOWS_PATH%\") do @echo %~sI"],
+    {
+      encoding: "utf8",
+      env: {
+        SystemRoot: process.env.SystemRoot,
+        WINDIR: process.env.WINDIR,
+        AI_1667_TEST_WINDOWS_PATH: directory
+      },
+      windowsVerbatimArguments: true,
+      windowsHide: true
+    }
+  );
+  const result = stdout.trim();
+  if (result === "") throw new Error("Windows returned no 8.3 path");
+  return result;
 }
 
 async function runPowerShell(
