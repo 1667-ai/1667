@@ -91,7 +91,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navPageDown"),
         binding("navCtrlPageDown")
       ]),
-      entry("first part · line's leaf", [
+      entry("first part · last part", [
         binding("navTop"),
         binding("navLeaf")
       ]),
