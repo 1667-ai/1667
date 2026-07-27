@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -20,7 +21,11 @@ import { platformPerformanceBudget } from "./platform-performance-budget.js";
 export const API_PROTOCOL_HEADERS: Record<string, string> = {
   [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION)
 };
-const SERVER_START_BUDGET_MS = platformPerformanceBudget(10_000);
+// Windows Defender can scan each cold native-helper process. The direct
+// adapter contract keeps its independent 10-second production ceiling.
+const SERVER_START_BUDGET_MS = process.platform === "win32"
+  ? 20_000
+  : platformPerformanceBudget(10_000);
 let operationClient: HttpOperationClient | null = null;
 let lastReservedMutationId: string | null = null;
 
@@ -53,6 +58,50 @@ export async function waitForTestServer(
   throw new Error(
     `server did not start within ${SERVER_START_BUDGET_MS / 1_000} seconds: ${output()}`
   );
+}
+
+export async function stopTestServerProcess(
+  server: ChildProcess
+): Promise<void> {
+  if (server.exitCode !== null || server.signalCode !== null) {
+    closeTestServerPipes(server);
+    return;
+  }
+  const closed = new Promise<void>((resolve) =>
+    server.once("close", () => resolve())
+  );
+  server.kill("SIGTERM");
+  if (await settlesWithin(closed, 1_000)) return;
+  const killed = server.kill("SIGKILL");
+  if (await settlesWithin(closed, 1_000)) return;
+  closeTestServerPipes(server);
+  throw new Error(
+    killed
+      ? "Test server did not close within 1 second after SIGKILL"
+      : "Test server could not be sent SIGKILL and did not close"
+  );
+}
+
+async function settlesWithin(
+  settled: Promise<void>,
+  milliseconds: number
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      settled.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), milliseconds);
+      })
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+function closeTestServerPipes(server: ChildProcess): void {
+  server.stdout?.destroy();
+  server.stderr?.destroy();
 }
 
 export async function rememberServerInstance(metadata: unknown, origin: string): Promise<void> {
