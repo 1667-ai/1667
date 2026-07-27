@@ -1,10 +1,20 @@
 import { expect, test } from "bun:test";
+import {
+  CONSOLE_REPORT,
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  startTiming
+} from "../../test/performance-budget.js";
 import { RELEASE_LAUNCHER_PACKAGE } from "../../shared/release-targets.js";
 import { compareSemVer } from "../../shared/semver.js";
 import {
   PLATFORM_PACKAGES,
   parseNpmExactVersionMetadata
 } from "../src/npm-upgrade-registry.js";
+
+const METADATA_BUDGET = cpuBudget(750);
+const SEMVER_BUDGET = cpuBudget(500);
 
 const INTEGRITY = `sha512-${"A".repeat(86)}==`;
 
@@ -18,7 +28,7 @@ test("near-limit upgrade metadata parsing and SemVer selection stay inexpensive"
     ignored: "x".repeat(60 * 1024)
   });
 
-  const metadataStart = performance.now();
+  const readMetadata = startTiming();
   for (let iteration = 0; iteration < 250; iteration += 1) {
     parseNpmExactVersionMetadata(body, {
       name: RELEASE_LAUNCHER_PACKAGE,
@@ -26,18 +36,15 @@ test("near-limit upgrade metadata parsing and SemVer selection stay inexpensive"
       optionalDependencies: graph
     });
   }
-  const metadataMs = performance.now() - metadataStart;
+  const metadataTiming = readMetadata();
 
-  const semverStart = performance.now();
+  const readSemver = startTiming();
   for (let iteration = 0; iteration < 20_000; iteration += 1) {
     compareSemVer("2.0.0-beta.11+candidate", "2.0.0-beta.2+prior");
   }
-  const semverMs = performance.now() - semverStart;
+  const semverTiming = readSemver();
 
-  console.log(
-    `upgrade performance — 250 near-limit metadata parses ${metadataMs.toFixed(1)}ms; `
-    + `20k SemVer comparisons ${semverMs.toFixed(1)}ms`
-  );
-  expect(metadataMs).toBeLessThan(750);
-  expect(semverMs).toBeLessThan(500);
-});
+  assertWithinBudget(CONSOLE_REPORT, "250 near-limit metadata parses", METADATA_BUDGET, metadataTiming);
+  assertWithinBudget(CONSOLE_REPORT, "20k SemVer comparisons", SEMVER_BUDGET, semverTiming);
+// Bun applies a 5s default timeout, which is below the allowance these budgets need.
+}, budgetTimeout([METADATA_BUDGET, SEMVER_BUDGET]));

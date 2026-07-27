@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { mapWithConcurrency } from "../server/concurrency.js";
 import { ServiceError } from "../server/errors.js";
@@ -19,18 +18,28 @@ import {
 import { formatV6, parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import type { DeletedStoryManifestV6, LiveStoryManifestV6 } from "../server/story-v6-types.js";
 import { StoryStore } from "../server/stories.js";
-import { platformPerformanceBudget } from "./platform-performance-budget.js";
+import {
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  fileBudget,
+  startTiming
+} from "./performance-budget.js";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const HASH = "a".repeat(64);
 const MIB = 1024 * 1024;
-const V5_PARSE_BUDGET_MS = platformPerformanceBudget(1_500);
-const V6_PARSE_BUDGET_MS = platformPerformanceBudget(4_000);
-const CATALOG_BUDGET_MS = platformPerformanceBudget(5_000);
+// Parsing is pure computation. Listing the catalog reads directories.
+const V5_PARSE_BUDGET = cpuBudget(1_500);
+const V6_PARSE_BUDGET = cpuBudget(4_000);
+const CATALOG_BUDGET = fileBudget(5_000);
 const CATALOG_ENTRY_COUNT = 4_096;
 const FIXTURE_IO_CONCURRENCY = 64;
 
-test("story wire performance", { concurrency: 1, timeout: 120_000 }, async (t) => {
+test("story wire performance", {
+  concurrency: 1,
+  timeout: budgetTimeout([V5_PARSE_BUDGET, V6_PARSE_BUDGET, CATALOG_BUDGET], 60_000)
+}, async (t) => {
   await t.test("near-limit strict V5 and canonical V6 parsing stay in budget", (context) => {
     const content = largeManifest();
     const v5Bytes = Buffer.from(JSON.stringify(content), "utf8");
@@ -39,22 +48,28 @@ test("story wire performance", { concurrency: 1, timeout: 120_000 }, async (t) =
     assert.ok(v6Bytes.byteLength >= 12 * MIB, `V6 fixture is only ${formatMib(v6Bytes.byteLength)}`);
     assert.ok(v6Bytes.byteLength < MAX_STORY_MANIFEST_BYTES);
 
-    let started = performance.now();
+    const readV5 = startTiming();
     const parsedV5 = parseStoryManifestBytes(v5Bytes, content.id);
-    const v5Ms = performance.now() - started;
+    const v5Timing = readV5();
 
-    started = performance.now();
+    const readV6 = startTiming();
     const parsedV6 = parseStoryManifestBytes(v6Bytes, content.id);
-    const v6Ms = performance.now() - started;
+    const v6Timing = readV6();
 
     assert.equal(parsedV5.kind, "v5");
     assert.equal(parsedV6.kind, "v6-live");
-    context.diagnostic(
-      `${formatMib(v5Bytes.byteLength)} V5 ${v5Ms.toFixed(1)}ms; ` +
-      `${formatMib(v6Bytes.byteLength)} canonical V6 ${v6Ms.toFixed(1)}ms`
+    assertWithinBudget(
+      context,
+      `${formatMib(v5Bytes.byteLength)} strict V5 parse`,
+      V5_PARSE_BUDGET,
+      v5Timing
     );
-    assert.ok(v5Ms < V5_PARSE_BUDGET_MS, `strict V5 parse took ${v5Ms.toFixed(1)}ms`);
-    assert.ok(v6Ms < V6_PARSE_BUDGET_MS, `canonical V6 parse took ${v6Ms.toFixed(1)}ms`);
+    assertWithinBudget(
+      context,
+      `${formatMib(v6Bytes.byteLength)} canonical V6 parse`,
+      V6_PARSE_BUDGET,
+      v6Timing
+    );
   });
 
   await t.test("a 4096-entry mixed catalog lists without hydrating V6 content", async (context) => {
@@ -74,20 +89,22 @@ test("story wire performance", { concurrency: 1, timeout: 120_000 }, async (t) =
       if (entry.manifest !== null) await writeFile(path.join(directory, "manifest.json"), entry.manifest);
     });
 
-    const started = performance.now();
+    const read = startTiming();
     const summaries = await store.list();
-    const elapsed = performance.now() - started;
+    const timing = read();
 
     const v5Count = summaries.filter(({ id }) => id.startsWith("v5-")).length;
     const v6Count = summaries.filter(({ id }) => id.startsWith("v6-")).length;
-    context.diagnostic(
-      `${CATALOG_ENTRY_COUNT.toLocaleString()} mixed entries — ${summaries.length.toLocaleString()} live summaries ` +
-      `in ${elapsed.toFixed(1)}ms`
-    );
     assert.equal(v5Count, 1_024);
     assert.equal(v6Count, 1_024);
     assert.equal(summaries.length, 2_048);
-    assert.ok(elapsed < CATALOG_BUDGET_MS, `mixed catalog list took ${elapsed.toFixed(1)}ms`);
+    assertWithinBudget(
+      context,
+      `${CATALOG_ENTRY_COUNT.toLocaleString()} mixed entries — `
+      + `${summaries.length.toLocaleString()} live summaries`,
+      CATALOG_BUDGET,
+      timing
+    );
 
     await assert.rejects(
       () => store.loadForMutation("v6-0000"),

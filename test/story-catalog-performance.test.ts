@@ -2,19 +2,20 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { assertWithinBudget, budgetTimeout, fileBudget, startTiming } from "./performance-budget.js";
 import { mapWithConcurrency } from "../server/concurrency.js";
 import { STORY_SCHEMA_VERSION, type StoryManifestV5 } from "../server/story-format.js";
 import { StoryCatalog } from "../server/story-catalog.js";
 
 const ENTRY_COUNT = 1_024;
-const SCAN_BUDGET_MS = 10_000;
+// This scan reads 1,024 story directories, so it measures wall-clock time.
+const SCAN_BUDGET = fileBudget(10_000);
 const NOW = "2026-01-01T00:00:00.000Z";
 
 test("Q catalog performance: one retained scan pages a large catalog in budget", {
   concurrency: 1,
-  timeout: 60_000
+  timeout: budgetTimeout([SCAN_BUDGET], 20_000)
 }, async (context) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-q-catalog-performance-"));
   const storiesDir = path.join(dataDir, "stories");
@@ -40,24 +41,25 @@ test("Q catalog performance: one retained scan pages a large catalog in budget",
   const seen = new Set<string>();
   let cursor: string | null = null;
   let pages = 0;
-  const started = performance.now();
+  const read = startTiming();
   do {
     const page = await catalog.listPage({ cursor, maxEntries: 64 });
     page.items.forEach(({ id }) => seen.add(id));
     cursor = page.cursor;
     pages += 1;
   } while (cursor !== null);
-  const elapsed = performance.now() - started;
+  const timing = read();
 
-  context.diagnostic(
-    `${ENTRY_COUNT.toLocaleString()} stories in ${pages} retained-cursor pages: ` +
-    `${elapsed.toFixed(1)}ms`
-  );
   assert.equal(seen.size, ENTRY_COUNT);
   // An exact page-boundary scan needs one empty terminal page to observe EOF
   // without reading a 65th directory entry into the preceding page.
   assert.equal(pages, ENTRY_COUNT / 64 + 1);
-  assert.ok(elapsed < SCAN_BUDGET_MS, `Q catalog scan took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(
+    context,
+    `${ENTRY_COUNT.toLocaleString()} stories in ${pages} retained-cursor pages`,
+    SCAN_BUDGET,
+    timing
+  );
 });
 
 function manifest(id: string): StoryManifestV5 {
