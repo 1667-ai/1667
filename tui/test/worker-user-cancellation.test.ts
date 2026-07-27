@@ -16,12 +16,19 @@ import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
 // work that has to happen before cancellation is racing it. Tests on the
 // in-memory outboxes below can hold that window near zero because their enqueue
 // is a no-op, and they pick single-digit grace values accordingly.
-// CommittedHangingPublicationOutbox cannot: it writes the record to a temp
-// directory for real, because the assertions that follow read that directory
-// back through a second transport. A loaded CI runner has taken over 50ms to
-// land that write, firing the deadline before the test reached cancel.abort()
-// and rejecting a mutation the test expects to resolve. This grace has to
-// outrun a contended filesystem, not merely a fast one.
+//
+// The one test that uses this cannot: CommittedHangingPublicationOutbox writes
+// the record to a temp directory for real, because the assertions that follow
+// read that directory back through a second transport, and it hangs on that
+// same first write. A loaded CI runner has taken over 50ms to land it, firing
+// the deadline before the test reached cancel.abort() and rejecting a mutation
+// the test expects to resolve. This grace has to outrun a contended
+// filesystem, not merely a fast one.
+//
+// It is deliberately not shared with the other test on that fixture. A long
+// grace is not free: where a test waits on a control message rather than on
+// the fence, stretching the deadline pushes the message past what the test
+// will wait for.
 const FILE_BACKED_GRACE_MS = 2_000;
 
 test("caller cancellation hard-fences a mutation that never reaches terminal state", async () => {
@@ -265,7 +272,14 @@ test("live cancellation bypasses another mutation's stalled publication", async 
     const outbox = new CommittedHangingPublicationOutbox(dir, 2);
     await outbox.init();
     const worker = new FakeWorker();
-    const transport = await startTransport(worker, outbox, FILE_BACKED_GRACE_MS);
+    // Not FILE_BACKED_GRACE_MS. This test cancels a mutation that already
+    // published, and waitForControlMessage below gives that cancel message only
+    // twenty polls to appear. Stretching the grace to two seconds made the
+    // message miss that window and failed two runs in six under load. The race
+    // that constant exists to fix does not apply here: hangOnEnqueue is 2, so
+    // the cancelled mutation's own publication settles on the first write and
+    // never has a deadline running against it.
+    const transport = await startTransport(worker, outbox, 200);
     const cancel = new AbortController();
     const firstError = rejection(transport.call(
       "createStory",
