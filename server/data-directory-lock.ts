@@ -39,7 +39,7 @@ export interface DataDirectoryLockOptions {
 /**
  * Single-writer lease on one project tier.
  *
- * ADR007: the kernel lock is the only authority on whether a project is open.
+ * The kernel lock is the only authority on whether a project is open.
  * There is no stale-lock recovery, no pid liveness check, and no residue to
  * clean up — when a process dies the kernel closes the descriptor and releases
  * the lock, and `lock` remains an empty regular file carrying no state.
@@ -75,7 +75,7 @@ export class DataDirectoryLock {
   /** True when this acquisition published the format marker, meaning the
    * directory held no 1667 data yet.
    *
-   * The directory itself is a poor signal under ADR007: `1667 init` creates the
+   * The directory itself is a poor signal: `1667 init` creates the
    * project tier in an earlier process, and a project may arrive by clone. The
    * marker is what distinguishes a first open from an emptied library, which
    * must not be refilled behind the writer's back. */

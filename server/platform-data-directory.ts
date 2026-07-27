@@ -27,7 +27,7 @@ export function resolvePlatformDataDirectory(
         "invalid_request"
       );
     }
-    // ADR007: a relative override is ordinary. `1667 --data book` resolves
+    // A relative override is ordinary. `1667 --data book` resolves
     // against the working directory on every build, packaged included.
     return pathFor(platform).resolve(cwd, configured);
   }

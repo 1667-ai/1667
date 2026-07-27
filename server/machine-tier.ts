@@ -10,7 +10,7 @@ import {
 } from "./platform-state-root.js";
 
 /**
- * ADR007 machine tier: the one directory 1667 creates itself on this machine.
+ * The machine tier: the one directory 1667 creates itself on this machine.
  * It holds provider secrets and HTTP auth records, so the strict privacy
  * assertions removed from the project tier keep holding here.
  */

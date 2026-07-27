@@ -475,8 +475,8 @@ function gutterFor(part: StoryPart, focused: boolean, streaming: boolean, lineIn
       ? [segment(`¶ ${part.number} `, "chrome"), segment("◈", "summary")]
       : [segment(`¶ ${part.number}`, "chrome")];
     if (part.siblingCount > 1 && lineIndex === 1) {
-      const strip = takeStrip(part.takeIndex, part.siblingCount);
-      const segments = stripSegments(strip, part.takeIndex, part.siblingCount);
+      const strip = takeStrip(part.takeIndex, part.siblingCount, part.takeSubtakes);
+      const segments = stripSegments(strip, part.takeIndex);
       // Pad the strip out to the counter above it so the right-aligned gutter
       // starts both on the same column: the dots read as belonging to the
       // counter rather than as a third indent.
@@ -508,7 +508,7 @@ function takeCounterWidth(part: StoryPart): number {
   return takeCounterSegments(part).reduce((sum, item) => sum + visibleWidth(item.text), 0);
 }
 
-function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number, count: number): FrameLine {
+function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number): FrameLine {
   if (strip.density === "gauge") {
     return [
       segment(strip.text.slice(0, strip.currentOffset), "chrome"),
@@ -518,10 +518,11 @@ function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number,
     ];
   }
   const spacing = strip.density === "spaced" ? " " : "";
-  return Array.from({ length: count }, (_, index): FrameLine => [
+  // The strip owns the glyphs so the ring rule lives in one place; this only
+  // colours them and hangs a click target on each take.
+  return strip.cells.map((glyph, index): FrameLine => [
     ...(index === 0 ? [] : [segment(spacing, "chrome")]),
-    segment(index + 1 === currentTake ? "●" : "○",
-      index + 1 === currentTake ? "focus / accent" : "chrome",
+    segment(glyph, index + 1 === currentTake ? "focus / accent" : "chrome",
       { kind: "story-take", take: index + 1 })
   ]).flat();
 }

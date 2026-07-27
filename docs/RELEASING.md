@@ -14,8 +14,9 @@ preflight only.
 Maintainers reserved the package names. Do not publish packages. Do not move
 registry tags. Do not describe a candidate as an official release.
 
-Publication still requires a separate publication ADR. Maintainers must
-approve that ADR. The repository must implement that ADR before publication.
+Publication still requires a separate publication decision. Maintainers must
+approve that decision. The repository must implement that decision before
+publication.
 
 ## Technical terms
 
@@ -255,5 +256,4 @@ observations.
 A successful preflight is necessary package evidence. It is not publication
 authorization.
 
-See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md)
-for the normative release policy.
+A successful preflight does not authorize publication on its own.

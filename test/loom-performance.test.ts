@@ -9,12 +9,12 @@ import {
   activePathWindow,
   bookmarkBelow,
   continuationStats,
-  createLoomIndex,
+  createStoryIndex,
   mapForkPage,
   rememberedLeafId,
   subtreeNodeCount,
   virtualRange
-} from "../shared/loom-model.js";
+} from "../shared/story-model.js";
 
 const NOW = "2026-07-16T12:00:00.000Z";
 const LINEAR_BUDGET_MS = 1_500;
@@ -30,7 +30,7 @@ test("loom performance: a 20k-part line indexes and probes in linear time", (con
   const payload = story(nodes);
   const started = performance.now();
   assert.equal(activePath(payload).length, size);
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   assert.equal(pathTo(index.tree, `deep-${size - 1}`).length, size);
   assert.equal(rememberedLeafId(payload, "deep-0", index), `deep-${size - 1}`);
   assert.deepEqual(continuationStats(payload, "deep-0", index), { parts: size - 1, words: size - 1 });
@@ -61,7 +61,7 @@ test("loom performance: a 20k-take fork keeps previews and its DOM window bounde
   }));
   const payload = story([root, ...takes], bookmarks);
   const started = performance.now();
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   assert.equal(childrenOf(index.tree, root.id).length, takeCount);
   let ordinalChecksum = 0;
   for (const take of takes) {
@@ -116,7 +116,7 @@ test("loom performance: a mixed 10k-node loom precomputes nested rollups once", 
   }
   const payload = story(nodes, bookmarks);
   const started = performance.now();
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   for (const node of nodes) {
     continuationStats(payload, node.id, index);
     bookmarkBelow(payload, node.id, index);

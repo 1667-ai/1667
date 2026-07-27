@@ -91,7 +91,7 @@ export interface SettingsV2StoreOptions {
   readonly now?: Clock;
   readonly validateCandidate?: (settings: GenerationSettings) => Promise<boolean>;
   readonly activationMode?: SettingsActivationMode;
-  /** ADR007 machine tier. Absent means this directory is its own machine tier. */
+  /** The machine tier. Absent means this directory is its own machine tier. */
   readonly secretsDir?: string;
 }
 

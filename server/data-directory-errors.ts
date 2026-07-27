@@ -1,7 +1,7 @@
 import { ServiceError } from "./errors.js";
 
 /**
- * ADR007: the kernel lock is the only authority on whether a project is open,
+ * The kernel lock is the only authority on whether a project is open,
  * so contention names the holder when a run record says who it is and never
  * offers to break the lock.
  */

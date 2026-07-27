@@ -9,7 +9,7 @@ import {
  * Runtime-only data-directory lease. Acquisition cannot succeed until every
  * required settings migration has completed under the retained process lock.
  *
- * ADR007 gives the project tier a `.git`-equivalent threat model, so every
+ * The project tier carries a `.git`-equivalent threat model, so every
  * build — packaged included — opens it the same way: create it when missing,
  * take one advisory lock, and refuse a format this build cannot read.
  */

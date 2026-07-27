@@ -4,7 +4,7 @@ import type { StoryId } from "./story-v6-types.js";
 
 const BASE32_LOWER = "abcdefghijklmnopqrstuvwxyz234567";
 
-/** ADR006 deterministic create/import identity. */
+/** Deterministic create/import identity. */
 export function storyIdForMutation(mutationIdValue: unknown): StoryId {
   const mutationId = requireMutationId(mutationIdValue);
   const digest = createHash("sha256")

@@ -20,7 +20,7 @@ This public repository contains pre-release source.
 | Item | Current status |
 | --- | --- |
 | Source repository | GitHub provides public access. |
-| Standalone candidates | CI builds and tests four targets. CI does not publish these files. |
+| Standalone candidates | CI builds and tests four targets on `main`, three of them on pull requests. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
 | GitHub release | 1667 does not publish a GitHub release. |
@@ -177,10 +177,12 @@ contains only `settings.json`. Migration accepts StoryTavern story bundles.
 it next changes a story.
 
 `1667 export` writes the selected story line to `<Story Title>.md` in the
-project root. Chapter titles use `##` headings. 1667 does not read an exported
-file. Use the 1667 editor to change story data.
-
-See [ADR 007](https://github.com/1667-ai/architecture/blob/main/docs/adr/007-project-anchored-storage.md).
+project root. The selected story line is the take that each story part
+currently holds. The export omits unselected takes and directions. Chapter
+titles use `##` headings. `--story <id>` selects a story. Export otherwise uses
+the most recently updated story. No option selects a story line. Select the
+story line in the TUI before export. 1667 does not read an exported file. Use
+the 1667 editor to change story data.
 
 ## Keyboard orientation
 
@@ -232,9 +234,6 @@ only the opaque secret identifier.
 Local servers such as Ollama can use a connection without a credential. 1667
 enables prompt cache controls only for exact official provider hosts.
 
-See [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md)
-and [ADR 004](https://github.com/1667-ai/architecture/blob/main/docs/adr/004-prompt-caching.md).
-
 ## Privacy
 
 1667 stores stories and project settings in the project tier. Demo mode and
@@ -278,8 +277,6 @@ and requires a private-network address. It then pins the verified address.
 
 Public hosts and all connections with credentials require authenticated HTTPS.
 
-See [ADR 003](https://github.com/1667-ai/architecture/blob/main/docs/adr/003-model-connections-and-generation-profiles.md).
-
 ## Build a standalone executable
 
 ```sh
@@ -301,8 +298,7 @@ the prompt tokenizer.
 This file is a development candidate. The build does not sign or publish the
 file. It does not create an archive or an installer.
 
-See [ADR 005](https://github.com/1667-ai/architecture/blob/main/docs/adr/005-trusted-releases-and-upgrades.md)
-and [the release instructions](docs/RELEASING.md).
+See [the release instructions](docs/RELEASING.md).
 
 ## Troubleshoot internal errors
 
@@ -355,6 +351,13 @@ standalone build on Linux x64. Each release target also runs the root tests,
 TUI tests, and standalone build. CI does not run the separate frame performance
 gate.
 
+Three release targets run on every pull request: macOS arm64, Linux arm64, and
+Linux x64. macOS x64 runs on every push to `main` and on demand, not on pull
+requests. It is the slowest target by roughly ten times and runs on a retiring,
+heavily contended runner class, so gating merges on it cost latency and produced
+flakes rather than signal. A macOS x64 regression therefore surfaces on the
+commit that introduced it rather than before merge.
+
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and
 TUI tests in Docker for Linux arm64 and Linux x64. The local script does not
@@ -395,17 +398,7 @@ restoration, 1667 writes one JSON report to standard error.
 | `docs/` | Release instructions and technical design notes |
 | `release/npm/` | Launcher source for future npm packages |
 
-## Architecture documents
-
-An architecture decision record (ADR) states one decision and its reasons.
-Read the applicable ADR before a related code change.
-
-The ADRs are in the private
-[1667-ai/architecture](https://github.com/1667-ai/architecture) repository.
-Only authorized maintainers can read them. The ADRs specify required
-invariants. Comments in `server/` and `shared/` identify applicable ADRs.
-
-Public supporting documents:
+## Technical documents
 
 - [Generation boundaries](docs/generation-boundaries.md)
 - [Summary branches](docs/summary-branches.md)

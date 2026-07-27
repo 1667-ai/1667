@@ -61,9 +61,14 @@ describe("keys reference", () => {
   });
 
   test("the minimum-width panel wraps every meaning instead of clipping it", () => {
-    const frame = text(20, 160);
-    const body = frame.split("\n").filter((line) => line.includes("┃")).join("\n");
-    const words = body.replace(/\n\s*┃\s*/g, " ").replace(/\s+/g, " ");
+    const frame = text(20, 180);
+    // Read the interior of each row: the frame closes on both sides now, so a
+    // leading-border-only strip would splice the right border into the prose.
+    const rows = frame.split("\n")
+      .filter((line) => line.includes("┃"))
+      .map((line) => line.slice(line.indexOf("┃") + 1, line.lastIndexOf("┃")));
+    const body = rows.join("\n");
+    const words = rows.join(" ").replace(/\s+/g, " ").trim();
     expect(frame).toContain("┏━ ? ━");
     expect(frame).not.toContain("┏━ keys · and wh");
     expect(body).not.toContain("…");
@@ -94,7 +99,7 @@ describe("keys reference", () => {
     const frame = frameText(bottom.composition.lines);
     const content = frame.split("\n")
       .filter((line) => line.includes("┃"))
-      .map((line) => line.slice(line.indexOf("┃") + 1).trim())
+      .map((line) => line.slice(line.indexOf("┃") + 1, line.lastIndexOf("┃")).trim())
       .join("")
       .replace(/\s/g, "");
     expect(frame).toContain("● BUILD");
@@ -153,9 +158,11 @@ describe("keys reference", () => {
     // would strand the final rows and overstate the footer's position.
     for (const height of [10, 11, 12, 13, 16]) {
       const bottom = render(80, height, 500);
+      // Bordered rows minus the blank under the title and the footer, both of
+      // which now sit inside the frame.
       const painted = frameText(bottom.composition.lines)
         .split("\n")
-        .filter((line) => line.includes("┃")).length - 1;
+        .filter((line) => line.includes("┃")).length - 2;
       // The note is the last row by construction: reaching it proves the bound.
       const shown = `${height}:${frameText(bottom.composition.lines).includes("chapter rows differ")}`;
       expect(shown).toBe(`${height}:true`);

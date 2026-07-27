@@ -5,12 +5,16 @@ import type { MapMassSort } from "../src/map-state.js";
 import {
   createMapMassScale,
   renderMapMassRow,
-  renderMapSketchHairline
+  renderMapSketchFold
 } from "../src/screens/map-mass-row.js";
-import { formatMapWords } from "../src/screens/map-row-labels.js";
+import { formatMapWords, formatMapWordsBare } from "../src/screens/map-row-labels.js";
 import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
 
 const NOW = 1_667_000_000_000;
+
+/** Doc 26a's fixed columns, by segment: marker, name, bar track, gap, metadata. */
+const MARKER = 0;
+const BAR = 2;
 
 describe("MAP mass rows", () => {
   test("formats mass counts in compact k form", () => {
@@ -58,7 +62,7 @@ describe("MAP mass rows", () => {
     const barCells = new Map(layout.allRows.map((row) => {
       const rendered = renderMapMassRow(row, scale);
       expect(rendered.every((part) => part.background === undefined)).toBeTrue();
-      const field = rendered[4]!.text;
+      const field = rendered[BAR]!.text;
       const cells = field.match(/^█+/)?.[0].length ?? 0;
       const expected = Math.max(1, Math.round(row.words / layout.massMaximum * visibleWidth(field)));
       expect(cells).toBe(expected);
@@ -73,7 +77,7 @@ describe("MAP mass rows", () => {
       cursorId: smallest.id,
       maxRows: 1
     });
-    const scrolledBar = renderMapMassRow(scrolled.rows[0]!, createMapMassScale(scrolled, width))[4]!.text;
+    const scrolledBar = renderMapMassRow(scrolled.rows[0]!, createMapMassScale(scrolled, width))[BAR]!.text;
     expect(scrolled.massMaximum).toBe(layout.massMaximum);
     expect(scrolledBar.match(/^█+/)?.[0].length ?? 0).toBe(barCells.get(smallest.id));
   });
@@ -86,7 +90,7 @@ describe("MAP mass rows", () => {
     expect(current).toMatchObject({ active: true, cursor: true });
     for (const width of [80, 120]) {
       const rendered = renderMapMassRow(current, createMapMassScale(layout, width));
-      expect(rendered[1]).toMatchObject({ text: "▸◉ ", role: "focus / accent" });
+      expect(rendered[MARKER]).toMatchObject({ text: "▸ ◉ ", role: "focus / accent" });
       expect(visibleWidth(plainLine(rendered)) <= width).toBeTrue();
     }
   });
@@ -113,7 +117,7 @@ describe("MAP mass rows", () => {
       const rendered = rows.map((row) => renderMapMassRow(row, scale));
       expect(rendered.every((line) => visibleWidth(plainLine(line)) <= width)).toBeTrue();
       expect(plainLine(rendered[0]!)).toContain("10000.3k");
-      const fields = rendered.map((line) => line[4]!.text);
+      const fields = rendered.map((line) => line[BAR]!.text);
       expect(new Set(fields.map(visibleWidth))).toEqual(new Set([scale.barWidth]));
       const cells = fields.map((field) => field.match(/^█+/)?.[0].length ?? 0);
       expect(cells[0]).toBe(scale.barWidth);
@@ -132,23 +136,51 @@ describe("MAP mass rows", () => {
     for (const row of layout.allRows) {
       const rendered = renderMapMassRow(row, scale);
       expect(visibleWidth(plainLine(rendered)) <= 80).toBeTrue();
-      expect((rendered[4]!.text.match(/^█+/)?.[0].length ?? 0) <= visibleWidth(rendered[4]!.text)).toBeTrue();
+      expect((rendered[BAR]!.text.match(/^█+/)?.[0].length ?? 0) <= visibleWidth(rendered[BAR]!.text)).toBeTrue();
     }
   });
 
-  test("draws the folded-sketch hairline and revealed sketch rows", () => {
+  test("draws the folded-sketch row and revealed sketch rows", () => {
     const payload = createDemoController().payload();
     const layout = createAtlasLayout(payload, { now: NOW, sort: "size" });
-    const hairline = renderMapSketchHairline(layout, 80);
-    expect(plainLine(hairline)).toContain(`${layout.sketchCount} sketches`);
-    expect(plainLine(hairline)).toContain("▏".repeat(layout.sketchCount));
-    expect(plainLine(hairline)).toContain("never continued");
-    expect(hairline.every((part) => part.background === undefined)).toBeTrue();
+    const foldScale = createMapMassScale(layout, 80);
+    const fold = renderMapSketchFold(layout, foldScale);
+    expect(plainLine(fold)).toContain(`${layout.sketchCount} sketches`);
+    // Doc 26a: the fold joins the same grid as every line row — one tick of a
+    // bar, then the shared metadata columns.
+    expect(plainLine(fold)).toContain("▏");
+    expect(plainLine(fold)).toContain("never continued");
+    expect(visibleWidth(plainLine(fold)) <= 80).toBeTrue();
+    expect(fold.every((part) => part.background === undefined)).toBeTrue();
 
     const revealed = createAtlasLayout(payload, { now: NOW, sort: "size", showSketches: true });
     const sketches = revealed.rows.filter((row) => row.kind === "sketch");
     expect(sketches.length).toBe(layout.sketchCount);
     const scale = createMapMassScale(revealed, 80);
     expect(sketches.map((row) => plainLine(renderMapMassRow(row, scale))).join("\n")).toContain("“");
+
+    // The fold reports what it really holds — the same words the revealed rows
+    // show. Nothing caps a childless take's length, so a fixed `<1k` would
+    // misreport a long or imported sketch.
+    const sketchWords = sketches.reduce((sum, row) => sum + row.ownWords, 0);
+    expect(sketchWords).toBeGreaterThan(0);
+    expect(layout.sketchWords).toBe(sketchWords);
+    expect(plainLine(fold)).toContain(formatMapWordsBare(sketchWords));
+    expect(plainLine(fold)).not.toContain("<1k");
+  });
+
+  test("a sketch longer than a thousand words is reported, not flattened to <1k", () => {
+    // Name the sketch off a throwaway payload: the loom index memoizes per
+    // payload, so the one under test must be edited before it is ever laid out.
+    const first = createAtlasLayout(createDemoController().payload(), {
+      now: NOW, sort: "size", showSketches: true
+    }).rows.find((row) => row.kind === "sketch")!;
+    const payload = createDemoController().payload();
+    payload.nodes = payload.nodes.map((node) => node.id === first.id ? { ...node, words: 4_200 } : node);
+    const layout = createAtlasLayout(payload, { now: NOW, sort: "size" });
+    const fold = plainLine(renderMapSketchFold(layout, createMapMassScale(layout, 120)));
+    expect(layout.sketchWords).toBeGreaterThan(4_200);
+    expect(fold).toContain(formatMapWordsBare(layout.sketchWords));
+    expect(fold).not.toContain("<1k");
   });
 });

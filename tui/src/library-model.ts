@@ -1,4 +1,4 @@
-import { formatAge } from "../../shared/loom-model.js";
+import { formatAge } from "../../shared/story-model.js";
 import type { StorySummary } from "../../shared/types.js";
 import { fuzzyFilter } from "./fuzzy.js";
 

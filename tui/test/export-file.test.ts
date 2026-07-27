@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { exportFileBase, writeStoryExport } from "../src/export-file.js";
 import { parseExportCommand } from "../src/export-cli.js";
+import { HELP } from "../src/main.js";
 
 describe("markdown export files", () => {
   test("a collision picks the next free name, and --force overwrites", async () => {
@@ -73,3 +74,26 @@ describe("export command line", () => {
 async function temporaryDirectory(): Promise<string> {
   return await mkdtemp(path.join(tmpdir(), "1667-export-"));
 }
+
+describe("export help", () => {
+  test("says which story it takes, which line, and every selector it accepts", () => {
+    const block = HELP.slice(HELP.indexOf("Export:"), HELP.indexOf("Options:"));
+    // The two questions the command cannot answer from its flags alone.
+    expect(block).toContain("selected line");
+    expect(block).toContain("most recently updated");
+    // No flag picks a branch, so the help has to say where that choice lives.
+    expect(block).toContain("choose it in the app first");
+    // Usage must list every selector the parser honours, and only those.
+    const usage = HELP.split("\n").find((line) => line.includes("1667 export"))!;
+    for (const flag of ["--story", "--force", "--data", "--global"]) {
+      expect(`${flag}:${usage.includes(flag)}`).toBe(`${flag}:true`);
+    }
+    // …and the parser must still honour the line the help advertises.
+    expect(parseExportCommand(["--story=st1_abc", "--force", "--data=book"])).toEqual({
+      storyId: "st1_abc",
+      force: true,
+      data: "book",
+      global: false
+    });
+  });
+});

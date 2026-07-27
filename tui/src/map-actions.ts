@@ -1,8 +1,8 @@
-import { createLoomIndex, rememberedLeafId } from "../../shared/loom-model.js";
+import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
 import type { AppSource } from "./app.js";
 import { createAtlasLayout, followAtlasRail, moveAtlasCursor } from "./atlas-layout.js";
 import type { ResolvedKey } from "./keys.js";
-import { initialLoomCursor, moveLoomCursor, visibleLoomSiblings } from "./loom-layout.js";
+import { initialPathCursor, movePathCursor, visiblePathSiblings } from "./path-layout.js";
 import { nextMapView, nextMassSort } from "./map-state.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import type { RuntimeState } from "./state.js";
@@ -23,7 +23,7 @@ export interface MapActionContext extends ActionContext {
 export function openMap(state: RuntimeState): void {
   const payload = mapPayload(state);
   const focused = rowPart(createStoryViewModel(payload), state.focusIndex);
-  const cursor = initialLoomCursor(payload, focused?.pathIndex ?? payload.path.length - 1);
+  const cursor = initialPathCursor(payload, focused?.pathIndex ?? payload.path.length - 1);
   if (cursor === null) {
     state.toast = "nothing to map yet · write a first part";
     return;
@@ -94,13 +94,13 @@ async function pathAction(
     const id = map.rowIds[Math.max(0, Math.min(map.rowIds.length - 1, resolved.index ?? 0))];
     if (id !== undefined) map.pathCursorId = id;
   } else if (resolved.action === "focus-next") {
-    map.pathCursorId = moveLoomCursor(payload, map.pathCursorId, 1, 0, showAllTakes);
+    map.pathCursorId = movePathCursor(payload, map.pathCursorId, 1, 0, showAllTakes);
   } else if (resolved.action === "focus-previous") {
-    map.pathCursorId = moveLoomCursor(payload, map.pathCursorId, -1, 0, showAllTakes);
+    map.pathCursorId = movePathCursor(payload, map.pathCursorId, -1, 0, showAllTakes);
   } else if (resolved.action === "take-next") {
-    map.pathCursorId = moveLoomCursor(payload, map.pathCursorId, 0, 1, showAllTakes);
+    map.pathCursorId = movePathCursor(payload, map.pathCursorId, 0, 1, showAllTakes);
   } else if (resolved.action === "take-previous") {
-    map.pathCursorId = moveLoomCursor(payload, map.pathCursorId, 0, -1, showAllTakes);
+    map.pathCursorId = movePathCursor(payload, map.pathCursorId, 0, -1, showAllTakes);
   } else if (resolved.action === "prune") {
     context.armPrune(state);
   } else if (resolved.action === "bookmark") {
@@ -108,7 +108,7 @@ async function pathAction(
   } else if (resolved.action === "apply" && resolved.take !== undefined) {
     const rowNode = payload.nodes.find((node) => node.id === map.rowIds[resolved.index ?? -1]);
     const target = rowNode === undefined ? undefined
-      : visibleLoomSiblings(payload, rowNode.parentId, showAllTakes)[resolved.take - 1];
+      : visiblePathSiblings(payload, rowNode.parentId, showAllTakes)[resolved.take - 1];
     if (target !== undefined) {
       if (map.pathCursorId === target.id) await context.reroute(state, source, context, target.id);
       else map.pathCursorId = target.id;
@@ -156,7 +156,7 @@ async function wholeTreeAction(
     map.treeCursorId = moveAtlasCursor(layout, resolved.action === "focus-next" ? 1 : -1);
   } else if ((resolved.action === "map-follow" || resolved.action === "open-selected") && row?.kind === "cold") {
     map.openedColdFolds.add(row.id);
-    map.treeCursorId = rememberedLeafId(payload, row.id, createLoomIndex(payload));
+    map.treeCursorId = rememberedLeafId(payload, row.id, createStoryIndex(payload));
   } else if (resolved.action === "map-follow" && map.view === "tree" && row !== null && !row.branch) {
     // On the trunk, `l` walks the reading line down; on a collapsed branch stub
     // it opens that line in the path view (spec §4 "follows the trunk or opens a

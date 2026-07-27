@@ -154,7 +154,7 @@ export function effectiveGenerationRuntime(
 
 /** Runtime-only cache projection for the selected route. Keeping this separate
  * from GenerationSettings preserves the frozen v1 provider contract while
- * making capability/preset lowering explicit for later ADR-004 slices. */
+ * making capability/preset lowering explicit for later slices. */
 export function effectivePromptCacheContext(
   value: SettingsDocumentV2,
   purpose: SettingsRoutePurpose = "default"

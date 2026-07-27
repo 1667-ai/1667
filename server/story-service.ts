@@ -218,7 +218,7 @@ export class StoryService extends StoryServiceRuntime {
   }
 
   /**
-   * ADR007 §4: write the currently selected branch as one markdown file, with
+   * Write the currently selected story line as one markdown file, with
    * chapters as `##` headings. It is a hand-off artifact — no anchors, no state,
    * and nothing here is ever read back.
    */

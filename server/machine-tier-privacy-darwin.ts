@@ -17,7 +17,7 @@ const NOFOLLOW_FLAG = typeof constants.O_NOFOLLOW === "number"
  * permitted; any extended allow (or unknown tag) is rejected instead of
  * interpreting a principal/permission combination too loosely.
  *
- * ADR007 removed this scan from the project tier, which is user data in a
+ * This scan no longer covers the project tier, which is user data in a
  * user-chosen folder. It stays on the machine tier because that directory holds
  * provider keys, and POSIX mode 0700 does not revoke an inherited macOS ACL —
  * an ACE on `~/Library/Application Support` would otherwise be inherited by the

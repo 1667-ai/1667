@@ -7,7 +7,7 @@ export interface RandomByteSource {
 }
 
 /**
- * ADR001 durable mutation identity. This is intentionally distinct from a
+ * Durable mutation identity. This is intentionally distinct from a
  * transport request ID and from the legacy worker outbox's `m1-...` IDs.
  */
 export function createDurableMutationId(

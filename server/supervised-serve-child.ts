@@ -95,7 +95,7 @@ async function runSupervisedServeChildCore(
   errorReporterLease: InternalErrorReporterLease
 ): Promise<void> {
   const configuredDataDir = optionalValueAfter(argv, "--data");
-  // ADR007: `--data` names a project root here exactly as it does for the TUI,
+  // `--data` names a project root here exactly as it does for the TUI,
   // so a served project and an opened project are the same lock.
   const outcome = await resolveProject({
     cwd: process.cwd(),

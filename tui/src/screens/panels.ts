@@ -1,5 +1,5 @@
 import type { StoryPayload, StorySummary } from "../../../shared/types.js";
-import { nextAgeChange } from "../../../shared/loom-model.js";
+import { nextAgeChange } from "../../../shared/story-model.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import {
   commandContext,

@@ -12,7 +12,7 @@ import {
   summaryLockedNodeIds,
   summaryPruneLockedNodeIds,
   switchAnnouncement
-} from "../shared/loom-model.js";
+} from "../shared/story-model.js";
 
 const NOW = "2026-07-16T12:00:00.000Z";
 

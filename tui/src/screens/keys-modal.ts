@@ -8,11 +8,12 @@ import { AI_1667_VERSION_TAG } from "../../../shared/build-identity.js";
 import {
   panelContentRows,
   panelHorizontalGeometry,
+  panelWidthForContent,
   placePanel,
   raisedSegment
 } from "./overlay.js";
 import { boundedContent, panelRange } from "./panel-table-layout.js";
-import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { lineWidth, visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { wrapText } from "../wrap.js";
 
 export type KeysModalBinding = ReferenceBinding;
@@ -224,7 +225,10 @@ const TOKEN_WIDTH = Math.max(...SECTIONS.flatMap((section) => [
 const COLUMN_WIDTH = TOKEN_WIDTH + 2 + DESCRIPTION_BUDGET;
 const COLUMN_GUTTER = 2;
 const MAX_COLUMNS = 3;
-const PANEL_MAX_WIDTH = MAX_COLUMNS * COLUMN_WIDTH + (MAX_COLUMNS - 1) * COLUMN_GUTTER + 2;
+/** Wide enough to hold every column, whatever the frame spends on its edges. */
+const PANEL_MAX_WIDTH = panelWidthForContent(
+  MAX_COLUMNS * COLUMN_WIDTH + (MAX_COLUMNS - 1) * COLUMN_GUTTER
+);
 
 export interface KeysOverlayRender {
   composition: FrameComposition;
@@ -433,8 +437,4 @@ function packWithin(heights: readonly number[], limit: number): number[][] {
   }
   if (current.length > 0) groups.push(current);
   return groups;
-}
-
-function lineWidth(line: FrameLine): number {
-  return line.reduce((sum, part) => sum + visibleWidth(part.text), 0);
 }
