@@ -39,6 +39,13 @@ export type {
 export const MAX_RELEASE_TARBALL_ENTRIES = 16;
 export const MAX_RELEASE_TARBALL_FILE_BYTES = 272 * 1024 * 1024;
 
+/**
+ * The bound on a staged `sbom.spdx.json`. The generator refuses to emit a
+ * document larger than this, and the entry policy below refuses to accept one,
+ * so the two agree by construction rather than by two copies of a literal.
+ */
+export const MAX_RELEASE_SBOM_BYTES = 8 * 1024 * 1024;
+
 export interface ReleasePackageMatrix {
   version: string;
   launcher: ReleaseLauncherManifest;
@@ -296,7 +303,7 @@ function assertEntryPolicy(
   const maximum = entry.path === executable
     ? (manifest.kind === "launcher" ? 128 * 1024 : 256 * 1024 * 1024)
     : entry.path.endsWith("/sbom.spdx.json")
-      ? 8 * 1024 * 1024
+      ? MAX_RELEASE_SBOM_BYTES
       : 1024 * 1024;
   if (entry.size > maximum) throw new Error(`${entry.path} exceeds its size bound`);
   assertLicenceFileDigest(entry);
