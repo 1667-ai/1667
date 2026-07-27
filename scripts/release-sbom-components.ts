@@ -98,11 +98,12 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
     reason: "Declared by @opentui/core, which publishes pre-bundled chunks. It is "
       + "installed but never imported by the shipped build and contributes no bytes."
   })),
-  ...["@opentui/core-win32-arm64", "@opentui/core-win32-x64"].map((name) => Object.freeze({
-    name,
-    reason: "Prebuilt native library for a platform this project does not release. "
-      + "Bun resolves it in the lockfile; no packaged executable embeds it."
-  }))
+  Object.freeze({
+    name: "@opentui/core-win32-arm64",
+    reason: "Prebuilt native library for a target this project does not release. "
+      + "Bun resolves it in the lockfile; no packaged executable embeds it. The "
+      + "win32-x64 sibling is released and is inventoried, not excluded."
+  })
 ]);
 
 interface PinnedTuiPackage {
@@ -193,7 +194,12 @@ const TUI_NATIVE_PACKAGES: Readonly<Record<PackagedArtifactTarget, readonly Pinn
         "@opentui/core-linux-x64-musl",
         "sha512-mKVKcIcPiSVVZZsdPSBoWwoa2/TCeQAaMDeHF7PFw2kt5bTXZPP7xxWfRQLCNIcA1eaGl59UuwUWHDR2Ve548Q=="
       )
-    ])
+    ]),
+    // Windows ships one library: there is no musl variant to pair with it.
+    "windows-x64": Object.freeze([nativePackage(
+      "@opentui/core-win32-x64",
+      "sha512-Y8T/yXCDGagRGiQrtmuB6AhRcPucKFs/Dre3v8kJwNYqDccI4FzUPKclZ7djfmRZNjl7JUqPhZZP/PwDpQocMg=="
+    )])
   });
 
 interface UnresolvedComponent {

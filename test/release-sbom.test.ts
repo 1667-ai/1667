@@ -9,7 +9,8 @@ import {
   PACKAGED_ARTIFACT_TARGETS,
   RELEASE_LAUNCHER_PACKAGE,
   RELEASE_PLATFORM_PACKAGES,
-  releaseTargetForArtifact
+  releaseTargetForArtifact,
+  type PackagedArtifactTarget
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 import {
@@ -316,12 +317,15 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
 
 test("each platform SBOM names only its own target's native library", () => {
   const set = createReleaseSboms(identities, repositorySources());
-  const expected = new Map<string, readonly string[]>([
-    ["darwin-arm64", ["@opentui/core-darwin-arm64"]],
-    ["darwin-x64", ["@opentui/core-darwin-x64"]],
-    ["linux-arm64", ["@opentui/core-linux-arm64", "@opentui/core-linux-arm64-musl"]],
-    ["linux-x64", ["@opentui/core-linux-x64", "@opentui/core-linux-x64-musl"]]
-  ]);
+  // Total over the target union, so restoring or adding a target fails to
+  // compile here rather than comparing against a silent undefined.
+  const expected: Record<PackagedArtifactTarget, readonly string[]> = {
+    "darwin-arm64": ["@opentui/core-darwin-arm64"],
+    "darwin-x64": ["@opentui/core-darwin-x64"],
+    "linux-arm64": ["@opentui/core-linux-arm64", "@opentui/core-linux-arm64-musl"],
+    "linux-x64": ["@opentui/core-linux-x64", "@opentui/core-linux-x64-musl"],
+    "windows-x64": ["@opentui/core-win32-x64"]
+  };
   for (const target of PACKAGED_ARTIFACT_TARGETS) {
     const sbom = platformSbom(set, target);
     assert.equal(sbom.packageName, releaseTargetForArtifact(target).packageName);
@@ -329,7 +333,7 @@ test("each platform SBOM names only its own target's native library", () => {
       .map((entry) => entry.name)
       .filter((name) => name.startsWith("@opentui/core-"))
       .sort();
-    assert.deepEqual(native, expected.get(target));
+    assert.deepEqual(native, expected[target]);
     assert.equal(
       sbom.document.name,
       `${releaseTargetForArtifact(target).packageName}@3.0.0`
