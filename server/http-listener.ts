@@ -178,7 +178,11 @@ export async function startHttpListener(
     const origin = address.port === 80
       ? "http://127.0.0.1"
       : `http://127.0.0.1:${address.port}`;
-    const authLease = await createHttpAuthRecord(origin, options.authStore);
+    const authStore = options.authStore?.stateRoot === undefined
+      && options.authStore?.platformState === undefined
+      ? { ...options.authStore, stateRoot: machineDir }
+      : options.authStore;
+    const authLease = await createHttpAuthRecord(origin, authStore);
     resources.authLease = authLease;
     const operationSessions = new HttpOperationSessionStore(
       authLease.record.instanceId,

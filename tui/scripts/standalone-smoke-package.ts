@@ -13,6 +13,9 @@ import {
   type BuildIdentity
 } from "../../shared/build-identity.js";
 import {
+  releaseTargetForArtifact
+} from "../../shared/release-targets.js";
+import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
   releasePackageJson
@@ -21,7 +24,7 @@ import { runStandalone } from "./standalone-smoke-process.js";
 
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(tuiRoot);
-const PACKAGE_NAME = "1667-windows-x64";
+const WINDOWS_TARGET = releaseTargetForArtifact("windows-x64");
 
 /** Stage the exact Windows package layout and execute it through the launcher. */
 export async function smokeWindowsNpmPackage(
@@ -30,17 +33,18 @@ export async function smokeWindowsNpmPackage(
   directory: string,
   environment: Record<string, string>
 ): Promise<string> {
-  if (process.platform !== "win32" || identity.artifactTarget !== "windows-x64") {
+  if (process.platform !== WINDOWS_TARGET.platform
+    || identity.artifactTarget !== WINDOWS_TARGET.artifactTarget) {
     throw new Error("Windows npm package smoke requires a windows-x64 candidate");
   }
   const launcherRoot = path.join(directory, "npm-stage", "1667");
   const platformRoot = path.join(
     launcherRoot,
     "node_modules",
-    PACKAGE_NAME
+    WINDOWS_TARGET.packageName
   );
   const launcher = path.join(launcherRoot, "bin", "1667.js");
-  const stagedExecutable = path.join(platformRoot, "bin", "1667.exe");
+  const stagedExecutable = path.join(platformRoot, WINDOWS_TARGET.executable);
   await Promise.all([
     mkdir(path.dirname(launcher), { recursive: true }),
     mkdir(path.dirname(stagedExecutable), { recursive: true })
@@ -62,14 +66,18 @@ export async function smokeWindowsNpmPackage(
       path.join(platformRoot, "package.json"),
       releasePackageJson(
         createReleasePlatformManifest(
-          "windows-x64",
+          WINDOWS_TARGET.artifactTarget,
           identity.productVersion
         )
       )
     ),
     writeJson(
       path.join(platformRoot, "build-manifest.json"),
-      buildManifest(identity, PACKAGE_NAME, "windows-x64")
+      buildManifest(
+        identity,
+        WINDOWS_TARGET.packageName,
+        WINDOWS_TARGET.artifactTarget
+      )
     )
   ]);
 
