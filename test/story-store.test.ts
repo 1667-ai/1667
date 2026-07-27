@@ -541,7 +541,11 @@ test("story objects reject symlinked roots and shards before writes or sweep", a
 
   const unsafeBundle = path.join(root, "unsafe");
   await mkdir(unsafeBundle);
-  await symlink(external, path.join(unsafeBundle, "chunks"), "dir");
+  await symlink(
+    external,
+    path.join(unsafeBundle, "chunks"),
+    process.platform === "win32" ? "junction" : "dir"
+  );
   await assert.rejects(
     new StoryObjectStore(unsafeBundle).init(),
     /retained no-follow directory/
@@ -559,7 +563,11 @@ test("story objects reject symlinked roots and shards before writes or sweep", a
   await rename(shardPath, `${shardPath}.retained`);
   const outsideObject = path.join(external, `${hash}.txt`);
   await writeFile(outsideObject, text);
-  await symlink(external, shardPath, "dir");
+  await symlink(
+    external,
+    shardPath,
+    process.platform === "win32" ? "junction" : "dir"
+  );
 
   await assert.rejects(objects.sweep([]), /Unsafe chunks object shard/);
   assert.equal(await readFile(outsideObject, "utf8"), text);

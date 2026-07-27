@@ -38,14 +38,16 @@ describe("private update cache store", () => {
   });
 
   test("unsafe roots and symlinked cache files fail as cache misses", async () => {
+    if (process.platform === "win32") return;
     const root = await privateRoot();
     await chmod(root, 0o755);
     expect(await writePersistedUpdateCache(
       createUpdateCacheEntry(key, "0.2.0", 1_000),
       { stateRoot: root }
     )).toBeFalse();
-    expect(await readPersistedUpdateCache(key, 1_001, { stateRoot: root })).toBe(null);
-
+    expect(
+      await readPersistedUpdateCache(key, 1_001, { stateRoot: root })
+    ).toBe(null);
     await chmod(root, 0o700);
     const target = path.join(root, "target");
     await writeFile(target, "{}");

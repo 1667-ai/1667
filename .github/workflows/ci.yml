@@ -78,6 +78,8 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: linux-x64
             runner: ubuntu-24.04
+          - target: windows-x64
+            runner: windows-2025
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
@@ -106,12 +108,16 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run native platform tests
-        if: matrix.target != 'darwin-x64'
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         run: npm test
 
       - name: Run Intel macOS platform tests without benchmark contention
         if: matrix.target == 'darwin-x64'
         run: npm test -- --test-concurrency=1
+
+      - name: Run Windows platform tests without process contention
+        if: matrix.target == 'windows-x64'
+        run: npm test -- --test-concurrency=4
 
       - name: Run native TUI tests
         if: matrix.target != 'darwin-x64'

@@ -12,6 +12,9 @@ import {
   DATA_DIRECTORY_LOCK
 } from "../../server/data-directory-layout.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../../server/machine-tier.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 
 /**
@@ -116,7 +119,7 @@ function machineTierRoot(environment: Record<string, string>): string {
     return path.join(environment.HOME!, "Library", "Application Support", "1667", "State");
   }
   if (process.platform === "win32") {
-    return path.win32.join(environment.LOCALAPPDATA!, "1667", "State");
+    return environment[MACHINE_TIER_OVERRIDE_VARIABLE]!;
   }
   return path.join(environment.XDG_STATE_HOME!, "1667");
 }

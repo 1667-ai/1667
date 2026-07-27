@@ -69,6 +69,7 @@ export async function rememberServerInstance(metadata: unknown, origin: string):
   }
   API_PROTOCOL_HEADERS[HTTP_AUTHORIZATION_HEADER] =
     bearerAuthorization(record.capabilities.story);
+  operationClient?.dispose();
   operationClient = new HttpOperationClient({
     root: origin,
     authRecord: record,

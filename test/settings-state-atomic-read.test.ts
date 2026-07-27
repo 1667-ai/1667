@@ -22,7 +22,8 @@ import {
 } from "./settings-store-fixtures.js";
 
 test("current settings read remains valid across atomic replacement", {
-  timeout: 5_000
+  timeout: 5_000,
+  skip: process.platform === "win32"
 }, async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,

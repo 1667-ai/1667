@@ -104,6 +104,10 @@ function artifact(
   const executable = manifest.kind === "launcher"
     ? "bin/1667.js"
     : releaseTargetForArtifact(manifest.target).executable;
+  const executableMode = manifest.kind === "launcher"
+    || releaseTargetForArtifact(manifest.target).platform !== "win32"
+    ? 0o755
+    : 0o644;
   const packageJson = digestRecord(`${manifest.name} package.json`, 512);
   const buildManifest = digestRecord(`${manifest.name} build manifest`, 256);
   const sbom = digestRecord(`${manifest.name} sbom`, 768);
@@ -121,7 +125,7 @@ function artifact(
         file("package/package.json", 0o644, packageJson.bytes, packageJson.sha256),
         file(
           `package/${executable}`,
-          0o755,
+          executableMode,
           1024,
           sha256(`${manifest.name} executable`)
         ),

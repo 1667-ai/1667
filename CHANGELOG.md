@@ -5,6 +5,10 @@ the [README](README.md#technical-terms).
 
 ## Unreleased
 
+- **1667 now supports Windows x64 release candidates.** The Windows machine
+  tier installs a protected DACL for the current user and SYSTEM. Native tests
+  reject reparse points. CI builds the executable and runs it through the npm
+  launcher package.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
   story writes use 1667 identifiers. Thanks @10fra for the migration report.
@@ -14,7 +18,7 @@ the [README](README.md#technical-terms).
   `--print-logs`. Thanks @10fra for the failure-reporting design.
 - **Public documentation now describes the current repository.** The README
   states the public status and exact CI coverage. The release guide specifies
-  five release packages and four release targets. Obsolete plan documents are
+  six release packages and five release targets. Obsolete plan documents are
   removed. Thanks @10fra for the documentation audit.
 - **Repository documentation shows build status and uses a defined language
   standard.** The README shows CI and standalone-build status for `main`.

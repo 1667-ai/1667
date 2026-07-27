@@ -21,8 +21,12 @@ import { releaseTargetForRuntime } from "../../shared/release-targets.js";
 import {
   DATA_DIRECTORY_LOCK
 } from "../../server/data-directory-layout.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../../server/machine-tier.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { smokeInstalledDefaultData } from "./standalone-smoke-install.js";
+import { smokeWindowsNpmPackage } from "./standalone-smoke-package.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 import { smokeSupervisedServe } from "./standalone-smoke-serve.js";
 
@@ -34,12 +38,15 @@ const execFileAsync = promisify(execFile);
 
 await mkdir(outputDirectory, { recursive: true });
 const buildIdentity = await deriveBuildIdentity();
+const workerEntry = path.join(repositoryRoot, "server", "worker.ts");
+const embeddedWorkerSource = process.platform === "win32"
+  ? await buildEmbeddedWorker(workerEntry, buildIdentity)
+  : undefined;
 
 const result = await Bun.build({
-  entrypoints: [
-    path.join(tuiRoot, "src", "standalone.ts"),
-    path.join(tuiRoot, "..", "server", "worker.ts")
-  ],
+  entrypoints: process.platform === "win32"
+    ? [path.join(tuiRoot, "src", "standalone.ts")]
+    : [path.join(tuiRoot, "src", "standalone.ts"), workerEntry],
   compile: {
     outfile: outputFile,
     // A trusted executable must not run preload code or absorb backend routing
@@ -48,7 +55,10 @@ const result = await Bun.build({
     autoloadDotenv: false
   },
   define: {
-    __AI_1667_BUILD_IDENTITY__: JSON.stringify(buildIdentity)
+    __AI_1667_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
+    __AI_1667_EMBEDDED_WORKER_SOURCE__: embeddedWorkerSource === undefined
+      ? "undefined"
+      : JSON.stringify(embeddedWorkerSource)
   },
   minify: true
 });
@@ -59,6 +69,26 @@ if (!result.success) {
 } else {
   await smokeStandalone(outputFile, buildIdentity);
   console.log(outputFile);
+}
+
+async function buildEmbeddedWorker(
+  entrypoint: string,
+  identity: BuildIdentity
+): Promise<string> {
+  const result = await Bun.build({
+    entrypoints: [entrypoint],
+    target: "bun",
+    define: {
+      __AI_1667_BUILD_IDENTITY__: JSON.stringify(identity)
+    },
+    minify: true
+  });
+  if (!result.success || result.outputs.length !== 1) {
+    throw new Error(
+      `Embedded Windows worker build failed: ${result.logs.join("\n")}`
+    );
+  }
+  return await result.outputs[0]!.text();
 }
 
 async function deriveBuildIdentity(): Promise<BuildIdentity> {
@@ -185,24 +215,6 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       directory,
       environment
     );
-    if (process.platform === "win32") {
-      // ADR007 relaxed the project tier, but the machine tier that holds
-      // provider secrets still needs a DACL and reparse-safe adapter. Windows
-      // therefore refuses the embedded backend in one actionable line, before
-      // the backend starts, rather than opening a project it cannot key.
-      if (render.exitCode !== 1
-        || !/DACL/.test(render.stderr)
-        || render.stderr.includes("\n    at ")) {
-        throw new Error(
-          "Windows embedded storage did not fail closed on its machine tier "
-            + `(${render.exitCode}): ${render.stderr.trim()}`
-        );
-      }
-      await assertAbsent(path.join(embeddedData, PROJECT_DIRECTORY_NAME));
-      await smokePromptTokenizer(directory, environment);
-      await smokeSupervisedServe(executable, directory, environment);
-      return;
-    }
     if (render.exitCode !== 0) {
       throw new Error(`Standalone render smoke failed (${render.exitCode}): ${render.stderr.trim()}`);
     }
@@ -219,6 +231,15 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
     ));
     await smokeInstalledDefaultData(executable, directory, environment);
     await smokeSupervisedServe(executable, directory, environment);
+    if (process.platform === "win32") {
+      const digest = await smokeWindowsNpmPackage(
+        executable,
+        expectedIdentity,
+        directory,
+        environment
+      );
+      console.log(`windows-package-sha256 ${digest}`);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -312,6 +333,7 @@ async function smokeEnvironment(directory: string): Promise<Record<string, strin
   }
   if (process.platform === "win32") {
     environment.LOCALAPPDATA = data;
+    environment[MACHINE_TIER_OVERRIDE_VARIABLE] = state;
     environment.TEMP = directory;
     environment.TMP = directory;
   } else {

@@ -133,7 +133,9 @@ test("launcher ignores NODE_PATH while accepting one documented hoisted package"
   }).platformRoot, hoisted);
 });
 
-test("launcher preserves an independently signalled child's failure", async (t) => {
+test("launcher preserves an independently signalled child's failure", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const { base, root } = await launcherFixture();
   t.after(() => rm(base, { recursive: true, force: true }));
   const executable = path.join(

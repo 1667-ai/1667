@@ -32,6 +32,7 @@ import {
   resolvePrivatePlatformStateRoot,
   type PlatformStateRootOptions
 } from "./platform-state-root.js";
+import { resolveMachineTierRoot } from "./machine-tier.js";
 
 const AUTH_DIRECTORY_NAME = "http";
 
@@ -120,7 +121,9 @@ export async function resolveHttpAuthRecordPaths(
 ): Promise<HttpAuthRecordPaths> {
   const origin = parseCanonicalLoopbackOrigin(originInput).origin;
   const stateRoot = options.stateRoot
-    ?? await resolvePrivatePlatformStateRoot(options.platformState);
+    ?? await (options.platformState === undefined
+      ? resolveMachineTierRoot()
+      : resolvePrivatePlatformStateRoot(options.platformState));
   const directory = path.join(stateRoot, AUTH_DIRECTORY_NAME);
   await ensurePrivateDirectory(directory);
   const digest = createHash("sha256").update(origin, "utf8").digest("hex");

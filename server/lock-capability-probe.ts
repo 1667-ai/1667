@@ -3,7 +3,10 @@ import { open, type FileHandle } from "node:fs/promises";
 import { ServiceError } from "./errors.js";
 import { isLockContention, lockFile, type OsFileLock } from "./os-file-lock.js";
 
-export type LockPrimitive = (fd: number) => Promise<OsFileLock>;
+export type LockPrimitive = (
+  fd: number,
+  file?: string
+) => Promise<OsFileLock>;
 
 /**
  * ADR007: test the property the filesystem allowlist was reaching for instead
@@ -28,7 +31,7 @@ export async function assertLockingFilesystem(
   try {
     handle = await open(lockPath, constants.O_RDWR | noFollowFlag());
     try {
-      acquired = await lock(handle.fd);
+      acquired = await lock(handle.fd, lockPath);
     } catch (error) {
       // Only a refusal proves the mount enforces the lock. ENOLCK, EIO, or a
       // failed FFI load prove nothing, so they propagate rather than passing

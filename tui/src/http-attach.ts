@@ -29,15 +29,8 @@ export interface HttpAttach {
 
 export async function attachHttpServer(
   originInput: string,
-  authFile?: string | null,
-  platform: NodeJS.Platform = process.platform
+  authFile?: string | null
 ): Promise<HttpAttach> {
-  if (platform === "win32") {
-    throw new Error(
-      "HTTP attach is unavailable on Windows until a DACL and "
-        + "reparse-safe private state adapter is installed."
-    );
-  }
   const origin = parseCanonicalLoopbackOrigin(originInput).origin;
   const expected = await resolveHttpAuthRecordPaths(origin);
   if (authFile !== null && authFile !== undefined && authFile !== expected.final) {

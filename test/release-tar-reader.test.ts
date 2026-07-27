@@ -35,6 +35,15 @@ const manifest = parseReleasePackageManifest({
   files: ["bin/1667", "build-manifest.json", "sbom.spdx.json"],
   publishConfig: { access: "public" }
 }, "3.0.0");
+const windowsManifest = parseReleasePackageManifest({
+  name: "1667-windows-x64",
+  version: "3.0.0",
+  private: false,
+  os: ["win32"],
+  cpu: ["x64"],
+  files: ["bin/1667.exe", "build-manifest.json", "sbom.spdx.json"],
+  publishConfig: { access: "public" }
+}, "3.0.0");
 const execFileAsync = promisify(execFile);
 
 test("non-extracting reader hashes a bounded ustar package for policy validation", async () => {
@@ -66,30 +75,43 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   await mkdir(path.join(root, "bin"), { recursive: true });
   await mkdir(output);
   await writeFile(path.join(root, "package.json"), `${JSON.stringify({
-    name: "1667-linux-x64",
+    name: "1667-windows-x64",
     version: "3.0.0",
     private: false,
-    os: ["linux"],
+    os: ["win32"],
     cpu: ["x64"],
-    files: ["bin/1667", "build-manifest.json", "sbom.spdx.json"],
+    files: ["bin/1667.exe", "build-manifest.json", "sbom.spdx.json"],
     publishConfig: { access: "public" }
   })}\n`);
-  await writeFile(path.join(root, "bin", "1667"), "native executable");
-  await chmod(path.join(root, "bin", "1667"), 0o755);
+  await writeFile(path.join(root, "bin", "1667.exe"), "native executable");
+  await chmod(path.join(root, "bin", "1667.exe"), 0o644);
   await writeFile(path.join(root, "build-manifest.json"), '{"schemaVersion":1}\n');
   await writeFile(path.join(root, "sbom.spdx.json"), '{"spdxVersion":"SPDX-2.3"}\n');
-  const { stdout } = await execFileAsync("npm", [
-    "pack",
-    "--ignore-scripts",
-    "--json",
-    "--pack-destination",
-    output
-  ], { cwd: root, encoding: "utf8" });
+  const npmCli = process.env.npm_execpath
+    ?? path.join(
+      path.dirname(process.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js"
+    );
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      npmCli,
+      "pack",
+      "--ignore-scripts",
+      "--json",
+      "--pack-destination",
+      output
+    ],
+    { cwd: root, encoding: "utf8" }
+  );
   const packed = JSON.parse(stdout) as Array<{ filename: string }>;
   const bytes = await readFile(path.join(output, packed[0]!.filename));
   const result = await readReleaseTarball(bytes);
   assert.doesNotThrow(() => {
-    validateReleaseTarballInspection(result.inspection, manifest);
+    validateReleaseTarballInspection(result.inspection, windowsManifest);
   });
   assert.equal(
     (result.packageManifest as Record<string, unknown>).version,

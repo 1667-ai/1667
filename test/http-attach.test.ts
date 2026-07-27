@@ -11,21 +11,6 @@ import { runAuthShow } from "../tui/src/http-commands.js";
 import { HttpOperationClient } from "../shared/http-operation-client.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 
-test("TUI attach fails closed on Windows without a private state adapter", async () => {
-  await assert.rejects(
-    attachHttpServer("http://127.0.0.1:7373", null, "win32"),
-    /unavailable on Windows/
-  );
-  await assert.rejects(
-    runAuthShow(
-      ["show", "--scope", "story"],
-      { isTTY: true, write: () => true },
-      "win32"
-    ),
-    /unavailable on Windows/
-  );
-});
-
 test("TUI attach binds the private auth record to the live numeric listener", async (t) => {
   const dataDir = path.join(await temporaryDirectory(t), "data");
   const listener = await startHttpListener({ port: 0, dataDir });

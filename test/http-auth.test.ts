@@ -123,7 +123,9 @@ test("HTTP auth records are canonical, bounded, exact, and independently scoped"
   const origin = "http://127.0.0.1:17373";
   const first = await createHttpAuthRecord(origin, { stateRoot });
   const info = await lstat(first.paths.final);
-  assert.equal(info.mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(info.mode & 0o777, 0o600);
+  }
   assert.notEqual(first.record.capabilities.story, first.record.capabilities.admin);
   assert.deepEqual((await readHttpAuthRecord(origin, { stateRoot })).record, first.record);
 
@@ -149,6 +151,10 @@ test("HTTP auth records are canonical, bounded, exact, and independently scoped"
 });
 
 test("HTTP auth publication refuses a symlinked reserved temp", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Windows file symlinks require an optional developer privilege");
+    return;
+  }
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const origin = "http://127.0.0.1:17374";
   const first = await createHttpAuthRecord(origin, { stateRoot });

@@ -36,9 +36,12 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "x64",
     executable: "bin/1667"
   }),
-  // windows-x64 is not a shipped target: see shared/release-targets.ts. The
-  // lookup below refuses win32 by name rather than resolving a package that
-  // no release builds.
+  "windows-x64": Object.freeze({
+    packageName: "1667-windows-x64",
+    os: "win32",
+    cpu: "x64",
+    executable: "bin/1667.exe"
+  })
 });
 const BUILD_MANIFEST_KEYS = new Set([
   "schemaVersion",
