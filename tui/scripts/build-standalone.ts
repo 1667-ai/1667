@@ -38,6 +38,8 @@ const repositoryRoot = path.dirname(tuiRoot);
 const outputDirectory = path.join(tuiRoot, "dist");
 const outputFile = path.join(outputDirectory, process.platform === "win32" ? "1667.exe" : "1667");
 const execFileAsync = promisify(execFile);
+// Defender can delay the first launch of the compiled Windows executable.
+const coldRenderBudgetMs = process.platform === "win32" ? 20_000 : 10_000;
 
 await mkdir(outputDirectory, { recursive: true });
 const buildIdentity = await deriveBuildIdentity();
@@ -240,9 +242,10 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
     if (render.exitCode !== 0) {
       throw new Error(`Standalone render smoke failed (${render.exitCode}): ${render.stderr.trim()}`);
     }
-    if (render.elapsedMs > 10_000) {
+    if (render.elapsedMs > coldRenderBudgetMs) {
       throw new Error(
-        `Standalone cold render exceeded 10s (${render.elapsedMs.toFixed(1)}ms)`
+        `Standalone cold render exceeded ${coldRenderBudgetMs / 1_000}s `
+          + `(${render.elapsedMs.toFixed(1)}ms)`
       );
     }
     await smokePromptTokenizer(directory, environment);
