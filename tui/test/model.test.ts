@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { countWords } from "../../shared/story-text.js";
 import { createDemoController } from "../src/demo.js";
-import { createStoryViewModel, popUndo, pushUndo, resolveSwitchTarget } from "../src/model.js";
+import { createStoryViewModel, popUndo, resolveSwitchTarget } from "../src/model.js";
 import type { StreamView } from "../src/state.js";
 import { storyLines } from "../../shared/story-model.js";
 
@@ -34,11 +34,10 @@ describe("story view model", () => {
     expect(resolveSwitchTarget(payload, "p12", 1)?.count).toBe(part?.siblingCount);
   });
 
-  test("records and consumes undo entries", () => {
-    const payload = createDemoController().payload();
-    const stack = pushUndo([], payload, "p12");
-    expect(stack).toEqual([{ kind: "switch", leafId: "p13", nodeId: "p12" }]);
-    expect(popUndo(stack)).toEqual({ entry: { kind: "switch", leafId: "p13", nodeId: "p12" }, rest: [] });
+  test("consumes undo entries newest first", () => {
+    const made = { kind: "create-break", breakId: "chapter-break-1" } as const;
+    const stack = [made];
+    expect(popUndo(stack)).toEqual({ entry: made, rest: [] });
     expect(popUndo([])).toEqual({ entry: null, rest: [] });
   });
 

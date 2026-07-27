@@ -69,8 +69,13 @@ export interface StoryViewModel {
 
 export type SwitchDirection = -1 | 1;
 
+/** What `u` can take back.
+ *
+ * Every entry is a change to stored data. Take switching is deliberately absent:
+ * it changes which take the line reads, the arrows reverse it directly, and an
+ * undo stack that mixed the two taught the reader that `u` reaches further back
+ * into their prose than it does. */
 export type UndoEntry =
-  | { kind: "switch"; leafId: string; nodeId: string }
   | { kind: "create-break"; breakId: string }
   | { kind: "remove-break"; breakId: string; removed: RemovedChapterBreak };
 
@@ -228,12 +233,6 @@ export function resolveTakeTarget(
   const target = siblings[take - 1];
   if (target === undefined) return null;
   return { id: target.id, index: take, count: siblings.length };
-}
-
-export function pushUndo(stack: readonly UndoEntry[], payload: StoryPayload, nodeId: string): UndoEntry[] {
-  const leafId = payload.path.at(-1)?.id;
-  if (leafId === undefined) return [...stack];
-  return [...stack, { kind: "switch", leafId, nodeId }];
 }
 
 export function popUndo(stack: readonly UndoEntry[]): { entry: UndoEntry | null; rest: UndoEntry[] } {

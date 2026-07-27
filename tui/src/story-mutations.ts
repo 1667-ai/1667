@@ -7,7 +7,6 @@ import {
   createStoryViewModel,
   lastPartRowIndex,
   popUndo,
-  pushUndo,
   resolveTakeTarget,
   resolveSwitchTarget,
   rowIndexForNode,
@@ -50,12 +49,10 @@ async function switchTakeWith(
   if (part === null) return;
   const target = resolve(part);
   if (target === null || target.id === part.id) return;
-  const launchPayload = state.payload;
   await context.backend.run("switching take", async (task) => {
     const payload = await source.api.switchLine(task.storyId, target.id);
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
-    state.undo = pushUndo(state.undo, launchPayload, part.id);
     const landed = new Map(state.freshLandedAt);
     for (const node of payload.path.slice(part.pathIndex)) landed.set(node.id, Date.now());
     state.freshLandedAt = landed;
@@ -63,35 +60,35 @@ async function switchTakeWith(
       state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), target.id));
       followStoryViewport(state);
       const partsBelow = payload.path.length - part.pathIndex - 1;
-      state.toast = `▸ take ${target.index}/${target.count} · ${partsBelow} parts below re-rendered · u undoes`;
+      // No undo hint: [←] and [→] walk the row, which is the whole of it.
+      state.toast = `▸ take ${target.index}/${target.count} · ${partsBelow} parts below re-rendered`;
     }
     context.cache.invalidate();
   });
 }
 
-export async function undoSwitch(
+/** Take back the last added or removed chapter break. `u` reaches nothing else
+ *  — not a chapter rename, not a summary edit, and no prose at all. */
+export async function undoChapterBreakChange(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext
 ): Promise<void> {
   if (generationBusy(state)) return void (state.toast = "stream running · esc stops it first");
   const popped = popUndo(state.undo);
-  if (popped.entry === null) return;
+  if (popped.entry === null) {
+    return void (state.toast = "nothing to undo · u takes back an added or removed chapter break");
+  }
   const entry = popped.entry;
   await context.backend.run("undoing story change", async (task) => {
-    const payload = entry.kind === "switch"
-      ? await source.api.switchLine(task.storyId, entry.leafId, { stopAtNode: true })
-      : entry.kind === "create-break"
-        ? (await source.api.removeChapterBreak(task.storyId, entry.breakId)).payload
-        : await source.api.restoreChapterBreak(task.storyId, entry.breakId, entry.removed);
+    const payload = entry.kind === "create-break"
+      ? (await source.api.removeChapterBreak(task.storyId, entry.breakId)).payload
+      : await source.api.restoreChapterBreak(task.storyId, entry.breakId, entry.removed);
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
     state.undo = popped.rest;
     if (task.interactionCurrent()) {
-      if (entry.kind === "switch") {
-        state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), entry.nodeId));
-        state.toast = "take switch undone";
-      } else if (entry.kind === "create-break") {
+      if (entry.kind === "create-break") {
         state.focusIndex = Math.min(state.focusIndex, Math.max(0, createStoryViewModel(payload).rows.length - 1));
         state.toast = "chapter break creation undone";
       } else {
