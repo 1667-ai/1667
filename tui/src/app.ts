@@ -6,6 +6,10 @@ import {
 } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
+import {
+  STARTER_OPENING_PART_COUNT,
+  STARTER_OPENING_STORY_ID
+} from "../../shared/starter-vault.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
@@ -553,12 +557,22 @@ export async function dispatch(
   repaint();
 }
 
+/** A story opens where the writer left off — except the tour, which opens
+ *  where it is meant to be read. A fresh vault would otherwise land a
+ *  first-time reader on the last beat of a tutorial they have not started.
+ *  The moment they add or remove a part it is their story, and opens at the
+ *  end like every other one. */
+function opensAtItsBeginning(payload: StoryPayload): boolean {
+  return payload.id === STARTER_OPENING_STORY_ID
+    && payload.path.length === STARTER_OPENING_PART_COUNT;
+}
+
 export function initialState(source: AppSource, renderMode: boolean): RuntimeState {
   const view = createStoryViewModel(source.payload);
   const demoPathIndex = Math.max(0, source.payload.path.length - 2);
   const initialFocus = source.demo
     ? Math.max(0, rowIndexForPathIndex(view, demoPathIndex))
-    : lastPartRowIndex(view);
+    : opensAtItsBeginning(source.payload) ? 0 : lastPartRowIndex(view);
   return {
     payload: source.payload,
     focusIndex: initialFocus,

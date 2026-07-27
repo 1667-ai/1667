@@ -256,3 +256,7 @@ export const STARTER_STORIES: readonly StarterStory[] = [TOUR, SEED];
 
 /** The story a fresh install opens on. */
 export const STARTER_OPENING_STORY_ID = TOUR.id;
+/** Parts on the tour's line as seeded — one per beat. A client compares this
+ *  to decide whether the tour is still the tour or has become someone's
+ *  story, so it has to be derived here rather than counted by hand. */
+export const STARTER_OPENING_PART_COUNT = TOUR.beats.length;
