@@ -36,17 +36,9 @@ function reconcile(
   state: State,
   action: NonNullable<ReturnType<typeof mouseToAction>>,
   captured: PresentedInteraction,
-  presented: PresentedInteraction,
-  version = presented.version
+  presented: PresentedInteraction
 ) {
-  return reconcilePresentedMouseAction({
-    action,
-    event: click,
-    captured,
-    presented,
-    currentVersion: version,
-    state
-  });
+  return reconcilePresentedMouseAction({ action, event: click, captured, presented, state });
 }
 
 function showMap(state: State, cursorId: string, rowIds: string[]): void {
@@ -209,7 +201,6 @@ describe("presented mouse reconciliation", () => {
       event: rightClick,
       captured,
       presented: interaction(state, 9),
-      currentVersion: 9,
       state
     })).toEqual(action);
   });
@@ -251,7 +242,7 @@ describe("presented mouse reconciliation", () => {
     const rebuilt = interaction(state, 21);
     expect(reconcilePresentedMouseAction({
       action: resolved, event: { ...click, button: 2 },
-      captured, presented: rebuilt, currentVersion: 21, state
+      captured, presented: rebuilt, state
     })).toBe(null);
   });
 
@@ -277,7 +268,7 @@ describe("presented mouse reconciliation", () => {
     expect(currentPartActions(unpersisted as typeof state)[5]?.id)
       .not.toBe(currentPartActions(state)[5]?.id);
     expect(reconcilePresentedMouseAction({
-      action: resolved, event: click, captured, presented: landed, currentVersion: 21, state
+      action: resolved, event: click, captured, presented: landed, state
     })).toBe(null);
   });
 

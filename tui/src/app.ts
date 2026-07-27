@@ -424,7 +424,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     inputs.enqueue(() => {
       const reconciled = reconcilePresentedMouseAction({
         action: resolved, event: queuedEvent, captured: interaction,
-        presented: presentedInteraction, currentVersion: frames.version, state
+        presented: presentedInteraction, state
       });
       if (reconciled === null) return;
       return observeInputAdmission((admit) => dispatch(
@@ -557,11 +557,16 @@ export async function dispatch(
   repaint();
 }
 
-/** A story opens where the writer left off — except the tour, which opens
- *  where it is meant to be read. A fresh vault would otherwise land a
- *  first-time reader on the last beat of a tutorial they have not started.
- *  The moment they add or remove a part it is their story, and opens at the
- *  end like every other one. */
+/** The tour opens at its first part for as long as it is still the tour: the
+ *  parts it was seeded with, unchanged in number. A fresh vault would
+ *  otherwise open a tutorial on its closing beat.
+ *
+ *  There is deliberately no notion of having read it. A reader who returns to
+ *  an unedited tour gets its beginning again, which is what a tutorial should
+ *  do; knowing better would mean persisting a reading position, and a durable
+ *  per-story marker is a decision the storage rules make on its own terms.
+ *  Writing into the tour — adding or removing a part — makes it that writer's
+ *  story, and it opens at the end like every other one. */
 function opensAtItsBeginning(payload: StoryPayload): boolean {
   return payload.id === STARTER_OPENING_STORY_ID
     && payload.path.length === STARTER_OPENING_PART_COUNT;

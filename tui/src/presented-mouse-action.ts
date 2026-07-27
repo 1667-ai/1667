@@ -51,7 +51,6 @@ export interface PresentedMouseReconciliation {
   event: FrozenMouseEvent;
   captured: PresentedInteraction;
   presented: PresentedInteraction | null;
-  currentVersion: number;
   state: RuntimeState;
 }
 
@@ -63,11 +62,12 @@ export function reconcilePresentedMouseAction({
   event,
   captured,
   presented,
-  currentVersion,
   state
 }: PresentedMouseReconciliation): ResolvedKey | null {
+  // The queue only runs an input while the presented frame owns current state,
+  // so "the newest built frame" and "the newest requested frame" are the same
+  // one here. What remains to prove is the owner and the target.
   if (presented === null || !presented.interactive
-    || presented.version !== currentVersion
     || presented.storyId !== state.payload.id
     || presented.state.mode !== state.mode) {
     return null;
@@ -81,10 +81,8 @@ export function reconcilePresentedMouseAction({
 
   // A gesture carrying its own stable identity is rebased against live state
   // first: its row may sit at a different index than any frame recorded.
-  if (captured.version !== currentVersion) {
-    const rebased = rebaseAfterSemanticChange(action, captured, state);
-    if (rebased !== null) return rebased;
-  }
+  const rebased = rebaseByStableIdentity(action, state);
+  if (rebased !== null) return rebased;
   // Everything else re-resolves against the presented frame, whose hit map is
   // what the writer is looking at, and is delivered when it still names the
   // same thing. A repaint that was only pending when the click arrived moved
@@ -101,14 +99,15 @@ export function reconcilePresentedMouseAction({
   };
 }
 
-function rebaseAfterSemanticChange(
+/** The action a gesture still names when it carries an identity of its own:
+ *  a row id outlives the index any frame recorded for it, and a relative
+ *  gesture names no cell at all. Null means "no identity here, ask the frame".
+ *  The caller has already proved captured, presented and live state share an
+ *  owner. */
+function rebaseByStableIdentity(
   action: ResolvedKey,
-  captured: PresentedInteraction,
   state: RuntimeState
 ): ResolvedKey | null {
-  const sameOwner = captured.storyId === state.payload.id
-    && captured.state.mode === state.mode;
-  if (!sameOwner) return null;
   if (action.action === "focus-index" && action.rowId !== undefined) {
     const index = createStoryViewModel(state.payload, state.stream).rows
       .findIndex((row) => row.id === action.rowId);
