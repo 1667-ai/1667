@@ -20,7 +20,7 @@ This public repository contains pre-release source.
 | Item | Current status |
 | --- | --- |
 | Source repository | GitHub provides public access. |
-| Standalone candidates | CI builds and tests four targets. CI does not publish these files. |
+| Standalone candidates | CI builds and tests four targets on `main`, three of them on pull requests. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
 | GitHub release | 1667 does not publish a GitHub release. |
@@ -350,6 +350,13 @@ GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
 standalone build on Linux x64. Each release target also runs the root tests,
 TUI tests, and standalone build. CI does not run the separate frame performance
 gate.
+
+Three release targets run on every pull request: macOS arm64, Linux arm64, and
+Linux x64. macOS x64 runs on every push to `main` and on demand, not on pull
+requests. It is the slowest target by roughly ten times and runs on a retiring,
+heavily contended runner class, so gating merges on it cost latency and produced
+flakes rather than signal. A macOS x64 regression therefore surfaces on the
+commit that introduced it rather than before merge.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and

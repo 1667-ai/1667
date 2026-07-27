@@ -46,10 +46,15 @@ cd tui && bun install
 
 ## Run the gates before you push
 
-CI runs every gate on each shipped target, and a pull request is not mergeable
-until it passes. Running the same gates locally first is faster than waiting on
-a round trip, and it is the only way to see the Linux-only suites before you
-push:
+CI runs every gate on each shipped target. A pull request is not mergeable until
+those gates pass on macOS arm64, Linux arm64, and Linux x64. macOS x64 is the
+exception: it runs on every push to `main` rather than on pull requests, because
+it is roughly ten times slower than the other targets and its runner class is
+contended enough to flake. Nothing tests macOS x64 before merge, so treat a
+change with target-specific risk there as needing a watch on `main` afterwards.
+
+Running the same gates locally first is faster than waiting on a round trip, and
+it is the only way to see the Linux-only suites before you push:
 
 ```sh
 scripts/ci-local.sh

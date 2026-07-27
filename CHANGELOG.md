@@ -5,6 +5,13 @@ the [README](README.md#technical-terms).
 
 ## Unreleased
 
+- **Pull requests no longer wait on the macOS x64 build.** CI still builds and
+  tests all four release targets on `main` and on demand, but pull requests gate
+  on macOS arm64, Linux arm64, and Linux x64 only. The macOS x64 runner is about
+  ten times slower than its siblings and contended enough that its wall-clock
+  measurements flaked. A macOS x64 regression now surfaces on the commit that
+  introduced it rather than before merge. Thanks @10fra for the CI latency
+  review.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
   story writes use 1667 identifiers. Thanks @10fra for the migration report.
