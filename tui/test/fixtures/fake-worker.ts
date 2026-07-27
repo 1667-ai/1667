@@ -45,9 +45,10 @@ export class FakeWorker extends EventTarget {
 
 export async function waitForRequest(
   worker: FakeWorker,
-  method: WorkerMethod
+  method: WorkerMethod,
+  timeoutMs = 1_000
 ): Promise<Extract<MainToWorkerMessage, { type: "request" }>> {
-  const deadline = Date.now() + 1_000;
+  const deadline = Date.now() + timeoutMs;
   do {
     const request = worker.messages.findLast((message) =>
       message.type === "request" && message.method === method

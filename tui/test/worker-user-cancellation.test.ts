@@ -8,6 +8,9 @@ import {
   type WorkerOperationId
 } from "../../shared/worker-protocol.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
+import {
+  platformPerformanceBudget
+} from "../../test/platform-performance-budget.js";
 import { BackendRestartRequiredError } from "../src/worker-api.js";
 import { WorkerTransport } from "../src/worker-transport.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
@@ -273,12 +276,10 @@ test("live cancellation bypasses another mutation's stalled publication", async 
     await outbox.init();
     const worker = new FakeWorker();
     // Not FILE_BACKED_GRACE_MS. This test cancels a mutation that already
-    // published, and waitForControlMessage below gives that cancel message only
-    // twenty polls to appear. Stretching the grace to two seconds made the
-    // message miss that window and failed two runs in six under load. The race
-    // that constant exists to fix does not apply here: hangOnEnqueue is 2, so
-    // the cancelled mutation's own publication settles on the first write and
-    // never has a deadline running against it.
+    // published. A two-second grace delays its cancel message past the bounded
+    // control-message wait. The race that constant exists to fix does not apply
+    // here: hangOnEnqueue is 2, so the cancelled mutation's own publication
+    // settles on the first write and never has a deadline running against it.
     const transport = await startTransport(worker, outbox, 200);
     const cancel = new AbortController();
     const firstError = rejection(transport.call(
@@ -286,7 +287,11 @@ test("live cancellation bypasses another mutation's stalled publication", async 
       { title: "cancel while another publication stalls" },
       { signal: cancel.signal, expectedAggregateVersion: { kind: "absent" } }
     ));
-    const firstRequest = await waitForRequest(worker, "createStory");
+    const firstRequest = await waitForRequest(
+      worker,
+      "createStory",
+      platformPerformanceBudget(1_000)
+    );
     const firstMutationId = firstRequest.mutationId;
     if (firstMutationId === undefined) throw new Error("createStory request omitted its mutation ID");
     const secondError = rejection(transport.call(
@@ -314,7 +319,11 @@ test("live cancellation bypasses another mutation's stalled publication", async 
       new MutationOutbox(dir),
       200
     );
-    const replay = await waitForRequest(replacementWorker, "createStory");
+    const replay = await waitForRequest(
+      replacementWorker,
+      "createStory",
+      platformPerformanceBudget(1_000)
+    );
     expect(replay.mutationId).toBe(secondMutationId);
     expect(replacementWorker.messages.some((message) =>
       message.type === "request" && message.mutationId === firstMutationId
@@ -444,13 +453,14 @@ async function waitForControlMessage(
   type: "cancel" | "terminalAck",
   id: WorkerOperationId
 ): Promise<MainToWorkerMessage> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  const deadline = performance.now() + platformPerformanceBudget(250);
+  do {
     const message = worker.messages.find((candidate) =>
       candidate.type === type && sameWorkerOperationId(candidate.id, id)
     );
     if (message !== undefined) return message;
     await new Promise((resolve) => setTimeout(resolve, 1));
-  }
+  } while (performance.now() < deadline);
   throw new Error(`${type} control message was not sent`);
 }
 
