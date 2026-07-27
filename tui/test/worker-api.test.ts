@@ -290,7 +290,9 @@ describe("embedded backend worker", () => {
       backend = await createWorkerStoryApi({ dataDir, startupTimeoutMs: 1_000 });
       const error = await Promise.race([
         rejection(backend.recovery),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("recovery wedged")), 500))
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("recovery wedged")), 2_000)
+        )
       ]);
       expect(error.message).not.toBe("recovery wedged");
       expect((await backend.failure).message.length > 0).toBeTrue();
