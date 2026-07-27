@@ -251,7 +251,20 @@ async function plantForgedVerifier(t: TestContext): Promise<string> {
   return directory;
 }
 
-test("evidence from a signed tag on a protected branch satisfies the release validator", async (t) => {
+/**
+ * Fixture repositories need `ssh-keygen` to mint signing keys, and on the
+ * Windows runner it exits 255 before writing one when Node passes the empty
+ * passphrase argument through `execFile`. Evidence is collected once per
+ * release on the host that runs the release, which is not Windows, so these
+ * integration fixtures are gated rather than the collector being reshaped
+ * around a platform it does not run on. The interpretation they exercise —
+ * including every adversarial signature-status form — is covered on all
+ * platforms by `test/release-evidence-inspection.test.ts`, and the source scan
+ * below is unconditional.
+ */
+const FIXTURE_ONLY = { skip: process.platform === "win32" } as const;
+
+test("evidence from a signed tag on a protected branch satisfies the release validator", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t);
   const document = await collect(fixture);
   assert.equal(document.evidence.tagName, TAG);
@@ -280,7 +293,7 @@ test("evidence from a signed tag on a protected branch satisfies the release val
   assert.deepEqual(identities.evidence, document.evidence);
 });
 
-test("evidence refuses a tag signed by a key the protected ref never authorised", async (t) => {
+test("evidence refuses a tag signed by a key the protected ref never authorised", FIXTURE_ONLY, async (t) => {
   // The attacker key is valid, correctly formed, and listed in the repository's
   // own `allowed-signers` at the released commit. Only the protected ref decides
   // who may sign, so this must still be refused.
@@ -297,7 +310,7 @@ test("evidence refuses a tag signed by a key the protected ref never authorised"
   await assert.rejects(collect(fixture), /is not from an allowed signer/);
 });
 
-test("evidence refuses a tag signed by a key absent from every allowed-signers file", async (t) => {
+test("evidence refuses a tag signed by a key absent from every allowed-signers file", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t, {
     tag: "attacker-key",
     policySigners: ["release"],
@@ -306,7 +319,7 @@ test("evidence refuses a tag signed by a key absent from every allowed-signers f
   await assert.rejects(collect(fixture), /is not from an allowed signer/);
 });
 
-test("evidence accepts a certificate-authority policy, whose principal is not in the file", async (t) => {
+test("evidence accepts a certificate-authority policy, whose principal is not in the file", FIXTURE_ONLY, async (t) => {
   // `ssh-keygen` matches principals; this module does not. The policy names the
   // CA and the pattern `*@1667.test`, and the principal that comes back —
   // `release@1667.test`, carried by the certificate — appears nowhere in it.
@@ -317,7 +330,7 @@ test("evidence accepts a certificate-authority policy, whose principal is not in
   assert.equal(document.evidence.tagSignature, "verified");
 });
 
-test("evidence verifies with the pinned verifier, not one planted on PATH", async (t) => {
+test("evidence verifies with the pinned verifier, not one planted on PATH", FIXTURE_ONLY, async (t) => {
   // No attacker key anywhere in the repository: the only way this tag can be
   // accepted is by asking a program that does not verify.
   const fixture = await createFixture(t, {
@@ -344,7 +357,7 @@ test("evidence verifies with the pinned verifier, not one planted on PATH", asyn
   assert.equal(forged.signature.principal, "release@1667.test");
 });
 
-test("evidence refuses a verifier that is missing or not named absolutely", async (t) => {
+test("evidence refuses a verifier that is missing or not named absolutely", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t);
   await assert.rejects(
     collect(fixture, { sshKeygenPath: "ssh-keygen" }),
@@ -356,27 +369,27 @@ test("evidence refuses a verifier that is missing or not named absolutely", asyn
   );
 });
 
-test("evidence refuses a dirty working tree", async (t) => {
+test("evidence refuses a dirty working tree", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t, { dirty: true });
   await assert.rejects(collect(fixture), /Release source tree is dirty/);
 });
 
-test("evidence refuses a lightweight tag", async (t) => {
+test("evidence refuses a lightweight tag", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t, { tag: "lightweight" });
   await assert.rejects(collect(fixture), /is not an annotated tag object/);
 });
 
-test("evidence refuses an unsigned annotated tag", async (t) => {
+test("evidence refuses an unsigned annotated tag", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t, { tag: "unsigned" });
   await assert.rejects(collect(fixture), /carries no signature/);
 });
 
-test("evidence refuses a tag that does not point at the release commit", async (t) => {
+test("evidence refuses a tag that does not point at the release commit", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t, { commitAfterTag: true });
   await assert.rejects(collect(fixture), /does not point at the release commit/);
 });
 
-test("evidence refuses a release commit unreachable from the protected ref", async (t) => {
+test("evidence refuses a release commit unreachable from the protected ref", FIXTURE_ONLY, async (t) => {
   const fixture = await createFixture(t, { protectedRefBehind: true });
   await assert.rejects(
     collect(fixture),
@@ -384,7 +397,7 @@ test("evidence refuses a release commit unreachable from the protected ref", asy
   );
 });
 
-test("evidence refuses disagreeing versions across manifests and the lockfile", async (t) => {
+test("evidence refuses disagreeing versions across manifests and the lockfile", FIXTURE_ONLY, async (t) => {
   for (const skew of [
     { rootVersion: "9.8.6" },
     { tuiVersion: "9.8.6" },
@@ -396,7 +409,7 @@ test("evidence refuses disagreeing versions across manifests and the lockfile", 
   }
 });
 
-test("the evidence CLI emits canonical JSON the release validator accepts", async (t) => {
+test("the evidence CLI emits canonical JSON the release validator accepts", FIXTURE_ONLY, async (t) => {
   // No environment is handed to the child on purpose: the collector builds its
   // own, so a developer's Git configuration must not be able to reach it.
   const fixture = await createFixture(t);
