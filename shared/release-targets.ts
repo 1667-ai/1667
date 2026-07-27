@@ -1,10 +1,11 @@
-export const RELEASE_LAUNCHER_PACKAGE = "1667" as const;
+export const RELEASE_LAUNCHER_PACKAGE = "@1667-ai/cli" as const;
 
 export interface ReleaseTargetDescriptor {
   readonly artifactTarget: string;
   readonly packageName: string;
   readonly platform: "darwin" | "linux" | "win32";
   readonly arch: "arm64" | "x64";
+  readonly libc: "glibc" | null;
   readonly executable: "bin/1667" | "bin/1667.exe";
 }
 
@@ -18,30 +19,34 @@ export interface ReleaseTargetDescriptor {
 export const RELEASE_TARGETS = Object.freeze([
   Object.freeze({
     artifactTarget: "darwin-arm64",
-    packageName: "1667-darwin-arm64",
+    packageName: "@1667-ai/darwin-arm64",
     platform: "darwin",
     arch: "arm64",
+    libc: null,
     executable: "bin/1667"
   }),
   Object.freeze({
     artifactTarget: "darwin-x64",
-    packageName: "1667-darwin-x64",
+    packageName: "@1667-ai/darwin-x64",
     platform: "darwin",
     arch: "x64",
+    libc: null,
     executable: "bin/1667"
   }),
   Object.freeze({
     artifactTarget: "linux-arm64",
-    packageName: "1667-linux-arm64",
+    packageName: "@1667-ai/linux-arm64",
     platform: "linux",
     arch: "arm64",
+    libc: "glibc",
     executable: "bin/1667"
   }),
   Object.freeze({
     artifactTarget: "linux-x64",
-    packageName: "1667-linux-x64",
+    packageName: "@1667-ai/linux-x64",
     platform: "linux",
     arch: "x64",
+    libc: "glibc",
     executable: "bin/1667"
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);

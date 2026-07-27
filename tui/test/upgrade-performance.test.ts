@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { RELEASE_LAUNCHER_PACKAGE } from "../../shared/release-targets.js";
 import { compareSemVer } from "../../shared/semver.js";
 import {
   PLATFORM_PACKAGES,
@@ -10,7 +11,7 @@ const INTEGRITY = `sha512-${"A".repeat(86)}==`;
 test("near-limit upgrade metadata parsing and SemVer selection stay inexpensive", () => {
   const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0"]));
   const body = JSON.stringify({
-    name: "1667",
+    name: RELEASE_LAUNCHER_PACKAGE,
     version: "2.0.0",
     dist: { integrity: INTEGRITY },
     optionalDependencies: graph,
@@ -20,7 +21,7 @@ test("near-limit upgrade metadata parsing and SemVer selection stay inexpensive"
   const metadataStart = performance.now();
   for (let iteration = 0; iteration < 250; iteration += 1) {
     parseNpmExactVersionMetadata(body, {
-      name: "1667",
+      name: RELEASE_LAUNCHER_PACKAGE,
       version: "2.0.0",
       optionalDependencies: graph
     });

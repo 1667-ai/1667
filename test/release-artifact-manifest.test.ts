@@ -6,6 +6,7 @@ import {
   type PackagedArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  RELEASE_LAUNCHER_PACKAGE,
   releasePlatformDependencyGraph,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
@@ -14,11 +15,13 @@ import {
   type ReleasePackageArtifactInput
 } from "../scripts/release-artifact-manifest.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
 import {
   parseReleasePackageManifest
 } from "../scripts/release-package-policy.js";
 
 const VERSION = "2.0.0";
+const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
 const identities = createReleaseIdentitySet({
   schemaVersion: 1,
   productVersion: VERSION,
@@ -62,7 +65,7 @@ test("release artifact manifest is canonical, deterministic, and target ordered"
 test("release artifact manifest binds SBOM/build metadata and native identities", () => {
   const artifacts = releaseArtifacts();
   const linux = artifacts.find((artifact) => {
-    return packageName(artifact) === "1667-linux-x64";
+    return packageName(artifact) === PLATFORM_PACKAGE;
   })!;
   assert.throws(() => createReleaseArtifactManifest(identities, artifacts.map((artifact) => {
     return artifact === linux
@@ -81,7 +84,7 @@ test("release artifact manifest binds SBOM/build metadata and native identities"
       : artifact;
   })), /disagrees/);
   assert.throws(() => createReleaseArtifactManifest(identities, artifacts.map((artifact) => {
-    return packageName(artifact) === "1667"
+    return packageName(artifact) === RELEASE_LAUNCHER_PACKAGE
       ? { ...artifact, buildIdentity: identities.identities[0] }
       : artifact;
   })), /launcher/);
@@ -142,13 +145,14 @@ function artifact(
 
 function launcherManifest() {
   return {
-    name: "1667",
+    name: RELEASE_LAUNCHER_PACKAGE,
     version: VERSION,
     private: false,
     type: "module",
     bin: { "1667": "bin/1667.js" },
     files: ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"],
     optionalDependencies: releasePlatformDependencyGraph(VERSION),
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: { access: "public" }
   };
 }
@@ -161,7 +165,9 @@ function platformManifest(target: PackagedArtifactTarget) {
     private: false,
     os: [policy.platform],
     cpu: [policy.arch],
+    ...(policy.libc === null ? {} : { libc: [policy.libc] }),
     files: [policy.executable, "build-manifest.json", "sbom.spdx.json"],
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: { access: "public" }
   };
 }

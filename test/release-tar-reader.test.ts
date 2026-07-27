@@ -24,22 +24,32 @@ import {
   parseReleasePackageManifest,
   validateReleaseTarballInspection
 } from "../scripts/release-package-policy.js";
+import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
+import { releaseTargetForArtifact } from "../shared/release-targets.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
 
+const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
 const manifest = parseReleasePackageManifest({
-  name: "1667-linux-x64",
+  name: PLATFORM_PACKAGE,
   version: "3.0.0",
   private: false,
   os: ["linux"],
   cpu: ["x64"],
+  libc: ["glibc"],
   files: ["bin/1667", "build-manifest.json", "sbom.spdx.json"],
+  repository: RELEASE_PACKAGE_REPOSITORY,
   publishConfig: { access: "public" }
 }, "3.0.0");
 const execFileAsync = promisify(execFile);
 
 test("non-extracting reader hashes a bounded ustar package for policy validation", async () => {
   const tarball = gzipSync(tar([
-    entry("package/package.json", "0", 0o644, Buffer.from('{"name":"1667-linux-x64"}')),
+    entry(
+      "package/package.json",
+      "0",
+      0o644,
+      Buffer.from(JSON.stringify({ name: PLATFORM_PACKAGE }))
+    ),
     entry("package/bin/1667", "0", 0o755, Buffer.from("native executable")),
     entry("package/build-manifest.json", "0", 0o644, Buffer.from('{"schemaVersion":1}')),
     entry("package/sbom.spdx.json", "0", 0o644, Buffer.from('{"spdxVersion":"SPDX-2.3"}'))
@@ -47,11 +57,11 @@ test("non-extracting reader hashes a bounded ustar package for policy validation
   const result = await readReleaseTarball(tarball);
   const validated = validateReleaseTarballInspection(result.inspection, manifest);
   assert.equal(validated.entries.length, 4);
-  assert.equal(validated.packageName, "1667-linux-x64");
+  assert.equal(validated.packageName, PLATFORM_PACKAGE);
   assert.ok(validated.entries.every((item) => item.type === "file"));
   assert.equal(
     (result.packageManifest as Record<string, unknown>).name,
-    "1667-linux-x64"
+    PLATFORM_PACKAGE
   );
   assert.equal(
     result.gzip.sha256,
@@ -66,12 +76,14 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   await mkdir(path.join(root, "bin"), { recursive: true });
   await mkdir(output);
   await writeFile(path.join(root, "package.json"), `${JSON.stringify({
-    name: "1667-linux-x64",
+    name: PLATFORM_PACKAGE,
     version: "3.0.0",
     private: false,
     os: ["linux"],
     cpu: ["x64"],
+    libc: ["glibc"],
     files: ["bin/1667", "build-manifest.json", "sbom.spdx.json"],
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: { access: "public" }
   })}\n`);
   await writeFile(path.join(root, "bin", "1667"), "native executable");
@@ -284,7 +296,7 @@ async function writeLargeTarball(filePath: string, nativeBytes: number): Promise
     gzip,
     "package/package.json",
     0o644,
-    Buffer.from('{"name":"1667-linux-x64"}')
+    Buffer.from(JSON.stringify({ name: PLATFORM_PACKAGE }))
   );
   await writeChunk(gzip, tarHeader("package/bin/1667", "0", 0o755, nativeBytes));
   const nativeChunk = Buffer.alloc(64 * 1024, 0x61);

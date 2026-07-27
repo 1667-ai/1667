@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
 import {
+  RELEASE_LAUNCHER_PACKAGE,
+  releaseTargetForArtifact
+} from "../../shared/release-targets.js";
+import {
   executeUpgradeCli,
   parseUpgradeArguments
 } from "../src/upgrade-cli.js";
@@ -9,7 +13,7 @@ import type { UpgradeObservation, UpgradeRegistry } from "../src/upgrade-plan.js
 
 const observation: UpgradeObservation = {
   currentVersion: "1.2.3",
-  platformPackage: "1667-linux-x64"
+  platformPackage: releaseTargetForArtifact("linux-x64").packageName
 };
 
 test("upgrade argument parser preserves global version semantics and rejects ambiguity", () => {
@@ -102,8 +106,9 @@ test("human plan output uses only locally derived fixed instructions", async () 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("1667 2.0.0 is available");
   expect(result.stdout).toContain(
-    "https://www.npmjs.com/package/1667/v/2.0.0"
+    `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v/2.0.0`
   );
+  expect(result.stdout).not.toContain("%2F");
   expect(result.stdout).not.toContain("github");
   expect(result.stdout).toContain("outside 1667's trust boundary");
   expect(result.stdout).not.toContain("npm install");

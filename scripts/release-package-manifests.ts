@@ -6,6 +6,11 @@ import {
   type ReleasePlatformPackage
 } from "../shared/release-targets.js";
 
+export const RELEASE_PACKAGE_REPOSITORY = Object.freeze({
+  type: "git" as const,
+  url: "git+https://github.com/1667-ai/1667.git" as const
+});
+
 export interface ReleaseLauncherManifest {
   kind: "launcher";
   name: typeof RELEASE_LAUNCHER_PACKAGE;
@@ -15,6 +20,7 @@ export interface ReleaseLauncherManifest {
   bin: Readonly<{ "1667": "bin/1667.js" }>;
   files: readonly ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"];
   optionalDependencies: Readonly<Record<ReleasePlatformPackage, string>>;
+  repository: typeof RELEASE_PACKAGE_REPOSITORY;
   publishConfig: Readonly<{ access: "public" }>;
 }
 
@@ -25,7 +31,9 @@ export interface ReleasePlatformManifest {
   private: false;
   os: readonly ["darwin" | "linux" | "win32"];
   cpu: readonly ["arm64" | "x64"];
+  libc?: readonly ["glibc"];
   files: readonly [string, "build-manifest.json", "sbom.spdx.json"];
+  repository: typeof RELEASE_PACKAGE_REPOSITORY;
   publishConfig: Readonly<{ access: "public" }>;
   target: PackagedArtifactTarget;
 }
@@ -49,6 +57,7 @@ export function createReleaseLauncherManifest(version: string): ReleaseLauncherM
       "sbom.spdx.json"
     ] as const),
     optionalDependencies: releasePlatformDependencyGraph(version),
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: Object.freeze({ access: "public" as const })
   });
 }
@@ -70,6 +79,10 @@ export function createReleasePlatformManifest(
       "build-manifest.json",
       "sbom.spdx.json"
     ] as const),
+    ...(descriptor.libc === null
+      ? {}
+      : { libc: Object.freeze([descriptor.libc] as const) }),
+    repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: Object.freeze({ access: "public" as const }),
     target
   });

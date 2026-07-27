@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import {
+  releaseTargetForArtifact
+} from "../../shared/release-targets.js";
+import {
   LAUNCHER_PACKAGE,
   NPM_METADATA_MAX_BYTES,
   NpmUpgradeRegistry,
@@ -10,6 +13,8 @@ import {
 import { UpgradeFailure } from "../src/upgrade-contract.js";
 
 const INTEGRITY = `sha512-${"A".repeat(86)}==`;
+const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
+const DARWIN_PACKAGE = releaseTargetForArtifact("darwin-arm64").packageName;
 
 test("npm dist tags select strict stable and beta channel heads", () => {
   const body = JSON.stringify({
@@ -55,19 +60,27 @@ test("exact npm metadata validates identity, integrity, and the complete platfor
     version: "2.0.0",
     optionalDependencies
   });
-  expect(metadata).toEqual({ name: "1667", version: "2.0.0", integrity: INTEGRITY });
+  expect(metadata).toEqual({
+    name: LAUNCHER_PACKAGE,
+    version: "2.0.0",
+    integrity: INTEGRITY
+  });
   expect(Object.isFrozen(metadata)).toBeTrue();
 });
 
 test("exact npm metadata rejects deprecated targets and graph or identity drift", () => {
   const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0"]));
   const valid = {
-    name: "1667",
+    name: LAUNCHER_PACKAGE,
     version: "2.0.0",
     dist: { integrity: INTEGRITY },
     optionalDependencies: graph
   };
-  const expected = { name: "1667", version: "2.0.0", optionalDependencies: graph };
+  const expected = {
+    name: LAUNCHER_PACKAGE,
+    version: "2.0.0",
+    optionalDependencies: graph
+  };
   for (const value of [
     { ...valid, name: "other" },
     { ...valid, deprecated: "bad release" },
@@ -75,12 +88,12 @@ test("exact npm metadata rejects deprecated targets and graph or identity drift"
     { ...valid, dist: {} },
     { ...valid, dependencies: { "surprise-runtime": "1.0.0" } },
     { ...valid, bundledDependencies: ["surprise-runtime"] },
-    { ...valid, optionalDependencies: { ...graph, "1667-linux-x64": "2.0.1" } }
+    { ...valid, optionalDependencies: { ...graph, [PLATFORM_PACKAGE]: "2.0.1" } }
   ]) {
     expect(() => parseNpmExactVersionMetadata(JSON.stringify(value), expected)).toThrow();
   }
   expect(() => parseNpmExactVersionMetadata(
-    `{"name":"1667","name":"other","version":"2.0.0","dist":{"integrity":"${INTEGRITY}"},"optionalDependencies":${JSON.stringify(graph)}}`,
+    `{"name":"${LAUNCHER_PACKAGE}","name":"other","version":"2.0.0","dist":{"integrity":"${INTEGRITY}"},"optionalDependencies":${JSON.stringify(graph)}}`,
     expected
   )).toThrow();
 });
@@ -94,7 +107,9 @@ test("registry client fixes the canonical origin and bounds streamed responses",
     return Response.json({ stable: "2.0.0" });
   });
   expect(await registry.channelHead("stable", new AbortController().signal)).toBe("2.0.0");
-  expect(calls).toEqual(["https://registry.npmjs.org/-/package/1667/dist-tags"]);
+  expect(calls).toEqual([
+    "https://registry.npmjs.org/-/package/@1667-ai%2fcli/dist-tags"
+  ]);
 
   const oversized = new NpmUpgradeRegistry(async () => new Response(
     new Uint8Array(NPM_METADATA_MAX_BYTES + 1),
@@ -128,43 +143,95 @@ test("registry client derives exact launcher and platform endpoints locally", as
   const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0+build.1"]));
   const registry = new NpmUpgradeRegistry(async (input) => {
     calls.push(input);
-    const packageName = input.includes("1667-linux-x64") ? "1667-linux-x64" : "1667";
+    const packageName = calls.length === 1 ? LAUNCHER_PACKAGE : PLATFORM_PACKAGE;
     return Response.json({
       name: packageName,
       version: "2.0.0+build.1",
       dist: { integrity: INTEGRITY },
-      ...(packageName === "1667"
+      ...(packageName === LAUNCHER_PACKAGE
         ? { optionalDependencies: graph }
-        : { os: ["linux"], cpu: ["x64"] })
+        : { os: ["linux"], cpu: ["x64"], libc: ["glibc"] })
     });
   });
   const signal = new AbortController().signal;
   await registry.launcher("2.0.0+build.1", signal);
-  await registry.platform("1667-linux-x64", "2.0.0+build.1", signal);
+  await registry.platform(PLATFORM_PACKAGE, "2.0.0+build.1", signal);
   expect(calls).toEqual([
-    "https://registry.npmjs.org/1667/2.0.0%2Bbuild.1",
-    "https://registry.npmjs.org/1667-linux-x64/2.0.0%2Bbuild.1"
+    "https://registry.npmjs.org/@1667-ai%2fcli/2.0.0%2Bbuild.1",
+    "https://registry.npmjs.org/@1667-ai%2flinux-x64/2.0.0%2Bbuild.1"
   ]);
 });
 
 test("registry client rejects incomplete or drifting platform identity", async () => {
   for (const identity of [
-    { os: ["darwin"], cpu: ["x64"] },
-    { os: ["linux"], cpu: ["arm64"] },
-    { os: ["linux"] },
-    { cpu: ["x64"] }
+    { os: ["darwin"], cpu: ["x64"], libc: ["glibc"] },
+    { os: ["linux"], cpu: ["arm64"], libc: ["glibc"] },
+    { os: ["linux"], libc: ["glibc"] },
+    { cpu: ["x64"], libc: ["glibc"] }
   ]) {
     const registry = new NpmUpgradeRegistry(async () => Response.json({
-      name: "1667-linux-x64",
+      name: PLATFORM_PACKAGE,
       version: "2.0.0",
       dist: { integrity: INTEGRITY },
       ...identity
     }));
     const error = await rejection(
-      registry.platform("1667-linux-x64", "2.0.0", new AbortController().signal)
+      registry.platform(PLATFORM_PACKAGE, "2.0.0", new AbortController().signal)
     );
     expect((error as UpgradeFailure).code).toBe("verification_failed");
   }
+});
+
+test("registry client rejects Linux metadata that omits libc", async () => {
+  const registry = platformRegistry(PLATFORM_PACKAGE, {
+    os: ["linux"],
+    cpu: ["x64"]
+  });
+  const error = await rejection(
+    registry.platform(PLATFORM_PACKAGE, "2.0.0", new AbortController().signal)
+  );
+  expect((error as UpgradeFailure).code).toBe("verification_failed");
+});
+
+test("registry client rejects Linux metadata with a non-glibc libc", async () => {
+  for (const libc of [["musl"], ["other"]]) {
+    const registry = platformRegistry(PLATFORM_PACKAGE, {
+      os: ["linux"],
+      cpu: ["x64"],
+      libc
+    });
+    const error = await rejection(
+      registry.platform(PLATFORM_PACKAGE, "2.0.0", new AbortController().signal)
+    );
+    expect((error as UpgradeFailure).code).toBe("verification_failed");
+  }
+});
+
+test("registry client rejects libc metadata on a Darwin package", async () => {
+  const registry = platformRegistry(DARWIN_PACKAGE, {
+    os: ["darwin"],
+    cpu: ["arm64"],
+    libc: ["glibc"]
+  });
+  const error = await rejection(
+    registry.platform(DARWIN_PACKAGE, "2.0.0", new AbortController().signal)
+  );
+  expect((error as UpgradeFailure).code).toBe("verification_failed");
+});
+
+test("registry client rejects libc metadata on the launcher package", async () => {
+  const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0"]));
+  const registry = new NpmUpgradeRegistry(async () => Response.json({
+    name: LAUNCHER_PACKAGE,
+    version: "2.0.0",
+    dist: { integrity: INTEGRITY },
+    optionalDependencies: graph,
+    libc: ["glibc"]
+  }));
+  const error = await rejection(
+    registry.launcher("2.0.0", new AbortController().signal)
+  );
+  expect((error as UpgradeFailure).code).toBe("verification_failed");
 });
 
 test("registry client classifies aborts, missing targets, and retryable failures", async () => {
@@ -207,4 +274,16 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
     return error;
   }
   throw new Error("expected rejection");
+}
+
+function platformRegistry(
+  packageName: string,
+  identity: Record<string, unknown>
+): NpmUpgradeRegistry {
+  return new NpmUpgradeRegistry(async () => Response.json({
+    name: packageName,
+    version: "2.0.0",
+    dist: { integrity: INTEGRITY },
+    ...identity
+  }));
 }

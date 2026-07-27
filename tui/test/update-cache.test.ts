@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { RELEASE_LAUNCHER_PACKAGE } from "../../shared/release-targets.js";
 import {
   UPDATE_CACHE_TTL_MS,
   createUpdateCacheEntry,
@@ -12,7 +13,7 @@ import {
 const key: UpdateCacheKey = {
   metadataKind: "npm",
   metadataOrigin: "https://registry.npmjs.org",
-  packageName: "1667",
+  packageName: RELEASE_LAUNCHER_PACKAGE,
   installIdentity: "manual:source:0.1.0",
   currentVersion: "0.1.0",
   artifactTarget: "source",
