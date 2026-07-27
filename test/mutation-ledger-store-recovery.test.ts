@@ -29,6 +29,8 @@ import {
   assertWithinBudget,
   budgetTimeout,
   cpuBudget,
+  fileBudget,
+  wallOnlyTiming,
   startTiming
 } from "./performance-budget.js";
 
@@ -192,18 +194,39 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
 // only 1.3 times the CPU time. That is why a full-concurrency run failed this
 // test at random while an isolated run passed with ten times the budget spare.
 //
-// So this budget measures CPU time. CPU time is what keeps a repeated lookup
-// bounded, because more work for each lookup means more system calls. CPU time
-// cannot see a lookup that blocks instead of works. The server-start budget in
-// the HTTP tests covers that.
+// So the first budget measures CPU time. CPU time is what keeps the work for
+// each lookup bounded, because more work means more system calls.
 //
-// The limit comes from the measurements above. The worst CPU time beside 16
-// busy processes was 1,708ms. This limit keeps 3.5 times that, which leaves
-// room for a slower runner core. Tighten it with new measurements, not by guess.
-const LOOKUP_BUDGET = cpuBudget(6_000);
+// The limit comes from measurement. Beside 16 busy processes the worst CPU time
+// was 1,708ms. A full-concurrency suite run costs more, because context
+// switching adds system time: the worst there was 3,087ms, at a load average of
+// 33. This limit keeps about 2.6 times that. Tighten it with new measurements,
+// not by guess.
+//
+// Those same two suite runs measured 14,133ms and 39,621ms of wall-clock time.
+// The wall-clock budget this test used before was 10,000ms, so both runs would
+// have failed it while the product did the same work.
+const LOOKUP_BUDGET = cpuBudget(8_000);
+
+// A CPU budget cannot see a lookup that waits. A lookup that gains a 20ms wait
+// keeps its CPU time and stays inside the budget above. Nothing else covers
+// this path: receipt lookup runs on the mutation request path, not at startup,
+// so no server-start budget reaches it.
+//
+// So the second budget measures the fastest single lookup. Contention delays
+// some lookups, never all of them, which makes the fastest sample the one
+// measure a busy machine cannot inflate. Beside 16 busy processes the median
+// lookup went from 0.55ms to 1.07ms and the slowest from 8.8ms to 145.7ms,
+// while the fastest stayed between 0.354ms and 0.393ms. Issue #42 measured the
+// same way, for the same reason.
+//
+// A wait that this budget lets through is smaller than the wait a total
+// wall-clock budget could catch, because contention alone reached 16 seconds
+// across the whole loop.
+const LOOKUP_LATENCY_BUDGET = fileBudget(10);
 
 test("missing receipt lookup is read-only and repeated direct lookup stays bounded", {
-  timeout: budgetTimeout([LOOKUP_BUDGET], 10_000)
+  timeout: budgetTimeout([LOOKUP_BUDGET, LOOKUP_LATENCY_BUDGET], 10_000)
 }, async (t) => {
   const { dataDir, store } = await testStore(t, "1667-ledger-performance-");
   assert.deepEqual(await store.loadUserReceipt("settings", ID), { prepared: null, completed: null });
@@ -213,8 +236,11 @@ test("missing receipt lookup is read-only and repeated direct lookup stays bound
   await store.writeUserRecord(prepared);
   const iterations = 1_000;
   const read = startTiming();
+  let fastestMs = Number.POSITIVE_INFINITY;
   for (let index = 0; index < iterations; index += 1) {
+    const startedAt = performance.now();
     const receipt = await store.loadUserReceipt("settings", ID);
+    fastestMs = Math.min(fastestMs, performance.now() - startedAt);
     assert.equal(receipt.prepared?.key, ID);
   }
   assertWithinBudget(
@@ -222,6 +248,12 @@ test("missing receipt lookup is read-only and repeated direct lookup stays bound
     `${iterations.toLocaleString()} direct receipt lookups`,
     LOOKUP_BUDGET,
     read()
+  );
+  assertWithinBudget(
+    t,
+    "fastest receipt lookup",
+    LOOKUP_LATENCY_BUDGET,
+    wallOnlyTiming(fastestMs)
   );
 });
 
