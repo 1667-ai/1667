@@ -1,7 +1,7 @@
 ---
 summary: Model-generated continuity summaries used as same-story context resets
 read_when:
-  - changing Loom take creation or context slicing
+  - changing story-tree take creation or context slicing
   - changing summary prompts, budgets, or model generation
   - changing what locks or stays usable while a summary streams
   - debugging stale, truncated, or missing summary takes
@@ -12,8 +12,8 @@ read_when:
 A **summary take** is a node inside the current story with `role: "summary"`.
 It condenses the active line through an exact part boundary or selection and is
 created as a child of that source node. Later generation starts its context at
-the most recent summary node, so all earlier prose remains visible in the Loom
-without being sent to the model again.
+the most recent summary node, so all earlier prose remains visible in the story
+tree without being sent to the model again.
 
 The saved instruction tells later continuations to treat the recap as
 established context and resume from its final `BRANCH-POINT STATE`, without

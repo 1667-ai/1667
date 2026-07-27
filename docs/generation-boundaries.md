@@ -55,7 +55,7 @@ generation ID. An ambiguous provider result retains the durable unresolved
 pointer; retries stay blocked until that exact outcome is acknowledged.
 
 Provider request bodies are built by exact OpenAI Chat Completions and Anthropic
-Messages serializers. The selected ADR 003 cache policy and capability project
+Messages serializers. The selected cache policy and capability project
 through an exact protocol/preset adapter identity; a custom endpoint is never
 promoted from its URL. `StoryService` owns bounded, hash-only rolling
 breakpoint state and each generation reads its settings plus cache context from
