@@ -177,8 +177,12 @@ contains only `settings.json`. Migration accepts StoryTavern story bundles.
 it next changes a story.
 
 `1667 export` writes the selected story line to `<Story Title>.md` in the
-project root. Chapter titles use `##` headings. 1667 does not read an exported
-file. Use the 1667 editor to change story data.
+project root. The selected story line is the take that each story part
+currently holds. The export omits unselected takes and directions. Chapter
+titles use `##` headings. `--story <id>` selects a story. Export otherwise uses
+the most recently updated story. No option selects a story line. Select the
+story line in the TUI before export. 1667 does not read an exported file. Use
+the 1667 editor to change story data.
 
 See [ADR 007](https://github.com/1667-ai/architecture/blob/main/docs/adr/007-project-anchored-storage.md).
 

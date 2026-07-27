@@ -62,21 +62,31 @@ interface Arguments {
   keys: string;
 }
 
-const HELP = `1667 — a full-screen 1667 client
+export const HELP = `1667 — a full-screen 1667 client
 
 Stories live in .1667/ beside your writing, found by walking up from the
 current directory the way git finds .git.
 
 Usage: 1667 [options]
        1667 init [--adopt [--from <legacy-data-dir>]]
-       1667 export [--story <id>] [--force]
+       1667 export [--story <id>] [--force] [--data <path>|--global]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
        1667 serve --legacy-v1 --data <path> [--print-logs]
        1667 upgrade [options]
 
+Export:
+  Writes one story's selected line — the take chosen at each part, as you
+  last left it — to the project root as markdown. Prose only: chapters
+  become '##' headings; directions and unchosen takes stay behind. No option
+  picks the line, so choose it in the app first.
+  Defaults to the most recently updated story. Never clobbers an existing
+  file (story.md, story-2.md, …) unless --force. 1667 never reads an
+  exported file back.
+
 Options:
-  --story <id>       Open a story; defaults to the most recently updated
+  --story <id>       Open a story, or name the one to export; both default
+                     to the most recently updated
   --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
   --auth-file <path> Use the canonical private auth record for --url
   --embedded         Use the embedded backend (default)
