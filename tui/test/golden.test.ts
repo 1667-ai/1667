@@ -55,15 +55,16 @@ describe("deterministic demo frames", () => {
     const bookmark = source.payload.bookmarks.find((item) => item.nodeId === leaf.id)!;
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
     expect(frame).toContain("4 lines · 23 parts · 5 forks");
-    // The reading line is the trunk at column 0; revealed alternates share its branch.
-    expect(frame).toContain("│ ·· 1 part");
-    expect(frame).toContain("│ ├─○ ¶8  ✕ burned");
-    expect(frame).not.toContain("┼");
-    expect(frame).not.toContain("│ │");
+    // Doc 20c: the reading line is the trunk at column 0, its runs step in once
+    // and its branches twice behind one `↳`. No box-drawing anywhere.
+    expect(frame).toContain("    ⋯ 1 part");
+    expect(frame).toContain("      ↳ ✕ burned");
+    expect(/[│├└┼]/.test(frame)).toBeFalse();
     expect(frame).toContain("×1 line · cold 8 wks");
-    expect(frame).toContain("+ 7 sketches revealed · a hides");
+    // One fused footnote where two dense lines used to sit, weighed in the same
+    // right gutter as the rows above it.
+    expect(frame).toContain("    ↳ 1 cold subtree · 7 sketches revealed · a hides");
     expect(frame).toContain(`⚑ ${bookmark.name}`);
-    expect(frame).toContain(`¶${source.payload.path.length}`);
     expect(frame).toContain("‥ Outside, the storm leaned on the shutters");
     expect(frame).toContain("MAP  tree");
     expect(frame).toContain("m mass · ↑↓ row · l follow · enter · esc writes");
@@ -76,13 +77,11 @@ describe("deterministic demo frames", () => {
     const leaf = source.payload.path.at(-1)!;
     const bookmark = source.payload.bookmarks.find((item) => item.nodeId === leaf.id)!;
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
-    // Narrow keeps the same shape — one trunk, `└─` stubs, never a wall of rails.
-    expect(frame).toContain("│ └─○");
-    expect(frame).not.toContain("│ │");
-    expect(frame).not.toContain("┼");
-    expect(frame).toContain(`¶${source.payload.path.length}`);
+    // Narrow keeps the same shape — one trunk, indented stubs, no rails at all.
+    expect(frame).toContain("      ↳ ");
+    expect(/[│├└┼]/.test(frame)).toBeFalse();
     expect(frame).toContain(`⚑ ${bookmark.name}`);
-    expect(frame).toContain("↑ 10 earlier");
+    expect(frame).toContain("↑ 5 earlier");
     expect(frame).toContain("7 sketches revealed · a hides");
     expect(frame).toContain("m mass · ↑↓ row · l follow · esc");
     expect(frame).not.toContain("‥ Outside");
@@ -94,14 +93,18 @@ describe("deterministic demo frames", () => {
     const frame = await renderOnce(source, 120, 36, "mmm");
     const activeBookmark = source.payload.bookmarks.find((bookmark) => bookmark.nodeId === source.payload.path.at(-1)?.id)!;
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
-    expect(frame).toContain("by word count · 653 words across 4 lines");
+    // Doc 26a: the header counts the story once. The old sum of each line's
+    // cumulative words charged the shared trunk to every line and read 653.
+    expect(frame).toContain("466 words · 4 lines ━ largest first");
+    expect(frame).not.toContain("653 words");
     for (const bookmark of source.payload.bookmarks) expect(frame).toContain(bookmark.name);
-    expect(frame).toContain("▸◉ ⚑ canon-storm");
-    expect(frame).toContain("307 w  13 parts  ← here");
+    expect(frame).toContain("▸ ◉ canon-storm");
+    expect(frame).toContain("307  13 parts  ← here");
     expect(frame).toContain(`⚑ ${activeBookmark.name}`);
     expect(frame).toContain("…7 sketches");
     expect(frame).toContain("never continued");
-    expect(frame).toContain("sort: size · recent · depth · alpha");
+    // The in-canvas sort row is gone; the footer is the only place it lives.
+    expect(frame).not.toContain("sort: ");
     expect(frame).toContain("‥ Outside, the storm leaned on the shutters");
     expect(frame).toContain("m path · ↑↓ row · s sort · l open · esc writes");
     expect(frame).not.toContain("trunk ¶");
@@ -111,11 +114,11 @@ describe("deterministic demo frames", () => {
   test("MAP mass at 80x24 keeps identity, bars, sorting, and arrow navigation", async () => {
     const frame = await renderOnce(demoSource(), 80, 24, "mmm");
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();
-    expect(frame).toContain("▸◉ ⚑ canon-storm");
-    expect(frame).toContain("307 w  13p  ← here");
+    expect(frame).toContain("▸ ◉ canon-storm");
+    expect(frame).toContain("307  13p      ← here");
     expect(frame).toContain("…7 sketches");
     expect(frame).toContain("never continued");
-    expect(frame).toContain("sort: size · recent · depth · alpha");
+    expect(frame).not.toContain("sort: ");
     expect(frame).toContain("m path · ↑↓ row · s sort · l open · esc");
     expect(frame).not.toContain("‥ Outside");
     expect(frame).not.toContain("enter reroute");

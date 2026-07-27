@@ -50,12 +50,15 @@ describe("atlas layout model", () => {
     const trunk = layout.allRows.filter((row) => row.kind === "node" && !row.branch);
     expect(trunk.every((row) => !row.branch)).toBeTrue();
     expect(trunk.some((row) => row.active && row.lineEnd)).toBeTrue();
-    // Alternate lines each appear once, as a `branch` stub with a connector.
+    // Alternate lines each appear once, as an indented `branch` stub.
     const stubs = layout.allRows.filter((row) => row.branch);
     expect(stubs.length).toBeGreaterThan(0);
-    for (const stub of stubs) expect(["├─", "└─"]).toContain(stub.connector);
-    // The graph never accumulates a rail per line: no crossing glyph is drawn.
-    for (const line of renderTree(layout)) expect(line).not.toContain("┼");
+    // Doc 20c: depth is indentation and one soft `↳`. No box-drawing survives,
+    // so the graph cannot accumulate a rail per line in the first place.
+    expect(renderTree(layout).every((line) => !/[│├└─┼]/.test(line))).toBeTrue();
+    for (const [index, row] of layout.rows.entries()) {
+      if (row.branch) expect(renderTree(layout)[index]!.slice(2, 8)).toBe("    ↳ ");
+    }
   });
   test("the supplied two-sketch fork repro remains represented", () => {
     const demo = createDemoController();
@@ -87,15 +90,13 @@ describe("atlas layout model", () => {
     ], ["root", "active", "inner", "active-leaf"], ["active-leaf", "nested-leaf", "sibling-leaf", "late-leaf"]);
     const layout = createAtlasLayout(payload, { now: NOW });
     const rendered = renderTree(layout);
-    // The active reading line owns column 2 as `●`/`◉`; a run or a stub keeps a
-    // `│` there instead, and stubs turn right one column further with `└─`/`├─`.
+    // Doc 20c: the reading line owns column 2 as `●`/`◉`, its runs step in one
+    // indent, and a stub steps in again behind a single `↳`.
     for (const [index, row] of layout.rows.entries()) {
       const text = rendered[index]!;
       if (row.kind === "node" && !row.branch) expect("●◉○").toContain(text[2]!);
-      if (row.branch) {
-        expect(text.slice(2, 4)).toBe("│ ");
-        expect(["├─", "└─"]).toContain(text.slice(4, 6));
-      }
+      if (row.kind === "run") expect(text.slice(2, 5)).toBe("  ⋯");
+      if (row.branch) expect(text.slice(2, 8)).toBe("    ↳ ");
     }
     // Alternate lines are still every line: the four leaves each own a stub row.
     const stubs = layout.rows.filter((row) => row.branch).map((row) => row.id);
@@ -176,19 +177,14 @@ describe("atlas layout model", () => {
     ], ["root", "kept", "kept-leaf"], ["kept-leaf"]);
     const revealed = createAtlasLayout(payload, { now: NOW, showSketches: true });
     const rendered = renderTree(revealed);
-    // Nothing dangles below the final row, and no crossing rails are drawn.
-    expect(rendered.at(-1) ?? "").not.toContain("│");
-    expect(rendered.every((line) => !line.includes("┼"))).toBeTrue();
+    // Nothing dangles below the final row, and no rails are drawn at all.
+    expect(rendered.every((line) => !/[│├└─┼]/.test(line))).toBeTrue();
     const sketches = revealed.rows.filter((row) => row.kind === "sketch");
     expect(sketches.map((row) => row.id)).toEqual(["s1", "s2"]);
+    // Every sketch reads as a branch off the fork: the branch indent, one `↳`.
     for (const [index, row] of revealed.rows.entries()) {
-      if (row.kind === "sketch") {
-        expect(rendered[index]!.slice(2, 4)).toBe("│ ");
-        expect(["├─", "└─"]).toContain(rendered[index]!.slice(4, 6));
-      }
+      if (row.kind === "sketch") expect(rendered[index]!.slice(2, 8)).toBe("    ↳ ");
     }
-    // The last stub of a shared fork closes it with `└─`.
-    expect(revealed.rows.filter((row) => row.kind === "sketch").at(-1)?.connector).toBe("└─");
   });
 
   test("revealing a fork's sketches keeps the incoming line it ends", () => {
@@ -247,7 +243,7 @@ describe("atlas layout model", () => {
 
   test("a stub off a terminal fork stays attached to the trunk", () => {
     // The reading line stops at a fork whose only takes are dead ends; once
-    // revealed, those stubs hang *below* the current node and must keep the `│`.
+    // revealed, those stubs hang *below* the current node at the branch indent.
     const base = fixture([
       ["root", null], ["stopped", "root"], ["d1", "stopped"], ["d2", "stopped"]
     ], ["root", "stopped"], []);
@@ -256,9 +252,8 @@ describe("atlas layout model", () => {
     const layout = createAtlasLayout(payload, { now: NOW, showSketches: true });
     const rendered = renderTree(layout);
     for (const [index, row] of layout.rows.entries()) {
-      if (row.branch) expect(rendered[index]!.slice(2, 4)).toBe("│ ");
+      if (row.branch) expect(rendered[index]!.slice(2, 8)).toBe("    ↳ ");
     }
-    expect(rendered.some((line) => /^ {4}[├└]/.test(line))).toBeFalse();
   });
 
   test("revealing sketches never widens the graph past two rail columns", () => {
@@ -363,6 +358,25 @@ describe("atlas layout model", () => {
     expect(visible.rows.map((row) => row.id)).toEqual(["old"]);
     expect(visibleDeadlines.next()).toBe(NOW + 6 * 86_400_000);
   });
+  test("mass schedules the repaint that sinks a line's bar when it turns cold", () => {
+    // Mass never folds, so nothing else asks for that frame; without it a map
+    // left open keeps a cold line bright until some unrelated key redraws it.
+    const base = fixture([
+      ["root", null], ["active", "root"], ["active-leaf", "active"],
+      ["old", "root"], ["old-leaf", "old"]
+    ], ["root", "active", "active-leaf"], ["active-leaf", "old-leaf"]);
+    const payload = touch(base, "old-leaf", new Date(NOW - 20 * 86_400_000).toISOString());
+    const deadlines = createFrameDeadlineCollector(NOW);
+    const layout = createAtlasLayout(payload, { now: NOW, sort: "size", deadlines });
+    expect(layout.allRows.find((row) => row.id === "old-leaf")?.stale).toBeFalse();
+    expect(deadlines.next()).toBe(NOW + 2 * 86_400_000);
+
+    // Once it is already cold there is no transition left to wait for.
+    const settled = createFrameDeadlineCollector(NOW);
+    createAtlasLayout(touch(base, "old-leaf", new Date(NOW - 22 * 86_400_000).toISOString()),
+      { now: NOW, sort: "size", deadlines: settled });
+    expect(settled.next()).toBe(null);
+  });
   test("cold folds retain the same global sketch and line totals in every view", () => {
     const base = fixture([
       ["root", null], ["active", "root"], ["active-leaf", "active"],
@@ -384,7 +398,7 @@ describe("atlas layout model", () => {
     expect(layout.forkCount).toBe(5);
     expect(layout.allRows.find((row) => row.kind === "cold")?.cold?.lineCount).toBe(1);
   });
-  test("numbered sketch prose cannot replace its paragraph depth", () => {
+  test("numbered sketch prose is never mistaken for a paragraph depth", () => {
     const payload = fixture([
       ["root", null], ["active", "root"], ["active-leaf", "active"], ["sketch", "root"]
     ], ["root", "active", "active-leaf"], ["active-leaf"]);
@@ -394,7 +408,10 @@ describe("atlas layout model", () => {
     expect(sketch).toMatchObject({ depth: 2, fragment: "“He counted 23 steps to the‥”" });
     const frame = renderTreeMap(payload, "sketch", true);
     const sketchRow = frame.split("\n").find((line) => line.includes("He counted 23 steps"));
-    expect(sketchRow).toMatch(/▸ .*¶2 .*He counted 23 steps/);
+    // Doc 20c took `¶N` off the rows, so the row carries prose and nothing that
+    // could read as a depth; the depth the cursor is on comes from the preview
+    // and the breadcrumb, where the sketch's own numbers cannot reach it.
+    expect(sketchRow).toMatch(/▸ {5}↳ “He counted 23 steps/);
     expect(frame).toContain("¶ 2 · 10 w");
     expect(frame).not.toContain("¶ 2 · 20 w");
     expect(frame).not.toContain("¶23");
@@ -456,9 +473,8 @@ describe("atlas layout model", () => {
     const layout = createAtlasLayout(payload, { now: NOW });
     const cold = layout.allRows.find((row) => row.kind === "cold")!;
     expect(cold.branch).toBeTrue();
-    expect(cold.connector).toBe("└─");
     const rendered = renderTree(layout);
-    expect(rendered.every((line) => !line.includes("┼"))).toBeTrue();
+    expect(rendered.every((line) => !/[│├└─┼]/.test(line))).toBeTrue();
   });
 
   test("high-fanout layouts render only terminal-visible cells in linear time", () => {

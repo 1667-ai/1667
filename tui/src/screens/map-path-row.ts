@@ -2,6 +2,7 @@ import type { PathCell, PathLayout } from "../path-layout.js";
 import type { Bookmark } from "../../../shared/types.js";
 import { bookmarkGlyph, bookmarkRole } from "./map-row-labels.js";
 import {
+  padCells,
   segment,
   truncate,
   visibleWidth,
@@ -118,8 +119,4 @@ export function renderMapPathRow(
     segment(row.words.padStart(7), "chrome"),
     segment(row.badgeText, bookmarkRole(row.bookmark))
   ];
-}
-
-function padCells(value: string, width: number): string {
-  return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
 }

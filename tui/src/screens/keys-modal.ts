@@ -13,7 +13,7 @@ import {
   raisedSegment
 } from "./overlay.js";
 import { boundedContent, panelRange } from "./panel-table-layout.js";
-import { visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { lineWidth, visibleWidth, type DisplayRole, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { wrapText } from "../wrap.js";
 
 export type KeysModalBinding = ReferenceBinding;
@@ -437,8 +437,4 @@ function packWithin(heights: readonly number[], limit: number): number[][] {
   }
   if (current.length > 0) groups.push(current);
   return groups;
-}
-
-function lineWidth(line: FrameLine): number {
-  return line.reduce((sum, part) => sum + visibleWidth(part.text), 0);
 }

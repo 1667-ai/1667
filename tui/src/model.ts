@@ -17,6 +17,9 @@ export interface StoryPart {
   stub: NodeStub;
   siblingCount: number;
   takeIndex: number;
+  /** Decision 18 carried to the page: one flag per sibling take, true where that
+   *  take branches into subtakes of its own, so the strip can ring it. */
+  takeSubtakes: readonly boolean[];
   /** Legacy reset-summary only; chapter summaries use their own row kind. */
   isSummary: boolean;
   instruction: string;
@@ -160,6 +163,8 @@ function createParts(payload: StoryPayload): StoryPart[] {
       stub,
       siblingCount: position.count,
       takeIndex: position.index,
+      takeSubtakes: childrenOf(index.tree, node.parentId)
+        .map((sibling) => childrenOf(index.tree, sibling.id).length > 0),
       isSummary: node.role === "summary",
       instruction: node.instruction,
       humanSpans: node.attribution?.source === "human" ? node.attribution.ranges : [],

@@ -5,23 +5,21 @@ import type { FrameDeadlineCollector } from "./animation-deadline.js";
 
 export type AtlasSort = "graph" | "size" | "recency" | "name";
 export type AtlasLayoutSort = AtlasSort | "depth";
-export type AtlasRowKind = "node" | "run" | "spacer" | "sketch" | "cold";
+export type AtlasRowKind = "node" | "run" | "sketch" | "cold";
 
 export interface AtlasRow {
   kind: AtlasRowKind; id: string; node: NodeStub; depth: number;
   fragment: string | null; cold: { lineCount: number; weeks: number } | null;
   active: boolean; cursor: boolean; bookmark: Bookmark | null;
   words: number; ownWords: number;
+  /** Untouched past the cold threshold. Independent of whether the row sits in
+   *  a cold *fold*: the mass view never folds, and still dims what has gone
+   *  cold (doc 26a). */
+  stale: boolean;
   /** The current reading line is the trunk at column 0; every other line hangs
    *  off it as a single collapsed **branch** stub, so the graph never grows a
-   *  rail per line (spec §4: trunk pinned, forks open a rail, leaves close one).
-   *  `connector` is `├─`/`└─` when several stubs share one fork. */
+   *  rail per line. Doc 20c draws that as indentation and one `↳`, not a rail. */
   branch: boolean;
-  connector: "" | "├─" | "└─";
-  /** A trunk `│` occupies this row's left column — true for runs and for a
-   *  branch stub hanging off a fork above it, false only when there is no
-   *  reading line at all (top-level stubs of a story with no active line). */
-  hasTrunkColumn: boolean;
   run: number; lineEnd: boolean; forkCount: number;
   /** True on an `activeEnd` row whose line carries on below it. Such a row
    *  wears `◉ you` and ends the *reading* line, but the leaf beneath is the
@@ -30,8 +28,16 @@ export interface AtlasRow {
 }
 export interface AtlasLayout {
   rows: AtlasRow[]; allRows: AtlasRow[]; cursorId: string | null; sort: AtlasLayoutSort;
-  totalLines: number; totalParts: number; forkCount: number;
+  totalLines: number; totalParts: number; forkCount: number; storyWords: number;
   sketchCount: number; sketchForkCount: number; coldLines: number;
+  /** Cold *folds* — the subtrees the footnote counts, not the lines inside them. */
+  coldSubtrees: number;
+  /** Words held inside the cold folds and the sketches: what doc 20c's fused
+   *  footnote weighs, so the reader can see how much is tucked away. */
+  foldedWords: number;
+  /** Words across the sketches that are not already inside a cold fold — the
+   *  weight doc 26a's fold row reports. */
+  sketchWords: number;
   massMaximum: number; moreRows: number;
   visibleStart: number; visibleEnd: number; totalRows: number;
 }
@@ -54,6 +60,7 @@ interface DrawState {
   rows: AtlasRow[];
   depths: ReadonlyMap<string, number>; active: ReadonlySet<string>;
   words: ReadonlyMap<string, number>; bookmarks: ReadonlyMap<string, Bookmark>;
+  now: number;
 }
 interface ClassifyFrame {
   nodes: readonly NodeStub[]; forkId: string; insideOpened: boolean; target: VisualNode[];
@@ -70,13 +77,13 @@ export function createAtlasLayout(payload: StoryPayload, options: AtlasLayoutOpt
   const lineChildren = (parentId: string | null): NodeStub[] =>
     (index.tree.childrenByParentId.get(parentId) ?? []).filter((node) => !isChapterSummary(node));
   const roots = lineChildren(null);
-  const { visuals, sketchForks, coldLines } = createVisualTree({
+  const { visuals, sketchForks, coldLines, coldSubtrees, sketchWords } = createVisualTree({
     roots, lineChildren, activeIds, activeLeafId, opened,
     sketchNodeIds: index.mapSketchNodeIds, lineCountByNodeId: index.mapLineCountByNodeId,
     showSketches: options.showSketches === true, sort, now: options.now, deadlines: options.deadlines
   });
   const words = cumulativeWords(payload.nodes);
-  const drawn = drawGraph(visuals, index.depthByNodeId, activeIds, words, index.bookmarkByNodeId);
+  const drawn = drawGraph(visuals, index.depthByNodeId, activeIds, words, index.bookmarkByNodeId, options.now);
   const massLines: AtlasRow[] = [];
   let massMaximum = 1;
   for (const row of drawn) {
@@ -130,13 +137,33 @@ export function createAtlasLayout(payload: StoryPayload, options: AtlasLayoutOpt
       options.deadlines?.at(touched + (row.cold!.weeks + 1) * 7 * DAY);
     }
   }
+  // Only the mass sorts read `stale` as ink (doc 26a sinks a cold line's bar),
+  // and they never fold, so nothing else schedules the moment a line crosses
+  // the threshold — it would stay bright until an unrelated keypress redrew it.
+  // The line you are on is exempt: it keeps the lantern either way.
+  if (sort !== "graph") {
+    for (const row of rows) {
+      if (row.stale || row.active) continue;
+      const touched = Date.parse(row.node.lastTouched);
+      if (Number.isFinite(touched)) options.deadlines?.at(touched + (COLD_DAYS + 1) * DAY);
+    }
+  }
+  const lineNodes = payload.nodes.filter((node) => !isChapterSummary(node));
+  // `sketchWords` counts only the sketches the walk actually reached, and the
+  // walk never descends into a cold fold — so a sketch tucked inside one is
+  // weighed by its fold alone rather than being added to the footnote twice.
+  const foldedWords = sketchWords + coldFoldWords(drawn, payload.nodes);
   return {
     rows, allRows, cursorId, sort,
     totalLines: index.mapLineCount,
-    totalParts: payload.nodes.filter((node) => !isChapterSummary(node)).length,
-    forkCount: payload.nodes.filter((node) => !isChapterSummary(node) && node.childCount >= 2).length
-      + Number(roots.length > 1),
-    sketchCount: index.mapSketchNodeIds.size, sketchForkCount: sketchForks.size, coldLines,
+    totalParts: lineNodes.length,
+    forkCount: lineNodes.filter((node) => node.childCount >= 2).length + Number(roots.length > 1),
+    // What the story actually holds. Summing each line's *cumulative* words
+    // counts the shared trunk once per line, which is what made the old mass
+    // header claim roughly three times the prose that had been written (26a).
+    storyWords: lineNodes.reduce((sum, node) => sum + node.words, 0),
+    sketchCount: index.mapSketchNodeIds.size, sketchForkCount: sketchForks.size,
+    coldLines, coldSubtrees, foldedWords, sketchWords,
     massMaximum,
     moreRows: Math.max(0, allRows.length - visibleStart - rows.length),
     visibleStart, visibleEnd: visibleStart + rows.length, totalRows: allRows.length
@@ -158,11 +185,14 @@ interface VisualTreeOptions {
 }
 
 function createVisualTree(options: VisualTreeOptions): {
-  visuals: VisualNode[]; sketchForks: ReadonlySet<string>; coldLines: number;
+  visuals: VisualNode[]; sketchForks: ReadonlySet<string>;
+  coldLines: number; coldSubtrees: number; sketchWords: number;
 } {
   const visuals: VisualNode[] = [];
   const sketchForks = new Set<string>();
   let coldLines = 0;
+  let coldSubtrees = 0;
+  let sketchWords = 0;
   // Explicit work stack: story depth is user data and may exceed the JS call stack.
   const stack: ClassifyFrame[] = [
     { nodes: options.roots, forkId: "virtual-root", insideOpened: false, target: visuals }
@@ -176,6 +206,8 @@ function createVisualTree(options: VisualTreeOptions): {
     for (const anchor of ordered) {
       if (options.sketchNodeIds.has(anchor.id)) {
         sketchForks.add(frame.forkId);
+        // A sketch is a childless take, so its own words are its whole weight.
+        sketchWords += anchor.words;
         if (options.showSketches) frame.target.push({ kind: "sketch", node: anchor });
         continue;
       }
@@ -190,6 +222,7 @@ function createVisualTree(options: VisualTreeOptions): {
       if (options.sort === "graph" && days > COLD_DAYS && !open && !options.activeIds.has(anchor.id)) {
         const lineCount = options.lineCountByNodeId.get(anchor.id) ?? anchor.leafCount;
         coldLines += lineCount;
+        coldSubtrees += 1;
         frame.target.push({
           kind: "cold", node: anchor, lineCount, weeks: Math.floor(days / 7)
         });
@@ -218,7 +251,7 @@ function createVisualTree(options: VisualTreeOptions): {
     }
     frame.target.sort((left, right) => Number(left.kind === "sketch") - Number(right.kind === "sketch"));
   }
-  return { visuals, sketchForks, coldLines };
+  return { visuals, sketchForks, coldLines, coldSubtrees, sketchWords };
 }
 
 /** Which rows the cursor may land on. Shared so placement and movement cannot
@@ -256,16 +289,16 @@ export function followAtlasRail(layout: AtlasLayout): string | null {
 function drawGraph(
   visuals: VisualNode[], depths: ReadonlyMap<string, number>,
   active: ReadonlySet<string>, words: ReadonlyMap<string, number>,
-  bookmarks: ReadonlyMap<string, Bookmark>
+  bookmarks: ReadonlyMap<string, Bookmark>, now: number
 ): AtlasRow[] {
-  const state: DrawState = { rows: [], depths, active, words, bookmarks };
+  const state: DrawState = { rows: [], depths, active, words, bookmarks, now };
   const trunkRoot = visuals.find(
     (visual): visual is Extract<VisualNode, { kind: "segment" }> =>
       visual.kind === "segment" && active.has(visual.value.anchor.id)
   ) ?? null;
   // A story with no reading line, or extra root lines beside it, has no fork to
   // hang those lines from — they lead as top-level stubs above the trunk.
-  drawBranchGroup(visuals.filter((visual) => visual !== trunkRoot), state, trunkRoot !== null);
+  drawBranchGroup(visuals.filter((visual) => visual !== trunkRoot), state);
   drawTrunk(trunkRoot, state);
   return state.rows;
 }
@@ -287,17 +320,14 @@ function drawTrunk(root: Extract<VisualNode, { kind: "segment" }> | null, state:
       continuesBelow: anchor.id === end.id && activeEnd && cont !== null,
       forkCount: anchor.id === end.id ? forkCount : 0
     });
-    if (run > 0) {
-      pushRow(state, "spacer", end, { hasTrunkColumn: true });
-      pushRow(state, "run", end, { hasTrunkColumn: true, run });
-    }
+    // Doc 20a/20c: the run sits on the trunk. It used to float between blank
+    // `│`-only spacer rows, which broke the rhythm of every screen it appeared on.
+    if (run > 0) pushRow(state, "run", end, { run });
     if (!isRoot || anchor.id !== end.id) pushRow(state, "node", end, {
       lineEnd: children.length === 0 || activeEnd,
       continuesBelow: activeEnd && cont !== null, forkCount
     });
-    // A branch always hangs off the fork node just above it, so its `│` attaches
-    // to the trunk whether or not the reading line carries on past the fork.
-    drawBranchGroup(branches, state, true);
+    drawBranchGroup(branches, state);
     seg = cont;
     isRoot = false;
   }
@@ -306,14 +336,12 @@ function drawTrunk(root: Extract<VisualNode, { kind: "segment" }> | null, state:
 interface BranchEntry { kind: "node" | "sketch" | "cold"; node: NodeStub; cold: AtlasRow["cold"] }
 
 /** Flatten every non-trunk branch to one row per line, then emit them together
- *  under the shared fork with `├─`/`└─` connectors. Sub-forks inside a branch
- *  collapse into their own lines rather than opening rails of their own. */
-function drawBranchGroup(branches: readonly VisualNode[], state: DrawState, hasTrunkColumn: boolean): void {
-  const entries = collapseBranches(branches);
-  for (const [index, entry] of entries.entries()) {
+ *  under the shared fork. Sub-forks inside a branch collapse into their own
+ *  lines rather than opening rails of their own. */
+function drawBranchGroup(branches: readonly VisualNode[], state: DrawState): void {
+  for (const entry of collapseBranches(branches)) {
     pushRow(state, entry.kind, entry.node, {
-      branch: true, hasTrunkColumn, connector: index === entries.length - 1 ? "└─" : "├─",
-      lineEnd: entry.kind === "node", cold: entry.cold,
+      branch: true, lineEnd: entry.kind === "node", cold: entry.cold,
       fragment: entry.kind === "sketch" ? `“${opening(entry.node.preview)}‥”` : null
     });
   }
@@ -350,8 +378,8 @@ function pushRow(state: DrawState, kind: AtlasRowKind, node: NodeStub, extra: Pa
     node, depth: state.depths.get(node.id) ?? 0, fragment: null, cold: null,
     active: state.active.has(node.id), cursor: false, bookmark: state.bookmarks.get(node.id) ?? null,
     words: state.words.get(node.id) ?? node.words, ownWords: node.words,
-    branch: false, connector: "", hasTrunkColumn: false,
-    run: 0, lineEnd: false, forkCount: 0, continuesBelow: false, ...extra
+    stale: ageDays(node.lastTouched, state.now) > COLD_DAYS,
+    branch: false, run: 0, lineEnd: false, forkCount: 0, continuesBelow: false, ...extra
   });
 }
 /** The by-name sort key is the label the reader sees. Reimplementing the date
@@ -363,6 +391,30 @@ export function shortDate(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "unknown";
   return `${date.getUTCDate()} ${["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"][date.getUTCMonth()]}`;
+}
+/** What the cold folds hide. Every mass sort folds nothing, and most stories
+ * have no cold subtree at all, so the subtree totals are only worth building
+ * once something is actually folded. */
+function coldFoldWords(rows: readonly AtlasRow[], nodes: readonly NodeStub[]): number {
+  const folds = rows.filter((row) => row.kind === "cold");
+  if (folds.length === 0) return 0;
+  const subtree = subtreeWords(nodes);
+  return folds.reduce((sum, row) => sum + (subtree.get(row.id) ?? 0), 0);
+}
+/** Words held by a node and everything under it. `nodes` is in document order,
+ * so walking it backwards completes every child before its parent reads it.
+ * A chapter summary contributes nothing of its own — the map counts it in no
+ * other total — but still passes through whatever hangs below it. */
+function subtreeWords(nodes: readonly NodeStub[]): ReadonlyMap<string, number> {
+  const totals = new Map<string, number>(
+    nodes.map((node) => [node.id, isChapterSummary(node) ? 0 : node.words])
+  );
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]!;
+    if (node.parentId === null) continue;
+    totals.set(node.parentId, (totals.get(node.parentId) ?? 0) + (totals.get(node.id) ?? 0));
+  }
+  return totals;
 }
 function cumulativeWords(nodes: readonly NodeStub[]): ReadonlyMap<string, number> {
   const totals = new Map<string, number>();
