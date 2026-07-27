@@ -262,7 +262,9 @@ describe("full-bleed map screen", () => {
     expect(frameText(path.lines)).toContain("6w+");
     expect(frameText(path.lines)).not.toContain("●⟳");
 
-    source.stream.text = "";
+    // A StreamView is replaced, never rewritten (state.ts); a pending stream
+    // is a fresh claim object, not the substantive one with its text removed.
+    source.stream = { ...source.stream, text: "" };
     const pending = renderMapScreen(source, map("path", source, {
       pathCursorId: targetId,
       treeCursorId: targetId

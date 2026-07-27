@@ -28,7 +28,13 @@ import type { SettingsTextDraft } from "./settings-text.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
-/** A generation in flight: where it renders and what has landed so far. */
+/** A generation in flight: where it renders and what has landed so far.
+ *
+ * Identity contract: a StreamView is replaced, never rewritten. Only
+ * appendStreamText mutates a live stream, and it only grows `text` and its
+ * trim bounds; every routing field (target, parent, append, instruction,
+ * startedAt, genId) is fixed when the stream claims the request. Caches may
+ * therefore key on the object identity alone (see stream-projection.ts). */
 export interface StreamView {
   targetId: string;
   parentId: string | null;
