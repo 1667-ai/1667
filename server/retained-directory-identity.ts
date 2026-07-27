@@ -4,7 +4,7 @@ import { requireSameFileIdentity } from "./data-directory-file-read.js";
 import { ServiceError } from "./errors.js";
 
 /**
- * ADR007 keeps the retained directory descriptor that roots every later open,
+ * A retained directory descriptor roots every later open,
  * and drops the mode and owner assertions about a directory the user chose.
  * Nothing may swap the project tier out from under an acquired lock and be
  * believed afterwards.

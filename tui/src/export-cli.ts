@@ -40,7 +40,7 @@ export function parseExportCommand(argv: readonly string[]): ExportCommand {
 }
 
 /**
- * ADR007 §4: write the selected branch of one story to the project root and
+ * Write the selected story line of one story to the project root and
  * stop. Export registers no watcher and keeps no state, so this command has no
  * counterpart that reads the file back.
  */

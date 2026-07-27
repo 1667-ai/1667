@@ -9,7 +9,7 @@ import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 const MAX_RUN_RECORD_BYTES = 4 * 1024;
 
 /**
- * ADR007: the kernel lock is the only authority on whether a project is open.
+ * The kernel lock is the only authority on whether a project is open.
  * `run.json` is the one stale-prone artifact and is purely advisory — startup
  * never refuses on it, and every reader tolerates a record left by a process
  * that died.

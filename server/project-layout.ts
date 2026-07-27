@@ -5,7 +5,7 @@ import {
   PROVIDER_SECRET_ENTRY_NAMES
 } from "./data-directory-layout.js";
 
-/** ADR007: 1667 finds its stories the way git finds its objects. */
+/** 1667 finds its stories the way git finds its objects. */
 export const PROJECT_DIRECTORY_NAME = ".1667";
 export const PROJECT_GITIGNORE_FILE = ".gitignore";
 

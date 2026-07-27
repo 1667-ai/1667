@@ -35,7 +35,7 @@ export function createBackgroundUpdateStarter(
   const releaseTarget = releaseTargetForRuntime(process.platform, process.arch);
   if (releaseTarget === null) return null;
 
-  // This ADR does not infer or persist installer ownership. Every launch is
+  // 1667 does not infer or persist installer ownership. Every launch is
   // manual; the immutable build identity still keys notification hints.
   const observation = {
     currentVersion: AI_1667_PRODUCT_VERSION,

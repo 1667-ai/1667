@@ -173,7 +173,7 @@ export function parseArguments(argv: string[]): Arguments | null {
       explicitUrl = true;
     }
     else if (arg === "--url" && isBareFlag(argv, index)) {
-      // ADR007: a bare --url attaches to the server this project published.
+      // A bare --url attaches to the server this project published.
       url = null;
       explicitUrl = true;
     }
@@ -455,7 +455,7 @@ interface LoadedSource {
 async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   if (args.demo) return { source: demoAppSource(args.dense), dispose: async () => {} };
   let dataDir: string | null = null;
-  // ADR007 §4: exports land in the project root, beside the writing. A client
+  // Exports land in the project root, beside the writing. A client
   // attached to a server has no project of its own and writes where it started.
   let exportDirectory = process.cwd();
   if (args.embedded) {

@@ -14,7 +14,7 @@ import {
   storyIdForWorkerMutation
 } from "./worker-mutations.js";
 
-/** Runs HTTP mutations through the same durable ADR-006 receipt boundary. */
+/** Runs HTTP mutations through the same durable receipt boundary. */
 export async function runHttpOperationMutation<
   M extends MutatingWorkerMethod
 >(

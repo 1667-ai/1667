@@ -240,7 +240,7 @@ function defaultObservation(): UpgradeObservation {
   if (platformPackage === null) {
     throw new UpgradeFailure("unsupported_target", "This platform is not supported for releases.");
   }
-  // Installer ownership and managed application require a separate ADR.
+  // Installer ownership and managed application require a separate decision.
   // This command is deliberately manual and read-only for every launch.
   return {
     currentVersion: AI_1667_PRODUCT_VERSION,
