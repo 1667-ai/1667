@@ -99,9 +99,11 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navChapterPrevious"),
         binding("navChapterNext")
       ]),
-      // Undo consumes take switches and chapter breaks, and nothing else. It
-      // must not read as a safety net beside `d`, which it cannot reverse.
-      entry("undo take switch · break", [binding("navUndo")])
+      // Undo reaches chapter breaks and nothing else. It must not read as a
+      // safety net beside `d`, which it cannot reverse. Take switching stays
+      // off this list on purpose: the arrows already walk the row, and pairing
+      // them under one word taught that `u` reaches back into prose.
+      entry("undo chapter change", [binding("navUndo")])
     ]
   },
   {

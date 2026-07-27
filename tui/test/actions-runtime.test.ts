@@ -481,11 +481,14 @@ describe("demo action runtime and input", () => {
 
   test("the abort-only window blocks take switches, undo and pruning", async () => {
     const { state, press } = harness();
-    // ¶12 has five takes and a real undo entry, so each guard has something
-    // it would actually change if it were missing.
+    // ¶12 has five takes, and a chapter break is the only thing `u` can take
+    // back, so each guard has something it would actually change if it were
+    // missing.
     focusNode(state, "p12");
     await press("right");
     const switched = state.payload.path.map((node) => node.id);
+    await press("C", "C");
+    const breaks = state.payload.chapterBreaks.length;
     expect(state.undo.length).toBe(1);
 
     // Enter the window the fix is about: claimed, but no stream yet.
@@ -495,7 +498,7 @@ describe("demo action runtime and input", () => {
     await press("right");
     expect(state.payload.path.map((node) => node.id)).toEqual(switched);
     await press("u");
-    expect(state.payload.path.map((node) => node.id)).toEqual(switched);
+    expect(state.payload.chapterBreaks).toHaveLength(breaks);
     expect(state.undo.length).toBe(1);
 
     const nodesBefore = state.payload.nodes.length;
@@ -583,6 +586,23 @@ describe("demo action runtime and input", () => {
     expect(state.abort).toBe(abort);
     expect(state.library?.prompt?.kind).toBe("rename");
     expect(state.toast).toBe("stream running · esc stops it first");
+  });
+
+  test("a take switch records nothing to undo and never advertises u", async () => {
+    // `u` used to reverse a take switch, which the arrows already do, and a
+    // stack that mixed the two told the reader that `u` reaches into prose. It
+    // takes back stored changes only.
+    const { state, press } = harness();
+    focusNode(state, "p12");
+
+    await press("right");
+
+    expect(state.undo).toEqual([]);
+    expect(state.toast).toContain("take");
+    expect(state.toast).not.toContain("u undoes");
+
+    await press("u");
+    expect(state.toast).toBe("nothing to undo · u takes back a chapter change");
   });
 
   test("C creates a focused-part chapter break and u removes it", async () => {
