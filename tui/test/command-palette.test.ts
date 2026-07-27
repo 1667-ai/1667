@@ -132,7 +132,7 @@ describe("grouped command palette rendering", () => {
     // sits outside it.
     const panelText = plainLine(lines[tagRow]!)
       .slice(horizontal.contentLeft, horizontal.contentLeft + horizontal.contentWidth);
-    expect(panelText.trimEnd().endsWith("b")).toBeTrue();
+    expect(panelText.trimEnd().endsWith("t")).toBeTrue();
   });
 
   test("keeps the selected System command visible at 80×24", () => {

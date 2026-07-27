@@ -167,6 +167,14 @@ export function createDemoController(dense = false): DemoController {
     },
     putBookmark(nodeId, name, status) {
       const existing = story.tags.find((tag) => tag.nodeId === nodeId);
+      // Canon is a singleton, exactly as the backend enforces it: the line that
+      // loses it becomes the alternative it now is. The demo fixture ships a
+      // Canon tag, so without this the demo would show two.
+      if (status === "Canon") {
+        for (const other of story.tags) {
+          if (other.nodeId !== nodeId && other.status === "Canon") other.status = "Alt";
+        }
+      }
       const tag = { nodeId, name, status, color: tagColor(status), createdAt: CREATED };
       if (existing === undefined) story.tags.push(tag);
       else Object.assign(existing, tag);

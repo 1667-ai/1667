@@ -74,7 +74,7 @@ const SECTIONS: ReadonlyArray<{ id: CommandSectionId; label: string }> = [
 
 const COMMANDS: readonly PaletteCommand[] = [
   { id: "summary", section: "take", name: "summary take", description: "compress the current prefix into continuity", mutating: true },
-  { id: "tag-line", section: "view", name: "tag this line", description: "remember this leaf and its current path", shortcut: "b", mutating: true },
+  { id: "tag-line", section: "view", name: "tag this line", description: "remember this leaf and its current path", shortcut: "t", mutating: true },
   { id: "export", section: "story", name: "export markdown", description: "write the current line beside your terminal" },
 
   { id: "switch-story", section: "story", name: "switch story", description: "open another story from the library", shortcut: "o" },
