@@ -24,12 +24,13 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-test("Windows machine tier installs one protected user and SYSTEM DACL", {
+test("Windows machine tier repairs a current-user root without WRITE_OWNER", {
   skip: process.platform !== "win32"
 }, async (t) => {
   const parent = await temporaryDirectory(t, "1667-windows-state-");
-  await grantInheritedEveryone(parent);
   const root = path.join(parent, "state");
+  await mkdir(root);
+  await denyOwnerWrite(root);
 
   assert.equal(await resolveMachineTierRoot({ override: root }), root);
 
@@ -221,6 +222,30 @@ $acl.SetOwner(
 [IO.Directory]::SetAccessControl($env:AI_1667_TEST_WINDOWS_PATH, $acl)
 `;
   await runPowerShell(script, directory);
+}
+
+async function denyOwnerWrite(directory: string): Promise<void> {
+  const username = process.env.USERNAME;
+  if (username === undefined || username === "") {
+    throw new Error("Windows test user name is unavailable");
+  }
+  const executable = path.join(
+    process.env.SystemRoot!,
+    "System32",
+    "icacls.exe"
+  );
+  await execFileAsync(
+    executable,
+    [directory, "/deny", `${username}:(WO)`],
+    {
+      encoding: "utf8",
+      env: {
+        SystemRoot: process.env.SystemRoot,
+        WINDIR: process.env.WINDIR
+      },
+      windowsHide: true
+    }
+  );
 }
 
 async function runPowerShell(

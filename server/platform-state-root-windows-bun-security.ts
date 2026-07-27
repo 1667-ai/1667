@@ -106,6 +106,47 @@ export function validateHandleSecurity(
   }
 }
 
+export function handleHasOwner(
+  ffi: BunFfi,
+  libraries: WindowsSecurityLibraries,
+  handle: number | bigint,
+  expected: number
+): boolean {
+  const ownerOut = Buffer.alloc(8);
+  const descriptorOut = Buffer.alloc(8);
+  const result = Number(libraries.advapi.symbols.GetSecurityInfo!(
+    handle,
+    SE_FILE_OBJECT,
+    OWNER_SECURITY_INFORMATION,
+    ffi.ptr(ownerOut),
+    0,
+    0,
+    0,
+    ffi.ptr(descriptorOut)
+  ));
+  if (result !== 0) {
+    throw new Error(
+      `Could not inspect directory owner (Windows error ${result})`
+    );
+  }
+  const descriptor = safePointer(
+    descriptorOut.readBigUInt64LE(),
+    "security descriptor"
+  );
+  try {
+    const owner = safePointer(
+      ownerOut.readBigUInt64LE(),
+      "directory owner SID"
+    );
+    return Number(libraries.advapi.symbols.EqualSid!(
+      owner,
+      expected
+    )) !== 0;
+  } finally {
+    libraries.kernel.symbols.LocalFree!(descriptor);
+  }
+}
+
 function requireProtectedDescriptor(
   ffi: BunFfi,
   libraries: WindowsSecurityLibraries,

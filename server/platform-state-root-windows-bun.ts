@@ -7,6 +7,7 @@ import type {
   WindowsPrivateStateRootAdapter
 } from "./platform-state-root.js";
 import {
+  handleHasOwner,
   privateAcl,
   validateHandleSecurity,
   type WindowsSecurityLibraries,
@@ -40,9 +41,10 @@ const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;
 const PROTECTED_DACL_SECURITY_INFORMATION = 0x8000_0000;
 const PRIVATE_DACL_SECURITY_INFORMATION =
+  PROTECTED_DACL_SECURITY_INFORMATION + DACL_SECURITY_INFORMATION;
+const PRIVATE_SECURITY_INFORMATION =
   OWNER_SECURITY_INFORMATION
-  + PROTECTED_DACL_SECURITY_INFORMATION
-  + DACL_SECURITY_INFORMATION;
+  + PRIVATE_DACL_SECURITY_INFORMATION;
 const FILE_ATTRIBUTE_TAG_INFO_CLASS = 9;
 const INVALID_HANDLE_VALUE = -1n;
 
@@ -250,16 +252,33 @@ function protectDirectory(
   directory: string,
   sids: UserSids
 ): void {
-  const handle = openPrivateDirectory(ffi, libraries, directory);
+  let handle: NativeHandle | undefined = openOwnedDirectory(
+    ffi,
+    libraries,
+    directory
+  );
   try {
+    const repairOwner = !handleHasOwner(
+      ffi,
+      libraries,
+      handle,
+      sids.user
+    );
+    if (repairOwner) {
+      closeHandle(libraries, handle, directory);
+      handle = undefined;
+      handle = openPrivateDirectory(ffi, libraries, directory);
+    }
     const before = fileIdentity(ffi, libraries, handle, directory);
     const acl = privateAcl(ffi, libraries, sids);
     try {
       const result = Number(libraries.advapi.symbols.SetSecurityInfo!(
         handle,
         SE_FILE_OBJECT,
-        PRIVATE_DACL_SECURITY_INFORMATION,
-        sids.user,
+        repairOwner
+          ? PRIVATE_SECURITY_INFORMATION
+          : PRIVATE_DACL_SECURITY_INFORMATION,
+        repairOwner ? sids.user : 0,
         0,
         ffi.ptr(acl),
         0
@@ -273,7 +292,9 @@ function protectDirectory(
       acl.fill(0);
     }
   } finally {
-    closeHandle(libraries, handle, directory);
+    if (handle !== undefined) {
+      closeHandle(libraries, handle, directory);
+    }
   }
 }
 
@@ -300,6 +321,19 @@ function validateDirectory(
   } finally {
     closeHandle(libraries, handle, directory);
   }
+}
+
+function openOwnedDirectory(
+  ffi: BunFfi,
+  libraries: WindowsLibraries,
+  directory: string
+): NativeHandle {
+  return openDirectory(
+    ffi,
+    libraries,
+    directory,
+    FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC
+  );
 }
 
 function openPrivateDirectory(
