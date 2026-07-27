@@ -329,9 +329,8 @@ const rows: BenchRow[] = [];
       appendStreamText(state.stream!, ` and the stream landed delta ${delta} of the take`);
       renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache });
     }, 20));
+    // Later rows render at other widths only; the settled state needs no rewarm.
     state.stream = null;
-    cache.invalidate("p499");
-    renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache });
   }
   rows.push(time("view model rebuild, 500 parts", 8, () => createStoryViewModel(payload), 20));
   rows.push(time("switch-target resolve on 500-part payload", 4, () => resolveSwitchTarget(payload, "p350", 1), 50));

@@ -1,7 +1,6 @@
-import { appendContinuationText } from "../../shared/story-text.js";
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { createAppendPlanWrap } from "./append-wrap.js";
-import { combinedAppendText } from "./stream-projection.js";
+import { projectedAppendText } from "./stream-projection.js";
 import { storyProseMeasure } from "./screens/story.js";
 import {
   storyPartWrapPlan,
@@ -54,10 +53,20 @@ export interface StoryWrapBuildOptions {
   onError?: (error: unknown) => void;
 }
 
+/** The live stream plus the change-detection snapshot taken at capture time.
+ * Plans always read the live view — a slice that runs after more deltas
+ * landed wraps the fresher text under an equally fresh identity proof — while
+ * the snapshot lets ensure() notice growth and replace the job. */
+interface StreamCapture {
+  live: StreamView;
+  textLength: number;
+  trimStart: number | undefined;
+  trimEnd: number | undefined;
+}
+
 interface PlanInput {
   payload: StoryPayload;
-  stream: StreamView | null;
-  streamIdentity: StreamView | null;
+  stream: StreamCapture | null;
   measure: number;
 }
 
@@ -281,8 +290,12 @@ function captureBuildInput(
 function capturePlanInput(state: StoryScreenState, layout: StoryFrameLayout): PlanInput {
   return {
     payload: state.payload,
-    stream: state.stream === null ? null : { ...state.stream },
-    streamIdentity: state.stream,
+    stream: state.stream === null ? null : {
+      live: state.stream,
+      textLength: state.stream.text.length,
+      trimStart: state.stream.trimStart,
+      trimEnd: state.stream.trimEnd
+    },
     measure: storyProseMeasure(layout.pageWidth)
   };
 }
@@ -291,16 +304,15 @@ function sameBuildInput(left: BuildInput, right: BuildInput): boolean {
   return left.payload === right.payload
     && left.measure === right.measure
     && left.cacheEpoch === right.cacheEpoch
-    && left.streamIdentity === right.streamIdentity
-    && sameStreamInput(left.stream, right.stream);
+    && sameStreamCapture(left.stream, right.stream);
 }
 
-function sameStreamInput(left: StreamView | null, right: StreamView | null): boolean {
+// A StreamView is replaced, never rewritten, so identity plus the captured
+// text extent is the complete change signal.
+function sameStreamCapture(left: StreamCapture | null, right: StreamCapture | null): boolean {
   return left === right || (left !== null && right !== null
-    && left.targetId === right.targetId
-    && left.parentId === right.parentId
-    && left.append === right.append
-    && left.text.length === right.text.length
+    && left.live === right.live
+    && left.textLength === right.textLength
     && left.trimStart === right.trimStart
     && left.trimEnd === right.trimEnd);
 }
@@ -308,35 +320,30 @@ function sameStreamInput(left: StreamView | null, right: StreamView | null): boo
 /** Yield one canonical wrap plan at a time. No payload-wide projection or
  * cache scan happens before the build clock starts. */
 function* storyWrapPlans(input: PlanInput): Generator<StoryPartWrapPlan> {
-  const { payload, stream, streamIdentity, measure } = input;
+  const { payload, measure } = input;
+  const stream = input.stream?.live ?? null;
   const substantive = stream !== null && streamHasSubstantiveText(stream);
   if (stream !== null && substantive && !stream.append && stream.parentId === null) {
-    yield streamTakePlan(payload, stream, streamIdentity!, measure);
+    yield streamTakePlan(payload, stream, measure);
     return;
   }
 
   for (const node of payload.path) {
     const partStream = stream?.targetId === node.id ? stream : null;
     // The projection already materialized this exact settled+streamed string;
-    // reuse it instead of concatenating a second copy per delta batch.
+    // consume it instead of concatenating a second copy per delta batch.
     const projected = partStream?.append === true && substantive
-      ? {
-        ...node,
-        text: streamIdentity === null
-          ? appendContinuationText(node.text, partStream.text)
-          : combinedAppendText(streamIdentity, node.text, partStream.text)
-      }
+      ? { ...node, text: projectedAppendText(payload, partStream, node) }
       : node;
     yield storyPartWrapPlan(
       wrapInput(projected),
       partStream,
       measure,
       node.text.length,
-      node,
-      partStream === null ? null : streamIdentity
+      node
     );
     if (stream !== null && substantive && !stream.append && node.id === stream.parentId) {
-      yield streamTakePlan(payload, stream, streamIdentity!, measure);
+      yield streamTakePlan(payload, stream, measure);
       return;
     }
   }
@@ -345,7 +352,6 @@ function* storyWrapPlans(input: PlanInput): Generator<StoryPartWrapPlan> {
 function streamTakePlan(
   payload: StoryPayload,
   stream: StreamView,
-  streamIdentity: StreamView,
   measure: number
 ): StoryPartWrapPlan {
   const node: StoryNode = {
@@ -362,8 +368,7 @@ function streamTakePlan(
     stream,
     measure,
     node.text.length,
-    payload,
-    streamIdentity
+    payload
   );
 }
 

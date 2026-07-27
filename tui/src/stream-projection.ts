@@ -3,6 +3,7 @@ import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-s
 import {
   appendContinuationText,
   appendWordCount,
+  WORD_COUNT_START,
   type IncrementalWordCount
 } from "../../shared/story-text.js";
 import { estimateTokens } from "../../shared/tokens.js";
@@ -20,20 +21,19 @@ export interface StreamProjectionOptions {
 
 /** One live projection per (base payload, stream) pair. Delta batches only
  * grow the streamed text, never the tree shape, so the projected payload
- * keeps its identity across frames and the story-index memo
+ * keeps its identity across frames and the structural story-index memo
  * (shared/story-model.ts) hits instead of re-running its O(nodes) passes.
- * Only the streamed node and its stub change, and they change in place. */
+ * Only the streamed node and its stub change, and they change in place —
+ * safe because the story index stores no text-bearing stub field. */
 interface ProjectionEntry {
+  /** Trusted by reference: a StreamView is replaced, never rewritten. */
   stream: StreamView;
-  targetId: string;
-  append: boolean;
-  instruction: string;
-  startedAt: string;
-  genId: string | undefined;
   /** Settled text the append projection extends; "" for a new take. */
   settledText: string;
   /** stream.text length already folded into wordState. */
   scannedLength: number;
+  /** stream.text length the projected node text reflects. */
+  projectedLength: number;
   wordState: IncrementalWordCount;
   projected: StoryPayload;
   node: StoryNode;
@@ -43,30 +43,14 @@ interface ProjectionEntry {
 
 const PROJECTIONS = new WeakMap<StoryPayload, ProjectionEntry>();
 
-interface CombinedText {
-  settled: string;
-  streamed: string;
-  combined: string;
-}
-
-const COMBINED_TEXTS = new WeakMap<StreamView, CombinedText>();
-
-/** Materialize the settled+streamed append text once per delta batch. The
- * projection and the wrap planner share the one string instead of each
- * concatenating their own copy per frame. */
-export function combinedAppendText(identity: StreamView, settled: string, streamed: string): string {
-  const cached = COMBINED_TEXTS.get(identity);
-  if (cached !== undefined && cached.settled === settled && cached.streamed === streamed) {
-    return cached.combined;
-  }
-  const combined = appendContinuationText(settled, streamed);
-  COMBINED_TEXTS.set(identity, { settled, streamed, combined });
-  return combined;
-}
-
 /** Project the exact payload an in-flight stream can commit without mutating
  * the authoritative snapshot. New-take bytes follow server trim semantics;
- * append bytes retain their exact continuation boundary. */
+ * append bytes retain their exact continuation boundary.
+ *
+ * The returned payload is a live per-stream view: its structure is frozen for
+ * the stream's lifetime, while the streamed node's text-bearing fields
+ * advance in place as delta batches land. Reading it after an await observes
+ * newer text, never an inconsistent structure. */
 export function projectStreamedPayload(
   payload: StoryPayload,
   stream: StreamView | null,
@@ -75,47 +59,48 @@ export function projectStreamedPayload(
   if (stream === null) return payload;
   const substantive = streamHasSubstantiveText(stream);
   if (!substantive && (!options.includePendingTake || stream.append)) return payload;
+  return projectionFor(payload, stream, substantive)?.projected ?? payload;
+}
+
+/** Combined settled+streamed text for the append target — the memoized
+ * projection's one string per delta batch, shared by the frame and the wrap
+ * planner. Falls back to a direct join when the stream cannot attach. */
+export function projectedAppendText(payload: StoryPayload, stream: StreamView, target: StoryNode): string {
+  const entry = projectionFor(payload, stream, true);
+  return entry?.node.text ?? appendContinuationText(target.text, stream.text);
+}
+
+function projectionFor(
+  payload: StoryPayload,
+  stream: StreamView,
+  substantive: boolean
+): ProjectionEntry | null {
   const cached = PROJECTIONS.get(payload);
-  if (cached !== undefined && reusableProjection(cached, stream)) {
-    return refreshedProjection(cached, stream, substantive);
+  if (cached !== undefined && cached.stream === stream) {
+    refreshProjection(cached, stream, substantive);
+    return cached;
   }
   const entry = stream.append
     ? appendProjection(payload, stream)
     : takeProjection(payload, stream, substantive ? streamTrimmedText(stream) : "");
-  if (entry === null) return payload;
-  PROJECTIONS.set(payload, entry);
-  return entry.projected;
-}
-
-/** Everything except the streamed text must match; any structural change
- * rebuilds the projection from scratch. */
-function reusableProjection(entry: ProjectionEntry, stream: StreamView): boolean {
-  return entry.stream === stream
-    && entry.targetId === stream.targetId
-    && entry.append === stream.append
-    && entry.instruction === stream.instruction
-    && entry.startedAt === stream.startedAt
-    && entry.genId === stream.genId
-    && stream.text.length >= entry.scannedLength;
+  if (entry !== null) PROJECTIONS.set(payload, entry);
+  return entry;
 }
 
 /** Fold only the new delta into the running word count, then rewrite the
  * streamed node and stub in place. The projected payload, arrays, and every
  * untouched stub keep their identity for downstream memos. */
-function refreshedProjection(
-  entry: ProjectionEntry,
-  stream: StreamView,
-  substantive: boolean
-): StoryPayload {
+function refreshProjection(entry: ProjectionEntry, stream: StreamView, substantive: boolean): void {
+  if (stream.text.length === entry.projectedLength) return;
   if (stream.text.length > entry.scannedLength) {
     entry.wordState = appendWordCount(entry.wordState, stream.text.slice(entry.scannedLength));
     entry.scannedLength = stream.text.length;
   }
   entry.node.text = stream.append
-    ? combinedAppendText(stream, entry.settledText, stream.text)
+    ? appendContinuationText(entry.settledText, stream.text)
     : substantive ? streamTrimmedText(stream) : "";
   if (entry.stub !== null) applyStreamedText(entry.stub, entry.node, entry.wordState.words);
-  return entry.projected;
+  entry.projectedLength = stream.text.length;
 }
 
 function takeProjection(payload: StoryPayload, stream: StreamView, text: string): ProjectionEntry | null {
@@ -125,7 +110,7 @@ function takeProjection(payload: StoryPayload, stream: StreamView, text: string)
   if (stream.parentId !== null && parentIndex < 0) return null;
   // Word counting ignores whitespace, so the raw stream bytes count the same
   // words as the trimmed take text and later deltas can extend the tally.
-  const wordState = appendWordCount(zeroWordCount(), stream.text);
+  const wordState = appendWordCount(WORD_COUNT_START, stream.text);
   const instruction = stream.instruction.trim() || DEFAULT_INSTRUCTION;
   const node: StoryNode = {
     id: stream.targetId,
@@ -151,11 +136,12 @@ function takeProjection(payload: StoryPayload, stream: StreamView, text: string)
   let streamedStub: NodeStub | null = null;
   const nodes = payload.nodes.map((stub): NodeStub => {
     if (stub.id === stream.targetId) {
-      return streamedStub = projectedStub(
+      streamedStub = projectedStub(
         { ...stub, lastTouched: latestActivity(stub.lastTouched, stream.startedAt) },
         node,
         wordState.words
       );
+      return streamedStub;
     }
     if (!ancestorIds.has(stub.id)) return stub;
     return {
@@ -199,10 +185,10 @@ function appendProjection(payload: StoryPayload, stream: StreamView): Projection
   const target = payload.path[targetIndex]!;
   // One full scan of the settled part per generation; every later frame only
   // counts the freshly streamed delta.
-  const wordState = appendWordCount(appendWordCount(zeroWordCount(), target.text), stream.text);
+  const wordState = appendWordCount(appendWordCount(WORD_COUNT_START, target.text), stream.text);
   const node: StoryNode = {
     ...target,
-    text: combinedAppendText(stream, target.text, stream.text),
+    text: appendContinuationText(target.text, stream.text),
     updatedAt: stream.startedAt,
     ...(stream.genId === undefined ? {} : { genId: stream.genId })
   };
@@ -212,9 +198,9 @@ function appendProjection(payload: StoryPayload, stream: StreamView): Projection
   const nodes = payload.nodes.map((stub) => {
     if (!activeIds.has(stub.id)) return stub;
     const touched = { ...stub, lastTouched: latestActivity(stub.lastTouched, stream.startedAt) };
-    return stub.id === node.id
-      ? streamedStub = projectedStub({ ...touched, updatedAt: stream.startedAt }, node, wordState.words)
-      : touched;
+    if (stub.id !== node.id) return touched;
+    streamedStub = projectedStub({ ...touched, updatedAt: stream.startedAt }, node, wordState.words);
+    return streamedStub;
   });
   const projected: StoryPayload = { ...payload, path, nodes };
   return projectionEntry(stream, target.text, wordState, projected, node, streamedStub);
@@ -230,22 +216,14 @@ function projectionEntry(
 ): ProjectionEntry {
   return {
     stream,
-    targetId: stream.targetId,
-    append: stream.append,
-    instruction: stream.instruction,
-    startedAt: stream.startedAt,
-    genId: stream.genId,
     settledText,
     scannedLength: stream.text.length,
+    projectedLength: stream.text.length,
     wordState,
     projected,
     node,
     stub
   };
-}
-
-function zeroWordCount(): IncrementalWordCount {
-  return { words: 0, insideWord: false };
 }
 
 /** Match the authoritative rollup's monotonic descendant maximum. */
