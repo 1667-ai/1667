@@ -271,6 +271,9 @@ async function smokePromptTokenizer(
   directory: string,
   environment: Record<string, string>
 ): Promise<void> {
+  // Defender can hold the first launch of a new compiled executable while it
+  // scans the file. Keep the smoke bounded, but give that Windows scan time.
+  const timeoutMs = process.platform === "win32" ? 90_000 : 30_000;
   const executable = path.join(
     directory,
     process.platform === "win32" ? "prompt-tokenizer-smoke.exe" : "prompt-tokenizer-smoke"
@@ -294,7 +297,13 @@ async function smokePromptTokenizer(
       `Compiled prompt-tokenizer smoke failed to build: ${result.logs.join("\n")}`
     );
   }
-  const smoke = await runStandalone(executable, [], directory, environment);
+  const smoke = await runStandalone(
+    executable,
+    [],
+    directory,
+    environment,
+    timeoutMs
+  );
   if (smoke.exitCode !== 0) {
     throw new Error(
       `Compiled prompt-tokenizer smoke failed (${smoke.exitCode}): ${smoke.stderr.trim()}`
