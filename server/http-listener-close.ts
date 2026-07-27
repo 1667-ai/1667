@@ -24,7 +24,7 @@ interface LateDiagnostic {
   readonly operation: string;
 }
 
-const DIAGNOSTIC_GRACE_MS = 250;
+const LATE_DIAGNOSTIC_GRACE_MS = 250;
 type LateReporterFactory = () => Promise<InternalErrorReporter>;
 
 /** Idempotent close owner for one fully lexical listener startup. */
@@ -35,7 +35,8 @@ export class HttpListenerCloser {
     private readonly resources: HttpListenerResources,
     private readonly readiness: HttpReadiness,
     private readonly errorReporter: InternalErrorReporter,
-    private readonly openLateReporter: LateReporterFactory
+    private readonly openLateReporter: LateReporterFactory,
+    private readonly shutdownGraceMs = BACKEND_SHUTDOWN_GRACE_MS
   ) {}
 
   async close(
@@ -49,8 +50,11 @@ export class HttpListenerCloser {
     processFailure?: HttpListenerCloseFailure
   ): Promise<HttpCleanupFailure> {
     this.readiness.stopAccepting();
-    const shutdownDeadline = Date.now() + BACKEND_SHUTDOWN_GRACE_MS;
-    const shutdown = await shutDownHttpListener(this.resources);
+    const shutdownDeadline = performance.now() + this.shutdownGraceMs;
+    const shutdown = await shutDownHttpListener(
+      this.resources,
+      this.shutdownGraceMs
+    );
     const readinessFailure = this.readiness.currentFailure();
     const readinessIsPrimary = processFailure === undefined
       && readinessFailure.kind === "failure";
@@ -125,7 +129,7 @@ function reportEventually(
     } finally {
       await withinDeadline(
         reporter.close().catch(() => undefined),
-        Date.now() + DIAGNOSTIC_GRACE_MS
+        performance.now() + LATE_DIAGNOSTIC_GRACE_MS
       );
     }
   }).catch(() => undefined);
@@ -159,7 +163,7 @@ async function withinDeadline<T>(
 ): Promise<T | null> {
   const remaining = Math.max(
     0,
-    Math.min(DIAGNOSTIC_GRACE_MS, deadline - Date.now())
+    deadline - performance.now()
   );
   if (remaining === 0) {
     void operation.catch(() => undefined);
