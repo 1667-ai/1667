@@ -213,16 +213,25 @@ const LOOKUP_BUDGET = cpuBudget(8_000);
 // this path: receipt lookup runs on the mutation request path, not at startup,
 // so no server-start budget reaches it.
 //
-// So the second budget measures the fastest single lookup. Contention delays
-// some lookups, never all of them, which makes the fastest sample the one
-// measure a busy machine cannot inflate. Beside 16 busy processes the median
-// lookup went from 0.55ms to 1.07ms and the slowest from 8.8ms to 145.7ms,
-// while the fastest stayed between 0.354ms and 0.393ms. Issue #42 measured the
-// same way, for the same reason.
+// So the second budget measures the lower quartile of the lookups. Contention
+// delays some lookups, never all of them, so the fast end of the run is the
+// part a busy machine cannot inflate. Issue #42 measured its minimum for the
+// same reason.
 //
-// A wait that this budget lets through is smaller than the wait a total
-// wall-clock budget could catch, because contention alone reached 16 seconds
-// across the whole loop.
+// The quartile, rather than the minimum, is what makes the budget hard to
+// satisfy. A wait that reached every lookup but one would leave the minimum
+// fast. A quarter of 1,000 lookups must stay fast to pass this budget, so a
+// wait that reaches three quarters of them fails it.
+//
+// The quartile holds while the tail does not. Beside 16 busy processes the
+// slowest lookups ran between 3.7ms and 27.3ms, and the lower quartile stayed
+// between 0.66ms and 1.10ms. Idle runs measured 0.62ms and 0.76ms. A
+// full-concurrency suite run is harder again, and measured 1.7ms. This limit
+// keeps about six times that.
+//
+// A total wall-clock budget cannot do this work. Contention alone reached
+// 39,621ms across the loop, so a limit that survives contention also admits a
+// 20ms wait for every lookup.
 const LOOKUP_LATENCY_BUDGET = fileBudget(10);
 
 test("missing receipt lookup is read-only and repeated direct lookup stays bounded", {
@@ -236,11 +245,11 @@ test("missing receipt lookup is read-only and repeated direct lookup stays bound
   await store.writeUserRecord(prepared);
   const iterations = 1_000;
   const read = startTiming();
-  let fastestMs = Number.POSITIVE_INFINITY;
+  const lookupMs: number[] = [];
   for (let index = 0; index < iterations; index += 1) {
     const startedAt = performance.now();
     const receipt = await store.loadUserReceipt("settings", ID);
-    fastestMs = Math.min(fastestMs, performance.now() - startedAt);
+    lookupMs.push(performance.now() - startedAt);
     assert.equal(receipt.prepared?.key, ID);
   }
   assertWithinBudget(
@@ -249,11 +258,12 @@ test("missing receipt lookup is read-only and repeated direct lookup stays bound
     LOOKUP_BUDGET,
     read()
   );
+  lookupMs.sort((left, right) => left - right);
   assertWithinBudget(
     t,
-    "fastest receipt lookup",
+    "lower-quartile receipt lookup",
     LOOKUP_LATENCY_BUDGET,
-    wallOnlyTiming(fastestMs)
+    wallOnlyTiming(lookupMs[Math.floor(lookupMs.length / 4)]!)
   );
 });
 
