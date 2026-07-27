@@ -69,6 +69,10 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     const executable = target === "launcher"
       ? "bin/1667.js"
       : releaseTargetForArtifact(target).executable;
+    const executableMode = target === "launcher"
+      || releaseTargetForArtifact(target).platform !== "win32"
+      ? 0o755
+      : 0o644;
     const tarball = gzipSync(tar([
       entry(
         "package/package.json",
@@ -77,7 +81,7 @@ test("local release preflight CLI validates every tarball and emits canonical ev
       ),
       entry(
         `package/${executable}`,
-        0o755,
+        executableMode,
         Buffer.from(target === "launcher" ? "#!/usr/bin/env node\n" : `native-${target}`)
       ),
       entry(

@@ -656,17 +656,21 @@ describe("review regressions", () => {
   });
 
   test("keeps source defaults launch-relative and resolves explicit overrides", () => {
-    const cwd = path.join(path.parse(process.cwd()).root, "writing", "session");
+    const root = path.parse(process.cwd()).root;
+    const cwd = path.join(root, "writing", "session");
+    const shared = path.join(root, "shared", "1667");
     expect(resolveEmbeddedDataDirectory(null, cwd))
       .toBe(path.join(cwd, "data"));
     expect(resolveEmbeddedDataDirectory("../vault", cwd)).toBe(path.join(cwd, "..", "vault"));
-    expect(resolveEmbeddedDataDirectory("/shared/1667", cwd)).toBe("/shared/1667");
+    expect(resolveEmbeddedDataDirectory(shared, cwd)).toBe(shared);
   });
 
   test("shows a local story folder only for the embedded backend", () => {
-    expect(storyFolderForBackend(false, "/Users/chris/server-data", "/Users/chris")).toBe("");
-    expect(storyFolderForBackend(true, "/Users/chris/server-data", "/Users/chris"))
-      .toBe("~/server-data/stories");
+    const home = path.join(path.parse(process.cwd()).root, "Users", "chris");
+    const data = path.join(home, "server-data");
+    expect(storyFolderForBackend(false, data, home)).toBe("");
+    expect(storyFolderForBackend(true, data, home))
+      .toBe(`~${path.sep}server-data${path.sep}stories`);
   });
 
   test("story adoption clears interaction state frozen against the old payload", () => {

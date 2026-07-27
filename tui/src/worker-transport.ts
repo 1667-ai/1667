@@ -43,6 +43,8 @@ import { openPendingWorkerCall } from "./worker-call-allocation.js";
 import { prepareWorkerMutationIntent } from "./worker-mutation-publication.js";
 import type { WorkerRecoveryWarning, WorkerStoryApiOptions } from "./worker-api-contract.js";
 
+declare const __AI_1667_EMBEDDED_WORKER_SOURCE__: string | undefined;
+
 export class WorkerTransport {
   private readonly lifecycle: WorkerLifecycle;
   private readonly recoveryCoordinator: OutboxRecoveryCoordinator<WorkerApiError>;
@@ -81,10 +83,7 @@ export class WorkerTransport {
     private readonly pending = new PendingRequestRegistry()
   ) {
     this.outbox = new SerializedWorkerOutbox(outbox);
-    // Bun remaps this .js specifier to worker.ts in source runs and embeds a
-    // worker.js entry in compiled executables. Both paths are exercised by the
-    // worker contract tests and the standalone build smoke.
-    this.worker = options.worker ?? new Worker(new URL("../../server/worker.js", import.meta.url), { type: "module" });
+    this.worker = options.worker ?? createDefaultWorker();
     this.lifecycle = new WorkerLifecycle(this.worker, options, (error) => this.fail(error, false));
     this.recoveryCoordinator = new OutboxRecoveryCoordinator((record) => this.replayMutation(record));
     this.worker.addEventListener("message", this.onMessage);
@@ -529,5 +528,20 @@ export class WorkerTransport {
       this.fail(error instanceof Error ? error : new Error(String(error)), false);
     }
   }
+}
+
+function createDefaultWorker(): Worker {
+  if (typeof __AI_1667_EMBEDDED_WORKER_SOURCE__ === "string") {
+    const workerFile = new File(
+      [__AI_1667_EMBEDDED_WORKER_SOURCE__],
+      "1667-worker.js",
+      { type: "application/javascript" }
+    );
+    return new Worker(URL.createObjectURL(workerFile), { type: "module" });
+  }
+  return new Worker(
+    new URL("../../server/worker.js", import.meta.url),
+    { type: "module" }
+  );
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }

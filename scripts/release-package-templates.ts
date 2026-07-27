@@ -30,6 +30,12 @@ export interface ReleasePackageBuildManifest<
   artifactTarget: ArtifactTarget;
 }
 
+export interface ReleasePackageBuildEvidence {
+  productVersion: string;
+  sourceCommit: string;
+  buildTimestamp: string;
+}
+
 export interface ReleaseLauncherPackageTemplate {
   kind: "launcher";
   packageManifest: ReleaseLauncherPackageJson;
@@ -61,7 +67,11 @@ export function createReleasePackageTemplates(
   const launcher = Object.freeze({
     kind: "launcher" as const,
     packageManifest: releasePackageJson(createReleaseLauncherManifest(version)),
-    buildManifest: buildManifest(identities, RELEASE_LAUNCHER_PACKAGE, "launcher"),
+    buildManifest: createReleasePackageBuildManifest(
+      identities.evidence,
+      RELEASE_LAUNCHER_PACKAGE,
+      "launcher"
+    ),
     buildIdentity: null
   });
   const platforms = PACKAGED_ARTIFACT_TARGETS.map((target) => {
@@ -69,24 +79,30 @@ export function createReleasePackageTemplates(
     return Object.freeze({
       kind: "platform" as const,
       packageManifest: releasePackageJson(manifest),
-      buildManifest: buildManifest(identities, manifest.name, target),
+      buildManifest: createReleasePackageBuildManifest(
+        identities.evidence,
+        manifest.name,
+        target
+      ),
       buildIdentity: releaseIdentityForTarget(identities, target)
     });
   });
   return Object.freeze({ launcher, platforms: Object.freeze(platforms) });
 }
 
-function buildManifest<ArtifactTarget extends "launcher" | PackagedArtifactTarget>(
-  identities: ReleaseIdentitySet,
+export function createReleasePackageBuildManifest<
+  ArtifactTarget extends "launcher" | PackagedArtifactTarget
+>(
+  evidence: ReleasePackageBuildEvidence,
   packageName: string,
   artifactTarget: ArtifactTarget
 ): ReleasePackageBuildManifest<ArtifactTarget> {
   return Object.freeze({
     schemaVersion: 1 as const,
     product: "1667" as const,
-    productVersion: identities.evidence.productVersion,
-    sourceCommit: identities.evidence.sourceCommit,
-    buildTimestamp: identities.evidence.buildTimestamp,
+    productVersion: evidence.productVersion,
+    sourceCommit: evidence.sourceCommit,
+    buildTimestamp: evidence.buildTimestamp,
     packageName,
     artifactTarget
   });

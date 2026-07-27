@@ -223,9 +223,12 @@ test("internal error logging waits for brief cross-process contention", async (t
   const machineDir = await temporaryDirectory(t);
   const log = await InternalErrorLog.open(machineDir);
   t.after(async () => await log.close());
-  const contender = await open(internalErrorLogLockPath(machineDir), "a");
+  const contender = await open(internalErrorLogLockPath(machineDir), "a+");
   t.after(async () => await contender.close());
-  const held = await lockFile(contender.fd);
+  const held = await lockFile(
+    contender.fd,
+    internalErrorLogLockPath(machineDir)
+  );
   const released = new Promise<void>((resolve) => {
     setTimeout(() => {
       void held.unlock().then(resolve, resolve);
@@ -245,9 +248,12 @@ test("internal error log initialization waits for the rotation lock", async (t) 
   const machineDir = await temporaryDirectory(t);
   const initial = await InternalErrorLog.open(machineDir);
   await initial.close();
-  const contender = await open(internalErrorLogLockPath(machineDir), "a");
+  const contender = await open(internalErrorLogLockPath(machineDir), "a+");
   t.after(async () => await contender.close());
-  const held = await lockFile(contender.fd);
+  const held = await lockFile(
+    contender.fd,
+    internalErrorLogLockPath(machineDir)
+  );
   let opened = false;
   const opening = InternalErrorLog.open(machineDir).then((log) => {
     opened = true;

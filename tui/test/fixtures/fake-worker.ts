@@ -1,4 +1,7 @@
 import {
+  platformPerformanceBudget
+} from "../../../test/platform-performance-budget.js";
+import {
   WORKER_BUILD_IDENTITY,
   WORKER_PROTOCOL_VERSION,
   type MainToWorkerMessage,
@@ -45,9 +48,10 @@ export class FakeWorker extends EventTarget {
 
 export async function waitForRequest(
   worker: FakeWorker,
-  method: WorkerMethod
+  method: WorkerMethod,
+  timeoutMs = platformPerformanceBudget(1_000)
 ): Promise<Extract<MainToWorkerMessage, { type: "request" }>> {
-  const deadline = Date.now() + 1_000;
+  const deadline = Date.now() + timeoutMs;
   do {
     const request = worker.messages.findLast((message) =>
       message.type === "request" && message.method === method

@@ -25,16 +25,33 @@ import {
   validateReleaseTarballInspection
 } from "../scripts/release-package-policy.js";
 import {
+  createReleaseLauncherManifest,
   createReleasePlatformManifest,
   releasePackageJson
 } from "../scripts/release-package-manifests.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
+import {
+  normalizeWindowsNpmLauncherTarball
+} from "../scripts/windows-npm-launcher-tar.js";
 
 const PLATFORM_MANIFEST = releasePackageJson(
   createReleasePlatformManifest("linux-x64", "3.0.0")
 );
 const PLATFORM_PACKAGE = PLATFORM_MANIFEST.name;
 const manifest = parseReleasePackageManifest(PLATFORM_MANIFEST, "3.0.0");
+const NPM_PACK_TARGET = process.platform === "win32"
+  ? "windows-x64"
+  : "linux-x64";
+const NPM_PACK_MANIFEST = releasePackageJson(
+  createReleasePlatformManifest(NPM_PACK_TARGET, "3.0.0")
+);
+const npmPackManifest = parseReleasePackageManifest(
+  NPM_PACK_MANIFEST,
+  "3.0.0"
+);
+const NPM_PACK_EXECUTABLE = process.platform === "win32"
+  ? "bin/1667.exe"
+  : "bin/1667";
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -82,30 +99,97 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   await mkdir(output);
   await writeFile(
     path.join(root, "package.json"),
-    `${JSON.stringify(PLATFORM_MANIFEST)}\n`
+    `${JSON.stringify(NPM_PACK_MANIFEST)}\n`
   );
-  await writeFile(path.join(root, "bin", "1667"), "native executable");
-  await chmod(path.join(root, "bin", "1667"), 0o755);
+  const executable = path.join(root, NPM_PACK_EXECUTABLE);
+  await writeFile(executable, "native executable");
+  await chmod(executable, process.platform === "win32" ? 0o644 : 0o755);
   await writeFile(path.join(root, "build-manifest.json"), '{"schemaVersion":1}\n');
   await writeFile(path.join(root, "sbom.spdx.json"), '{"spdxVersion":"SPDX-2.3"}\n');
   await writeFile(path.join(root, "LICENSE"), LICENSE);
   await writeFile(path.join(root, "NOTICE"), NOTICE);
-  const { stdout } = await execFileAsync("npm", [
-    "pack",
-    "--ignore-scripts",
-    "--json",
-    "--pack-destination",
-    output
-  ], { cwd: root, encoding: "utf8" });
+  const npmCli = process.env.npm_execpath
+    ?? path.join(
+      path.dirname(process.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js"
+    );
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      npmCli,
+      "pack",
+      "--ignore-scripts",
+      "--json",
+      "--pack-destination",
+      output
+    ],
+    { cwd: root, encoding: "utf8" }
+  );
   const packed = JSON.parse(stdout) as Array<{ filename: string }>;
   const bytes = await readFile(path.join(output, packed[0]!.filename));
   const result = await readReleaseTarball(bytes);
   assert.doesNotThrow(() => {
-    validateReleaseTarballInspection(result.inspection, manifest);
+    validateReleaseTarballInspection(result.inspection, npmPackManifest);
   });
   assert.equal(
     (result.packageManifest as Record<string, unknown>).version,
     "3.0.0"
+  );
+});
+
+test("Windows npm launcher mode normalization preserves strict policy", async () => {
+  const launcherPackageJson = releasePackageJson(
+    createReleaseLauncherManifest("3.0.0")
+  );
+  const launcher = parseReleasePackageManifest(
+    launcherPackageJson,
+    "3.0.0"
+  );
+  const tarball = gzipSync(tar([
+    entry(
+      "package/package.json",
+      "0",
+      0o644,
+      Buffer.from(JSON.stringify(launcherPackageJson))
+    ),
+    entry(
+      "package/bin/1667.js",
+      "0",
+      0o644,
+      Buffer.from("#!/usr/bin/env node\n")
+    ),
+    entry(
+      "package/build-manifest.json",
+      "0",
+      0o644,
+      Buffer.from('{"schemaVersion":1}')
+    ),
+    entry(
+      "package/sbom.spdx.json",
+      "0",
+      0o644,
+      Buffer.from('{"spdxVersion":"SPDX-2.3"}')
+    ),
+    entry("package/LICENSE", "0", 0o644, LICENSE),
+    entry("package/NOTICE", "0", 0o644, NOTICE)
+  ]));
+  const before = await readReleaseTarball(tarball);
+  assert.throws(() =>
+    validateReleaseTarballInspection(before.inspection, launcher));
+
+  const normalized = await readReleaseTarball(
+    normalizeWindowsNpmLauncherTarball(tarball)
+  );
+  assert.doesNotThrow(() =>
+    validateReleaseTarballInspection(normalized.inspection, launcher));
+  assert.equal(
+    normalized.inspection.entries.find(
+      (item) => item.path === "package/bin/1667.js"
+    )?.mode,
+    0o755
   );
 });
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
   createServer,
@@ -23,6 +23,7 @@ import type {
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
+  stopTestServerProcess,
   waitForTestServer
 } from "./http-test-client.js";
 
@@ -185,7 +186,7 @@ export async function testApp(
   const port = await availablePort();
   const server = spawn(
     process.execPath,
-    ["--import", "tsx", "server/index.ts"],
+    ["--import", "tsx", "server/index.ts", "--print-logs"],
     {
       cwd: path.resolve(import.meta.dirname, ".."),
       env: {
@@ -200,7 +201,7 @@ export async function testApp(
   server.stdout?.on("data", (chunk) => { output += String(chunk); });
   server.stderr?.on("data", (chunk) => { output += String(chunk); });
   t.after(async () => {
-    await stopApp(server);
+    await stopTestServerProcess(server);
     await rm(dataDir, { recursive: true, force: true });
   });
   const base = `http://127.0.0.1:${port}`;
@@ -241,39 +242,6 @@ async function closeServerWithin(
   });
   try {
     await Promise.race([closed, bounded]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
-
-async function stopApp(server: ChildProcess): Promise<void> {
-  if (server.exitCode !== null || server.signalCode !== null) return;
-  const exited = new Promise<void>((resolve) =>
-    server.once("exit", () => resolve())
-  );
-  server.kill("SIGTERM");
-  if (await exitsWithin(exited, 1_000)) return;
-  const killed = server.kill("SIGKILL");
-  if (await exitsWithin(exited, 1_000)) return;
-  throw new Error(
-    killed
-      ? "Test app did not exit within 1 second after SIGKILL"
-      : "Test app could not be sent SIGKILL and did not exit"
-  );
-}
-
-async function exitsWithin(
-  exited: Promise<void>,
-  milliseconds: number
-): Promise<boolean> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      exited.then(() => true),
-      new Promise<false>((resolve) => {
-        timeout = setTimeout(() => resolve(false), milliseconds);
-      })
-    ]);
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
   }

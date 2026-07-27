@@ -1,4 +1,5 @@
 import * as testRuntime from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +9,9 @@ const previousStateRoot = process.env[MACHINE_TIER_OVERRIDE_VARIABLE];
 const testStateRoot = realpathSync(
   mkdtempSync(path.join(tmpdir(), "1667-tui-test-state-"))
 );
+if (process.platform === "darwin") {
+  execFileSync("/bin/chmod", ["-N", testStateRoot]);
+}
 process.env[MACHINE_TIER_OVERRIDE_VARIABLE] = testStateRoot;
 
 const afterAll = (testRuntime as unknown as {

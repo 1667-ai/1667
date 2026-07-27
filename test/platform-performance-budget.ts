@@ -3,6 +3,9 @@ export function platformPerformanceBudgetScale(
   architecture: string,
   emulatedX64: string | undefined
 ): number {
+  // Windows filesystem fixtures run through NTFS and Defender on the hosted
+  // runner. Keep the same product workload with a documented runner scale.
+  if (platform === "win32" && architecture === "x64") return 2;
   // GitHub's Intel macOS runner is substantially slower than the arm64 and
   // Linux baselines for filesystem-heavy fixtures.
   if (platform === "darwin" && architecture === "x64") return 3;

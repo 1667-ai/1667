@@ -40,13 +40,36 @@ test("current settings read remains valid across atomic replacement", {
 
   const reading = readSettingsState(dataDir);
   await pause.entered;
+  let contentionResolve!: () => void;
+  let publishResolve!: () => void;
+  const contention = new Promise<void>((resolve) => {
+    contentionResolve = resolve;
+  });
+  const publishReleased = new Promise<void>((resolve) => {
+    publishResolve = resolve;
+  });
+  const publishing = publishStagedSettingsState(dataDir, {
+    waitForWindowsContention: async () => {
+      contentionResolve();
+      await publishReleased;
+    }
+  });
   try {
-    await publishStagedSettingsState(dataDir);
+    // The replacement must land before the paused read resumes, or the
+    // assertion below proves nothing. Windows cannot complete the rename while
+    // the read handle is open, so it waits for the contention retry instead.
+    if (process.platform === "win32") {
+      await Promise.race([contention, publishing]);
+    } else {
+      await publishing;
+    }
   } finally {
     pause.release();
   }
 
   assert.deepEqual(await reading, INITIAL_SETTINGS_STATE_V2);
+  publishResolve();
+  await publishing;
   assert.deepEqual(await readSettingsState(dataDir), replacement);
 });
 

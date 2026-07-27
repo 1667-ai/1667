@@ -18,6 +18,9 @@ import {
 } from "../src/worker-api.js";
 import { isWorkerMessage } from "../src/worker-message.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
+import {
+  platformPerformanceBudget
+} from "../../test/platform-performance-budget.js";
 import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
 
 test("embedded internal errors carry the reference written to the private log", async () => {
@@ -56,7 +59,7 @@ test("embedded internal errors carry the reference written to the private log", 
       rm(machineDir, { recursive: true, force: true })
     ]);
   }
-});
+}, platformPerformanceBudget(10_000));
 
 test("worker diagnostics validate the dedicated reference field, not message text", () => {
   expect(isWorkerMessage({

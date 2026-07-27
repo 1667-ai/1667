@@ -258,15 +258,29 @@ test("registry client classifies aborts, missing targets, and retryable failures
 });
 
 test("registry timeout is a retryable network failure", async () => {
-  const registry = new NpmUpgradeRegistry((_input, init) => new Promise((_resolve, reject) => {
+  const stalledFetch = new NpmUpgradeRegistry((_input, init) => new Promise((_resolve, reject) => {
     const signal = init.signal as AbortSignal;
     const abort = () => reject(new DOMException("timed out", "AbortError"));
     if (signal.aborted) abort();
     else signal.addEventListener("abort", abort, { once: true });
   }), 1);
-  const error = await rejection(registry.channelHead("stable", new AbortController().signal));
-  expect((error as UpgradeFailure).code).toBe("network_error");
-  expect((error as UpgradeFailure).retryable).toBeTrue();
+  const stalledBody = new NpmUpgradeRegistry(async (_input, init) => {
+    const signal = init.signal as AbortSignal;
+    return new Response(new ReadableStream({
+      start(controller) {
+        signal.addEventListener("abort", () => controller.error(signal.reason), {
+          once: true
+        });
+      }
+    }), { headers: { "content-type": "application/json" } });
+  }, 1);
+  for (const registry of [stalledFetch, stalledBody]) {
+    const error = await rejection(
+      registry.channelHead("stable", new AbortController().signal)
+    );
+    expect((error as UpgradeFailure).code).toBe("network_error");
+    expect((error as UpgradeFailure).retryable).toBeTrue();
+  }
 });
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {

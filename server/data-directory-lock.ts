@@ -113,7 +113,7 @@ export class DataDirectoryLock {
     try {
       dataDirectoryHandle = await open(canonicalDir, dataDirectoryOpenFlags());
       lockHandle = await open(lockPath, lockOpenFlags(), 0o600);
-      lock = await lockFile(lockHandle.fd);
+      lock = await lockFile(lockHandle.fd, lockPath);
       await assertLockingFilesystem(lockPath, canonicalDir);
       this.publishedFormat = await publishInitialFormat(
         canonicalDir,

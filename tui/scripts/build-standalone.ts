@@ -4,9 +4,9 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  rm,
   writeFile
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,9 +21,16 @@ import { releaseTargetForRuntime } from "../../shared/release-targets.js";
 import {
   DATA_DIRECTORY_LOCK
 } from "../../server/data-directory-layout.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../../server/machine-tier.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { smokeInstalledDefaultData } from "./standalone-smoke-install.js";
-import { runStandalone } from "./standalone-smoke-process.js";
+import { smokeWindowsNpmPackage } from "./standalone-smoke-package.js";
+import {
+  removeSmokeTree,
+  runStandalone
+} from "./standalone-smoke-process.js";
 import { smokeSupervisedServe } from "./standalone-smoke-serve.js";
 
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -31,15 +38,28 @@ const repositoryRoot = path.dirname(tuiRoot);
 const outputDirectory = path.join(tuiRoot, "dist");
 const outputFile = path.join(outputDirectory, process.platform === "win32" ? "1667.exe" : "1667");
 const execFileAsync = promisify(execFile);
+// Defender can delay the first launch of the compiled Windows executable.
+const coldRenderBudgetMs = process.platform === "win32" ? 20_000 : 10_000;
 
 await mkdir(outputDirectory, { recursive: true });
 const buildIdentity = await deriveBuildIdentity();
+const workerEntry = path.join(repositoryRoot, "server", "worker.ts");
+const tiktokenWasmBase64 = await readFile(
+  createRequire(import.meta.url).resolve("tiktoken/tiktoken_bg.wasm"),
+  "base64"
+);
+const embeddedWorkerSource = process.platform === "win32"
+  ? await buildEmbeddedWorker(
+      workerEntry,
+      buildIdentity,
+      tiktokenWasmBase64
+    )
+  : undefined;
 
 const result = await Bun.build({
-  entrypoints: [
-    path.join(tuiRoot, "src", "standalone.ts"),
-    path.join(tuiRoot, "..", "server", "worker.ts")
-  ],
+  entrypoints: process.platform === "win32"
+    ? [path.join(tuiRoot, "src", "standalone.ts")]
+    : [path.join(tuiRoot, "src", "standalone.ts"), workerEntry],
   compile: {
     outfile: outputFile,
     // A trusted executable must not run preload code or absorb backend routing
@@ -48,7 +68,13 @@ const result = await Bun.build({
     autoloadDotenv: false
   },
   define: {
-    __AI_1667_BUILD_IDENTITY__: JSON.stringify(buildIdentity)
+    __AI_1667_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
+    __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
+      tiktokenWasmBase64
+    ),
+    __AI_1667_EMBEDDED_WORKER_SOURCE__: embeddedWorkerSource === undefined
+      ? "undefined"
+      : JSON.stringify(embeddedWorkerSource)
   },
   minify: true
 });
@@ -59,6 +85,34 @@ if (!result.success) {
 } else {
   await smokeStandalone(outputFile, buildIdentity);
   console.log(outputFile);
+}
+
+async function buildEmbeddedWorker(
+  entrypoint: string,
+  identity: BuildIdentity,
+  tiktokenWasmBase64: string
+): Promise<string> {
+  const result = await Bun.build({
+    entrypoints: [entrypoint],
+    target: "bun",
+    define: {
+      __AI_1667_BUILD_IDENTITY__: JSON.stringify(identity),
+      __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
+        tiktokenWasmBase64
+      )
+    },
+    minify: true
+  });
+  if (!result.success || result.outputs.length !== 1) {
+    throw new Error(
+      `Embedded Windows worker build failed: ${result.logs.join("\n")}`
+    );
+  }
+  const source = await result.outputs[0]!.text();
+  if (!source.includes(tiktokenWasmBase64)) {
+    throw new Error("Embedded Windows worker omitted the tokenizer WASM");
+  }
+  return source;
 }
 
 async function deriveBuildIdentity(): Promise<BuildIdentity> {
@@ -185,30 +239,13 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
       directory,
       environment
     );
-    if (process.platform === "win32") {
-      // ADR007 relaxed the project tier, but the machine tier that holds
-      // provider secrets still needs a DACL and reparse-safe adapter. Windows
-      // therefore refuses the embedded backend in one actionable line, before
-      // the backend starts, rather than opening a project it cannot key.
-      if (render.exitCode !== 1
-        || !/DACL/.test(render.stderr)
-        || render.stderr.includes("\n    at ")) {
-        throw new Error(
-          "Windows embedded storage did not fail closed on its machine tier "
-            + `(${render.exitCode}): ${render.stderr.trim()}`
-        );
-      }
-      await assertAbsent(path.join(embeddedData, PROJECT_DIRECTORY_NAME));
-      await smokePromptTokenizer(directory, environment);
-      await smokeSupervisedServe(executable, directory, environment);
-      return;
-    }
     if (render.exitCode !== 0) {
       throw new Error(`Standalone render smoke failed (${render.exitCode}): ${render.stderr.trim()}`);
     }
-    if (render.elapsedMs > 10_000) {
+    if (render.elapsedMs > coldRenderBudgetMs) {
       throw new Error(
-        `Standalone cold render exceeded 10s (${render.elapsedMs.toFixed(1)}ms)`
+        `Standalone cold render exceeded ${coldRenderBudgetMs / 1_000}s `
+          + `(${render.elapsedMs.toFixed(1)}ms)`
       );
     }
     await smokePromptTokenizer(directory, environment);
@@ -219,8 +256,17 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
     ));
     await smokeInstalledDefaultData(executable, directory, environment);
     await smokeSupervisedServe(executable, directory, environment);
+    if (process.platform === "win32") {
+      const digest = await smokeWindowsNpmPackage(
+        executable,
+        expectedIdentity,
+        directory,
+        environment
+      );
+      console.log(`windows-package-sha256 ${digest}`);
+    }
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await removeSmokeTree(directory);
   }
 }
 
@@ -228,6 +274,9 @@ async function smokePromptTokenizer(
   directory: string,
   environment: Record<string, string>
 ): Promise<void> {
+  // Defender can hold the first launch of a new compiled executable while it
+  // scans the file. Keep the smoke bounded, but give that Windows scan time.
+  const timeoutMs = process.platform === "win32" ? 90_000 : 30_000;
   const executable = path.join(
     directory,
     process.platform === "win32" ? "prompt-tokenizer-smoke.exe" : "prompt-tokenizer-smoke"
@@ -239,6 +288,11 @@ async function smokePromptTokenizer(
       autoloadBunfig: false,
       autoloadDotenv: false
     },
+    define: {
+      __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
+        tiktokenWasmBase64
+      )
+    },
     minify: true
   });
   if (!result.success) {
@@ -246,7 +300,13 @@ async function smokePromptTokenizer(
       `Compiled prompt-tokenizer smoke failed to build: ${result.logs.join("\n")}`
     );
   }
-  const smoke = await runStandalone(executable, [], directory, environment);
+  const smoke = await runStandalone(
+    executable,
+    [],
+    directory,
+    environment,
+    timeoutMs
+  );
   if (smoke.exitCode !== 0) {
     throw new Error(
       `Compiled prompt-tokenizer smoke failed (${smoke.exitCode}): ${smoke.stderr.trim()}`
@@ -312,6 +372,7 @@ async function smokeEnvironment(directory: string): Promise<Record<string, strin
   }
   if (process.platform === "win32") {
     environment.LOCALAPPDATA = data;
+    environment[MACHINE_TIER_OVERRIDE_VARIABLE] = state;
     environment.TEMP = directory;
     environment.TMP = directory;
   } else {

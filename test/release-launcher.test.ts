@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { once } from "node:events";
 import {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -39,6 +40,9 @@ const VERSION = "3.0.0";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-23T10:20:30.000Z";
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
+const RUNNABLE_TARGET: PackagedArtifactTarget = process.platform === "win32"
+  ? "windows-x64"
+  : "linux-x64";
 const execFileAsync = promisify(execFile);
 
 test("standalone launcher target table exactly matches canonical release policy", () => {
@@ -167,9 +171,10 @@ test("launcher rejects libc metadata on a Darwin package", async (t) => {
 });
 
 test("scoped launcher resolves and starts from the hoisted npm layout", async (t) => {
-  const { base, root, platformRoot } = await launcherFixture();
+  const descriptor = releaseTargetForArtifact(RUNNABLE_TARGET);
+  const { base, root, platformRoot } = await launcherFixture(RUNNABLE_TARGET);
   t.after(() => rm(base, { recursive: true, force: true }));
-  const packageName = PLATFORM_PACKAGE;
+  const packageName = descriptor.packageName;
   const nested = path.join(root, "node_modules", packageName);
   const ambientRoot = path.join(base, "ambient");
   const ambient = path.join(ambientRoot, packageName);
@@ -181,7 +186,8 @@ test("scoped launcher resolves and starts from the hoisted npm layout", async (t
     `import assert from "node:assert/strict";`,
     `import { resolveLaunchPlan } from ${JSON.stringify(launcherUrl)};`,
     `assert.throws(() => resolveLaunchPlan({ launcherRoot: ${JSON.stringify(root)},`,
-    `  platform: "linux", arch: "x64" }), /Missing/);`
+    `  platform: ${JSON.stringify(descriptor.platform)},`,
+    `  arch: ${JSON.stringify(descriptor.arch)} }), /Missing/);`
   ].join("\n");
   await execFileAsync(process.execPath, ["--input-type=module", "--eval", source], {
     env: { ...process.env, NODE_PATH: ambientRoot }
@@ -193,20 +199,23 @@ test("scoped launcher resolves and starts from the hoisted npm layout", async (t
   await rename(ambient, hoisted);
   assert.equal(resolveLaunchPlan({
     launcherRoot: root,
-    platform: "linux",
-    arch: "x64"
+    platform: descriptor.platform,
+    arch: descriptor.arch
   }).platformRoot, hoisted);
   const child = runLauncher({
     launcherRoot: root,
-    platform: "linux",
-    arch: "x64"
+    platform: descriptor.platform,
+    arch: descriptor.arch,
+    args: descriptor.platform === "win32" ? ["--version"] : []
   });
   const [code, signal] = await once(child, "exit");
   assert.equal(code, 0);
   assert.equal(signal, null);
 });
 
-test("launcher preserves an independently signalled child's failure", async (t) => {
+test("launcher preserves an independently signalled child's failure", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const { base, root } = await launcherFixture();
   t.after(() => rm(base, { recursive: true, force: true }));
   const executable = path.join(
@@ -278,9 +287,14 @@ async function launcherFixture(
     path.join(platformRoot, "build-manifest.json"),
     JSON.stringify(buildManifest(platformPackage, target))
   );
-  const executable = path.join(platformRoot, "bin", "1667");
-  await writeFile(executable, "#!/bin/sh\nexit 0\n");
-  await chmod(executable, 0o755);
+  const descriptor = releaseTargetForArtifact(target);
+  const executable = path.join(platformRoot, descriptor.executable);
+  if (descriptor.platform === "win32") {
+    await copyFile(process.execPath, executable);
+  } else {
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+  }
   return { base, root, platformRoot };
 }
 

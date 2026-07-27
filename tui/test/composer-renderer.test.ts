@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  platformPerformanceBudget
+} from "../../test/platform-performance-budget.js";
+import {
   backspaceComposer,
   composerLineCell,
   composerLineCount,
@@ -356,7 +359,9 @@ describe("composer renderer", () => {
       composer, terminalWidth: 100, terminalHeight: 30, measure: 72
     });
     expect(frameText(layout.lines)).toContain("…");
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(
+      platformPerformanceBudget(1_000)
+    );
 
     // The large-paste guarantee covers editing after the paste, not merely the
     // first paint. This caught whole-draft resegmentation on every keystroke.
@@ -371,7 +376,9 @@ describe("composer renderer", () => {
       });
       backspaceComposer(composer);
     }
-    expect(performance.now() - editingStarted).toBeLessThan(250);
+    expect(performance.now() - editingStarted).toBeLessThan(
+      platformPerformanceBudget(250)
+    );
   });
 
   test("undo and redo preserve untouched line indexes", () => {
@@ -411,7 +418,9 @@ describe("composer renderer", () => {
 
     expect(layout.lines).toHaveLength(29);
     expect(layout.scrollTop).toBeGreaterThan(20_000);
-    expect(performance.now() - started).toBeLessThan(500);
+    expect(performance.now() - started).toBeLessThan(
+      platformPerformanceBudget(500)
+    );
   });
 
   test("keeps edits incremental on a multi-megabyte mixed-width line", () => {
@@ -427,7 +436,9 @@ describe("composer renderer", () => {
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
     expect(layout.scrollTop).toBeGreaterThan(20_000);
-    expect(performance.now() - started).toBeLessThan(250);
+    expect(performance.now() - started).toBeLessThan(
+      platformPerformanceBudget(250)
+    );
   });
 
   test("inserts a newline-heavy paste without exceeding the argument limit", () => {
@@ -453,7 +464,9 @@ describe("composer renderer", () => {
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
 
-    expect(performance.now() - started).toBeLessThan(100);
+    expect(performance.now() - started).toBeLessThan(
+      platformPerformanceBudget(100)
+    );
   });
 
   test("incremental wrap blocks match a fresh index across multiline replacements", () => {
@@ -498,7 +511,7 @@ describe("composer renderer", () => {
     expect(composerLineCell(composer, 0, 50_000)?.text).toBe("🇧");
     expect(composerLineCount(composer)).toBe(2);
     expect(composer).toMatchObject({ cursor: 1 });
-    expect(elapsed).toBeLessThan(1_000);
+    expect(elapsed).toBeLessThan(platformPerformanceBudget(1_000));
   });
 
   test("vertical movement preserves terminal-cell x across mixed-width lines", () => {

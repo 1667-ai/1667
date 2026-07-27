@@ -11,6 +11,14 @@ import { MAX_SETTINGS_STATE_BYTES } from "./settings-v2-scalars.js";
 import { syncDirectory } from "./story-lifecycle.js";
 
 const SETTINGS_FILE_LABEL = "Reserved settings file";
+const WINDOWS_REPLACE_ATTEMPTS = 200;
+const WINDOWS_REPLACE_RETRY_MS = 10;
+
+export interface SettingsPublicationOptions {
+  readonly waitForWindowsContention?: (
+    attempt: number
+  ) => Promise<void>;
+}
 
 /** Read one reserved settings file through a no-follow handle. */
 export async function readOptionalSettingsFile(
@@ -53,9 +61,38 @@ export async function writePrivateSettingsFile(
 }
 
 /** Publish an already-fsynced reserved replacement and flush its directory. */
-export async function publishSettingsFile(nextFile: string, finalFile: string): Promise<void> {
-  await rename(nextFile, finalFile);
+export async function publishSettingsFile(
+  nextFile: string,
+  finalFile: string,
+  options: SettingsPublicationOptions = {}
+): Promise<void> {
+  await renameSettingsFile(nextFile, finalFile, options);
   await syncDirectory(path.dirname(finalFile));
+}
+
+async function renameSettingsFile(
+  nextFile: string,
+  finalFile: string,
+  options: SettingsPublicationOptions
+): Promise<void> {
+  for (let attempt = 0; attempt < WINDOWS_REPLACE_ATTEMPTS; attempt += 1) {
+    try {
+      await rename(nextFile, finalFile);
+      return;
+    } catch (error) {
+      if (process.platform !== "win32"
+        || !isWindowsReplaceContention(error)
+        || attempt + 1 === WINDOWS_REPLACE_ATTEMPTS) {
+        throw error;
+      }
+      if (options.waitForWindowsContention !== undefined) {
+        await options.waitForWindowsContention(attempt + 1);
+      } else {
+        await new Promise((resolve) =>
+          setTimeout(resolve, WINDOWS_REPLACE_RETRY_MS));
+      }
+    }
+  }
 }
 
 export async function removeSettingsFile(
@@ -71,4 +108,8 @@ export async function removeSettingsFile(
 
 function isErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+function isWindowsReplaceContention(error: unknown): boolean {
+  return isErrorCode(error, "EPERM") || isErrorCode(error, "EACCES");
 }

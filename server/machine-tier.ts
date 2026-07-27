@@ -6,7 +6,8 @@ import {
 import {
   inspectPrivatePosixDirectory,
   PlatformStateRootError,
-  resolvePrivatePlatformStateRoot
+  resolvePrivatePlatformStateRoot,
+  type WindowsPrivateStateRootAdapter
 } from "./platform-state-root.js";
 
 /**
@@ -18,6 +19,7 @@ export interface MachineTierOptions {
   readonly override?: string | undefined;
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly platform?: NodeJS.Platform;
+  readonly windowsAdapter?: WindowsPrivateStateRootAdapter;
 }
 
 export const MACHINE_TIER_OVERRIDE_VARIABLE = "AI_1667_STATE";
@@ -31,9 +33,14 @@ export async function resolveMachineTierRoot(
     ?? environment[MACHINE_TIER_OVERRIDE_VARIABLE];
   const root = configured === undefined || configured === ""
     ? await resolvePrivatePlatformStateRoot(
-        options.platform === undefined ? {} : { platform }
+        {
+          ...(options.platform === undefined ? {} : { platform }),
+          ...(options.windowsAdapter === undefined
+            ? {}
+            : { windowsAdapter: options.windowsAdapter })
+        }
       )
-    : await prepareOverride(configured, platform);
+    : await prepareOverride(configured, platform, options.windowsAdapter);
   // Mode 0700 does not revoke an inherited macOS ACL, and this directory holds
   // the keys. Packaged Darwin builds prove there is no extended allow entry.
   if (platform === "darwin") {
@@ -44,7 +51,8 @@ export async function resolveMachineTierRoot(
 
 async function prepareOverride(
   configured: string,
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform,
+  windowsAdapter: WindowsPrivateStateRootAdapter | undefined
 ): Promise<string> {
   const implementation = platform === "win32" ? path.win32 : path.posix;
   if (!implementation.isAbsolute(configured)) {
@@ -53,13 +61,23 @@ async function prepareOverride(
     );
   }
   if (platform === "win32") {
-    // An override cannot be validated without the DACL/reparse-safe adapter the
-    // default path already requires, and this directory holds provider keys.
-    // Accepting one would put them somewhere 1667 cannot prove is private.
-    throw new PlatformStateRootError(
-      `${MACHINE_TIER_OVERRIDE_VARIABLE} needs a Windows DACL/reparse-safe `
-        + "platform adapter before 1667 can store secrets there"
-    );
+    const adapter = windowsAdapter
+      ?? (process.platform === "win32"
+        ? await defaultWindowsPrivateStateRootAdapter()
+        : undefined);
+    if (adapter === undefined) {
+      throw new PlatformStateRootError(
+        `${MACHINE_TIER_OVERRIDE_VARIABLE} needs a Windows DACL/reparse-safe `
+          + "platform adapter before 1667 can store secrets there"
+      );
+    }
+    const prepared = await adapter.preparePrivateStateRoot(configured);
+    if (prepared !== configured) {
+      throw new PlatformStateRootError(
+        `${MACHINE_TIER_OVERRIDE_VARIABLE} adapter returned a different root`
+      );
+    }
+    return prepared;
   }
   await mkdir(configured, { recursive: true, mode: 0o700 });
   // A canonical path is what the privacy inspection compares against, and
@@ -71,4 +89,13 @@ async function prepareOverride(
   await chmod(canonical, 0o700);
   await inspectPrivatePosixDirectory(canonical);
   return canonical;
+}
+
+async function defaultWindowsPrivateStateRootAdapter(): Promise<
+  WindowsPrivateStateRootAdapter
+> {
+  const { createWindowsPrivateStateRootAdapter } = await import(
+    "./platform-state-root-windows.js"
+  );
+  return createWindowsPrivateStateRootAdapter();
 }

@@ -20,7 +20,7 @@ This public repository contains pre-release source.
 | Item | Current status |
 | --- | --- |
 | Source repository | GitHub provides public access. |
-| Standalone candidates | CI builds and tests four targets on `main`, three of them on pull requests. CI does not publish these files. |
+| Standalone candidates | CI builds and tests five targets on `main` and four targets on pull requests. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
 | GitHub release | 1667 does not publish a GitHub release. |
@@ -251,7 +251,7 @@ context can contain:
 connection requires a credential. Select a provider with an acceptable data
 policy.
 
-## Current platform limits
+## Current platform support
 
 1667 supports these release targets:
 
@@ -259,14 +259,7 @@ policy.
 - macOS x64
 - Linux arm64
 - Linux x64
-
-1667 does not support Windows. CI does not test Windows. The release matrix
-does not contain a Windows target.
-
-The Windows machine tier needs a native DACL and reparse-point safety adapter.
-Source execution refuses embedded storage, HTTP attachment, HTTP
-authentication, and legacy server mode on Windows. Demo mode can run on
-Windows.
+- Windows x64
 
 Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
 endpoint also needs proof that the current user owns the exact socket.
@@ -287,9 +280,12 @@ bun run build:standalone
 ./dist/1667 --demo --render-once --size 120x36
 ```
 
-The build writes `tui/dist/1667`. The executable contains the TUI, backend
-worker, dependencies, and Bun runtime. You can move the executable to a
-different directory. The executable does not need Bun or Node.js at run time.
+On Windows, use `.\dist\1667.exe` for these commands.
+
+The build writes `tui/dist/1667` on macOS and Linux. The build writes
+`tui/dist/1667.exe` on Windows. The executable contains the TUI, backend worker,
+dependencies, and Bun runtime. You can move the executable to a different
+directory. The executable does not need Bun or Node.js at run time.
 
 The build verifies the root version, TUI version, and lockfile version. It reads
 the build identity from the executable. It also tests the embedded worker and
@@ -309,6 +305,7 @@ Use that reference to find the entry in the private machine-tier log:
 - macOS: `~/Library/Application Support/1667/State/log/1667.log`
 - Linux: `$XDG_STATE_HOME/1667/log/1667.log`, or
   `~/.local/state/1667/log/1667.log` when unset
+- Windows: `%LOCALAPPDATA%\1667\State\log\1667.log`
 
 If 1667 cannot write the log, it omits the reference. It also prints a safe
 warning to stderr.
@@ -347,21 +344,22 @@ bun bench/perf.ts
 ```
 
 GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
-standalone build on Linux x64. Each release target also runs the root tests,
-TUI tests, and standalone build. CI does not run the separate frame performance
-gate.
+standalone build on Linux x64. CI also runs the root tests, TUI tests, and
+standalone build on each release target. CI does not run the separate frame
+performance gate.
 
-Three release targets run on every pull request: macOS arm64, Linux arm64, and
-Linux x64. macOS x64 runs on every push to `main` and on demand, not on pull
-requests. It is the slowest target by roughly ten times and runs on a retiring,
-heavily contended runner class, so gating merges on it cost latency and produced
-flakes rather than signal. A macOS x64 regression therefore surfaces on the
-commit that introduced it rather than before merge.
+Four release targets run on every pull request: macOS arm64, Linux arm64,
+Linux x64, and Windows x64. macOS x64 runs on every push to `main` and on
+demand, not on pull requests. It is approximately ten times slower than the
+other targets. It runs on a runner that GitHub will retire. The runner has
+sufficient contention to cause intermittent wall-time test failures. Thus, CI
+does not use macOS x64 as a pull request gate. A regression occurs on the
+`main` commit that introduced it.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and
 TUI tests in Docker for Linux arm64 and Linux x64. The local script does not
-build Linux standalone candidates. It does not test macOS x64.
+build Linux standalone candidates. It does not test macOS x64 or Windows x64.
 
 ```sh
 scripts/ci-local.sh

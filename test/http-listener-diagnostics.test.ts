@@ -153,6 +153,27 @@ test("listener accepts explicit reporter ownership only after validation", async
   assert.match(warnings, /diagnostic was not persisted/);
 });
 
+test("listener stores auth in its explicit machine tier by default", async (t) => {
+  const machineDir = await privateTemporaryDirectory(
+    t,
+    "1667-http-machine-"
+  );
+  const dataDir = path.join(
+    await privateTemporaryDirectory(t, "1667-http-data-parent-"),
+    "data"
+  );
+  const listener = await startHttpListener({ machineDir, dataDir });
+
+  try {
+    const stored = await readHttpAuthRecord(listener.origin, {
+      stateRoot: machineDir
+    });
+    assert.deepEqual(stored.record, listener.authRecord);
+  } finally {
+    await listener.close();
+  }
+});
+
 test("listener keeps pre-reporter configuration failures actionable", async () => {
   await assert.rejects(
     startHttpListener({ port: Number.NaN }),

@@ -5,12 +5,16 @@ the [README](README.md#technical-terms).
 
 ## Unreleased
 
+- **1667 now supports Windows x64 release candidates.** The Windows machine
+  tier installs a protected DACL for the current user and SYSTEM. Native tests
+  reject reparse points. CI builds the executable and runs it through the npm
+  launcher package.
 - **Pull requests no longer wait on the macOS x64 build.** CI still builds and
-  tests all four release targets on `main` and on demand, but pull requests gate
-  on macOS arm64, Linux arm64, and Linux x64 only. The macOS x64 runner is about
-  ten times slower than its siblings and contended enough that its wall-clock
-  measurements flaked. A macOS x64 regression now surfaces on the commit that
-  introduced it rather than before merge. Thanks @10fra for the CI latency
+  tests all five release targets on `main` and on demand. Pull requests gate on
+  macOS arm64, Linux arm64, Linux x64, and Windows x64. The macOS x64 runner is
+  about ten times slower than its siblings. The runner has sufficient
+  contention to cause wall-clock measurement failures. A macOS x64 regression
+  now occurs on the commit that introduced it. Thanks @10fra for the CI latency
   review.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
@@ -21,7 +25,7 @@ the [README](README.md#technical-terms).
   `--print-logs`. Thanks @10fra for the failure-reporting design.
 - **Public documentation now describes the current repository.** The README
   states the public status and exact CI coverage. The release guide specifies
-  five release packages and four release targets. Obsolete plan documents are
+  six release packages and five release targets. Obsolete plan documents are
   removed. Thanks @10fra for the documentation audit.
 - **Repository documentation shows build status and uses a defined language
   standard.** The README shows CI and standalone-build status for `main`.

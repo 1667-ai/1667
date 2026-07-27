@@ -38,7 +38,7 @@ export interface ReleasePreflightPlan {
 }
 
 /**
- * Validates five already-packed npm tarballs without extracting, building,
+ * Validates six already-packed npm tarballs without extracting, building,
  * publishing, or accessing the network.
  */
 export async function runReleasePreflight(

@@ -22,9 +22,14 @@ bun run build:standalone
 ./dist/1667
 ```
 
+On Windows, use `.\dist\1667.exe` for these commands.
+
 The compiled executable contains the TUI, backend worker, dependencies, and Bun runtime. It does not require a separately installed Bun or 1667 server at runtime. Its build identity is injected into both entrypoints, checked during worker startup, and exposed through the JSON version command and HTTP compatibility metadata. Source runs report an explicit `source` development identity; the host-native standalone reports its source commit, dirty state, timestamp, and target.
 
-Packaged embedded storage currently supports macOS and Linux. The Windows candidate runs demo mode and fails closed for local data and HTTP authority until its native DACL and reparse-safe adapters are complete.
+Packaged embedded storage supports macOS, Linux, and Windows x64. On Windows,
+1667 protects the machine tier with an exact current-user and SYSTEM DACL. The
+Windows package rejects reparse points. Supervised server mode is available
+only on Linux.
 
 `build:standalone` validates that the root, TUI, and npm-lock versions agree, reads the embedded identity back from the executable, starts the embedded worker from a hostile-config fixture, and compiles plus executes the exact prompt-tokenizer smoke vectors. It creates a development artifact only. Tagged release validation, multi-platform packaging, signing, isolated candidate execution, and publishing remain separate ADR 005 gates.
 

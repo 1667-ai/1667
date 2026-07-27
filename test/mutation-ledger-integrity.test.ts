@@ -65,13 +65,17 @@ test("mutation ledger store rejects changed immutable bytes and symlink records"
     store.writeUserRecord({ ...prepared, fingerprintHash: "c".repeat(64) }),
     hasCode("idempotency_conflict")
   );
-
-  const other = path.join(dataDir, "nonexistent-record");
-  await symlink(
-    other,
-    path.join(receiptDirectory(dataDir), "completed.json")
-  );
-  await assert.rejects(store.loadUserReceipt("settings", ID), hasCode("internal"));
+  if (process.platform !== "win32") {
+    const other = path.join(dataDir, "nonexistent-record");
+    await symlink(
+      other,
+      path.join(receiptDirectory(dataDir), "completed.json")
+    );
+    await assert.rejects(
+      store.loadUserReceipt("settings", ID),
+      hasCode("internal")
+    );
+  }
 });
 
 test("completed records require and cryptographically bind their prepared record", async (t) => {

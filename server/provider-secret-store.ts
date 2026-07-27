@@ -141,7 +141,7 @@ async function acquireWithBackoff(
   const deadline = Date.now() + SECRETS_LOCK_TIMEOUT_MS;
   for (let delayMs = 5; ; delayMs = Math.min(delayMs * 2, 80)) {
     try {
-      return await lockFile(fd);
+      return await lockFile(fd, lockPath);
     } catch (error) {
       if (!isLockContention(error) || Date.now() >= deadline) {
         if (!isLockContention(error)) throw error;

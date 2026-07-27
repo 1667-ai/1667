@@ -53,7 +53,7 @@ The preflight tool does not:
 
 ## Release package matrix
 
-The release matrix contains exactly five release packages:
+The release matrix contains exactly six release packages:
 
 | Release target | Package name | `buildIdentity` |
 | --- | --- | --- |
@@ -62,9 +62,9 @@ The release matrix contains exactly five release packages:
 | macOS x64 | `@1667-ai/darwin-x64` | Trusted native identity |
 | Linux arm64 | `@1667-ai/linux-arm64` | Trusted native identity |
 | Linux x64 | `@1667-ai/linux-x64` | Trusted native identity |
+| Windows x64 | `@1667-ai/windows-x64` | Trusted native identity |
 
-The matrix contains one launcher package and four platform packages. The
-release matrix does not contain a Windows package.
+The matrix contains one launcher package and five platform packages.
 
 All release packages declare the canonical Git repository. The Linux platform
 packages declare `libc: ["glibc"]`. The launcher package and the macOS platform
@@ -110,8 +110,8 @@ Collect these inputs before preflight:
 3. Run trusted signature verification with `git verify-tag <tag>`.
 4. Select one millisecond-precision UTC build timestamp for all targets.
 5. Use the same version in the root package, TUI package, and root lockfile.
-6. Run `--version --json` on each of the four native executables.
-7. Pack the launcher package and the four platform packages.
+6. Run `--version --json` on each of the five native executables.
+7. Pack the launcher package and the five platform packages.
 
 Each release package must contain `build-manifest.json`, `sbom.spdx.json`,
 `LICENSE`, and `NOTICE`. Each platform package must also contain its native
@@ -149,7 +149,7 @@ The SHA-256 value covers the exact standard-output bytes.
 ## Release plan
 
 The release plan must use strict JSON. The `artifacts` array must contain
-exactly five entries.
+exactly six entries.
 
 This excerpt shows the source evidence and one launcher entry. The excerpt is
 not a complete release plan.
@@ -224,8 +224,9 @@ build on each release target:
 - `darwin-x64`
 - `linux-arm64`
 - `linux-x64`
+- `windows-x64`
 
-All four candidates verify:
+All five candidates verify:
 
 - Embedded build identity
 - Protection from host `bunfig.toml` and `.env` files
@@ -239,11 +240,13 @@ All four candidates verify:
 - Safe use of existing project roots
 
 The macOS candidates verify that supervised server mode refuses the unsupported
-platform. The Linux candidates also verify supervised child replacement,
-parent-death containment, default-port publication, and lock guidance.
+platform. The Windows candidate verifies the same refusal. The Linux candidates
+also verify supervised child replacement, parent-death containment,
+default-port publication, and lock guidance.
 
-Windows is not a release target. Repository tests verify the Windows
-fail-closed contracts separately.
+The Windows candidate also verifies the protected machine-tier DACL. It rejects
+reparse points. It stages the exact npm package layout. It runs the launcher
+against the staged executable.
 
 ## Retain release evidence
 

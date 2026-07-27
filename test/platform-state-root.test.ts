@@ -16,7 +16,9 @@ import {
   type WindowsPrivateStateRootAdapter
 } from "../server/platform-state-root.js";
 
-test("Linux state root uses account home and creates a private root", async (t) => {
+test("Linux state root uses account home and creates a private root", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const home = await temporaryDirectory(t, "1667-state-home-");
   const root = await resolvePrivatePlatformStateRoot({
     platform: "linux",
@@ -28,7 +30,9 @@ test("Linux state root uses account home and creates a private root", async (t) 
   assert.equal((await lstat(root)).mode & 0o777, 0o700);
 });
 
-test("Linux accepts only an absolute private XDG state override", async (t) => {
+test("Linux accepts only an absolute private XDG state override", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const home = await temporaryDirectory(t, "1667-state-home-");
   const override = await temporaryDirectory(t, "1667-xdg-state-");
   await chmod(override, 0o700);
@@ -61,7 +65,9 @@ test("Linux accepts only an absolute private XDG state override", async (t) => {
   );
 });
 
-test("Linux rejects a symlinked state override", async (t) => {
+test("Linux rejects a symlinked state override", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const home = await temporaryDirectory(t, "1667-state-home-");
   const target = await temporaryDirectory(t, "1667-state-target-");
   const container = await temporaryDirectory(t, "1667-state-link-");
@@ -78,7 +84,9 @@ test("Linux rejects a symlinked state override", async (t) => {
   );
 });
 
-test("macOS state root is isolated beneath Application Support", async (t) => {
+test("macOS state root is isolated beneath Application Support", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const home = await temporaryDirectory(t, "1667-macos-home-");
   await mkdir(path.join(home, "Library", "Application Support"), {
     recursive: true
@@ -98,7 +106,9 @@ test("macOS state root is isolated beneath Application Support", async (t) => {
 // The test above creates Application Support first, which is why nothing caught
 // a resolver that only ever required it. A fixture HOME, a fresh account, and a
 // sandboxed environment all lack it.
-test("macOS state root creates Application Support when the account lacks it", async (t) => {
+test("macOS state root creates Application Support when the account lacks it", {
+  skip: process.platform === "win32"
+}, async (t) => {
   const home = await temporaryDirectory(t, "1667-macos-bare-home-");
 
   const root = await resolvePrivatePlatformStateRoot({
@@ -113,17 +123,14 @@ test("macOS state root creates Application Support when the account lacks it", a
   assert.equal((await lstat(root)).mode & 0o777, 0o700);
 });
 
-test("Windows state root fails closed without DACL/reparse support", async () => {
-  await assert.rejects(
-    resolvePrivatePlatformStateRoot({ platform: "win32" }),
-    /DACL\/reparse-safe/
-  );
-
+test("Windows state root delegates to its DACL/reparse adapter", async () => {
   let prepared: string | undefined;
+  let trustedBase: string | undefined;
   const adapter: WindowsPrivateStateRootAdapter = {
     localAppDataDirectory: async () => "C:\\Users\\Ada\\AppData\\Local",
-    preparePrivateStateRoot: async (root) => {
+    preparePrivateStateRoot: async (root, base) => {
       prepared = root;
+      trustedBase = base;
       return root;
     }
   };
@@ -135,6 +142,15 @@ test("Windows state root fails closed without DACL/reparse support", async () =>
     "C:\\Users\\Ada\\AppData\\Local\\1667\\State"
   );
   assert.equal(prepared, "C:\\Users\\Ada\\AppData\\Local\\1667\\State");
+  assert.equal(trustedBase, "C:\\Users\\Ada\\AppData\\Local");
+});
+
+test("simulated Windows fails closed without a native adapter", async () => {
+  if (process.platform === "win32") return;
+  await assert.rejects(
+    resolvePrivatePlatformStateRoot({ platform: "win32" }),
+    /DACL\/reparse-safe/
+  );
 });
 
 async function temporaryDirectory(t: TestContext, prefix: string): Promise<string> {
