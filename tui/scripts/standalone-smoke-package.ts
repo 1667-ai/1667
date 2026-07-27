@@ -30,6 +30,9 @@ import {
   releasePackageJson
 } from "../../scripts/release-package-manifests.js";
 import {
+  createReleasePackageBuildManifest
+} from "../../scripts/release-package-templates.js";
+import {
   readReleaseTarball
 } from "../../scripts/release-tar-reader.js";
 import { runStandalone } from "./standalone-smoke-process.js";
@@ -78,7 +81,7 @@ export async function smokeWindowsNpmPackage(
     ),
     writeJson(
       path.join(launcherRoot, "build-manifest.json"),
-      buildManifest(identity, "1667", "launcher")
+      createReleasePackageBuildManifest(identity, "1667", "launcher")
     ),
     writeJson(
       path.join(launcherRoot, "sbom.spdx.json"),
@@ -90,7 +93,7 @@ export async function smokeWindowsNpmPackage(
     ),
     writeJson(
       path.join(platformRoot, "build-manifest.json"),
-      buildManifest(
+      createReleasePackageBuildManifest(
         identity,
         WINDOWS_TARGET.packageName,
         WINDOWS_TARGET.artifactTarget
@@ -153,6 +156,25 @@ export async function smokeWindowsNpmPackage(
   const observed = parseBuildIdentity(JSON.parse(launched.stdout));
   if (!sameBuildIdentity(observed, identity)) {
     throw new Error("Windows npm launcher did not execute the staged candidate");
+  }
+  const render = await runStandalone(
+    "node",
+    [
+      installedLauncher,
+      "--data",
+      path.join(installRoot, "render-data"),
+      "--render-once",
+      "--size",
+      "20x10"
+    ],
+    installRoot,
+    environment
+  );
+  if (render.exitCode !== 0 || render.stderr !== "") {
+    throw new Error(
+      `Installed Windows npm worker smoke failed (${render.exitCode}): `
+        + render.stderr.trim()
+    );
   }
   return createHash("sha256")
     .update(await readFile(installedExecutable))
@@ -276,22 +298,6 @@ function smokeSbom(
       created: identity.buildTimestamp,
       creators: ["Tool: 1667 standalone package smoke"]
     }
-  };
-}
-
-function buildManifest(
-  identity: BuildIdentity,
-  packageName: string,
-  artifactTarget: "launcher" | "windows-x64"
-) {
-  return {
-    schemaVersion: 1,
-    product: "1667",
-    productVersion: identity.productVersion,
-    sourceCommit: identity.sourceCommit,
-    buildTimestamp: identity.buildTimestamp,
-    packageName,
-    artifactTarget
   };
 }
 

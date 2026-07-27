@@ -7,6 +7,7 @@ import {
   rm,
   writeFile
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,8 +40,16 @@ const execFileAsync = promisify(execFile);
 await mkdir(outputDirectory, { recursive: true });
 const buildIdentity = await deriveBuildIdentity();
 const workerEntry = path.join(repositoryRoot, "server", "worker.ts");
+const tiktokenWasmBase64 = await readFile(
+  createRequire(import.meta.url).resolve("tiktoken/tiktoken_bg.wasm"),
+  "base64"
+);
 const embeddedWorkerSource = process.platform === "win32"
-  ? await buildEmbeddedWorker(workerEntry, buildIdentity)
+  ? await buildEmbeddedWorker(
+      workerEntry,
+      buildIdentity,
+      tiktokenWasmBase64
+    )
   : undefined;
 
 const result = await Bun.build({
@@ -56,6 +65,9 @@ const result = await Bun.build({
   },
   define: {
     __AI_1667_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
+    __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
+      tiktokenWasmBase64
+    ),
     __AI_1667_EMBEDDED_WORKER_SOURCE__: embeddedWorkerSource === undefined
       ? "undefined"
       : JSON.stringify(embeddedWorkerSource)
@@ -73,13 +85,17 @@ if (!result.success) {
 
 async function buildEmbeddedWorker(
   entrypoint: string,
-  identity: BuildIdentity
+  identity: BuildIdentity,
+  tiktokenWasmBase64: string
 ): Promise<string> {
   const result = await Bun.build({
     entrypoints: [entrypoint],
     target: "bun",
     define: {
-      __AI_1667_BUILD_IDENTITY__: JSON.stringify(identity)
+      __AI_1667_BUILD_IDENTITY__: JSON.stringify(identity),
+      __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
+        tiktokenWasmBase64
+      )
     },
     minify: true
   });
@@ -88,7 +104,11 @@ async function buildEmbeddedWorker(
       `Embedded Windows worker build failed: ${result.logs.join("\n")}`
     );
   }
-  return await result.outputs[0]!.text();
+  const source = await result.outputs[0]!.text();
+  if (!source.includes(tiktokenWasmBase64)) {
+    throw new Error("Embedded Windows worker omitted the tokenizer WASM");
+  }
+  return source;
 }
 
 async function deriveBuildIdentity(): Promise<BuildIdentity> {
@@ -259,6 +279,11 @@ async function smokePromptTokenizer(
       outfile: executable,
       autoloadBunfig: false,
       autoloadDotenv: false
+    },
+    define: {
+      __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
+        tiktokenWasmBase64
+      )
     },
     minify: true
   });
