@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -20,7 +21,11 @@ import { platformPerformanceBudget } from "./platform-performance-budget.js";
 export const API_PROTOCOL_HEADERS: Record<string, string> = {
   [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION)
 };
+// Windows Defender can scan each cold native-helper process, which the owned
+// platform scale already covers. The direct adapter contract keeps its
+// independent 10-second production ceiling.
 const SERVER_START_BUDGET_MS = platformPerformanceBudget(10_000);
+const SERVER_STOP_BUDGET_MS = platformPerformanceBudget(1_000);
 let operationClient: HttpOperationClient | null = null;
 let lastReservedMutationId: string | null = null;
 
@@ -55,6 +60,54 @@ export async function waitForTestServer(
   );
 }
 
+export async function stopTestServerProcess(
+  server: ChildProcess
+): Promise<void> {
+  operationClient?.dispose();
+  operationClient = null;
+  delete API_PROTOCOL_HEADERS[HTTP_SERVER_INSTANCE_HEADER];
+  delete API_PROTOCOL_HEADERS[HTTP_AUTHORIZATION_HEADER];
+  if (server.exitCode !== null || server.signalCode !== null) {
+    closeTestServerPipes(server);
+    return;
+  }
+  const closed = new Promise<void>((resolve) =>
+    server.once("close", () => resolve())
+  );
+  server.kill("SIGTERM");
+  if (await settlesWithin(closed, SERVER_STOP_BUDGET_MS)) return;
+  const killed = server.kill("SIGKILL");
+  if (await settlesWithin(closed, SERVER_STOP_BUDGET_MS)) return;
+  closeTestServerPipes(server);
+  throw new Error(
+    killed
+      ? `Test server did not close within ${SERVER_STOP_BUDGET_MS}ms after SIGKILL`
+      : "Test server could not be sent SIGKILL and did not close"
+  );
+}
+
+async function settlesWithin(
+  settled: Promise<void>,
+  milliseconds: number
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      settled.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), milliseconds);
+      })
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+function closeTestServerPipes(server: ChildProcess): void {
+  server.stdout?.destroy();
+  server.stderr?.destroy();
+}
+
 export async function rememberServerInstance(metadata: unknown, origin: string): Promise<void> {
   const serverInstanceId = metadata !== null && typeof metadata === "object"
     ? (metadata as { serverInstanceId?: unknown }).serverInstanceId
@@ -69,6 +122,7 @@ export async function rememberServerInstance(metadata: unknown, origin: string):
   }
   API_PROTOCOL_HEADERS[HTTP_AUTHORIZATION_HEADER] =
     bearerAuthorization(record.capabilities.story);
+  operationClient?.dispose();
   operationClient = new HttpOperationClient({
     root: origin,
     authRecord: record,

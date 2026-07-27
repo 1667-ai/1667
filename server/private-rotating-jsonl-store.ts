@@ -46,6 +46,7 @@ export class PrivateRotatingJsonlStore {
 
   private constructor(
     readonly file: string,
+    private readonly lockFile: string,
     private readonly lockHandle: FileHandle,
     private readonly maximumBytes: number,
     private readonly syncDirectories: (file: string) => Promise<void>
@@ -62,15 +63,13 @@ export class PrivateRotatingJsonlStore {
     if (process.platform !== "win32") {
       await inspectPrivatePosixDirectory(directory, options.directoryName);
     }
-    const lockHandle = await openPrivateAppendFile(
-      path.join(directory, options.lockFileName),
-      0
-    );
+    const lockFile = path.join(directory, options.lockFileName);
+    const lockHandle = await openPrivateAppendFile(lockFile, 0);
     const file = path.join(directory, options.fileName);
     const syncDirectories = options.syncDirectories ?? syncLogDirectories;
     let initializationLock: OsFileLock | undefined;
     try {
-      initializationLock = await acquireStoreLock(lockHandle.fd);
+      initializationLock = await acquireStoreLock(lockHandle.fd, lockFile);
       await reconcileRotation(file, syncDirectories);
       const initialLog = await openPrivateAppendFile(
         file,
@@ -81,6 +80,7 @@ export class PrivateRotatingJsonlStore {
       initializationLock = undefined;
       return new PrivateRotatingJsonlStore(
         file,
+        lockFile,
         lockHandle,
         options.maximumBytes,
         syncDirectories
@@ -105,7 +105,7 @@ export class PrivateRotatingJsonlStore {
     let logHandle: FileHandle | undefined;
     let rollbackBytes: number | undefined;
     try {
-      lock = await acquireStoreLock(this.lockHandle.fd);
+      lock = await acquireStoreLock(this.lockHandle.fd, this.lockFile);
       await reconcileRotation(this.file, this.syncDirectories);
       logHandle = await openPrivateAppendFile(
         this.file,
@@ -122,7 +122,11 @@ export class PrivateRotatingJsonlStore {
         );
       } else {
         rollbackBytes = currentBytes;
-        writeAll(logHandle.fd, bytes);
+        writeAll(
+          logHandle.fd,
+          bytes,
+          process.platform === "win32" ? currentBytes : undefined
+        );
         await logHandle.sync();
         await this.syncDirectories(this.file);
       }
@@ -155,7 +159,8 @@ async function openPrivateAppendFile(
 ): Promise<FileHandle> {
   const handle = await open(
     file,
-    constants.O_RDWR | constants.O_APPEND | constants.O_CREAT
+    constants.O_RDWR | constants.O_CREAT
+      | (process.platform === "win32" ? 0 : constants.O_APPEND)
       | constants.O_NONBLOCK | noFollowFlag(),
     0o600
   );
@@ -282,10 +287,20 @@ function repairIncompleteTail(fd: number): number {
   return 0;
 }
 
-function writeAll(fd: number, bytes: Uint8Array): void {
+function writeAll(
+  fd: number,
+  bytes: Uint8Array,
+  position?: number
+): void {
   let offset = 0;
   while (offset < bytes.length) {
-    const written = writeSync(fd, bytes, offset, bytes.length - offset);
+    const written = writeSync(
+      fd,
+      bytes,
+      offset,
+      bytes.length - offset,
+      position === undefined ? undefined : position + offset
+    );
     if (written === 0) throw new Error("Private JSONL write made no progress");
     offset += written;
   }
@@ -296,11 +311,14 @@ async function syncLogDirectories(file: string): Promise<void> {
   await syncDirectory(path.dirname(path.dirname(file)));
 }
 
-async function acquireStoreLock(fd: number): Promise<OsFileLock> {
+async function acquireStoreLock(
+  fd: number,
+  lockPath: string
+): Promise<OsFileLock> {
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   for (let delayMs = 2; ; delayMs = Math.min(delayMs * 2, 32)) {
     try {
-      return await lockFile(fd);
+      return await lockFile(fd, lockPath);
     } catch (error) {
       if (!isLockContention(error) || Date.now() >= deadline) throw error;
     }

@@ -408,8 +408,5 @@ export function recoveryNotice(warnings: readonly WorkerRecoveryWarning[]): stri
 }
 
 async function retryDelay(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 100);
-    timer.unref?.();
-  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
 }

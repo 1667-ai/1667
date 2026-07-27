@@ -15,7 +15,6 @@ import {
   internalErrorReference,
   toPublicServiceError
 } from "../../server/service-error-policy.js";
-import { PublicRuntimeError } from "../../server/errors.js";
 import type { HttpCapabilityScope } from "../../shared/http-auth.js";
 import { attachHttpServer } from "./http-attach.js";
 
@@ -33,13 +32,11 @@ export async function runHttpCommand(argv: string[]): Promise<boolean> {
 
 export async function runAuthShow(
   argv: string[],
-  output: Pick<NodeJS.WriteStream, "isTTY" | "write"> = process.stdout,
-  platform: NodeJS.Platform = process.platform
+  output: Pick<NodeJS.WriteStream, "isTTY" | "write"> = process.stdout
 ): Promise<void> {
   if (argv[0] !== "show") {
     throw new Error("auth requires the show command");
   }
-  assertPrivateHttpStatePlatform(platform);
   let scope: HttpCapabilityScope | null = null;
   let authFile: string | null = null;
   let origin: string | null = null;
@@ -88,11 +85,9 @@ export async function startLegacyServe(
   dataDirInput: string,
   options: {
     readonly port?: number;
-    readonly platform?: NodeJS.Platform;
     readonly printLogs?: boolean;
   } = {}
 ): Promise<HttpListener> {
-  assertPrivateHttpStatePlatform(options.platform ?? process.platform);
   const dataDir = resolve(dataDirInput);
   return await startHttpListener({
     port: options.port ?? 0,
@@ -165,14 +160,6 @@ export function sanitizeLegacyServeFailure(error: unknown): Error {
 function parseScope(value: string): HttpCapabilityScope {
   if (value === "story" || value === "admin") return value;
   throw new Error("--scope must be story or admin");
-}
-
-function assertPrivateHttpStatePlatform(platform: NodeJS.Platform): void {
-  if (platform !== "win32") return;
-  throw new PublicRuntimeError(
-    "HTTP auth and legacy serve are unavailable on Windows until a DACL "
-      + "and reparse-safe private state adapter is installed."
-  );
 }
 
 function requiredInlineValue(argument: string, flag: string): string {

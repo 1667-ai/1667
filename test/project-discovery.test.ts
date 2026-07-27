@@ -68,7 +68,11 @@ test("a project reached through a symlink resolves to its real path", async (t) 
   const link = path.join(parent, "linked-book");
   await mkdir(real);
   await initializeProject(real);
-  await symlink(real, link);
+  await symlink(
+    real,
+    link,
+    process.platform === "win32" ? "junction" : "dir"
+  );
 
   const outcome = await resolveProject({ cwd: link });
   if (outcome.kind !== "project") throw new Error("expected a discovered project");

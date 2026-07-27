@@ -4,6 +4,7 @@ import test from "node:test";
 import { assembleChapterContext, deriveChapters, isChapterSummaryStale } from "../shared/chapters.js";
 import { activePath, childrenOf, computeRollups, contextSlice, switchToNode, takeIndex } from "../shared/story-tree.js";
 import type { ChapterBreak, StoryNode } from "../shared/types.js";
+import { platformPerformanceBudget } from "./platform-performance-budget.js";
 
 const EARLY = "2026-01-01T00:00:00.000Z";
 const MADE = "2026-01-02T00:00:00.000Z";
@@ -109,10 +110,11 @@ test("legacy summary reset discards breaks above it and applies chapters below i
   );
 });
 
-test("chapter derivation and context assembly stay under 50ms for 5k parts and 40 breaks", (context) => {
+test("chapter derivation and context assembly stay inside the platform budget", (context) => {
   const path = chain(5_000);
   const breaks: ChapterBreak[] = Array.from({ length: 40 }, (_, index) =>
     seam(`break-${index}`, `p${(index + 1) * 125}`, `Chapter ${index + 2}`));
+  const budgetMs = platformPerformanceBudget(50);
   const started = performance.now();
   const chapters = deriveChapters(path, breaks, path);
   const assembled = assembleChapterContext(path, breaks, path);
@@ -120,7 +122,10 @@ test("chapter derivation and context assembly stay under 50ms for 5k parts and 4
   context.diagnostic(`5k chapter derivation + assembly: ${elapsed.toFixed(1)}ms`);
   assert.equal(chapters.length, 41);
   assert.equal(assembled.length, path.length);
-  assert.ok(elapsed < 50, `chapter work took ${elapsed.toFixed(1)}ms`);
+  assert.ok(
+    elapsed < budgetMs,
+    `chapter work took ${elapsed.toFixed(1)}ms (budget ${budgetMs}ms)`
+  );
 });
 
 function chain(count: number): StoryNode[] {

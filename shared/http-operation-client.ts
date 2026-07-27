@@ -287,7 +287,7 @@ export class HttpOperationClient {
         ),
         HTTP_OPERATION_LIFETIME_MS.control
       );
-      timeout.unref?.();
+      unrefDeadlineOutsideWindowsBun(timeout);
       const value = this.createSession(
         scope,
         serverInstanceId,
@@ -401,7 +401,7 @@ function operationLease(
     )),
     Math.max(0, deadlineEpochMs - Date.now())
   );
-  deadlineTimer.unref?.();
+  unrefDeadlineOutsideWindowsBun(deadlineTimer);
   const signal = AbortSignal.any([
     ...(callerSignal === undefined ? [] : [callerSignal]),
     deadline.signal,
@@ -576,6 +576,14 @@ function replacedListener(
 ): boolean {
   const responseInstanceId = response.headers.get(HTTP_SERVER_INSTANCE_HEADER);
   return responseInstanceId !== null && responseInstanceId !== serverInstanceId;
+}
+
+function unrefDeadlineOutsideWindowsBun(
+  timer: ReturnType<typeof setTimeout>
+): void {
+  if (process.platform !== "win32" || !("bun" in process.versions)) {
+    timer.unref?.();
+  }
 }
 
 function controlHeaders(

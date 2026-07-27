@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -11,6 +11,7 @@ import type { StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
+  stopTestServerProcess,
   waitForTestServer
 } from "./http-test-client.js";
 
@@ -300,15 +301,22 @@ async function getStory(base: string, id: string): Promise<StoryPayload> {
 async function testApp(t: test.TestContext): Promise<string> {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-node-http-"));
   const port = await availablePort();
-  const server = spawn(process.execPath, ["--import", "tsx", "server/index.ts"], {
-    cwd: path.resolve(import.meta.dirname, ".."),
-    env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  const server = spawn(
+    process.execPath,
+    ["--import", "tsx", "server/index.ts", "--print-logs"],
+    {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      env: { ...process.env, AI_1667_DATA: dataDir, AI_1667_PORT: String(port) },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
   let output = "";
   server.stdout?.on("data", (chunk) => { output += String(chunk); });
   server.stderr?.on("data", (chunk) => { output += String(chunk); });
-  t.after(async () => { await stopApp(server); await rm(dataDir, { recursive: true, force: true }); });
+  t.after(async () => {
+    await stopTestServerProcess(server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const base = `http://127.0.0.1:${port}`;
   await waitForTestServer(server, base, () => output);
   return base;
@@ -320,13 +328,6 @@ async function availablePort(): Promise<number> {
   const port = (server.address() as AddressInfo).port;
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   return port;
-}
-
-async function stopApp(server: ChildProcess): Promise<void> {
-  if (server.exitCode !== null || server.signalCode !== null) return;
-  server.kill("SIGTERM");
-  await Promise.race([new Promise<void>((resolve) => server.once("exit", () => resolve())), new Promise((resolve) => setTimeout(resolve, 1_000))]);
-  if (server.exitCode === null && server.signalCode === null) server.kill("SIGKILL");
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {

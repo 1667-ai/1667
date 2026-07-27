@@ -9,13 +9,7 @@ export interface ReleaseTargetDescriptor {
   readonly executable: "bin/1667" | "bin/1667.exe";
 }
 
-/** Canonical ordered package/runtime policy for every native release target.
- *
- * windows-x64 is excluded while its native DACL and reparse-safe adapters are
- * incomplete and no Windows CI or developer machine can execute a candidate.
- * The descriptor type keeps win32 so restoring the target is one entry. Until
- * then releaseTargetForRuntime returns null on Windows and the launcher
- * refuses by name rather than shipping something unverifiable. */
+/** Canonical ordered package/runtime policy for every native release target. */
 export const RELEASE_TARGETS = Object.freeze([
   Object.freeze({
     artifactTarget: "darwin-arm64",
@@ -48,6 +42,14 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "x64",
     libc: "glibc",
     executable: "bin/1667"
+  }),
+  Object.freeze({
+    artifactTarget: "windows-x64",
+    packageName: "@1667-ai/windows-x64",
+    platform: "win32",
+    arch: "x64",
+    libc: null,
+    executable: "bin/1667.exe"
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);
 

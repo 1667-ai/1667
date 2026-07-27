@@ -1,8 +1,17 @@
-import { get_encoding, type Tiktoken } from "tiktoken";
+import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { get_encoding, init, type Tiktoken } from "tiktoken/init";
+
+declare const __AI_1667_TIKTOKEN_WASM_BASE64__: string | undefined;
 
 export type PromptTokenCounter = (messageContents: readonly string[]) => number | null;
 
 let tokenizer: Tiktoken | null | undefined;
+
+await init(async (imports) => (
+  await WebAssembly.instantiate(tiktokenWasmBytes(), imports)
+));
 
 /**
  * Exact o200k text-token count. Message framing is deliberately excluded: its
@@ -30,4 +39,17 @@ function o200kTokenizer(): Tiktoken | null {
     tokenizer = null;
   }
   return tokenizer;
+}
+
+function tiktokenWasmBytes(): Uint8Array<ArrayBuffer> {
+  const embedded = typeof __AI_1667_TIKTOKEN_WASM_BASE64__ === "string"
+    ? __AI_1667_TIKTOKEN_WASM_BASE64__
+    : undefined;
+  if (embedded !== undefined) {
+    return Uint8Array.from(Buffer.from(embedded, "base64"));
+  }
+  const require = createRequire(import.meta.url);
+  return Uint8Array.from(readFileSync(
+    require.resolve("tiktoken/tiktoken_bg.wasm")
+  ));
 }

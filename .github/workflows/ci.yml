@@ -77,9 +77,9 @@ jobs:
       fail-fast: false
       matrix:
         target: ${{ fromJSON(github.event_name == 'pull_request'
-          && '["darwin-arm64","linux-arm64","linux-x64"]'
-          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64"]') }}
-    runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04"}')[matrix.target] }}
+          && '["darwin-arm64","linux-arm64","linux-x64","windows-x64"]'
+          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64","windows-x64"]') }}
+    runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
     timeout-minutes: 15
     steps:
       - name: Check out source
@@ -107,15 +107,19 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run native platform tests
-        if: matrix.target != 'darwin-x64'
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         run: npm test
 
       - name: Run Intel macOS platform tests without benchmark contention
         if: matrix.target == 'darwin-x64'
         run: npm test -- --test-concurrency=1
 
+      - name: Run Windows platform tests without process contention
+        if: matrix.target == 'windows-x64'
+        run: npm test -- --test-concurrency=2
+
       - name: Run native TUI tests
-        if: matrix.target != 'darwin-x64'
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         working-directory: tui
         run: bun test
 
@@ -124,6 +128,13 @@ jobs:
         working-directory: tui
         run: bun test --max-concurrency=1
 
+      - name: Run Windows TUI tests without runtime contention
+        if: matrix.target == 'windows-x64'
+        working-directory: tui
+        run: bun test --max-concurrency=1
+
       - name: Build and execute packaged candidate
         working-directory: tui
+        env:
+          AI_1667_WINDOWS_DEFAULT_STATE_SMOKE: ${{ matrix.target == 'windows-x64' && '1' || '0' }}
         run: bun run build:standalone

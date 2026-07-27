@@ -169,7 +169,10 @@ test("worker publishes failure state with its diagnostic message", async () => {
       mode: 0o600
     });
     const logHandle = await open(internalErrorLogLockPath(machineDir), "a");
-    const logLock = await lockFile(logHandle.fd);
+    const logLock = await lockFile(
+      logHandle.fd,
+      internalErrorLogLockPath(machineDir)
+    );
     try {
       const id = sequenceId(workerInstanceId)();
       const terminal = nextTerminalMessageForId(worker, id);

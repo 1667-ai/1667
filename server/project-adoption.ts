@@ -211,7 +211,7 @@ async function lockLegacySource(source: string): Promise<() => Promise<void>> {
   const lockPath = path.join(source, LEGACY_PROCESS_OWNER_LOCK);
   const handle = await open(lockPath, "a+", 0o600);
   try {
-    const lock = await lockFile(handle.fd);
+    const lock = await lockFile(handle.fd, lockPath);
     return async () => {
       try {
         await lock.unlock();

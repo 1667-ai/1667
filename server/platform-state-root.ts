@@ -19,7 +19,10 @@ export interface WindowsPrivateStateRootAdapter {
   /** Must use a platform account API, not an unvalidated process environment. */
   readonly localAppDataDirectory: () => Promise<string>;
   /** Creates/validates a non-inherited current-user + SYSTEM protected DACL. */
-  readonly preparePrivateStateRoot: (root: string) => Promise<string>;
+  readonly preparePrivateStateRoot: (
+    root: string,
+    trustedBase?: string
+  ) => Promise<string>;
 }
 
 export interface PlatformStateRootOptions {
@@ -117,7 +120,10 @@ export async function inspectPrivatePosixDirectory(
 async function resolveWindowsStateRoot(
   options: PlatformStateRootOptions
 ): Promise<string> {
-  const adapter = options.windowsAdapter;
+  const adapter = options.windowsAdapter
+    ?? (process.platform === "win32"
+      ? await defaultWindowsPrivateStateRootAdapter()
+      : undefined);
   if (adapter === undefined) {
     throw new PlatformStateRootError(
       "Application state needs a Windows DACL/reparse-safe platform adapter"
@@ -126,13 +132,22 @@ async function resolveWindowsStateRoot(
   const localAppData = await adapter.localAppDataDirectory();
   requireCanonicalAbsolute(localAppData, path.win32, "Windows LocalAppData");
   const root = path.win32.join(localAppData, "1667", "State");
-  const prepared = await adapter.preparePrivateStateRoot(root);
+  const prepared = await adapter.preparePrivateStateRoot(root, localAppData);
   if (prepared !== root) {
     throw new PlatformStateRootError(
       "Windows state adapter returned a different or non-canonical root"
     );
   }
   return root;
+}
+
+async function defaultWindowsPrivateStateRootAdapter(): Promise<
+  WindowsPrivateStateRootAdapter
+> {
+  const { createWindowsPrivateStateRootAdapter } = await import(
+    "./platform-state-root-windows.js"
+  );
+  return createWindowsPrivateStateRootAdapter();
 }
 
 async function canonicalAccountHome(home: string): Promise<string> {

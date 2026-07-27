@@ -6,8 +6,8 @@
 # suites: ownedLoopbackHttpSupportedOn is Linux-only, so roughly thirty tests
 # skip silently on macOS and Windows and are never otherwise executed.
 #
-# Every shipped release target is reachable from here. windows-x64 is not a
-# shipped target: see shared/release-targets.ts.
+# This script does not reach darwin-x64 or windows-x64. GitHub CI runs these
+# release targets.
 set -uo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

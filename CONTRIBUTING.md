@@ -23,12 +23,7 @@ order matters less than the trail existing.
 
 ## Supported environments
 
-1667 supports **macOS and Linux**, on arm64 and x64.
-
-Windows is not a supported environment and no Windows build is published. The
-runtime fails closed there rather than misbehaving. Please do not open pull
-requests that add Windows support without an issue agreeing the approach first;
-the blocker is a native DACL and reparse-safe adapter, not a missing branch.
+1667 supports macOS arm64, macOS x64, Linux arm64, Linux x64, and Windows x64.
 
 ## Requirements
 
@@ -60,11 +55,12 @@ it is the only way to see the Linux-only suites before you push:
 scripts/ci-local.sh
 ```
 
-That runs every shipped target: `darwin-arm64` natively, and `linux-x64` and
-`linux-arm64` in Docker. Linux has to run in a container even on a Linux host is
-not the reason — it is that roughly thirty provider tests are gated on
-`ownedLoopbackHttpSupportedOn`, which is Linux-only, so they skip silently on
-macOS and never run otherwise.
+On macOS arm64, this script runs `darwin-arm64` natively. It runs `linux-x64`
+and `linux-arm64` in Docker. It does not run `darwin-x64` or `windows-x64`.
+GitHub CI runs these targets.
+
+On Windows x64, run the root gates and the TUI gates directly. Run
+`bun run build:standalone` to test the Windows package candidate.
 
 A full green run records the commit it passed. To have pushes refused unless
 that commit passed, opt into the hook with
@@ -107,10 +103,9 @@ conversation: what was wrong, and why this is the fix.
 Fix a bug, add a regression test. Prefer a test that would have failed before
 your change and passes after.
 
-Tests that depend on a platform should inject it rather than reading
-`process.platform`, so they run everywhere. `test/windows-platform-contract.test.ts`
-is the pattern: it passes `platform: "win32"` explicitly and therefore runs on
-macOS and Linux too.
+Tests that depend on a platform should inject it when possible. Native security
+contract tests can read `process.platform`.
+`test/windows-platform-contract.test.ts` runs only on Windows.
 
 ## Pull requests
 

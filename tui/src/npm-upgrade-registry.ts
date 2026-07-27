@@ -95,8 +95,27 @@ export class NpmUpgradeRegistry {
   }
 
   private async get(path: string, signal: AbortSignal): Promise<Uint8Array> {
-    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
-    const requestSignal = AbortSignal.any([signal, timeoutSignal]);
+    const timeout = new AbortController();
+    const timer = setTimeout(
+      () => timeout.abort(new DOMException("Registry request timed out", "TimeoutError")),
+      this.timeoutMs
+    );
+    try {
+      return await this.getWithSignal(
+        path,
+        signal,
+        AbortSignal.any([signal, timeout.signal])
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async getWithSignal(
+    path: string,
+    callerSignal: AbortSignal,
+    requestSignal: AbortSignal
+  ): Promise<Uint8Array> {
     let response: Response;
     try {
       response = await this.fetcher(`${NPM_REGISTRY_ORIGIN}${path}`, {
@@ -106,7 +125,7 @@ export class NpmUpgradeRegistry {
         signal: requestSignal
       });
     } catch {
-      if (signal.aborted) throw interruptedFailure();
+      if (callerSignal.aborted) throw interruptedFailure();
       throw new UpgradeFailure("network_error", "Could not check for updates.", true);
     }
     if (response.status === 404) {
@@ -126,7 +145,7 @@ export class NpmUpgradeRegistry {
       await cancelResponse(response);
       throw metadataFailure();
     }
-    return readBoundedBody(response, signal);
+    return readBoundedBody(response, callerSignal);
   }
 }
 

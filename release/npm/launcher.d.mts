@@ -6,11 +6,12 @@ export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, Readonly<{
     | "@1667-ai/darwin-arm64"
     | "@1667-ai/darwin-x64"
     | "@1667-ai/linux-arm64"
-    | "@1667-ai/linux-x64";
-  os: "darwin" | "linux";
+    | "@1667-ai/linux-x64"
+    | "@1667-ai/windows-x64";
+  os: "darwin" | "linux" | "win32";
   cpu: "arm64" | "x64";
   libc: "glibc" | null;
-  executable: "bin/1667";
+  executable: "bin/1667" | "bin/1667.exe";
 }>>>;
 
 export interface LaunchPlan {

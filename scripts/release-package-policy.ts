@@ -289,10 +289,15 @@ function assertEntryPolicy(
   entry: TarballInspectionEntry,
   manifest: ReleasePackageManifest
 ): void {
-  const executable = manifest.kind === "launcher"
+  const target = manifest.kind === "launcher"
+    ? null
+    : releaseTargetForArtifact(manifest.target);
+  const executable = target === null
     ? "package/bin/1667.js"
-    : `package/${releaseTargetForArtifact(manifest.target).executable}`;
-  const expectedMode = entry.path === executable ? 0o755 : 0o644;
+    : `package/${target.executable}`;
+  const expectedMode = entry.path === executable && target?.platform !== "win32"
+    ? 0o755
+    : 0o644;
   if (entry.mode !== expectedMode) throw new Error(`${entry.path} has an unsafe mode`);
   if (entry.size === 0) throw new Error(`${entry.path} must not be empty`);
   const maximum = entry.path === executable
