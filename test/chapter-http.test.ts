@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { deriveChapters } from "../shared/chapters.js";
@@ -11,6 +10,7 @@ import type { NodeStub, StoryNode, StoryPayload } from "../shared/types.js";
 import { sha256 } from "../server/story-format.js";
 import {
   API_PROTOCOL_HEADERS,
+  emptyLibraryDataDirectory,
   fetchWithApiProtocol,
   stopTestServerProcess,
   waitForTestServer
@@ -258,7 +258,7 @@ async function removedSummaryFixture(base: string, title: string): Promise<{
 }
 
 async function testApp(t: test.TestContext): Promise<string> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-chapters-http-"));
+  const dataDir = await emptyLibraryDataDirectory("1667-chapters-http-");
   const port = await availablePort();
   const server = spawn(
     process.execPath,
