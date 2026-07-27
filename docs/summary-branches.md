@@ -92,7 +92,7 @@ client confirms that the reader is still on the same idle story and an atomic
 leaf-id plus leaf-text-hash check proves the launch line has not changed.
 Completion from an earlier point follows the same guard, then switches to the
 alternative continuation. The `u` key does not take back this switch: it takes
-back a chapter change only. If the reader moved stories or
+back an added or removed chapter break only. If the reader moved stories or
 lines, wrote into that leaf, or another generation is active, the result is
 retained and announced instead of stealing focus.
 

@@ -178,7 +178,7 @@ the 1667 editor to change story data.
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
 | Generate a new take | `r` or `R` |
-| Undo | `u` |
+| Undo an added or removed chapter break | `u` |
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
 | Open commands | `Ctrl+P` or `:` |
 | Open settings or the key list | `,` or `?` |

@@ -67,15 +67,18 @@ async function switchTakeWith(
   });
 }
 
-/** Take back the last chapter-break change. `u` reaches nothing else. */
-export async function undoChapterChange(
+/** Take back the last added or removed chapter break. `u` reaches nothing else
+ *  — not a chapter rename, not a summary edit, and no prose at all. */
+export async function undoChapterBreakChange(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext
 ): Promise<void> {
   if (generationBusy(state)) return void (state.toast = "stream running · esc stops it first");
   const popped = popUndo(state.undo);
-  if (popped.entry === null) return void (state.toast = "nothing to undo · u takes back a chapter change");
+  if (popped.entry === null) {
+    return void (state.toast = "nothing to undo · u takes back an added or removed chapter break");
+  }
   const entry = popped.entry;
   await context.backend.run("undoing story change", async (task) => {
     const payload = entry.kind === "create-break"
