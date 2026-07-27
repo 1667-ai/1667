@@ -354,6 +354,27 @@ describe("presented mouse reconciliation", () => {
     expect(reconcile(at(1), resolved, captured, interaction(at(1), 21))).toBe(null);
   });
 
+  test("refuses a list row click once that row holds another entry", () => {
+    // Clicking an unselected menu row only moves the cursor, but onto whatever
+    // that row holds now. A selection appearing shifts the entries beneath it.
+    const base = initialState(demoAppSource(), false);
+    base.stream = null;
+    base.mode = "ACTIONS";
+    base.hitRows = [{ target: { kind: "list", index: 7 }, left: 0, right: 20 }];
+    const partId = base.payload.path.at(-1)!.id;
+    const selecting = { ...base, actions: { cursor: 0, partId, selectionText: "prose" } } as State;
+    const plain = { ...base, actions: { cursor: 0, partId } } as State;
+    expect(currentPartActions(selecting)[7]?.id).not.toBe(currentPartActions(plain)[7]?.id);
+
+    const resolved = mouseToAction(click, selecting, false)!;
+    expect(resolved).toEqual({ action: "focus-index", index: 7 });
+    const captured = interaction(selecting, 20);
+
+    expect(reconcile(selecting, resolved, captured, interaction(selecting, 21)))
+      .toEqual({ action: "focus-index", index: 7 });
+    expect(reconcile(plain, resolved, captured, interaction(plain, 21))).toBe(null);
+  });
+
   test("retains stable-prose and relative-only policy after semantic drift", () => {
     const state = initialState(demoAppSource(), false);
     const rowId = state.payload.path.at(-1)!.id;

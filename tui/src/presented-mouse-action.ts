@@ -146,13 +146,12 @@ function sameMouseTarget(
     }
     return true;
   }
-  // A map row's index is a viewport position: the map re-centres, and the same
-  // row shows a different node. Take clicks carry an index, so they are proved
-  // by the row it named, the way map focus already is.
-  if (before.index !== undefined
-    && (beforeState.mode === "MAP" || afterState.mode === "MAP")) {
-    const row = mapRowId(beforeState, before.index);
-    if (row === null || row !== mapRowId(afterState, after.index)) return false;
+  // An index into a list is a position, not a row: maps re-centre, and a
+  // menu's entries change composition while a generation lands. Any gesture
+  // that names a row by index is proved by the row that index held.
+  if (before.index !== undefined && !overlayOwnsStory(beforeState)) {
+    const row = listRowIdentity(beforeState, before.index);
+    if (row === null || row !== listRowIdentity(afterState, after.index)) return false;
   }
   // A gesture that names no cell acts on a selection — the open surface's
   // chosen row, or the focused part when the story has the screen — so the
@@ -181,6 +180,37 @@ function mapRowAt(
 
 function mapRowId(state: MouseActionState, index: number | undefined): string | null {
   return index === undefined ? null : state.map?.rowIds[index] ?? null;
+}
+
+/** True while a surface with its own rows owns the screen. The story's own
+ *  rows carry `rowId`, so they are proved without consulting a list. */
+function overlayOwnsStory(state: MouseActionState): boolean {
+  return !overlayOpen(state) && state.map === null;
+}
+
+/** The row an index named, for surfaces whose rows are derived and can be
+ *  reordered, inserted into or re-centred between one frame and the next.
+ *  Null means the row cannot be named, which reconciliation refuses. */
+function listRowIdentity(state: MouseActionState, index: number | undefined): string | null {
+  if (index === undefined) return null;
+  if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
+  if (state.actions !== null) return currentPartActions(state)[index]?.id ?? null;
+  if (state.library !== null) {
+    return libraryRows(state.library.stories, state.library.query)[index]?.id ?? null;
+  }
+  if (state.commands?.view === "bookmarks") {
+    return state.payload.bookmarks[index]?.nodeId ?? null;
+  }
+  if (state.facts !== null) {
+    return factRows(state.payload.facts, state.facts.selectedTag, state.facts.query)[index]?.id
+      ?? null;
+  }
+  if (state.chapters !== null) {
+    const chapter = createStoryViewModel(state.payload).chapters[index];
+    return chapter === undefined ? null : `chapter:${chapter.openingBreakId ?? "first"}`;
+  }
+  if (state.settings !== null) return SETTINGS_ROW_IDS[index] ?? null;
+  return null;
 }
 
 /** What an action that names no cell acts on. An overlay owns its own
