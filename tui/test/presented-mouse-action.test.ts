@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { createStoryIndex } from "../../shared/story-model.js";
+import { childrenOf, nodeById } from "../../shared/story-tree.js";
+import { rowIndexForNode } from "../src/model.js";
 import { currentPartActions } from "../src/story-actions.js";
 import { mouseToAction, captureMouseActionState } from "../src/mouse-actions.js";
 import {
@@ -406,6 +409,31 @@ describe("presented mouse reconciliation", () => {
     const filtered = { ...state, commands: { ...state.commands, query: "theme" } } as State;
     expect(reconcile(filtered, resolved, interaction(state, 20), interaction(filtered, 21)))
       .toBe(null);
+  });
+
+  test("refuses a take click once that ordinal names another sibling", () => {
+    // `‹ take 2/5 ›` is a position among siblings. Prune an earlier one and
+    // the same number switches the line to a different node.
+    const state = initialState(demoAppSource(), false);
+    state.stream = null;
+    const focused = state.payload.path.at(-2)!;
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), focused.id);
+    const index = createStoryIndex(state.payload);
+    const siblings = childrenOf(index.tree, nodeById(index.tree, focused.id)!.parentId);
+    expect(siblings.length).toBeGreaterThan(2);
+    state.hitRows = [{ target: { kind: "story-take", take: 2 }, left: 0, right: 20 }];
+
+    const resolved = mouseToAction(click, state, false)!;
+    expect(resolved).toEqual({ action: "take-at", take: 2 });
+    const captured = interaction(state, 20);
+    expect(reconcile(state, resolved, captured, interaction(state, 21)))
+      .toEqual({ action: "take-at", take: 2 });
+
+    state.payload = {
+      ...state.payload,
+      nodes: state.payload.nodes.filter((node) => node.id !== siblings[0]!.id)
+    };
+    expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
   });
 
   test("retains stable-prose and relative-only policy after semantic drift", () => {

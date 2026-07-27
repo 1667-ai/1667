@@ -2,9 +2,11 @@ import type { MouseEvent } from "@opentui/core";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
 import { factRows } from "./facts-model.js";
-import { commandMatches, commandSelectionId } from "./command-model.js";
+import { commandContext, commandMatches, commandSelectionId } from "./command-model.js";
 import { libraryRows } from "./library-model.js";
 import { currentPartActions } from "./story-actions.js";
+import { createStoryIndex } from "../../shared/story-model.js";
+import { childrenOf, nodeById } from "../../shared/story-tree.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import { SETTINGS_ROW_IDS } from "./settings-overlay-model.js";
 import {
@@ -153,11 +155,11 @@ function sameMouseTarget(
     }
     return true;
   }
-  // A map take names its row by index, and the map re-centres beneath it.
-  if (before.action === "apply" && before.take !== undefined
-    && (beforeState.mode === "MAP" || afterState.mode === "MAP")) {
-    const row = mapRowId(beforeState, before.index);
-    if (row === null || row !== mapRowId(afterState, after.index)) return false;
+  // A take ordinal is a position among siblings: prune one and the same
+  // number names a different node. Prove the node, not the count.
+  if (before.take !== undefined) {
+    const sibling = takeNodeId(beforeState, before);
+    if (sibling === null || sibling !== takeNodeId(afterState, after)) return false;
   }
   // A gesture that names no cell acts on a selection — the open surface's
   // chosen row, or the focused part when the story has the screen — so the
@@ -184,6 +186,21 @@ function mapRowAt(
   return target?.kind === "list" ? target.mapRow ?? null : null;
 }
 
+/** The sibling a one-based take ordinal names, under the row the gesture
+ *  landed on. The map names that row by index; the story uses its focus. */
+function takeNodeId(state: MouseActionState, action: ResolvedKey): string | null {
+  if (action.take === undefined) return null;
+  const view = createStoryViewModel(state.payload, state.stream);
+  const anchor = state.mode === "MAP"
+    ? mapRowId(state, action.index)
+    : rowPart(view, action.index ?? state.focusIndex)?.id ?? null;
+  if (anchor === null) return null;
+  const index = createStoryIndex(state.payload);
+  const node = nodeById(index.tree, anchor);
+  if (node === null) return null;
+  return childrenOf(index.tree, node.parentId)[action.take - 1]?.id ?? null;
+}
+
 function mapRowId(state: MouseActionState, index: number | undefined): string | null {
   return index === undefined ? null : state.map?.rowIds[index] ?? null;
 }
@@ -202,7 +219,11 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
     if (state.commands.view === "bookmarks") {
       return state.payload.bookmarks[index]?.nodeId ?? null;
     }
-    const match = commandMatches(state.commands.query, state.demo)[index];
+    const match = commandMatches(
+      state.commands.query,
+      state.demo,
+      commandContext(state.payload, state.connection.down, state.requestActive ?? false)
+    )[index];
     return match === undefined ? null : commandSelectionId(match.command);
   }
   if (state.facts !== null) {

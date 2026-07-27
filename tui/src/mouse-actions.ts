@@ -1,6 +1,7 @@
 import type { MouseEvent } from "@opentui/core";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
+import { generationBusy } from "./story-actions.js";
 import type { RuntimeState } from "./state.js";
 
 export type MouseGesture = Pick<
@@ -14,8 +15,15 @@ export type MouseGesture = Pick<
  *  has to compare the row, not its index. */
 export type MouseActionState = Pick<RuntimeState,
   | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo"
+  | "connection"
   | "actions" | "library" | "facts" | "commands" | "chapters" | "settings"
->;
+> & {
+  /** Derived exactly as the panel renderer derives it, since the palette's
+   *  rows — and therefore their indexes — depend on it. Optional so live
+   *  `RuntimeState` still satisfies this type; a captured snapshot always
+   *  carries it, and only snapshots are reconciled. */
+  requestActive?: boolean;
+};
 
 /** Defer selectable story controls until a click proves it was not the start
  * of native text selection. OpenTUI owns the drag; repainting on mouse-down
@@ -76,6 +84,10 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     payload: state.payload,
     stream: state.stream,
     demo: state.demo,
+    // The palette's rows depend on both, so identifying one means seeing what
+    // the frame that drew it saw.
+    connection: state.connection,
+    requestActive: generationBusy(state) || state.summary !== null,
     map: state.map === null ? null : {
       ...state.map,
       rowIds: [...state.map.rowIds],
