@@ -453,7 +453,7 @@ async function waitForControlMessage(
   type: "cancel" | "terminalAck",
   id: WorkerOperationId
 ): Promise<MainToWorkerMessage> {
-  const deadline = performance.now() + platformPerformanceBudget(250);
+  const deadline = performance.now() + platformPerformanceBudget(500);
   do {
     const message = worker.messages.find((candidate) =>
       candidate.type === type && sameWorkerOperationId(candidate.id, id)
