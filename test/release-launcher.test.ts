@@ -40,9 +40,6 @@ const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-23T10:20:30.000Z";
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
 const execFileAsync = promisify(execFile);
-const LAUNCHER_UNVERIFIED_DESCRIPTOR_FIELDS = Object.freeze([
-  "registryPath"
-] as const satisfies readonly (keyof ReleaseTargetDescriptor)[]);
 
 test("standalone launcher target table exactly matches canonical release policy", () => {
   assert.equal(LAUNCHER_PACKAGE_NAME, RELEASE_LAUNCHER_PACKAGE);
@@ -299,9 +296,20 @@ function buildManifest(packageName: string, artifactTarget: string) {
   };
 }
 
-function launcherReleasePolicy(): Record<string, unknown> {
+type LauncherReleaseTargetDescriptor = Readonly<
+  Omit<ReleaseTargetDescriptor, "artifactTarget" | "platform" | "arch">
+  & {
+    readonly os: ReleaseTargetDescriptor["platform"];
+    readonly cpu: ReleaseTargetDescriptor["arch"];
+  }
+>;
+type ReleasePolicyByTarget = Readonly<Record<string, ReleaseTargetDescriptor>>;
+
+function launcherReleasePolicy(): ReleasePolicyByTarget {
+  const targets: Readonly<Record<string, LauncherReleaseTargetDescriptor>> =
+    LAUNCHER_RELEASE_TARGETS;
   return Object.fromEntries(
-    Object.entries(LAUNCHER_RELEASE_TARGETS).map(([artifactTarget, descriptor]) => {
+    Object.entries(targets).map(([artifactTarget, descriptor]) => {
       const { os, cpu, ...fields } = descriptor;
       return [artifactTarget, {
         artifactTarget,
@@ -313,12 +321,9 @@ function launcherReleasePolicy(): Record<string, unknown> {
   );
 }
 
-function canonicalLauncherReleasePolicy(): Record<string, unknown> {
-  return Object.fromEntries(RELEASE_TARGETS.map((descriptor) => {
-    const verified = { ...descriptor } as Record<string, unknown>;
-    for (const field of LAUNCHER_UNVERIFIED_DESCRIPTOR_FIELDS) {
-      delete verified[field];
-    }
-    return [descriptor.artifactTarget, verified];
-  }));
+function canonicalLauncherReleasePolicy(): ReleasePolicyByTarget {
+  return Object.fromEntries(RELEASE_TARGETS.map((descriptor) => [
+    descriptor.artifactTarget,
+    descriptor
+  ]));
 }

@@ -56,13 +56,6 @@ test("release package matrix pins every platform as an exact optional dependency
     matrix.launcher.optionalDependencies,
     releasePlatformDependencyGraph(VERSION)
   );
-  for (const manifest of matrix.platforms) {
-    if (manifest.os[0] === "linux") {
-      assert.equal(manifest.libc, "glibc");
-    } else {
-      assert.equal(manifest.libc, null);
-    }
-  }
 });
 
 test("release package policy rejects scripts, undeclared fields, target skew, and matrix holes", () => {

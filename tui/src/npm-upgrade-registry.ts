@@ -2,8 +2,8 @@ import { isSemVer, parseSemVer } from "../../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
   RELEASE_LAUNCHER_PACKAGE,
-  RELEASE_LAUNCHER_REGISTRY_PATH,
   RELEASE_PLATFORM_PACKAGES,
+  registryPathForPackage,
   releasePlatformDependencyGraph,
   releaseTargetForPackage,
   type ReleasePlatformPackage
@@ -46,7 +46,7 @@ export class NpmUpgradeRegistry {
 
   async channelHead(channel: UpgradeChannel, signal: AbortSignal): Promise<string> {
     const body = await this.get(
-      `/-/package/${RELEASE_LAUNCHER_REGISTRY_PATH}/dist-tags`,
+      `/-/package/${registryPathForPackage(LAUNCHER_PACKAGE)}/dist-tags`,
       signal
     );
     return parseNpmDistTags(body, channel);
@@ -58,7 +58,7 @@ export class NpmUpgradeRegistry {
   ): Promise<NpmVersionMetadata> {
     return parseNpmExactVersionMetadata(
       await this.get(
-        `/${RELEASE_LAUNCHER_REGISTRY_PATH}/${encodeURIComponent(version)}`,
+        `/${registryPathForPackage(LAUNCHER_PACKAGE)}/${encodeURIComponent(version)}`,
         signal
       ),
       {
@@ -78,7 +78,7 @@ export class NpmUpgradeRegistry {
     if (target === null) throw metadataFailure();
     return parseNpmExactVersionMetadata(
       await this.get(
-        `/${target.registryPath}/${encodeURIComponent(version)}`,
+        `/${registryPathForPackage(packageName)}/${encodeURIComponent(version)}`,
         signal
       ),
       {

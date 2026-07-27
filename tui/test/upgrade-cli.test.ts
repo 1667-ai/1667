@@ -105,7 +105,7 @@ test("human plan output uses only locally derived fixed instructions", async () 
   expect(result.stdout).toContain(
     "https://www.npmjs.com/package/@1667-ai/cli/v/2.0.0"
   );
-  expect(result.stdout).toContain("/package/@1667-ai/cli/v/");
+  expect(result.stdout).not.toContain("%2f");
   expect(result.stdout).not.toContain("github");
   expect(result.stdout).toContain("outside 1667's trust boundary");
   expect(result.stdout).not.toContain("npm install");

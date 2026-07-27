@@ -1,25 +1,12 @@
 export const RELEASE_LAUNCHER_PACKAGE = "@1667-ai/cli" as const;
-export const RELEASE_LAUNCHER_REGISTRY_PATH = registryPathForPackage(
-  RELEASE_LAUNCHER_PACKAGE
-);
 
 export interface ReleaseTargetDescriptor {
   readonly artifactTarget: string;
   readonly packageName: string;
-  readonly registryPath: string;
   readonly platform: "darwin" | "linux" | "win32";
   readonly arch: "arm64" | "x64";
   readonly libc: "glibc" | null;
   readonly executable: "bin/1667" | "bin/1667.exe";
-}
-
-function releaseTarget<
-  const Descriptor extends Omit<ReleaseTargetDescriptor, "registryPath">
->(descriptor: Descriptor): Readonly<Descriptor & { registryPath: string }> {
-  return Object.freeze({
-    ...descriptor,
-    registryPath: registryPathForPackage(descriptor.packageName)
-  });
 }
 
 /** Canonical ordered package/runtime policy for every native release target.
@@ -30,7 +17,7 @@ function releaseTarget<
  * then releaseTargetForRuntime returns null on Windows and the launcher
  * refuses by name rather than shipping something unverifiable. */
 export const RELEASE_TARGETS = Object.freeze([
-  releaseTarget({
+  Object.freeze({
     artifactTarget: "darwin-arm64",
     packageName: "@1667-ai/darwin-arm64",
     platform: "darwin",
@@ -38,7 +25,7 @@ export const RELEASE_TARGETS = Object.freeze([
     libc: null,
     executable: "bin/1667"
   }),
-  releaseTarget({
+  Object.freeze({
     artifactTarget: "darwin-x64",
     packageName: "@1667-ai/darwin-x64",
     platform: "darwin",
@@ -46,7 +33,7 @@ export const RELEASE_TARGETS = Object.freeze([
     libc: null,
     executable: "bin/1667"
   }),
-  releaseTarget({
+  Object.freeze({
     artifactTarget: "linux-arm64",
     packageName: "@1667-ai/linux-arm64",
     platform: "linux",
@@ -54,7 +41,7 @@ export const RELEASE_TARGETS = Object.freeze([
     libc: "glibc",
     executable: "bin/1667"
   }),
-  releaseTarget({
+  Object.freeze({
     artifactTarget: "linux-x64",
     packageName: "@1667-ai/linux-x64",
     platform: "linux",
@@ -64,8 +51,8 @@ export const RELEASE_TARGETS = Object.freeze([
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);
 
-function registryPathForPackage(packageName: string): string {
-  return packageName.replace("/", "%2f");
+export function registryPathForPackage(packageName: string): string {
+  return packageName.replaceAll("/", "%2f");
 }
 
 export type PackagedArtifactTarget = typeof RELEASE_TARGETS[number]["artifactTarget"];
