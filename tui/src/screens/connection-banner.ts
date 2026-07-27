@@ -7,7 +7,7 @@ import { fitLine, visibleWidth, type FrameLine } from "./story/frame.js";
 
 export function renderConnectionBanner(
   base: FrameLine[],
-  state: OverlayState & Pick<StoryScreenState, "mode" | "bookmark"> & { now: number },
+  state: OverlayState & Pick<StoryScreenState, "mode" | "tag"> & { now: number },
   width: number,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
@@ -18,8 +18,8 @@ export function renderConnectionBanner(
   const retrying = state.connection.nextRetryAt === null ? "retry paused" : `retrying in ${seconds}s`;
   const ownsText = textOwnsKeyboard(state.mode, {
     overlayTyping: overlayTextInputActive(state),
-    commandsBookmarks: state.commands?.view === "bookmarks",
-    bookmarkChoosingLabel: state.bookmark?.choosingLabel ?? false
+    commandsTags: state.commands?.view === "tags",
+    tagChoosingStatus: state.tag?.choosingStatus ?? false
   });
   const retry = ownsText ? "retry now" : "R retries now";
   const attempts = `(attempt ${state.connection.attempt}/5)`;

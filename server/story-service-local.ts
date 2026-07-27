@@ -15,7 +15,7 @@ import {
 } from "./service-input.js";
 import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
-import { putStoryBookmark, removeStoryBookmark } from "./story-bookmarks.js";
+import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import { createFacts, deleteFact, patchFact } from "./story-facts.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
@@ -305,22 +305,22 @@ export class StoryServiceLocal {
         mutationRequest,
         "putBookmark",
         (story) => {
-          const existing = story.bookmarks.find(
-            (bookmark) => bookmark.nodeId === nodeId
+          const existing = story.tags.find(
+            (tag) => tag.nodeId === nodeId
           );
           const unchanged = existing?.name === name
-            && existing.label === label
-            && (label !== "Canon" || story.bookmarks.every(
-              (bookmark) => bookmark.nodeId === nodeId
-                || bookmark.label !== "Canon"
+            && existing.status === label
+            && (label !== "Canon" || story.tags.every(
+              (tag) => tag.nodeId === nodeId
+                || tag.status !== "Canon"
             ));
-          putStoryBookmark(story, nodeId, name, label);
+          putStoryTag(story, nodeId, name, label);
           return unchanged ? STORY_UNCHANGED : undefined;
         }
       );
     }
     return buildStoryPayload(
-      await this.dependencies.stories.setBookmark(id, nodeId, name, label)
+      await this.dependencies.stories.setTag(id, nodeId, name, label)
     );
   }
 
@@ -334,7 +334,7 @@ export class StoryServiceLocal {
       return await this.localStoryPayload(
         mutationRequest,
         "deleteBookmark",
-        (story) => { removeStoryBookmark(story, nodeId); }
+        (story) => { removeStoryTag(story, nodeId); }
       );
     }
     return buildStoryPayload(

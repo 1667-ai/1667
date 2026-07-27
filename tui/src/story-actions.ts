@@ -1,5 +1,5 @@
 import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
-import { BOOKMARK_LABELS, type StoryNode } from "../../shared/types.js";
+import { TAG_STATUSES, type StoryNode } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
 import { openFactFromSelection, openPartEditor } from "./editor-action.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
@@ -47,9 +47,9 @@ import type { StorySelectionSpan } from "./selection-projection.js";
 import type { ActionContext } from "./action-context.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import {
-  advanceOrSaveBookmark,
+  advanceOrSaveTag,
   confirmPrune,
-  removeBookmark,
+  removeTag,
   switchTake,
   switchTakeAt,
   undoSwitch
@@ -159,7 +159,7 @@ export async function navAction(
   // These all share runPartAction's guard block, so keys and the menu can
   // never drift apart on what is allowed.
   else if (resolved.action === "prune") await runPartAction("prune", state, source, context);
-  else if (resolved.action === "bookmark") await runPartAction("bookmark", state, source, context);
+  else if (resolved.action === "tag") await runPartAction("tag", state, source, context);
   else if (resolved.action === "edit") await runPartAction("edit", state, source, context);
   else if (resolved.action === "write") await runPartAction("write", state, source, context);
   else if (resolved.action === "regenerate") await runPartAction("retake", state, source, context);
@@ -275,7 +275,7 @@ export async function runPartAction(
     if (selectionText === null) state.toast = "highlight story text before creating a fact";
     else openFactFromSelection(state, selectionText);
   }
-  else if (id === "bookmark") openBookmark(state, node.id);
+  else if (id === "tag") openTag(state, node.id);
   else if (id === "prune") armPrune(state, node.id);
 }
 
@@ -326,24 +326,24 @@ export async function actionsMenuAction(
   }
 }
 
-export async function bookmarkAction(
+export async function tagAction(
   resolved: ResolvedKey,
   state: RuntimeState,
   source: AppSource,
   context: ActionContext
 ): Promise<void> {
-  const prompt = state.bookmark;
+  const prompt = state.tag;
   if (prompt === null) return;
   if (resolved.action === "cancel") {
     state.mode = prompt.returnMode;
-    state.bookmark = null;
+    state.tag = null;
     return;
   }
-  if (resolved.action === "apply") return await advanceOrSaveBookmark(state, source, context);
-  if (resolved.action === "delete-bookmark") return await removeBookmark(state, source, context);
-  if (prompt.choosingLabel) {
-    if (resolved.action === "take-next") prompt.labelIndex = (prompt.labelIndex + 1) % BOOKMARK_LABELS.length;
-    if (resolved.action === "take-previous") prompt.labelIndex = (prompt.labelIndex - 1 + BOOKMARK_LABELS.length) % BOOKMARK_LABELS.length;
+  if (resolved.action === "apply") return await advanceOrSaveTag(state, source, context);
+  if (resolved.action === "delete-tag") return await removeTag(state, source, context);
+  if (prompt.choosingStatus) {
+    if (resolved.action === "take-next") prompt.statusIndex = (prompt.statusIndex + 1) % TAG_STATUSES.length;
+    if (resolved.action === "take-previous") prompt.statusIndex = (prompt.statusIndex - 1 + TAG_STATUSES.length) % TAG_STATUSES.length;
     return;
   }
   const name = applyTextKey(prompt.name, resolved);
@@ -507,21 +507,21 @@ export async function rerouteFromMap(
   });
 }
 
-export function openBookmark(state: RuntimeState, targetId?: string): void {
+export function openTag(state: RuntimeState, targetId?: string): void {
   const origin = state.mode === "MAP" && state.map !== null ? "MAP" : "NAV";
   const baseId = targetId ?? (origin === "MAP"
     ? state.map?.pathCursorId
     : rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id ?? state.payload.path.at(-1)?.id);
   if (baseId === null || baseId === undefined) return;
   const nodeId = rememberedLeafId(state.payload, baseId, createStoryIndex(state.payload));
-  const existing = state.payload.bookmarks.find((bookmark) => bookmark.nodeId === nodeId) ?? null;
-  state.bookmark = {
+  const existing = state.payload.tags.find((tag) => tag.nodeId === nodeId) ?? null;
+  state.tag = {
     nodeId,
     name: existing?.name ?? "",
-    labelIndex: Math.max(0, BOOKMARK_LABELS.indexOf(existing?.label ?? "")),
-    choosingLabel: false,
+    statusIndex: Math.max(0, TAG_STATUSES.indexOf(existing?.status ?? "")),
+    choosingStatus: false,
     existing: existing !== null,
     returnMode: origin
   };
-  state.mode = "BOOKMARK";
+  state.mode = "TAG";
 }

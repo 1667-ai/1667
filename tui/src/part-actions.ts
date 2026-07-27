@@ -2,7 +2,7 @@ import type { StoryNode } from "../../shared/types.js";
 
 export type PartActionId =
   | "direct" | "continue" | "retake" | "retake-with-prompt" | "write" | "edit"
-  | "copy" | "fact-from-selection" | "bookmark" | "prune";
+  | "copy" | "fact-from-selection" | "tag" | "prune";
 
 export interface PartAction {
   id: PartActionId;
@@ -13,7 +13,7 @@ export interface PartAction {
 /** Local prompt/confirmation phases that must never freeze a virtual stream ID
  * as their eventual mutation target. */
 export function partActionRequiresPersistedTarget(id: PartActionId): boolean {
-  return id === "bookmark" || id === "prune" || id === "retake-with-prompt";
+  return id === "tag" || id === "prune" || id === "retake-with-prompt";
 }
 
 /** OpenCode-style actions for one part, filtered to what it can actually do. */
@@ -41,7 +41,7 @@ export function partActions(node: StoryNode | undefined, isLeaf: boolean, hasSel
     description: "edit the text and optional tag"
   });
   actions.push(
-    { id: "bookmark", name: "Bookmark", description: "name the line this part ends" },
+    { id: "tag", name: "Tag", description: "name the line this part ends" },
     { id: "prune", name: "Prune", description: "delete this take and everything under it" }
   );
   return actions;

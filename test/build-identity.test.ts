@@ -22,10 +22,15 @@ const packagedInput = {
 const packaged = createPackagedBuildIdentity(packagedInput);
 
 test("source identity is explicit and cannot masquerade as a packaged build", () => {
+  // Pinned on purpose, so the advertised version and the wire shape can only
+  // move together. v6 renamed the payload's `bookmarks` to `tags`, moved the
+  // tag routes, and renamed the request `label` to `status`; a v5 client has to
+  // be refused at preflight rather than negotiate a session and then fail to
+  // decode. Change this only alongside the wire change that earns it.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    5,
-    "operation-session reservation requires HTTP API v5"
+    6,
+    "operation-session reservation requires HTTP API v6"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

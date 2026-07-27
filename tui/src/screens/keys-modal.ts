@@ -134,10 +134,10 @@ const SECTIONS: readonly KeysModalSection[] = [
   {
     title: "SHAPE",
     blurb: "arrange what exists",
-    role: "bookmark · alt",
+    role: "tag · alt",
     entries: [
       entry("delete take and below", [binding("navPrune")]),
-      entry("bookmark the line here", [binding("navBookmark")]),
+      entry("tag the line here", [binding("navTag")]),
       entry("chapters · end one here", [
         binding("navOpenChapters"),
         binding("navCreateChapter")
@@ -153,7 +153,7 @@ const SECTIONS: readonly KeysModalSection[] = [
   {
     title: "OPEN",
     blurb: "panels and views",
-    role: "bookmark · canon",
+    role: "tag · canon",
     entries: [
       entry("map of the whole story", [binding("navOpenMap")]),
       entry("facts kept for context", [binding("navOpenFacts")]),
@@ -201,9 +201,9 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapTreeSort"),
         binding("mapMassSort")
       ]),
-      entry("prune · bookmark · path", [
+      entry("prune · tag · path", [
         binding("mapPathPrune"),
-        binding("mapPathBookmark")
+        binding("mapPathTag")
       ])
     ]
   }

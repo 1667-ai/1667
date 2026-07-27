@@ -230,7 +230,7 @@ test("story store: unused-take pruning is atomic, preserves intent, and rejects 
     node("draft-a", "root", "draft a"), node("draft-b", "root", "draft b"),
     node("named", "root", "named")
   ], "root");
-  story.bookmarks.push({ nodeId: "named", name: "Named line", label: "Alt", color: "#123", createdAt: NOW });
+  story.tags.push({ nodeId: "named", name: "Named line", status: "Alt", color: "#123", createdAt: NOW });
   await store.save(story);
 
   await assert.rejects(
@@ -263,7 +263,7 @@ test("story store: unused-take pruning is atomic, preserves intent, and rejects 
     expectedPartCount: 2
   });
   assert.deepEqual(pruned.nodes.map(({ id }) => id), ["root", "continued", "deep", "named"]);
-  assert.equal(pruned.bookmarks[0]?.nodeId, "named");
+  assert.equal(pruned.tags[0]?.nodeId, "named");
   assert.deepEqual(activePath(pruned).map(({ id }) => id), ["root", "continued", "deep"]);
 });
 
@@ -286,63 +286,89 @@ test("story nodes: unused-take pruning stays linear across a 20k-take fork", () 
   assert.ok(elapsed < 1_000, `20k-take prune took ${elapsed.toFixed(1)}ms`);
 });
 
-test("story store: bookmark canon, color, advance, and deletion rules persist", async (t) => {
+test("story store: tag canon, color, advance, and deletion rules persist", async (t) => {
   const { store } = await testStore(t);
-  const story = fixture("bookmarks", [node("root", null, "root", "left"), node("left", "root", "left"), node("right", "root", "right")], "root");
+  const story = fixture("tags", [node("root", null, "root", "left"), node("left", "root", "left"), node("right", "root", "right")], "root");
   await store.save(story);
-  await store.setBookmark(story.id, "left", "Left line", "Canon");
-  let saved = await store.setBookmark(story.id, "right", "Right line", "Canon");
-  assert.equal(saved.bookmarks.find((bookmark) => bookmark.nodeId === "left")!.label, "");
-  assert.equal(saved.bookmarks.find((bookmark) => bookmark.nodeId === "right")!.label, "Canon");
-  assert.equal(saved.bookmarks[0]!.color, "#4b45c9");
-  assert.equal(saved.bookmarks[1]!.color, "#2f9e6b");
+  await store.setTag(story.id, "left", "Left line", "Canon");
+  let saved = await store.setTag(story.id, "right", "Right line", "Canon");
+  assert.equal(saved.tags.find((tag) => tag.nodeId === "left")!.status, "Alt");
+  assert.equal(saved.tags.find((tag) => tag.nodeId === "right")!.status, "Canon");
+  assert.equal(saved.tags[0]!.color, "#4b45c9");
+  assert.equal(saved.tags[1]!.color, "#2f9e6b");
 
   await store.switchLine(story.id, "right");
   saved = await store.createNode(story.id, "right", "continued", "Continue");
   const child = saved.nodes.at(-1)!;
-  assert.equal(saved.bookmarks.find((bookmark) => bookmark.name === "Right line")!.nodeId, child.id);
+  assert.equal(saved.tags.find((tag) => tag.name === "Right line")!.nodeId, child.id);
   const forked = await store.createNode(story.id, "right", "sibling", "Fork");
-  assert.equal(forked.bookmarks.find((bookmark) => bookmark.name === "Right line")!.nodeId, child.id, "forking a non-leaf does not move it");
+  assert.equal(forked.tags.find((tag) => tag.name === "Right line")!.nodeId, child.id, "forking a non-leaf does not move it");
   const deleted = await store.deleteNode(story.id, child.id, 1);
-  assert.equal(deleted.bookmarks.some((bookmark) => bookmark.name === "Right line"), false);
+  assert.equal(deleted.tags.some((tag) => tag.name === "Right line"), false);
 });
 
-test("story store: an inactive parent gets a sibling take without moving its bookmark or active path", async (t) => {
+test("story store: naming a new canon demotes the previous one to Alt and keeps the rest of its tag", async (t) => {
+  const { store } = await testStore(t);
+  const story = fixture("canon-handover", [
+    node("root", null, "root", "left"), node("left", "root", "left"), node("right", "root", "right")
+  ], "root");
+  await store.save(story);
+  const first = await store.setTag(story.id, "left", "The long winter", "Canon");
+  const before = first.tags.find((tag) => tag.nodeId === "left")!;
+
+  const saved = await store.setTag(story.id, "right", "The short winter", "Canon");
+  const demoted = saved.tags.find((tag) => tag.nodeId === "left")!;
+
+  // Alt, not "": the writer named this line and kept it, so it stays visibly a
+  // line they chose rather than dropping to a state that renders like an
+  // untagged leaf.
+  assert.equal(demoted.status, "Alt");
+  assert.equal(demoted.name, "The long winter", "the demoted line keeps its name");
+  assert.equal(demoted.color, before.color, "and its colour");
+  assert.equal(demoted.createdAt, before.createdAt, "and when it was made");
+  assert.equal(
+    saved.tags.filter((tag) => tag.status === "Canon").length,
+    1,
+    "canon stays a singleton"
+  );
+});
+
+test("story store: an inactive parent gets a sibling take without moving its tag or active path", async (t) => {
   const { store } = await testStore(t);
   const story = fixture("inactive-create", [
     node("root", null, "root", "C"), node("B", "root", "B"), node("C", "root", "C")
   ], "root");
-  story.bookmarks.push({ nodeId: "B", name: "Remember B", label: "Alt", color: "#123", createdAt: NOW });
+  story.tags.push({ nodeId: "B", name: "Remember B", status: "Alt", color: "#123", createdAt: NOW });
   await store.save(story);
 
   let saved = await store.createNode(story.id, "B", "B continues", "Keep going");
   const child = saved.nodes.at(-1)!;
   assert.equal(child.parentId, "B");
   assert.deepEqual(activePath(saved).map(({ id }) => id), ["root", "C"]);
-  assert.equal(saved.bookmarks[0]!.nodeId, "B");
+  assert.equal(saved.tags[0]!.nodeId, "B");
 
-  saved = await store.setBookmark(story.id, "B", "Updated B", "Draft");
-  assert.equal(saved.bookmarks[0]!.name, "Updated B", "an existing migrated non-leaf bookmark remains editable");
-  assert.equal(saved.bookmarks[0]!.label, "Draft");
+  saved = await store.setTag(story.id, "B", "Updated B", "Draft");
+  assert.equal(saved.tags[0]!.name, "Updated B", "an existing migrated non-leaf tag remains editable");
+  assert.equal(saved.tags[0]!.status, "Draft");
 });
 
 test("story store: a logical line end with an inactive child can still be named", async (t) => {
   const { store } = await testStore(t);
   // "end" finishes the active line (activeChildId null) while an inactive
   // child hangs below — the shape a switched-away summary commit leaves.
-  const story = fixture("line-end-bookmark", [
+  const story = fixture("line-end-tag", [
     node("root", null, "root", "end"), node("end", "root", "the line ends here"),
     node("inactive-child", "end", "a summary committed after switching away")
   ], "root");
   await store.save(story);
 
-  const saved = await store.setBookmark(story.id, "end", "Named ending", "Alt");
-  assert.equal(saved.bookmarks[0]!.nodeId, "end");
+  const saved = await store.setTag(story.id, "end", "Named ending", "Alt");
+  assert.equal(saved.tags[0]!.nodeId, "end");
 
   await assert.rejects(
-    store.setBookmark(story.id, "root", "Mid-line", "Draft"),
+    store.setTag(story.id, "root", "Mid-line", "Draft"),
     /end of a line/i,
-    "a node whose line continues below it cannot take a new bookmark"
+    "a node whose line continues below it cannot take a new tag"
   );
 });
 
@@ -411,17 +437,17 @@ test("story store: compare-and-switch requires the complete launch-line fingerpr
   assert.deepEqual(switched.recentNodeIds, ["left"]);
 });
 
-test("story store: switching from another line into an asynchronously inserted child advances its endpoint bookmark", async (t) => {
+test("story store: switching from another line into an asynchronously inserted child advances its endpoint tag", async (t) => {
   const { store } = await testStore(t);
   const story = fixture("async-child", [
     node("root", null, "root", "C"), node("B", "root", "B"),
     node("summary", "B", "summary"), node("C", "root", "C")
   ], "root");
-  story.bookmarks.push({ nodeId: "B", name: "Async line", label: "Alt", color: "#123", createdAt: NOW });
+  story.tags.push({ nodeId: "B", name: "Async line", status: "Alt", color: "#123", createdAt: NOW });
   await store.save(story);
 
   const saved = await store.switchLine(story.id, "summary");
-  assert.equal(saved.bookmarks[0]!.nodeId, "summary");
+  assert.equal(saved.tags[0]!.nodeId, "summary");
   assert.deepEqual(activePath(saved).map(({ id }) => id), ["root", "B", "summary"]);
 });
 
@@ -664,7 +690,7 @@ test("story store: V2 bundles and legacy JSON load, then save as V5", async (t) 
 });
 
 function fixture(id: string, nodes: StoryNode[], activeRootId: string | null): Story {
-  return { id, title: "Story", createdAt: NOW, updatedAt: NOW, nodes, activeRootId, bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: [] };
+  return { id, title: "Story", createdAt: NOW, updatedAt: NOW, nodes, activeRootId, tags: [], recentNodeIds: [], facts: [], chapterBreaks: [] };
 }
 
 function node(id: string, parentId: string | null, text: string, activeChildId: string | null = null): StoryNode {

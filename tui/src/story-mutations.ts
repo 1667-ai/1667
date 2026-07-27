@@ -1,7 +1,7 @@
-import { BOOKMARK_LABELS } from "../../shared/types.js";
+import { TAG_STATUSES } from "../../shared/types.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import { bookmarkGlyph } from "./bookmark-presentation.js";
+import { tagGlyph } from "./tag-presentation.js";
 import { generationBusy } from "./generation-action.js";
 import {
   createStoryViewModel,
@@ -136,58 +136,58 @@ export async function confirmPrune(
   });
 }
 
-export async function advanceOrSaveBookmark(
+export async function advanceOrSaveTag(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext
 ): Promise<void> {
-  const prompt = state.bookmark;
+  const prompt = state.tag;
   if (prompt === null) return;
-  if (!prompt.choosingLabel) {
+  if (!prompt.choosingStatus) {
     if (prompt.name.trim().length === 0) {
-      state.toast = "bookmark name required";
+      state.toast = "tag name required";
       return;
     }
-    prompt.choosingLabel = true;
+    prompt.choosingStatus = true;
     return;
   }
   const name = prompt.name.trim();
-  const label = BOOKMARK_LABELS[prompt.labelIndex]!;
-  await context.backend.run("saving bookmark", async (task) => {
+  const label = TAG_STATUSES[prompt.statusIndex]!;
+  await context.backend.run("saving tag", async (task) => {
     const payload = await source.api.putBookmark(task.storyId, prompt.nodeId, name, label);
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
-    if (state.bookmark === prompt
+    if (state.tag === prompt
       && prompt.name.trim() === name
-      && BOOKMARK_LABELS[prompt.labelIndex] === label) {
+      && TAG_STATUSES[prompt.statusIndex] === label) {
       state.mode = prompt.returnMode;
-      state.bookmark = null;
-      state.toast = `${bookmarkGlyph(label)} ${name} saved`;
+      state.tag = null;
+      state.toast = `${tagGlyph(label)} ${name} saved`;
     }
   });
 }
 
-export async function removeBookmark(
+export async function removeTag(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext
 ): Promise<void> {
-  const prompt = state.bookmark;
+  const prompt = state.tag;
   if (prompt === null || !prompt.existing) return;
   const submittedName = prompt.name;
-  const submittedLabelIndex = prompt.labelIndex;
-  const submittedChoosingLabel = prompt.choosingLabel;
-  await context.backend.run("deleting bookmark", async (task) => {
+  const submittedStatusIndex = prompt.statusIndex;
+  const submittedChoosingStatus = prompt.choosingStatus;
+  await context.backend.run("deleting tag", async (task) => {
     const payload = await source.api.deleteBookmark(task.storyId, prompt.nodeId);
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
-    if (state.bookmark === prompt
+    if (state.tag === prompt
       && prompt.name === submittedName
-      && prompt.labelIndex === submittedLabelIndex
-      && prompt.choosingLabel === submittedChoosingLabel) {
+      && prompt.statusIndex === submittedStatusIndex
+      && prompt.choosingStatus === submittedChoosingStatus) {
       state.mode = prompt.returnMode;
-      state.bookmark = null;
-      state.toast = "bookmark deleted";
+      state.tag = null;
+      state.toast = "tag deleted";
     }
   });
 }

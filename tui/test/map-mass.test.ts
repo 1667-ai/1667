@@ -39,13 +39,13 @@ describe("MAP mass rows", () => {
     };
     for (const sort of ["size", "recency", "depth", "name"] as const) {
       const names = createAtlasLayout(payload, { now: NOW, sort }).allRows
-        .map((row) => row.bookmark?.name ?? "");
+        .map((row) => row.tag?.name ?? "");
       expect(names).toEqual(expected[sort]);
     }
 
-    const bookmarks = new Set(payload.bookmarks.map((bookmark) => bookmark.nodeId));
+    const tags = new Set(payload.tags.map((tag) => tag.nodeId));
     const active = new Set(payload.path.map((node) => node.id));
-    payload.nodes = payload.nodes.map((node) => node.childCount === 0 && !bookmarks.has(node.id) && !active.has(node.id)
+    payload.nodes = payload.nodes.map((node) => node.childCount === 0 && !tags.has(node.id) && !active.has(node.id)
       ? { ...node, lastTouched: "2022-10-30T09:00:00.000Z" }
       : node);
     const revealed = createAtlasLayout(payload, { now: NOW, sort: "recency", showSketches: true });

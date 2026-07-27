@@ -83,7 +83,7 @@ shows live word progress and Cancel.
 Only the summarized prefix, title, and autoname lock while generation runs.
 The composer and later parts remain usable. An empty Continue that would append
 into the summarized leaf starts a new part instead. Story Map keeps switching,
-bookmarking, and unrelated pruning available, but disables pruning any take
+tagging, and unrelated pruning available, but disables pruning any take
 whose subtree contains the summary source.
 
 The server always publishes the finished summary without changing the active
@@ -96,6 +96,6 @@ lines, wrote into that leaf, or another generation is active, the result is
 retained and announced instead of stealing focus.
 
 A summary take renders as a teal recap card. It can be edited in place,
-selection-rewritten, deleted with its subtree, bookmarked, or continued from.
+selection-rewritten, deleted with its subtree, tagged, or continued from.
 It cannot itself be regenerated or appended into; Continue always creates a
 new child node after it.

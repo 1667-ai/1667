@@ -4,16 +4,16 @@ import { createPrunePlan, createUnusedTakesPrunePlan, pruneConfirmText } from ".
 import { subtreeIds } from "../../shared/story-tree.js";
 
 describe("prune rollups", () => {
-  test("matches shared subtree part/line rollups and names every bookmark", () => {
+  test("matches shared subtree part/line rollups and names every tag", () => {
     const payload = createDemoController().payload();
     const plan = createPrunePlan(payload, "p7")!;
     const stub = payload.nodes.find((node) => node.id === "p7")!;
     expect(plan.parts).toBe(subtreeIds(payload, "p7").length);
     expect(plan.lines).toBe(stub.leafCount);
-    expect(plan.bookmarks.sort((left, right) => left.name.localeCompare(right.name))).toEqual([
-      { name: "alt-quiet-inn", label: "Alt" },
-      { name: "burned", label: "Discarded" },
-      { name: "canon-storm", label: "Canon" }
+    expect(plan.tags.sort((left, right) => left.name.localeCompare(right.name))).toEqual([
+      { name: "alt-quiet-inn", status: "Alt" },
+      { name: "burned", status: "Discarded" },
+      { name: "canon-storm", status: "Canon" }
     ]);
     expect(pruneConfirmText(plan)).toContain("⚑ alt-quiet-inn, ✕ burned, ⚑ canon-storm");
   });
@@ -26,7 +26,7 @@ describe("prune rollups", () => {
       takeCount: 5,
       parts: 2,
       lines: 1,
-      bookmarks: [{ name: "canon-storm", label: "Canon" }]
+      tags: [{ name: "canon-storm", status: "Canon" }]
     });
   });
 

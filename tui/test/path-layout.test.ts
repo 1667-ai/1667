@@ -37,7 +37,7 @@ describe("path layout model", () => {
     const folded = createPathLayout(payload, "p13");
     const revealed = createPathLayout(payload, "p13", 13, 5, true);
 
-    // Active/continued and bookmarked takes remain; only bare leaves disappear.
+    // Active/continued and tagged takes remain; only bare leaves disappear.
     expect(folded.rows.find((row) => row.depth === 8)!.cells.map((cell) => cell.node.id))
       .toEqual(["p8", "p8-alt-3"]);
     expect(revealed.rows.find((row) => row.depth === 8)!.cells.map((cell) => cell.node.id))

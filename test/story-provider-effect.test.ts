@@ -49,7 +49,7 @@ function story(nodes: StoryNode[], activeRootId: string | null = "root"): Story 
     },
     nodes,
     activeRootId,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []
@@ -167,10 +167,10 @@ test("continue preserves concurrent writer state and does not steal its line", a
     node("root", null, "Opening.", { activeChildId: "human" }),
     node("human", "root", "Writer line.", { human: true })
   ]);
-  current.bookmarks = [{
+  current.tags = [{
     nodeId: "human",
     name: "Here",
-    label: "",
+    status: "",
     color: "blue",
     createdAt: AT
   }];
@@ -196,7 +196,7 @@ test("continue preserves concurrent writer state and does not steal its line", a
     "generated"
   ]);
   assert.equal(current.nodes[0]?.activeChildId, "human");
-  assert.equal(current.bookmarks[0]?.nodeId, "human");
+  assert.equal(current.tags[0]?.nodeId, "human");
   assert.deepEqual(current.recentNodeIds, ["human"]);
   assert.equal(current.origin?.storyId, "origin-story");
 });

@@ -38,7 +38,7 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
   await service.createStory(story.title, story.id);
 
   const chapters: { parentPartId: string; title: string }[] = [];
-  const bookmarks: { nodeId: string; name: string; label: string }[] = [];
+  const tags: { nodeId: string; name: string; status: string }[] = [];
   let parentId: string | null = null;
 
   for (const beat of story.beats) {
@@ -61,8 +61,8 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
         },
         nodeId
       );
-      if (take.bookmark !== undefined) {
-        bookmarks.push({ nodeId, name: take.bookmark.name, label: take.bookmark.label });
+      if (take.tag !== undefined) {
+        tags.push({ nodeId, name: take.tag.name, status: take.tag.status });
       }
     }
     // The first take carries the line onward; the rest hang off the same seam
@@ -83,10 +83,10 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
   // take of every beat. Put it back on the first before anything reads it.
   if (parentId !== null) await service.switchLine(story.id, parentId);
 
-  // Bookmarks land last on purpose: bookmarking a line end and then extending
-  // it migrates the bookmark onto the new child, which would silently move
+  // Tags land last on purpose: tagging a line end and then extending
+  // it migrates the tag onto the new child, which would silently move
   // every marker the tour points at.
-  for (const bookmark of bookmarks) {
-    await service.putBookmark(story.id, bookmark.nodeId, bookmark.name, bookmark.label);
+  for (const tag of tags) {
+    await service.putBookmark(story.id, tag.nodeId, tag.name, tag.status);
   }
 }

@@ -207,7 +207,7 @@ function storyFixture(): Story {
     updatedAt: now,
     nodes: [],
     activeRootId: null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

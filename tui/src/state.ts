@@ -56,11 +56,11 @@ export interface StreamView {
   restoredRetakePrompt?: RetakePromptSession;
 }
 
-export interface BookmarkPrompt {
+export interface TagPrompt {
   nodeId: string;
   name: string;
-  labelIndex: number;
-  choosingLabel: boolean;
+  statusIndex: number;
+  choosingStatus: boolean;
   existing: boolean;
   returnMode: "NAV" | "MAP";
 }
@@ -87,7 +87,7 @@ export interface CommandsOverlayState {
   cursor: number;
   /** Stable identity across live Suggested-section reordering. */
   selectedId: CommandSelectionId | null;
-  view: "commands" | "bookmarks";
+  view: "commands" | "tags";
 }
 export interface PendingUnknownOutcome {
   readonly storyId: string;
@@ -228,7 +228,7 @@ export interface StoryScreenState extends OverlayState {
   map: MapState | null;
   contextMeterExpanded: boolean;
   prune: PrunePlan | null;
-  bookmark: BookmarkPrompt | null;
+  tag: TagPrompt | null;
   /** Expanded dead-end chapter-summary cards in the reading column. */
   expandedChapterSummaryIds: Set<string>;
   /** Direct divider deletion uses the same two-step safety as prune. */

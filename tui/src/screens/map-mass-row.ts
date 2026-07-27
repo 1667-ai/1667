@@ -1,5 +1,5 @@
 import { shortDate, type AtlasLayout, type AtlasRow } from "../atlas-layout.js";
-import { bookmarkGlyph, bookmarkRole, formatMapWordsBare, mapLineName } from "./map-row-labels.js";
+import { tagGlyph, tagRole, formatMapWordsBare, mapLineName } from "./map-row-labels.js";
 import {
   padCells,
   padStartCells,
@@ -60,10 +60,10 @@ export function renderMapMassRow(row: AtlasRow, scale: MapMassScale): FrameLine 
     label: row.kind === "sketch"
       ? row.fragment ?? `unnamed · ${shortDate(row.node.lastTouched)}`
       : mapLineName(row),
-    // Doc 26a moves the bookmark glyph to the state column but not its ink: a
+    // Doc 26a moves the tag glyph to the state column but not its ink: a
     // never-continued fragment must still read quieter than a named line.
     labelRole: active ? "focus / accent"
-      : row.kind === "sketch" ? "prose · dim" : bookmarkRole(row.bookmark),
+      : row.kind === "sketch" ? "prose · dim" : tagRole(row.tag),
     bar: "█".repeat(cells),
     // Doc 26a: colour stops duplicating length. One ember amber for every bar,
     // with brightness reserved for state — lantern where you stand, sunk where
@@ -126,8 +126,8 @@ function massRow(scale: MapMassScale, content: MassRowContent): FrameLine {
 function massState(row: AtlasRow, active: boolean): MassRowContent["state"] {
   if (active) return { text: "← here", role: "focus / accent" };
   if (row.stale) return { text: "cold", role: "prose · dim" };
-  if (row.bookmark !== null) {
-    return { text: bookmarkGlyph(row.bookmark.label), role: bookmarkRole(row.bookmark) };
+  if (row.tag !== null) {
+    return { text: tagGlyph(row.tag.status), role: tagRole(row.tag) };
   }
   return null;
 }

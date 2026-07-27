@@ -67,11 +67,11 @@ test("story migration: V3 revisions and line shapes become one V5 tree", () => {
   assert.deepEqual(activeIds(migrated), ["p1", "cut-copy", "cut-tail"]);
   assert.equal(migrated.activeRootId, "p1");
   assert.deepEqual(migrated.recentNodeIds, []);
-  assert.deepEqual(migrated.bookmarks.find((bookmark) => bookmark.nodeId === "whole-2"), {
+  assert.deepEqual(migrated.bookmarks.find((tag) => tag.nodeId === "whole-2"), {
     nodeId: "whole-2", name: "Whole", label: "Canon", color: "#4b45c9", createdAt: NOW
   });
-  assert.equal(migrated.bookmarks.find((bookmark) => bookmark.nodeId === "cut-tail")?.name, "Cut");
-  assert.equal(migrated.bookmarks.some((bookmark) => bookmark.nodeId === "p2"), false, "the old main line is not bookmarked");
+  assert.equal(migrated.bookmarks.find((tag) => tag.nodeId === "cut-tail")?.name, "Cut");
+  assert.equal(migrated.bookmarks.some((tag) => tag.nodeId === "p2"), false, "the old main line is not tagged");
   assert.equal(migrated.activeWordCount, v3.activeWordCount);
   assert.equal(JSON.parse(serializeManifest(migrated)).schemaVersion, 5);
 });
@@ -135,7 +135,7 @@ test("story migration: empty-tail branches become distinct selectable leaf takes
   ];
   v3.activeBranchId = null;
   const migrated = parseManifest(JSON.stringify(v3), v3.id);
-  assert.deepEqual(migrated.bookmarks.map((bookmark) => bookmark.name), ["First", "Second"]);
+  assert.deepEqual(migrated.bookmarks.map((tag) => tag.name), ["First", "Second"]);
   assert.notEqual(migrated.bookmarks[0]!.nodeId, migrated.bookmarks[1]!.nodeId);
 
   switchToNode(migrated, migrated.bookmarks[0]!.nodeId);
@@ -252,8 +252,8 @@ test("story migration: stale Canon labels defer to the authoritative canon flag"
   ));
 
   const migrated = parseManifest(JSON.stringify(v3), v3.id);
-  assert.equal(migrated.bookmarks.find((bookmark) => bookmark.name === "Former canon")?.label, "");
-  assert.equal(migrated.bookmarks.find((bookmark) => bookmark.name === "Whole")?.label, "Canon");
+  assert.equal(migrated.bookmarks.find((tag) => tag.name === "Former canon")?.label, "");
+  assert.equal(migrated.bookmarks.find((tag) => tag.name === "Whole")?.label, "Canon");
 });
 
 function fixture(): StoryManifestV3 {

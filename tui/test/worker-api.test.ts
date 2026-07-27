@@ -83,10 +83,10 @@ describe("embedded backend worker", () => {
       story = await api.switchLine(story.id, root.id, { stopAtNode: true });
 
       story = await api.putBookmark(story.id, root.id, "Opening", "");
-      expect(story.bookmarks[0]?.name).toBe("Opening");
-      expect(story.bookmarks[0]?.label).toBe("");
+      expect(story.tags[0]?.name).toBe("Opening");
+      expect(story.tags[0]?.status).toBe("");
       story = await api.deleteBookmark(story.id, root.id);
-      expect(story.bookmarks).toHaveLength(0);
+      expect(story.tags).toHaveLength(0);
       const prune = unusedTakePruneSelection(story);
       expect(prune.takeIds.length > 0).toBeTrue();
       story = await api.pruneUnusedTakes(story.id, {

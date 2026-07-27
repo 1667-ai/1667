@@ -53,7 +53,7 @@ export function removeChapterBreak(story: Story, breakId: string): RemovedChapte
   const summaryIds = new Set(summaries.map((node) => node.id));
   story.chapterBreaks.splice(index, 1);
   story.nodes = story.nodes.filter((node) => !summaryIds.has(node.id));
-  story.bookmarks = story.bookmarks.filter((bookmark) => !summaryIds.has(bookmark.nodeId));
+  story.tags = story.tags.filter((tag) => !summaryIds.has(tag.nodeId));
   story.recentNodeIds = story.recentNodeIds.filter((nodeId) => !summaryIds.has(nodeId));
   return { break: { ...chapterBreak }, summaries };
 }

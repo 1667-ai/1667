@@ -101,7 +101,7 @@ test("story objects: foreground cancellation leaves cleanup safe to retry", asyn
   );
 });
 
-test("story format: V5 bundle round-trips nodes, attribution, bookmarks, recents, and facts", async (t) => {
+test("story format: V5 bundle round-trips nodes, attribution, tags, recents, and facts", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-v4-format-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const story: Story = {
@@ -114,7 +114,7 @@ test("story format: V5 bundle round-trips nodes, attribution, bookmarks, recents
       genId: "g1"
     }, { ...node("summary", "root", "Recap"), role: "summary" }],
     activeRootId: "root",
-    bookmarks: [{ nodeId: "child", name: "Canon line", label: "Canon", color: "#4b45c9", createdAt: NOW }],
+    tags: [{ nodeId: "child", name: "Canon line", status: "Canon", color: "#4b45c9", createdAt: NOW }],
     recentNodeIds: ["summary"],
     facts: [{ id: "fact", tag: null, text: "Exact fact.", createdAt: NOW, updatedAt: NOW }],
     chapterBreaks: []
@@ -262,8 +262,8 @@ test("story format: V4 manifest fails closed across the tree matrix", () => {
   reject((m) => { m.activeRootId = null; }, /reference a root/);
   reject((m) => { m.activeRootId = "child"; }, /reference a root/);
   reject((m) => { m.bookmarks[0]!.nodeId = "missing"; }, /unknown node/);
-  reject((m) => { m.bookmarks.push({ ...m.bookmarks[0]! }); }, /Duplicate bookmark/);
-  reject((m) => { m.bookmarks.push({ ...m.bookmarks[0]!, nodeId: "other-root", name: "Other" }); }, /Only one bookmark may be Canon/);
+  reject((m) => { m.bookmarks.push({ ...m.bookmarks[0]! }); }, /Duplicate tag/);
+  reject((m) => { m.bookmarks.push({ ...m.bookmarks[0]!, nodeId: "other-root", name: "Other" }); }, /Only one tag may be Canon/);
   reject((m) => { m.bookmarks[0]!.name = " bad "; }, /trimmed/);
   reject((m) => { m.bookmarks[0]!.label = "Bad" as "Canon"; }, /label is invalid/);
   reject((m) => { m.recentNodeIds = ["missing"]; }, /unknown node/);
@@ -276,7 +276,7 @@ test("story format: V4 manifest fails closed across the tree matrix", () => {
   reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [{ start: -1, end: 2 }] }; }, /invalid human edit range/);
   reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [], deletedCharacters: 0 }; }, /positive integer/);
   reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [], deletedCharacters: 1.5 }; }, /must be an integer/);
-  const empty = { ...structuredClone(base), nodes: [], activeRootId: "root", bookmarks: [], recentNodeIds: [] };
+  const empty = { ...structuredClone(base), nodes: [], activeRootId: "root", tags: [], recentNodeIds: [] };
   assert.throws(() => parseManifest(JSON.stringify(empty), empty.id), /must be null/);
 });
 
@@ -366,7 +366,7 @@ function node(id: string, parentId: string | null, text: string, activeChildId: 
 
 function runtimeStory(nodes: StoryNode[]): Story {
   return { id: "runtime", title: "Runtime", createdAt: NOW, updatedAt: NOW,
-    nodes, activeRootId: nodes[0]?.id ?? null, bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: [] };
+    nodes, activeRootId: nodes[0]?.id ?? null, tags: [], recentNodeIds: [], facts: [], chapterBreaks: [] };
 }
 
 function v4Manifest(): StoryManifestV4 {

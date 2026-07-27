@@ -77,19 +77,25 @@ export interface StoryNode {
   activeChildId: string | null;
 }
 
-export const BOOKMARK_LABELS = ["", "Canon", "Alt", "Draft", "Discarded", "Summary"] as const;
+export const TAG_STATUSES = ["", "Canon", "Alt", "Draft", "Discarded", "Summary"] as const;
 
-export type BookmarkLabel = (typeof BOOKMARK_LABELS)[number];
+export type TagStatus = (typeof TAG_STATUSES)[number];
 
-export function isBookmarkLabel(value: string): value is BookmarkLabel {
-  return (BOOKMARK_LABELS as readonly string[]).includes(value);
+export function isTagStatus(value: string): value is TagStatus {
+  return (TAG_STATUSES as readonly string[]).includes(value);
 }
 
-export interface Bookmark {
-  /** The bookmarked leaf. One bookmark per node. */
+/** A name and status pinned to the end of one story line: the only durable
+ * handle on a version of the story. An untagged line has no name beyond its
+ * first few words and no protection from pruning.
+ *
+ * Not to be confused with `StoryFact.tag`, which is a short label on a single
+ * fact. This tags a story line; that labels a fact. */
+export interface Tag {
+  /** The tagged leaf. One tag per node. */
   nodeId: string;
   name: string;
-  label: BookmarkLabel;
+  status: TagStatus;
   color: string;
   createdAt: string;
 }
@@ -149,7 +155,7 @@ export interface StoryPayload {
   nodes: NodeStub[];
   path: StoryNode[];
   activeRootId: string | null;
-  bookmarks: Bookmark[];
+  tags: Tag[];
   recentNodeIds: string[];
   facts: StoryFact[];
   chapterBreaks: ChapterBreak[];
@@ -179,13 +185,13 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   requireStrings(candidate, "story payload", "id", "title", "createdAt", "updatedAt");
   requireNullableString(candidate, "activeRootId", "story payload");
   const path = requireArray(candidate, "path", "story payload");
-  const bookmarks = requireArray(candidate, "bookmarks", "story payload");
+  const tags = requireArray(candidate, "tags", "story payload");
   const recentNodeIds = requireArray(candidate, "recentNodeIds", "story payload");
   const facts = requireArray(candidate, "facts", "story payload");
   const chapterBreaks = requireArray(candidate, "chapterBreaks", "story payload");
   candidate.nodes.forEach(assertNodeStub);
   path.forEach(assertStoryNode);
-  bookmarks.forEach(assertBookmark);
+  tags.forEach(assertTag);
   if (!recentNodeIds.every((id) => typeof id === "string")) {
     throw new Error("The server returned invalid story payload.recentNodeIds.");
   }
@@ -247,10 +253,10 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
   }
 }
 
-function assertBookmark(value: unknown): void {
-  const bookmark = requireRecord(value, "The server returned an invalid bookmark.");
-  requireStrings(bookmark, "bookmark", "nodeId", "name", "label", "color", "createdAt");
-  if (typeof bookmark.label !== "string" || !isBookmarkLabel(bookmark.label)) invalidField("bookmark", "label");
+function assertTag(value: unknown): void {
+  const tag = requireRecord(value, "The server returned an invalid tag.");
+  requireStrings(tag, "tag", "nodeId", "name", "status", "color", "createdAt");
+  if (typeof tag.status !== "string" || !isTagStatus(tag.status)) invalidField("tag", "status");
 }
 
 function assertStoryFact(value: unknown): void {
@@ -334,7 +340,7 @@ export interface Story {
   origin?: StoryOrigin;
   nodes: StoryNode[];
   activeRootId: string | null;
-  bookmarks: Bookmark[];
+  tags: Tag[];
   recentNodeIds: string[];
   facts: StoryFact[];
   chapterBreaks: ChapterBreak[];
@@ -410,9 +416,9 @@ export interface PruneUnusedTakesRequest {
   expectedPartCount: number;
 }
 
-export interface BookmarkRequest {
+export interface TagRequest {
   name: string;
-  label: BookmarkLabel;
+  status: TagStatus;
 }
 
 /** Wire body of POST /api/stories/:id/nodes/:nodeId/take-from-cut. */

@@ -263,7 +263,7 @@ export function storyFrameWrapPlans(
 
 function storyFrameShowsProse(state: StoryScreenState): boolean {
   const mapVisible = state.map !== null && (state.mode === "MAP"
-    || state.mode === "BOOKMARK" && state.bookmark?.returnMode === "MAP");
+    || state.mode === "TAG" && state.tag?.returnMode === "MAP");
   return !(mapVisible
     || state.mode === "EDITOR" && state.editor !== null
     || state.mode === "COMPOSE" && state.composer.fullscreen);
