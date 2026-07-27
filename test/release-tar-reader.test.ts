@@ -24,22 +24,17 @@ import {
   parseReleasePackageManifest,
   validateReleaseTarballInspection
 } from "../scripts/release-package-policy.js";
-import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
-import { releaseTargetForArtifact } from "../shared/release-targets.js";
+import {
+  createReleasePlatformManifest,
+  releasePackageJson
+} from "../scripts/release-package-manifests.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
 
-const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
-const manifest = parseReleasePackageManifest({
-  name: PLATFORM_PACKAGE,
-  version: "3.0.0",
-  private: false,
-  os: ["linux"],
-  cpu: ["x64"],
-  libc: ["glibc"],
-  files: ["bin/1667", "build-manifest.json", "sbom.spdx.json"],
-  repository: RELEASE_PACKAGE_REPOSITORY,
-  publishConfig: { access: "public" }
-}, "3.0.0");
+const PLATFORM_MANIFEST = releasePackageJson(
+  createReleasePlatformManifest("linux-x64", "3.0.0")
+);
+const PLATFORM_PACKAGE = PLATFORM_MANIFEST.name;
+const manifest = parseReleasePackageManifest(PLATFORM_MANIFEST, "3.0.0");
 const execFileAsync = promisify(execFile);
 
 test("non-extracting reader hashes a bounded ustar package for policy validation", async () => {
@@ -75,17 +70,10 @@ test("reader accepts the actual script-disabled npm pack format", async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, "bin"), { recursive: true });
   await mkdir(output);
-  await writeFile(path.join(root, "package.json"), `${JSON.stringify({
-    name: PLATFORM_PACKAGE,
-    version: "3.0.0",
-    private: false,
-    os: ["linux"],
-    cpu: ["x64"],
-    libc: ["glibc"],
-    files: ["bin/1667", "build-manifest.json", "sbom.spdx.json"],
-    repository: RELEASE_PACKAGE_REPOSITORY,
-    publishConfig: { access: "public" }
-  })}\n`);
+  await writeFile(
+    path.join(root, "package.json"),
+    `${JSON.stringify(PLATFORM_MANIFEST)}\n`
+  );
   await writeFile(path.join(root, "bin", "1667"), "native executable");
   await chmod(path.join(root, "bin", "1667"), 0o755);
   await writeFile(path.join(root, "build-manifest.json"), '{"schemaVersion":1}\n');

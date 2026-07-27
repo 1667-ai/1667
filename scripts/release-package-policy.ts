@@ -212,8 +212,8 @@ function parsePlatformManifest(
   commonManifest(input, expected);
   exactStringArray(input.os, expected.os, `${target} os`);
   exactStringArray(input.cpu, expected.cpu, `${target} cpu`);
-  if (expected.libc !== undefined) {
-    exactStringArray(input.libc, expected.libc, `${target} libc`);
+  if (expected.libc !== null) {
+    exactStringArray(input.libc, [expected.libc], `${target} libc`);
   }
   exactStringArray(input.files, expected.files, `${target} files`);
   return expected;

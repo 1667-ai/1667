@@ -61,6 +61,7 @@ test("platform templates bind every sidecar to its embedded release identity", (
     assert.equal(template.buildManifest.buildTimestamp, identity.buildTimestamp);
     assert.equal(identity.artifactTarget, PACKAGED_ARTIFACT_TARGETS[index]);
     if (identity.artifactTarget.startsWith("linux-")) {
+      assert.ok("libc" in template.packageManifest);
       assert.deepEqual(template.packageManifest.libc, ["glibc"]);
     } else {
       assert.equal(Object.hasOwn(template.packageManifest, "libc"), false);

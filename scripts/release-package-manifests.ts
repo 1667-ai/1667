@@ -31,7 +31,7 @@ export interface ReleasePlatformManifest {
   private: false;
   os: readonly ["darwin" | "linux" | "win32"];
   cpu: readonly ["arm64" | "x64"];
-  libc?: readonly ["glibc"];
+  libc: "glibc" | null;
   files: readonly [string, "build-manifest.json", "sbom.spdx.json"];
   repository: typeof RELEASE_PACKAGE_REPOSITORY;
   publishConfig: Readonly<{ access: "public" }>;
@@ -40,7 +40,15 @@ export interface ReleasePlatformManifest {
 
 export type ReleasePackageManifest = ReleaseLauncherManifest | ReleasePlatformManifest;
 export type ReleaseLauncherPackageJson = Omit<ReleaseLauncherManifest, "kind">;
-export type ReleasePlatformPackageJson = Omit<ReleasePlatformManifest, "kind" | "target">;
+type ReleasePlatformPackageJsonBase = Omit<
+  ReleasePlatformManifest,
+  "kind" | "target" | "libc"
+>;
+export type ReleasePlatformPackageJson =
+  | ReleasePlatformPackageJsonBase
+  | (ReleasePlatformPackageJsonBase & {
+      readonly libc: readonly ["glibc"];
+    });
 export type ReleasePackageJson = ReleaseLauncherPackageJson | ReleasePlatformPackageJson;
 
 export function createReleaseLauncherManifest(version: string): ReleaseLauncherManifest {
@@ -74,14 +82,12 @@ export function createReleasePlatformManifest(
     private: false as const,
     os: Object.freeze([descriptor.platform] as const),
     cpu: Object.freeze([descriptor.arch] as const),
+    libc: descriptor.libc,
     files: Object.freeze([
       descriptor.executable,
       "build-manifest.json",
       "sbom.spdx.json"
     ] as const),
-    ...(descriptor.libc === null
-      ? {}
-      : { libc: Object.freeze([descriptor.libc] as const) }),
     repository: RELEASE_PACKAGE_REPOSITORY,
     publishConfig: Object.freeze({ access: "public" as const }),
     target
@@ -102,8 +108,13 @@ export function releasePackageJson(
   manifest: ReleasePackageManifest
 ): ReleasePackageJson {
   if (manifest.kind === "platform") {
-    const { kind: _kind, target: _target, ...packageJson } = manifest;
-    return Object.freeze(packageJson);
+    const { kind: _kind, target: _target, libc, ...packageJson } = manifest;
+    return libc === null
+      ? Object.freeze(packageJson)
+      : Object.freeze({
+          ...packageJson,
+          libc: Object.freeze([libc] as const)
+        });
   }
   const { kind: _kind, ...packageJson } = manifest;
   return Object.freeze(packageJson);

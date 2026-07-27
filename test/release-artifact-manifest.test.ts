@@ -7,7 +7,6 @@ import {
 } from "../shared/build-identity.js";
 import {
   RELEASE_LAUNCHER_PACKAGE,
-  releasePlatformDependencyGraph,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import {
@@ -15,7 +14,11 @@ import {
   type ReleasePackageArtifactInput
 } from "../scripts/release-artifact-manifest.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
-import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
+import {
+  createReleaseLauncherManifest,
+  createReleasePlatformManifest,
+  releasePackageJson
+} from "../scripts/release-package-manifests.js";
 import {
   parseReleasePackageManifest
 } from "../scripts/release-package-policy.js";
@@ -144,32 +147,11 @@ function artifact(
 }
 
 function launcherManifest() {
-  return {
-    name: RELEASE_LAUNCHER_PACKAGE,
-    version: VERSION,
-    private: false,
-    type: "module",
-    bin: { "1667": "bin/1667.js" },
-    files: ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"],
-    optionalDependencies: releasePlatformDependencyGraph(VERSION),
-    repository: RELEASE_PACKAGE_REPOSITORY,
-    publishConfig: { access: "public" }
-  };
+  return releasePackageJson(createReleaseLauncherManifest(VERSION));
 }
 
 function platformManifest(target: PackagedArtifactTarget) {
-  const policy = releaseTargetForArtifact(target);
-  return {
-    name: policy.packageName,
-    version: VERSION,
-    private: false,
-    os: [policy.platform],
-    cpu: [policy.arch],
-    ...(policy.libc === null ? {} : { libc: [policy.libc] }),
-    files: [policy.executable, "build-manifest.json", "sbom.spdx.json"],
-    repository: RELEASE_PACKAGE_REPOSITORY,
-    publishConfig: { access: "public" }
-  };
+  return releasePackageJson(createReleasePlatformManifest(target, VERSION));
 }
 
 function packageName(artifact: ReleasePackageArtifactInput): string {

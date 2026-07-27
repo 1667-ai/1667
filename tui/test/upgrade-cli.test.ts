@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  RELEASE_LAUNCHER_PACKAGE,
-  releaseTargetForArtifact
-} from "../../shared/release-targets.js";
+import { releaseTargetForArtifact } from "../../shared/release-targets.js";
 import {
   executeUpgradeCli,
   parseUpgradeArguments
@@ -106,9 +103,9 @@ test("human plan output uses only locally derived fixed instructions", async () 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("1667 2.0.0 is available");
   expect(result.stdout).toContain(
-    `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v/2.0.0`
+    "https://www.npmjs.com/package/@1667-ai/cli/v/2.0.0"
   );
-  expect(result.stdout).not.toContain("%2F");
+  expect(result.stdout).toContain("/package/@1667-ai/cli/v/");
   expect(result.stdout).not.toContain("github");
   expect(result.stdout).toContain("outside 1667's trust boundary");
   expect(result.stdout).not.toContain("npm install");

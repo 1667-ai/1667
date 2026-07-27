@@ -143,7 +143,9 @@ test("registry client derives exact launcher and platform endpoints locally", as
   const graph = Object.fromEntries(PLATFORM_PACKAGES.map((name) => [name, "2.0.0+build.1"]));
   const registry = new NpmUpgradeRegistry(async (input) => {
     calls.push(input);
-    const packageName = calls.length === 1 ? LAUNCHER_PACKAGE : PLATFORM_PACKAGE;
+    const packageName = input.includes("linux-x64")
+      ? PLATFORM_PACKAGE
+      : LAUNCHER_PACKAGE;
     return Response.json({
       name: packageName,
       version: "2.0.0+build.1",

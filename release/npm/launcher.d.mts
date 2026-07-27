@@ -1,10 +1,11 @@
 import type { ChildProcess } from "node:child_process";
 
-export const LAUNCHER_PACKAGE_NAME: string;
+export const LAUNCHER_PACKAGE_NAME: "@1667-ai/cli";
 export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, Readonly<{
   packageName: string;
   os: string;
   cpu: string;
+  libc: "glibc" | null;
   executable: string;
 }>>>;
 

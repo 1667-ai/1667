@@ -11,7 +11,12 @@ import {
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
-import { RELEASE_PACKAGE_REPOSITORY } from "../scripts/release-package-manifests.js";
+import {
+  createReleaseLauncherManifest,
+  createReleasePlatformManifest,
+  releasePackageJson,
+  RELEASE_PACKAGE_REPOSITORY
+} from "../scripts/release-package-manifests.js";
 import {
   parseReleasePackageManifest,
   tarballFile,
@@ -53,9 +58,9 @@ test("release package matrix pins every platform as an exact optional dependency
   );
   for (const manifest of matrix.platforms) {
     if (manifest.os[0] === "linux") {
-      assert.deepEqual(manifest.libc, ["glibc"]);
+      assert.equal(manifest.libc, "glibc");
     } else {
-      assert.equal(Object.hasOwn(manifest, "libc"), false);
+      assert.equal(manifest.libc, null);
     }
   }
 });
@@ -93,7 +98,9 @@ test("release package policy requires the repository and Linux-only glibc metada
     repository: { ...RELEASE_PACKAGE_REPOSITORY, url: "git+https://example.invalid/repo.git" }
   }, VERSION), /repository/);
 
-  const { libc: _libc, ...missingLibc } = platformManifest("linux-x64");
+  const linuxManifest = platformManifest("linux-x64");
+  assert.ok("libc" in linuxManifest);
+  const { libc: _libc, ...missingLibc } = linuxManifest;
   assert.throws(
     () => parseReleasePackageManifest(missingLibc, VERSION),
     /unknown or missing/
@@ -162,32 +169,11 @@ test("tarball policy rejects links, traversal, extras, unsafe modes, and digest 
 });
 
 export function launcherManifest() {
-  return {
-    name: RELEASE_LAUNCHER_PACKAGE,
-    version: VERSION,
-    private: false,
-    type: "module",
-    bin: { "1667": "bin/1667.js" },
-    files: ["bin/1667.js", "build-manifest.json", "sbom.spdx.json"],
-    optionalDependencies: releasePlatformDependencyGraph(VERSION),
-    repository: RELEASE_PACKAGE_REPOSITORY,
-    publishConfig: { access: "public" }
-  };
+  return releasePackageJson(createReleaseLauncherManifest(VERSION));
 }
 
 export function platformManifest(target: PackagedArtifactTarget) {
-  const policy = releaseTargetForArtifact(target);
-  return {
-    name: policy.packageName,
-    version: VERSION,
-    private: false,
-    os: [policy.platform],
-    cpu: [policy.arch],
-    ...(policy.libc === null ? {} : { libc: [policy.libc] }),
-    files: [policy.executable, "build-manifest.json", "sbom.spdx.json"],
-    repository: RELEASE_PACKAGE_REPOSITORY,
-    publishConfig: { access: "public" }
-  };
+  return releasePackageJson(createReleasePlatformManifest(target, VERSION));
 }
 
 export function tarballFixture(

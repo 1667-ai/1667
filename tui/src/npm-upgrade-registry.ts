@@ -2,6 +2,7 @@ import { isSemVer, parseSemVer } from "../../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
   RELEASE_LAUNCHER_PACKAGE,
+  RELEASE_LAUNCHER_REGISTRY_PATH,
   RELEASE_PLATFORM_PACKAGES,
   releasePlatformDependencyGraph,
   releaseTargetForPackage,
@@ -45,7 +46,7 @@ export class NpmUpgradeRegistry {
 
   async channelHead(channel: UpgradeChannel, signal: AbortSignal): Promise<string> {
     const body = await this.get(
-      `/-/package/${encodeRegistryPackageIdentifier(LAUNCHER_PACKAGE)}/dist-tags`,
+      `/-/package/${RELEASE_LAUNCHER_REGISTRY_PATH}/dist-tags`,
       signal
     );
     return parseNpmDistTags(body, channel);
@@ -57,7 +58,7 @@ export class NpmUpgradeRegistry {
   ): Promise<NpmVersionMetadata> {
     return parseNpmExactVersionMetadata(
       await this.get(
-        `/${encodeRegistryPackageIdentifier(LAUNCHER_PACKAGE)}/${encodeURIComponent(version)}`,
+        `/${RELEASE_LAUNCHER_REGISTRY_PATH}/${encodeURIComponent(version)}`,
         signal
       ),
       {
@@ -77,7 +78,7 @@ export class NpmUpgradeRegistry {
     if (target === null) throw metadataFailure();
     return parseNpmExactVersionMetadata(
       await this.get(
-        `/${encodeRegistryPackageIdentifier(packageName)}/${encodeURIComponent(version)}`,
+        `/${target.registryPath}/${encodeURIComponent(version)}`,
         signal
       ),
       {
@@ -127,12 +128,6 @@ export class NpmUpgradeRegistry {
     }
     return readBoundedBody(response, signal);
   }
-}
-
-function encodeRegistryPackageIdentifier(packageName: string): string {
-  return encodeURIComponent(packageName)
-    .replace(/^%40/u, "@")
-    .replace(/%2F/gu, "%2f");
 }
 
 export function parseNpmDistTags(

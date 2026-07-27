@@ -17,24 +17,28 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     packageName: "@1667-ai/darwin-arm64",
     os: "darwin",
     cpu: "arm64",
+    libc: null,
     executable: "bin/1667"
   }),
   "darwin-x64": Object.freeze({
     packageName: "@1667-ai/darwin-x64",
     os: "darwin",
     cpu: "x64",
+    libc: null,
     executable: "bin/1667"
   }),
   "linux-arm64": Object.freeze({
     packageName: "@1667-ai/linux-arm64",
     os: "linux",
     cpu: "arm64",
+    libc: "glibc",
     executable: "bin/1667"
   }),
   "linux-x64": Object.freeze({
     packageName: "@1667-ai/linux-x64",
     os: "linux",
     cpu: "x64",
+    libc: "glibc",
     executable: "bin/1667"
   }),
   // windows-x64 is not a shipped target: see shared/release-targets.ts. The
@@ -100,8 +104,12 @@ export function resolveLaunchPlan(options = {}) {
     || platformBuild.buildTimestamp !== launcherBuild.buildTimestamp) {
     throw new Error("Launcher and platform package identities disagree");
   }
+  const libcMatches = policy.libc === null
+    ? !Object.hasOwn(platformPackage, "libc")
+    : singleValue(platformPackage.libc, policy.libc);
   if (!singleValue(platformPackage.os, policy.os)
-    || !singleValue(platformPackage.cpu, policy.cpu)) {
+    || !singleValue(platformPackage.cpu, policy.cpu)
+    || !libcMatches) {
     throw new Error(`${policy.packageName} declares the wrong target`);
   }
 
@@ -123,13 +131,14 @@ export function resolveLaunchPlan(options = {}) {
 }
 
 function resolveLocalPlatformRoot(launcherRoot, packageName) {
-  const containingNodeModules = findContainingNodeModules(launcherRoot);
-  const candidates = [
-    path.join(launcherRoot, "node_modules", packageName),
-    ...(containingNodeModules === null
-      ? []
-      : [path.join(containingNodeModules, packageName)])
-  ];
+  const peerRoot = path.resolve(
+    launcherRoot,
+    ...LAUNCHER_PACKAGE_NAME.split("/").map(() => "..")
+  );
+  const candidates = [path.join(launcherRoot, "node_modules", packageName)];
+  if (path.basename(peerRoot) === "node_modules") {
+    candidates.push(path.join(peerRoot, packageName));
+  }
   const resolved = [];
   for (const candidate of new Set(candidates)) {
     try {
@@ -146,15 +155,6 @@ function resolveLocalPlatformRoot(launcherRoot, packageName) {
     throw new Error(`Expected one local ${packageName} package`);
   }
   return resolved[0];
-}
-
-function findContainingNodeModules(launcherRoot) {
-  let candidate = path.dirname(launcherRoot);
-  while (candidate !== path.dirname(candidate)) {
-    if (path.basename(candidate) === "node_modules") return candidate;
-    candidate = path.dirname(candidate);
-  }
-  return null;
 }
 
 export function selectTarget(platform, arch) {

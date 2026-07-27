@@ -39,7 +39,7 @@ test("fresh plans validate launcher and platform metadata before returning data"
   expect(registry.calls[0]).toBe("tags:stable");
   expect(new Set(registry.calls.slice(1))).toEqual(new Set([
     "launcher:1.3.0",
-    "platform:@1667-ai/linux-x64:1.3.0"
+    `platform:${observation.platformPackage}:1.3.0`
   ]));
 });
 
