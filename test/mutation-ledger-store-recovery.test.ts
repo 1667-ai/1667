@@ -133,6 +133,25 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
     );
   });
 
+  await t.test("the same store instance can retry after removal", async (subtest) => {
+    const { store } = await testStore(subtest, "1667-ledger-cleanup-retry-");
+    const prepared = preparedRecord();
+    await store.writeUserRecord(prepared);
+    assert.equal(
+      await store.removeOrphanPreparedUserReceipt(
+        "settings",
+        ID,
+        hashPreparedMutationRecord(prepared)
+      ),
+      true
+    );
+    await store.writeUserRecord(prepared);
+    assert.deepEqual(
+      await store.loadUserReceipt("settings", ID),
+      { prepared, completed: null }
+    );
+  });
+
   await t.test("mismatched proof", async (subtest) => {
     const { dataDir, store } = await testStore(subtest, "1667-ledger-cleanup-hash-");
     await store.writeUserRecord(preparedRecord());

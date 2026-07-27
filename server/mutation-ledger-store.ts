@@ -86,13 +86,18 @@ const EMPTY_MIGRATION_RECEIPT: FormatMigrationReceipt = Object.freeze({
  */
 export class MutationLedgerStore {
   private readonly root: string;
+  /** Directory paths this instance already proved durable. A path enters the
+   * set only after its full inspect/mkdir/parent-flush barrier completed, so
+   * a chain a crashed process left half-flushed is re-flushed exactly once
+   * per store instance instead of on every record write. */
+  private readonly durableDirectories = new Set<string>();
 
   constructor(private readonly dataDir: string) {
     this.root = path.join(dataDir, MUTATION_LEDGER_DIRECTORY);
   }
 
   async init(): Promise<void> {
-    await ensurePrivateDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
+    await this.ensureDurableDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
   }
 
   async loadUserReceipt(
@@ -232,6 +237,7 @@ export class MutationLedgerStore {
     }
     try {
       await inspectPrivateDirectory(directory);
+      this.durableDirectories.delete(directory);
       await rm(directory, { recursive: true, force: false, maxRetries: 0 });
       await syncPrivateDirectory(path.dirname(directory));
       return true;
@@ -263,6 +269,7 @@ export class MutationLedgerStore {
     }
     try {
       await inspectPrivateDirectory(directory);
+      this.durableDirectories.delete(directory);
       await rm(directory, { recursive: true, force: false, maxRetries: 0 });
       await syncPrivateDirectory(path.dirname(directory));
       return true;
@@ -457,15 +464,28 @@ export class MutationLedgerStore {
   }
 
   private async ensureLedgerDirectory(segments: readonly string[]): Promise<void> {
-    await ensurePrivateDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
+    await this.ensureDurableDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
     let parent = this.root;
     for (const [index, segment] of segments.entries()) {
       const internalReceipt = segments.length === 3 && index === 2;
-      if (internalReceipt) await requireOnlyFormatMigrationEntry(parent, segment, true);
-      await ensurePrivateDirectory(parent, segment);
-      if (internalReceipt) await requireOnlyFormatMigrationEntry(parent, segment, false);
+      if (internalReceipt) {
+        // The single-receipt fence must re-run on every write, so the
+        // format-migration leaf never takes the known-durable shortcut.
+        await requireOnlyFormatMigrationEntry(parent, segment, true);
+        await ensurePrivateDirectory(parent, segment);
+        await requireOnlyFormatMigrationEntry(parent, segment, false);
+      } else {
+        await this.ensureDurableDirectory(parent, segment);
+      }
       parent = path.join(parent, segment);
     }
+  }
+
+  private async ensureDurableDirectory(parent: string, name: string): Promise<void> {
+    const target = path.join(parent, name);
+    if (this.durableDirectories.has(target)) return;
+    await ensurePrivateDirectory(parent, name);
+    this.durableDirectories.add(target);
   }
 
   private async findUserDirectory(
@@ -546,6 +566,7 @@ export class MutationLedgerStore {
     }
     try {
       await inspectPrivateDirectory(directory);
+      this.durableDirectories.delete(directory);
       await rm(directory, { recursive: true, force: false, maxRetries: 0 });
       await syncPrivateDirectory(path.dirname(directory));
     } catch (error) {
