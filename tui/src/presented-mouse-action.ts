@@ -216,8 +216,8 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
     return libraryRows(state.library.stories, state.library.query)[index]?.id ?? null;
   }
   if (state.commands !== null) {
-    if (state.commands.view === "bookmarks") {
-      return state.payload.bookmarks[index]?.nodeId ?? null;
+    if (state.commands.view === "tags") {
+      return state.payload.tags[index]?.nodeId ?? null;
     }
     const match = commandMatches(
       state.commands.query,
@@ -278,12 +278,12 @@ function selectedListIdentity(state: MouseActionState): string | null {
     return story === undefined ? null : `library:${story.id}`;
   }
   if (state.commands !== null) {
-    // The bookmarks view keeps the id of the command that opened it, so it
-    // says nothing about which bookmark the cursor is on — and `d` deletes
+    // The tags view keeps the id of the command that opened it, so it
+    // says nothing about which tag the cursor is on — and `d` deletes
     // whichever that is.
-    if (state.commands.view === "bookmarks") {
-      const bookmark = state.payload.bookmarks[state.commands.cursor];
-      return bookmark === undefined ? null : `bookmarks:${bookmark.nodeId}`;
+    if (state.commands.view === "tags") {
+      const tag = state.payload.tags[state.commands.cursor];
+      return tag === undefined ? null : `tags:${tag.nodeId}`;
     }
     return `commands:${state.commands.view}:${state.commands.selectedId ?? state.commands.cursor}`;
   }

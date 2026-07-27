@@ -129,7 +129,7 @@ export class StoryService extends StoryServiceRuntime {
             updatedAt: now,
             nodes: [],
             activeRootId: null,
-            bookmarks: [],
+            tags: [],
             recentNodeIds: [],
             facts: [],
             chapterBreaks: []

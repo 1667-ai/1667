@@ -86,7 +86,7 @@ describe("keys reference contract", () => {
 
   test("unbound letters stay absent", () => {
     const tokens = entries.map((item) => item.token);
-    for (const dead of ["h", "j", "k", "t", "v", ";"]) expect(tokens).not.toContain(dead);
+    for (const dead of ["h", "j", "k", "b", "v", ";"]) expect(tokens).not.toContain(dead);
   });
 
   test("KEYS actions mutate, floor, clamp through rendering, and accept wheel input", async () => {

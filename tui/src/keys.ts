@@ -28,7 +28,7 @@ export type KeyAction =
   | "delete-forward" | "delete-word-left" | "delete-word-right" | "delete-line"
   | "delete-line-start" | "delete-line-end" | "select-all"
   | "copy-selection" | "cut-selection" | "paste-clipboard" | "undo-edit" | "redo-edit"
-  | "open-keys" | "prune" | "bookmark" | "delete-bookmark"
+  | "open-keys" | "prune" | "tag" | "delete-tag"
   | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply"
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "rename-item" | "delete-item"
@@ -37,7 +37,7 @@ export type KeyAction =
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter";
 
-export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "BOOKMARK"
+export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS";
 
 export interface ResolvedKey {
@@ -80,7 +80,7 @@ export function isPlainNavigation(state: PlainNavigationState): boolean {
 
 /** Actions that mutate the story and must not run while a stream is active. */
 export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
-  "prune", "apply", "delete-bookmark", "edit", "write", "regenerate", "bookmark",
+  "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "rename-item", "delete-item", "discard-pending",
   "create-chapter", "summarize-chapter", "save-edit"
 ]);
@@ -134,7 +134,7 @@ export function pasteInto(
     mode: AppMode;
     composer: ComposerState;
     editor?: InlineEditorSession | null;
-    bookmark: { choosingLabel: boolean; name: string } | null;
+    tag: { choosingStatus: boolean; name: string } | null;
     library: { prompt: { value: string } | null } | null;
     facts: { filtering: boolean; query: string; cursor: number } | null;
     commands: { view: string; query: string } | null;
@@ -162,8 +162,8 @@ export function pasteInto(
     return true;
   }
   if (state.mode === "COMPOSE") { insertComposerText(state.composer, clean); return true; }
-  if (state.mode === "BOOKMARK" && state.bookmark !== null && !state.bookmark.choosingLabel) {
-    state.bookmark.name += line;
+  if (state.mode === "TAG" && state.tag !== null && !state.tag.choosingStatus) {
+    state.tag.name += line;
     return true;
   }
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
@@ -207,12 +207,12 @@ export function sanitizePastedText(raw: string): string {
 
 export interface ResolveOptions {
   confirmingPrune?: boolean;
-  bookmarkChoosingLabel?: boolean;
+  tagChoosingStatus?: boolean;
   connectionDown?: boolean;
   /** A text prompt/filter owns the keyboard: letters are input, not hotkeys. */
   overlayTyping?: boolean;
-  /** The command palette is showing its bookmarks sub-view. */
-  commandsBookmarks?: boolean;
+  /** The command palette is showing its tags sub-view. */
+  commandsTags?: boolean;
   mapView?: MapView;
 }
 
@@ -234,19 +234,19 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
 export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): boolean {
   return mode === "COMPOSE" || mode === "EDITOR"
     || options.overlayTyping === true
-    || mode === "COMMANDS" && options.commandsBookmarks !== true
-    || mode === "BOOKMARK" && options.bookmarkChoosingLabel !== true;
+    || mode === "COMMANDS" && options.commandsTags !== true
+    || mode === "TAG" && options.tagChoosingStatus !== true;
 }
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
-  const { confirmingPrune = false, bookmarkChoosingLabel = false, connectionDown = false,
-    overlayTyping = false, commandsBookmarks = false, mapView = "path" } = options;
+  const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
+    overlayTyping = false, commandsTags = false, mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
   }
   const ownsText = textOwnsKeyboard(mode, {
-    overlayTyping, commandsBookmarks, bookmarkChoosingLabel
+    overlayTyping, commandsTags, tagChoosingStatus
   });
   // The banner's capital-R shortcut is page/list chrome, never a text-field
   // override. Writers must still be able to type R while working offline.
@@ -415,22 +415,22 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (mode !== "COMMANDS" && key.name === "/") return { action: "filter" };
       if (mode !== "COMMANDS" && key.name === "n") return { action: "new-item" };
       // One verb per gesture across every list: `e` opens the selected row,
-      // `d` deletes it. Facts and the bookmark manager used to delete on `x`
+      // `d` deletes it. Facts and the tag manager used to delete on `x`
       // while the library and chapters deleted on `d`.
       if (mode === "LIBRARY" && key.name === "e") return { action: "rename-item" };
       if (mode === "FACTS" && key.name === "e") return { action: "edit" };
       if (key.name === "d" && (mode === "LIBRARY" || mode === "FACTS"
-        || mode === "COMMANDS" && commandsBookmarks)) return { action: "delete-item" };
+        || mode === "COMMANDS" && commandsTags)) return { action: "delete-item" };
     }
     if (mode === "FACTS" && key.name === "tab") return { action: "cycle" };
     return textInput(key) ?? { action: "none" };
   }
-  if (mode === "BOOKMARK") {
+  if (mode === "TAG") {
     if (key.name === "return") return { action: "apply" };
-    if (bookmarkChoosingLabel && key.name === "left") return { action: "take-previous" };
-    if (bookmarkChoosingLabel && key.name === "right") return { action: "take-next" };
+    if (tagChoosingStatus && key.name === "left") return { action: "take-previous" };
+    if (tagChoosingStatus && key.name === "right") return { action: "take-next" };
     if (key.name === "backspace") return { action: "backspace" };
-    if (bookmarkChoosingLabel && key.name === "d") return { action: "delete-bookmark" };
+    if (tagChoosingStatus && key.name === "d") return { action: "delete-tag" };
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "MAP") {

@@ -11,9 +11,9 @@ export {
 } from "./release-targets.js";
 
 export const AI_1667_PRODUCT = "1667" as const;
-export const HTTP_API_PROTOCOL_VERSION = 5;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 5;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 5;
+export const HTTP_API_PROTOCOL_VERSION = 6;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 6;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 6;
 
 export type ArtifactTarget = "source" | PackagedArtifactTarget;
 

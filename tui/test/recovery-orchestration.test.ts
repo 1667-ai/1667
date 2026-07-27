@@ -903,11 +903,11 @@ describe("backend recovery orchestration", () => {
     state.undo = [{ kind: "switch", leafId: "p13", nodeId: focusId }];
     state.prune = {
       kind: "subtree", nodeId: "p13", part: 13, take: 1,
-      takeCount: 1, parts: 1, lines: 1, bookmarks: []
+      takeCount: 1, parts: 1, lines: 1, tags: []
     };
-    state.bookmark = {
-      nodeId: "p13", name: "newer prompt", labelIndex: 0,
-      choosingLabel: false, existing: false, returnMode: "NAV"
+    state.tag = {
+      nodeId: "p13", name: "newer prompt", statusIndex: 0,
+      choosingStatus: false, existing: false, returnMode: "NAV"
     };
     state.chapterDeleteArmedId = "chapter-break-1";
     state.chapters = {
@@ -930,7 +930,7 @@ describe("backend recovery orchestration", () => {
     expect(state.lastViewportStart).toBe(7);
     expect(state.undo).toEqual([]);
     expect(state.prune).toBe(null);
-    expect(state.bookmark).toBe(null);
+    expect(state.tag).toBe(null);
     expect(state.chapterDeleteArmedId).toBe(null);
     expect(state.chapters?.rename).toBe(null);
     expect(state.chapters?.deleteArmedId).toBe(null);
@@ -947,10 +947,10 @@ describe("backend recovery orchestration", () => {
     const recoveredPayload = {
       ...prunedLeaf,
       title: "authoritative title",
-      bookmarks: [...prunedLeaf.bookmarks, {
-        ...source.payload.bookmarks[0]!,
+      tags: [...prunedLeaf.tags, {
+        ...source.payload.tags[0]!,
         nodeId: "p12-t4",
-        name: "remote bookmark"
+        name: "remote tag"
       }]
     };
     source.backendRecovery = feed;
@@ -972,15 +972,15 @@ describe("backend recovery orchestration", () => {
     feed.publish([], true);
     await entered.promise;
     const prune = createPrunePlan(state.payload, "p12")!;
-    const bookmark = {
-      nodeId: "p12-t4", name: "typed while loading", labelIndex: 2,
-      choosingLabel: true, existing: false, returnMode: "NAV" as const
+    const tag = {
+      nodeId: "p12-t4", name: "typed while loading", statusIndex: 2,
+      choosingStatus: true, existing: false, returnMode: "NAV" as const
     };
     const rename = { breakId: "chapter-break-1", value: "typed chapter title" };
     state.undo = [{ kind: "switch", leafId: "p13", nodeId: "p12" }];
     state.prune = prune;
-    state.bookmark = bookmark;
-    state.mode = "BOOKMARK";
+    state.tag = tag;
+    state.mode = "TAG";
     state.chapters = { cursor: 1, rename, deleteArmedId: "chapter-break-2" };
     state.facts = {
       cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false,
@@ -993,11 +993,11 @@ describe("backend recovery orchestration", () => {
     expect(state.undo).toEqual([]);
     expect(state.prune).toBe(prune);
     expect(state.prune).toMatchObject({ kind: "subtree", nodeId: "p12", parts: 1 });
-    expect(state.bookmark).toBe(bookmark);
-    expect(state.bookmark).toMatchObject({
-      name: "typed while loading", choosingLabel: true, existing: true
+    expect(state.tag).toBe(tag);
+    expect(state.tag).toMatchObject({
+      name: "typed while loading", choosingStatus: true, existing: true
     });
-    expect(state.mode).toBe("BOOKMARK");
+    expect(state.mode).toBe("TAG");
     expect(state.chapters?.rename).toBe(rename);
     expect(state.chapters?.deleteArmedId).toBe("chapter-break-2");
     expect(state.facts?.deleteArmedId).toBe("fact-1");
@@ -1060,7 +1060,7 @@ describe("backend recovery orchestration", () => {
     const activeLineOnly = {
       ...emptyState.payload,
       nodes: emptyState.payload.nodes.filter(({ id }) => activeIds.has(id)),
-      bookmarks: emptyState.payload.bookmarks.filter(({ nodeId }) => activeIds.has(nodeId))
+      tags: emptyState.payload.tags.filter(({ nodeId }) => activeIds.has(nodeId))
     };
     adoptReconciliationSnapshot(emptyState, activeLineOnly);
     expect(emptyState.prune).toBe(null);
@@ -1085,20 +1085,20 @@ describe("backend recovery orchestration", () => {
   test("reconciliation repairs removed map and action targets without leaving a dead mode", () => {
     const recoveredPayload = createDemoController().deleteNode("p13", 1);
 
-    const bookmarkState = initialState(demoAppSource(), false);
-    bookmarkState.mode = "BOOKMARK";
-    bookmarkState.map = {
+    const tagState = initialState(demoAppSource(), false);
+    tagState.mode = "TAG";
+    tagState.map = {
       view: "path", pathCursorId: "p13", pathShowAllTakes: true, treeCursorId: "p13", rowIds: [],
       showSketches: false, openedColdFolds: new Set(), massSort: "size"
     };
-    bookmarkState.bookmark = {
-      nodeId: "p13", name: "stale", labelIndex: 0,
-      choosingLabel: false, existing: false, returnMode: "MAP"
+    tagState.tag = {
+      nodeId: "p13", name: "stale", statusIndex: 0,
+      choosingStatus: false, existing: false, returnMode: "MAP"
     };
-    adoptReconciliationSnapshot(bookmarkState, recoveredPayload);
-    expect(bookmarkState.bookmark).toBe(null);
-    expect(bookmarkState.mode).toBe("MAP");
-    expect(bookmarkState.map?.pathCursorId).toBe(recoveredPayload.path.at(-1)?.id);
+    adoptReconciliationSnapshot(tagState, recoveredPayload);
+    expect(tagState.tag).toBe(null);
+    expect(tagState.mode).toBe("MAP");
+    expect(tagState.map?.pathCursorId).toBe(recoveredPayload.path.at(-1)?.id);
 
     const actionsState = initialState(demoAppSource(), false);
     actionsState.mode = "ACTIONS";

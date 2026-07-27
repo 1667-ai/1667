@@ -69,7 +69,7 @@ function activityStory(): Story {
       node("other-one", "root", "other-leaf", other),
       node("other-leaf", "other-one", null, other)
     ],
-    activeRootId: "root", bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: []
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }
 
@@ -90,7 +90,7 @@ function branchingStory(): Story {
       node("kept-leaf", "kept", null),
       node("far", "root", null)
     ],
-    activeRootId: "root", bookmarks: [], recentNodeIds: [], facts: [], chapterBreaks: []
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
   };
 }
 
@@ -288,7 +288,7 @@ describe("full-bleed map screen", () => {
     expect(beforeParent.childCount).toBeGreaterThan(0);
 
     const projected = projectStreamedPayload(source.payload, source.stream, { includePendingTake: true });
-    expect(projected.bookmarks).toEqual(source.payload.bookmarks);
+    expect(projected.tags).toEqual(source.payload.tags);
     const afterParent = projected.nodes.find((node) => node.id === parentId)!;
     expect(afterParent).toMatchObject({
       activeChildId: targetId,
@@ -355,11 +355,11 @@ describe("full-bleed map screen", () => {
     }
   });
 
-  test("a streamed child carries the active line-end bookmark in every map view", () => {
+  test("a streamed child carries the active line-end tag in every map view", () => {
     const demo = createDemoController();
     const source = { payload: demo.payload(), now: NOW, stream: null } as StoryScreenState;
     const leafId = source.payload.path.at(-1)!.id;
-    const targetId = "stream-bookmarked-child";
+    const targetId = "stream-tagged-child";
     source.stream = {
       targetId,
       parentId: leafId,
@@ -370,10 +370,10 @@ describe("full-bleed map screen", () => {
     };
 
     const projected = projectStreamedPayload(source.payload, source.stream, { includePendingTake: true });
-    expect(source.payload.bookmarks.find((bookmark) => bookmark.name === "canon-storm")?.nodeId).toBe(leafId);
-    expect(projected.bookmarks.find((bookmark) => bookmark.name === "canon-storm")?.nodeId).toBe(targetId);
+    expect(source.payload.tags.find((tag) => tag.name === "canon-storm")?.nodeId).toBe(leafId);
+    expect(projected.tags.find((tag) => tag.name === "canon-storm")?.nodeId).toBe(targetId);
     const landed = demo.createChild(leafId, source.stream.instruction, source.stream.text);
-    expect(landed.bookmarks.find((bookmark) => bookmark.name === "canon-storm")?.nodeId)
+    expect(landed.tags.find((tag) => tag.name === "canon-storm")?.nodeId)
       .toBe(landed.path.at(-1)?.id);
 
     for (const view of ["path", "tree", "mass"] as const) {
@@ -412,25 +412,25 @@ describe("full-bleed map screen", () => {
     expect(visibleWidth(plainLine(row)) <= 120).toBeTrue();
   });
 
-  test("path aligns word metadata independently of bookmark badges", () => {
+  test("path aligns word metadata independently of tag badges", () => {
     const rendered = render("path", 120, 36);
     const positions = rendered.frame.lines.flatMap((line) => {
       const wordIndex = line.findIndex((part) => /^\s*\d+w\+?$/.test(part.text));
       if (wordIndex < 0) return [];
       const wordColumn = line.slice(0, wordIndex)
         .reduce((sum, part) => sum + visibleWidth(part.text), 0);
-      const bookmarked = line.some((part) => part.role === "bookmark · canon" && part.text.trim() !== "");
-      return [{ wordColumn, bookmarked }];
+      const tagged = line.some((part) => part.role === "tag · canon" && part.text.trim() !== "");
+      return [{ wordColumn, tagged }];
     });
-    expect(positions.some((item) => item.bookmarked)).toBeTrue();
-    expect(positions.some((item) => !item.bookmarked)).toBeTrue();
+    expect(positions.some((item) => item.tagged)).toBeTrue();
+    expect(positions.some((item) => !item.tagged)).toBeTrue();
     expect(new Set(positions.map((item) => item.wordColumn)).size).toBe(1);
     const draftFrame = render("path", 120, 36, { pathCursorId: "p5-alt" });
     const draft = draftFrame.frame.lines.flat().find((part) => part.text.includes("draft-ledger"));
-    expect(draft?.role).toBe("bookmark · draft");
+    expect(draft?.role).toBe("tag · draft");
   });
 
-  test("breadcrumb preserves the active bookmark's glyph and semantic role", () => {
+  test("breadcrumb preserves the active tag's glyph and semantic role", () => {
     const demo = createDemoController();
     const source = {
       payload: demo.switchTo("p5-alt", { stopAtNode: true }),
@@ -442,7 +442,7 @@ describe("full-bleed map screen", () => {
     const breadcrumb = frame.lines.at(-1)!;
     const identity = breadcrumb.find((part) => part.text.includes("~ draft-ledger"));
 
-    expect(identity?.role).toBe("bookmark · draft");
+    expect(identity?.role).toBe("tag · draft");
   });
 
   test("tree keeps graph rows clickable and drops preview only at narrow geometry", () => {
@@ -534,7 +534,7 @@ describe("full-bleed map screen", () => {
       takeCount: 5,
       parts: 2,
       lines: 1,
-      bookmarks: [{ name: "canon-storm", label: "Canon" }]
+      tags: [{ name: "canon-storm", status: "Canon" }]
     };
     for (const [width, height] of [[80, 24], [120, 36]] as const) {
       const hits: HitRows = [];

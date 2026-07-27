@@ -799,7 +799,7 @@ function storyPayload(id: string, title: string): StoryPayload {
     nodes: [],
     path: [],
     activeRootId: null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

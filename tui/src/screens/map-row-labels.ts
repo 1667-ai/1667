@@ -1,7 +1,7 @@
 import { shortDate, type AtlasRow } from "../atlas-layout.js";
-import { bookmarkGlyph, bookmarkRole } from "../bookmark-presentation.js";
+import { tagGlyph, tagRole } from "../tag-presentation.js";
 
-export { bookmarkGlyph, bookmarkRole };
+export { tagGlyph, tagRole };
 
 /** A word count with no unit, for views that already head a column of them —
  * doc 20c's tree gutter and doc 26a's metadata column. */
@@ -15,17 +15,17 @@ export function formatMapWords(words: number): string {
   return words < 1_000 ? `${formatMapWordsBare(words)} w` : formatMapWordsBare(words);
 }
 
-/** What a line is called. Doc 26a moves the bookmark glyph out to the state
+/** What a line is called. Doc 26a moves the tag glyph out to the state
  * column, so the name column holds nothing but the name. */
 export function mapLineName(row: AtlasRow): string {
-  return row.bookmark === null
+  return row.tag === null
     ? `unnamed · ${shortDate(row.node.lastTouched)}`
-    : row.bookmark.name;
+    : row.tag.name;
 }
 
-/** The name with its bookmark glyph, for views with no column to move it to. */
+/** The name with its tag glyph, for views with no column to move it to. */
 export function mapLineLabel(row: AtlasRow): string {
-  return row.bookmark === null
+  return row.tag === null
     ? mapLineName(row)
-    : `${bookmarkGlyph(row.bookmark.label)} ${mapLineName(row)}`;
+    : `${tagGlyph(row.tag.status)} ${mapLineName(row)}`;
 }

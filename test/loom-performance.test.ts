@@ -3,11 +3,11 @@ import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { activePath, childrenOf, pathTo, takeIndex } from "../shared/story-tree.js";
 import { parseLegacyStory } from "../server/story-format.js";
-import type { Bookmark, NodeStub, StoryPayload } from "../shared/types.js";
+import type { Tag, NodeStub, StoryPayload } from "../shared/types.js";
 import {
   activeContinuationWindow,
   activePathWindow,
-  bookmarkBelow,
+  tagBelow,
   continuationStats,
   createStoryIndex,
   mapForkPage,
@@ -52,21 +52,21 @@ test("loom performance: a 20k-take fork keeps previews and its DOM window bounde
   const takeCount = 20_000;
   const root = stub("wide-root", null, "wide-0", takeCount);
   const takes = Array.from({ length: takeCount }, (_, index) => stub(`wide-${index}`, root.id, null, 0));
-  const bookmarks: Bookmark[] = Array.from({ length: 100 }, (_, index) => ({
+  const tags: Tag[] = Array.from({ length: 100 }, (_, index) => ({
     nodeId: `wide-${index * 100}`,
     name: `Line ${index}`,
-    label: "Alt",
+    status: "Alt",
     color: "#4b45c9",
     createdAt: NOW
   }));
-  const payload = story([root, ...takes], bookmarks);
+  const payload = story([root, ...takes], tags);
   const started = performance.now();
   const index = createStoryIndex(payload);
   assert.equal(childrenOf(index.tree, root.id).length, takeCount);
   let ordinalChecksum = 0;
   for (const take of takes) {
     continuationStats(payload, take.id, index);
-    bookmarkBelow(payload, take.id, index);
+    tagBelow(payload, take.id, index);
     const ordinal = takeIndex(index.tree, take.id);
     if (ordinal.count !== takeCount) throw new Error(`Wrong sibling count for ${take.id}`);
     ordinalChecksum += ordinal.index;
@@ -94,7 +94,7 @@ test("loom performance: a mixed 10k-node loom precomputes nested rollups once", 
   const depth = 100;
   const alternatives = 99;
   const nodes: NodeStub[] = [];
-  const bookmarks: Bookmark[] = [];
+  const tags: Tag[] = [];
   for (let level = 0; level < depth; level += 1) {
     nodes.push(stub(
       `trunk-${level}`,
@@ -105,21 +105,21 @@ test("loom performance: a mixed 10k-node loom precomputes nested rollups once", 
     for (let take = 0; take < alternatives; take += 1) {
       const id = `alt-${level}-${take}`;
       nodes.push(stub(id, `trunk-${level}`, null, 0));
-      if (take === 0) bookmarks.push({
+      if (take === 0) tags.push({
         nodeId: id,
         name: `Alt ${level}`,
-        label: "Alt",
+        status: "Alt",
         color: "#4b45c9",
         createdAt: NOW
       });
     }
   }
-  const payload = story(nodes, bookmarks);
+  const payload = story(nodes, tags);
   const started = performance.now();
   const index = createStoryIndex(payload);
   for (const node of nodes) {
     continuationStats(payload, node.id, index);
-    bookmarkBelow(payload, node.id, index);
+    tagBelow(payload, node.id, index);
   }
   const elapsed = performance.now() - started;
 
@@ -163,7 +163,7 @@ function stub(id: string, parentId: string | null, activeChildId: string | null,
   };
 }
 
-function story(nodes: NodeStub[], bookmarks: Bookmark[] = []): StoryPayload {
+function story(nodes: NodeStub[], tags: Tag[] = []): StoryPayload {
   return {
     id: "performance-fixture",
     title: "Performance fixture",
@@ -172,7 +172,7 @@ function story(nodes: NodeStub[], bookmarks: Bookmark[] = []): StoryPayload {
     nodes,
     path: [],
     activeRootId: nodes.find((node) => node.parentId === null)?.id ?? null,
-    bookmarks,
+    tags,
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

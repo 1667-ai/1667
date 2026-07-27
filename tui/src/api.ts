@@ -21,8 +21,8 @@ import {
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import type {
-  BookmarkLabel,
-  BookmarkRequest,
+  TagStatus,
+  TagRequest,
   CreateFactsRequest,
   CreateNodeRequest,
   DeleteNodeRequest,
@@ -115,7 +115,7 @@ export interface StoryApi {
   deleteNode(storyId: string, nodeId: string, expectedSubtreeCount: number): Promise<StoryPayload>;
   pruneUnusedTakes(storyId: string, body: PruneUnusedTakesRequest): Promise<StoryPayload>;
   takeFromCut(storyId: string, nodeId: string, body: TakeFromCutRequest): Promise<StoryPayload>;
-  putBookmark(storyId: string, nodeId: string, name: string, label: BookmarkLabel): Promise<StoryPayload>;
+  putBookmark(storyId: string, nodeId: string, name: string, status: TagStatus): Promise<StoryPayload>;
   deleteBookmark(storyId: string, nodeId: string): Promise<StoryPayload>;
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
   patchFact(storyId: string, factId: string, body: { tag?: string | null; text?: string }): Promise<StoryPayload>;
@@ -595,17 +595,17 @@ export function createApi(
         `/api/stories/${storyId}/nodes/${nodeId}/take-from-cut`,
         body
       ),
-    putBookmark: (storyId, nodeId, name, label) =>
+    putBookmark: (storyId, nodeId, name, status) =>
       mutateStoryPayload(
         storyId,
         "PUT",
-        `/api/stories/${storyId}/bookmarks/${nodeId}`,
-        { name, label } satisfies BookmarkRequest
+        `/api/stories/${storyId}/tags/${nodeId}`,
+        { name, status } satisfies TagRequest
       ),
     deleteBookmark: (storyId, nodeId) => mutateStoryPayload(
       storyId,
       "DELETE",
-      `/api/stories/${storyId}/bookmarks/${nodeId}`
+      `/api/stories/${storyId}/tags/${nodeId}`
     ),
     createFact: (storyId, body) => mutateStoryPayload(
       storyId,

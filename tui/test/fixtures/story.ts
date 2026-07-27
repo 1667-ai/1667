@@ -45,7 +45,7 @@ export function syntheticStoryPayload(
     nodes,
     path,
     activeRootId: path[0]?.id ?? null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []

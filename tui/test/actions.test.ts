@@ -339,19 +339,19 @@ describe("demo action pipeline", () => {
     expect(state.payload.nodes.some((node) => node.id === "p12" || node.id === "p13")).toBe(false);
   });
 
-  test("lowercase-name shifted destructive keys cannot mutate bookmark, fact, or chapter owners", async () => {
+  test("lowercase-name shifted destructive keys cannot mutate tag, fact, or chapter owners", async () => {
     const shifted = (name: "d" | "x") => modifiedKey(name, {
       sequence: name.toUpperCase(), shift: true
     });
 
-    const bookmark = harness();
-    focusNode(bookmark.state, "p13");
-    await bookmark.press("b");
-    await bookmark.press("return", "\r");
-    expect(bookmark.state.bookmark).toMatchObject({ existing: true, choosingLabel: true });
-    await bookmark.pressKey(shifted("x"));
-    expect(bookmark.state.payload.bookmarks.some(({ nodeId }) => nodeId === "p13")).toBeTrue();
-    expect(bookmark.state.bookmark).not.toBe(null);
+    const tag = harness();
+    focusNode(tag.state, "p13");
+    await tag.press("t");
+    await tag.press("return", "\r");
+    expect(tag.state.tag).toMatchObject({ existing: true, choosingStatus: true });
+    await tag.pressKey(shifted("x"));
+    expect(tag.state.payload.tags.some(({ nodeId }) => nodeId === "p13")).toBeTrue();
+    expect(tag.state.tag).not.toBe(null);
 
     const fact = harness();
     const factId = fact.state.payload.facts[0]!.id;
@@ -387,23 +387,23 @@ describe("demo action pipeline", () => {
     expect(state.payload.nodes.some((node) => ["p12-t1", "p12-t2", "p12-t4", "p8-alt-1", "p8-alt-2"].includes(node.id))).toBeFalse();
   });
 
-  test("bookmark prompt can save and delete a map path leaf", async () => {
+  test("tag prompt can save and delete a map path leaf", async () => {
     const { state, press } = harness();
     await press("m");
     await press("right");
-    await press("b");
+    await press("t");
     for (const character of "new-line") await press(character, character);
     await press("return", "\r");
     await press("right");
     await press("right");
     await press("right");
     await press("return", "\r");
-    expect(state.payload.bookmarks.find((bookmark) => bookmark.nodeId === "p12-t4")).toMatchObject({ name: "new-line", label: "Draft" });
+    expect(state.payload.tags.find((tag) => tag.nodeId === "p12-t4")).toMatchObject({ name: "new-line", status: "Draft" });
     expect(state.toast).toBe("~ new-line saved");
-    await press("b");
+    await press("t");
     await press("return", "\r");
     await press("d");
-    expect(state.payload.bookmarks.some((bookmark) => bookmark.nodeId === "p12-t4")).toBe(false);
+    expect(state.payload.tags.some((tag) => tag.nodeId === "p12-t4")).toBe(false);
   });
 
   test("escape closes an overlay without cancelling a visible stream", async () => {
@@ -480,7 +480,7 @@ describe("demo action pipeline", () => {
 
   test("deleting the last story adopts a fresh one instead of dangling", async () => {
     const source = demoAppSource();
-    const fresh = { ...source.payload, id: "fresh-story", path: [], nodes: [], bookmarks: [], facts: [] };
+    const fresh = { ...source.payload, id: "fresh-story", path: [], nodes: [], tags: [], facts: [] };
     let created = false;
     source.api = {
       ...source.api,
@@ -511,7 +511,7 @@ describe("demo action pipeline", () => {
       path: [],
       nodes: [],
       activeRootId: null,
-      bookmarks: [],
+      tags: [],
       recentNodeIds: [],
       facts: [],
       chapterBreaks: []
@@ -556,7 +556,7 @@ describe("demo action pipeline", () => {
       path: [],
       nodes: [],
       activeRootId: null,
-      bookmarks: [],
+      tags: [],
       recentNodeIds: [],
       facts: [],
       chapterBreaks: []

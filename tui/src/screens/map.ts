@@ -15,7 +15,7 @@ import type { StoryScreenState } from "../state.js";
 import { projectStreamedPayload } from "../stream-projection.js";
 import { createMapMassScale, renderMapMassRow, renderMapSketchFold } from "./map-mass-row.js";
 import { createMapPathRow, renderMapPathRow, type MapPathRow } from "./map-path-row.js";
-import { bookmarkGlyph, bookmarkRole, formatMapWords, formatMapWordsBare } from "./map-row-labels.js";
+import { tagGlyph, tagRole, formatMapWords, formatMapWordsBare } from "./map-row-labels.js";
 import { mapTreeFoldFootnote, renderMapTreeRow } from "./map-tree-row.js";
 import {
   fitLine,
@@ -106,10 +106,10 @@ function renderPathBody(state: StoryScreenState, map: MapState, width: number, b
   }));
   const rowIds = layout.rows.map((row) => row.pathNode.id);
   const currentDepth = layout.rows.find((row) => row.cursorHere)?.depth ?? layout.visibleStart;
-  const bookmarkCount = layout.bookmarks.length;
+  const tagCount = layout.tags.length;
   const stats = width < 100
     ? `${state.payload.title} ━ depth ${layout.visibleStart}–${layout.visibleEnd} of ${layout.totalDepth} ━ ${layout.totalParts} parts · ${layout.totalLines} lines`
-    : `${state.payload.title} ━ ${layout.totalParts} parts on ${layout.totalLines} lines · ${bookmarkCount} ${bookmarkCount === 1 ? "bookmark" : "bookmarks"} ━ depth ${layout.visibleStart}–${layout.visibleEnd} of ${layout.totalDepth}`;
+    : `${state.payload.title} ━ ${layout.totalParts} parts on ${layout.totalLines} lines · ${tagCount} ${tagCount === 1 ? "tag" : "tags"} ━ depth ${layout.visibleStart}–${layout.visibleEnd} of ${layout.totalDepth}`;
   return {
     lines, hits,
     stats,
@@ -331,11 +331,11 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
   const available = Math.max(0, width - visibleWidth(hint) - 1);
   const shownCrumb = density === "narrow" ? compactCrumb(crumb) : crumb;
   const activeLeaf = payload.path.at(-1)?.id ?? null;
-  const bookmark = payload.bookmarks.find((item) => item.nodeId === activeLeaf) ?? null;
+  const tag = payload.tags.find((item) => item.nodeId === activeLeaf) ?? null;
   const name = activeLeaf === null ? "unwritten" : lineName(payload, activeLeaf);
-  const lineIdentity = `${bookmark === null ? "" : `${bookmarkGlyph(bookmark.label)} `}${name}`;
+  const lineIdentity = `${tag === null ? "" : `${tagGlyph(tag.status)} `}${name}`;
   // Reserve the complete numeric crumb before spending the remaining cells on
-  // identity. The bookmark marker belongs to the line identity budget: adding
+  // identity. The tag marker belongs to the line identity budget: adding
   // it after truncating the name used to steal the final two cells from `653w`.
   const viewLabel = view === "path"
     ? `${view}/${map.pathShowAllTakes ? "all" : "branches"}`
@@ -351,7 +351,7 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
     segment(` ${viewLabel}  `, "focus / accent"),
     segment(truncate(payload.title, titleWidth), "chrome"),
     segment(" · ", "chrome"),
-    segment(shownName, bookmarkRole(bookmark)),
+    segment(shownName, tagRole(tag)),
     segment(` · ${shownCrumb}`, "chrome")
   ];
   const shownLeft = fitLine(left, available);

@@ -3,11 +3,11 @@ import test from "node:test";
 import type { NodeStub, StoryNode, StoryPayload } from "../shared/types.js";
 import {
   activePathWindow,
-  bookmarkBelow,
+  tagBelow,
   continuationStats,
   deletionCopy,
   recentLeafIds,
-  rememberedLineBookmark,
+  rememberedLineTag,
   summaryExtendsCurrentLeaf,
   summaryLockedNodeIds,
   summaryPruneLockedNodeIds,
@@ -58,7 +58,7 @@ function payload(nodes: NodeStub[], pathIds: string[]): StoryPayload {
     nodes,
     path: pathIds.map((id) => node(nodes.find((candidate) => candidate.id === id)!)),
     activeRootId: pathIds[0] ?? null,
-    bookmarks: [],
+    tags: [],
     recentNodeIds: [],
     facts: [],
     chapterBreaks: []
@@ -85,10 +85,10 @@ test("switch feedback reports parts after the chosen take and the terminal part 
     stub("a-next", "take-a", null, 5)
   ];
   const continuing = payload(nodes, ["root", "take-a", "a-next"]);
-  continuing.bookmarks.push({
+  continuing.tags.push({
     nodeId: "a-next",
     name: "Lantern road",
-    label: "Alt",
+    status: "Alt",
     color: "#4b45c9",
     createdAt: NOW
   });
@@ -118,29 +118,29 @@ test("recent lines resolve remembered descendants without repeating the active l
   assert.deepEqual(recentLeafIds(story, "current-leaf"), ["other-leaf"]);
 });
 
-test("line rows ignore bookmarks on unrelated inactive descendants", () => {
+test("line rows ignore tags on unrelated inactive descendants", () => {
   const story = payload([
     stub("take", null, "remembered", 1, 2),
     stub("remembered", "take", null, 1),
     stub("inactive", "take", null, 1)
   ], ["take", "remembered"]);
-  story.bookmarks.push({
-    nodeId: "inactive", name: "Other canon", label: "Canon", color: "#123", createdAt: NOW
+  story.tags.push({
+    nodeId: "inactive", name: "Other canon", status: "Canon", color: "#123", createdAt: NOW
   });
 
-  assert.equal(rememberedLineBookmark(story, "take"), null);
-  assert.equal(bookmarkBelow(story, "take")?.name, "Other canon", "subtree visibility still sees the bookmark");
-  // Payloads are immutable adoption units — a bookmark change arrives as a new
+  assert.equal(rememberedLineTag(story, "take"), null);
+  assert.equal(tagBelow(story, "take")?.name, "Other canon", "subtree visibility still sees the tag");
+  // Payloads are immutable adoption units — a tag change arrives as a new
   // payload, and the memoized loom index is keyed on that identity.
   const renamed = payload([
     stub("take", null, "remembered", 1, 2),
     stub("remembered", "take", null, 1),
     stub("inactive", "take", null, 1)
   ], ["take", "remembered"]);
-  renamed.bookmarks.push({
-    nodeId: "remembered", name: "Reading", label: "Alt", color: "#456", createdAt: NOW
+  renamed.tags.push({
+    nodeId: "remembered", name: "Reading", status: "Alt", color: "#456", createdAt: NOW
   });
-  assert.equal(rememberedLineBookmark(renamed, "take")?.name, "Reading");
+  assert.equal(rememberedLineTag(renamed, "take")?.name, "Reading");
 });
 
 test("very deep active paths keep a bounded initial DOM window", () => {

@@ -313,7 +313,7 @@ export function fitLine(line: FrameLine, width: number): FrameLine {
  *
  * The four meter slices (doc 12b) borrow hues the theme already owns rather
  * than inventing four more: the standing voice is the writer's own ink, facts
- * take the alt-bookmark violet, recent prose carries the page accent because it
+ * take the alt-tag violet, recent prose carries the page accent because it
  * is what actually fills the window, and a summary is sepia wherever the theme
  * puts sepia. Each theme recolors the meter for free — and because they stay
  * display roles of their own, the COMPOSE recolor still leaves them alone.
@@ -324,7 +324,7 @@ const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   "danger text": (palette) => palette.dangerText,
   "context warning": (palette) => palette.contextWarning,
   "context voice": (palette) => palette.color("human edit"),
-  "context facts": (palette) => palette.color("bookmark · alt"),
+  "context facts": (palette) => palette.color("tag · alt"),
   "context recent": (palette) => palette.color("focus / accent"),
   "context summary": (palette) => palette.color("summary"),
   "fresh 1": (palette) => palette.freshIntermediate[0],

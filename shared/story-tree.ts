@@ -27,7 +27,7 @@ export interface LineState<Node extends TreeNode = StoryNode> extends TreeState<
 }
 
 export interface NamedLineState<Node extends TreeNode = StoryNode> extends TreeState<Node> {
-  bookmarks: readonly { nodeId: string }[];
+  tags: readonly { nodeId: string }[];
 }
 
 export interface UnusedTakePruneSelection {
@@ -140,7 +140,7 @@ export function subtreeCount<Node extends TreeNode>(state: TreeSource<Node>, nod
 }
 
 /** Select abandoned leaf takes while preserving structural and authored intent.
- * Continued takes and every node on a bookmarked line survive. A sibling group
+ * Continued takes and every node on a tagged line survive. A sibling group
  * keeps its sole leaf; when several unnamed leaves remain, the remembered leaf
  * (or, for an inactive group, the newest document-order leaf) survives. */
 export function unusedTakePruneSelection<Node extends TreeNode>(
@@ -148,8 +148,8 @@ export function unusedTakePruneSelection<Node extends TreeNode>(
 ): UnusedTakePruneSelection {
   const index = indexTree(state);
   const namedLineIds = new Set<string>();
-  for (const bookmark of state.bookmarks) {
-    let node = index.nodesById.get(bookmark.nodeId);
+  for (const tag of state.tags) {
+    let node = index.nodesById.get(tag.nodeId);
     while (node !== undefined && !namedLineIds.has(node.id)) {
       namedLineIds.add(node.id);
       node = node.parentId === null ? undefined : index.nodesById.get(node.parentId);

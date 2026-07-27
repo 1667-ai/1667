@@ -1,7 +1,7 @@
 import { createStoryIndex, rememberedChildOf, type StoryIndex } from "../../shared/story-model.js";
 import { isMapSketch } from "../../shared/map-model.js";
 import { childrenOf, isChapterSummary, pathTo } from "../../shared/story-tree.js";
-import type { Bookmark, NodeStub, StoryPayload } from "../../shared/types.js";
+import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
 
 export interface PathCell {
   node: NodeStub;
@@ -11,7 +11,7 @@ export interface PathCell {
   cursor: boolean;
   /** Decision 18: this take branches into subtakes of its own, so it wears the ring. */
   subtakes: boolean;
-  bookmark: Bookmark | null;
+  tag: Tag | null;
 }
 
 export interface PathRow {
@@ -30,7 +30,7 @@ export interface PathLayout {
   visibleStart: number;
   visibleEnd: number;
   cursorNodeId: string;
-  bookmarks: Bookmark[];
+  tags: Tag[];
   totalParts: number;
   totalLines: number;
   sketchCount: number;
@@ -111,7 +111,7 @@ export function createPathLayout(
         active: activeIds.has(node.id),
         cursor: node.id === resolvedCursor,
         subtakes: firstVisibleTake(node.id, showSketches, index) !== undefined,
-        bookmark: node.childCount === 0 ? index.bookmarkByNodeId.get(node.id) ?? null : null
+        tag: node.childCount === 0 ? index.tagByNodeId.get(node.id) ?? null : null
       }))
     });
   }
@@ -121,7 +121,7 @@ export function createPathLayout(
     visibleStart,
     visibleEnd,
     cursorNodeId: resolvedCursor,
-    bookmarks: [...payload.bookmarks],
+    tags: [...payload.tags],
     totalParts: payload.nodes.filter((node) => !isChapterSummary(node)).length,
     totalLines: index.mapLineCount,
     sketchCount: index.mapSketchNodeIds.size

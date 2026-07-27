@@ -54,7 +54,8 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("return"), "MAP", path).action).toBe("apply");
     expect(resolveKey(key("m"), "MAP", path).action).toBe("cycle-map-view");
     expect(resolveKey(key("a"), "MAP", path).action).toBe("toggle-path-takes");
-    expect(resolveKey(key("t"), "MAP", path).action).toBe("none");
+    expect(resolveKey(key("t"), "MAP", path).action).toBe("tag");
+    expect(resolveKey(key("b"), "MAP", path).action).toBe("none");
     for (const dead of ["h", "j", "k", "l"]) {
       expect(resolveKey(key(dead), "MAP", path).action).toBe("none");
     }
@@ -232,20 +233,20 @@ describe("text surfaces and palette", () => {
       resolveKey(shifted("d")[0]!, "CHAPTERS"),
       resolveKey(shifted("d")[0]!, "LIBRARY"),
       resolveKey(shifted("x")[0]!, "FACTS"),
-      resolveKey(shifted("x")[0]!, "COMMANDS", { commandsBookmarks: true }),
-      resolveKey(shifted("x")[0]!, "BOOKMARK", { bookmarkChoosingLabel: true })
+      resolveKey(shifted("x")[0]!, "COMMANDS", { commandsTags: true }),
+      resolveKey(shifted("x")[0]!, "TAG", { tagChoosingStatus: true })
     ];
     expect(destructiveRoutes.map(({ action }) => action)).toEqual(
       Array.from({ length: destructiveRoutes.length }, () => "none")
     );
     for (const event of shifted("x")) {
-      expect(resolveKey(event, "BOOKMARK")).toEqual({ action: "input", text: "X" });
+      expect(resolveKey(event, "TAG")).toEqual({ action: "input", text: "X" });
     }
   });
 
-  test("d is a name character while typing, delete only during label choice", () => {
-    expect(resolveKey(key("d"), "BOOKMARK")).toEqual({ action: "input", text: "d" });
-    expect(resolveKey(key("d"), "BOOKMARK", { bookmarkChoosingLabel: true }).action).toBe("delete-bookmark");
+  test("d is a name character while typing, delete only during status choice", () => {
+    expect(resolveKey(key("d"), "TAG")).toEqual({ action: "input", text: "d" });
+    expect(resolveKey(key("d"), "TAG", { tagChoosingStatus: true }).action).toBe("delete-tag");
   });
 
   test("NAV Enter directs, Space continues, and n starts a new story", () => {
@@ -254,7 +255,8 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("space", { sequence: " " }), "NAV").action).toBe("continue");
     expect(resolveKey(key("n"), "NAV").action).toBe("new-item");
     expect(resolveKey(key("m"), "NAV").action).toBe("open-map");
-    expect(resolveKey(key("t"), "NAV").action).toBe("none");
+    expect(resolveKey(key("t"), "NAV").action).toBe("tag");
+    expect(resolveKey(key("b"), "NAV").action).toBe("none");
     expect(resolveKey(key("r"), "NAV").action).toBe("regenerate");
     expect(resolveKey(key("R"), "NAV").action).toBe("retake-with-prompt");
     expect(resolveKey(key("c"), "NAV").action).toBe("open-chapters");
@@ -290,7 +292,7 @@ describe("text surfaces and palette", () => {
       expect(resolveKey(event, "NAV", offline).action).toBe("retry");
       expect(resolveKey(event, "COMPOSE", offline)).toEqual({ action: "input", text: "R" });
       expect(resolveKey(event, "COMMANDS", offline)).toEqual({ action: "input", text: "R" });
-      expect(resolveKey(event, "BOOKMARK", offline)).toEqual({ action: "input", text: "R" });
+      expect(resolveKey(event, "TAG", offline)).toEqual({ action: "input", text: "R" });
     }
     expect(resolveKey(key("R", { shift: true }), "LIBRARY", {
       ...offline, overlayTyping: true
@@ -299,19 +301,19 @@ describe("text surfaces and palette", () => {
       ...offline, overlayTyping: true
     })).toEqual({ action: "input", text: "R" });
     expect(resolveKey(key("R", { shift: true }), "COMMANDS", {
-      ...offline, commandsBookmarks: true
+      ...offline, commandsTags: true
     }).action).toBe("retry");
   });
 
-  test("palette query accepts d and e; d deletes only in bookmarks", () => {
+  test("palette query accepts d and e; d deletes only in tags", () => {
     expect(resolveKey(key("d"), "COMMANDS")).toEqual({ action: "input", text: "d" });
     expect(resolveKey(key("e"), "COMMANDS")).toEqual({ action: "input", text: "e" });
-    expect(resolveKey(key("d"), "COMMANDS", { commandsBookmarks: true }).action).toBe("delete-item");
+    expect(resolveKey(key("d"), "COMMANDS", { commandsTags: true }).action).toBe("delete-item");
   });
 
   test("paste inserts at the composer cursor and flattens single-line prompts", () => {
     const base = {
-      composer: createComposer("ab"), bookmark: null, library: null, facts: null, commands: null,
+      composer: createComposer("ab"), tag: null, library: null, facts: null, commands: null,
       prune: null, chapterDeleteArmedId: null, actions: null, retakePrompt: null,
       composerScrollTop: 0, history: [] as string[], historyIndex: 0, historyDraft: null,
       pendingGenerationDraft: null, composerClaimEpoch: 0
@@ -323,11 +325,11 @@ describe("text surfaces and palette", () => {
     const naming = {
       ...base,
       composer: createComposer(),
-      mode: "BOOKMARK" as const,
-      bookmark: { choosingLabel: false, name: "" }
+      mode: "TAG" as const,
+      tag: { choosingStatus: false, name: "" }
     };
     expect(pasteInto(naming, "storm\ncanon")).toBeTrue();
-    expect(naming.bookmark.name).toBe("storm canon");
+    expect(naming.tag.name).toBe("storm canon");
     const facts = {
       ...base,
       composer: createComposer(),
