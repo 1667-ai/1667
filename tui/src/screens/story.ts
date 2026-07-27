@@ -334,12 +334,12 @@ function renderMapTag(
     }])
   ];
   const content: FrameLine[] = [input, [], [
-    raisedSegment("  Label  ", "chrome"),
+    raisedSegment("  Status  ", "chrome"),
     raisedSegment(`‹ ${selected} ›`, prompt.choosingStatus ? "focus / accent" : "prose · dim")
   ]];
   const footer = prompt.choosingStatus
-    ? `←→ label · enter save · esc cancel${prompt.existing ? " · d delete" : ""}`
-    : "enter choose label · esc cancel";
+    ? `←→ status · enter save · esc cancel${prompt.existing ? " · d delete" : ""}`
+    : "enter choose status · esc cancel";
   return placePanel(dimPage(base), "tag line", content, footer, width, height, 64, {
     rows: hitRows,
     targets: content.map(() => null)
@@ -357,8 +357,8 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     const promptHint = state.toast !== null && pinned
       ? state.toast
       : state.tag.choosingStatus
-        ? `label ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? " · d deletes" : ""}`
-        : "enter chooses label · esc cancels";
+        ? `status ‹ ${selected} › · ←→ picks · enter saves · esc cancels${state.tag.existing ? " · d deletes" : ""}`
+        : "enter chooses status · esc cancels";
     return { lines: [
       rule,
       [segment(indent), segment(tagPrefix, "accent · deep"), segment(truncateTail(state.tag.name, nameWidth), "streaming"), segment(state.tag.choosingStatus ? "" : "▌", "focus / accent")],

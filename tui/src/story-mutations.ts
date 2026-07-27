@@ -176,7 +176,7 @@ export async function removeTag(
   if (prompt === null || !prompt.existing) return;
   const submittedName = prompt.name;
   const submittedStatusIndex = prompt.statusIndex;
-  const submittedChoosingLabel = prompt.choosingStatus;
+  const submittedChoosingStatus = prompt.choosingStatus;
   await context.backend.run("deleting tag", async (task) => {
     const payload = await source.api.deleteBookmark(task.storyId, prompt.nodeId);
     if (!task.storyCurrent()) return;
@@ -184,7 +184,7 @@ export async function removeTag(
     if (state.tag === prompt
       && prompt.name === submittedName
       && prompt.statusIndex === submittedStatusIndex
-      && prompt.choosingStatus === submittedChoosingLabel) {
+      && prompt.choosingStatus === submittedChoosingStatus) {
       state.mode = prompt.returnMode;
       state.tag = null;
       state.toast = "tag deleted";
