@@ -193,6 +193,42 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("SETTINGS");
   });
 
+  test("settings keep document state with the footer, not between the fields", async () => {
+    // The revision line describes the whole document, and it grows by a line
+    // when a restart is pending. Between the fields it read as a heading for
+    // whichever row followed it, and its second line shifted the field list out
+    // from under the cursor.
+    const lines = (await renderOnce(demoAppSource(), 120, 36, ",")).split("\n");
+    const at = (text: string): number => {
+      const index = lines.findIndex((line) => line.includes(text));
+      expect(index).toBeGreaterThan(-1);
+      return index;
+    };
+
+    expect(at("revision 1 active")).toBeGreaterThan(at("system prompt"));
+    expect(at("revision 1 active")).toBeLessThan(at("↑↓ move"));
+  });
+
+  test("a pending restart moves no settings row", async () => {
+    // The panel is centred on its content, so a taller status variant lifts the
+    // panel and takes every field with it. The old mid-panel position hid this
+    // for the fields below it — the extra line pushed them back down by the row
+    // the lift took away — and moved the pinned rows above it instead.
+    const rowsFor = async (pendingRevision: number | null): Promise<Record<string, number>> => {
+      const source = demoAppSource();
+      const view = { ...source.settingsView, pendingRevision, activeRevision: 3 };
+      source.settingsView = view as typeof source.settingsView;
+      source.api.getSettings = async () => view as typeof source.settingsView;
+      const lines = (await renderOnce(source, 120, 36, ",")).split("\n");
+      const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
+      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system prompt") };
+    };
+
+    const active = await rowsFor(null);
+    expect(Object.values(active).every((row) => row > -1)).toBeTrue();
+    expect(await rowsFor(4)).toEqual(active);
+  });
+
   test("format-1 settings render a read-only migration banner", async () => {
     const source = demoAppSource();
     const legacy = {
@@ -210,6 +246,11 @@ describe("run C overlay frames", () => {
     const frame = await renderOnce(source, 120, 36, ",");
     expect(frame).toContain("legacy data format 1");
     expect(frame).toContain("read-only until migration");
+    // This one stays above the fields. It is a precondition for every row under
+    // it, and a read-only warning met after the rows arrives too late.
+    const lines = frame.split("\n");
+    expect(lines.findIndex((line) => line.includes("legacy data format 1")))
+      .toBeLessThan(lines.findIndex((line) => line.includes("provider")));
   });
 
   test("facts rail frames context honestly as the next request; F folds it", async () => {
