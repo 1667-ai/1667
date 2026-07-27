@@ -89,7 +89,7 @@ export interface AppSource {
   settingsView: SettingsView;
   settings: GenerationSettings;
   storyFolder: string;
-  /** ADR007 §4: where `/export` writes. The project root, or the working
+  /** Where `/export` writes. The project root, or the working
    * directory when this client attached to a server instead of a project. */
   exportDirectory: string;
   connection: ConnectionMonitor | null;

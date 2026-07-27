@@ -1,4 +1,4 @@
-import { createLoomIndex, rememberedLeafId } from "../../shared/loom-model.js";
+import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
 import { BOOKMARK_LABELS, type StoryNode } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
 import { openFactFromSelection, openPartEditor } from "./editor-action.js";
@@ -8,7 +8,7 @@ import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
 import { openMap } from "./map-actions.js";
 import { createNewStory } from "./library-actions.js";
-import { resolveRerouteTarget } from "./loom-layout.js";
+import { resolveRerouteTarget } from "./path-layout.js";
 import {
   backspaceComposer,
   insertComposerText,
@@ -513,7 +513,7 @@ export function openBookmark(state: RuntimeState, targetId?: string): void {
     ? state.map?.pathCursorId
     : rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id ?? state.payload.path.at(-1)?.id);
   if (baseId === null || baseId === undefined) return;
-  const nodeId = rememberedLeafId(state.payload, baseId, createLoomIndex(state.payload));
+  const nodeId = rememberedLeafId(state.payload, baseId, createStoryIndex(state.payload));
   const existing = state.payload.bookmarks.find((bookmark) => bookmark.nodeId === nodeId) ?? null;
   state.bookmark = {
     nodeId,

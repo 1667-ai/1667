@@ -1,9 +1,9 @@
-import { createLoomIndex, rememberedChildOf, type LoomIndex } from "../../shared/loom-model.js";
+import { createStoryIndex, rememberedChildOf, type StoryIndex } from "../../shared/story-model.js";
 import { isMapSketch } from "../../shared/map-model.js";
 import { childrenOf, isChapterSummary, pathTo } from "../../shared/story-tree.js";
 import type { Bookmark, NodeStub, StoryPayload } from "../../shared/types.js";
 
-export interface LoomCell {
+export interface PathCell {
   node: NodeStub;
   take: number;
   takeCount: number;
@@ -14,9 +14,9 @@ export interface LoomCell {
   bookmark: Bookmark | null;
 }
 
-export interface LoomRow {
+export interface PathRow {
   depth: number;
-  cells: LoomCell[];
+  cells: PathCell[];
   hiddenBefore: number;
   hiddenAfter: number;
   /** The node this row shows on the cursor's line — its preview carries the row. */
@@ -24,8 +24,8 @@ export interface LoomRow {
   cursorHere: boolean;
 }
 
-export interface LoomLayout {
-  rows: LoomRow[];
+export interface PathLayout {
+  rows: PathRow[];
   totalDepth: number;
   visibleStart: number;
   visibleEnd: number;
@@ -36,22 +36,22 @@ export interface LoomLayout {
   sketchCount: number;
 }
 
-export function initialLoomCursor(payload: StoryPayload, focusIndex: number): string | null {
+export function initialPathCursor(payload: StoryPayload, focusIndex: number): string | null {
   return payload.path[Math.max(0, Math.min(focusIndex, payload.path.length - 1))]?.id ?? null;
 }
 
-export function moveLoomCursor(
+export function movePathCursor(
   payload: StoryPayload,
   cursorNodeId: string,
   vertical: -1 | 0 | 1,
   horizontal: -1 | 0 | 1,
   showSketches = false
 ): string {
-  const index = createLoomIndex(payload);
-  const cursor = visibleLoomCursor(payload, cursorNodeId, showSketches, index);
-  if (cursor === undefined) return initialLoomCursor(payload, payload.path.length - 1) ?? cursorNodeId;
+  const index = createStoryIndex(payload);
+  const cursor = visiblePathCursor(payload, cursorNodeId, showSketches, index);
+  if (cursor === undefined) return initialPathCursor(payload, payload.path.length - 1) ?? cursorNodeId;
   if (horizontal !== 0) {
-    const siblings = visibleLoomSiblings(payload, cursor.parentId, showSketches, index);
+    const siblings = visiblePathSiblings(payload, cursor.parentId, showSketches, index);
     const offset = siblings.findIndex((node) => node.id === cursor.id);
     if (offset !== -1 && siblings.length > 0) return siblings[(offset + horizontal + siblings.length) % siblings.length]!.id;
   }
@@ -61,24 +61,24 @@ export function moveLoomCursor(
     const depth = index.depthByNodeId.get(cursor.id) ?? 1;
     const target = path[depth];
     return target === undefined ? cursor.id
-      : visibleLoomCursor(payload, target.id, showSketches, index)?.id ?? cursor.id;
+      : visiblePathCursor(payload, target.id, showSketches, index)?.id ?? cursor.id;
   }
   return cursor.id;
 }
 
 export function resolveRerouteTarget(payload: StoryPayload, cursorNodeId: string): string | null {
-  return createLoomIndex(payload).tree.nodesById.has(cursorNodeId) ? cursorNodeId : null;
+  return createStoryIndex(payload).tree.nodesById.has(cursorNodeId) ? cursorNodeId : null;
 }
 
-export function createLoomLayout(
+export function createPathLayout(
   payload: StoryPayload,
   cursorNodeId: string,
   maxRows = 13,
   siblingWindow = 5,
   showSketches = false
-): LoomLayout {
-  const index = createLoomIndex(payload);
-  const cursor = visibleLoomCursor(payload, cursorNodeId, showSketches, index)
+): PathLayout {
+  const index = createStoryIndex(payload);
+  const cursor = visiblePathCursor(payload, cursorNodeId, showSketches, index)
     ?? index.tree.nodesById.get(payload.path.at(-1)?.id ?? "");
   const resolvedCursor = cursor?.id ?? cursorNodeId;
   const leafId = cursor === undefined ? null : visibleLineLeafId(cursor.id, showSketches, index);
@@ -90,11 +90,11 @@ export function createLoomLayout(
   const visibleStart = Math.max(1, Math.min(cursorDepth - Math.floor(maxRows / 2), totalDepth - maxRows + 1));
   const visibleEnd = Math.min(totalDepth, visibleStart + maxRows - 1);
   const activeIds = new Set(payload.path.map((node) => node.id));
-  const rows: LoomRow[] = [];
+  const rows: PathRow[] = [];
   for (let depth = visibleStart; depth <= visibleEnd; depth += 1) {
     const pathNode = cursorPath[depth - 1];
     if (pathNode === undefined) continue;
-    const siblings = visibleLoomSiblings(payload, pathNode.parentId, showSketches, index);
+    const siblings = visiblePathSiblings(payload, pathNode.parentId, showSketches, index);
     const selected = siblings.findIndex((node) => node.id === pathNode.id);
     const start = siblingWindowStart(siblings.length, selected, siblingWindow);
     const visible = siblings.slice(start, start + siblingWindow);
@@ -129,24 +129,24 @@ export function createLoomLayout(
 }
 
 /** Sibling cells as painted by MAP · path. Take ordinals index this exact list. */
-export function visibleLoomSiblings(
+export function visiblePathSiblings(
   payload: StoryPayload,
   parentId: string | null,
   showSketches: boolean,
-  index = createLoomIndex(payload)
+  index = createStoryIndex(payload)
 ): NodeStub[] {
   return childrenOf(index.tree, parentId).filter((node) => isVisibleTake(node, showSketches, index));
 }
 
 /** One definition of what MAP · path will paint: chapter summaries are chrome,
  * not takes, and a folded sketch is not a take you can reach. */
-function isVisibleTake(node: NodeStub, showSketches: boolean, index: LoomIndex): boolean {
+function isVisibleTake(node: NodeStub, showSketches: boolean, index: StoryIndex): boolean {
   return !isChapterSummary(node) && (showSketches || !isMapSketch(node, index));
 }
 
 /** The ring asks what pressing `↓` would reveal, so this short-circuits instead
  * of materializing what can be a very wide list of children. */
-function firstVisibleTake(parentId: string, showSketches: boolean, index: LoomIndex): NodeStub | undefined {
+function firstVisibleTake(parentId: string, showSketches: boolean, index: StoryIndex): NodeStub | undefined {
   return childrenOf(index.tree, parentId).find((node) => isVisibleTake(node, showSketches, index));
 }
 
@@ -161,7 +161,7 @@ function firstVisibleTake(parentId: string, showSketches: boolean, index: LoomIn
  * - a remembered take can itself be a folded sketch, which the map is not
  *   showing, so descent takes the first visible sibling instead of painting a
  *   row the reader cannot reach. */
-function visibleLineLeafId(nodeId: string, showSketches: boolean, index: LoomIndex): string {
+function visibleLineLeafId(nodeId: string, showSketches: boolean, index: StoryIndex): string {
   let leafId = nodeId;
   // Every step lands strictly deeper in the tree, so the walk terminates.
   for (;;) {
@@ -175,15 +175,15 @@ function visibleLineLeafId(nodeId: string, showSketches: boolean, index: LoomInd
 }
 
 
-function visibleLoomCursor(
+function visiblePathCursor(
   payload: StoryPayload,
   cursorNodeId: string,
   showSketches: boolean,
-  index: LoomIndex
+  index: StoryIndex
 ): NodeStub | undefined {
   const cursor = index.tree.nodesById.get(cursorNodeId);
   if (cursor === undefined || showSketches || !isMapSketch(cursor, index)) return cursor;
-  const siblings = visibleLoomSiblings(payload, cursor.parentId, false, index);
+  const siblings = visiblePathSiblings(payload, cursor.parentId, false, index);
   const activeIds = new Set(payload.path.map((node) => node.id));
   return siblings.find((node) => activeIds.has(node.id)) ?? siblings[0]
     ?? (cursor.parentId === null ? undefined : index.tree.nodesById.get(cursor.parentId));

@@ -65,7 +65,8 @@ export async function runAuthShow(
   if (authFile !== null && origin !== null) {
     throw new Error("auth show accepts either --url or --auth-file, not both");
   }
-  // ADR007 removed the fixed port, so there is no origin to assume.
+  // Servers bind whatever port is free and publish it, so no origin can be
+  // assumed here.
   if (authFile === null && origin === null) {
     throw new Error("auth show requires --url <base-url> or --auth-file <path>");
   }

@@ -72,7 +72,7 @@ export class SettingsStore {
       return;
     }
     if (dataFormat === 1) {
-      // ADR003 resolves active settings authority before service readiness;
+      // Active settings authority resolves before service readiness;
       // malformed or unsafe v1 state is therefore startup-fatal.
       await loadGenerationSettingsV1(this.dir);
       this.initialized = { dataFormat: 1 };

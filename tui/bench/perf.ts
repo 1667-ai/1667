@@ -5,7 +5,7 @@ import type { StoryNode, StoryPayload, StorySummary } from "../../shared/types.j
 import { createTestRenderer } from "@opentui/core/testing";
 import { createStoryViewModel, resolveSwitchTarget } from "../src/model.js";
 import { chapterListModel } from "../src/chapter-model.js";
-import { createLoomLayout, moveLoomCursor } from "../src/loom-layout.js";
+import { createPathLayout, movePathCursor } from "../src/path-layout.js";
 import { libraryRows, libraryTotals } from "../src/library-model.js";
 import { createPalette } from "../src/palette.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -411,8 +411,8 @@ const rows: BenchRow[] = [];
 // 4 · Deep/wide loom: 2000 nodes, piles of 24 takes.
 {
   const payload = syntheticPayload({ parts: 200, takesEvery: 2, takesper: 20, wordsPerPart: 40 });
-  rows.push(time(`loom layout on ${payload.nodes.length}-node tree`, 8, () => createLoomLayout(payload, "p100", 24), 20));
-  rows.push(time("loom cursor move on big tree", 4, () => moveLoomCursor(payload, "p100", 1, 0), 50));
+  rows.push(time(`loom layout on ${payload.nodes.length}-node tree`, 8, () => createPathLayout(payload, "p100", 24), 20));
+  rows.push(time("loom cursor move on big tree", 4, () => movePathCursor(payload, "p100", 1, 0), 50));
 }
 
 // 4b · High-fanout atlas: topology must stay linear and paint only the window.

@@ -3,7 +3,7 @@ import { privatePublicationScratchPath } from "./private-file-publication.js";
 export type DataDirectoryFormat = 1 | 2;
 
 /**
- * ADR007 project-tier names. The product prefix these once carried existed to
+ * Project-tier names. The product prefix these once carried existed to
  * disambiguate 1667's files inside a directory it did not own; inside `.1667/`
  * it owns everything.
  */
@@ -14,7 +14,7 @@ export const DATA_DIRECTORY_OWNER_MARKER_NEXT = "owner.json.next";
 export const PROJECT_RUN_RECORD_FILE = "run.json";
 
 /**
- * Names written by builds before ADR007. Nothing creates them; `1667 init
+ * Names written by older builds. Nothing creates them; `1667 init
  * --adopt` reads them, and a legacy source migration excludes them.
  */
 export const LEGACY_DATA_OWNER_MARKER = ".1667-data-owner.json";
@@ -43,13 +43,13 @@ export const LEGACY_PREVIEW_DATA_MARKER_TEXT =
 
 /**
  * Entries 1667 owns as control state rather than as the user's writing, in
- * both current and pre-ADR007 names. Provider secrets belong here because they
+ * both current and legacy names. Provider secrets belong here because they
  * live in the machine tier now, never beside the stories.
  */
 /**
  * Names that can hold a plaintext key. The project-tier fence refuses these,
- * because one of them inside a folder the user may commit is the loss ADR007
- * exists to prevent.
+ * because one of them inside a folder the user may commit is the loss that
+ * fence exists to prevent.
  */
 export const PROVIDER_SECRET_VALUE_ENTRY_NAMES = Object.freeze([
   PROVIDER_SECRETS_FILE,

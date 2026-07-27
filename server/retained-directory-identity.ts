@@ -4,10 +4,10 @@ import { requireSameFileIdentity } from "./data-directory-file-read.js";
 import { ServiceError } from "./errors.js";
 
 /**
- * ADR007 keeps the retained directory descriptor that roots every later open,
- * and drops the mode and owner assertions about a directory the user chose.
- * Nothing may swap the project tier out from under an acquired lock and be
- * believed afterwards.
+ * A retained directory descriptor roots every later open, and nothing asserts
+ * a mode or an owner for a directory the user chose: the one thing that must
+ * hold is that nobody swaps the project tier out from under an acquired lock
+ * and is believed afterwards.
  */
 export async function assertRetainedDataDirectory(
   dataDir: string,

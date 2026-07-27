@@ -2,7 +2,7 @@ import { access, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 /**
- * ADR007: an exported `.md` is a hand-off artifact 1667 never reads back. It
+ * An exported `.md` is a hand-off artifact 1667 never reads back. It
  * carries no anchors and no state, so writing one is the whole feature.
  */
 export interface StoryExportRequest {

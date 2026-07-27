@@ -1,4 +1,4 @@
-import { createLoomIndex, lineName } from "../../../shared/loom-model.js";
+import { createStoryIndex, lineName } from "../../../shared/story-model.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import {
   createAtlasLayout,
@@ -7,7 +7,7 @@ import {
   type AtlasRow
 } from "../atlas-layout.js";
 import { addHit, type HitRegion, type HitRow, type HitRows } from "../hit.js";
-import { createLoomLayout } from "../loom-layout.js";
+import { createPathLayout } from "../path-layout.js";
 import type { KeyAction } from "../keys.js";
 import { MAP_VIEWS, type MapState, type MapView } from "../map-state.js";
 import { pruneConfirmText } from "../prune-model.js";
@@ -87,7 +87,7 @@ export function renderMapScreen(
 }
 
 function renderPathBody(state: StoryScreenState, map: MapState, width: number, bodyHeight: number): MapBody {
-  const layout = createLoomLayout(
+  const layout = createPathLayout(
     state.payload, map.pathCursorId, bodyHeight, 5, map.pathShowAllTakes
   );
   const pieces = layout.rows.map((row) => createMapPathRow(row, state.stream?.targetId ?? null));

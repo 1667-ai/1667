@@ -15,28 +15,28 @@ describe("shared panel horizontal geometry", () => {
       panelWidth: 76,
       contentInset: 2,
       contentLeft: 24,
-      contentWidth: 74,
+      contentWidth: 72,
       footerInset: 2,
       footerLeft: 24,
       footerWidth: 72,
-      titleOverhead: 5,
-      titleWidth: 71
+      titleOverhead: 6,
+      titleWidth: 70
     });
     expect(panelHorizontalGeometry(80, 76)).toMatchObject({
       left: 4,
       right: 76,
       panelWidth: 72,
-      contentWidth: 70,
+      contentWidth: 68,
       footerWidth: 68,
-      titleWidth: 67
+      titleWidth: 66
     });
     expect(panelHorizontalGeometry(24, 76)).toMatchObject({
       left: 2,
       right: 22,
       panelWidth: 20,
-      contentWidth: 18,
+      contentWidth: 16,
       footerWidth: 16,
-      titleWidth: 15
+      titleWidth: 14
     });
   });
 
@@ -78,8 +78,12 @@ describe("shared panel horizontal geometry", () => {
       .slice(horizontal.left, horizontal.right);
     const bodyLine = plainLine(rendered.lines[top + 2]!)
       .slice(horizontal.left, horizontal.right);
-    expect(titleLine).toBe(`┏━ ${title} ━`);
-    expect(bodyLine).toBe(`┃ ${body}`);
+    // The frame closes on all four sides, with a cell of margin inside it.
+    expect(titleLine).toBe(`┏━ ${title} ━┓`);
+    expect(bodyLine).toBe(`┃ ${body} ┃`);
+    const bottomLine = plainLine(rendered.lines[rendered.selectable!.bottom - 1]!)
+      .slice(horizontal.left, horizontal.right);
+    expect(bottomLine).toBe(`┗${"━".repeat(horizontal.panelWidth - 2)}┛`);
     expect(visibleWidth(titleLine)).toBe(horizontal.panelWidth);
     expect(visibleWidth(bodyLine)).toBe(horizontal.panelWidth);
     expect(hitAt(hits, horizontal.contentLeft, top + 2))
@@ -91,5 +95,25 @@ describe("shared panel horizontal geometry", () => {
     expect(footerRow).toBeGreaterThan(-1);
     expect(hitAt(hits, horizontal.footerLeft, footerRow))
       .toEqual({ kind: "action", action: "cancel" });
+  });
+
+  test("a panel too short to paint its footer does not answer clicks there", () => {
+    // `placePanel` floors its own height, so the frame's last rows can fall
+    // outside the paint bound. A row nobody sees must not run `cancel`.
+    for (const height of [5, 6, 7, 8]) {
+      const width = 40;
+      const base: FrameLine[] = Array.from({ length: height }, () => []);
+      const hits: HitRows = Array.from({ length: height }, () => null);
+      const rendered = placePanel(
+        base, "t", [[raisedSegment("body")]], "cancel", width, height, 36,
+        { rows: hits, targets: [null], footerActions: [{ token: "cancel", action: "cancel" }] }
+      );
+      const column = panelHorizontalGeometry(width, 36).contentLeft;
+      const clickableBlanks = rendered.lines.flatMap((line, row) =>
+        plainLine(line).trim().length === 0 && hitAt(hits, column, row)?.kind === "action"
+          ? [row]
+          : []);
+      expect(`${height}:${clickableBlanks.join(",")}`).toBe(`${height}:`);
+    }
   });
 });

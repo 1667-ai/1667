@@ -1,4 +1,4 @@
-import { createLoomIndex } from "../../shared/loom-model.js";
+import { createStoryIndex } from "../../shared/story-model.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import type { Bookmark, NodeStub, StoryPayload } from "../../shared/types.js";
 import type { FrameDeadlineCollector } from "./animation-deadline.js";
@@ -62,7 +62,7 @@ interface ClassifyFrame {
 const DAY = 86_400_000;
 const COLD_DAYS = 21;
 export function createAtlasLayout(payload: StoryPayload, options: AtlasLayoutOptions): AtlasLayout {
-  const index = createLoomIndex(payload);
+  const index = createStoryIndex(payload);
   const activeIds = new Set(payload.path.map((node) => node.id));
   const activeLeafId = payload.path.at(-1)?.id ?? null;
   const opened = options.openedColdFolds ?? new Set<string>();
@@ -169,7 +169,7 @@ function createVisualTree(options: VisualTreeOptions): {
   ];
   while (stack.length > 0) {
     const frame = stack.pop()!;
-    // Copy before sorting so the shared loom index remains immutable. The sort
+    // Copy before sorting so the shared story index remains immutable. The sort
     // is stable: the active continuation leads, all other sibling order stays.
     const ordered = [...frame.nodes].sort((left, right) =>
       Number(options.activeIds.has(right.id)) - Number(options.activeIds.has(left.id)));

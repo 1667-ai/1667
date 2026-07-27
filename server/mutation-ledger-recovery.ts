@@ -84,7 +84,7 @@ function planValidatedRecovery(evidence: MutationLedgerRecoveryEvidence): Mutati
       throw recoveryError("Completed receipt-only mutation cannot install an aggregate pointer");
     }
     // Story revisions always replace their transaction pointer. Settings may
-    // later change state while ADR003 activation edges preserve the same pointer.
+    // later change state while activation edges preserve the same pointer.
     if (aggregateKey !== "settings" && pointer !== null && pointerKey(pointer) === transaction.key
       && pointer.phase === "prepared" && aggregate.stateHash !== prepared.newStateHash) {
       throw recoveryError("Completed story receipt pointer has a stale aggregate hash");

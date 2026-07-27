@@ -4,7 +4,7 @@ import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { createAtlasLayout, followAtlasRail, type AtlasLayout } from "../src/atlas-layout.js";
 import { createDemoController } from "../src/demo.js";
 import type { HitRows } from "../src/hit.js";
-import { createLoomLayout } from "../src/loom-layout.js";
+import { createPathLayout } from "../src/path-layout.js";
 import { renderMapScreen } from "../src/screens/map.js";
 import { renderMapTreeRow } from "../src/screens/map-tree-row.js";
 import { frameText, plainLine } from "../src/screens/story/frame.js";
@@ -370,7 +370,7 @@ describe("atlas layout model", () => {
       ["old-leaf", "old-line"], ["old-sketch", "old-fork"]
     ], ["root", "active", "active-leaf"], ["old-leaf"]);
     const payload = touch(base, "old", new Date(NOW - 22 * 86_400_000).toISOString());
-    const path = createLoomLayout(payload, "active-leaf");
+    const path = createPathLayout(payload, "active-leaf");
     const tree = createAtlasLayout(payload, { now: NOW });
     const mass = createAtlasLayout(payload, { now: NOW, sort: "size" });
 

@@ -65,7 +65,7 @@ export interface PreparedStoryTransaction {
   readonly afterPublish?: () => void | Promise<void>;
 }
 
-/** One write-side implementation of ADR-006's prepared/state/terminal order. */
+/** One write-side implementation of the prepared/state/terminal order. */
 export async function commitPreparedStoryTransaction(
   transaction: PreparedStoryTransaction
 ): Promise<void> {

@@ -56,7 +56,7 @@ const vectorsText = canonicalJson({
   }
 });
 const identityText = [
-  "/** SHA-256 identities of the exact canonical ADR003 Release A generated artifacts. */",
+  "/** SHA-256 identities of the exact canonical Release A generated artifacts. */",
   `export const SETTINGS_V2_SCHEMA_SHA256 = "${sha256(schemaText)}" as const;`,
   `export const SETTINGS_V2_CORPUS_SHA256 = "${sha256(corpusText)}" as const;`,
   `export const SETTINGS_V2_HASH_VECTORS_SHA256 = "${sha256(vectorsText)}" as const;`,
