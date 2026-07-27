@@ -1,7 +1,9 @@
 import type { MouseEvent } from "@opentui/core";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
+import { factRows } from "./facts-model.js";
 import { libraryRows } from "./library-model.js";
+import { currentPartActions } from "./story-actions.js";
 import { createStoryViewModel } from "./model.js";
 import { SETTINGS_ROW_IDS } from "./settings-overlay-model.js";
 import {
@@ -169,7 +171,13 @@ function selectedListIdentity(state: MouseActionState): string | null {
     const id = state.map.view === "path" ? state.map.pathCursorId : state.map.treeCursorId;
     return id === null ? null : `map:${state.map.view}:${id}`;
   }
-  if (state.actions !== null) return `actions:${state.actions.partId}:${state.actions.cursor}`;
+  // Name the verb, not its position: the menu's entries change composition
+  // while a generation lands, so the row under an unmoved cursor can become a
+  // different — and destructive — action.
+  if (state.actions !== null) {
+    const entry = currentPartActions(state)[state.actions.cursor];
+    return entry === undefined ? null : `actions:${state.actions.partId}:${entry.id}`;
+  }
   if (state.library !== null) {
     const story = libraryRows(state.library.stories, state.library.query)[state.library.cursor];
     return story === undefined ? null : `library:${story.id}`;
@@ -177,8 +185,18 @@ function selectedListIdentity(state: MouseActionState): string | null {
   if (state.commands !== null) {
     return `commands:${state.commands.view}:${state.commands.selectedId ?? state.commands.cursor}`;
   }
-  if (state.facts !== null) return `facts:${state.facts.selectedTag ?? ""}:${state.facts.cursor}`;
-  if (state.chapters !== null) return `chapters:${state.chapters.cursor}`;
+  if (state.facts !== null) {
+    const fact = factRows(state.payload.facts, state.facts.selectedTag, state.facts.query)[
+      state.facts.cursor
+    ];
+    return fact === undefined ? null : `facts:${fact.id}`;
+  }
+  if (state.chapters !== null) {
+    const chapter = createStoryViewModel(state.payload).chapters[state.chapters.cursor];
+    return chapter === undefined
+      ? null
+      : `chapters:${chapter.openingBreakId ?? "first"}`;
+  }
   if (state.settings !== null) {
     const row = SETTINGS_ROW_IDS[state.settings.cursor];
     return row === undefined ? null : `settings:${row}`;

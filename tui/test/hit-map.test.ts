@@ -555,7 +555,11 @@ describe("hit map from rendered frames", () => {
     const row = frame.findIndex((line) => plainLine(line).includes("r retake"));
     const rendered = plainLine(frame[row]!);
     const left = visibleWidth(rendered.slice(0, rendered.indexOf("r retake")));
-    expect(mouseToAction(click(left + 2, row, 2), state)).toEqual({ action: "open-actions", index: state.focusIndex });
+    expect(mouseToAction(click(left + 2, row, 2), state)).toEqual({
+      action: "open-actions",
+      index: state.focusIndex,
+      rowId: rowPart(createStoryViewModel(state.payload), state.focusIndex)?.id
+    });
   });
 
   test("clicking a rail fact opens that exact fact", async () => {

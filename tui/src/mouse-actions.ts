@@ -8,8 +8,12 @@ export type MouseGesture = Pick<
   "type" | "button" | "x" | "y" | "modifiers" | "scroll"
 >;
 
+/** Everything a gesture needs to name what it landed on. The payload and
+ *  stream are here because a cursor position is not an identity: the rows
+ *  under an open menu or list are derived from the story, and reconciliation
+ *  has to compare the row, not its index. */
 export type MouseActionState = Pick<RuntimeState,
-  | "mode" | "focusIndex" | "hitRows" | "map"
+  | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream"
   | "actions" | "library" | "facts" | "commands" | "chapters" | "settings"
 >;
 
@@ -67,6 +71,10 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     mode: state.mode,
     focusIndex: state.focusIndex,
     hitRows: state.hitRows,
+    // Payloads are replaced wholesale, never mutated, so the reference is the
+    // snapshot.
+    payload: state.payload,
+    stream: state.stream,
     map: state.map === null ? null : {
       ...state.map,
       rowIds: [...state.map.rowIds],
@@ -138,7 +146,11 @@ export function mouseToAction(
   }
   if (target.kind === "composer" && event.button === 0) return { action: "compose" };
   if (target.kind === "part") {
-    if (event.button === 2) return { action: "open-actions", index: target.index };
+    // Carry the row identity its neighbours carry: an index alone cannot
+    // survive a part landing or leaving above this one.
+    if (event.button === 2) {
+      return { action: "open-actions", index: target.index, rowId: target.rowId };
+    }
     if (event.button !== 0) return null;
     // A click on prose only ever moves focus. Opening direction entry here made
     // dragging to select text start a generation — reported and removed.

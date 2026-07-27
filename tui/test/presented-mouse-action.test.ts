@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { currentPartActions } from "../src/story-actions.js";
 import { mouseToAction, captureMouseActionState } from "../src/mouse-actions.js";
 import {
   canCapturePresentedMouseAction,
@@ -230,6 +231,54 @@ describe("presented mouse reconciliation", () => {
     // …and it still refuses when the control is no longer what it names.
     state.hitRows = [{ target: { kind: "action", action: "open-facts" }, left: 0, right: 20 }];
     expect(reconcile(state, resolved, captured, interaction(state, 21))).toBe(null);
+  });
+
+  test("refuses a right-click whose part moved out from under it", () => {
+    // Rows shift when a part lands or is pruned above. An index alone would
+    // open the menu on whatever now occupies that row.
+    const state = initialState(demoAppSource(), false);
+    const clicked = state.payload.path.at(-2)!.id;
+    state.hitRows = [{ target: { kind: "part", index: 4, rowId: clicked }, left: 0, right: 20 }];
+    const captured = interaction(state, 20);
+    const resolved = mouseToAction({ ...click, button: 2 }, state, false)!;
+    expect(resolved.action).toBe("open-actions");
+
+    state.hitRows = [{
+      target: { kind: "part", index: 4, rowId: state.payload.path.at(-1)!.id },
+      left: 0,
+      right: 20
+    }];
+    const rebuilt = interaction(state, 21);
+    expect(reconcilePresentedMouseAction({
+      action: resolved, event: { ...click, button: 2 },
+      captured, presented: rebuilt, currentVersion: 21, state
+    })).toBe(null);
+  });
+
+  test("refuses a menu click when the entry under the cursor became another verb", () => {
+    // The part menu stays open while a generation lands, and landing adds
+    // prune and bookmark to the list. The cursor does not move; the verb
+    // beneath it does.
+    const state = initialState(demoAppSource(), false);
+    const leaf = state.payload.path.at(-1)!;
+    state.hitRows = [{ target: { kind: "list", index: 5, selected: true }, left: 0, right: 20 }];
+    state.actions = { cursor: 5, partId: leaf.id };
+    state.stream = null;
+
+    const unpersisted = {
+      ...state,
+      payload: { ...state.payload, nodes: state.payload.nodes.filter(({ id }) => id !== leaf.id) }
+    };
+    const captured = interaction(unpersisted as typeof state, 20);
+    const resolved = mouseToAction(click, unpersisted as typeof state, false)!;
+    expect(resolved.action).toBe("open-selected");
+
+    const landed = interaction(state, 21);
+    expect(currentPartActions(unpersisted as typeof state)[5]?.id)
+      .not.toBe(currentPartActions(state)[5]?.id);
+    expect(reconcilePresentedMouseAction({
+      action: resolved, event: click, captured, presented: landed, currentVersion: 21, state
+    })).toBe(null);
   });
 
   test("retains stable-prose and relative-only policy after semantic drift", () => {
