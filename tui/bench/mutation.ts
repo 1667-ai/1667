@@ -4,7 +4,7 @@
  *  measured by hand: reads as the control group, then switchLine and editNode
  *  as the interactive mutation worst cases. Report-only: the value is a
  *  tracked number for every storage change, not a CI budget. */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { StoryPayload } from "../../shared/types.js";
@@ -68,9 +68,13 @@ function siblingTakePair(payload: StoryPayload): readonly [string, string] | nul
   return fallback;
 }
 
-const vaultParent = await mkdtemp(path.join(tmpdir(), "1667-mutation-bench-"));
+const vaultParent = await realpath(await mkdtemp(path.join(tmpdir(), "1667-mutation-bench-")));
 const dataDir = path.join(vaultParent, "vault");
-const backend = await createWorkerStoryApi({ dataDir });
+// A bench-owned machine tier keeps the run self-contained: the worker must
+// never open the user's real diagnostic log or its lock.
+const machineDir = path.join(vaultParent, "machine");
+await mkdir(machineDir, { mode: 0o700 });
+const backend = await createWorkerStoryApi({ dataDir, machineDir });
 const rows: BenchRow[] = [];
 try {
   const api = backend.api;
