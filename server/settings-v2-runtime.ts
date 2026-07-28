@@ -10,6 +10,7 @@ import { ownedLoopbackHttpSupported } from "./provider-fetch.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import { effectiveGenerationSettings } from "./settings-v2-conversion.js";
 import { classifyHttpHost, SettingsFormatError } from "./settings-v2-scalars.js";
+import { settingsStateRelation } from "./settings-v2-state-validation.js";
 import {
   corruptSettingsStateReceipt,
   invalidSettingsMutation
@@ -25,7 +26,7 @@ export function settingsViewFromState(
     dataFormat: 2,
     editable: true,
     stateGeneration: state.stateGeneration,
-    activeRevision: state.activeRevision,
+    activeRevision: effectiveActiveSettingsRevision(state),
     pendingRevision: state.pendingRevision,
     document: shown,
     effective: effectiveGenerationSettings(activeSettingsDocument(state)),
@@ -33,8 +34,21 @@ export function settingsViewFromState(
   };
 }
 
+/** The revision reads may act on. Activation publishes every edge for crash
+ * recovery, and the promote edge flips `activeRevision` while the attempt is
+ * still reversible — recovery rolls a promoted state back. Readers therefore
+ * keep the old document until the commit edge, the durable point of no
+ * return, after which recovery only completes the activation forward. This
+ * keeps concurrent views and generation starts on pre-activation or
+ * committed credentials, never on a half-activated candidate. */
+export function effectiveActiveSettingsRevision(state: SettingsStateV2): number {
+  return settingsStateRelation(state) === "promoted"
+    ? state.previousRevision!
+    : state.activeRevision;
+}
+
 export function activeSettingsDocument(state: SettingsStateV2): SettingsDocumentV2 {
-  return state.documents[String(state.activeRevision)]!;
+  return state.documents[String(effectiveActiveSettingsRevision(state))]!;
 }
 
 export function pendingSettingsDocument(state: SettingsStateV2): SettingsDocumentV2 {

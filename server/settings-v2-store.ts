@@ -384,8 +384,12 @@ export class SettingsV2Store {
         operation.document,
         connectionSecretEntries
       );
+      // Clean state only: from staged, a save of the active document is the
+      // discard-pending route below, and taking this shortcut instead would
+      // leave the failed candidate silently pending.
       if (
-        connectionSecretEntries.length > 0
+        relation === "clean"
+        && connectionSecretEntries.length > 0
         && hashSettingsDocumentV2(operation.document)
           === hashSettingsDocumentV2(activeSettingsDocument(current))
       ) {

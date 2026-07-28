@@ -412,6 +412,25 @@ function settingsStatusLines(
       []
     ];
   }
+  // A clean view with a failure outcome is a startup rollback: the candidate
+  // is gone, and staying silent about it is the exact failure class this
+  // surface exists to prevent.
+  const rolledBack = view.lastActivationOutcome !== null
+    && view.lastActivationOutcome.result !== "committed"
+    ? view.lastActivationOutcome
+    : null;
+  if (rolledBack !== null) {
+    return [
+      [
+        raisedSegment(
+          `  ▲ revision ${rolledBack.candidateRevision} did not activate · ${settingsActivationFailureText(rolledBack.errorCode)}`,
+          "danger text"
+        )
+      ],
+      [raisedSegment(`  revision ${view.activeRevision} still active · edit & s saves a new attempt`, "chrome")],
+      []
+    ];
+  }
   if (settingsDraftChanged(overlay)) {
     return [
       [

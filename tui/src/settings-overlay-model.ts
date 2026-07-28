@@ -303,7 +303,7 @@ export function settingsActivationFailureText(
       return "activation was interrupted";
     case "activation_failed":
     case "readiness_failed":
-      return "activation rolled back";
+      return "rolled back after an interruption";
   }
 }
 

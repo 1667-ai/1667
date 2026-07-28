@@ -1,15 +1,26 @@
 import assert from "node:assert/strict";
+import { mkdir, rm } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
+import { SETTINGS_STATE_V2_NEXT_FILE } from "../server/data-directory-layout.js";
 import { readProviderSecrets } from "../server/provider-secret-store.js";
 import { resolveProviderHeaders } from "../server/provider-runtime.js";
 import { SettingsStore } from "../server/settings.js";
+import { effectiveGenerationSettings } from "../server/settings-v2-conversion.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
+import { reduceSettingsStateV2 } from "../server/settings-v2-reducer.js";
+import {
+  activeSettingsDocument,
+  settingsViewFromState
+} from "../server/settings-v2-runtime.js";
 import { readSettingsState } from "../server/settings-state-file.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
 import {
   FIXED_TIME,
   MUTATION_A,
   MUTATION_B,
+  MUTATION_C,
+  changedState,
   credentialedDocument,
   hasServiceCode,
   initializedFormat2Directory,
@@ -179,6 +190,147 @@ test("a common launch with no staged document performs no provider probe", async
   });
   await relaunched.init(2);
   assert.equal((await relaunched.loadView()).activeRevision, 2);
+});
+
+test("concurrent reads during an in-save activation never observe the candidate", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-concurrent-read-");
+  let during: {
+    readonly viewProvider: string;
+    readonly pendingRevision: number | null;
+    readonly generationProvider: string;
+  } | null = null;
+  const store = new SettingsStore(dataDir, {
+    environment: { AI_1667_CONCURRENT_KEY: "concurrent-secret" },
+    now: () => FIXED_TIME,
+    validateCandidate: async () => {
+      const view = await store.loadView();
+      const generation = await store.loadGeneration();
+      during = {
+        viewProvider: view.effective.provider,
+        pendingRevision: view.pendingRevision,
+        generationProvider: generation.settings.provider
+      };
+      return true;
+    }
+  });
+  await store.init(2);
+
+  await store.save(saveCommand(MUTATION_A, 1, credentialedDocument("AI_1667_CONCURRENT_KEY")));
+
+  assert.notEqual(during, null);
+  assert.equal(during!.viewProvider, "dry-run", "a concurrent view stays on the old credentials");
+  assert.equal(during!.pendingRevision, 2);
+  assert.equal(
+    during!.generationProvider,
+    "dry-run",
+    "a concurrent generation start never races onto a half-activated credential set"
+  );
+  assert.equal((await store.loadGeneration()).settings.provider, "openai-compatible");
+});
+
+test("mid-activation states keep the old document effective until the commit edge", () => {
+  const staged = changedState(MUTATION_A, credentialedDocument("AI_1667_PROJECTION_KEY"));
+  const validating = reduceSettingsStateV2(staged, {
+    kind: "begin-validation",
+    transactionId: MUTATION_A
+  });
+  const prepared = reduceSettingsStateV2(validating, { kind: "prepare" });
+  const promoted = reduceSettingsStateV2(prepared, { kind: "promote" });
+  const committed = reduceSettingsStateV2(promoted, { kind: "commit" });
+
+  for (const state of [staged, validating, prepared, promoted]) {
+    assert.equal(
+      effectiveGenerationSettings(activeSettingsDocument(state)).provider,
+      "dry-run",
+      "a reversible activation state never exposes the candidate to readers"
+    );
+  }
+  const promotedView = settingsViewFromState(promoted);
+  assert.equal(promotedView.effective.provider, "dry-run");
+  assert.equal(promotedView.activeRevision, 1);
+  assert.equal(promotedView.pendingRevision, 2);
+  // Commit is the durable point of no return: recovery only completes it.
+  assert.equal(
+    effectiveGenerationSettings(activeSettingsDocument(committed)).provider,
+    "openai-compatible"
+  );
+});
+
+test("a failed activation edge never leaves the candidate effective", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-failed-edge-");
+  const blocker = path.join(dataDir, SETTINGS_STATE_V2_NEXT_FILE);
+  const store = new SettingsStore(dataDir, {
+    environment: { AI_1667_FAILED_EDGE_KEY: "edge-secret" },
+    now: () => FIXED_TIME,
+    validateCandidate: async () => {
+      // Block the next state publish, so the edge after validation fails.
+      await mkdir(blocker);
+      return true;
+    }
+  });
+  await store.init(2);
+
+  await assert.rejects(store.save(saveCommand(
+    MUTATION_A,
+    1,
+    credentialedDocument("AI_1667_FAILED_EDGE_KEY")
+  )));
+  assert.equal(
+    (await store.loadGeneration()).settings.provider,
+    "dry-run",
+    "a failed activation edge never exposes the candidate"
+  );
+
+  await rm(blocker, { recursive: true, force: true });
+  const recovered = new SettingsStore(dataDir, {
+    activationMode: "recover-only",
+    environment: {},
+    now: () => FIXED_TIME
+  });
+  await recovered.init(2);
+  const view = await recovered.loadView();
+  assert.equal(view.pendingRevision, 2, "the interrupted candidate is retained");
+  assert.equal(view.activeRevision, 1);
+  assert.equal(view.lastActivationOutcome?.errorCode, "activation_crashed");
+});
+
+test("re-entering the active stored key discards a failed staged candidate instead of bypassing it", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-sidecar-discard-");
+  const store = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => true
+  });
+  await store.init(2);
+  await store.save({
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("active:secret")),
+    connectionSecrets: { "active:secret": "sk-original" }
+  });
+  assert.equal((await store.loadView()).pendingRevision, null);
+
+  const stagedGeneration = (await store.loadView()).stateGeneration!;
+  await store.save(saveCommand(
+    MUTATION_B,
+    stagedGeneration,
+    credentialedDocument("AI_1667_UNRESOLVED_KEY")
+  ));
+  assert.equal((await store.loadView()).pendingRevision, 3, "the failing candidate stages");
+
+  const retryGeneration = (await store.loadView()).stateGeneration!;
+  const reentered = await store.save({
+    ...saveCommand(MUTATION_C, retryGeneration, storedSecretDocument("active:secret")),
+    connectionSecrets: { "active:secret": "sk-rotated" }
+  });
+
+  assert.equal(reentered.pendingSettingsRevision, null);
+  const view = await store.loadView();
+  assert.equal(view.pendingRevision, null, "the failed candidate is discarded, not left pending");
+  assert.equal(view.lastActivationOutcome, null);
+  assert.equal(
+    (await readProviderSecrets(dataDir)).get("active:secret"),
+    "sk-rotated",
+    "the re-entered key value is stored"
+  );
 });
 
 test("editing a staged candidate back to the active values discards it instead of erroring", async (t) => {
