@@ -8,8 +8,7 @@ export type CommandId =
   | "switch-story" | "rename-story" | "folder" | "autoname"
   | "direct-take" | "retake" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
-  | "settings" | "acknowledge-generation"
-  | "reconnect" | "disconnect" | "theme";
+  | "settings" | "reconnect" | "disconnect" | "theme";
 
 export type CommandSelectionId = Exclude<CommandId, "theme"> | `theme:${ThemeName}`;
 
@@ -92,13 +91,6 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "prompts", section: "view", name: "toggle directions", description: "show or hide directions above each part", shortcut: "p" },
 
   { id: "settings", section: "system", name: "generation settings", description: "inspect and edit provider, model, and context", shortcut: "," },
-  {
-    id: "acknowledge-generation",
-    section: "system",
-    name: "acknowledge unknown generation",
-    description: "clear a billed/completed-unknown provider fence",
-    mutating: true
-  },
   { id: "reconnect", section: "system", name: "reconnect", description: "reload this story and its library", shortcut: "R" },
   ...THEME_NAMES.map((theme): PaletteCommand => ({
     id: "theme", section: "system", theme, name: `theme: ${theme}`,

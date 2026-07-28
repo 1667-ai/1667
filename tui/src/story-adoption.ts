@@ -289,7 +289,6 @@ function reconcileStoryBoundIntent(
  * against the previous payload. Global visual preferences remain intact. */
 export function adoptStoryState(state: RuntimeState, payload: StoryPayload): void {
   state.payload = payload;
-  state.unknownOutcomeAcknowledgementArmed = null;
   state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
   state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
   state.composer = createComposer();

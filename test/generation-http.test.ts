@@ -7,8 +7,7 @@ import { sha256 } from "../server/story-format.js";
 import type { GenerationSettings, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
-  fetchWithApiProtocol,
-  lastTestMutationId
+  fetchWithApiProtocol
 } from "./http-test-client.js";
 import {
   doneStory,
@@ -182,7 +181,7 @@ providerTest("generation HTTP: an in-flight story/gen duplicate is rejected befo
   assert.equal(model.requests.length, 1);
 });
 
-providerTest("generation HTTP: ambiguous transport stays blocked until explicit acknowledgement", async (t) => {
+providerTest("generation HTTP: provider failure permits a reviewed retry", async (t) => {
   let attempt = 0;
   const model = await fakeModel(t, (_body, response) => {
     attempt += 1;
@@ -202,27 +201,13 @@ providerTest("generation HTTP: ambiguous transport stays blocked until explicit 
   };
 
   const failed = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post(request));
-  assert.equal(failed.status, 409);
+  assert.equal(failed.status, 502);
   const failedBody = await failed.json() as { error: string; code: string };
-  assert.equal(failedBody.code, "generation_outcome_unknown");
-  const originalMutationId = lastTestMutationId();
-  assert.ok(originalMutationId);
+  assert.equal(failedBody.code, "provider_failure");
 
   const retried = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post(request));
-  assert.equal(retried.status, 409);
-  assert.match(await retried.text(), /generation_outcome_unknown/);
-  assert.equal(model.requests.length, 1);
-
-  await json(
-    `${base}/api/stories/${story.id}/unknown-outcomes/${originalMutationId}/ack`,
-    post({})
-  );
-  const afterAcknowledgement = await fetchWithApiProtocol(
-    `${base}/api/stories/${story.id}/continue`,
-    post(request)
-  );
-  assert.equal(afterAcknowledgement.status, 200);
-  assert.match(await afterAcknowledgement.text(), /"type":"done"/);
+  assert.equal(retried.status, 200);
+  assert.match(await retried.text(), /"type":"done"/);
   assert.equal(model.requests.length, 2);
   assert.equal((await getStory(base, story.id)).nodes.length, 2);
 });

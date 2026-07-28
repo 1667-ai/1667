@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { Story } from "../shared/types.js";
-import { ProviderError } from "../server/errors.js";
 import { createMutationCoordinator } from "../server/mutation-coordinator.js";
 import { StoryCatalog } from "../server/story-catalog.js";
 import { hashStoryV5ManifestBytes } from "../server/story-manifest-hash.js";
@@ -180,11 +179,11 @@ async function deletedFixture(
         "autonameStory",
         async (_stories, providerStarted) => {
           await providerStarted();
-          throw new ProviderError("Provider reply lost", 500);
+          throw new Error("Worker stopped after provider admission");
         },
         () => null
       ),
-      (error: unknown) => error instanceof ProviderError
+      /Worker stopped after provider admission/
     );
     expectedAggregateVersion = {
       kind: "v6",

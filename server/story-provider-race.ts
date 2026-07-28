@@ -1,5 +1,5 @@
 import {
-  isDefinitiveProviderFailure,
+  isTerminalGenerationFailure,
   ServiceError
 } from "./errors.js";
 import type {
@@ -59,7 +59,7 @@ export class StoryProviderRaceResolver {
     ) => Promise<void>
   ): Promise<void> {
     if (started !== null) {
-      if (!isDefinitiveProviderFailure(error)) return;
+      if (!isTerminalGenerationFailure(error)) return;
       const code = receiptOnlyProviderError(error) ?? "provider_failure";
       try {
         await runTerminalStoryPhase(

@@ -499,7 +499,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.id;
     let payload: Awaited<ReturnType<typeof api.loadStory>>;
     if (storyId === undefined) {
-      payload = await backendRecovery.runAdoptionMutation(() => api.createStory());
+      payload = await backendRecovery.runRecoveryMutation(() => api.createStory());
       stories = await api.listStories();
     } else {
       try {

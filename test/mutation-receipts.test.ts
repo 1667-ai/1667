@@ -513,7 +513,7 @@ test("provider-started receipts can reconcile a known committed result", async (
   ), "already committed");
 });
 
-test("post-admission transport failures preserve provider ambiguity", async (t) => {
+test("post-admission transport failures become terminal local failures", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-mutation-provider-failure-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const store = new MutationReceiptStore(dir, async () => { throw new Error("unused"); });
@@ -528,11 +528,13 @@ test("post-admission transport failures preserve provider ambiguity", async (t) 
     throw new ProviderError("connection reset after admission");
   };
 
+  await assert.rejects(
+    store.run(mutationId, "autonameStory", { id: "story" }, work),
+    ProviderError
+  );
   await assert.rejects(store.run(mutationId, "autonameStory", { id: "story" }, work),
-    hasCode("generation_outcome_unknown"));
-  await assert.rejects(store.run(mutationId, "autonameStory", { id: "story" }, work),
-    hasCode("generation_outcome_unknown"));
-  assert.equal(calls, 2);
+    hasCode("provider_failure"));
+  assert.equal(calls, 1);
   assert.equal(requests, 1);
 });
 
@@ -574,17 +576,6 @@ test("durably recovered provider failures remain terminal in the outer receipt",
       input,
       async (plan) => {
         await plan.providerStarted();
-        throw new ProviderError("reply lost", 500);
-      }
-    ),
-    hasCode("generation_outcome_unknown")
-  );
-  await assert.rejects(
-    store.run(
-      mutationId,
-      "autonameStory",
-      input,
-      async () => {
         throw new DurableMutationResultError(
           409,
           "Story mutation previously completed with provider_failure.",
@@ -605,7 +596,7 @@ test("durably recovered provider failures remain terminal in the outer receipt",
   );
 });
 
-test("provider 5xx responses remain ambiguous after admission", async (t) => {
+test("provider 5xx responses become terminal local failures", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-mutation-provider-5xx-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const store = new MutationReceiptStore(dir, async () => { throw new Error("unused"); });
@@ -620,11 +611,11 @@ test("provider 5xx responses remain ambiguous after admission", async (t) => {
 
   await assert.rejects(
     store.run(mutationId, "autonameStory", { id: "story" }, work),
-    hasCode("generation_outcome_unknown")
+    ProviderError
   );
   await assert.rejects(
     store.run(mutationId, "autonameStory", { id: "story" }, work),
-    hasCode("generation_outcome_unknown")
+    hasCode("provider_failure")
   );
   assert.equal(admitted, 1);
 });

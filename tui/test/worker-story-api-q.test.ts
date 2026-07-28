@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { demoAppSource } from "../src/demo.js";
+import { WorkerApiError } from "../src/worker-error.js";
 import { storyApiFromWorkerTransport } from "../src/worker-story-api.js";
 
 test("catalog summaries cannot regress a newer held Q revision", async () => {
@@ -46,6 +48,62 @@ test("catalog summaries cannot regress a newer held Q revision", async () => {
   await api.listStories();
   await api.renameStory(payload.id, "Renamed");
   expect(expectedVersion).toEqual(payload.aggregateVersion);
+});
+
+test("a provider failure invalidates the held Q revision", async () => {
+  const source = demoAppSource();
+  let providerFailed = false;
+  let storyLoads = 0;
+  let renameVersion: unknown;
+  const payload = (revision: string) => ({
+    ...structuredClone(source.payload),
+    id: "versioned-story",
+    aggregateVersion: {
+      kind: "v6" as const,
+      revision
+    }
+  });
+  const api = storyApiFromWorkerTransport({
+    call: async (method: string, _input: unknown, options?: {
+      expectedAggregateVersion?: unknown;
+    }) => {
+      if (method === "loadStory") {
+        storyLoads += 1;
+        return payload(providerFailed
+          ? "00000000000000000002"
+          : "00000000000000000001");
+      }
+      if (method === "autonameStory") {
+        providerFailed = true;
+        throw new WorkerApiError(createFailureEnvelope({
+          code: "provider_failure",
+          message: "Model request failed.",
+          status: 502
+        }));
+      }
+      if (method === "renameStory") {
+        renameVersion = options?.expectedAggregateVersion;
+        return payload("00000000000000000003");
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    }
+  } as never);
+
+  await api.loadStory("versioned-story");
+  let providerError: unknown;
+  try {
+    await api.autonameStory("versioned-story");
+  } catch (error) {
+    providerError = error;
+  }
+  expect(providerError instanceof WorkerApiError).toBeTrue();
+  await api.renameStory("versioned-story", "Renamed");
+
+  expect(storyLoads).toBe(3);
+  expect(renameVersion).toEqual({
+    kind: "v6",
+    revision: "00000000000000000002"
+  });
 });
 
 test("deleted unknown outcomes use status revision and retire their archive", async () => {

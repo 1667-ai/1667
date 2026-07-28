@@ -51,8 +51,14 @@ round-trip ends, so concurrent cleanup cannot invalidate lazy source hydration.
 Terminal publication applies an operation-specific effect to the current story:
 manual renames beat autoname, rewrites and summaries revalidate their source,
 continuations preserve a line moved by the writer, and a Stop save wins by
-generation ID. An ambiguous provider result retains the durable unresolved
-pointer; retries stay blocked until that exact outcome is acknowledged.
+generation ID. A provider failure cannot write the local story. 1667 records
+the local generation as failed and accepts more work. It does not automatically
+repeat the provider request.
+
+If the backend stops before terminal publication, 1667 retains the durable
+provider-start record. At the next start, 1667 closes this record and reloads
+the story. It does not ask the writer to close the record. It does not
+automatically repeat the provider request.
 
 Provider request bodies are built by exact OpenAI Chat Completions and Anthropic
 Messages serializers. The selected cache policy and capability project

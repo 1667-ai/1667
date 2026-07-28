@@ -51,6 +51,19 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     }
     return loaded.aggregateVersion;
   };
+  const runProviderMutation = async <T>(
+    storyId: string,
+    work: () => Promise<T>
+  ): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      // A terminal provider failure can advance the receipt-only story
+      // revision without returning a payload that carries the new token.
+      versions.delete(storyId);
+      throw error;
+    }
+  };
   return {
     listStories: async () => {
       const held = new Map<string, StorySummary>();
@@ -84,12 +97,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { expectedAggregateVersion: await expectedVersion(id) }
     )),
     autonameStory: async (id) => {
-      const current = rememberPayload(await transport.call("loadStory", { id }));
-      return rememberPayload(await transport.call(
-        "autonameStory",
-        { id, expectedTitle: current.title },
-        { expectedAggregateVersion: await expectedVersion(id) }
-      ));
+      return await runProviderMutation(id, async () => {
+        const current = rememberPayload(await transport.call("loadStory", { id }));
+        return rememberPayload(await transport.call(
+          "autonameStory",
+          { id, expectedTitle: current.title },
+          { expectedAggregateVersion: await expectedVersion(id) }
+        ));
+      });
     },
     acknowledgeUnknownOutcomes: async (storyId, originalProviderMutationId) => {
       const status = await transport.call("getUnknownOutcomeStatus", {
@@ -231,11 +246,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(storyId) }
       )
     ),
-    summarizeChapter: async (storyId, breakId) => rememberPayload(
-      await transport.call(
-        "summarizeChapter",
-        { storyId, breakId },
-        { expectedAggregateVersion: await expectedVersion(storyId) }
+    summarizeChapter: async (storyId, breakId) => runProviderMutation(
+      storyId,
+      async () => rememberPayload(
+        await transport.call(
+          "summarizeChapter",
+          { storyId, breakId },
+          { expectedAggregateVersion: await expectedVersion(storyId) }
+        )
       )
     ),
     editChapterSummary: async (storyId, summaryId, text, expected) =>
@@ -259,43 +277,49 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { expectedAggregateVersion: { kind: "absent" } }
     )),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
-      const result = await transport.call(
-        "continueStory",
-        { storyId, instruction, genId, target },
-        {
-          onDelta,
-          signal,
-          expectedAggregateVersion: await expectedVersion(storyId)
-        }
-      );
-      return result === null ? null : rememberPayload(result);
+      return await runProviderMutation(storyId, async () => {
+        const result = await transport.call(
+          "continueStory",
+          { storyId, instruction, genId, target },
+          {
+            onDelta,
+            signal,
+            expectedAggregateVersion: await expectedVersion(storyId)
+          }
+        );
+        return result === null ? null : rememberPayload(result);
+      });
     },
     rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {
-      await transport.call(
-        "rewriteNode",
-        { storyId, nodeId, body },
-        {
-          onDelta,
-          signal,
-          expectedAggregateVersion: await expectedVersion(storyId)
-        }
-      );
-      rememberPayload(await transport.call("loadStory", { id: storyId }));
+      await runProviderMutation(storyId, async () => {
+        await transport.call(
+          "rewriteNode",
+          { storyId, nodeId, body },
+          {
+            onDelta,
+            signal,
+            expectedAggregateVersion: await expectedVersion(storyId)
+          }
+        );
+        rememberPayload(await transport.call("loadStory", { id: storyId }));
+      });
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
-      const result = await transport.call(
-        "createSummaryTake",
-        { storyId, body },
-        {
-          onDelta,
-          signal,
-          expectedAggregateVersion: await expectedVersion(storyId)
+      return await runProviderMutation(storyId, async () => {
+        const result = await transport.call(
+          "createSummaryTake",
+          { storyId, body },
+          {
+            onDelta,
+            signal,
+            expectedAggregateVersion: await expectedVersion(storyId)
+          }
+        );
+        if (result !== null) {
+          rememberPayload(await transport.call("loadStory", { id: storyId }));
         }
-      );
-      if (result !== null) {
-        rememberPayload(await transport.call("loadStory", { id: storyId }));
-      }
-      return result;
+        return result;
+      });
     }
   };
 }
