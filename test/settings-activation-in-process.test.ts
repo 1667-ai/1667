@@ -559,22 +559,22 @@ test("a shared-tier rotation deletes exactly the superseded credential after com
   });
   await store.init(2);
   await store.save({
-    ...saveCommand(MUTATION_A, 1, storedSecretDocument("demo.k-old")),
-    connectionSecrets: { "demo.k-old": "sk-old" }
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("demo.k00000000-0000-4000-8000-00000000000a")),
+    connectionSecrets: { "demo.k00000000-0000-4000-8000-00000000000a": "sk-old" }
   });
-  assert.deepEqual([...(await readProviderSecrets(secretsDir)).keys()], ["demo.k-old"]);
+  assert.deepEqual([...(await readProviderSecrets(secretsDir)).keys()], ["demo.k00000000-0000-4000-8000-00000000000a"]);
 
   // A failed replacement keeps both values: the active document still
   // resolves the old one, and the staged candidate still owns the new one.
   providerReady = false;
   const stagedGeneration = (await store.loadView()).stateGeneration!;
   await store.save({
-    ...saveCommand(MUTATION_B, stagedGeneration, storedSecretDocument("demo.k-new")),
-    connectionSecrets: { "demo.k-new": "sk-new" }
+    ...saveCommand(MUTATION_B, stagedGeneration, storedSecretDocument("demo.k00000000-0000-4000-8000-00000000000b")),
+    connectionSecrets: { "demo.k00000000-0000-4000-8000-00000000000b": "sk-new" }
   });
   assert.deepEqual(
     [...(await readProviderSecrets(secretsDir)).keys()].sort(),
-    ["demo.k-new", "demo.k-old"],
+    ["demo.k00000000-0000-4000-8000-00000000000a", "demo.k00000000-0000-4000-8000-00000000000b"],
     "a failed activation deletes nothing"
   );
   assert.equal(
@@ -588,13 +588,48 @@ test("a shared-tier rotation deletes exactly the superseded credential after com
   providerReady = true;
   const retryGeneration = (await store.loadView()).stateGeneration!;
   await store.save({
-    ...saveCommand(MUTATION_C, retryGeneration, storedSecretDocument("demo.k-new2")),
-    connectionSecrets: { "demo.k-new2": "sk-new2" }
+    ...saveCommand(MUTATION_C, retryGeneration, storedSecretDocument("demo.k00000000-0000-4000-8000-00000000000c")),
+    connectionSecrets: { "demo.k00000000-0000-4000-8000-00000000000c": "sk-new2" }
   });
-  assert.deepEqual([...(await readProviderSecrets(secretsDir)).keys()], ["demo.k-new2"]);
+  assert.deepEqual([...(await readProviderSecrets(secretsDir)).keys()], ["demo.k00000000-0000-4000-8000-00000000000c"]);
   assert.equal(
     resolveProviderHeaders((await store.loadGeneration()).settings, {}).headers.authorization,
     "Bearer sk-new2"
+  );
+});
+
+test("a superseded legacy secret ID survives the shared-tier deletion pass", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-tier-legacy-");
+  const secretsDir = await scratchSecretsDir(t);
+  const store = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => true,
+    secretsDir
+  });
+  await store.init(2);
+  // A connection-derived ID from before mint-per-key: another project may
+  // resolve the same name in the shared tier, so it is never deleted.
+  await store.save({
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("builtin:dry-run")),
+    connectionSecrets: { "builtin:dry-run": "sk-legacy" }
+  });
+  const generation = (await store.loadView()).stateGeneration!;
+
+  await store.save({
+    ...saveCommand(
+      MUTATION_B,
+      generation,
+      storedSecretDocument("demo.k00000000-0000-4000-8000-0000000000d4")
+    ),
+    connectionSecrets: { "demo.k00000000-0000-4000-8000-0000000000d4": "sk-minted" }
+  });
+
+  assert.equal((await store.loadView()).pendingRevision, null, "the replacement committed");
+  assert.deepEqual(
+    [...(await readProviderSecrets(secretsDir)).keys()].sort(),
+    ["builtin:dry-run", "demo.k00000000-0000-4000-8000-0000000000d4"],
+    "only provably minted IDs are ever deleted; legacy names keep accumulating"
   );
 });
 
@@ -609,8 +644,8 @@ test("shared-tier discard and startup commit remove exactly their superseded cre
   });
   await active.init(2);
   await active.save({
-    ...saveCommand(MUTATION_A, 1, storedSecretDocument("tier:active")),
-    connectionSecrets: { "tier:active": "sk-active" }
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("tier.k00000000-0000-4000-8000-0000000000a1")),
+    connectionSecrets: { "tier.k00000000-0000-4000-8000-0000000000a1": "sk-active" }
   });
 
   // A staged candidate left behind by an interrupted save.
@@ -623,12 +658,12 @@ test("shared-tier discard and startup commit remove exactly their superseded cre
   await interrupted.init(2);
   const generation = (await interrupted.loadView()).stateGeneration!;
   await interrupted.save({
-    ...saveCommand(MUTATION_B, generation, storedSecretDocument("tier:candidate")),
-    connectionSecrets: { "tier:candidate": "sk-candidate" }
+    ...saveCommand(MUTATION_B, generation, storedSecretDocument("tier.k00000000-0000-4000-8000-0000000000b2")),
+    connectionSecrets: { "tier.k00000000-0000-4000-8000-0000000000b2": "sk-candidate" }
   });
   assert.deepEqual(
     [...(await readProviderSecrets(secretsDir)).keys()].sort(),
-    ["tier:active", "tier:candidate"]
+    ["tier.k00000000-0000-4000-8000-0000000000a1", "tier.k00000000-0000-4000-8000-0000000000b2"]
   );
 
   // Discarding the candidate removes its credential from the shared tier.
@@ -640,7 +675,7 @@ test("shared-tier discard and startup commit remove exactly their superseded cre
   });
   assert.deepEqual(
     [...(await readProviderSecrets(secretsDir)).keys()],
-    ["tier:active"],
+    ["tier.k00000000-0000-4000-8000-0000000000a1"],
     "the discarded candidate's credential does not linger in the shared tier"
   );
 
@@ -655,8 +690,8 @@ test("shared-tier discard and startup commit remove exactly their superseded cre
   await restaged.init(2);
   const restageGeneration = (await restaged.loadView()).stateGeneration!;
   await restaged.save({
-    ...saveCommand(MUTATION_D, restageGeneration, storedSecretDocument("tier:replacement")),
-    connectionSecrets: { "tier:replacement": "sk-replacement" }
+    ...saveCommand(MUTATION_D, restageGeneration, storedSecretDocument("tier.k00000000-0000-4000-8000-0000000000c3")),
+    connectionSecrets: { "tier.k00000000-0000-4000-8000-0000000000c3": "sk-replacement" }
   });
   const recovered = new SettingsStore(dataDir, {
     environment: {},
@@ -668,7 +703,7 @@ test("shared-tier discard and startup commit remove exactly their superseded cre
   assert.equal((await recovered.loadView()).pendingRevision, null);
   assert.deepEqual(
     [...(await readProviderSecrets(secretsDir)).keys()],
-    ["tier:replacement"],
+    ["tier.k00000000-0000-4000-8000-0000000000c3"],
     "the startup commit deletes the binding it superseded"
   );
 });

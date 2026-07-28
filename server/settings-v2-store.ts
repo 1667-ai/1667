@@ -88,6 +88,13 @@ import { storedCredentialSecretId } from "../shared/settings-stored-credential.j
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
 
+/** IDs minted by this project's sidecar: a crypto-UUID suffix that cannot
+ * predate the mint-per-key change and cannot arise from another writer's
+ * connection-derived or caller-selected naming. Only these ever qualify for
+ * targeted supersession deletion in the shared machine tier. */
+const MINTED_SECRET_ID_PATTERN =
+  /\.k[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export interface SettingsV2StoreOptions {
   readonly coordinator?: MutationCoordinator;
   readonly ledger?: MutationLedgerStore;
@@ -511,7 +518,24 @@ export class SettingsV2Store {
    * references are invisible there — but an ID this transition replaced or
    * discarded was written by this project and is referenced by nothing after
    * it settles, so a targeted delete is safe where a scan is not. A failed
-   * validation keeps every document and therefore deletes nothing. */
+   * validation keeps every document and therefore deletes nothing.
+   *
+   * Deletion is gated on provable mint provenance: only IDs carrying the
+   * sidecar's crypto-UUID suffix qualify, because they cannot predate the
+   * mint-per-key change and cannot arise from another writer's derivation.
+   * Legacy connection-derived IDs and caller-selected API IDs are never
+   * deleted; they keep their pre-existing accumulate-forever behavior rather
+   * than risk removing a name another project also resolves. One residual
+   * remains: a project that adopts this project's minted ID by exact value
+   * would lose it on rotation here — out of the threat model, availability
+   * only, and self-healing by re-entering the key.
+   *
+   * Cleanup is deliberately not crash-recoverable. The unrecoverable window
+   * runs from the durable commit to this call — milliseconds — and the
+   * artifact is one superseded credential inside a 0600 machine-tier file;
+   * before this change every rotation leaked its value there permanently,
+   * so this is a strict improvement, and a persisted cleanup record would
+   * cost settings-state schema churn that outweighs the residual. */
   private async deleteSupersededSecrets(
     preceding: readonly SettingsStateV2[],
     settled: SettingsStateV2
@@ -520,7 +544,9 @@ export class SettingsV2Store {
     const superseded = new Set<string>();
     for (const state of preceding) {
       for (const secretId of storedSecretIdsInState(state)) {
-        if (!remaining.has(secretId)) superseded.add(secretId);
+        if (!remaining.has(secretId) && MINTED_SECRET_ID_PATTERN.test(secretId)) {
+          superseded.add(secretId);
+        }
       }
     }
     for (const secretId of superseded) {
