@@ -15,6 +15,7 @@ import {
 import { pathTo } from "../shared/story-tree.js";
 import {
   manifestRevisionIds,
+  STORY_SCHEMA_VERSION,
   type ObjectHash,
   type TextRevisionV1
 } from "./story-format.js";
@@ -186,8 +187,16 @@ export class StoryAggregateSession {
     await objects.flush();
     await objects.verifyGraph(manifestRevisionIds(content));
     const nextRevisionIds = new Set(manifestRevisionIds(content));
+    // Parsing normalizes V2-V4 sources before this diff can run (old fact
+    // states collapse to their selected revision), so objects the
+    // normalization dropped never appear in previousRevisionIds. Mirror the
+    // V5 save path: a legacy-schema source always owes the first V5 sweep.
+    const source = this.snapshot.source;
+    const legacySchemaSource = source.kind === "v5"
+      && source.sourceSchemaVersion !== STORY_SCHEMA_VERSION;
     this.preparedCleanupRetirement = await cleanup.settle(
-      previousRevisionIds.some((id) => !nextRevisionIds.has(id))
+      legacySchemaSource
+        || previousRevisionIds.some((id) => !nextRevisionIds.has(id))
     ) === "retire-marker";
     return {
       story,

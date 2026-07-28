@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { hashStoryV5ManifestBytes } from "../server/story-manifest-hash.js";
 import { cleanupPending } from "../server/story-cleanup.js";
 import { createTake, newNode, switchLine } from "../server/story-nodes.js";
 import { StoryObjectStore } from "../server/story-objects.js";
@@ -17,6 +18,7 @@ import {
 const SEED_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000a";
 const SWITCH_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000b";
 const EDIT_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000c";
+const LEGACY_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000d";
 
 test("Q cleanup intent tracks dropped references: a take switch sweeps nothing, an edit reaps its old revision", async (t) => {
   let sweeps = 0;
@@ -93,5 +95,58 @@ test("Q cleanup intent tracks dropped references: a take switch sweeps nothing, 
     readFile(new StoryObjectStore(bundleDir).objectPath("revisions", oldRevisionId)),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
     "the replaced revision must be reaped"
+  );
+});
+
+test("Q legacy-schema source keeps its sweep obligation through the V6 session", async (t) => {
+  let sweeps = 0;
+  let bundleDir = "";
+  let markerAtStage: boolean | null = null;
+  const fixture = await setup(
+    t,
+    "1667-q-cleanup-legacy-",
+    {
+      afterStage: async () => {
+        markerAtStage = await cleanupPending(bundleDir);
+      }
+    },
+    (storiesDir) => new StoryStore(storiesDir, async (dir, liveRevisionIds, signal) => {
+      sweeps += 1;
+      return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+    })
+  );
+  bundleDir = path.dirname(fixture.manifestFile);
+
+  // Downgrade the stored manifest to schema 4. Parsing upgrades it in memory,
+  // so objects an older schema hid are invisible to the reference diff.
+  const manifest = JSON.parse(await readFile(fixture.manifestFile, "utf8")) as Record<string, unknown>;
+  manifest.schemaVersion = 4;
+  delete manifest.chapterBreaks;
+  delete manifest.autonameId;
+  await writeFile(fixture.manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  const legacyHash = hashStoryV5ManifestBytes(await readFile(fixture.manifestFile));
+
+  // A resident object no manifest references stands in for the states the
+  // legacy schema dropped during normalization.
+  const objects = new StoryObjectStore(bundleDir);
+  const obsoleteRevisionId = await objects.storeText("An obsolete legacy fact state.");
+  await objects.flush();
+
+  // Metadata-only migration mutation: no reference diff, no object writes.
+  await fixture.mutations.runLocal(
+    requestFor(LEGACY_MUTATION_ID, FINGERPRINT, { kind: "v5", manifestHash: legacyHash }),
+    "renameStory",
+    (story) => {
+      story.title = "Migrated";
+    }
+  );
+  assert.equal(markerAtStage, true, "a legacy source must publish sweep intent");
+  await fixture.stories.waitForMaintenance();
+  assert.ok(sweeps >= 1, "a legacy source must sweep after commit");
+  assert.equal(await cleanupPending(bundleDir), false);
+  await assert.rejects(
+    readFile(objects.objectPath("revisions", obsoleteRevisionId)),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
+    "objects the legacy schema hid must be reaped"
   );
 });
