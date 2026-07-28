@@ -643,6 +643,48 @@ describe("hit map clickable chrome", () => {
     }
   });
 
+  test("cache policy arrows sit on its brackets while the cost detail follows", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    const index = SETTINGS_ROW_IDS.indexOf("cache-policy");
+    footerCases.at(-1)!.setup(state, source);
+    state.settings!.cursor = index;
+    const frame = render(state, 120, 30);
+
+    const selectorRow = state.hitRows.findIndex((row) =>
+      row?.overrides?.some((region) =>
+        region.target.kind === "action" && region.target.index === index) === true);
+    const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>
+      region.target.kind === "action" && region.target.index === index);
+    const line = plainLine(frame[selectorRow]!);
+    expect([...line][arrows[0]!.left]).toBe("‹");
+    expect([...line][arrows[1]!.left]).toBe("›");
+    // The arrows are not the ends of the value — the cost keeps rendering.
+    expect(line.slice(line.indexOf("›") + 1)).toContain("TTL none");
+
+    const clicked = mouseToAction(click(arrows[1]!.left, selectorRow), state)!;
+    await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(state.settings?.draft.cachePolicy).toBe("auto");
+  });
+
+  test("a truncated selector value leaves no arrow behind at any panel width", () => {
+    for (let width = 30; width <= 120; width += 1) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      state.stream = null;
+      footerCases.at(-1)!.setup(state, source);
+      state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("cache-policy");
+      const frame = render(state, width, 30);
+      for (const [rowIndex, row] of state.hitRows.entries()) {
+        for (const region of row?.overrides ?? []) {
+          if (region.target.kind !== "action" || region.target.index === undefined) continue;
+          expect([...plainLine(frame[rowIndex]!)][region.left]).toMatch(/[‹›[\]]/u);
+        }
+      }
+    }
+  });
+
   test("story model, local provider, and context hint open their exact Settings rows", async () => {
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: null };

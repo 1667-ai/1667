@@ -1,4 +1,8 @@
-import type { SettingsView } from "../../shared/settings-v2-types.js";
+import {
+  PROMPT_CACHE_POLICY_V2_VALUES,
+  type PromptCachePolicyV2,
+  type SettingsView
+} from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import type { UserConfig } from "./config.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
@@ -8,7 +12,7 @@ import {
   type ComposerState
 } from "./composer-model.js";
 import { graphemeCells } from "./cell-width.js";
-import { promptCacheSummary } from "./settings-cache-summary.js";
+import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import {
   localProviderPresetsSupported,
   nextSettingsProviderChoice,
@@ -140,7 +144,7 @@ export function settingsRows(
     {
       id: "cache-policy",
       label: "cache policy",
-      value: promptCacheSummary(overlay.view, overlay.draft)
+      value: promptCacheRowValue(overlay)
     },
     {
       id: "system-prompt",
@@ -203,6 +207,7 @@ export function beginSettingsPasteEdit(
     row === "theme"
     || row === "provider"
     || row === "allow-insecure-http"
+    || row === "cache-policy"
   ) return false;
   if (settingsRowUsesServer(row)
     && (!overlay.view.editable || overlay.view.pendingRevision !== null)) {
@@ -247,6 +252,9 @@ export function applySettingsRowEdit(
   }
   if (edit.row === "allow-insecure-http") {
     return { kind: "error", message: "insecure HTTP is a selector" };
+  }
+  if (edit.row === "cache-policy") {
+    return { kind: "error", message: "cache policy is a selector" };
   }
   if (edit.row === "system-prompt") {
     const systemPrompt = parseInlineSystemPrompt(edit.composer.text);
@@ -309,13 +317,18 @@ export function boundedSettingsCursor(value: number): number {
  * value's brackets are click targets. Everything else is free text the row
  * editor owns. One spelling of the set, read by the panel and the key handler.
  *
+ * A cycling value may keep read-only detail after its closing bracket — the
+ * cache policy states what the choice costs — so the panel finds the arrows by
+ * bracket, not by the ends of the value.
+ *
  * Deliberately not the inverse of `settingsRowUsesServer`: provider cycles and
  * is server-backed, while theme and compose focus cycle and are local. */
 export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
     || row === "compose-focus"
     || row === "provider"
-    || row === "allow-insecure-http";
+    || row === "allow-insecure-http"
+    || row === "cache-policy";
 }
 
 /** Local-only rows live in the user config; every other row edits a
@@ -482,6 +495,23 @@ function draftWithActiveEdit(
   return "error" in parsed ? null : parsed;
 }
 
+/** Every policy stays reachable, including one this exact model cannot honour.
+ * The row summary then reads `unavailable`, and the choice becomes live again
+ * when the model changes. A skipped choice would vanish without a reason. */
+export function cyclePromptCachePolicy(
+  overlay: SettingsOverlayState,
+  step: -1 | 1
+): PromptCachePolicyV2 {
+  const values = PROMPT_CACHE_POLICY_V2_VALUES;
+  const index = values.indexOf(overlay.draft.cachePolicy);
+  const cachePolicy = values[(index + step + values.length) % values.length]!;
+  overlay.draft = { ...overlay.draft, cachePolicy };
+  overlay.result = null;
+  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
+  else if (overlay.conflict !== null) overlay.conflict.armed = false;
+  return cachePolicy;
+}
+
 export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
   const allowInsecureHttp = overlay.draft.generation.allowInsecureHttp !== true;
   const generation = { ...overlay.draft.generation };
@@ -514,6 +544,11 @@ function parseInlineSystemPrompt(value: string): string | { kind: "error"; messa
       message: "system prompt has invalid JSON string escapes or quotes"
     };
   }
+}
+
+function promptCacheRowValue(overlay: SettingsOverlayState): string {
+  const parts = promptCacheSummaryParts(overlay.view, overlay.draft);
+  return `‹ ${parts.policy} › · ${parts.detail}`;
 }
 
 function isPlainHttp(value: string): boolean {

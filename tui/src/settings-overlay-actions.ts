@@ -32,12 +32,14 @@ import {
   beginSettingsRowEdit,
   boundedSettingsCursor,
   cycleAllowInsecureHttp,
+  cyclePromptCachePolicy,
   cycleSettingsProvider,
   initialSettingsOverlay,
   sameGenerationSettings,
   sameSettingsDraft,
   SETTINGS_ROW_IDS,
   settingsDraftChanged,
+  settingsRowCycles,
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
@@ -94,6 +96,7 @@ export async function settingsOverlayAction(
         row === "theme"
         || row === "provider"
         || row === "allow-insecure-http"
+        || row === "cache-policy"
       ) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
@@ -124,6 +127,8 @@ export async function settingsOverlayAction(
       applyProviderChoice(overlay, state, 1);
     } else if (row === "allow-insecure-http") {
       applyAllowInsecureHttp(overlay, state);
+    } else if (row === "cache-policy") {
+      applyPromptCachePolicyChoice(overlay, state, 1);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -143,19 +148,16 @@ export async function settingsOverlayAction(
       // `d` used to toggle this, which collided with delete everywhere else.
       // It cycles with the other closed-choice rows instead.
       applyComposeFocus(state, source, state.config.composeFocus === "on" ? "off" : "on");
-    } else if (row === "provider") {
+    } else if (settingsRowUsesServer(row) && settingsRowCycles(row)) {
       if (!overlay.view.editable) state.toast = "legacy settings are read-only";
       else if (overlay.view.pendingRevision !== null) {
         state.toast = "settings pending restart · discard pending before editing";
-      } else {
+      } else if (row === "provider") {
         applyProviderChoice(overlay, state, step);
-      }
-    } else if (row === "allow-insecure-http") {
-      if (!overlay.view.editable) state.toast = "legacy settings are read-only";
-      else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
-      } else {
+      } else if (row === "allow-insecure-http") {
         applyAllowInsecureHttp(overlay, state);
+      } else {
+        applyPromptCachePolicyChoice(overlay, state, step);
       }
     }
   } else if (resolved.action === "discard-pending") {
@@ -468,6 +470,15 @@ function applyComposeFocus(
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
   state.toast = `compose focus · ${composeFocus}`;
+}
+
+function applyPromptCachePolicyChoice(
+  overlay: SettingsOverlayState,
+  state: RuntimeState,
+  step: -1 | 1
+): void {
+  const policy = cyclePromptCachePolicy(overlay, step);
+  state.toast = `cache policy · ${policy} · s saves settings`;
 }
 
 function applyAllowInsecureHttp(

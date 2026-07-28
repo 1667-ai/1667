@@ -1,3 +1,4 @@
+import { graphemeCells } from "../cell-width.js";
 import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
@@ -67,8 +68,15 @@ const SETTINGS_EDIT_FOOTER_ACTIONS = [
  * so `›` stays the prompt glyph it is everywhere else. */
 const SETTINGS_LEAD_WIDTH = 4;
 const SETTINGS_LABEL_WIDTH = 17;
-/** Column the value starts in, relative to the content line. */
-const SETTINGS_VALUE_LEFT = SETTINGS_LEAD_WIDTH + SETTINGS_LABEL_WIDTH;
+
+/** Column the value starts in, relative to the content line. A label wider
+ * than the column pushes its own value right and keeps one cell of air. This
+ * is the only place that column is decided: the painted lead, the truncation
+ * budget, and the selector arrows all read it, because a second opinion about
+ * where the value starts is what puts an arrow on top of a letter. */
+function settingsValueLeft(label: string): number {
+  return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
+}
 
 const SETTINGS_PENDING_FOOTER_ACTIONS = [
   { token: "c check", action: "check" },
@@ -222,12 +230,15 @@ export function renderSettingsPanel(
   const rows = settingsRows(overlay, state.config);
   const status = settingsStatusLines(overlay);
   const horizontal = panelHorizontalGeometry(width, 76);
-  const valueWidth = Math.max(1, horizontal.contentWidth - SETTINGS_VALUE_LEFT);
+  const valueLefts = rows.map((row) => settingsValueLeft(row.label));
+  const valueWidths = valueLefts.map(
+    (left) => Math.max(1, horizontal.contentWidth - left)
+  );
   const resultVisible = overlay.checking || overlay.probing || overlay.result !== null;
   const fixedRows = 3 + status.top.length + status.bottom.length + (resultVisible ? 1 : 0);
   const editableRows = rows.slice(2);
   const renderedRows = rows.map((row, index) =>
-    settingsLine(row.label, row.value, index, overlay, valueWidth)
+    settingsLine(row.label, row.value, index, overlay, valueLefts[index]!, valueWidths[index]!)
   );
   const resultLine: FrameLine | null = overlay.checking
     ? [raisedSegment("  ⟳ checking model server…", "focus / accent")]
@@ -306,20 +317,25 @@ export function renderSettingsPanel(
       target?.kind === "list" && target.index === selectorIndex
     );
     if (selectorRow < 0 || overlay.edit?.row === selector.id) continue;
-    const selectorLeft = SETTINGS_VALUE_LEFT;
-    // Measure the value as drawn. An override past the painted text would stay
-    // clickable — `hitAt` consults overrides before row bounds.
-    const selectorWidth = visibleWidth(truncate(selector.value, valueWidth));
+    // Read the brackets out of the value as drawn. A closed choice can carry
+    // read-only detail after its closing bracket, and a narrow panel can cut
+    // the bracket off entirely — an override past the painted glyph would stay
+    // clickable, because `hitAt` consults overrides before row bounds.
+    const brackets = selectorBracketColumns(
+      truncate(selector.value, valueWidths[selectorIndex]!)
+    );
+    if (brackets === null) continue;
+    const selectorLeft = valueLefts[selectorIndex]!;
     overrides[selectorRow] = [
       {
         target: { kind: "action", action: "take-previous", index: selectorIndex },
-        left: selectorLeft,
-        right: selectorLeft + 1
+        left: selectorLeft + brackets.open,
+        right: selectorLeft + brackets.open + 1
       },
       {
         target: { kind: "action", action: "take-next", index: selectorIndex },
-        left: selectorLeft + selectorWidth - 1,
-        right: selectorLeft + selectorWidth
+        left: selectorLeft + brackets.close,
+        right: selectorLeft + brackets.close + 1
       }
     ];
   }
@@ -444,12 +460,14 @@ function settingsLine(
   value: string,
   index: number,
   overlay: NonNullable<OverlayState["settings"]>,
+  valueLeft: number,
   valueWidth: number
 ): FrameLine {
   const selected = index === overlay.cursor;
   const edit = selected ? overlay.edit : null;
+  const lead = `${selected ? "  ▸ " : "    "}${label}`;
   const prefix = raisedSegment(
-    `${selected ? "  ▸ " : "    "}${label.padEnd(SETTINGS_LABEL_WIDTH)}`,
+    lead + " ".repeat(Math.max(0, valueLeft - visibleWidth(lead))),
     selected ? "focus / accent" : "chrome"
   );
   if (edit === null) {
@@ -476,6 +494,25 @@ function settingsLine(
     ),
     raisedSegment("]", "chrome")
   ];
+}
+
+/** Columns of the pair that wraps a closed choice, relative to the value. Both
+ * spellings are one cell wide, so the column is where the arrow gets painted.
+ * `null` means the drawn value lost a bracket to truncation. */
+function selectorBracketColumns(
+  drawn: string
+): { open: number; close: number } | null {
+  let column = 0;
+  let open: number | null = null;
+  for (const cell of graphemeCells(drawn)) {
+    if (open === null) {
+      if (cell.text === "‹" || cell.text === "[") open = column;
+    } else if (cell.text === "›" || cell.text === "]") {
+      return { open, close: column };
+    }
+    column += cell.width;
+  }
+  return null;
 }
 
 function listTarget(index: number): HitTarget {
