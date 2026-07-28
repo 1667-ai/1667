@@ -32,16 +32,22 @@ interface PackagedBuildProvenance {
   buildTimestamp: string;
 }
 
-export type BuildIdentity = CommonBuildIdentity & ({
+type SourceBuildIdentity = CommonBuildIdentity & {
   artifactTarget: "source";
   sourceCommit: null;
   sourceDirty: null;
   buildTimestamp: null;
   buildKind: "development";
-} | (PackagedBuildProvenance & (
+};
+
+export type PackagedBuildIdentity = CommonBuildIdentity
+  & PackagedBuildProvenance
+  & (
   { buildKind: "development"; sourceDirty: boolean }
   | { buildKind: "release"; sourceDirty: false }
-)));
+);
+
+export type BuildIdentity = SourceBuildIdentity | PackagedBuildIdentity;
 
 export interface PackagedBuildIdentityInput {
   productVersion: string;
@@ -83,8 +89,10 @@ export function createSourceBuildIdentity(productVersion = packageManifest.versi
   });
 }
 
-export function createPackagedBuildIdentity(input: PackagedBuildIdentityInput): BuildIdentity {
-  return parseBuildIdentity({
+export function createPackagedBuildIdentity(
+  input: PackagedBuildIdentityInput
+): PackagedBuildIdentity {
+  const identity = parseBuildIdentity({
     ...commonIdentity(input.productVersion),
     buildKind: "development",
     artifactTarget: input.artifactTarget,
@@ -92,6 +100,10 @@ export function createPackagedBuildIdentity(input: PackagedBuildIdentityInput): 
     sourceDirty: input.sourceDirty,
     buildTimestamp: input.buildTimestamp
   });
+  if (identity.artifactTarget === "source") {
+    throw new Error("Packaged build identity became a source identity");
+  }
+  return identity;
 }
 
 export function parseBuildIdentity(value: unknown): BuildIdentity {

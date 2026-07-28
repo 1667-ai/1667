@@ -24,6 +24,30 @@ export function applyBasicSettingsDraft(
   document: SettingsDocumentV2,
   draft: GenerationSettings
 ): SettingsDocumentV2 {
+  return applyBasicSettingsDocumentDraft(document, draft, savedModelIdentity);
+}
+
+/**
+ * Apply an editable draft to a probe document.
+ * A probe can use the model that the server loaded.
+ */
+export function applyBasicSettingsProbeDraft(
+  document: SettingsDocumentV2,
+  draft: GenerationSettings
+): SettingsDocumentV2 {
+  return applyBasicSettingsDocumentDraft(document, draft, probeModelIdentity);
+}
+
+type ModelIdentity = {
+  readonly remoteId: string;
+  readonly name: string;
+};
+
+function applyBasicSettingsDocumentDraft(
+  document: SettingsDocumentV2,
+  draft: GenerationSettings,
+  modelIdentityFor: (settings: GenerationSettings) => ModelIdentity
+): SettingsDocumentV2 {
   const route = activeDefaultRoute(document);
   const projected = basicSettingsFromDocument(document);
   const storedAuth = storedCredentialSecretId(route.connection.auth) !== null;
@@ -41,11 +65,11 @@ export function applyBasicSettingsDraft(
       : normalizedDraft.baseUrl;
   const connectionIdentityChanged =
     protocolChanged || baseUrlChanged;
-  const remoteId = normalizedProjection.model === normalizedDraft.model
-    ? route.model.remoteId
-    : remoteIdFor(normalizedDraft);
   const modelIdentityChanged =
     connectionIdentityChanged || normalizedProjection.model !== normalizedDraft.model;
+  const modelIdentity = modelIdentityChanged
+    ? modelIdentityFor(normalizedDraft)
+    : { remoteId: route.model.remoteId, name: route.model.name };
   const contextWindowChanged =
     normalizedProjection.contextWindow !== normalizedDraft.contextWindow;
   const connection = connectionFor(
@@ -59,8 +83,7 @@ export function applyBasicSettingsDraft(
   const model = modelIdentityChanged
     ? {
         ...route.model,
-        remoteId,
-        name: modelNameFor(normalizedDraft),
+        ...modelIdentity,
         discovered: {},
         overrides: contextWindowChanged && normalizedDraft.contextWindow !== null
           ? { contextWindow: normalizedDraft.contextWindow }
@@ -428,4 +451,22 @@ function remoteIdFor(settings: GenerationSettings): string {
 
 function modelNameFor(settings: GenerationSettings): string {
   return settings.provider === "dry-run" ? "Dry Run" : settings.model.trim();
+}
+
+function savedModelIdentity(settings: GenerationSettings): ModelIdentity {
+  return {
+    remoteId: remoteIdFor(settings),
+    name: modelNameFor(settings)
+  };
+}
+
+function probeModelIdentity(settings: GenerationSettings): ModelIdentity {
+  if (settings.provider === "dry-run") return savedModelIdentity(settings);
+  const remoteId = settings.model.trim();
+  return {
+    remoteId,
+    name: remoteId.length > 0
+      ? remoteId
+      : connectionName(presetFor(settings.provider, settings.baseUrl))
+  };
 }

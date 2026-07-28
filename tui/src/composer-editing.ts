@@ -1,13 +1,17 @@
 import {
+  backspaceComposer,
   composerCellTextAt,
   composerLength,
   composerLineBounds,
   composerPosition,
   composerSelection,
+  deleteComposerForward,
+  moveComposerHorizontal,
   moveComposerTo,
   replaceComposerTextRange,
   type ComposerState
 } from "./composer-model.js";
+import type { KeyAction } from "./keys.js";
 
 export function moveComposerWord(
   composer: ComposerState, direction: -1 | 1, selecting = false
@@ -91,4 +95,47 @@ function wordBoundary(composer: ComposerState, cursor: number, direction: -1 | 1
 function cellCategory(text: string | null): "space" | "word" | "punctuation" {
   if (text === null || /^\s+$/u.test(text)) return "space";
   return /[\p{L}\p{N}_]/u.test(text) ? "word" : "punctuation";
+}
+
+export type ComposerEditKind = "move" | "delete";
+
+/**
+ * Apply one editing action to a composer.
+ * Return null when the caller must handle the action.
+ *
+ * The three composer-backed surfaces previously used separate logic.
+ * The editor used `select-*` actions for selection.
+ * Direct used the `extendSelection` flag for selection.
+ * Each surface ignored the other selection form.
+ *
+ * This reducer is render-agnostic.
+ * Vertical motion is render-dependent.
+ * The editor uses `softWrap: true` and moves by wrapped visual line.
+ * Direct does not wrap and moves by logical line.
+ * Direct uses the vertical return value to start history navigation.
+ */
+export function applyComposerEdit(
+  composer: ComposerState,
+  action: KeyAction,
+  extend = false
+): ComposerEditKind | null {
+  switch (action) {
+    case "cursor-left": moveComposerHorizontal(composer, -1, extend); return "move";
+    case "cursor-right": moveComposerHorizontal(composer, 1, extend); return "move";
+    case "cursor-word-left": moveComposerWord(composer, -1, extend); return "move";
+    case "cursor-word-right": moveComposerWord(composer, 1, extend); return "move";
+    case "cursor-line-start": moveComposerLineBoundary(composer, false, extend); return "move";
+    case "cursor-line-end": moveComposerLineBoundary(composer, true, extend); return "move";
+    case "cursor-buffer-start": moveComposerBufferBoundary(composer, false, extend); return "move";
+    case "cursor-buffer-end": moveComposerBufferBoundary(composer, true, extend); return "move";
+    case "select-all": selectAllComposer(composer); return "move";
+    case "backspace": backspaceComposer(composer); return "delete";
+    case "delete-forward": deleteComposerForward(composer); return "delete";
+    case "delete-word-left": deleteComposerWord(composer, -1); return "delete";
+    case "delete-word-right": deleteComposerWord(composer, 1); return "delete";
+    case "delete-line": deleteComposerLine(composer); return "delete";
+    case "delete-line-start": deleteComposerToLineBoundary(composer, false); return "delete";
+    case "delete-line-end": deleteComposerToLineBoundary(composer, true); return "delete";
+    default: return null;
+  }
 }

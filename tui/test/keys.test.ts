@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { createComposer } from "../src/composer-model.js";
-import { pasteInto, resolveKey, sanitizePastedText } from "../src/keys.js";
+import {
+  resolveKey,
+  sanitizePastedText,
+  type KeyAction
+} from "../src/keys.js";
+import { textSurfaceKey } from "../src/keys-text-surface.js";
+import {
+  COMPOSER_SURFACES,
+  composerChangedThroughSurface,
+  resolveComposerSurface,
+  surfaceActions,
+  textSurfaceKeyMatrix
+} from "./keys-contract-fixture.js";
 
 function key(
   name: string,
@@ -10,6 +21,7 @@ function key(
     shift?: boolean;
     ctrl?: boolean;
     meta?: boolean;
+    option?: boolean;
     super?: boolean;
   } = {}
 ): KeyEvent {
@@ -19,9 +31,65 @@ function key(
     shift: options.shift ?? false,
     ctrl: options.ctrl ?? false,
     meta: options.meta ?? false,
+    option: options.option ?? false,
     super: options.super ?? false
   } as KeyEvent;
 }
+
+const DECLARED_DIVERGENCES = [
+  { label: "ctrl+alt+b", event: key("b", { ctrl: true, meta: true }),
+    actions: ["cursor-word-left", "cursor-left", "cursor-word-left"],
+    shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "b"
+      && event.ctrl === true && (event.meta === true || event.option === true) },
+  { label: "ctrl+alt+f", event: key("f", { ctrl: true, meta: true }),
+    actions: ["toggle-compose-fullscreen", "cursor-right", "cursor-word-right"],
+    shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "f"
+      && event.ctrl === true && (event.meta === true || event.option === true) },
+  { label: "ctrl+cmd+a", event: key("a", { ctrl: true, super: true }),
+    actions: ["cursor-line-start", "select-all", "select-all"],
+    shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "a"
+      && event.super === true
+      && (event.ctrl === true || event.meta === true || event.option === true) },
+  { label: "ctrl+f", event: key("f", { ctrl: true }),
+    actions: ["toggle-compose-fullscreen", "cursor-right", "none"] },
+  { label: "ctrl+b", event: key("b", { ctrl: true }),
+    actions: ["none", "cursor-left", "none"] },
+  { label: "return", event: key("return"),
+    actions: ["send", "newline", "commit-field"] },
+  { label: "shift+return", event: key("return", { shift: true }),
+    actions: ["newline", "newline", "commit-field"] },
+  { label: "ctrl+s", event: key("s", { ctrl: true }),
+    actions: ["none", "save-edit", "commit-field"] },
+  { label: "ctrl+c", event: key("c", { ctrl: true }),
+    actions: ["none", "copy-selection", "none"] },
+  { label: "ctrl+x", event: key("x", { ctrl: true }),
+    actions: ["none", "cut-selection", "none"] },
+  { label: "ctrl+v", event: key("v", { ctrl: true }),
+    actions: ["none", "paste-clipboard", "paste-clipboard"] },
+  { label: "cmd+v", event: key("v", { super: true }),
+    actions: ["input", "input", "paste-clipboard"] },
+  { label: "cmd+a", event: key("a", { super: true }),
+    actions: ["input", "select-all", "select-all"] },
+  { label: "ctrl+d", event: key("d", { ctrl: true }),
+    actions: ["none", "delete-forward", "none"] },
+  { label: "ctrl+shift+d", event: key("d", { ctrl: true, shift: true }),
+    actions: ["none", "delete-line", "none"] },
+  { label: "ctrl+z", event: key("z", { ctrl: true }),
+    actions: ["none", "undo-edit", "none"] },
+  { label: "ctrl+shift+z", event: key("z", { ctrl: true, shift: true }),
+    actions: ["none", "redo-edit", "none"] },
+  { label: "up", event: key("up"), actions: ["cursor-up", "cursor-up", "none"] },
+  { label: "down", event: key("down"), actions: ["cursor-down", "cursor-down", "none"] },
+  { label: "ctrl+up", event: key("up", { ctrl: true }),
+    actions: ["history-previous", "cursor-up", "none"] },
+  { label: "ctrl+down", event: key("down", { ctrl: true }),
+    actions: ["history-next", "cursor-down", "none"] }
+] satisfies readonly {
+  label: string;
+  event: KeyEvent;
+  actions: readonly [KeyAction, KeyAction, KeyAction];
+  shadowsShared?: (event: KeyEvent) => boolean;
+}[];
 
 describe("arrow-first key routing", () => {
   test("NAV uses arrows for parts and takes; h/j/k/l are unbound", () => {
@@ -110,6 +178,57 @@ describe("arrow-first key routing", () => {
 });
 
 describe("text surfaces and palette", () => {
+  test("composer-backed surfaces preserve shared key precedence unless the divergence table declares it", () => {
+    for (const event of textSurfaceKeyMatrix()) {
+      const shared = textSurfaceKey(event);
+      if (shared === null) continue;
+      const actual = surfaceActions(event);
+      const declared = DECLARED_DIVERGENCES.find(
+        (entry) => entry.shadowsShared?.(event) === true
+      );
+      expect(actual).toEqual(
+        declared?.actions ?? COMPOSER_SURFACES.map(() => shared.action)
+      );
+    }
+    for (const declared of DECLARED_DIVERGENCES) {
+      expect({
+        label: declared.label,
+        actions: surfaceActions(declared.event)
+      }).toEqual({
+        label: declared.label,
+        actions: declared.actions
+      });
+    }
+  });
+
+  test("every emitted composer edit changes state through the surface's real reducer", async () => {
+    const events = [
+      ...textSurfaceKeyMatrix(),
+      ...DECLARED_DIVERGENCES.map((entry) => entry.event)
+    ];
+    const editingActions = new Set<KeyAction>(["select-all", "delete-line"]);
+    for (const event of textSurfaceKeyMatrix()) {
+      const shared = textSurfaceKey(event);
+      if (shared !== null) editingActions.add(shared.action);
+    }
+    for (const surface of COMPOSER_SURFACES) {
+      const emitted = new Map<KeyAction, ReturnType<typeof resolveComposerSurface>>();
+      for (const event of events) {
+        const resolved = resolveComposerSurface(surface, event);
+        if (editingActions.has(resolved.action) && !emitted.has(resolved.action)) {
+          emitted.set(resolved.action, resolved);
+        }
+      }
+      for (const [action, resolved] of emitted) {
+        expect({
+          surface,
+          action,
+          changed: await composerChangedThroughSurface(surface, resolved)
+        }).toEqual({ surface, action, changed: true });
+      }
+    }
+  });
+
   test("paste sanitization strips terminal controls but keeps editor whitespace", () => {
     expect(sanitizePastedText("one\r\ntwo\t\u001b]52;c;bad\u0007\u007f"))
       .toBe("one\ntwo\t]52;c;bad");
@@ -127,6 +246,33 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("?"), "COMPOSE")).toEqual({ action: "input", text: "?" });
   });
 
+  test("compose moves and deletes by word, as the editor does", () => {
+    // The writer who learned these in the full-screen editor keeps them here.
+    expect(resolveKey(key("left", { ctrl: true }), "COMPOSE"))
+      .toEqual({ action: "cursor-word-left" });
+    expect(resolveKey(key("right", { meta: true }), "COMPOSE"))
+      .toEqual({ action: "cursor-word-right" });
+    // Compose spells an extended selection as a flag; the editor spells it as
+    // its own action. Pin the flag so the two encodings cannot silently swap.
+    expect(resolveKey(key("left", { ctrl: true, shift: true }), "COMPOSE"))
+      .toEqual({ action: "cursor-word-left", extendSelection: true });
+
+    expect(resolveKey(key("backspace"), "COMPOSE").action).toBe("backspace");
+    expect(resolveKey(key("delete"), "COMPOSE").action).toBe("delete-forward");
+    // Terminals send a bare BS byte for ctrl+backspace, so the modifier that
+    // reaches us is alt/option — and ctrl+w is the delete that always lands.
+    expect(resolveKey(key("backspace", { meta: true }), "COMPOSE").action)
+      .toBe("delete-word-left");
+    expect(resolveKey(key("delete", { ctrl: true }), "COMPOSE").action)
+      .toBe("delete-word-right");
+    expect(resolveKey(key("w", { ctrl: true }), "COMPOSE").action).toBe("delete-word-left");
+    expect(resolveKey(key("k", { ctrl: true }), "COMPOSE").action).toBe("delete-line-end");
+    expect(resolveKey(key("u", { ctrl: true }), "COMPOSE").action).toBe("delete-line-start");
+    // Plain letters are still prose.
+    expect(resolveKey(key("w"), "COMPOSE")).toEqual({ action: "input", text: "w" });
+    expect(resolveKey(key("k"), "COMPOSE")).toEqual({ action: "input", text: "k" });
+  });
+
   test("inline editor owns multiline input and saves only with Ctrl+S", () => {
     expect(resolveKey(key("return"), "EDITOR").action).toBe("newline");
     expect(resolveKey(key("s"), "EDITOR")).toEqual({ action: "input", text: "s" });
@@ -134,7 +280,7 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("escape"), "EDITOR").action).toBe("cancel");
     expect(resolveKey(key("R", { sequence: "R", shift: true }), "EDITOR")).toEqual({ action: "input", text: "R" });
     expect(resolveKey(key("left", { shift: true }), "EDITOR"))
-      .toEqual({ action: "select-left" });
+      .toEqual({ action: "cursor-left", extendSelection: true });
   });
 
   test("inline Settings fields preserve shifted keyboard selection", () => {
@@ -142,14 +288,14 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("p"), "SETTINGS").action).toBe("detect-context");
     expect(resolveKey(key("p"), "SETTINGS", typing))
       .toEqual({ action: "input", text: "p" });
-    expect(resolveKey(key("left", { shift: true }), "SETTINGS", typing).action)
-      .toBe("select-left");
-    expect(resolveKey(key("right", { shift: true }), "SETTINGS", typing).action)
-      .toBe("select-right");
-    expect(resolveKey(key("home", { shift: true }), "SETTINGS", typing).action)
-      .toBe("select-line-start");
-    expect(resolveKey(key("end", { shift: true }), "SETTINGS", typing).action)
-      .toBe("select-line-end");
+    expect(resolveKey(key("left", { shift: true }), "SETTINGS", typing))
+      .toEqual({ action: "cursor-left", extendSelection: true });
+    expect(resolveKey(key("right", { shift: true }), "SETTINGS", typing))
+      .toEqual({ action: "cursor-right", extendSelection: true });
+    expect(resolveKey(key("home", { shift: true }), "SETTINGS", typing))
+      .toEqual({ action: "cursor-line-start", extendSelection: true });
+    expect(resolveKey(key("end", { shift: true }), "SETTINGS", typing))
+      .toEqual({ action: "cursor-line-end", extendSelection: true });
     expect(resolveKey(key("v", { ctrl: true }), "SETTINGS", typing).action)
       .toBe("paste-clipboard");
     expect(resolveKey(key("v", { super: true }), "SETTINGS", typing).action)
@@ -161,10 +307,12 @@ describe("text surfaces and palette", () => {
   });
 
   test("inline editor exposes selection, word navigation, clipboard, and deletion chords", () => {
-    expect(resolveKey(key("left", { shift: true }), "EDITOR").action).toBe("select-left");
+    expect(resolveKey(key("left", { shift: true }), "EDITOR"))
+      .toEqual({ action: "cursor-left", extendSelection: true });
     expect(resolveKey(key("right", { ctrl: true }), "EDITOR").action).toBe("cursor-word-right");
     expect(resolveKey(key("b", { ctrl: true }), "EDITOR").action).toBe("cursor-left");
-    expect(resolveKey(key("left", { ctrl: true, shift: true }), "EDITOR").action).toBe("select-word-left");
+    expect(resolveKey(key("left", { ctrl: true, shift: true }), "EDITOR"))
+      .toEqual({ action: "cursor-word-left", extendSelection: true });
     expect(resolveKey(key("c", { ctrl: true }), "EDITOR").action).toBe("copy-selection");
     expect(resolveKey(key("x", { ctrl: true }), "EDITOR").action).toBe("cut-selection");
     expect(resolveKey(key("v", { ctrl: true }), "EDITOR").action).toBe("paste-clipboard");
@@ -172,8 +320,10 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("backspace", { ctrl: true }), "EDITOR").action).toBe("delete-word-left");
     expect(resolveKey(key("k", { ctrl: true }), "EDITOR").action).toBe("delete-line-end");
     expect(resolveKey(key("a", { ctrl: true }), "EDITOR").action).toBe("cursor-line-start");
-    expect(resolveKey(key("home", { shift: true }), "EDITOR").action).toBe("select-line-start");
-    expect(resolveKey(key("home", { ctrl: true, shift: true }), "EDITOR").action).toBe("select-buffer-start");
+    expect(resolveKey(key("home", { shift: true }), "EDITOR"))
+      .toEqual({ action: "cursor-line-start", extendSelection: true });
+    expect(resolveKey(key("home", { ctrl: true, shift: true }), "EDITOR"))
+      .toEqual({ action: "cursor-buffer-start", extendSelection: true });
     expect(resolveKey(key("end"), "EDITOR").action).toBe("cursor-line-end");
     expect(resolveKey(key("end", { ctrl: true }), "EDITOR").action).toBe("cursor-buffer-end");
     expect(resolveKey(key("z", { ctrl: true }), "EDITOR").action).toBe("undo-edit");
@@ -309,105 +459,5 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("d"), "COMMANDS")).toEqual({ action: "input", text: "d" });
     expect(resolveKey(key("e"), "COMMANDS")).toEqual({ action: "input", text: "e" });
     expect(resolveKey(key("d"), "COMMANDS", { commandsTags: true }).action).toBe("delete-item");
-  });
-
-  test("paste inserts at the composer cursor and flattens single-line prompts", () => {
-    const base = {
-      composer: createComposer("ab"), tag: null, library: null, facts: null, commands: null,
-      prune: null, chapterDeleteArmedId: null, actions: null, retakePrompt: null,
-      composerScrollTop: 0, history: [] as string[], historyIndex: 0, historyDraft: null,
-      pendingGenerationDraft: null, composerClaimEpoch: 0
-    };
-    base.composer.cursor = 1;
-    const compose = { ...base, mode: "COMPOSE" as const };
-    expect(pasteInto(compose, "line one\r\nline two")).toBeTrue();
-    expect(compose.composer.text).toBe("aline one\nline twob");
-    const naming = {
-      ...base,
-      composer: createComposer(),
-      mode: "TAG" as const,
-      tag: { choosingStatus: false, name: "" }
-    };
-    expect(pasteInto(naming, "storm\ncanon")).toBeTrue();
-    expect(naming.tag.name).toBe("storm canon");
-    const facts = {
-      ...base,
-      composer: createComposer(),
-      mode: "FACTS" as const,
-      facts: { filtering: true, query: "", cursor: 6 }
-    };
-    expect(pasteInto(facts, "storm\ncanon")).toBeTrue();
-    expect(facts.facts).toEqual({ filtering: true, query: "storm canon", cursor: 0 });
-    const settingsComposer = createComposer("ab");
-    settingsComposer.cursor = 1;
-    const settings = {
-      ...base,
-      mode: "SETTINGS" as const,
-      settings: { edit: { composer: settingsComposer } }
-    };
-    expect(pasteInto(settings, "line one\r\nline two")).toBeTrue();
-    expect(settingsComposer.text).toBe("aline one line twob");
-    const editorComposer = createComposer("ab");
-    editorComposer.cursor = 1;
-    const editor = {
-      ...base,
-      mode: "EDITOR" as const,
-      composer: createComposer(),
-      editor: {
-        target: { kind: "fact" as const, factId: null, base: null },
-        composer: editorComposer,
-        initial: "ab",
-        title: "edit fact",
-        placeholder: "fact text…",
-        returnMode: "FACTS" as const,
-        conflict: { message: "changed", resolution: "overwrite" as const, armed: true },
-        cutConfirmation: null
-      }
-    };
-    expect(pasteInto(editor, "line one\r\nline two")).toBeTrue();
-    expect(editorComposer.text).toBe("aline one\nline twob");
-    expect(editor.editor.conflict.armed).toBeFalse();
-    const directComposer = createComposer("kept ");
-    const retakeComposer = createComposer("old retake prompt");
-    const nav = {
-      ...base,
-      mode: "NAV" as const,
-      composer: retakeComposer,
-      retakePrompt: {
-        nodeId: "old-retake",
-        composer: retakeComposer,
-        composerScrollTop: 0,
-        returnState: {
-          composer: directComposer,
-          composerScrollTop: 0,
-          historyIndex: 0,
-          historyDraft: null,
-          historyWasLive: true
-        }
-      }
-    };
-    expect(pasteInto(nav, "make it rain")).toBeTrue();
-    expect(nav.mode).toBe("COMPOSE");
-    expect(nav.composer.text).toBe("kept make it rain");
-    expect(nav.retakePrompt).toBe(null);
-    const pruning = {
-      ...base, mode: "NAV" as const, composer: createComposer(), prune: { kind: "branch" }
-    };
-    expect(pasteInto(pruning, "dangerous draft")).toBeFalse();
-    expect(pruning.mode).toBe("NAV");
-    expect(pruning.composer.text).toBe("");
-    const deletingChapter = {
-      ...base, mode: "NAV" as const, composer: createComposer(), chapterDeleteArmedId: "break-1"
-    };
-    expect(pasteInto(deletingChapter, "hidden draft")).toBeFalse();
-    expect(deletingChapter.mode).toBe("NAV");
-    expect(deletingChapter.composer.text).toBe("");
-    const actionMenu = {
-      ...base, mode: "NAV" as const, composer: createComposer(), actions: { cursor: 0 }
-    };
-    expect(pasteInto(actionMenu, "hidden menu draft")).toBeFalse();
-    expect(actionMenu.mode).toBe("NAV");
-    expect(actionMenu.composer.text).toBe("");
-    expect(pasteInto({ ...base, mode: "MAP" as const, composer: createComposer() }, "text")).toBeFalse();
   });
 });

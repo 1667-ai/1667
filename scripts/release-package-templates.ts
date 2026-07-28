@@ -3,8 +3,7 @@ import {
 } from "../shared/build-identity.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
-  RELEASE_LAUNCHER_PACKAGE,
-  type PublishedArtifactTarget
+  RELEASE_LAUNCHER_PACKAGE
 } from "../shared/release-targets.js";
 import {
   releaseIdentityForTarget,
@@ -47,7 +46,7 @@ export interface ReleaseLauncherPackageTemplate {
 export interface ReleasePlatformPackageTemplate {
   kind: "platform";
   packageManifest: ReleasePlatformPackageJson;
-  buildManifest: ReleasePackageBuildManifest<PublishedArtifactTarget>;
+  buildManifest: ReleasePackageBuildManifest<BuiltArtifactTarget>;
   buildIdentity: ReleaseBuildIdentity;
 }
 
@@ -62,14 +61,24 @@ export interface ReleasePackageTemplates {
 
 /**
  * Deterministic inputs for the pack step; no template contains npm scripts.
- * Packing is publication, so a target held back has no template here even
- * though its executable and build identity are produced alongside the rest.
+ * This batch factory excludes held targets. The platform factory below accepts
+ * a held target for local verification.
  */
 export function createReleasePackageTemplates(
   identities: ReleaseIdentitySet
 ): ReleasePackageTemplates {
+  const launcher = createReleaseLauncherPackageTemplate(identities);
+  const platforms = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
+    return createReleasePlatformPackageTemplate(identities, target);
+  });
+  return Object.freeze({ launcher, platforms: Object.freeze(platforms) });
+}
+
+export function createReleaseLauncherPackageTemplate(
+  identities: ReleaseIdentitySet
+): ReleaseLauncherPackageTemplate {
   const version = identities.evidence.productVersion;
-  const launcher = Object.freeze({
+  return Object.freeze({
     kind: "launcher" as const,
     packageManifest: releasePackageJson(createReleaseLauncherManifest(version)),
     buildManifest: createReleasePackageBuildManifest(
@@ -79,20 +88,26 @@ export function createReleasePackageTemplates(
     ),
     buildIdentity: null
   });
-  const platforms = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
-    const manifest = createReleasePlatformManifest(target, version);
-    return Object.freeze({
-      kind: "platform" as const,
-      packageManifest: releasePackageJson(manifest),
-      buildManifest: createReleasePackageBuildManifest(
-        identities.evidence,
-        manifest.name,
-        target
-      ),
-      buildIdentity: releaseIdentityForTarget(identities, target)
-    });
+}
+
+export function createReleasePlatformPackageTemplate(
+  identities: ReleaseIdentitySet,
+  target: BuiltArtifactTarget
+): ReleasePlatformPackageTemplate {
+  const manifest = createReleasePlatformManifest(
+    target,
+    identities.evidence.productVersion
+  );
+  return Object.freeze({
+    kind: "platform" as const,
+    packageManifest: releasePackageJson(manifest),
+    buildManifest: createReleasePackageBuildManifest(
+      identities.evidence,
+      manifest.name,
+      target
+    ),
+    buildIdentity: releaseIdentityForTarget(identities, target)
   });
-  return Object.freeze({ launcher, platforms: Object.freeze(platforms) });
 }
 
 export function createReleasePackageBuildManifest<

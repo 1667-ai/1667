@@ -18,6 +18,17 @@ export interface ReleasePackageVersions {
   rootLockPackage: string;
 }
 
+export function assertReleasePackageVersions(
+  productVersion: string,
+  packageVersions: ReleasePackageVersions
+): void {
+  for (const [label, version] of Object.entries(packageVersions)) {
+    if (version !== productVersion) {
+      throw new Error(`Release ${label} version does not match ${productVersion}`);
+    }
+  }
+}
+
 export interface ReleaseSourceEvidence {
   schemaVersion: 1;
   productVersion: string;
@@ -119,11 +130,7 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
       "packageVersions.rootLockPackage"
     )
   });
-  for (const [label, version] of Object.entries(packageVersions)) {
-    if (version !== productVersion) {
-      throw new Error(`Release ${label} version does not match ${productVersion}`);
-    }
-  }
+  assertReleasePackageVersions(productVersion, packageVersions);
 
   // Reuse the product's strict identity codec for SemVer, commit, timestamp,
   // and protocol-range validation before accepting the evidence.

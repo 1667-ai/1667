@@ -1,5 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
+import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
 import { resolveReferenceBinding } from "./reference-bindings.js";
@@ -21,10 +22,9 @@ export type KeyAction =
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
   | "set-map-view"
   | "cursor-left" | "cursor-right" | "cursor-up" | "cursor-down" | "toggle-compose-fullscreen"
-  | "select-left" | "select-right" | "select-up" | "select-down"
-  | "cursor-word-left" | "cursor-word-right" | "select-word-left" | "select-word-right"
-  | "cursor-line-start" | "cursor-line-end" | "select-line-start" | "select-line-end"
-  | "cursor-buffer-start" | "cursor-buffer-end" | "select-buffer-start" | "select-buffer-end"
+  | "cursor-word-left" | "cursor-word-right"
+  | "cursor-line-start" | "cursor-line-end"
+  | "cursor-buffer-start" | "cursor-buffer-end"
   | "delete-forward" | "delete-word-left" | "delete-word-right" | "delete-line"
   | "delete-line-start" | "delete-line-end" | "select-all"
   | "copy-selection" | "cut-selection" | "paste-clipboard" | "undo-edit" | "redo-edit"
@@ -105,17 +105,18 @@ function textInput(key: KeyEvent): ResolvedKey | null {
   return null;
 }
 
+function composerBackedInput(key: KeyEvent): ResolvedKey {
+  return textSurfaceKey(key) ?? textInput(key) ?? { action: "none" };
+}
+
 function multilineInput(key: KeyEvent): ResolvedKey {
-  const action = key.name === "up" ? "cursor-up"
-    : key.name === "down" ? "cursor-down"
-      : key.name === "left" ? "cursor-left"
-        : key.name === "right" ? "cursor-right"
-          : null;
-  if (action !== null) {
-    return { action, ...(key.shift ? { extendSelection: true } : {}) };
+  if (key.name === "up" || key.name === "down") {
+    return {
+      action: key.name === "up" ? "cursor-up" : "cursor-down",
+      ...(key.shift ? { extendSelection: true } : {})
+    };
   }
-  if (key.name === "backspace") return { action: "backspace" };
-  return textInput(key) ?? { action: "none" };
+  return composerBackedInput(key);
 }
 
 /** Apply an input/backspace action to a text value; null = not a text action. */
@@ -273,7 +274,6 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   if (mode === "EDITOR") {
     const name = key.name.toLowerCase();
-    const alt = key.meta || key.option;
     if (key.ctrl && name === "s") return { action: "save-edit" };
     if (key.ctrl && name === "c") return { action: "copy-selection" };
     if (key.ctrl && name === "x") return { action: "cut-selection" };
@@ -286,72 +286,31 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     }
     if (key.super && name === "a") return { action: "select-all" };
     if (key.ctrl && key.shift && name === "d") return { action: "delete-line" };
-    if (alt && name === "backspace") return { action: "delete-word-left" };
-    if ((key.ctrl && name === "backspace") || key.ctrl && name === "w") return { action: "delete-word-left" };
-    if ((key.ctrl || alt) && name === "delete") return { action: "delete-word-right" };
-    if (key.ctrl && name === "k") return { action: "delete-line-end" };
-    if (key.ctrl && name === "u") return { action: "delete-line-start" };
-    if (key.ctrl && name === "a") return { action: key.shift ? "select-line-start" : "cursor-line-start" };
-    if (key.ctrl && name === "e") return { action: key.shift ? "select-line-end" : "cursor-line-end" };
+    // The editor's own chords: emacs character motion, and ctrl+d forward
+    // delete. Everything else it shares with Direct and the settings fields.
     if (key.ctrl && (name === "b" || name === "f")) {
-      const left = name === "b";
-      return { action: key.shift
-        ? left ? "select-left" : "select-right"
-        : left ? "cursor-left" : "cursor-right" };
-    }
-    if (alt && (name === "a" || name === "e")) {
-      const start = name === "a";
-      return { action: key.shift
-        ? start ? "select-line-start" : "select-line-end"
-        : start ? "cursor-line-start" : "cursor-line-end" };
-    }
-    if (alt && (name === "b" || name === "f")) {
-      const left = name === "b";
-      return { action: key.shift
-        ? left ? "select-word-left" : "select-word-right"
-        : left ? "cursor-word-left" : "cursor-word-right" };
+      return {
+        action: name === "b" ? "cursor-left" : "cursor-right",
+        ...(key.shift ? { extendSelection: true } : {})
+      };
     }
     if (key.name === "return") return { action: "newline" };
-    if (key.name === "home") return { action: key.shift
-      ? key.ctrl ? "select-buffer-start" : "select-line-start"
-      : key.ctrl ? "cursor-buffer-start" : "cursor-line-start" };
-    if (key.name === "end") return { action: key.shift
-      ? key.ctrl ? "select-buffer-end" : "select-line-end"
-      : key.ctrl ? "cursor-buffer-end" : "cursor-line-end" };
-    if (key.name === "up") return { action: key.shift ? "select-up" : "cursor-up" };
-    if (key.name === "down") return { action: key.shift ? "select-down" : "cursor-down" };
-    if (key.name === "left") {
-      if (key.ctrl || alt) return { action: key.shift ? "select-word-left" : "cursor-word-left" };
-      return { action: key.shift ? "select-left" : "cursor-left" };
+    if (key.name === "up" || key.name === "down") {
+      return {
+        action: key.name === "up" ? "cursor-up" : "cursor-down",
+        ...(key.shift ? { extendSelection: true } : {})
+      };
     }
-    if (key.name === "right") {
-      if (key.ctrl || alt) return { action: key.shift ? "select-word-right" : "cursor-word-right" };
-      return { action: key.shift ? "select-right" : "cursor-right" };
-    }
-    if (key.name === "backspace") return { action: "backspace" };
-    if (key.name === "delete" || key.ctrl && name === "d") return { action: "delete-forward" };
-    return textInput(key) ?? { action: "none" };
+    if (key.ctrl && name === "d") return { action: "delete-forward" };
+    return composerBackedInput(key);
   }
   if (mode === "SETTINGS" && overlayTyping) {
     const name = key.name.toLowerCase();
     if (key.name === "return" || key.ctrl && name === "s") return { action: "commit-field" };
     if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
     if (key.super && name === "a") return { action: "select-all" };
-    if (key.name === "left") {
-      return { action: key.shift ? "select-left" : "cursor-left" };
-    }
-    if (key.name === "right") {
-      return { action: key.shift ? "select-right" : "cursor-right" };
-    }
-    if (key.name === "home") {
-      return { action: key.shift ? "select-line-start" : "cursor-line-start" };
-    }
-    if (key.name === "end") {
-      return { action: key.shift ? "select-line-end" : "cursor-line-end" };
-    }
-    if (key.name === "backspace") return { action: "backspace" };
-    if (key.name === "delete") return { action: "delete-forward" };
-    return textInput(key) ?? { action: "none" };
+    // A settings field holds a base URL. It edits like every other surface.
+    return composerBackedInput(key);
   }
   if (mode === "SETTINGS"
     && (key.ctrl || key.super)

@@ -4,10 +4,15 @@ import { fileURLToPath } from "node:url";
 import { isSemVer } from "../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
+  assertReleasePackageVersions,
   createReleaseIdentitySet,
   type ReleaseIdentitySet,
   type ReleaseSourceEvidence
 } from "./release-identity.js";
+import {
+  createReleaseSbomSource,
+  type ReleaseSbomSource
+} from "./release-sbom-source.js";
 
 const MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
@@ -33,6 +38,47 @@ export interface ReleaseSourceEvidenceInput extends ReleaseSourceFacts {
     readonly rootLock: string;
     readonly rootLockPackage: string;
   };
+}
+
+/** Builds the exact, authorization-free source record that an SBOM uses. */
+export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbomSource {
+  return createReleaseSbomSource({
+    productVersion: facts.version,
+    sourceCommit: facts.sourceCommit,
+    buildTimestamp: facts.buildTimestamp,
+    tagName: `v${facts.version}`
+  });
+}
+
+export interface ReleaseDescriptionInputs {
+  readonly identities: ReleaseIdentitySet;
+  readonly sbomSource: ReleaseSbomSource;
+}
+
+/**
+ * Derives build identities and the SBOM source from one immutable read of the
+ * source facts.
+ */
+export function releaseDescriptionInputsForSource(
+  facts: ReleaseSourceFacts
+): ReleaseDescriptionInputs {
+  const snapshot = Object.freeze({
+    version: facts.version,
+    sourceCommit: facts.sourceCommit,
+    buildTimestamp: facts.buildTimestamp
+  });
+  return Object.freeze({
+    identities: releaseIdentitiesForSource(snapshot),
+    sbomSource: releaseSbomSourceForFacts(snapshot)
+  });
+}
+
+/**
+ * Refuses a product version that does not describe all package inputs in this
+ * checkout.
+ */
+export function assertRepositoryPackageVersions(productVersion: string): void {
+  assertReleasePackageVersions(productVersion, repositoryPackageVersions());
 }
 
 /**

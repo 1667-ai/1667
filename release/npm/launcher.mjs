@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
-import {
-  lstatSync,
-  readFileSync,
-  realpathSync
-} from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +21,9 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "arm64",
     libc: null,
     executable: "bin/1667",
+    minimumCpuFeature: null,
+    minimumMacosVersion: "13.0",
+    minimumGlibcVersion: null,
     heldFromPublication: null
   }),
   "darwin-x64": Object.freeze({
@@ -33,6 +32,9 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "x64",
     libc: null,
     executable: "bin/1667",
+    minimumCpuFeature: "sse4.2",
+    minimumMacosVersion: "13.0",
+    minimumGlibcVersion: null,
     heldFromPublication: null
   }),
   "linux-arm64": Object.freeze({
@@ -41,6 +43,9 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "arm64",
     libc: "glibc",
     executable: "bin/1667",
+    minimumCpuFeature: null,
+    minimumMacosVersion: null,
+    minimumGlibcVersion: "2.17",
     heldFromPublication: null
   }),
   "linux-x64": Object.freeze({
@@ -49,6 +54,9 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "x64",
     libc: "glibc",
     executable: "bin/1667",
+    minimumCpuFeature: "sse4.2",
+    minimumMacosVersion: null,
+    minimumGlibcVersion: "2.17",
     heldFromPublication: null
   }),
   "windows-x64": Object.freeze({
@@ -57,6 +65,9 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "x64",
     libc: null,
     executable: "bin/1667.exe",
+    minimumCpuFeature: null,
+    minimumMacosVersion: null,
+    minimumGlibcVersion: null,
     heldFromPublication: "CI does not build the Windows platform work at present, "
       + "so it is unverified, and maintainers have not approved it for publication"
   })
@@ -71,15 +82,25 @@ const BUILD_MANIFEST_KEYS = new Set([
   "artifactTarget"
 ]);
 const MAX_JSON_BYTES = 64 * 1024;
+const MAX_HOST_PROBE_BYTES = 1024 * 1024;
+const CPU_INFO_CHUNK_BYTES = 64 * 1024;
+const MAX_CPU_INFO_LINE_BYTES = 64 * 1024;
+const HOST_PROBE_TIMEOUT_MS = 2_000;
 
 export function resolveLaunchPlan(options = {}) {
-  const launcherRoot = realpathSync(
-    options.launcherRoot
-      ?? path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-  );
+  const { target, policy } = resolveLaunchTarget(options);
+  return resolvePackageLaunchPlan(options, target, policy);
+}
+
+export function prepareLaunch(options = {}, observeHost = observeHostCompatibility) {
+  const { target, policy } = resolveLaunchTarget(options);
+  assertHostCompatibility(target, policy, observeHost(target));
+  return resolvePackageLaunchPlan(options, target, policy);
+}
+
+function resolveLaunchTarget(options) {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
-  const args = options.args ?? process.argv.slice(2);
   const target = selectTarget(platform, arch);
   const policy = LAUNCHER_RELEASE_TARGETS[target];
   // A held target has no published package, so no install can supply one. Refuse
@@ -88,6 +109,15 @@ export function resolveLaunchPlan(options = {}) {
   if (policy.heldFromPublication !== null) {
     throw new Error(heldTargetRefusal(target, policy));
   }
+  return { target, policy };
+}
+
+function resolvePackageLaunchPlan(options, target, policy) {
+  const args = options.args ?? process.argv.slice(2);
+  const launcherRoot = realpathSync(
+    options.launcherRoot
+      ?? path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+  );
 
   const launcherPackage = readBoundedJson(path.join(launcherRoot, "package.json"));
   const launcherBuild = parseBuildManifest(
@@ -196,8 +226,36 @@ export function heldTargetRefusal(target, policy) {
     + `The ${target} target is supported and builds from source: ${LAUNCHER_SOURCE_URL}`;
 }
 
-export function runLauncher(options = {}) {
-  const plan = resolveLaunchPlan(options);
+export function assertHostCompatibility(target, policy, observation) {
+  if (policy.minimumCpuFeature === "sse4.2") {
+    if (observation.cpuSupportsSse42 === null) {
+      throw new Error(`Could not verify SSE4.2 support for the ${target} release.`);
+    }
+    if (!observation.cpuSupportsSse42) {
+      throw new Error(`The ${target} release requires an x64 CPU with SSE4.2.`);
+    }
+  }
+  assertMinimumHostVersion(target, "macOS", observation.macosVersion, policy.minimumMacosVersion);
+  assertMinimumHostVersion(target, "glibc", observation.glibcVersion, policy.minimumGlibcVersion);
+}
+
+export function linuxCpuSupportsSse42(cpuInfo) {
+  const parser = linuxCpuInfoParser();
+  for (const line of cpuInfo.split("\n")) {
+    if (Buffer.byteLength(line, "utf8") > MAX_CPU_INFO_LINE_BYTES) return null;
+    consumeLinuxCpuInfoLine(parser, line);
+  }
+  return finishLinuxCpuInfo(parser);
+}
+
+export function darwinCpuSupportsSse42(features, arm64Capability) {
+  if (arm64Capability?.trim() === "1") return true;
+  if (features === null) return null;
+  return features.trim().split(/\s+/u).includes("SSE4.2");
+}
+
+export function runLauncher(options = {}, observeHost) {
+  const plan = prepareLaunch(options, observeHost);
   const child = spawn(plan.executable, plan.args, {
     stdio: "inherit",
     shell: false,
@@ -226,6 +284,159 @@ export function runLauncher(options = {}) {
     else process.exitCode = code ?? 1;
   });
   return child;
+}
+
+function observeHostCompatibility(target) {
+  const [platform, arch] = target.split("-");
+  let cpuSupportsSse42 = null;
+  if (arch === "x64" && platform === "linux") {
+    cpuSupportsSse42 = linuxCpuFileSupportsSse42("/proc/cpuinfo");
+  } else if (arch === "x64" && platform === "darwin") {
+    cpuSupportsSse42 = darwinCpuSupportsSse42(
+      runHostProbe("/usr/sbin/sysctl", ["-n", "machdep.cpu.features"]),
+      runHostProbe("/usr/sbin/sysctl", ["-n", "hw.optional.arm64"])
+    );
+  }
+  return Object.freeze({
+    cpuSupportsSse42,
+    macosVersion: platform === "darwin"
+      ? runHostProbe("/usr/bin/sw_vers", ["-productVersion"])
+      : null,
+    glibcVersion: platform === "linux" ? runtimeGlibcVersion() : null
+  });
+}
+
+function assertMinimumHostVersion(target, name, observed, minimum) {
+  if (minimum === null) return;
+  const comparison = compareNumericVersions(observed, minimum);
+  if (comparison === null) {
+    throw new Error(`Could not verify the ${name} version for the ${target} release.`);
+  }
+  if (comparison < 0) {
+    throw new Error(`The ${target} release requires ${name} ${minimum} or newer.`);
+  }
+}
+
+function compareNumericVersions(observed, minimum) {
+  if (typeof observed !== "string"
+    || !/^[0-9]+(?:\.[0-9]+)*$/u.test(observed.trim())) {
+    return null;
+  }
+  const observedParts = observed.trim().split(".").map(Number);
+  const minimumParts = minimum.split(".").map(Number);
+  const length = Math.max(observedParts.length, minimumParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (observedParts[index] ?? 0) - (minimumParts[index] ?? 0);
+    if (difference !== 0) return Math.sign(difference);
+  }
+  return 0;
+}
+
+function runtimeGlibcVersion() {
+  try {
+    const report = process.report.getReport();
+    if (report === null || typeof report !== "object") return null;
+    const header = report.header;
+    if (header === null || typeof header !== "object") return null;
+    const version = header.glibcVersionRuntime;
+    return typeof version === "string" && version.trim() !== ""
+      ? version.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function linuxCpuFileSupportsSse42(file) {
+  let descriptor;
+  try {
+    descriptor = openSync(file, "r");
+    const bytes = Buffer.alloc(CPU_INFO_CHUNK_BYTES);
+    let pending = "";
+    const parser = linuxCpuInfoParser();
+    while (true) {
+      const count = readSync(descriptor, bytes, 0, bytes.length, null);
+      if (count === 0) break;
+      const lines = `${pending}${bytes.subarray(0, count).toString("utf8")}`
+        .split("\n");
+      pending = lines.pop() ?? "";
+      if (Buffer.byteLength(pending, "utf8") > MAX_CPU_INFO_LINE_BYTES) {
+        return null;
+      }
+      for (const line of lines) {
+        if (Buffer.byteLength(line, "utf8") > MAX_CPU_INFO_LINE_BYTES) {
+          return null;
+        }
+        consumeLinuxCpuInfoLine(parser, line);
+        if (parser.unsupported) return false;
+      }
+    }
+    consumeLinuxCpuInfoLine(parser, pending);
+    return finishLinuxCpuInfo(parser);
+  } catch {
+    return null;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function linuxCpuInfoParser() {
+  return {
+    sawProcessor: false,
+    inProcessor: false,
+    processorHasFlags: false,
+    unsupported: false,
+    unverifiable: false
+  };
+}
+
+function consumeLinuxCpuInfoLine(parser, line) {
+  if (line.trim() === "") {
+    finishLinuxCpuInfoRecord(parser);
+    return;
+  }
+  if (/^\s*processor\s*:/u.test(line)) {
+    finishLinuxCpuInfoRecord(parser);
+    parser.sawProcessor = true;
+    parser.inProcessor = true;
+    return;
+  }
+  const match = /^\s*flags\s*:\s*(.*?)\s*$/u.exec(line);
+  if (match === null || !parser.inProcessor) return;
+  parser.processorHasFlags = true;
+  if (!match[1].split(/\s+/u).includes("sse4_2")) {
+    parser.unsupported = true;
+  }
+}
+
+function finishLinuxCpuInfoRecord(parser) {
+  if (parser.inProcessor && !parser.processorHasFlags) {
+    parser.unverifiable = true;
+  }
+  parser.inProcessor = false;
+  parser.processorHasFlags = false;
+}
+
+function finishLinuxCpuInfo(parser) {
+  finishLinuxCpuInfoRecord(parser);
+  if (parser.unsupported) return false;
+  return parser.sawProcessor && !parser.unverifiable ? true : null;
+}
+
+function runHostProbe(executable, args) {
+  try {
+    const output = execFileSync(executable, args, {
+      encoding: "utf8",
+      maxBuffer: MAX_HOST_PROBE_BYTES,
+      shell: false,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: HOST_PROBE_TIMEOUT_MS,
+      windowsHide: true
+    }).trim();
+    return output === "" ? null : output;
+  } catch {
+    return null;
+  }
 }
 
 function parseBuildManifest(value, packageName, artifactTarget) {

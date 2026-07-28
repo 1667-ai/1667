@@ -10,7 +10,6 @@ import {
   RELEASE_LICENSE,
   RELEASE_PACKAGE_REPOSITORY
 } from "./release-package-manifests.js";
-import type { ReleaseIdentitySet } from "./release-identity.js";
 import {
   compareStrings,
   npmPurl,
@@ -18,6 +17,10 @@ import {
   RELEASE_BUN_RUNTIME,
   type ReleaseBundledComponent
 } from "./release-sbom-components.js";
+import {
+  createReleaseSbomSource,
+  type ReleaseSbomSource
+} from "./release-sbom-source.js";
 
 export type SpdxRelationshipType =
   | "DESCRIBES"
@@ -100,12 +103,13 @@ const NAMESPACE_ROOT = "https://1667.invalid/spdx" as const;
  * the launcher's `optionalDependencies` and excludes any held target for the
  * same reason that graph does.
  */
-export function launcherSbomDocument(identities: ReleaseIdentitySet): SpdxDocument {
-  const version = identities.evidence.productVersion;
-  const product = productPackage(identities, {
+export function launcherSbomDocument(sourceInput: ReleaseSbomSource): SpdxDocument {
+  const source = createReleaseSbomSource(sourceInput);
+  const version = source.productVersion;
+  const product = productPackage(source, {
     packageFileName: "bin/1667.js",
     sourceInfo: `Launcher published as ${RELEASE_LAUNCHER_PACKAGE}, built from `
-      + `${RELEASE_PACKAGE_REPOSITORY.url} at commit ${identities.evidence.sourceCommit}. `
+      + `${RELEASE_PACKAGE_REPOSITORY.url} at commit ${source.sourceCommit}. `
       + "Plain JavaScript executed by the host Node.js; no runtime is embedded and "
       + "no third-party code is bundled.",
     publishedAs: RELEASE_LAUNCHER_PACKAGE
@@ -120,7 +124,7 @@ export function launcherSbomDocument(identities: ReleaseIdentitySet): SpdxDocume
     })
   ];
   return document({
-    identities,
+    source,
     packageName: RELEASE_LAUNCHER_PACKAGE,
     comment: "Bill of materials for the 1667 launcher package. The launcher embeds no "
       + "language runtime and bundles no third-party code; it selects and executes the "
@@ -138,20 +142,21 @@ export function launcherSbomDocument(identities: ReleaseIdentitySet): SpdxDocume
  * there.
  */
 export function platformSbomDocument(
-  identities: ReleaseIdentitySet,
+  sourceInput: ReleaseSbomSource,
   target: BuiltArtifactTarget,
   components: readonly ReleaseBundledComponent[]
 ): SpdxDocument {
+  const source = createReleaseSbomSource(sourceInput);
   const descriptor = releaseTargetForArtifact(target);
   if (components.length === 0) {
     throw new Error(`Release SBOM for ${descriptor.packageName} would list no components`);
   }
-  const product = productPackage(identities, {
+  const product = productPackage(source, {
     packageFileName: descriptor.executable,
     sourceInfo: `Published as ${descriptor.packageName} for ${descriptor.platform}/`
       + `${descriptor.arch}${descriptor.libc === null ? "" : ` (${descriptor.libc})`}. `
       + `Compiled from ${RELEASE_PACKAGE_REPOSITORY.url} at commit `
-      + `${identities.evidence.sourceCommit} into a single executable that embeds the `
+      + `${source.sourceCommit} into a single executable that embeds the `
       + `Bun ${RELEASE_BUN_RUNTIME.version} runtime.`,
     publishedAs: descriptor.packageName
   });
@@ -177,7 +182,7 @@ export function platformSbomDocument(
     })
   ];
   return document({
-    identities,
+    source,
     packageName: descriptor.packageName,
     comment: `Bill of materials for the 1667 ${target} package. Its executable is a `
       + "Bun-compiled binary, so the runtime and every bundled dependency listed here "
@@ -210,7 +215,7 @@ export function spdxPackageId(name: string, version: string): string {
 }
 
 interface DocumentInput {
-  readonly identities: ReleaseIdentitySet;
+  readonly source: ReleaseSbomSource;
   readonly packageName: string;
   readonly comment: string;
   readonly product: SpdxPackage;
@@ -219,7 +224,7 @@ interface DocumentInput {
 }
 
 function document(input: DocumentInput): SpdxDocument {
-  const version = input.identities.evidence.productVersion;
+  const version = input.source.productVersion;
   const packages = [...input.packages].sort((left, right) => {
     return compareStrings(left.SPDXID, right.SPDXID);
   });
@@ -245,10 +250,10 @@ function document(input: DocumentInput): SpdxDocument {
     SPDXID: DOCUMENT_ID,
     name: `${input.packageName}@${version}`,
     documentNamespace: `${NAMESPACE_ROOT}/${registryPathForPackage(input.packageName)}/${version}`
-      + `/${input.identities.evidence.sourceCommit}`,
+      + `/${input.source.sourceCommit}`,
     comment: input.comment,
     creationInfo: Object.freeze({
-      created: spdxTimestamp(input.identities.evidence.buildTimestamp),
+      created: spdxTimestamp(input.source.buildTimestamp),
       creators: Object.freeze([PRODUCT_SUPPLIER, `Tool: ${RELEASE_SBOM_GENERATOR}`])
     }),
     documentDescribes: Object.freeze([input.product.SPDXID]),
@@ -258,14 +263,14 @@ function document(input: DocumentInput): SpdxDocument {
 }
 
 function productPackage(
-  identities: ReleaseIdentitySet,
+  source: ReleaseSbomSource,
   detail: {
     readonly packageFileName: string;
     readonly sourceInfo: string;
     readonly publishedAs: string;
   }
 ): SpdxPackage {
-  const version = identities.evidence.productVersion;
+  const version = source.productVersion;
   return Object.freeze({
     SPDXID: spdxPackageId(PRODUCT_NAME, version),
     name: PRODUCT_NAME,
@@ -273,17 +278,17 @@ function productPackage(
     // SPDX 2.3 VCS locations are `<vcs>+<transport>://<host>/<path>[@<revision>]
     // [#<sub_path>]`: `@` introduces the revision, while `#` introduces a path
     // inside the checkout. The commit belongs in the revision slot.
-    downloadLocation: `${RELEASE_PACKAGE_REPOSITORY.url}@${identities.evidence.sourceCommit}`,
+    downloadLocation: `${RELEASE_PACKAGE_REPOSITORY.url}@${source.sourceCommit}`,
     filesAnalyzed: false as const,
     licenseConcluded: RELEASE_LICENSE,
     licenseDeclared: RELEASE_LICENSE,
     copyrightText: "NOASSERTION",
     supplier: PRODUCT_SUPPLIER,
     primaryPackagePurpose: "APPLICATION" as const,
-    comment: `Built from tag ${identities.evidence.tagName} at a clean working tree.`,
+    comment: `Built from tag ${source.tagName} at a clean working tree.`,
     packageFileName: detail.packageFileName,
     sourceInfo: detail.sourceInfo,
-    builtDate: spdxTimestamp(identities.evidence.buildTimestamp),
+    builtDate: spdxTimestamp(source.buildTimestamp),
     // Every dependency below carries a purl, so without one here the document
     // describes a product no scanner can match back to the registry it ships
     // from. externalRefs is the only machine-readable identifier SPDX offers.

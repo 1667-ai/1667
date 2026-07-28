@@ -1,4 +1,4 @@
-import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
+import { applyBasicSettingsProbeDraft } from "../../shared/settings-basic-draft.js";
 import type {
   ProviderProbeTarget,
   SettingsView
@@ -15,7 +15,7 @@ export function settingsProviderProbeTarget(
   if (!view.editable) return settings;
   return {
     kind: "settings-document",
-    document: applyBasicSettingsDraft(view.document, settings),
+    document: applyBasicSettingsProbeDraft(view.document, settings),
     purpose: "default"
   };
 }

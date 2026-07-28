@@ -15,9 +15,11 @@ import {
   createPackagedBuildIdentity,
   parseBuildIdentity,
   sameBuildIdentity,
-  type BuildIdentity
+  type BuildIdentity,
+  type PackagedBuildIdentity
 } from "../../shared/build-identity.js";
 import { releaseTargetForRuntime } from "../../shared/release-targets.js";
+import { createStandaloneCompiler } from "../../shared/standalone-compile-target.js";
 import {
   DATA_DIRECTORY_LOCK
 } from "../../server/data-directory-layout.js";
@@ -32,6 +34,10 @@ import {
   runStandalone
 } from "./standalone-smoke-process.js";
 import { smokeSupervisedServe } from "./standalone-smoke-serve.js";
+import {
+  buildPromptTokenizerSmoke,
+  buildStandaloneProduct
+} from "./standalone-build-requests.js";
 
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(tuiRoot);
@@ -43,6 +49,10 @@ const coldRenderBudgetMs = process.platform === "win32" ? 20_000 : 10_000;
 
 await mkdir(outputDirectory, { recursive: true });
 const buildIdentity = await deriveBuildIdentity();
+const standaloneCompiler = createStandaloneCompiler(
+  buildIdentity.artifactTarget,
+  Bun.build
+);
 const workerEntry = path.join(repositoryRoot, "server", "worker.ts");
 const tiktokenWasmBase64 = await readFile(
   createRequire(import.meta.url).resolve("tiktoken/tiktoken_bg.wasm"),
@@ -56,27 +66,14 @@ const embeddedWorkerSource = process.platform === "win32"
     )
   : undefined;
 
-const result = await Bun.build({
+const result = await buildStandaloneProduct(standaloneCompiler, {
   entrypoints: process.platform === "win32"
     ? [path.join(tuiRoot, "src", "standalone.ts")]
     : [path.join(tuiRoot, "src", "standalone.ts"), workerEntry],
-  compile: {
-    outfile: outputFile,
-    // A trusted executable must not run preload code or absorb backend routing
-    // from the directory in which a user happens to launch it.
-    autoloadBunfig: false,
-    autoloadDotenv: false
-  },
-  define: {
-    __AI_1667_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
-    __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
-      tiktokenWasmBase64
-    ),
-    __AI_1667_EMBEDDED_WORKER_SOURCE__: embeddedWorkerSource === undefined
-      ? "undefined"
-      : JSON.stringify(embeddedWorkerSource)
-  },
-  minify: true
+  outputFile,
+  buildIdentity,
+  tiktokenWasmBase64,
+  embeddedWorkerSource
 });
 
 if (!result.success) {
@@ -115,10 +112,13 @@ async function buildEmbeddedWorker(
   return source;
 }
 
-async function deriveBuildIdentity(): Promise<BuildIdentity> {
+async function deriveBuildIdentity(): Promise<PackagedBuildIdentity> {
   const supplied = process.env.AI_1667_BUILD_IDENTITY_JSON;
   if (supplied !== undefined) {
     const identity = parseBuildIdentity(JSON.parse(supplied));
+    if (identity.artifactTarget === "source") {
+      throw new Error("Supplied build identity must target a packaged build");
+    }
     // The compile emits an executable for this machine, and the smoke below
     // compares that executable against this same supplied identity, so a
     // target the supplier got wrong would be compared with itself and pass.
@@ -224,8 +224,8 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
           + diagnostic.stderr.trim()
       );
     }
-    // ADR007 removed the packaged absolute-path requirement: a relative project
-    // root resolves against the working directory on every build.
+    // A relative project root resolves against the working directory in every
+    // build.
     const relativeDiagnostic = await runStandalone(
       executable,
       ["--data", "relative-diagnostic-data", "--diagnostic"],
@@ -294,19 +294,10 @@ async function smokePromptTokenizer(
     directory,
     process.platform === "win32" ? "prompt-tokenizer-smoke.exe" : "prompt-tokenizer-smoke"
   );
-  const result = await Bun.build({
-    entrypoints: [path.join(tuiRoot, "scripts", "prompt-tokenizer-smoke.ts")],
-    compile: {
-      outfile: executable,
-      autoloadBunfig: false,
-      autoloadDotenv: false
-    },
-    define: {
-      __AI_1667_TIKTOKEN_WASM_BASE64__: JSON.stringify(
-        tiktokenWasmBase64
-      )
-    },
-    minify: true
+  const result = await buildPromptTokenizerSmoke(standaloneCompiler, {
+    entrypoint: path.join(tuiRoot, "scripts", "prompt-tokenizer-smoke.ts"),
+    outputFile: executable,
+    tiktokenWasmBase64
   });
   if (!result.success) {
     throw new Error(

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -286,13 +295,20 @@ test("staging writes the whole file set and nothing else", (t) => {
     flag: "w"
   });
 
+  let sourceCommitReads = 0;
   const staged = stageReleaseArchive({
-    ...FACTS,
+    version: FACTS.version,
+    get sourceCommit(): string {
+      sourceCommitReads += 1;
+      return sourceCommitReads === 1 ? SOURCE_COMMIT : "f".repeat(40);
+    },
+    buildTimestamp: FACTS.buildTimestamp,
     target: "linux-x64",
     buildDirectory,
     outputDirectory: path.join(scratch, "stage")
   });
 
+  assert.equal(sourceCommitReads, 1);
   assert.equal(staged.stem, "1667_0.1.0-rc.1_linux-x64");
   assert.equal(path.basename(staged.directory), staged.stem);
   assert.deepEqual(staged.files.map((file) => file.path).sort(), [
@@ -383,14 +399,21 @@ test("every target in one run stamps the same version, commit and timestamp", (t
 test("staging fails on a missing executable rather than writing a partial archive", (t) => {
   const scratch = mkdtempSync(path.join(tmpdir(), "1667-release-archive-"));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const outputDirectory = path.join(scratch, "stage");
+  const stem = releaseArchiveStem(VERSION, "linux-x64");
   // No stub executable: staging must fail on a missing input rather than write
   // a partial archive.
   assert.throws(() => stageReleaseArchive({
     ...FACTS,
     target: "linux-x64",
     buildDirectory: path.join(scratch, "dist"),
-    outputDirectory: path.join(scratch, "stage")
+    outputDirectory
   }), /Release executable|ENOENT/);
+  assert.equal(existsSync(path.join(outputDirectory, stem)), false);
+  assert.equal(
+    readdirSync(outputDirectory).some((name) => name.startsWith(`.${stem}-`)),
+    false
+  );
 });
 
 // The forgeable-credential guard. A `ReleaseSourceEvidence` document asserts a
@@ -528,11 +551,11 @@ test("the release notes claim the attestation and nothing it does not have", () 
   assert.match(notes, /windows-x64/u);
   assert.match(notes, /build:standalone/u);
   assert.ok(!notes.includes(`1667_${VERSION}_windows-x64.tar.gz`));
-  // npm publication is not available, and is not promised on a date. The
-  // prerelease identifier is explained rather than left to look like a slip,
-  // and the explanation is the standing rule rather than this release's place
-  // in any sequence.
-  assert.match(notes, /does not publish an npm package yet/u);
+  // This workflow cannot determine registry availability. Its notes make no
+  // npm availability claim. The prerelease identifier is explained rather
+  // than left to look like a slip, and the explanation is the standing rule
+  // rather than this release's place in any sequence.
+  assert.doesNotMatch(notes, /^## npm$/mu);
   assert.match(notes, /`0\.1\.0-rc\.1`, a preview of `0\.1\.0`/u);
   assert.match(notes, /npm cannot replace a version once it is published/u);
   assert.doesNotMatch(releaseNotesMarkdown("1.2.3"), /a preview of/u);

@@ -12,7 +12,6 @@ import {
   releaseTargetForArtifact,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
-import { type ReleaseIdentitySet } from "./release-identity.js";
 import { MAX_RELEASE_SBOM_BYTES } from "./release-package-policy.js";
 import {
   releaseBundledComponents,
@@ -24,7 +23,14 @@ import {
   type SpdxDocument
 } from "./release-sbom-document.js";
 import { createSpdxValidator } from "./release-sbom-schema.js";
-import { releaseIdentitiesForSource } from "./release-source-facts.js";
+import {
+  createReleaseSbomSource,
+  type ReleaseSbomSource
+} from "./release-sbom-source.js";
+import {
+  assertRepositoryPackageVersions,
+  releaseSbomSourceForFacts
+} from "./release-source-facts.js";
 
 const MAX_NPM_LOCKFILE_BYTES = 8 * 1024 * 1024;
 const MAX_BUN_LOCKFILE_BYTES = 8 * 1024 * 1024;
@@ -58,29 +64,28 @@ export interface ReleaseSbomSet {
  * the published platform packages, because that list *is* the launcher's
  * `optionalDependencies`.
  *
- * Nothing stages `sbom.spdx.json` from this generator yet, so no consumer binds
- * to its bytes. When the staging step lands, the preflight gains the same check
- * it already applies to `build-manifest.json`: regenerate the expected document
- * from the release evidence and reject a tarball whose staged copy disagrees.
- * Determinism is what makes that comparison possible, which is why it is
- * asserted here rather than assumed.
+ * The generator validates the document. The release content assembler stages
+ * its exact text as `sbom.spdx.json`. Preflight requires the SBOM entry and
+ * binds it through the tarball digest. Preflight does not compare the SBOM
+ * text with a regenerated document.
  */
 export function createReleaseSboms(
-  identities: ReleaseIdentitySet,
+  sourceInput: ReleaseSbomSource,
   sources: ReleaseComponentSources
 ): ReleaseSbomSet {
+  const source = createReleaseSbomSource(sourceInput);
   const validate = createSpdxValidator();
   const launcher = formatSbom(
     RELEASE_LAUNCHER_PACKAGE,
     "launcher",
-    launcherSbomDocument(identities),
+    launcherSbomDocument(source),
     validate
   );
   const platforms = BUILT_ARTIFACT_TARGETS.map((target) => {
     return formatSbom(
       releaseTargetForArtifact(target).packageName,
       target,
-      platformSbomDocument(identities, target, releaseBundledComponents(sources, target)),
+      platformSbomDocument(source, target, releaseBundledComponents(sources, target)),
       validate
     );
   });
@@ -163,7 +168,7 @@ function isMainModule(): boolean {
   }
 }
 
-// The three source facts, never a document: see releaseIdentitiesForSource.
+// The three source facts become only the four fields an SBOM uses.
 const USAGE = "usage: release-sbom.ts <version> <commit> <timestamp> <package-name>";
 
 if (isMainModule()) {
@@ -173,8 +178,9 @@ if (isMainModule()) {
       || buildTimestamp === undefined || packageName === undefined) {
       throw new Error(USAGE);
     }
+    assertRepositoryPackageVersions(version);
     const set = createReleaseSboms(
-      releaseIdentitiesForSource({ version, sourceCommit, buildTimestamp }),
+      releaseSbomSourceForFacts({ version, sourceCommit, buildTimestamp }),
       repositoryReleaseComponentSources()
     );
     const sbom = releaseSbomForPackage(set, packageName);

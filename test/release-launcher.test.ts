@@ -292,12 +292,11 @@ test("scoped launcher resolves and starts from the hoisted npm layout", async (t
 test("launcher preserves an independently signalled child's failure", {
   skip: process.platform === "win32"
 }, async (t) => {
-  const { base, root } = await launcherFixture();
+  const descriptor = releaseTargetForArtifact(RUNNABLE_TARGET);
+  const { base, root, platformRoot } = await launcherFixture(RUNNABLE_TARGET);
   t.after(() => rm(base, { recursive: true, force: true }));
   const executable = path.join(
-    root,
-    "node_modules",
-    PLATFORM_PACKAGE,
+    platformRoot,
     "bin",
     "1667"
   );
@@ -308,7 +307,8 @@ test("launcher preserves an independently signalled child's failure", {
   const source = [
     `import { runLauncher } from ${JSON.stringify(launcherUrl)};`,
     `runLauncher({ launcherRoot: ${JSON.stringify(root)},`,
-    `  platform: "linux", arch: "x64" });`
+    `  platform: ${JSON.stringify(descriptor.platform)},`,
+    `  arch: ${JSON.stringify(descriptor.arch)} });`
   ].join("\n");
   await assert.rejects(
     execFileAsync(process.execPath, ["--input-type=module", "--eval", source]),

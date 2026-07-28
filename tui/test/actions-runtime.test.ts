@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
-import { createComposer } from "../src/composer-model.js";
+import { moveComposerTo, createComposer } from "../src/composer-model.js";
 import { capturePendingDirectDraft } from "../src/composer-ownership.js";
 import { commandContext, commandMatches } from "../src/command-model.js";
 import { createSelectionSafeMouseGate, mouseToAction } from "../src/mouse-actions.js";
@@ -357,6 +357,34 @@ describe("demo action runtime and input", () => {
 
     finish.resolve(null);
     await running;
+  });
+
+  test("compose deletes to the line end and start, not the other way round", async () => {
+    // Routing tests cannot catch a flipped boundary flag: both directions
+    // resolve to a real action and differ only in the boolean the reducer
+    // passes on. Drive the reducer and read the text back.
+    const context = () => ({
+      cache: createWrapCache<ProseStyle>(), repaint: () => undefined, renderer: null,
+      applyTheme: () => undefined, previewTheme: () => undefined,
+      backend: new ActionRuntime(state, () => undefined)
+    });
+    const { source, state } = harness();
+    state.mode = "COMPOSE";
+
+    state.composer = createComposer("the lantern keeper");
+    moveComposerTo(state.composer, 11);
+    await composeAction({ action: "delete-line-end" }, state, source, context() as never);
+    expect(state.composer.text).toBe("the lantern");
+
+    state.composer = createComposer("the lantern keeper");
+    moveComposerTo(state.composer, 11);
+    await composeAction({ action: "delete-line-start" }, state, source, context() as never);
+    expect(state.composer.text).toBe(" keeper");
+
+    state.composer = createComposer("the lantern keeper");
+    moveComposerTo(state.composer, 18);
+    await composeAction({ action: "delete-word-left" }, state, source, context() as never);
+    expect(state.composer.text).toBe("the lantern ");
   });
 
   test("a null generation outcome restores its submitted direction", async () => {

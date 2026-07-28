@@ -25,7 +25,7 @@ This public repository contains pre-release source.
 | Source repository | GitHub provides public access. |
 | Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
-| npm package | 1667 does not publish an npm package. |
+| npm packages | The release workflow targets `@1667-ai/cli` and four platform packages. Check npm for published versions. |
 | GitHub release | A maintainer dispatches `Release (GitHub)`. It publishes one archive per published target as a pre-release, with a build-provenance attestation on every file. `windows-x64` is held from publication. |
 
 Build and run 1667 from source. You can also build a local standalone
@@ -371,7 +371,7 @@ restoration, 1667 writes one JSON report to standard error.
 | `scripts/` | CI, release, and schema tools |
 | `test/` | Node.js tests for the backend runtime |
 | `docs/` | Release instructions and technical design notes |
-| `release/npm/` | Launcher source for future npm packages |
+| `release/npm/` | Launcher source for the npm packages |
 
 ## Technical documents
 
