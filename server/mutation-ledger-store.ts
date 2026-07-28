@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -86,15 +87,16 @@ const EMPTY_MIGRATION_RECEIPT: FormatMigrationReceipt = Object.freeze({
  */
 export class MutationLedgerStore {
   private readonly root: string;
-  /** Non-leaf ledger directories this instance already proved durable. The
-   * set elides only the redundant parent durability flush: the privacy and
+  /** Non-leaf ledger directories this instance already proved durable, keyed
+   * by pathname and holding the proven device/inode identity. The map elides
+   * only the redundant parent durability flush, and only while the directory
+   * at that pathname is the exact one proven earlier: the privacy and
    * identity inspections still run on every write, so a swapped ancestor
-   * fails closed, and a chain a crashed process left half-flushed is still
-   * re-proven once per store instance. Per-record leaf directories never
-   * enter the set: recovery and collection remove them, and excluding them
-   * bounds the set to the shared hierarchy instead of one retained path per
-   * mutation. */
-  private readonly durableDirectories = new Set<string>();
+   * fails closed and a replaced directory — even a valid private one — is
+   * flushed like a new one. Per-record leaf directories never enter the map:
+   * recovery and collection remove them, and excluding them bounds the map
+   * to the shared hierarchy instead of one retained path per mutation. */
+  private readonly durableDirectories = new Map<string, Stats>();
 
   constructor(private readonly dataDir: string) {
     this.root = path.join(dataDir, MUTATION_LEDGER_DIRECTORY);
@@ -488,8 +490,12 @@ export class MutationLedgerStore {
 
   private async ensureDurableDirectory(parent: string, name: string): Promise<void> {
     const target = path.join(parent, name);
-    await ensurePrivateDirectory(parent, name, this.durableDirectories.has(target));
-    this.durableDirectories.add(target);
+    const identity = await ensurePrivateDirectory(
+      parent,
+      name,
+      this.durableDirectories.get(target)
+    );
+    this.durableDirectories.set(target, identity);
   }
 
   private async findUserDirectory(

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   link,
   lstat,
+  mkdir,
   readdir,
   rename,
   symlink,
@@ -222,6 +223,35 @@ test("a swapped ledger ancestor fails closed on later writes", {
   await assert.rejects(
     store.writeUserRecord(second),
     hasCode("receipt_storage_unavailable")
+  );
+});
+
+test("a replaced ledger ancestor is proven durable again before later writes", async (t) => {
+  const { dataDir, store } = await testStore(t, "1667-ledger-replaced-ancestor-");
+  await store.writeUserRecord(preparedRecord());
+
+  // Replace a proven ancestor with a different but equally valid private
+  // directory. The pathname matches the durable cache while the identity
+  // does not, so the store must treat the level as new — re-prove and
+  // re-flush it — instead of trusting the stale proof.
+  const settingsDir = path.join(dataDir, MUTATION_LEDGER_DIRECTORY, "settings");
+  const movedDir = path.join(dataDir, "settings-moved");
+  await rename(settingsDir, movedDir);
+  await mkdir(settingsDir, { mode: 0o700 });
+
+  const second = {
+    ...preparedRecord(),
+    key: "m1.1767225600000.101112131415161718191a1b1c1d1e1f" as typeof ID
+  };
+  await store.writeUserRecord(second);
+  assert.deepEqual(
+    await store.loadUserReceipt("settings", second.key),
+    { prepared: second, completed: null }
+  );
+  // The original receipt lives in the moved-away tree, not the active one.
+  assert.deepEqual(
+    await store.loadUserReceipt("settings", ID),
+    { prepared: null, completed: null }
   );
 });
 
