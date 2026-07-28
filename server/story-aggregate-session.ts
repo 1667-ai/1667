@@ -191,11 +191,8 @@ export class StoryAggregateSession {
     // states collapse to their selected revision), so objects the
     // normalization dropped never appear in previousRevisionIds. Mirror the
     // V5 save path: a legacy-schema source always owes the first V5 sweep.
-    const source = this.snapshot.source;
-    const legacySchemaSource = source.kind === "v5"
-      && source.sourceSchemaVersion !== STORY_SCHEMA_VERSION;
     this.preparedCleanupRetirement = await cleanup.settle(
-      legacySchemaSource
+      this.legacySchemaSource
         || previousRevisionIds.some((id) => !nextRevisionIds.has(id))
     ) === "retire-marker";
     return {
@@ -229,6 +226,12 @@ export class StoryAggregateSession {
 
   async stageManifest(manifest: StoryManifestV6): Promise<void> {
     if (manifest.id !== this.storyId) throw new Error("Story replacement changed aggregate identity");
+    // Publishing any manifest from a legacy-schema V5 snapshot wraps the
+    // already-normalized content into V6 and erases sourceSchemaVersion, so
+    // the first V5 sweep obligation must be durable before the wrap can
+    // stage — whichever path stages it. A provider start reaches here
+    // without prepareContent.
+    if (this.legacySchemaSource) await this.ensureCleanupPending();
     const bytes = Buffer.from(formatV6(manifest), "utf8");
     const maxBytes = manifest.kind === "deleted"
       ? MAX_DELETED_STORY_MANIFEST_BYTES
@@ -289,6 +292,14 @@ export class StoryAggregateSession {
   async discardStagedManifest(): Promise<void> {
     await removePrivateFile(this.nextManifestPath(), MANIFEST_POLICY);
     this.staged = null;
+  }
+
+  /** True while the committed source predates schema 5. Parsing already
+   * normalized the content, so this flag is the only remaining evidence that
+   * objects hidden by that normalization still owe the first V5 sweep. */
+  private get legacySchemaSource(): boolean {
+    const source = this.snapshot.source;
+    return source.kind === "v5" && source.sourceSchemaVersion !== STORY_SCHEMA_VERSION;
   }
 
   private manifestPath(): string {

@@ -12,13 +12,15 @@ import {
   FINGERPRINT,
   requestFor,
   setup,
-  STORY_ID
+  STORY_ID,
+  storyFixture
 } from "./story-mutation-fixtures.js";
 
 const SEED_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000a";
 const SWITCH_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000b";
 const EDIT_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000c";
 const LEGACY_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000d";
+const PROVIDER_MUTATION_ID = "m1.1767225600000.aa00000000000000000000000000000e";
 
 test("Q cleanup intent tracks dropped references: a take switch sweeps nothing, an edit reaps its old revision", async (t) => {
   let sweeps = 0;
@@ -148,5 +150,61 @@ test("Q legacy-schema source keeps its sweep obligation through the V6 session",
     readFile(objects.objectPath("revisions", obsoleteRevisionId)),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
     "objects the legacy schema hid must be reaped"
+  );
+});
+
+test("Q provider start preserves the legacy-schema sweep obligation through its V6 wrap", async (t) => {
+  let sweeps = 0;
+  const fixture = await setup(
+    t,
+    "1667-q-cleanup-legacy-provider-",
+    {},
+    (storiesDir) => new StoryStore(storiesDir, async (dir, liveRevisionIds, signal) => {
+      sweeps += 1;
+      return await new StoryObjectStore(dir).sweep(liveRevisionIds, signal);
+    })
+  );
+  const bundleDir = path.dirname(fixture.manifestFile);
+
+  const manifest = JSON.parse(await readFile(fixture.manifestFile, "utf8")) as Record<string, unknown>;
+  manifest.schemaVersion = 4;
+  delete manifest.chapterBreaks;
+  delete manifest.autonameId;
+  await writeFile(fixture.manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  const legacyHash = hashStoryV5ManifestBytes(await readFile(fixture.manifestFile));
+
+  const objects = new StoryObjectStore(bundleDir);
+  const obsoleteRevisionId = await objects.storeText("An obsolete provider-era fact state.");
+  await objects.flush();
+
+  // The provider start publishes a metadata-only V6 manifest without
+  // prepareContent — the wrap that erases sourceSchemaVersion forever.
+  let markerAfterStart: boolean | null = null;
+  await fixture.mutations.runProvider(
+    requestFor(PROVIDER_MUTATION_ID, FINGERPRINT, { kind: "v5", manifestHash: legacyHash }),
+    "autonameStory",
+    async (stories, start) => {
+      await start();
+      markerAfterStart = await cleanupPending(bundleDir);
+      return await stories.commitProviderEffect(STORY_ID, {
+        kind: "autoname",
+        expectedTitle: "Original",
+        title: "Named by provider"
+      });
+    },
+    storyFixture
+  );
+  assert.equal(
+    markerAfterStart,
+    true,
+    "the V6 wrap must publish sweep intent before it erases the source schema"
+  );
+  await fixture.stories.waitForMaintenance();
+  assert.ok(sweeps >= 1, "the wrapped legacy source must sweep after commit");
+  assert.equal(await cleanupPending(bundleDir), false);
+  await assert.rejects(
+    readFile(objects.objectPath("revisions", obsoleteRevisionId)),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT",
+    "objects the legacy schema hid must be reaped after the provider flow"
   );
 });
