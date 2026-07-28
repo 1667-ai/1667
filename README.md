@@ -26,7 +26,7 @@ This public repository contains pre-release source.
 | Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
-| GitHub release | 1667 does not publish a GitHub release. |
+| GitHub release | A maintainer dispatches `Release (GitHub)`. It publishes one archive per published target as a pre-release, with a build-provenance attestation on every file. `windows-x64` is held from publication. |
 
 Build and run 1667 from source. You can also build a local standalone
 executable.
