@@ -422,6 +422,11 @@ export class SettingsV2Store {
         operation.document,
         connectionSecretEntries
       );
+      requireMintedSecretIntroduction(
+        current,
+        operation.document,
+        connectionSecretEntries
+      );
       // Clean state only: from staged, a save of the active document is the
       // discard-pending route below, and taking this shortcut instead would
       // leave the failed candidate silently pending.
@@ -526,9 +531,14 @@ export class SettingsV2Store {
    * Legacy connection-derived IDs and caller-selected API IDs are never
    * deleted; they keep their pre-existing accumulate-forever behavior rather
    * than risk removing a name another project also resolves. One residual
-   * remains: a project that adopts this project's minted ID by exact value
-   * would lose it on rotation here — out of the threat model, availability
-   * only, and self-healing by re-entering the key.
+   * remains: project-tier state copied by hand shares its minted IDs, so a
+   * rotation in the minting project deletes a credential the copy still
+   * references, and the copy's generations fail with an unresolved
+   * credential until its user re-enters the key. That trade is accepted —
+   * manual-copy-only, availability-only, self-healing — because the
+   * alternative of never deleting would permanently accumulate plaintext
+   * keys for every user on every rotation (issue #90 tracks the durable
+   * ownership design).
    *
    * Cleanup is deliberately not crash-recoverable. The unrecoverable window
    * runs from the durable commit to this call — milliseconds — and the
@@ -841,6 +851,34 @@ function connectionsResolvingStoredSecret(
   return Object.values(document.connections).filter(
     (connection) => storedCredentialSecretId(connection.auth) === secretId
   );
+}
+
+/** The minted namespace (`.k<uuid>` suffix) is reserved. A save may reference
+ * a mint-shaped secret ID only when the current state's documents already
+ * reference it — existing references, including a copied project's, keep
+ * working — or when this same save stores the ID's key material, which is the
+ * shape of a genuine sidecar mint. Referencing a foreign minted ID without
+ * its material is refused, so a mint-shaped ID inside a project's documents
+ * provably entered through a mint, which is what keeps targeted supersession
+ * deletion in the shared tier safe. */
+function requireMintedSecretIntroduction(
+  current: SettingsStateV2,
+  submitted: SettingsDocumentV2,
+  entries: readonly (readonly [string, string | null])[]
+): void {
+  const known = storedSecretIdsInState(current);
+  const supplied = new Set(
+    entries.filter(([, value]) => value !== null).map(([secretId]) => secretId)
+  );
+  for (const secretId of storedSecretIdsInDocument(submitted)) {
+    if (!MINTED_SECRET_ID_PATTERN.test(secretId)) continue;
+    if (known.has(secretId) || supplied.has(secretId)) continue;
+    throw new ServiceError(
+      400,
+      "A minted secret ID can only enter settings through the save that stores its key; store the key or reference an ID these settings already use.",
+      "invalid_request"
+    );
+  }
 }
 
 function requireConnectionSecretsMatchDocument(

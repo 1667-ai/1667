@@ -598,6 +598,44 @@ test("a shared-tier rotation deletes exactly the superseded credential after com
   );
 });
 
+test("the minted secret namespace is reserved: introduction requires the key material", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-mint-reserved-");
+  const store = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => true
+  });
+  await store.init(2);
+  const mintedId = "demo.k00000000-0000-4000-8000-0000000000e5";
+
+  // Referencing a mint-shaped ID without storing its key is refused: it
+  // could only be an adoption of some other project's minted credential.
+  await assert.rejects(
+    store.save(saveCommand(MUTATION_A, 1, storedSecretDocument(mintedId))),
+    hasServiceCode("invalid_request")
+  );
+  assert.equal((await store.loadView()).stateGeneration, 1, "the refused save changed nothing");
+
+  // The same reference with its key material is a genuine mint.
+  await store.save({
+    ...saveCommand(MUTATION_B, 1, storedSecretDocument(mintedId)),
+    connectionSecrets: { [mintedId]: "sk-minted" }
+  });
+  assert.equal((await store.loadView()).pendingRevision, null);
+
+  // Once the state references the ID, later saves may keep referencing it
+  // without re-supplying the key — a copied project keeps working.
+  const generation = (await store.loadView()).stateGeneration!;
+  await store.save(saveCommand(
+    MUTATION_C,
+    generation,
+    storedSecretDocument(mintedId, "https://rehomed.example/v1")
+  ));
+  const view = await store.loadView();
+  assert.equal(view.pendingRevision, null);
+  assert.equal(view.effective.baseUrl, "https://rehomed.example/v1");
+});
+
 test("a superseded legacy secret ID survives the shared-tier deletion pass", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-inprocess-tier-legacy-");
   const secretsDir = await scratchSecretsDir(t);
