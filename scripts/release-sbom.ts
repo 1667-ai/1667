@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
+  BUILT_ARTIFACT_TARGETS,
   RELEASE_LAUNCHER_PACKAGE,
   releaseTargetForArtifact,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 import { createReleaseIdentitySet, type ReleaseIdentitySet } from "./release-identity.js";
 import { MAX_RELEASE_SBOM_BYTES } from "./release-package-policy.js";
@@ -31,7 +31,7 @@ const MAX_EVIDENCE_BYTES = 1024 * 1024;
 
 export interface ReleaseSbom {
   readonly packageName: string;
-  readonly artifactTarget: "launcher" | PackagedArtifactTarget;
+  readonly artifactTarget: "launcher" | BuiltArtifactTarget;
   readonly document: SpdxDocument;
   readonly text: string;
   readonly sha256: string;
@@ -44,13 +44,22 @@ export interface ReleaseSbomSet {
 }
 
 /**
- * Produces one SPDX 2.3 document per release package from data alone: no
+ * Produces one SPDX 2.3 document per staged release package from data alone: no
  * build, no extraction, no network, no Git, and no clock. Repeated calls on
  * equal inputs return byte-identical text, and every document is validated
  * against the vendored SPDX schema before it is returned.
  *
- * Nothing stages `sbom.spdx.json` into a package yet, so no consumer binds to
- * this output. When the staging step lands, the preflight gains the same check
+ * The platform documents follow **staging**, not publication, so a held target
+ * gets one like any other. Its package is still staged, packed and validated —
+ * its platform manifest declares `sbom.spdx.json` in `files`, so a tarball
+ * without the file is rejected — and withholding the document would break the
+ * one thing a hold is supposed to keep exercising. Publication is a separate
+ * question, and exactly one thing here answers it: `launcherSbomDocument` lists
+ * the published platform packages, because that list *is* the launcher's
+ * `optionalDependencies`.
+ *
+ * Nothing stages `sbom.spdx.json` from this generator yet, so no consumer binds
+ * to its bytes. When the staging step lands, the preflight gains the same check
  * it already applies to `build-manifest.json`: regenerate the expected document
  * from the release evidence and reject a tarball whose staged copy disagrees.
  * Determinism is what makes that comparison possible, which is why it is
@@ -67,7 +76,7 @@ export function createReleaseSboms(
     launcherSbomDocument(identities),
     validate
   );
-  const platforms = PACKAGED_ARTIFACT_TARGETS.map((target) => {
+  const platforms = BUILT_ARTIFACT_TARGETS.map((target) => {
     return formatSbom(
       releaseTargetForArtifact(target).packageName,
       target,
@@ -115,7 +124,7 @@ export function readReleaseSboms(paths: ReleaseSbomInputPaths): ReleaseSbomSet {
 
 function formatSbom(
   packageName: string,
-  artifactTarget: "launcher" | PackagedArtifactTarget,
+  artifactTarget: "launcher" | BuiltArtifactTarget,
   document: SpdxDocument,
   validate: (value: unknown) => void
 ): ReleaseSbom {
