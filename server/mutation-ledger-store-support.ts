@@ -1,5 +1,7 @@
+import type { Stats } from "node:fs";
 import { mkdir, opendir } from "node:fs/promises";
 import path from "node:path";
+import { sameFileIdentity } from "./data-directory-file-read.js";
 import { DiagnosticServiceError, ServiceError } from "./errors.js";
 import { MUTATION_RETENTION_MS } from "./mutation-id-policy.js";
 import {
@@ -61,29 +63,43 @@ interface StoryReceiptShape {
   readonly acknowledged: AcknowledgedMutationRecord | null;
 }
 
+/** Returns the inspected identity of the ensured directory. A caller may pass
+ * that identity back as `provenDurable` on a later call: only the exact same
+ * directory (same device and inode) skips the parent flush, so a pathname
+ * whose directory was replaced — even by another valid private directory —
+ * is flushed like a new one. */
 export async function ensurePrivateDirectory(
   parent: string,
-  name: string
-): Promise<void> {
+  name: string,
+  provenDurable?: Stats
+): Promise<Stats> {
   const target = path.join(parent, name);
+  let created = false;
   try {
     await inspectPrivateDirectory(parent);
     await mkdir(target, { mode: 0o700 });
+    created = true;
   } catch (error) {
     if (!isErrorCode(error, "EEXIST")) throw receiptUnavailable(error);
   }
   try {
-    await inspectPrivateDirectory(target);
+    const identity = await inspectPrivateDirectory(target);
     // Existing paths are flushed too: a prior failed barrier or process crash
     // must become durable before a child receipt record can be committed.
-    await syncPrivateDirectory(parent);
+    // Only the identical directory the caller already proved durable skips
+    // the flush — and never one this call just created.
+    const proven = !created
+      && provenDurable !== undefined
+      && sameFileIdentity(provenDurable, identity);
+    if (!proven) await syncPrivateDirectory(parent);
+    return identity;
   } catch (error) {
     throw receiptUnavailable(error);
   }
 }
 
-export async function inspectPrivateDirectory(directory: string): Promise<void> {
-  await inspectPrivateDirectoryPath(directory, LEDGER_DIRECTORY_LABEL);
+export async function inspectPrivateDirectory(directory: string): Promise<Stats> {
+  return await inspectPrivateDirectoryPath(directory, LEDGER_DIRECTORY_LABEL);
 }
 
 export function canonicalUserRecord(

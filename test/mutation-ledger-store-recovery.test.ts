@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import {
   link,
   lstat,
+  mkdir,
   readdir,
+  rename,
+  symlink,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -138,6 +141,25 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
     );
   });
 
+  await t.test("the same store instance can retry after removal", async (subtest) => {
+    const { store } = await testStore(subtest, "1667-ledger-cleanup-retry-");
+    const prepared = preparedRecord();
+    await store.writeUserRecord(prepared);
+    assert.equal(
+      await store.removeOrphanPreparedUserReceipt(
+        "settings",
+        ID,
+        hashPreparedMutationRecord(prepared)
+      ),
+      true
+    );
+    await store.writeUserRecord(prepared);
+    assert.deepEqual(
+      await store.loadUserReceipt("settings", ID),
+      { prepared, completed: null }
+    );
+  });
+
   await t.test("mismatched proof", async (subtest) => {
     const { dataDir, store } = await testStore(subtest, "1667-ledger-cleanup-hash-");
     await store.writeUserRecord(preparedRecord());
@@ -179,6 +201,58 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
     );
     assert.equal((await lstat(path.join(receiptDirectory(dataDir), "started.json"))).isFile(), true);
   });
+});
+
+test("a swapped ledger ancestor fails closed on later writes", {
+  skip: process.platform === "win32"
+}, async (t) => {
+  const { dataDir, store } = await testStore(t, "1667-ledger-swapped-ancestor-");
+  await store.writeUserRecord(preparedRecord());
+
+  // The first write proved the shared hierarchy durable; replacing an
+  // ancestor afterwards must still be caught by the per-write inspection.
+  const settingsDir = path.join(dataDir, MUTATION_LEDGER_DIRECTORY, "settings");
+  const movedDir = path.join(dataDir, "settings-moved");
+  await rename(settingsDir, movedDir);
+  await symlink(movedDir, settingsDir);
+
+  const second = {
+    ...preparedRecord(),
+    key: "m1.1767225600000.101112131415161718191a1b1c1d1e1f"
+  };
+  await assert.rejects(
+    store.writeUserRecord(second),
+    hasCode("receipt_storage_unavailable")
+  );
+});
+
+test("a replaced ledger ancestor is proven durable again before later writes", async (t) => {
+  const { dataDir, store } = await testStore(t, "1667-ledger-replaced-ancestor-");
+  await store.writeUserRecord(preparedRecord());
+
+  // Replace a proven ancestor with a different but equally valid private
+  // directory. The pathname matches the durable cache while the identity
+  // does not, so the store must treat the level as new — re-prove and
+  // re-flush it — instead of trusting the stale proof.
+  const settingsDir = path.join(dataDir, MUTATION_LEDGER_DIRECTORY, "settings");
+  const movedDir = path.join(dataDir, "settings-moved");
+  await rename(settingsDir, movedDir);
+  await mkdir(settingsDir, { mode: 0o700 });
+
+  const second = {
+    ...preparedRecord(),
+    key: "m1.1767225600000.101112131415161718191a1b1c1d1e1f" as typeof ID
+  };
+  await store.writeUserRecord(second);
+  assert.deepEqual(
+    await store.loadUserReceipt("settings", second.key),
+    { prepared: second, completed: null }
+  );
+  // The original receipt lives in the moved-away tree, not the active one.
+  assert.deepEqual(
+    await store.loadUserReceipt("settings", ID),
+    { prepared: null, completed: null }
+  );
 });
 
 // These lookups read receipt files, but they do not wait for a disk. The files
