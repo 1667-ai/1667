@@ -31,7 +31,16 @@ Packaged embedded storage supports macOS, Linux, and Windows x64. On Windows,
 Windows package rejects reparse points. Supervised server mode is available
 only on Linux.
 
-`build:standalone` validates that the root, TUI, and npm-lock versions agree, reads the embedded identity back from the executable, starts the embedded worker from a hostile-config fixture, and compiles plus executes the exact prompt-tokenizer smoke vectors. It creates a development artifact only. Tagged release validation, multi-platform packaging, signing, isolated candidate execution, and publishing remain separate ADR 005 gates.
+`build:standalone` validates that the root, TUI, and npm-lock versions agree.
+It reads the embedded identity from the executable.
+It starts the embedded worker from a hostile configuration fixture.
+It compiles and runs the exact prompt-tokenizer smoke vectors.
+Intel macOS and Intel Linux builds use the Bun baseline runtime.
+Arm64 builds use the native Bun runtime.
+The command creates a development artifact only.
+The release workflow does the tagged release validation and packaging.
+The release workflow also does the signing, isolated candidate execution, and
+publication.
 
 The worker runs the repository's shared `server/` modules, so both the root npm dependencies and the TUI Bun dependencies are required. A root `npm install` satisfies the first command.
 

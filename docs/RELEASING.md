@@ -41,6 +41,7 @@ This document uses these Technical Names:
 | publication attempt ref | An immutable ref that records one npm write attempt |
 | SBOM | The SPDX Software Bill of Materials in each release package |
 | preflight | Local validation of release packages and their evidence |
+| Bun baseline runtime | The Bun runtime for x64 processors that support SSE4.2 |
 
 ## Publication boundary
 
@@ -106,6 +107,18 @@ resumes.
 All release packages declare the canonical Git repository. The Linux platform
 packages declare `libc: ["glibc"]`. The launcher package and the macOS platform
 packages do not declare `libc`.
+
+## Host compatibility
+
+The Intel macOS and Intel Linux executables use the Bun baseline runtime.
+This runtime requires an x64 CPU with SSE4.2.
+The macOS executables require macOS 13.0 or newer.
+The Linux executables require glibc 2.17 or newer.
+
+The launcher checks these requirements before it reads package files.
+The launcher does not start the native executable when a check fails.
+It gives an error that identifies the failed requirement.
+It also fails when it cannot verify a required host fact.
 
 ## Package contents
 
@@ -344,6 +357,8 @@ bun run build:standalone
 
 `bun run build:standalone` compiles and runs one native executable. By default,
 the executable contains a development build identity.
+Intel macOS and Intel Linux builds select the Bun baseline runtime.
+Arm64 builds use the native Bun runtime.
 
 Supply the target-specific release build identity for a release candidate:
 

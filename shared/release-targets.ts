@@ -10,6 +10,9 @@ export interface ReleaseTargetDescriptor {
   readonly arch: "arm64" | "x64";
   readonly libc: "glibc" | null;
   readonly executable: "bin/1667" | "bin/1667.exe";
+  readonly minimumCpuFeature: "sse4.2" | null;
+  readonly minimumMacosVersion: "13.0" | null;
+  readonly minimumGlibcVersion: "2.17" | null;
   /**
    * Why this target is not published, or null when it ships. The string is
    * shown to a user of that platform, so it has to say what is true of the
@@ -38,6 +41,9 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "arm64",
     libc: null,
     executable: "bin/1667",
+    minimumCpuFeature: null,
+    minimumMacosVersion: "13.0",
+    minimumGlibcVersion: null,
     heldFromPublication: null
   }),
   Object.freeze({
@@ -47,6 +53,9 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "x64",
     libc: null,
     executable: "bin/1667",
+    minimumCpuFeature: "sse4.2",
+    minimumMacosVersion: "13.0",
+    minimumGlibcVersion: null,
     heldFromPublication: null
   }),
   Object.freeze({
@@ -56,6 +65,9 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "arm64",
     libc: "glibc",
     executable: "bin/1667",
+    minimumCpuFeature: null,
+    minimumMacosVersion: null,
+    minimumGlibcVersion: "2.17",
     heldFromPublication: null
   }),
   Object.freeze({
@@ -65,6 +77,9 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "x64",
     libc: "glibc",
     executable: "bin/1667",
+    minimumCpuFeature: "sse4.2",
+    minimumMacosVersion: null,
+    minimumGlibcVersion: "2.17",
     heldFromPublication: null
   }),
   Object.freeze({
@@ -74,6 +89,9 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "x64",
     libc: null,
     executable: "bin/1667.exe",
+    minimumCpuFeature: null,
+    minimumMacosVersion: null,
+    minimumGlibcVersion: null,
     heldFromPublication: "CI does not build the Windows platform work at present, "
       + "so it is unverified, and maintainers have not approved it for publication"
   })
