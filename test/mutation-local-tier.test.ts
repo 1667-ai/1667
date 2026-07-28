@@ -50,7 +50,9 @@ async function assertNoLedgerEntries(dataDir: string): Promise<void> {
   assert.deepEqual(entries, []);
 }
 
-function crashOnce(point: "afterStage" | "afterPublish"): StoryMutationStoreHooks {
+function crashOnce(
+  point: "afterStage" | "afterPrepared" | "afterPublish"
+): StoryMutationStoreHooks {
   let injected = false;
   return {
     [point]: () => {
@@ -252,6 +254,81 @@ test("local tier finalizes a prior full-tier transaction before committing", asy
   const parsed = parseStoryManifestBytes(await readFile(fixture.manifestFile), STORY_ID);
   if (parsed.kind !== "v6-live") assert.fail("Expected live V6");
   assert.equal(parsed.manifest.lastTransaction, null);
+});
+
+test("a marked request with full-tier evidence replays through the full tier after a post-publish crash", async (t) => {
+  // Old-build shape: the full pipeline crashed between the publish and its
+  // completed record. A cross-build replay may arrive carrying the marker;
+  // evidence must win over the marker.
+  const fixture = await setup(t, "1667-local-tier-marked-published-", crashOnce("afterPublish"));
+  await assert.rejects(
+    fixture.mutations.runLocal(
+      request(fixture.v5Hash),
+      "renameStory",
+      (story) => { story.title = "Committed by the full tier"; }
+    ),
+    (error: unknown) => error instanceof InjectedStoryMutationCrash
+  );
+
+  const recovered = new StoryMutationStore(
+    fixture.stories,
+    createMutationCoordinator(),
+    fixture.dataDir,
+    { ledger: fixture.ledger, now: () => FIXED_NOW }
+  );
+  await recovered.init();
+  const replay = await recovered.runLocal(
+    manifestOnly(request(fixture.v5Hash)),
+    "renameStory",
+    () => assert.fail("a recorded mutation must not re-execute on the local tier")
+  );
+  assert.equal(replay.story.title, "Committed by the full tier");
+  const receipt = await fixture.ledger.loadStoryReceipt(SCOPE, MUTATION_ID);
+  assert.notEqual(receipt.prepared, null);
+  assert.notEqual(receipt.completed, null);
+});
+
+test("a marked request with full-tier evidence recovers through the full tier after a post-preparation crash", async (t) => {
+  const fixture = await setup(t, "1667-local-tier-marked-prepared-", crashOnce("afterPrepared"));
+  await assert.rejects(
+    fixture.mutations.runLocal(
+      request(fixture.v5Hash),
+      "renameStory",
+      (story) => { story.title = "Prepared but unpublished"; }
+    ),
+    (error: unknown) => error instanceof InjectedStoryMutationCrash
+  );
+  await access(`${fixture.manifestFile}.next`);
+  assert.notEqual(
+    (await fixture.ledger.loadStoryReceipt(SCOPE, MUTATION_ID)).prepared,
+    null
+  );
+
+  const recovered = new StoryMutationStore(
+    fixture.stories,
+    createMutationCoordinator(),
+    fixture.dataDir,
+    { ledger: fixture.ledger, now: () => FIXED_NOW }
+  );
+  await recovered.init();
+  const replay = await recovered.runLocal(
+    manifestOnly(request(fixture.v5Hash)),
+    "renameStory",
+    (story) => { story.title = "Prepared but unpublished"; }
+  );
+  assert.equal(replay.story.title, "Prepared but unpublished");
+  assert.equal(replay.result.storyRevision, "00000000000000000002");
+
+  // The staged manifest and its prepared record were retired together, then
+  // the re-execution committed with complete full-tier evidence: no stranded
+  // prepared record and no half-discarded transaction remain.
+  await assert.rejects(access(`${fixture.manifestFile}.next`), hasFsCode("ENOENT"));
+  const receipt = await fixture.ledger.loadStoryReceipt(SCOPE, MUTATION_ID);
+  assert.notEqual(receipt.prepared, null);
+  assert.notEqual(receipt.completed, null);
+  const parsed = parseStoryManifestBytes(await readFile(fixture.manifestFile), STORY_ID);
+  if (parsed.kind !== "v6-live") assert.fail("Expected live V6");
+  assert.equal(parsed.manifest.lastTransaction?.mutationId, MUTATION_ID);
 });
 
 test("mixed local/provider sequence recovers at every crash boundary", async (t) => {

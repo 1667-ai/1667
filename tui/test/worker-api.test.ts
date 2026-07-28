@@ -459,7 +459,9 @@ describe("embedded backend worker", () => {
         kind: "v6",
         revision: "00000000000000000001"
       });
-      // The local durability tier publishes no intent before or after send.
+      // The tier travels as an explicit wire marker, and the local tier
+      // publishes no intent before or after send.
+      expect(local.durability).toBe("manifest-only");
       expect(await outbox.list()).toEqual([]);
       worker.message({ type: "result", id: local.id, value: { id: "story-1", nodes: [], path: [] } });
       await switching;
@@ -477,6 +479,7 @@ describe("embedded backend worker", () => {
         new AbortController().signal
       );
       const generation = await waitForRequest(worker, "continueStory");
+      expect(generation.durability).toBe(undefined);
       const inflight = await outbox.list();
       expect(inflight).toHaveLength(1);
       expect(inflight[0]!.mutationId).toBe(generation.mutationId!);
