@@ -44,11 +44,14 @@ export interface ReleaseComponentSources {
 /**
  * `bun build --compile` embeds the compiling toolchain's own runtime, so the
  * embedded version is a property of the pinned toolchain rather than of any
- * lockfile. The fact that decides it is the `bun-version` the release workflow
- * installs; a guard test reads that pin out of `.github/workflows/ci.yml` and
- * requires this constant to equal it, so bumping the toolchain without
- * restating it here fails the build. `tui/package.json`'s `engines.bun` is a
- * floor rather than a pin and is checked as one.
+ * lockfile. The fact that decides it is the `bun-version` the workflows that
+ * compile install; a guard test reads that pin out of both
+ * `.github/workflows/ci.yml` and `.github/workflows/release-github.yml`, and
+ * requires a single distinct pin equal to this constant, so bumping either
+ * toolchain — or bumping one and not the other — fails the build. Bumping the
+ * release workflow alone would ship archives whose SBOM names a runtime they
+ * do not embed. `tui/package.json`'s `engines.bun` is a floor rather than a
+ * pin and is checked as one.
  */
 export const RELEASE_BUN_RUNTIME: ReleaseRuntimeComponent = Object.freeze({
   name: "bun",

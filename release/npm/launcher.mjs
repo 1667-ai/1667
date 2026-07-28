@@ -15,7 +15,9 @@ export const LAUNCHER_PACKAGE_NAME = "@1667-ai/cli";
 export const LAUNCHER_SOURCE_URL = "https://github.com/1667-ai/1667";
 // Held targets stay in this table. Dropping one would make its platform report
 // as unsupported, which is a different problem with a different fix: the
-// platform is supported and builds from source, and only its package is withheld.
+// platform is supported and builds from source, and only its package is
+// withheld. Whether anything still verifies that build is what the hold reason
+// says, so these strings are copied from the canonical policy verbatim.
 export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
   "darwin-arm64": Object.freeze({
     packageName: "@1667-ai/darwin-arm64",
@@ -55,8 +57,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "x64",
     libc: null,
     executable: "bin/1667.exe",
-    heldFromPublication: "maintainers have not approved the Windows platform work "
-      + "for publication"
+    heldFromPublication: "CI does not build the Windows platform work at present, "
+      + "so it is unverified, and maintainers have not approved it for publication"
   })
 });
 const BUILD_MANIFEST_KEYS = new Set([
