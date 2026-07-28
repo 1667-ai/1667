@@ -15,7 +15,8 @@ on:
         description: >-
           Version to release, without a leading v (for example 0.1.0-rc.1). It
           must match the version in package.json, tui/package.json, and the
-          lockfile; the command that records the evidence refuses it otherwise.
+          lockfile; the command that checks the release source refuses it
+          otherwise.
         required: true
         type: string
 
@@ -36,10 +37,13 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Three strings, and deliberately nothing larger, are the whole of what
+    # crosses a job boundary here. See the step that produces them.
     outputs:
       targets: ${{ steps.policy.outputs.targets }}
-      version: ${{ steps.evidence.outputs.version }}
-      commit: ${{ steps.evidence.outputs.commit }}
+      version: ${{ steps.source.outputs.version }}
+      commit: ${{ steps.source.outputs.commit }}
+      timestamp: ${{ steps.source.outputs.timestamp }}
     steps:
       # Fail closed. A job-level `if` would skip and report success, which for a
       # release job is indistinguishable from a release that happened.
@@ -66,7 +70,8 @@ jobs:
           node-version: 22.22.0
           cache: npm
 
-      # The evidence records a clean tree, so prove it before recording it.
+      # Every build identity in this run records a clean tree, so prove it
+      # before any of them is built.
       - name: Refuse a dirty working tree
         run: |
           set -euo pipefail
@@ -87,28 +92,37 @@ jobs:
           echo "Publishing $targets" >> "$GITHUB_STEP_SUMMARY"
 
       # One timestamp and one commit for every target, so the archives describe
-      # one build rather than one build per runner, minutes apart. The
-      # command rejects a version the release identity codec would reject, and
-      # rejects one the repository's own package versions disagree with.
-      - name: Record the release source evidence
-        id: evidence
+      # one build rather than one build per runner, minutes apart. The check
+      # rejects a version the release identity codec would reject, and one the
+      # repository's own package versions disagree with, here rather than on
+      # four runners at once.
+      #
+      # These three strings are all that crosses a job boundary. Each later job
+      # rebuilds its release identity in memory from them. Do not "simplify"
+      # that into building the identity once, writing it to a file and uploading
+      # the file for the matrix to download. The evidence document the identity
+      # codec parses types tagObjectType as "annotated" and tagSignature as
+      # "verified" — literals, so every copy asserts a verified signed tag.
+      # Nothing here verifies a signature, and at this moment the tag does not
+      # exist: the release job creates it last. scripts/release-preflight.ts
+      # accepts exactly that document as its signed-tag evidence, and that is
+      # the gate in front of npm publication, which cannot be withdrawn. An
+      # uploaded artifact would therefore be a downloadable, ready-made
+      # credential for that gate. Three strings assert nothing, so they may be
+      # passed; the document they build may not.
+      - name: Check the release source and publish its three facts
+        id: source
         env:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
           timestamp="$(node -e 'process.stdout.write(new Date().toISOString())')"
-          node --import tsx scripts/release-github-assets.ts evidence \
-            "$VERSION" "$commit" "$timestamp" > release-source-evidence.json
+          node --import tsx scripts/release-github-assets.ts check \
+            "$VERSION" "$commit" "$timestamp"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
-
-      - name: Upload the release source evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-source-evidence
-          path: release-source-evidence.json
-          if-no-files-found: error
+          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -148,37 +162,42 @@ jobs:
         working-directory: tui
         run: bun install --frozen-lockfile
 
-      - name: Download the release source evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-source-evidence
-
       # The compiled executable reports this identity from `--version --json`,
       # and the build refuses to finish if the executable disagrees with it.
+      # The identity is built here, in this job, from the three strings prepare
+      # published; nothing is downloaded, because there is nothing to download.
       - name: Pin the build identity
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+          TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           identity="$(node --import tsx scripts/release-github-assets.ts identity \
-            release-source-evidence.json "$TARGET")"
+            "$VERSION" "$COMMIT" "$TIMESTAMP" "$TARGET")"
           printf 'AI_1667_BUILD_IDENTITY_JSON=%s\n' "$identity" >> "$GITHUB_ENV"
 
       - name: Build and smoke-test the executable
         working-directory: tui
         run: bun run build:standalone
 
-      # The command writes every file the archive must hold, verifies LICENSE
-      # and NOTICE against their reviewed digests, refuses a directory holding
-      # anything else, and prints the archive name.
+      # The command writes every file the archive must hold, refuses to stage an
+      # archive missing LICENSE or NOTICE, verifies both against their reviewed
+      # digests, refuses a directory holding anything else, and prints the
+      # archive name. The same three strings again, so every target in this run
+      # stamps one identity into its build-manifest.json.
       - name: Assemble and pack the archive
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+          TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           mkdir -p dist/archives
           stem="$(node --import tsx scripts/release-github-assets.ts stage \
-            release-source-evidence.json "$TARGET" tui/dist dist/stage)"
+            "$VERSION" "$COMMIT" "$TIMESTAMP" "$TARGET" tui/dist dist/stage)"
           tar -czf "dist/archives/$stem.tar.gz" -C dist/stage "$stem"
           tar -tzf "dist/archives/$stem.tar.gz"
 

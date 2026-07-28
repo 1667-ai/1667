@@ -22,7 +22,6 @@ import {
   type CanonicalReleaseTarget
 } from "../shared/release-targets.js";
 import { isSemVer } from "../shared/semver.js";
-import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
   assertPublishedReleaseTarget,
   releaseArchiveStem,
@@ -30,11 +29,7 @@ import {
 } from "./release-archive.js";
 import { sha256Digest } from "./release-boundary-validation.js";
 import { releaseNotesMarkdown } from "./release-github-notes.js";
-import {
-  createReleaseIdentitySet,
-  releaseIdentityForTarget,
-  type ReleaseSourceEvidence
-} from "./release-identity.js";
+import { releaseIdentityForTarget } from "./release-identity.js";
 import {
   createReleasePlatformManifest,
   RELEASE_LICENSE_FILES,
@@ -42,16 +37,19 @@ import {
 } from "./release-package-manifests.js";
 import { createReleasePackageBuildManifest } from "./release-package-templates.js";
 import {
-  defaultReleaseSbomInputs,
-  readReleaseSboms,
-  releaseSbomForPackage
+  createReleaseSboms,
+  releaseSbomForPackage,
+  repositoryReleaseComponentSources
 } from "./release-sbom.js";
+import {
+  releaseIdentitiesForSource,
+  type ReleaseSourceFacts
+} from "./release-source-facts.js";
 
 export const RELEASE_BUILD_MANIFEST_FILE = "build-manifest.json" as const;
 export const RELEASE_SBOM_FILE = "sbom.spdx.json" as const;
 
 const MAX_EXECUTABLE_BYTES = 256 * 1024 * 1024;
-const MAX_EVIDENCE_BYTES = 1024 * 1024;
 /** Release asset basenames: a version may carry `+` build metadata. */
 const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
 
@@ -112,7 +110,21 @@ export function releaseContentFileSet(
   }));
 }
 
-/** The archive layout: every file at the top level of the extracted directory. */
+/**
+ * The archive layout: every file at the top level of the extracted directory,
+ * `LICENSE` and `NOTICE` among them.
+ *
+ * The licence check below is a presence assertion, not a shape assertion, and
+ * it is here rather than only in the type system and the tests because the
+ * release workflow runs neither. It runs `npm ci` and then `node --import tsx`,
+ * which strips types without checking them, so the tuple type in
+ * release-package-manifests.ts and the digest tests would let a dropped licence
+ * file through at release time. `assertDirectoryHolds` cannot cover this: it
+ * compares the staged directory against the list this function produced, so it
+ * catches a stray file and structurally cannot catch an absent one. Apache-2.0
+ * sections 4(a) and 4(d) attach to the archive a recipient downloads, so the
+ * obligation fails closed in the release path itself.
+ */
 export function releaseArchiveFileSet(
   target: BuiltArtifactTarget,
   version: string
@@ -122,6 +134,12 @@ export function releaseArchiveFileSet(
   for (const entry of entries) {
     if (entry.path.includes("/")) {
       throw new Error(`Release archive entry ${entry.path} is not at the top level`);
+    }
+  }
+  for (const licenceFile of RELEASE_LICENSE_FILES) {
+    const entry = entries.find((candidate) => candidate.path === licenceFile);
+    if (entry === undefined || entry.source.kind !== "repository-file") {
+      throw new Error(`Release archive for ${target} would ship without ${licenceFile}`);
     }
   }
   return entries;
@@ -170,53 +188,6 @@ function contentEntry(
   throw new Error(`Release contents have no source for ${name}`);
 }
 
-export interface ReleaseSourceEvidenceInput {
-  readonly version: string;
-  readonly sourceCommit: string;
-  readonly buildTimestamp: string;
-  readonly packageVersions: {
-    readonly root: string;
-    readonly tui: string;
-    readonly rootLock: string;
-    readonly rootLockPackage: string;
-  };
-}
-
-/**
- * Source evidence for a GitHub pre-release build.
- *
- * The evidence codec is shared with npm preflight, where publication cannot be
- * withdrawn and the trust anchor is a maintainer who ran `git verify-tag`
- * themselves; it therefore accepts `tagObjectType: "annotated"` with
- * `tagSignature: "verified"` and no other value. A GitHub pre-release anchors
- * somewhere else: the build-provenance attestation GitHub's Sigstore instance
- * issues over each archive, which binds the bytes to this workflow, this
- * repository, and this commit, and which `gh attestation verify` checks. The
- * tag fields below name the tag the release publishes at `sourceCommit`. No
- * shipped file and no line of the release notes claims a verified tag
- * signature, and npm publication still requires the signed-tag evidence
- * documented in docs/RELEASING.md.
- */
-export function githubReleaseSourceEvidence(
-  input: ReleaseSourceEvidenceInput
-): ReleaseSourceEvidence {
-  if (!isSemVer(input.version)) {
-    throw new Error(`Release evidence needs a SemVer version, not ${input.version}`);
-  }
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    productVersion: input.version,
-    sourceCommit: input.sourceCommit,
-    sourceDirty: false as const,
-    tagName: `v${input.version}`,
-    tagObjectType: "annotated" as const,
-    tagSignature: "verified" as const,
-    tagTargetCommit: input.sourceCommit,
-    buildTimestamp: input.buildTimestamp,
-    packageVersions: Object.freeze({ ...input.packageVersions })
-  });
-}
-
 export interface ReleaseAssetDigest {
   readonly name: string;
   readonly sha256: string;
@@ -258,9 +229,8 @@ export interface StagedReleaseArchive {
   readonly files: readonly StagedReleaseFile[];
 }
 
-export interface StageReleaseArchiveOptions {
-  /** Release source evidence, as written by the `evidence` command. */
-  readonly evidencePath: string;
+/** The three source facts, plus where to read the build from and write to. */
+export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
   readonly target: BuiltArtifactTarget;
   /** Directory holding the freshly built executable, normally `tui/dist`. */
   readonly buildDirectory: string;
@@ -275,8 +245,7 @@ export interface StageReleaseArchiveOptions {
  * afterwards so a stray file cannot ride along either.
  */
 export function stageReleaseArchive(options: StageReleaseArchiveOptions): StagedReleaseArchive {
-  const evidencePath = path.resolve(options.evidencePath);
-  const identities = createReleaseIdentitySet(readJsonFile(evidencePath, MAX_EVIDENCE_BYTES));
+  const identities = releaseIdentitiesForSource(options);
   const version = identities.evidence.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -285,7 +254,7 @@ export function stageReleaseArchive(options: StageReleaseArchiveOptions): Staged
   mkdirSync(directory, { recursive: true, mode: 0o755 });
 
   const sbom = releaseSbomForPackage(
-    readReleaseSboms(defaultReleaseSbomInputs(evidencePath)),
+    createReleaseSboms(identities, repositoryReleaseComponentSources()),
     descriptor.packageName
   );
   const buildManifest = createReleasePackageBuildManifest(
@@ -379,11 +348,6 @@ function boundedRegularFile(file: string, maximumBytes: number, label: string): 
   return realpathSync(file);
 }
 
-function readJsonFile(file: string, maximumBytes: number): unknown {
-  const bytes = readFileSync(boundedRegularFile(file, maximumBytes, file));
-  return parseJsonRejectingDuplicateKeys(bytes.toString("utf8"));
-}
-
 function repositoryRoot(): string {
   return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 }
@@ -394,44 +358,35 @@ function builtTarget(value: string | undefined): BuiltArtifactTarget {
   return target;
 }
 
-function repositoryPackageVersions(): ReleaseSourceEvidenceInput["packageVersions"] {
-  const root = repositoryRoot();
-  const rootPackage = readJsonFile(path.join(root, "package.json"), MAX_EVIDENCE_BYTES);
-  const tuiPackage = readJsonFile(path.join(root, "tui", "package.json"), MAX_EVIDENCE_BYTES);
-  const rootLock = readJsonFile(path.join(root, "package-lock.json"), 8 * 1024 * 1024);
-  const lockPackages = property(rootLock, "packages");
-  return {
-    root: stringProperty(rootPackage, "version"),
-    tui: stringProperty(tuiPackage, "version"),
-    rootLock: stringProperty(rootLock, "version"),
-    rootLockPackage: stringProperty(property(lockPackages, ""), "version")
-  };
-}
-
-function property(value: unknown, key: string): unknown {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Release input has no ${key || "root"} member`);
-  }
-  return (value as Record<string, unknown>)[key];
-}
-
-function stringProperty(value: unknown, key: string): string {
-  const member = property(value, key);
-  if (typeof member !== "string" || member.length === 0) {
-    throw new Error(`Release input has no ${key}`);
-  }
-  return member;
-}
-
+/**
+ * Every command below that needs a release identity takes the three source
+ * facts and builds one in memory. None of them accepts or produces a source
+ * evidence document: see `releaseIdentitiesForSource` for why that document
+ * must never become a file.
+ */
 const USAGE = [
   "usage: release-github-assets.ts <command>",
-  "  targets                                          published targets, as JSON",
-  "  evidence <version> <commit> <timestamp>          release source evidence, as JSON",
-  "  identity <evidence.json> <target>                build identity for the compiler",
-  "  stage <evidence.json> <target> <build-dir> <out> archive directory; prints its name",
-  "  checksums <directory>                            checksums.txt for every asset there",
-  "  notes <version>                                  release notes, as Markdown"
+  "  targets",
+  "      the published targets, as JSON",
+  "  check <version> <commit> <timestamp>",
+  "      accept or reject the release source; writes no file",
+  "  identity <version> <commit> <timestamp> <target>",
+  "      the build identity the compiler embeds",
+  "  stage <version> <commit> <timestamp> <target> <build-dir> <out>",
+  "      the archive directory; prints its name",
+  "  checksums <directory>",
+  "      checksums.txt for every asset there",
+  "  notes <version>",
+  "      the release notes, as Markdown"
 ].join("\n");
+
+function sourceFacts(rest: readonly string[]): ReleaseSourceFacts {
+  const [version, sourceCommit, buildTimestamp] = rest;
+  if (version === undefined || sourceCommit === undefined || buildTimestamp === undefined) {
+    throw new Error(USAGE);
+  }
+  return Object.freeze({ version, sourceCommit, buildTimestamp });
+}
 
 function runCommand(argv: readonly string[]): string {
   const [command, ...rest] = argv;
@@ -439,40 +394,29 @@ function runCommand(argv: readonly string[]): string {
     if (rest.length !== 0) throw new Error(USAGE);
     return `${JSON.stringify(PUBLISHED_ARTIFACT_TARGETS)}\n`;
   }
-  if (command === "evidence") {
-    const [version, sourceCommit, buildTimestamp] = rest;
-    if (rest.length !== 3 || version === undefined || sourceCommit === undefined
-      || buildTimestamp === undefined) {
-      throw new Error(USAGE);
-    }
-    const evidence = githubReleaseSourceEvidence({
-      version,
-      sourceCommit,
-      buildTimestamp,
-      packageVersions: repositoryPackageVersions()
-    });
-    // Constructed and then parsed: the workflow never writes evidence the
-    // release identity codec would reject at the next step.
-    createReleaseIdentitySet(evidence);
-    return `${canonicalJson(evidence)}\n`;
+  if (command === "check") {
+    if (rest.length !== 3) throw new Error(USAGE);
+    const facts = sourceFacts(rest);
+    // Built and discarded. This rejects a version the release identity codec
+    // would reject, and one the repository's own package versions disagree
+    // with, in the job that dispatches rather than on four runners at once.
+    const identities = releaseIdentitiesForSource(facts);
+    return `release source accepted: ${identities.evidence.productVersion} at ${
+      facts.sourceCommit} built ${facts.buildTimestamp}\n`;
   }
   if (command === "identity") {
-    const [evidencePath, target] = rest;
-    if (rest.length !== 2 || evidencePath === undefined) throw new Error(USAGE);
-    const identities = createReleaseIdentitySet(
-      readJsonFile(path.resolve(evidencePath), MAX_EVIDENCE_BYTES)
-    );
-    return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(target)))}\n`;
+    if (rest.length !== 4) throw new Error(USAGE);
+    const identities = releaseIdentitiesForSource(sourceFacts(rest));
+    return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(rest[3])))}\n`;
   }
   if (command === "stage") {
-    const [evidencePath, target, buildDirectory, outputDirectory] = rest;
-    if (rest.length !== 4 || evidencePath === undefined || buildDirectory === undefined
-      || outputDirectory === undefined) {
+    const [buildDirectory, outputDirectory] = rest.slice(4);
+    if (rest.length !== 6 || buildDirectory === undefined || outputDirectory === undefined) {
       throw new Error(USAGE);
     }
     const staged = stageReleaseArchive({
-      evidencePath,
-      target: builtTarget(target),
+      ...sourceFacts(rest),
+      target: builtTarget(rest[3]),
       buildDirectory,
       outputDirectory
     });

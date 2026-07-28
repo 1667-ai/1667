@@ -14,10 +14,7 @@ import {
   RELEASE_TARGETS,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
-import {
-  createReleaseIdentitySet,
-  releaseIdentityForTarget
-} from "../scripts/release-identity.js";
+import { releaseIdentityForTarget } from "../scripts/release-identity.js";
 import {
   RELEASE_LICENSE_FILES,
   RELEASE_LICENSE_FILE_DIGESTS
@@ -26,13 +23,16 @@ import { createReleasePackageBuildManifest } from "../scripts/release-package-te
 import {
   directoryAssetDigests,
   formatReleaseChecksums,
-  githubReleaseSourceEvidence,
   releaseArchiveFileSet,
   releaseContentFileSet,
   stageReleaseArchive,
   RELEASE_BUILD_MANIFEST_FILE,
   RELEASE_SBOM_FILE
 } from "../scripts/release-github-assets.js";
+import {
+  githubReleaseSourceEvidence,
+  releaseIdentitiesForSource
+} from "../scripts/release-source-facts.js";
 import { releaseNotesMarkdown } from "../scripts/release-github-notes.js";
 import {
   releaseArchiveFileName,
@@ -52,20 +52,20 @@ const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)
 const VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
-
-function evidence(version = VERSION): ReturnType<typeof githubReleaseSourceEvidence> {
-  return githubReleaseSourceEvidence({
-    version,
-    sourceCommit: SOURCE_COMMIT,
-    buildTimestamp: BUILD_TIMESTAMP,
-    packageVersions: {
-      root: version,
-      tui: version,
-      rootLock: version,
-      rootLockPackage: version
-    }
-  });
-}
+/**
+ * The whole of what one release run carries between jobs. The version has to be
+ * this repository's own, because every job rebuilds its identity from these
+ * three strings against the checkout it is standing in.
+ */
+const FACTS = Object.freeze({
+  version: VERSION,
+  sourceCommit: SOURCE_COMMIT,
+  buildTimestamp: BUILD_TIMESTAMP
+});
+const WORKFLOW = readFileSync(
+  path.join(REPOSITORY_ROOT, ".github", "workflows", "release-github.yml"),
+  "utf8"
+);
 
 function digestOf(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -223,8 +223,8 @@ test("checksums cover every asset, sorted, and never the checksum file itself", 
   ]), /invalid SHA-256/);
 });
 
-test("the source evidence a dispatch records is evidence the release codec accepts", () => {
-  const identities = createReleaseIdentitySet(evidence());
+test("the three source facts build an identity the release codec accepts", () => {
+  const identities = releaseIdentitiesForSource(FACTS);
   assert.equal(identities.evidence.productVersion, VERSION);
   assert.equal(identities.evidence.tagName, `v${VERSION}`);
   assert.equal(identities.evidence.tagTargetCommit, SOURCE_COMMIT);
@@ -246,8 +246,6 @@ test("the source evidence a dispatch records is evidence the release codec accep
 test("staging writes the whole file set and nothing else", (t) => {
   const scratch = mkdtempSync(path.join(tmpdir(), "1667-release-archive-"));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
-  const evidencePath = path.join(scratch, "release-source-evidence.json");
-  writeFileSync(evidencePath, `${canonicalJson(evidence())}\n`, "utf8");
   const buildDirectory = path.join(scratch, "dist");
   mkdirSync(buildDirectory, { recursive: true });
   const stubExecutable = "#!/bin/sh\necho stub\n";
@@ -258,7 +256,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   });
 
   const staged = stageReleaseArchive({
-    evidencePath,
+    ...FACTS,
     target: "linux-x64",
     buildDirectory,
     outputDirectory: path.join(scratch, "stage")
@@ -288,34 +286,129 @@ test("staging writes the whole file set and nothing else", (t) => {
     stubExecutable
   );
   assert.equal(statSync(path.join(staged.directory, "1667")).mode & 0o777, 0o755);
+  const buildManifestText = readFileSync(
+    path.join(staged.directory, RELEASE_BUILD_MANIFEST_FILE),
+    "utf8"
+  );
   assert.equal(
-    readFileSync(path.join(staged.directory, RELEASE_BUILD_MANIFEST_FILE), "utf8"),
+    buildManifestText,
     `${canonicalJson(createReleasePackageBuildManifest(
-      createReleaseIdentitySet(evidence()).evidence,
+      releaseIdentitiesForSource(FACTS).evidence,
       releaseTargetForArtifact("linux-x64").packageName,
       "linux-x64"
     ))}\n`
   );
-  const sbom = parseJsonRejectingDuplicateKeys(
-    readFileSync(path.join(staged.directory, RELEASE_SBOM_FILE), "utf8")
-  ) as { name?: unknown; spdxVersion?: unknown };
+  const sbomText = readFileSync(path.join(staged.directory, RELEASE_SBOM_FILE), "utf8");
+  const sbom = parseJsonRejectingDuplicateKeys(sbomText) as {
+    name?: unknown;
+    spdxVersion?: unknown;
+  };
   assert.equal(sbom.spdxVersion, "SPDX-2.3");
   assert.equal(sbom.name, `@1667-ai/linux-x64@${VERSION}`);
+
+  // The accepted wart, held to memory. The evidence codec types
+  // `tagSignature: "verified"` as a literal, so the identity every job builds
+  // asserts a signature nothing verified. That is tolerable only while the
+  // claim never reaches a file, so no staged file may carry either tag field.
+  // `tagName` is a different thing and may ship: it names the tag the release
+  // job creates at this commit and claims nothing about a signature.
+  for (const shipped of [buildManifestText, sbomText]) {
+    assert.doesNotMatch(shipped, /tagSignature|tagObjectType|"verified"/u);
+  }
+  assert.match(sbomText, /Built from tag v0\.1\.0-rc\.1 at a clean working tree/u);
+});
+
+// One build, described identically by every archive in the run. This is why the
+// three facts come from `prepare` as job outputs instead of each runner reading
+// its own clock and HEAD.
+test("every target in one run stamps the same version, commit and timestamp", (t) => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "1667-release-run-"));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const buildDirectory = path.join(scratch, "dist");
+  mkdirSync(buildDirectory, { recursive: true });
+  writeFileSync(path.join(buildDirectory, "1667"), "#!/bin/sh\necho stub\n", "utf8");
+
+  const stems = new Set<string>();
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
+    const staged = stageReleaseArchive({
+      ...FACTS,
+      target,
+      buildDirectory,
+      outputDirectory: path.join(scratch, "stage")
+    });
+    stems.add(staged.stem);
+    const manifest = parseJsonRejectingDuplicateKeys(
+      readFileSync(path.join(staged.directory, RELEASE_BUILD_MANIFEST_FILE), "utf8")
+    ) as Record<string, unknown>;
+    assert.equal(manifest.productVersion, VERSION);
+    assert.equal(manifest.sourceCommit, SOURCE_COMMIT);
+    assert.equal(manifest.buildTimestamp, BUILD_TIMESTAMP);
+    assert.equal(manifest.artifactTarget, target);
+    assert.equal(manifest.packageName, releaseTargetForArtifact(target).packageName);
+  }
+  assert.equal(stems.size, PUBLISHED_ARTIFACT_TARGETS.length);
 });
 
 test("staging fails on a missing executable rather than writing a partial archive", (t) => {
   const scratch = mkdtempSync(path.join(tmpdir(), "1667-release-archive-"));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
-  const evidencePath = path.join(scratch, "release-source-evidence.json");
-  writeFileSync(evidencePath, `${canonicalJson(evidence())}\n`, "utf8");
   // No stub executable: staging must fail on a missing input rather than write
   // a partial archive.
   assert.throws(() => stageReleaseArchive({
-    evidencePath,
+    ...FACTS,
     target: "linux-x64",
     buildDirectory: path.join(scratch, "dist"),
     outputDirectory: path.join(scratch, "stage")
   }), /Release executable|ENOENT/);
+});
+
+// The forgeable-credential guard. A `ReleaseSourceEvidence` document asserts a
+// verified signed tag by construction, and scripts/release-preflight.ts accepts
+// exactly that document as the signed-tag evidence gating npm publication. One
+// written to disk and uploaded from a pre-release run would be downloadable and
+// sufficient, so reintroducing the upload must fail here rather than pass
+// review.
+test("the release workflow passes three strings between jobs and uploads no evidence", () => {
+  assert.ok(!WORKFLOW.includes("release-source-evidence"));
+
+  const lines = WORKFLOW.split("\n");
+  // Every artifact path in the file, uploaded or downloaded. Archives out,
+  // archives back in, and nothing else.
+  const artifactPaths = lines
+    .filter((line) => /^\s+path:\s/u.test(line))
+    .map((line) => line.replace(/^\s+path:\s*/u, "").trim());
+  assert.deepEqual(artifactPaths, ["dist/archives/*.tar.gz", "dist/assets"]);
+  // No key that names a file or an artifact may mention evidence, whatever the
+  // file is called. Prose in the comments above may, and must.
+  for (const line of lines) {
+    assert.doesNotMatch(line, /^\s*-?\s*(?:name|path|pattern):.*evidence/iu);
+  }
+
+  // The three facts, and only the three facts plus the target list, are the
+  // prepare job's outputs.
+  const outputs = /\n    outputs:\n((?:      [^\n]*\n)+)/u.exec(WORKFLOW)?.[1];
+  assert.equal(outputs, [
+    "      targets: ${{ steps.policy.outputs.targets }}",
+    "      version: ${{ steps.source.outputs.version }}",
+    "      commit: ${{ steps.source.outputs.commit }}",
+    "      timestamp: ${{ steps.source.outputs.timestamp }}",
+    ""
+  ].join("\n"));
+  for (const fact of ["version", "commit", "timestamp"] as const) {
+    assert.ok(
+      WORKFLOW.includes(`\${{ needs.prepare.outputs.${fact} }}`),
+      `the build matrix never reads ${fact}`
+    );
+  }
+  // The commands the build job runs take the three values, not a file.
+  assert.match(
+    WORKFLOW,
+    /release-github-assets\.ts identity \\\n\s+"\$VERSION" "\$COMMIT" "\$TIMESTAMP" "\$TARGET"/u
+  );
+  assert.match(
+    WORKFLOW,
+    /release-github-assets\.ts stage \\\n\s+"\$VERSION" "\$COMMIT" "\$TIMESTAMP" "\$TARGET" /u
+  );
 });
 
 test("the release notes claim the attestation and nothing it does not have", () => {

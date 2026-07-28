@@ -302,7 +302,23 @@ archive set alike — when that one field is cleared. No release script keeps a
 target list of its own.
 
 The dispatched version must match the root package, the TUI package, and the
-lockfile. The command that records the source evidence refuses any other value.
+lockfile. The `check` command refuses any other value, in the `prepare` job.
+
+Exactly three strings cross a job boundary: the version, the source commit, and
+one build timestamp. The `prepare` job publishes them as job outputs, and every
+later job rebuilds its release identity in memory from them. That is why every
+archive in a run carries the same `build-manifest.json` identity.
+
+The workflow never writes a source evidence document and never uploads one. A
+`ReleaseSourceEvidence` value types `tagObjectType` as `"annotated"` and
+`tagSignature` as `"verified"`, so any copy of it asserts a verified signed tag
+that this workflow neither obtains nor checks — and the tag does not exist until
+the release job creates it. Preflight accepts that same document as the
+signed-tag evidence for npm publication, which cannot be withdrawn, so a
+downloadable copy would be a ready-made credential for that gate. The signature
+claim stays in memory: no file the release ships carries `tagSignature` or
+`tagObjectType`. `tagName` does ship, in the SPDX package comment, where it
+names the tag the release creates at the source commit.
 
 Each archive is named `1667_<version>_<target>.tar.gz`. It contains one
 directory with the same name. Underscores separate the three fields because a
@@ -314,11 +330,18 @@ archive is a distribution, so Apache License section 4(a) and section 4(d)
 apply to it exactly as they apply to an npm tarball. Both files travel inside
 the archive, at the same reviewed digests preflight pins.
 
-`scripts/release-github-assets.ts` holds the file set, the staging command, the
-checksum format, and the source evidence. `scripts/release-archive.ts` holds the
-archive names and the checksum file name. `scripts/release-github-notes.ts`
-holds the release notes. `test/release-github-assets.test.ts` covers all three.
-The workflow contains no file list and no target list.
+`scripts/release-github-assets.ts` holds the file set, the staging command, and
+the checksum format. `scripts/release-source-facts.ts` holds the three source
+facts and turns them into release identities. `scripts/release-archive.ts` holds
+the archive names and the checksum file name. `scripts/release-github-notes.ts`
+holds the release notes. `test/release-github-assets.test.ts` covers all four,
+including the absence of any uploaded evidence document. The workflow contains
+no file list and no target list.
+
+Staging refuses to assemble an archive that lacks `LICENSE` or `NOTICE`. The
+release workflow runs `node --import tsx`, which strips types without checking
+them, so the tuple type and the tests are not in the release path; that check
+is, and it names the missing file and the target.
 
 `checksums.txt` lists the SHA-256 of every uploaded asset except itself.
 
