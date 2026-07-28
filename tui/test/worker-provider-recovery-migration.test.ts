@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
 import {
   mkdir,
+  mkdtemp,
+  readFile,
+  rm,
   writeFile
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { ServiceError } from "../../server/errors.js";
 import { createMutationCoordinator } from "../../server/mutation-coordinator.js";
@@ -12,6 +16,7 @@ import {
   mutationFingerprint
 } from "../../server/mutation-receipts.js";
 import { StoryMutationStore } from "../../server/story-mutation-store.js";
+import { StoryService } from "../../server/story-service.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import {
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
@@ -209,6 +214,107 @@ test("startup upgrades an active legacy warning before publication", async () =>
   } finally {
     await backend?.dispose();
     for (const cleanup of cleanups.reverse()) await cleanup();
+  }
+});
+
+test("startup archives provider replay errors without blocking", async () => {
+  const dataDir = await mkdtemp(path.join(
+    tmpdir(),
+    "1667-worker-replay-warning-"
+  ));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  let story = await service.createStory("Replay warning");
+  story = await service.createNode(story.id, {
+    parentId: null,
+    text: "A detailed opening."
+  });
+  await service.dispose();
+
+  const timestamp = Date.now().toString(36);
+  const uncertainId = createDurableMutationId();
+  const uncertainInput = {
+    id: story.id,
+    expectedTitle: story.title
+  };
+  await writeFile(
+    path.join(
+      dataDir,
+      "mutation-receipts",
+      `${uncertainId}.json`
+    ),
+    `${JSON.stringify({
+      format: "1667-mutation",
+      schemaVersion: 1,
+      mutationId: uncertainId,
+      fingerprint: mutationFingerprint(
+        "autonameStory",
+        uncertainInput
+      ),
+      method: "autonameStory",
+      state: "provider_started",
+      createdAt: new Date().toISOString()
+    })}\n`
+  );
+  const outbox = new MutationOutbox(
+    path.join(dataDir, "mutation-outbox")
+  );
+  await outbox.init();
+  await outbox.enqueue(
+    uncertainId,
+    "autonameStory",
+    uncertainInput
+  );
+  const terminalId =
+    `m1-${timestamp}-${"4".padStart(32, "0")}`;
+  await outbox.enqueue(
+    terminalId,
+    "renameStory",
+    { id: story.id }
+  );
+
+  const backend = await createWorkerStoryApi({ dataDir });
+  try {
+    await backend.recovery;
+    expect(backend.recoveryWarnings).toHaveLength(2);
+    expect(
+      backend.recoveryWarnings.map(({ error }) => error.code)
+    ).toEqual([
+      "generation_outcome_unknown",
+      "invalid_request"
+    ]);
+    expect(
+      backend.recoveryWarnings.map(({ resolution }) => resolution)
+    ).toEqual(["archived", "cleared"]);
+    expect(
+      (await backend.api.listStories()).map(({ id }) => id)
+    ).toContain(story.id);
+    expect(await outbox.list()).toEqual([]);
+    expect(JSON.parse(await readFile(
+      path.join(
+        dataDir,
+        "mutation-outbox-archive",
+        `${uncertainId}.json`
+      ),
+      "utf8"
+    ))).toMatchObject({
+      format: "1667-mutation-outbox-archive",
+      schemaVersion: 2,
+      intent: {
+        mutationId: uncertainId,
+        method: "autonameStory"
+      },
+      resolution: {
+        code: "generation_outcome_unknown"
+      },
+      providerRecovery: {
+        kind: "target",
+        providerMutationId: uncertainId
+      }
+    });
+  } finally {
+    await backend.dispose();
+    await rm(dataDir, { recursive: true, force: true });
   }
 });
 
