@@ -492,18 +492,22 @@ describe("inline settings menu", () => {
 
     await press(key("s"));
     expect(commands).toHaveLength(1);
+    // Every entered key mints a fresh secret ID: the server refuses to rebind
+    // an ID the active document still resolves to a different target.
+    const firstId = Object.keys(commands[0]!.connectionSecrets ?? {})[0]!;
+    expect(firstId.startsWith("demo.k")).toBeTrue();
     expect(commands[0]!.connectionSecrets).toEqual({
-      demo: "sk-pasted-secret"
+      [firstId]: "sk-pasted-secret"
     });
     expect(commands[0]!.document.connections.demo?.auth).toEqual({
       type: "bearer-stored",
-      secretId: "demo"
+      secretId: firstId
     });
     expect(JSON.stringify(commands[0]!.document)).not.toContain("sk-pasted-secret");
 
     await draftRow(press, state, "api-key", "");
     await press(key("s"));
-    expect(commands[1]!.connectionSecrets).toEqual({ demo: null });
+    expect(commands[1]!.connectionSecrets).toEqual({ [firstId]: null });
     expect(commands[1]!.document.connections.demo?.auth).toEqual({ type: "none" });
 
     await selectRow(press, state, "provider");
@@ -519,13 +523,16 @@ describe("inline settings menu", () => {
     await press(key("return"));
     await press(key("s"));
 
+    const thirdId = Object.keys(commands[2]!.connectionSecrets ?? {})[0]!;
+    expect(thirdId.startsWith("demo.k")).toBeTrue();
+    expect(thirdId).not.toBe(firstId);
     expect(commands[2]!.connectionSecrets).toEqual({
-      demo: "anthropic-pasted-secret"
+      [thirdId]: "anthropic-pasted-secret"
     });
     expect(commands[2]!.document.connections.demo?.auth).toEqual({
       type: "header-stored",
       name: "x-api-key",
-      secretId: "demo"
+      secretId: thirdId
     });
   });
 

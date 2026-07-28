@@ -82,6 +82,7 @@ import {
 } from "./settings-state-file.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
+import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
@@ -400,6 +401,11 @@ export class SettingsV2Store {
       : [];
     if (operation.method === "saveSettings") {
       requireConnectionSecretsMatchDocument(
+        operation.document,
+        connectionSecretEntries
+      );
+      requireActiveSecretRebindingRekeyed(
+        activeSettingsDocument(current),
         operation.document,
         connectionSecretEntries
       );
@@ -742,6 +748,44 @@ function storedSecretIdsInState(state: SettingsStateV2): Set<string> {
     for (const secretId of storedSecretIdsInDocument(document)) ids.add(secretId);
   }
   return ids;
+}
+
+/** A stored secret ID binds one credential target to one value. While the
+ * active document still resolves an ID, a save may overwrite its value only
+ * for that same target — rotation in place. Rebinding it to a different
+ * target would hand the new key to the old endpoint through every reader of
+ * the still-active revision, including one racing this very save, and the
+ * mismatched pairing would persist if the candidate then failed validation. */
+function requireActiveSecretRebindingRekeyed(
+  active: SettingsDocumentV2,
+  submitted: SettingsDocumentV2,
+  entries: readonly (readonly [string, string | null])[]
+): void {
+  for (const [secretId, value] of entries) {
+    if (value === null) continue;
+    const activeReferences = connectionsResolvingStoredSecret(active, secretId);
+    if (activeReferences.length === 0) continue;
+    const submittedReferences = connectionsResolvingStoredSecret(submitted, secretId);
+    const rotationInPlace = activeReferences.every((reference) =>
+      submittedReferences.some((candidate) =>
+        sameActivatedCredentialTarget(reference, candidate)));
+    if (!rotationInPlace) {
+      throw new ServiceError(
+        400,
+        "A stored key for a changed credential target needs a new secret ID; the active settings still resolve this one.",
+        "invalid_request"
+      );
+    }
+  }
+}
+
+function connectionsResolvingStoredSecret(
+  document: SettingsDocumentV2,
+  secretId: string
+): readonly SettingsDocumentV2["connections"][string][] {
+  return Object.values(document.connections).filter(
+    (connection) => storedCredentialSecretId(connection.auth) === secretId
+  );
 }
 
 function requireConnectionSecretsMatchDocument(

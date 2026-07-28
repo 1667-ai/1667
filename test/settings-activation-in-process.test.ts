@@ -278,22 +278,33 @@ test("generation snapshots stay coherent while an activation replaces a stored c
   });
   const generation = (await store.loadView()).stateGeneration!;
 
+  // Each revision pairs its own endpoint with its own key, so a crossed
+  // stream — the old endpoint resolving the new key, or the reverse — is
+  // observable, not just a missing credential.
+  const pairing: Readonly<Record<string, string>> = {
+    "https://api.openai.com/v1": "Bearer sk-first",
+    "https://second.example/v1": "Bearer sk-second"
+  };
   let stop = false;
   const hammer = (async () => {
     while (!stop) {
       const { settings } = await store.loadGeneration();
       const authorization = resolveProviderHeaders(settings, {}).headers.authorization;
       assert.equal(
-        authorization === "Bearer sk-first" || authorization === "Bearer sk-second",
-        true,
-        `torn runtime snapshot: ${String(authorization)}`
+        authorization,
+        pairing[settings.baseUrl],
+        `crossed credential streams: ${settings.baseUrl} resolved ${String(authorization)}`
       );
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
   })();
   try {
     await store.save({
-      ...saveCommand(MUTATION_B, generation, storedSecretDocument("second:secret")),
+      ...saveCommand(
+        MUTATION_B,
+        generation,
+        storedSecretDocument("second:secret", "https://second.example/v1")
+      ),
       connectionSecrets: { "second:secret": "sk-second" }
     });
     // Keep reading across the post-activation prune window as well.
@@ -303,8 +314,10 @@ test("generation snapshots stay coherent while an activation replaces a stored c
   }
   await hammer;
 
+  const settled = (await store.loadGeneration()).settings;
+  assert.equal(settled.baseUrl, "https://second.example/v1");
   assert.equal(
-    resolveProviderHeaders((await store.loadGeneration()).settings, {}).headers.authorization,
+    resolveProviderHeaders(settled, {}).headers.authorization,
     "Bearer sk-second",
     "readers converge on the committed credential"
   );
@@ -312,6 +325,62 @@ test("generation snapshots stay coherent while an activation replaces a stored c
     [...(await readProviderSecrets(dataDir)).keys()],
     ["second:secret"],
     "the replaced credential is still pruned once no coherent snapshot can reference it"
+  );
+});
+
+test("a save may not rebind a stored key the active document still resolves", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-rebind-guard-");
+  const store = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => true
+  });
+  await store.init(2);
+  await store.save({
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("shared:key")),
+    connectionSecrets: { "shared:key": "sk-openai-old" }
+  });
+  const generation = (await store.loadView()).stateGeneration!;
+
+  // Switching the connection to another provider while reusing the ID would
+  // hand the new key to the old endpoint through every concurrent reader.
+  await assert.rejects(
+    store.save({
+      ...saveCommand(MUTATION_B, generation, retargetedStoredDocument("shared:key")),
+      connectionSecrets: { "shared:key": "sk-anthropic-new" }
+    }),
+    hasServiceCode("invalid_request")
+  );
+  assert.equal(
+    (await readProviderSecrets(dataDir)).get("shared:key"),
+    "sk-openai-old",
+    "the refused save never touched the active value"
+  );
+  const view = await store.loadView();
+  assert.equal(view.pendingRevision, null, "the refused save staged nothing");
+  assert.equal(view.effective.baseUrl, "https://api.openai.com/v1");
+  assert.equal(
+    resolveProviderHeaders((await store.loadGeneration()).settings, {}).headers.authorization,
+    "Bearer sk-openai-old"
+  );
+
+  // The same retarget under a fresh ID is the supported path: the old
+  // binding stays intact until commit, then the superseded value is pruned.
+  const rekeyed = await store.save({
+    ...saveCommand(MUTATION_C, generation, retargetedStoredDocument("shared:key.2")),
+    connectionSecrets: { "shared:key.2": "sk-anthropic-new" }
+  });
+  assert.equal(rekeyed.activationOutcome?.result, "committed");
+  const activated = (await store.loadGeneration()).settings;
+  assert.equal(activated.baseUrl, "https://api.anthropic.com");
+  assert.equal(
+    resolveProviderHeaders(activated, {}).headers["x-api-key"],
+    "sk-anthropic-new"
+  );
+  assert.deepEqual(
+    [...(await readProviderSecrets(dataDir)).keys()],
+    ["shared:key.2"],
+    "the superseded binding is pruned after commit"
   );
 });
 
@@ -508,7 +577,10 @@ test("a saved-but-unactivated credential target stays testable; unsaved targets 
   );
 });
 
-function storedSecretDocument(secretId: string): SettingsDocumentV2 {
+function storedSecretDocument(
+  secretId: string,
+  baseUrl = "https://api.openai.com/v1"
+): SettingsDocumentV2 {
   const base = credentialedDocument("AI_1667_UNUSED_ENV_KEY");
   const connection = base.connections["builtin:dry-run"]!;
   return {
@@ -517,7 +589,26 @@ function storedSecretDocument(secretId: string): SettingsDocumentV2 {
       ...base.connections,
       "builtin:dry-run": {
         ...connection,
+        baseUrl,
         auth: { type: "bearer-stored", secretId }
+      }
+    }
+  };
+}
+
+function retargetedStoredDocument(secretId: string): SettingsDocumentV2 {
+  const base = storedSecretDocument(secretId);
+  const connection = base.connections["builtin:dry-run"]!;
+  return {
+    ...base,
+    connections: {
+      ...base.connections,
+      "builtin:dry-run": {
+        ...connection,
+        preset: "anthropic",
+        protocol: "anthropic-messages",
+        baseUrl: "https://api.anthropic.com",
+        auth: { type: "header-stored", name: "x-api-key", secretId }
       }
     }
   };
