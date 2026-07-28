@@ -476,7 +476,11 @@ test("the generator and the staged-entry policy enforce the same size bound", ()
  * must install the same Bun, because one declared runtime goes into the SBOM
  * inside every archive.
  */
-const BUN_COMPILING_WORKFLOWS = ["ci.yml", "release-github.yml"] as const;
+const BUN_COMPILING_WORKFLOWS = [
+  "ci.yml",
+  "release-github.yml",
+  "release-npm.yml"
+] as const;
 
 /**
  * The Bun version the workflows install. `bun build --compile` embeds the

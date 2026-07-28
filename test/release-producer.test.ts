@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   symlink,
@@ -33,6 +35,8 @@ import {
   type NpmPackInvocation
 } from "../scripts/release-pack.js";
 import { releaseIdentityForTarget } from "../scripts/release-identity.js";
+import { createReleasePreflightPlan } from "../scripts/release-npm-plan.js";
+import { publicationPackages } from "../scripts/release-npm-publish.js";
 import { runReleasePreflight } from "../scripts/release-preflight.js";
 import {
   stagePublishedReleasePackages,
@@ -99,20 +103,64 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
       );
       return [artifactTarget, parseBuildIdentity(JSON.parse(stdout))] as const;
     })));
-  const preflight = await runReleasePreflight({
-    schemaVersion: 1,
-    sourceEvidence: identities.evidence,
-    artifacts: firstPacked.map((entry) => ({
-      tarballPath: entry.tarballPath,
-      buildIdentity: entry.artifactTarget === "launcher"
-        ? null
-        : observedIdentities.get(entry.artifactTarget)
-    }))
-  }, root);
+  const observations = path.join(root, "observations");
+  await mkdir(observations);
+  for (const staged of first.slice(1)) {
+    const target = staged.artifactTarget as PublishedArtifactTarget;
+    const descriptor = releaseTargetForArtifact(target);
+    const executable = path.join(staged.directory, descriptor.executable);
+    const bytes = await readFile(executable);
+    await writeFile(path.join(observations, `${target}.json`), JSON.stringify({
+      schemaVersion: 1,
+      artifactTarget: target,
+      executable: {
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        bytes: bytes.byteLength
+      },
+      buildIdentity: observedIdentities.get(target)
+    }));
+  }
+  const plan = await createReleasePreflightPlan(
+    identities.evidence,
+    path.join(root, "pack-a"),
+    observations,
+    await realpath(root)
+  );
+  const preflight = await runReleasePreflight(plan, root);
   assert.equal(preflight.manifest.artifacts.length, PUBLISHED_PACKAGE_COUNT);
   assert.deepEqual(
     preflight.manifest.artifacts.map((entry) => entry.name),
     first.map((entry) => entry.packageName)
+  );
+  const planPath = path.join(root, "plan.json");
+  const manifestPath = path.join(root, "artifact-manifest.json");
+  await writeFile(planPath, JSON.stringify(plan));
+  await writeFile(manifestPath, preflight.text);
+  assert.equal(
+    (await publicationPackages(planPath, manifestPath, path.join(root, "pack-a")))
+      .packages.length,
+    PUBLISHED_PACKAGE_COUNT
+  );
+  await writeFile(manifestPath, "{}");
+  await assert.rejects(
+    publicationPackages(planPath, manifestPath, path.join(root, "pack-a")),
+    /does not match repeated preflight/u
+  );
+  const mutatedTarget = PUBLISHED_ARTIFACT_TARGETS[0]!;
+  const mutationFile = path.join(observations, `${mutatedTarget}.json`);
+  const mutation = JSON.parse(await readFile(mutationFile, "utf8")) as {
+    executable: { sha256: string };
+  };
+  mutation.executable.sha256 = "0".repeat(64);
+  await writeFile(mutationFile, JSON.stringify(mutation));
+  await assert.rejects(
+    createReleasePreflightPlan(
+      identities.evidence,
+      path.join(root, "pack-a"),
+      observations,
+      await realpath(root)
+    ),
+    /observation does not describe the packaged executable/u
   );
 
   await varyBuildMtimes(buildDirectories);

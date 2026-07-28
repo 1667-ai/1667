@@ -8,9 +8,12 @@ read_when:
 
 # Release packages for 1667
 
-This repository does not support hosted npm publication. It supports local
-release package production and preflight. It publishes native archives as a
-GitHub pre-release.
+This repository contains a hosted npm publication workflow. A safety interlock
+currently disables publication. Issue #82 must change the SBOM input boundary
+before maintainers remove the interlock.
+
+The repository supports local release package production and preflight. It
+publishes native archives as a GitHub pre-release.
 
 Maintainers reserved the package names. Do not publish packages. Do not move
 registry tags. Do not describe a candidate as an official release.
@@ -35,6 +38,7 @@ This document uses these Technical Names:
 | source evidence | Trusted source, tag, version, and time data |
 | release plan | The strict JSON input for release preflight |
 | artifact manifest | The canonical JSON output from release preflight |
+| publication attempt ref | An immutable ref that records one npm write attempt |
 | SBOM | The SPDX Software Bill of Materials in each release package |
 | preflight | Local validation of release packages and their evidence |
 
@@ -269,6 +273,55 @@ must contain the trusted build identity from its native executable.
 
 Preflight rejects missing, duplicate, extra, or unsupported packages. It also
 rejects package identities that do not agree with the source evidence.
+
+## Hosted npm publication
+
+`.github/workflows/release-npm.yml` is the hosted npm publication workflow. npm
+Trusted Publishing trusts this exact workflow path for the five release
+packages.
+
+The workflow accepts a manual dispatch from the default branch. The input is
+one version without a leading `v`. The signed `v<version>` tag must target the
+dispatch commit.
+
+The workflow has these jobs:
+
+1. `build` builds and observes the four published native executables.
+2. `launcher` stages and packs the five release packages.
+3. `preflight` verifies the package set and retains the result.
+4. `publish` publishes the four platform packages before the launcher package.
+5. `release` verifies publication and publishes the GitHub pre-release.
+
+The workflow uses one non-cancelling lock for all npm releases. A failed job can
+use the retained inputs from the same workflow run. The registry check accepts
+an existing version only when its digest and provenance are correct.
+It binds the provenance certificate to this repository, workflow, and ref.
+
+The publish job creates a publication attempt ref before each npm write. The ref
+binds the package target and tarball digest to the release commit. A retry does
+not immediately repeat a write that has a publication attempt ref. It first
+waits for the first write to become visible. If the wait expires, the job tries
+the same immutable version again. npm rejects an existing version without a
+replacement. The job then continues the visibility check.
+
+A `released/v<version>_quarantined` ref blocks publication for that version.
+The ref is immutable. The publish job checks this ref before it reads npm
+metadata.
+
+The workflow publishes with the npm `next` tag. It waits for the platform
+packages before it publishes the launcher package. It creates
+`released/v<version>` only after npm and GitHub publication are complete.
+The final registry check requires `next` to name this version for all five
+packages.
+The workflow fully verifies each package before it writes the next package.
+
+The workflow does not accept an npm token. The jobs with OIDC authority disable
+dependency lifecycle scripts. Each job verifies retained inputs before it uses
+them.
+
+The `preflight` job currently runs the safety interlock before it enters the
+`publish` environment. Do not remove the interlock before issue #82 is complete.
+Do not dispatch this workflow for publication while the interlock is active.
 
 ## Local gates
 
