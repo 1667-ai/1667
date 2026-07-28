@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 import { activePath, childrenOf, pathTo, takeIndex } from "../shared/story-tree.js";
 import { parseLegacyStory } from "../server/story-format.js";
 import type { Tag, NodeStub, StoryPayload } from "../shared/types.js";
@@ -17,7 +17,7 @@ import {
 } from "../shared/story-model.js";
 
 const NOW = "2026-07-16T12:00:00.000Z";
-const LINEAR_BUDGET_MS = 1_500;
+const LINEAR_BUDGET = cpuBudget(1_500);
 
 test("loom performance: a 20k-part line indexes and probes in linear time", (context) => {
   const size = 20_000;
@@ -28,7 +28,7 @@ test("loom performance: a 20k-part line indexes and probes in linear time", (con
     index + 1 < size ? 1 : 0
   ));
   const payload = story(nodes);
-  const started = performance.now();
+  const read = startTiming();
   assert.equal(activePath(payload).length, size);
   const index = createStoryIndex(payload);
   assert.equal(pathTo(index.tree, `deep-${size - 1}`).length, size);
@@ -42,10 +42,9 @@ test("loom performance: a 20k-part line indexes and probes in linear time", (con
   assert.equal(mapWindow.tail.at(-1)?.id, `deep-${size - 1}`);
   for (let offset = 0; offset < size; offset += 1) subtreeNodeCount(index, `deep-${offset}`);
   assert.ok(activePathWindow(size, 18).length < 50);
-  const elapsed = performance.now() - started;
+  const timing = read();
 
-  context.diagnostic(`20k deep index + full probes: ${elapsed.toFixed(1)}ms`);
-  assert.ok(elapsed < LINEAR_BUDGET_MS, `deep-tree work took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "20k deep index + full probes", LINEAR_BUDGET, timing);
 });
 
 test("loom performance: a 20k-take fork keeps previews and its DOM window bounded", (context) => {
@@ -60,7 +59,7 @@ test("loom performance: a 20k-take fork keeps previews and its DOM window bounde
     createdAt: NOW
   }));
   const payload = story([root, ...takes], tags);
-  const started = performance.now();
+  const read = startTiming();
   const index = createStoryIndex(payload);
   assert.equal(childrenOf(index.tree, root.id).length, takeCount);
   let ordinalChecksum = 0;
@@ -72,11 +71,10 @@ test("loom performance: a 20k-take fork keeps previews and its DOM window bounde
     ordinalChecksum += ordinal.index;
   }
   const page = mapForkPage(payload, index, takes, `wide-${takeCount - 1}`, 50, 0);
-  const elapsed = performance.now() - started;
+  const timing = read();
   const middle = virtualRange(takeCount, 10_000 * 82, 82, 390, 3);
   const end = virtualRange(takeCount, takeCount * 82 - 390, 82, 390, 3);
 
-  context.diagnostic(`20k wide index + every-row metadata probe: ${elapsed.toFixed(1)}ms`);
   assert.equal(ordinalChecksum, takeCount * (takeCount + 1) / 2);
   assert.ok(middle.end - middle.start <= 11);
   assert.ok(end.end - end.start <= 11);
@@ -87,7 +85,7 @@ test("loom performance: a 20k-take fork keeps previews and its DOM window bounde
   assert.equal(page.rows.at(-1)?.index, takeCount - 1, "the active take remains visible outside the page");
   assert.ok(page.rows.length <= 52, "the map reconciles one page, one rollup, and the active take");
   assert.deepEqual(virtualRange(takeCount, Number.MAX_SAFE_INTEGER, 82, 390, 3), end);
-  assert.ok(elapsed < LINEAR_BUDGET_MS, `wide-tree work took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "20k wide index + every-row metadata probe", LINEAR_BUDGET, timing);
 });
 
 test("loom performance: a mixed 10k-node loom precomputes nested rollups once", (context) => {
@@ -115,18 +113,17 @@ test("loom performance: a mixed 10k-node loom precomputes nested rollups once", 
     }
   }
   const payload = story(nodes, tags);
-  const started = performance.now();
+  const read = startTiming();
   const index = createStoryIndex(payload);
   for (const node of nodes) {
     continuationStats(payload, node.id, index);
     tagBelow(payload, node.id, index);
   }
-  const elapsed = performance.now() - started;
+  const timing = read();
 
-  context.diagnostic(`10k mixed index + every-node metadata probe: ${elapsed.toFixed(1)}ms`);
   assert.equal(subtreeNodeCount(index, "trunk-0"), 10_000);
   assert.equal(rememberedLeafId(payload, "trunk-0", index), `trunk-${depth - 1}`);
-  assert.ok(elapsed < LINEAR_BUDGET_MS, `mixed-tree work took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "10k mixed index + every-node metadata probe", LINEAR_BUDGET, timing);
 });
 
 test("loom performance: a legacy 20k-part line migrates in linear time", (context) => {
@@ -138,14 +135,13 @@ test("loom performance: a legacy 20k-part line migrates in linear time", (contex
       model: "test", createdAt: NOW
     }))
   });
-  const started = performance.now();
+  const read = startTiming();
   const story = parseLegacyStory(raw, "legacy-performance");
-  const elapsed = performance.now() - started;
+  const timing = read();
 
-  context.diagnostic(`20k legacy migration: ${elapsed.toFixed(1)}ms`);
   assert.equal(story.nodes.length, size);
   assert.equal(activePath(story).length, size);
-  assert.ok(elapsed < LINEAR_BUDGET_MS, `legacy migration took ${elapsed.toFixed(1)}ms`);
+  assertWithinBudget(context, "20k legacy migration", LINEAR_BUDGET, timing);
 });
 
 function stub(id: string, parentId: string | null, activeChildId: string | null, childCount: number): NodeStub {

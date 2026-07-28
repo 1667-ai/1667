@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 import { WORKER_MAX_OPERATION_SEQUENCE } from "../shared/worker-protocol.js";
 import { ServiceError } from "../server/errors.js";
 import {
@@ -91,16 +91,15 @@ test("uint64 operation sequence exhaustion fails closed", () => {
 
 test("worker operation registry stays inexpensive under terminal churn", (context) => {
   const registry = new WorkerOperationRegistry(INSTANCE);
-  const started = performance.now();
+  const read = startTiming();
   for (let sequence = 1n; sequence <= 20_000n; sequence += 1n) {
     const id = operationId(sequence);
     assert.equal(registry.accept(id), "accepted");
     registry.finish(id, "completed");
     assert.equal(registry.acknowledgeTerminal(id), "acknowledged");
   }
-  const elapsed = performance.now() - started;
-  assert.ok(elapsed < 2_000, `20,000 worker lifecycles took ${elapsed.toFixed(1)}ms`);
-  context.diagnostic(`20,000 worker lifecycles in ${elapsed.toFixed(1)}ms`);
+  const timing = read();
+  assertWithinBudget(context, "20,000 worker lifecycles", cpuBudget(2_000), timing);
 });
 
 function invalidRequest(message: string) {

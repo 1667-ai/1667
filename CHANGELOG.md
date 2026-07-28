@@ -1,10 +1,40 @@
 # Changelog
 
 This file records notable changes to 1667. Product terms use the definitions in
-the [README](README.md#technical-terms).
+[Technical terms](docs/technical-terms.md).
 
 ## Unreleased
 
+- **`u` now takes back an added or removed chapter break only.** It also
+  reversed a take switch, and it said so on each take switch. Two keys did one
+  job: `←` and `→` already walk the takes of one part. Worse, a key named undo
+  that answers a navigation key implies that it can answer a destructive one. It
+  cannot: `d` prunes takes and their children, and nothing brings them back. `u`
+  now reaches an added or removed chapter break, which includes the summary of a
+  removed break. It does not reach a chapter rename, a summary edit, or any
+  prose. The take-switch message no longer names it. Thanks @10fra for the
+  report.
+- **A fresh install now opens with facts.** The tour carries five facts about
+  the instrument. "A Door in the Hedge" carries four facts about its own world.
+  The facts overlay no longer opens empty at the point where the tour tells you
+  to look in it. The starter vault writes the facts in the same change that
+  writes the prose, so a first run does not pay a second write for each story.
+- **Settings status text now sits above the footer.** The revision line, the
+  unsaved-draft notice, and the pending-restart notice moved below the fields,
+  beside the check result. The read-only migration banner stays above the
+  fields, because it changes what each field below it means. The notice area
+  keeps a constant height, so a pending restart no longer moves the fields or
+  the rows above them. Thanks @10fra for the placement review.
+- **A toast now always uses the footer line.** Before, a toast printed under the
+  focused story part while the view followed focus, and in the footer after you
+  scrolled away. A message about the application no longer enters the
+  manuscript, and it no longer moves with the focus. Thanks @10fra for the
+  placement review.
+- **1667 no longer announces a clean startup recovery.** The message `startup
+  recovery complete · state reloaded` reported an internal step at each start.
+  1667 still reloads state at each start. It now reports the recovery only with
+  a warning, or when the reload opens a different story. Thanks @10fra for the
+  report.
 - **Bookmarks are now tags.** A tag is a name and a status on the end of one
   story line. The old name told you that the mark kept a reading position. It
   does not. It names one version of the story, and the reading position is the
@@ -20,10 +50,15 @@ the [README](README.md#technical-terms).
   you make a second line Canon, the first line becomes Alt and keeps its name,
   its colour, and its date. Before, the first line lost its status. It then
   looked the same as a line with no tag. Thanks @10fra for the report.
-- **1667 now supports Windows x64 release candidates.** The Windows machine
-  tier installs a protected DACL for the current user and SYSTEM. Native tests
-  reject reparse points. CI builds the executable and runs it through the npm
-  launcher package.
+- **1667 builds and verifies Windows x64, and withholds its package.** The
+  Windows machine tier installs a protected DACL for the current user and
+  SYSTEM. Native tests reject reparse points. CI builds the executable, stages
+  the exact npm package layout, and validates it on every change. The launcher
+  does not pin `@1667-ai/windows-x64`. npm fails an optional dependency softly,
+  so a launcher that named a package nobody published would install cleanly on
+  Windows and then fail at every launch, and npm does not allow a published
+  version to be replaced. A Windows user who runs the launcher is told that the
+  package is withheld, and is pointed at the source that does build.
 - **Pull requests no longer wait on the macOS x64 build.** CI still builds and
   tests all five release targets on `main` and on demand. Pull requests gate on
   macOS arm64, Linux arm64, Linux x64, and Windows x64. The macOS x64 runner is

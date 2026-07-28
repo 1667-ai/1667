@@ -16,7 +16,7 @@ import {
   type StoryAggregateVersion
 } from "../shared/story-aggregate-version.js";
 import { isWorkerMutationMethod } from "../shared/worker-protocol.js";
-import { platformPerformanceBudget } from "./platform-performance-budget.js";
+import { platformPerformanceBudget } from "./performance-budget.js";
 
 export const API_PROTOCOL_HEADERS: Record<string, string> = {
   [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION)

@@ -392,15 +392,21 @@ test("listener bounds a stalled diagnostic flush during shutdown", async (t) => 
     port: 0,
     dataDir,
     authStore: { stateRoot },
-    errorReporterLease: new InternalErrorReporterLease(reporter)
+    errorReporterLease: new InternalErrorReporterLease(reporter),
+    shutdownGraceMs: 250
   });
-  const startedAt = Date.now();
-  const failure = await rejectionOf(listener.close({
+  const dateNow = Date.now;
+  Date.now = () => 1_000;
+  t.after(() => { Date.now = dateNow; });
+  const startedAt = performance.now();
+  const closing = listener.close({
     error: new Error("shutdown failed"),
     operation: "test-shutdown"
-  }));
+  });
+  Date.now = () => 0;
+  const failure = await rejectionOf(closing);
 
-  assert.ok(Date.now() - startedAt < 1_000);
+  assert.ok(performance.now() - startedAt < 1_000);
   assert.equal(internalErrorReference(failure), null);
   assert.equal(toPublicServiceError(failure).message, "Internal server error");
 });

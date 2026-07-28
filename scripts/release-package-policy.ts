@@ -2,12 +2,12 @@ import {
   sameBuildIdentity
 } from "../shared/build-identity.js";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
+  PUBLISHED_ARTIFACT_TARGETS,
+  PUBLISHED_PACKAGE_COUNT,
   RELEASE_LAUNCHER_PACKAGE,
-  RELEASE_PACKAGE_COUNT,
   releaseTargetForArtifact,
   releaseTargetForPackage,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 import {
   releaseIdentityForTarget,
@@ -39,6 +39,13 @@ export type {
 export const MAX_RELEASE_TARBALL_ENTRIES = 16;
 export const MAX_RELEASE_TARBALL_FILE_BYTES = 272 * 1024 * 1024;
 
+/**
+ * The bound on a staged `sbom.spdx.json`. The generator refuses to emit a
+ * document larger than this, and the entry policy below refuses to accept one,
+ * so the two agree by construction rather than by two copies of a literal.
+ */
+export const MAX_RELEASE_SBOM_BYTES = 8 * 1024 * 1024;
+
 export interface ReleasePackageMatrix {
   version: string;
   launcher: ReleaseLauncherManifest;
@@ -63,12 +70,17 @@ export interface ReleaseTarballInspection {
 const TARBALL_KEYS = new Set(["packageJsonSha256", "entries"]);
 const ENTRY_KEYS = new Set(["path", "type", "mode", "size", "sha256"]);
 
+/**
+ * The matrix is what gets published, so it covers the published targets only.
+ * A held target's package is still built, staged and validated one at a time by
+ * `parseReleasePackageManifest`; it just never joins the set that ships.
+ */
 export function validateReleasePackageMatrix(
   values: readonly unknown[],
   identities: ReleaseIdentitySet
 ): ReleasePackageMatrix {
-  if (values.length !== RELEASE_PACKAGE_COUNT) {
-    throw new Error("Release package matrix must contain one launcher and every platform");
+  if (values.length !== PUBLISHED_PACKAGE_COUNT) {
+    throw new Error("Release package matrix must contain one launcher and every published platform");
   }
   const parsed = values.map((value) => parseReleasePackageManifest(
     value,
@@ -82,7 +94,7 @@ export function validateReleasePackageMatrix(
   const launcher = byName.get(RELEASE_LAUNCHER_PACKAGE);
   if (launcher?.kind !== "launcher") throw new Error("Release package matrix has no launcher");
 
-  const platforms = PACKAGED_ARTIFACT_TARGETS.map((target) => {
+  const platforms = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
     const descriptor = releaseTargetForArtifact(target);
     const manifest = byName.get(descriptor.packageName);
     if (manifest?.kind !== "platform" || manifest.target !== target) {
@@ -94,7 +106,7 @@ export function validateReleasePackageMatrix(
     }
     return manifest;
   });
-  if (byName.size !== RELEASE_PACKAGE_COUNT) {
+  if (byName.size !== PUBLISHED_PACKAGE_COUNT) {
     throw new Error("Release package matrix contains an unsupported package");
   }
   return Object.freeze({
@@ -203,7 +215,7 @@ function parseLauncherManifest(value: unknown, expectedVersion: string): Release
 function parsePlatformManifest(
   value: unknown,
   expectedVersion: string,
-  target: PackagedArtifactTarget
+  target: BuiltArtifactTarget
 ): ReleasePlatformManifest {
   const expected = createReleasePlatformManifest(target, expectedVersion);
   const input = exactRecord(
@@ -296,7 +308,7 @@ function assertEntryPolicy(
   const maximum = entry.path === executable
     ? (manifest.kind === "launcher" ? 128 * 1024 : 256 * 1024 * 1024)
     : entry.path.endsWith("/sbom.spdx.json")
-      ? 8 * 1024 * 1024
+      ? MAX_RELEASE_SBOM_BYTES
       : 1024 * 1024;
   if (entry.size > maximum) throw new Error(`${entry.path} exceeds its size bound`);
   assertLicenceFileDigest(entry);
@@ -319,7 +331,7 @@ function assertLicenceFileDigest(entry: TarballInspectionEntry): void {
   }
 }
 
-function targetForPackageName(name: string): PackagedArtifactTarget | null {
+function targetForPackageName(name: string): BuiltArtifactTarget | null {
   return releaseTargetForPackage(name)?.artifactTarget ?? null;
 }
 
@@ -353,7 +365,7 @@ function exactStringRecord(
 
 export function assertPackageIdentityAgreement(
   set: ReleaseIdentitySet,
-  target: PackagedArtifactTarget,
+  target: BuiltArtifactTarget,
   observed: ReleaseBuildIdentityLike
 ): void {
   const expected = releaseIdentityForTarget(set, target);

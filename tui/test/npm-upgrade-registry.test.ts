@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import {
+  RELEASE_TARGETS,
+  releasePlatformDependencyGraph,
   releaseTargetForArtifact
 } from "../../shared/release-targets.js";
 import {
@@ -66,6 +68,27 @@ test("exact npm metadata validates identity, integrity, and the complete platfor
     integrity: INTEGRITY
   });
   expect(Object.isFrozen(metadata)).toBeTrue();
+});
+
+test("the launcher graph a client expects never names a held target's package", () => {
+  const graph = releasePlatformDependencyGraph("2.0.0");
+  expect(Object.keys(graph).sort()).toEqual([...PLATFORM_PACKAGES].sort());
+  for (const descriptor of RELEASE_TARGETS) {
+    if (descriptor.heldFromPublication === null) continue;
+    expect(Object.hasOwn(graph, descriptor.packageName)).toBeFalse();
+    // A published launcher that did name it would be verified against a package
+    // the registry never received, so the check has to refuse the pairing.
+    expect(() => parseNpmExactVersionMetadata(JSON.stringify({
+      name: LAUNCHER_PACKAGE,
+      version: "2.0.0",
+      dist: { integrity: INTEGRITY },
+      optionalDependencies: { ...graph, [descriptor.packageName]: "2.0.0" }
+    }), {
+      name: LAUNCHER_PACKAGE,
+      version: "2.0.0",
+      optionalDependencies: graph
+    })).toThrow();
+  }
 });
 
 test("exact npm metadata rejects deprecated targets and graph or identity drift", () => {

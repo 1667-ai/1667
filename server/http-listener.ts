@@ -58,6 +58,8 @@ interface HttpListenerCommonOptions {
   readonly errorReporterLease?: InternalErrorReporterLease;
   /** External project authority transferred to the listener lifecycle. */
   readonly projectAuthority?: ProjectAuthority;
+  /** Test hook for the shared shutdown deadline. */
+  readonly shutdownGraceMs?: number;
 }
 
 export type HttpListenerOptions = HttpListenerCommonOptions & (
@@ -162,7 +164,8 @@ export async function startHttpListener(
     errorReporter,
     async () => await InternalErrorReporter.open(machineDir, {
       print: options.printLogs === true
-    })
+    }),
+    options.shutdownGraceMs
   );
 
   try {

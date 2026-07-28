@@ -99,9 +99,14 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navChapterPrevious"),
         binding("navChapterNext")
       ]),
-      // Undo consumes take switches and chapter breaks, and nothing else. It
+      // Undo reaches an added or removed chapter break, and nothing else. Name
+      // both operations rather than the category: a chapter rename and a
+      // summary edit are chapter changes too, and neither one is undoable. It
       // must not read as a safety net beside `d`, which it cannot reverse.
-      entry("undo take switch · break", [binding("navUndo")])
+      // Take switching stays off this list on purpose — the arrows already walk
+      // the row, and pairing them under one word taught that `u` reaches back
+      // into prose.
+      entry("undo break add · remove", [binding("navUndo")])
     ]
   },
   {
