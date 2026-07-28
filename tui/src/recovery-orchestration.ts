@@ -162,19 +162,6 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
   };
 
   const refreshAfterRecovery = async (warnings: readonly WorkerRecoveryWarning[]): Promise<void> => {
-    for (const warning of warnings) {
-      if (warning.error.code !== "generation_outcome_unknown"
-        || warning.storyId === null) continue;
-      if (!state.unknownOutcomes.some(
-        ({ mutationId }) => mutationId === warning.mutationId
-      )) {
-        state.unknownOutcomes.push({
-          storyId: warning.storyId,
-          mutationId: warning.mutationId,
-          method: warning.method
-        });
-      }
-    }
     while (!stopped) {
       if (state.stream !== null || state.abort !== null || state.summary !== null
         || state.connection.down) {
@@ -184,6 +171,8 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
       let adopted = false;
       const started = await backend.run("recovering backend state", async (task) => {
         if (stopped || state.stream !== null || state.abort !== null || state.summary !== null) return;
+        await retireUnknownGenerations(source, warnings);
+        if (!task.owns()) return;
         while (!stopped && task.owns() && task.storyCurrent() && !state.connection.down) {
           const outcome = await reconcileOwned(task, "warning");
           if (outcome === null) return;
@@ -395,7 +384,7 @@ async function loadReconciliationTarget(
     ? lease.storyId
     : [...stories].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.id;
   const payload = targetId === undefined
-    ? await (source.backendRecovery?.runAdoptionMutation(() => source.api.createStory())
+    ? await (source.backendRecovery?.runRecoveryMutation(() => source.api.createStory())
       ?? source.api.createStory())
     : await source.api.loadStory(targetId);
   if (!lease.current()) return null;
@@ -406,11 +395,26 @@ async function loadReconciliationTarget(
 }
 
 export function recoveryNotice(warnings: readonly WorkerRecoveryWarning[]): string {
-  return warnings.map(({ method, resolution, error }) =>
-    error.code === "generation_outcome_unknown"
-      ? `acknowledge explicitly · ${method} ${resolution}: provider request may have been billed or completed`
-      : `${method} ${resolution}: ${error.message}`
-  ).join(" · ");
+  return warnings.some(({ error }) =>
+    error.code === "generation_outcome_unknown")
+    ? "last model request stopped"
+    : "interrupted change checked";
+}
+
+async function retireUnknownGenerations(
+  source: Pick<RecoverySource, "api" | "backendRecovery">,
+  warnings: readonly WorkerRecoveryWarning[]
+): Promise<void> {
+  for (const warning of warnings) {
+    if (warning.error.code !== "generation_outcome_unknown") continue;
+    const storyId = warning.storyId;
+    if (storyId === null) continue;
+    const retire = () => source.api.acknowledgeUnknownOutcomes(
+      storyId,
+      warning.mutationId
+    );
+    await (source.backendRecovery?.runRecoveryMutation(retire) ?? retire());
+  }
 }
 
 async function retryDelay(): Promise<void> {

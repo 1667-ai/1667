@@ -134,7 +134,7 @@ describe("run C overlay frames", () => {
     expect(grouped).toContain("tag this line");
     expect(grouped).toContain("direct take");
     expect(grouped).toContain("generation settings");
-    expect(grouped).toContain("acknowledge unknown gener…  clear");
+    expect(grouped).not.toContain("acknowledge unknown");
     expect(grouped).toContain("theme: lantern");
     expect(grouped).toContain("↑↓ move · ↵ run · esc close");
 

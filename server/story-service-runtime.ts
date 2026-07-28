@@ -1,6 +1,10 @@
 import path from "node:path";
 import type { ArchivedMutationOutboxRecord } from "./mutation-outbox.js";
-import { assertNoPendingMutationIntents } from "./mutation-outbox.js";
+import {
+  assertNoPendingMutationIntents,
+  MutationOutbox,
+  storyIdFromMutationIntent
+} from "./mutation-outbox.js";
 import { createMutationCoordinator } from "./mutation-coordinator.js";
 import { MutationReceiptStore } from "./mutation-receipts.js";
 import { PromptCacheRuntime } from "./provider-cache-policy.js";
@@ -22,6 +26,7 @@ import { StoryServiceGeneration } from "./story-service-generation.js";
 import { StoryServiceLocal } from "./story-service-local.js";
 import { StoryStore } from "./stories.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
+import { isProviderMutationMethod } from "./mutation-ledger-types.js";
 
 interface StoryServiceCommonOptions {
   /** The machine tier holding provider secrets. Absent keeps them in place. */
@@ -186,6 +191,32 @@ export abstract class StoryServiceRuntime {
         await this.dataLock?.release();
       }
     });
+  }
+
+  /** HTTP owns its caller outbox. Embedded mode leaves this work to the main
+   * thread, which owns that outbox and its serialization. */
+  protected async dismissArchivedMutationWarning(
+    mutationId: string,
+    storyId: string
+  ): Promise<void> {
+    if (this.externalMutationRecovery) return;
+    const warning = this.archivedMutationWarnings.find(
+      ({ intent }) => intent.mutationId === mutationId
+    );
+    if (warning === undefined
+      || warning.resolution.code !== "generation_outcome_unknown"
+      || !isProviderMutationMethod(warning.intent.method)
+      || storyIdFromMutationIntent(warning.intent) !== storyId) {
+      return;
+    }
+    const outbox = new MutationOutbox(
+      path.join(this.storageRoot, "mutation-outbox")
+    );
+    await outbox.init();
+    await outbox.dismissArchived(mutationId);
+    this.archivedMutationWarnings = this.archivedMutationWarnings.filter(
+      ({ intent }) => intent.mutationId !== mutationId
+    );
   }
 
   cancelActive(): void {

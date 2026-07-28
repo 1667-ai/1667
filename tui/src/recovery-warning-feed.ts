@@ -16,27 +16,27 @@ export class RecoveryWarningFeed {
   private readonly errors: unknown[] = [];
   private readonly warningListeners = new Set<WarningListener>();
   private readonly errorListeners = new Set<ErrorListener>();
-  private adoptionMutationDepth = 0;
+  private recoveryMutationDepth = 0;
 
   publish(warnings: readonly WorkerRecoveryWarning[], notifyWhenEmpty = false): boolean {
     const unresolved = warnings.filter(({ mutationId }) => !this.adopted.has(mutationId));
+    const blocksMutation = unresolved.length > 0 && this.recoveryMutationDepth === 0;
     const tracked = new Set(this.pending.flatMap(({ warnings: batch }) =>
       batch.map(({ mutationId }) => mutationId)));
     const fresh = unresolved.filter(({ mutationId }) => !tracked.has(mutationId));
     if (fresh.length > 0) this.pending.push({ warnings: fresh, delivery: null });
     if (warnings.length === 0 && notifyWhenEmpty) this.pending.push({ warnings: [], delivery: null });
     this.deliver();
-    return unresolved.length > 0 && this.adoptionMutationDepth === 0;
+    return blocksMutation;
   }
 
-  /** Recovery may discover that no story survives. This narrowly admits the
-   * replacement create needed to adopt that authoritative empty state. */
-  async runAdoptionMutation<T>(work: () => Promise<T>): Promise<T> {
-    this.adoptionMutationDepth += 1;
+  /** Admit only a mutation that resolves the recovery warning itself. */
+  async runRecoveryMutation<T>(work: () => Promise<T>): Promise<T> {
+    this.recoveryMutationDepth += 1;
     try {
       return await work();
     } finally {
-      this.adoptionMutationDepth -= 1;
+      this.recoveryMutationDepth -= 1;
     }
   }
 

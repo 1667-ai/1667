@@ -845,6 +845,63 @@ describe("backend recovery orchestration", () => {
     stop();
   });
 
+  test("generation recovery retires the provider record before reloading", async () => {
+    const source = demoAppSource();
+    const feed = new RecoveryWarningFeed();
+    source.backendRecovery = feed;
+    const calls: string[] = [];
+    source.api.acknowledgeUnknownOutcomes = async (
+      storyId,
+      originalProviderMutationId
+    ) => {
+      expect(feed.publish([warning])).toBeFalse();
+      calls.push(`retire:${storyId}:${originalProviderMutationId}`);
+      return source.payload;
+    };
+    source.api.loadStory = async (storyId) => {
+      calls.push(`load:${storyId}`);
+      return source.payload;
+    };
+    const warning: WorkerRecoveryWarning = {
+      mutationId: "m1-generation-recovery",
+      method: "continueStory",
+      storyId: source.payload.id,
+      resolution: "archived",
+      error: new WorkerApiError(createFailureEnvelope({
+        code: "generation_outcome_unknown",
+        message: "Provider outcome is unknown.",
+        status: 409
+      }))
+    };
+    const state = initialState(source, false);
+    const settled = deferred<void>();
+    const repaint = () => {
+      if (state.backendTask === null
+        && state.toast === "last model request stopped · state reloaded") {
+        settled.resolve();
+      }
+    };
+    const backend = new ActionRuntime(state, repaint);
+    const stop = startRecoveryOrchestration({
+      state,
+      source,
+      backend,
+      invalidateCache: () => undefined,
+      repaint
+    });
+
+    expect(feed.publish([warning])).toBeTrue();
+    await settled.promise;
+
+    expect(calls).toEqual([
+      `retire:${source.payload.id}:${warning.mutationId}`,
+      `load:${source.payload.id}`
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(feed.publish([warning])).toBeFalse();
+    stop();
+  });
+
   test("same-story warnings remain visible and acknowledge after local input", async () => {
     const source = demoAppSource();
     const feed = new RecoveryWarningFeed();
@@ -872,7 +929,10 @@ describe("backend recovery orchestration", () => {
     const cache = createWrapCache();
     const settled = deferred<void>();
     const repaint = () => {
-      if (state.backendTask === null && state.toast?.includes("renameStory archived")) settled.resolve();
+      if (state.backendTask === null
+        && state.toast === "interrupted change checked · state reloaded") {
+        settled.resolve();
+      }
     };
     const backend = new ActionRuntime(state, repaint);
     const stop = startRecoveryOrchestration({
@@ -889,7 +949,7 @@ describe("backend recovery orchestration", () => {
     reload.resolve(source.payload);
     await settled.promise;
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(state.toast).toContain("renameStory archived");
+    expect(state.toast).toBe("interrupted change checked · state reloaded");
     expect(reloads).toBe(1);
     expect(feed.publish([warning])).toBeFalse();
     stop();

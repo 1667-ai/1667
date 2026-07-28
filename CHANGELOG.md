@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A provider failure no longer stops the local backend.** A lost connection,
+  timeout, or provider error now ends the local generation and keeps 1667
+  available. 1667 does not repeat the provider request automatically. If an
+  older interrupted request remains at startup, 1667 closes its local record
+  and reloads the story. The command palette no longer asks the writer to
+  acknowledge an unknown generation. A necessary backend restart now uses
+  product language instead of an internal error code. Thanks @10fra for the
+  report.
 - **`u` now takes back an added or removed chapter break only.** It also
   reversed a take switch, and it said so on each take switch. Two keys did one
   job: `←` and `→` already walk the takes of one part. Worse, a key named undo

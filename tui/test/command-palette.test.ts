@@ -25,7 +25,7 @@ describe("grouped command palette model", () => {
     for (const id of [
       "summary", "tag-line", "export", "switch-story", "rename-story", "folder",
       "direct-take", "retake", "prune", "autoname", "settings",
-      "acknowledge-generation", "reconnect"
+      "reconnect"
     ] as const) expect(ids).toContain(id);
     expect(commandMatches("", false)).toEqual(model.selectable);
     expect(model.renderRows.filter((row) => row.kind === "command").map((row) => row.selectableIndex))
@@ -80,12 +80,6 @@ describe("grouped command palette model", () => {
     const rename = commandMatches("rename story", false)
       .find(({ command }) => command.id === "rename-story")?.command;
     expect(rename?.mutating).toBeTrue();
-  });
-
-  test("unknown-generation acknowledgement is an explicit mutation command", () => {
-    const acknowledgement = commandMatches("acknowledge unknown generation", false)
-      .find(({ command }) => command.id === "acknowledge-generation")?.command;
-    expect(acknowledgement?.mutating).toBeTrue();
   });
 
   test("retains command identity across live Suggested reordering", () => {

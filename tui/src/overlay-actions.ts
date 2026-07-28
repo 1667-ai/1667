@@ -207,9 +207,6 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   }
   let matches = liveCommandMatches(state, overlay.query);
   Object.assign(overlay, retainCommandSelection(matches, overlay.selectedId, overlay.cursor));
-  if (resolved.action !== "open-selected") {
-    state.unknownOutcomeAcknowledgementArmed = null;
-  }
   if (resolved.action === "cancel") { state.commands = null; state.mode = "NAV"; }
   else if (resolved.action === "focus-next") selectCommand(overlay, matches, overlay.cursor + 1);
   else if (resolved.action === "focus-index") selectCommand(overlay, matches, resolved.index ?? overlay.cursor);
@@ -221,9 +218,6 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   }
   else if (resolved.action === "open-selected") {
     const command = matches[overlay.cursor]?.command;
-    if (command?.id !== "acknowledge-generation") {
-      state.unknownOutcomeAcknowledgementArmed = null;
-    }
     if (command !== undefined) await runCommand(command, state, source, context);
   }
   // Live theme preview: highlighting a theme command shows it immediately;
@@ -247,10 +241,6 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     return;
   }
   if (command.id === "tags") { state.commands!.view = "tags"; state.commands!.cursor = 0; return; }
-  if (command.id === "acknowledge-generation") {
-    await acknowledgeUnknownGeneration(state, source, context);
-    return;
-  }
   state.commands = null;
   state.mode = "NAV";
   if (command.id === "tag-line") openTag(state);
@@ -310,49 +300,6 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     state.connection = connectionFailed(connectionSucceeded(), new Error("demo disconnect"), state.now);
     state.toast = "simulated connection loss";
   }
-}
-
-async function acknowledgeUnknownGeneration(
-  state: RuntimeState,
-  source: AppSource,
-  context: OverlayActionContext
-): Promise<void> {
-  const pending = state.unknownOutcomes.find(
-    ({ storyId }) => storyId === state.payload.id
-  ) ?? state.unknownOutcomes[0];
-  if (pending === undefined) {
-    state.unknownOutcomeAcknowledgementArmed = null;
-    state.toast = "no unknown provider outcome is waiting";
-    return;
-  }
-  if (state.unknownOutcomeAcknowledgementArmed !== pending.mutationId) {
-    state.unknownOutcomeAcknowledgementArmed = pending.mutationId;
-    state.toast = `press enter again now · ${pending.storyId} may have been billed or completed`;
-    return;
-  }
-
-  state.unknownOutcomeAcknowledgementArmed = null;
-  state.commands = null;
-  state.mode = "NAV";
-  await context.backend.run("acknowledging provider outcome", async (task) => {
-    const payload = await source.api.acknowledgeUnknownOutcomes(
-      pending.storyId,
-      pending.mutationId
-    );
-    if (!task.owns()) return;
-    state.unknownOutcomes = state.unknownOutcomes.filter(
-      ({ mutationId }) => mutationId !== pending.mutationId
-    );
-    if (payload !== null && state.payload.id === payload.id) {
-      adoptSameStoryPayload(state, payload);
-    }
-    const stories = await source.api.listStories();
-    if (!task.owns()) return;
-    publishStories(state, source, stories);
-    if (task.interactionCurrent()) {
-      state.toast = "unknown provider outcome acknowledged · billing status unchanged";
-    }
-  });
 }
 
 function liveCommandMatches(state: RuntimeState, query: string): CommandMatch[] {

@@ -641,6 +641,70 @@ test("HTTP StoryApi gives autoname a provider-scale deadline", async () => {
   }
 });
 
+test("HTTP provider failure invalidates the held story revision", async () => {
+  let providerFailed = false;
+  let storyLoads = 0;
+  const mutationVersions: unknown[] = [];
+  const payload = (revision: string) => ({
+    ...storyPayload("story"),
+    aggregateVersion: {
+      kind: "v6",
+      revision
+    }
+  });
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path === "/api/stories/story"
+      && (init?.method ?? "GET") === "GET") {
+      storyLoads += 1;
+      return Response.json(payload(providerFailed
+        ? "00000000000000000002"
+        : "00000000000000000001"));
+    }
+    if (path === "/api/stories/story/autoname") {
+      providerFailed = true;
+      return Response.json({
+        error: "Model request failed.",
+        code: "provider_failure"
+      }, { status: 502 });
+    }
+    if (path === "/api/stories/story" && init?.method === "PATCH") {
+      return Response.json(payload("00000000000000000003"));
+    }
+    throw new Error(`Unexpected API path: ${path}`);
+  }) as typeof fetch;
+  const api = createApi(
+    "http://127.0.0.1:7373",
+    undefined,
+    (reservation) => {
+      if (reservation.path === "/api/stories/story/autoname"
+        || (reservation.path === "/api/stories/story"
+          && reservation.method === "PATCH")) {
+        mutationVersions.push(reservation.expectedAggregateVersion);
+      }
+    }
+  );
+
+  await api.loadStory("story");
+  const error = await rejection(api.autonameStory("story"));
+  expect(error instanceof ApiHttpError).toBeTrue();
+  expect((error as ApiHttpError).code).toBe("provider_failure");
+  await api.renameStory("story", "Renamed");
+
+  expect(storyLoads).toBe(3);
+  expect(mutationVersions).toEqual([
+    {
+      kind: "v6",
+      revision: "00000000000000000001"
+    },
+    {
+      kind: "v6",
+      revision: "00000000000000000002"
+    }
+  ]);
+});
+
 test("HTTP generation lease expiry is an error, not user cancellation", async () => {
   const baseUrl = "http://127.0.0.1:7373";
   globalThis.fetch = (async (input, init) => {

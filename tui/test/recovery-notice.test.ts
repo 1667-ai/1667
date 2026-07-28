@@ -7,7 +7,7 @@ import {
   type FailureCode
 } from "../../shared/failure-envelope.js";
 
-test("recovery notice exposes the affected action and duplicate-risk guidance", () => {
+test("recovery notice describes a stopped model request in product terms", () => {
   const warning: WorkerRecoveryWarning = {
     mutationId: "m1-example",
     method: "continueStory",
@@ -20,9 +20,7 @@ test("recovery notice exposes the affected action and duplicate-risk guidance", 
     )
   };
 
-  expect(recoveryNotice([warning])).toContain("continueStory archived");
-  expect(recoveryNotice([warning])).toContain("may have been billed");
-  expect(recoveryNotice([warning])).toContain("acknowledge explicitly");
+  expect(recoveryNotice([warning])).toBe("last model request stopped");
 });
 
 test("recovery feed replays early warnings and deduplicates live metadata", () => {
@@ -73,7 +71,7 @@ test("recovery feed blocks repeated warnings until adoption succeeds", async () 
   unsubscribe();
 });
 
-test("recovery feed admits only the replacement create needed to adopt an empty store", async () => {
+test("recovery feed admits only a mutation that resolves recovery", async () => {
   const feed = new RecoveryWarningFeed();
   const warning: WorkerRecoveryWarning = {
     mutationId: "m1-empty-store",
@@ -83,7 +81,7 @@ test("recovery feed admits only the replacement create needed to adopt an empty 
     error: workerError("Reload state.", "mutation_outcome_unknown", 409)
   };
   expect(feed.publish([warning])).toBeTrue();
-  await feed.runAdoptionMutation(async () => {
+  await feed.runRecoveryMutation(async () => {
     expect(feed.publish([warning])).toBeFalse();
   });
   expect(feed.publish([warning])).toBeTrue();

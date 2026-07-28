@@ -37,60 +37,6 @@ function focusNode(state: ReturnType<typeof harness>["state"], nodeId: string): 
 }
 
 describe("demo action pipeline", () => {
-  test("unknown-generation acknowledgement stays open for an immediate global confirmation", async () => {
-    const { source, state, press } = harness();
-    const mutationId = "m1.1767225600000.0123456789abcdef0123456789abcdef";
-    const calls: string[] = [];
-    source.api.acknowledgeUnknownOutcomes = async (storyId, originalId) => {
-      calls.push(`${storyId}:${originalId}`);
-      return null;
-    };
-    state.unknownOutcomes = [{
-      storyId: "deleted-story",
-      mutationId,
-      method: "continueStory"
-    }];
-    state.mode = "COMMANDS";
-    state.commands = {
-      query: "acknowledge unknown generation",
-      cursor: 0,
-      selectedId: "acknowledge-generation",
-      view: "commands"
-    };
-
-    await press("return", "\r");
-    expect(state.mode).toBe("COMMANDS");
-    expect(state.unknownOutcomeAcknowledgementArmed).toBe(mutationId);
-    expect(state.toast).toContain("press enter again now");
-
-    await press("return", "\r");
-    expect(calls).toEqual([`deleted-story:${mutationId}`]);
-    expect(state.unknownOutcomes).toEqual([]);
-    expect(state.unknownOutcomeAcknowledgementArmed).toBe(null);
-  });
-
-  test("unknown-generation confirmation disarms on unrelated palette input", async () => {
-    const { state, press } = harness();
-    const mutationId = "m1.1767225600000.1123456789abcdef0123456789abcdef";
-    state.unknownOutcomes = [{
-      storyId: state.payload.id,
-      mutationId,
-      method: "continueStory"
-    }];
-    state.mode = "COMMANDS";
-    state.commands = {
-      query: "acknowledge unknown generation",
-      cursor: 0,
-      selectedId: "acknowledge-generation",
-      view: "commands"
-    };
-
-    await press("return", "\r");
-    expect(state.unknownOutcomeAcknowledgementArmed).toBe(mutationId);
-    await press("down");
-    expect(state.unknownOutcomeAcknowledgementArmed).toBe(null);
-  });
-
   test("map path sibling reroute mutates the active in-memory line", async () => {
     const { state, press } = harness();
     await press("m");

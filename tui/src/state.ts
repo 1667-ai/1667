@@ -95,11 +95,6 @@ export interface CommandsOverlayState {
   selectedId: CommandSelectionId | null;
   view: "commands" | "tags";
 }
-export interface PendingUnknownOutcome {
-  readonly storyId: string;
-  readonly mutationId: string;
-  readonly method: string;
-}
 export interface ChaptersOverlayState {
   cursor: number;
   rename: { breakId: string; value: string } | null;
@@ -217,10 +212,6 @@ export interface StoryScreenState extends OverlayState {
   /** Atomic edited-prompt owner; null means the persistent Direct composer. */
   retakePrompt: RetakePromptSession | null;
   toast: string | null;
-  /** Provider calls that may have completed remotely but lack a local result. */
-  unknownOutcomes: PendingUnknownOutcome[];
-  /** Two-step acknowledgement guard; first command invocation only warns. */
-  unknownOutcomeAcknowledgementArmed: string | null;
   stream: StreamView | null;
   /** The cancellable operation whose backend owner is still settling. */
   abort: { kind: "generation" | "summary"; controller: AbortController } | null;

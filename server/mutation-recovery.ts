@@ -36,12 +36,12 @@ export function generationOutcomeUnknown(
   return options === undefined
     ? new ServiceError(
     409,
-    "The model request may have been billed or completed before the backend stopped. Reload state; retry only with a new mutation ID.",
+    "The model request stopped before 1667 received a final result. Reload the story before you send another request.",
     "generation_outcome_unknown"
       )
     : new DiagnosticServiceError(
         409,
-        "The model request may have been billed or completed before the backend stopped. Reload state; retry only with a new mutation ID.",
+        "The model request stopped before 1667 received a final result. Reload the story before you send another request.",
         "generation_outcome_unknown",
         options.diagnosticCause
       );
