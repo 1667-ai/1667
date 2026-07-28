@@ -1,14 +1,12 @@
 import {
   releaseTargetForArtifact,
-  type CanonicalReleaseTarget,
-  type PackagedArtifactTarget
+  PUBLISHED_ARTIFACT_TARGETS,
+  RELEASE_TARGETS,
+  type BuiltArtifactTarget,
+  type CanonicalReleaseTarget
 } from "../shared/release-targets.js";
 import { isSemVer, parseSemVer } from "../shared/semver.js";
-import {
-  PUBLICATION_HOLDS,
-  PUBLISHED_RELEASE_TARGETS,
-  releaseArchiveFileName
-} from "./release-publication.js";
+import { releaseArchiveFileName } from "./release-archive.js";
 
 export const RELEASE_REPOSITORY_SLUG = "1667-ai/1667" as const;
 
@@ -22,8 +20,9 @@ const PLATFORM_LABELS: Readonly<Record<CanonicalReleaseTarget["platform"], strin
  * The notes for one GitHub pre-release. Everything here has to be true of the
  * artifacts this workflow actually produces, so the download table, the verify
  * command, and the held-target paragraph are all derived from the same target
- * policy the workflow builds from. A target that leaves the hold list appears
- * in the table and leaves this paragraph without an edit here.
+ * policy the workflow builds from. Clearing `heldFromPublication` in
+ * `shared/release-targets.ts` moves a target into the table and out of this
+ * paragraph without an edit here.
  *
  * Two claims are deliberately absent. There is no signed-tag provenance: the
  * evidence this release offers is the build-provenance attestation, and the
@@ -33,7 +32,7 @@ const PLATFORM_LABELS: Readonly<Record<CanonicalReleaseTarget["platform"], strin
  */
 export function releaseNotesMarkdown(version: string): string {
   if (!isSemVer(version)) throw new Error(`Release notes need a SemVer version, not ${version}`);
-  const first = PUBLISHED_RELEASE_TARGETS[0];
+  const first = PUBLISHED_ARTIFACT_TARGETS[0];
   if (first === undefined) throw new Error("Release notes need at least one published target");
   const sample = releaseArchiveFileName(version, first);
   const sampleStem = sample.replace(/\.tar\.gz$/u, "");
@@ -48,7 +47,7 @@ export function releaseNotesMarkdown(version: string): string {
     "",
     "| Target | Archive |",
     "| --- | --- |",
-    ...PUBLISHED_RELEASE_TARGETS.map((target) => {
+    ...PUBLISHED_ARTIFACT_TARGETS.map((target) => {
       return `| ${targetLabel(target)} | \`${releaseArchiveFileName(version, target)}\` |`;
     }),
     "",
@@ -112,7 +111,9 @@ function reservedVersionNote(version: string): readonly string[] {
 }
 
 function heldTargetSection(): readonly string[] {
-  const held: readonly string[] = PUBLICATION_HOLDS;
+  const held: readonly string[] = RELEASE_TARGETS
+    .filter((descriptor) => descriptor.heldFromPublication !== null)
+    .map((descriptor) => descriptor.artifactTarget);
   if (held.length === 0) return [];
   const names = held.map((target) => `\`${target}\``).join(", ");
   const single = held.length === 1;
@@ -127,7 +128,7 @@ function heldTargetSection(): readonly string[] {
   ];
 }
 
-function targetLabel(target: PackagedArtifactTarget): string {
+function targetLabel(target: BuiltArtifactTarget): string {
   const descriptor = releaseTargetForArtifact(target);
   const libc = descriptor.libc === null ? "" : ` (${descriptor.libc})`;
   return `${PLATFORM_LABELS[descriptor.platform]} ${descriptor.arch}${libc}`;

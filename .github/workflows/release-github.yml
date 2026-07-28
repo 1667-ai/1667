@@ -118,7 +118,8 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.prepare.outputs.targets) }}
     # Every target this repository builds, held or not. The publication decision
-    # is made in scripts/release-publication.ts and reaches the matrix above.
+    # is the heldFromPublication field in shared/release-targets.ts, and it
+    # reaches the matrix above through the targets command.
     runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
     timeout-minutes: 30
     steps:

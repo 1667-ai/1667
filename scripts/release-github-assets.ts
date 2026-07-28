@@ -16,12 +16,18 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   releaseTargetForArtifact,
-  PACKAGED_ARTIFACT_TARGETS,
-  type CanonicalReleaseTarget,
-  type PackagedArtifactTarget
+  BUILT_ARTIFACT_TARGETS,
+  PUBLISHED_ARTIFACT_TARGETS,
+  type BuiltArtifactTarget,
+  type CanonicalReleaseTarget
 } from "../shared/release-targets.js";
 import { isSemVer } from "../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
+import {
+  assertPublishedReleaseTarget,
+  releaseArchiveStem,
+  RELEASE_CHECKSUMS_FILE
+} from "./release-archive.js";
 import { sha256Digest } from "./release-boundary-validation.js";
 import { releaseNotesMarkdown } from "./release-github-notes.js";
 import {
@@ -35,12 +41,6 @@ import {
   RELEASE_LICENSE_FILE_DIGESTS
 } from "./release-package-manifests.js";
 import { createReleasePackageBuildManifest } from "./release-package-templates.js";
-import {
-  assertPublishedReleaseTarget,
-  PUBLISHED_RELEASE_TARGETS,
-  releaseArchiveStem,
-  RELEASE_CHECKSUMS_FILE
-} from "./release-publication.js";
 import {
   defaultReleaseSbomInputs,
   readReleaseSboms,
@@ -99,7 +99,7 @@ export interface ReleaseContentLayout {
  * truncated file fails staging instead of shipping.
  */
 export function releaseContentFileSet(
-  target: PackagedArtifactTarget,
+  target: BuiltArtifactTarget,
   version: string,
   layout?: ReleaseContentLayout
 ): readonly ReleaseContentEntry[] {
@@ -114,7 +114,7 @@ export function releaseContentFileSet(
 
 /** The archive layout: every file at the top level of the extracted directory. */
 export function releaseArchiveFileSet(
-  target: PackagedArtifactTarget,
+  target: BuiltArtifactTarget,
   version: string
 ): readonly ReleaseContentEntry[] {
   assertPublishedReleaseTarget(target);
@@ -251,7 +251,7 @@ export interface StagedReleaseFile {
 }
 
 export interface StagedReleaseArchive {
-  readonly target: PackagedArtifactTarget;
+  readonly target: BuiltArtifactTarget;
   readonly version: string;
   readonly stem: string;
   readonly directory: string;
@@ -261,7 +261,7 @@ export interface StagedReleaseArchive {
 export interface StageReleaseArchiveOptions {
   /** Release source evidence, as written by the `evidence` command. */
   readonly evidencePath: string;
-  readonly target: PackagedArtifactTarget;
+  readonly target: BuiltArtifactTarget;
   /** Directory holding the freshly built executable, normally `tui/dist`. */
   readonly buildDirectory: string;
   /** Directory that receives the archive directory. */
@@ -388,8 +388,8 @@ function repositoryRoot(): string {
   return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 }
 
-function packagedTarget(value: string | undefined): PackagedArtifactTarget {
-  const target = PACKAGED_ARTIFACT_TARGETS.find((candidate) => candidate === value);
+function builtTarget(value: string | undefined): BuiltArtifactTarget {
+  const target = BUILT_ARTIFACT_TARGETS.find((candidate) => candidate === value);
   if (target === undefined) throw new Error(`Unsupported release target ${String(value)}`);
   return target;
 }
@@ -437,7 +437,7 @@ function runCommand(argv: readonly string[]): string {
   const [command, ...rest] = argv;
   if (command === "targets") {
     if (rest.length !== 0) throw new Error(USAGE);
-    return `${JSON.stringify(PUBLISHED_RELEASE_TARGETS)}\n`;
+    return `${JSON.stringify(PUBLISHED_ARTIFACT_TARGETS)}\n`;
   }
   if (command === "evidence") {
     const [version, sourceCommit, buildTimestamp] = rest;
@@ -462,7 +462,7 @@ function runCommand(argv: readonly string[]): string {
     const identities = createReleaseIdentitySet(
       readJsonFile(path.resolve(evidencePath), MAX_EVIDENCE_BYTES)
     );
-    return `${canonicalJson(releaseIdentityForTarget(identities, packagedTarget(target)))}\n`;
+    return `${canonicalJson(releaseIdentityForTarget(identities, builtTarget(target)))}\n`;
   }
   if (command === "stage") {
     const [evidencePath, target, buildDirectory, outputDirectory] = rest;
@@ -472,7 +472,7 @@ function runCommand(argv: readonly string[]): string {
     }
     const staged = stageReleaseArchive({
       evidencePath,
-      target: packagedTarget(target),
+      target: builtTarget(target),
       buildDirectory,
       outputDirectory
     });

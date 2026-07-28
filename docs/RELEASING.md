@@ -294,9 +294,12 @@ release target. A maintainer dispatches it from the default branch and supplies
 the version. The workflow refuses every other ref, and refuses a dirty
 checkout.
 
-`scripts/release-publication.ts` decides which targets are published.
-`windows-x64` is held from publication today. A held target still builds and
-tests on every change, and returns to the published set by leaving that list.
+`shared/release-targets.ts` decides which targets are published, in the single
+`heldFromPublication` field each target carries. `windows-x64` is held from
+publication today. A held target still builds and tests on every change, and
+returns to the published set — matrix, notes table, held-target paragraph and
+archive set alike — when that one field is cleared. No release script keeps a
+target list of its own.
 
 The dispatched version must match the root package, the TUI package, and the
 lockfile. The command that records the source evidence refuses any other value.
@@ -312,9 +315,10 @@ apply to it exactly as they apply to an npm tarball. Both files travel inside
 the archive, at the same reviewed digests preflight pins.
 
 `scripts/release-github-assets.ts` holds the file set, the staging command, the
-checksum format, and the source evidence. `scripts/release-github-notes.ts`
-holds the release notes. `test/release-github-assets.test.ts` covers both. The
-workflow contains no file list and no target list.
+checksum format, and the source evidence. `scripts/release-archive.ts` holds the
+archive names and the checksum file name. `scripts/release-github-notes.ts`
+holds the release notes. `test/release-github-assets.test.ts` covers all three.
+The workflow contains no file list and no target list.
 
 `checksums.txt` lists the SHA-256 of every uploaded asset except itself.
 

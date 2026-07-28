@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
-  releaseTargetForArtifact
+  releaseTargetForArtifact,
+  BUILT_ARTIFACT_TARGETS,
+  PUBLISHED_ARTIFACT_TARGETS,
+  RELEASE_TARGETS,
+  type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 import {
   createReleaseIdentitySet,
@@ -32,13 +35,15 @@ import {
 } from "../scripts/release-github-assets.js";
 import { releaseNotesMarkdown } from "../scripts/release-github-notes.js";
 import {
-  heldFromPublication,
-  PUBLICATION_HOLDS,
-  PUBLISHED_RELEASE_TARGETS,
   releaseArchiveFileName,
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
-} from "../scripts/release-publication.js";
+} from "../scripts/release-archive.js";
+
+/** Reads the one publication policy, so no test here carries a target list. */
+function heldFromPublication(target: BuiltArtifactTarget): boolean {
+  return releaseTargetForArtifact(target).heldFromPublication !== null;
+}
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // The version this release ships under. A prerelease identifier is the harder
@@ -90,8 +95,8 @@ test("a published archive holds the executable, both licence files, and both man
 // receives one archive, so dropping either file from the set here would ship a
 // distribution that does neither. This fails on the drop, for every target.
 test("every published archive carries LICENSE and NOTICE at their reviewed digests", () => {
-  assert.ok(PUBLISHED_RELEASE_TARGETS.length > 0);
-  for (const target of PUBLISHED_RELEASE_TARGETS) {
+  assert.ok(PUBLISHED_ARTIFACT_TARGETS.length > 0);
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const entries = releaseArchiveFileSet(target, VERSION);
     for (const licenceFile of ["LICENSE", "NOTICE"] as const) {
       const entry = entries.find((candidate) => candidate.path === licenceFile);
@@ -118,9 +123,14 @@ test("the pinned licence digests are the digests of the files in this repository
 });
 
 test("a target held from publication has no archive at all", () => {
-  assert.deepEqual([...PUBLICATION_HOLDS], ["windows-x64"]);
-  assert.ok(PACKAGED_ARTIFACT_TARGETS.includes("windows-x64"));
-  assert.ok(!PUBLISHED_RELEASE_TARGETS.includes("windows-x64"));
+  assert.deepEqual(
+    RELEASE_TARGETS
+      .filter((descriptor) => descriptor.heldFromPublication !== null)
+      .map((descriptor) => descriptor.artifactTarget),
+    ["windows-x64"]
+  );
+  assert.ok(BUILT_ARTIFACT_TARGETS.includes("windows-x64"));
+  assert.ok(!(PUBLISHED_ARTIFACT_TARGETS as readonly string[]).includes("windows-x64"));
   assert.ok(heldFromPublication("windows-x64"));
   assert.throws(
     () => releaseArchiveFileSet("windows-x64", VERSION),
@@ -130,17 +140,17 @@ test("a target held from publication has no archive at all", () => {
     () => releaseArchiveStem(VERSION, "windows-x64"),
     /windows-x64 is held from publication/
   );
-  for (const target of PUBLISHED_RELEASE_TARGETS) {
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     assert.ok(!heldFromPublication(target));
   }
 });
 
 test("the published set is the built set minus the holds, in matrix order", () => {
   assert.deepEqual(
-    [...PUBLISHED_RELEASE_TARGETS],
-    PACKAGED_ARTIFACT_TARGETS.filter((target) => !heldFromPublication(target))
+    [...PUBLISHED_ARTIFACT_TARGETS],
+    BUILT_ARTIFACT_TARGETS.filter((target) => !heldFromPublication(target))
   );
-  assert.deepEqual([...PUBLISHED_RELEASE_TARGETS], [
+  assert.deepEqual([...PUBLISHED_ARTIFACT_TARGETS], [
     "darwin-arm64",
     "darwin-x64",
     "linux-arm64",
@@ -218,7 +228,7 @@ test("the source evidence a dispatch records is evidence the release codec accep
   assert.equal(identities.evidence.productVersion, VERSION);
   assert.equal(identities.evidence.tagName, `v${VERSION}`);
   assert.equal(identities.evidence.tagTargetCommit, SOURCE_COMMIT);
-  for (const target of PUBLISHED_RELEASE_TARGETS) {
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     const identity = releaseIdentityForTarget(identities, target);
     assert.equal(identity.buildKind, "release");
     assert.equal(identity.sourceDirty, false);
@@ -312,7 +322,7 @@ test("the release notes claim the attestation and nothing it does not have", () 
   const notes = releaseNotesMarkdown(VERSION);
   assert.match(notes, /^# 1667 v0\.1\.0-rc\.1$/mu);
   assert.match(notes, /pre-release/u);
-  for (const target of PUBLISHED_RELEASE_TARGETS) {
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     assert.ok(
       notes.includes(releaseArchiveFileName(VERSION, target)),
       `notes omit the ${target} archive`
