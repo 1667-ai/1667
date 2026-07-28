@@ -2,7 +2,8 @@ import {
   RELEASE_LAUNCHER_PACKAGE,
   releasePlatformDependencyGraph,
   releaseTargetForArtifact,
-  type PackagedArtifactTarget,
+  type BuiltArtifactTarget,
+  type PublishedPlatformPackage,
   type ReleasePlatformPackage
 } from "../shared/release-targets.js";
 
@@ -47,7 +48,7 @@ export interface ReleaseLauncherManifest {
     "sbom.spdx.json",
     ...typeof RELEASE_LICENSE_FILES
   ];
-  optionalDependencies: Readonly<Record<ReleasePlatformPackage, string>>;
+  optionalDependencies: Readonly<Record<PublishedPlatformPackage, string>>;
   repository: typeof RELEASE_PACKAGE_REPOSITORY;
   license: typeof RELEASE_LICENSE;
   publishConfig: Readonly<{ access: "public" }>;
@@ -70,7 +71,7 @@ export interface ReleasePlatformManifest {
   repository: typeof RELEASE_PACKAGE_REPOSITORY;
   license: typeof RELEASE_LICENSE;
   publishConfig: Readonly<{ access: "public" }>;
-  target: PackagedArtifactTarget;
+  target: BuiltArtifactTarget;
 }
 
 export type ReleasePackageManifest = ReleaseLauncherManifest | ReleasePlatformManifest;
@@ -108,7 +109,7 @@ export function createReleaseLauncherManifest(version: string): ReleaseLauncherM
 }
 
 export function createReleasePlatformManifest(
-  target: PackagedArtifactTarget,
+  target: BuiltArtifactTarget,
   version: string
 ): ReleasePlatformManifest {
   const descriptor = releaseTargetForArtifact(target);

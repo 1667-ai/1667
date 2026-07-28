@@ -1,6 +1,7 @@
 import { isSemVer } from "../../shared/semver.js";
 import { AI_1667_PRODUCT_VERSION } from "../../shared/build-identity.js";
 import {
+  heldTargetRefusal,
   RELEASE_LAUNCHER_PACKAGE,
   releaseTargetForRuntime
 } from "../../shared/release-targets.js";
@@ -236,23 +237,31 @@ function failedOutput(
 }
 
 function defaultObservation(): UpgradeObservation {
-  const platformPackage = currentPlatformPackage();
-  if (platformPackage === null) {
+  const target = releaseTargetForRuntime(process.platform, process.arch);
+  if (target === null) {
     throw new UpgradeFailure("unsupported_target", "This platform is not supported for releases.");
+  }
+  // A held target is supported and built; only its package is withheld. Saying
+  // "not supported" would send the reader looking for the wrong thing.
+  if (target.heldFromPublication !== null) {
+    throw new UpgradeFailure("unsupported_target", heldTargetRefusal(target));
   }
   // Installer ownership and managed application require a separate decision.
   // This command is deliberately manual and read-only for every launch.
   return {
     currentVersion: AI_1667_PRODUCT_VERSION,
-    platformPackage
+    platformPackage: target.packageName
   };
 }
 
+/** The package a runtime can install, or null when none is published for it. */
 export function currentPlatformPackage(
   platform = process.platform,
   arch = process.arch
 ): PlatformPackage | null {
-  return releaseTargetForRuntime(platform, arch)?.packageName ?? null;
+  const target = releaseTargetForRuntime(platform, arch);
+  if (target === null || target.heldFromPublication !== null) return null;
+  return target.packageName;
 }
 
 function partialChannel(

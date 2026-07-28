@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PACKAGED_ARTIFACT_TARGETS } from "../shared/build-identity.js";
+import { BUILT_ARTIFACT_TARGETS } from "../shared/build-identity.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 
 const evidence = {
@@ -25,7 +25,7 @@ test("signed clean tag evidence produces one immutable release identity per targ
   const release = createReleaseIdentitySet(evidence);
   assert.deepEqual(
     release.identities.map((identity) => identity.artifactTarget),
-    PACKAGED_ARTIFACT_TARGETS
+    BUILT_ARTIFACT_TARGETS
   );
   for (const identity of release.identities) {
     assert.equal(identity.buildKind, "release");

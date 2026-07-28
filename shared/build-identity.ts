@@ -1,13 +1,13 @@
 import packageManifest from "../package.json" with { type: "json" };
 import { isSemVer } from "./semver.js";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
-  type PackagedArtifactTarget
+  BUILT_ARTIFACT_TARGETS,
+  type BuiltArtifactTarget
 } from "./release-targets.js";
 
 export {
-  PACKAGED_ARTIFACT_TARGETS,
-  type PackagedArtifactTarget
+  BUILT_ARTIFACT_TARGETS,
+  type BuiltArtifactTarget
 } from "./release-targets.js";
 
 export const AI_1667_PRODUCT = "1667" as const;
@@ -15,7 +15,7 @@ export const HTTP_API_PROTOCOL_VERSION = 6;
 export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 6;
 export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 6;
 
-export type ArtifactTarget = "source" | PackagedArtifactTarget;
+export type ArtifactTarget = "source" | BuiltArtifactTarget;
 
 interface CommonBuildIdentity {
   schemaVersion: 1;
@@ -27,7 +27,7 @@ interface CommonBuildIdentity {
 }
 
 interface PackagedBuildProvenance {
-  artifactTarget: PackagedArtifactTarget;
+  artifactTarget: BuiltArtifactTarget;
   sourceCommit: string;
   buildTimestamp: string;
 }
@@ -48,7 +48,7 @@ export interface PackagedBuildIdentityInput {
   sourceCommit: string;
   sourceDirty: boolean;
   buildTimestamp: string;
-  artifactTarget: PackagedArtifactTarget;
+  artifactTarget: BuiltArtifactTarget;
 }
 
 const BUILD_IDENTITY_FIELDS = {
@@ -133,7 +133,7 @@ export function parseBuildIdentity(value: unknown): BuildIdentity {
       buildTimestamp: null
     };
   }
-  if (!isPackagedArtifactTarget(identity.artifactTarget)) {
+  if (!isBuiltArtifactTarget(identity.artifactTarget)) {
     throw new Error("Build identity has an unsupported artifact target");
   }
   if (typeof identity.sourceCommit !== "string" || !SOURCE_COMMIT.test(identity.sourceCommit)) {
@@ -214,9 +214,9 @@ function protocolVersion(value: unknown): number {
   return value;
 }
 
-function isPackagedArtifactTarget(value: unknown): value is PackagedArtifactTarget {
+function isBuiltArtifactTarget(value: unknown): value is BuiltArtifactTarget {
   return typeof value === "string"
-    && (PACKAGED_ARTIFACT_TARGETS as readonly string[]).includes(value);
+    && (BUILT_ARTIFACT_TARGETS as readonly string[]).includes(value);
 }
 
 /** Millisecond-precision UTC instant, and a real one: the shape test alone
