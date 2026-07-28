@@ -118,7 +118,8 @@ export class SettingsStore {
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective: await loadGenerationSettingsV1(this.dir)
+      effective: await loadGenerationSettingsV1(this.dir),
+      lastActivationOutcome: null
     };
   }
 

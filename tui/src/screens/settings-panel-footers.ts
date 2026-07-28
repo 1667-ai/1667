@@ -57,7 +57,13 @@ const SETTINGS_EDIT_FOOTER_ACTIONS = [
   { token: "esc cancel", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 
+// A staged candidate stays fully editable: the pending footers keep the
+// normal editing keys and add the discard.
 const SETTINGS_PENDING_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" },
+  { token: "↓", action: "focus-next" },
+  { token: "↵ edit", action: "open-selected" },
+  { token: "s save", action: "save-edit" },
   { token: "c check", action: "check" },
   { token: "x discard", action: "discard-pending" },
   { token: "esc close", action: "cancel" }
@@ -177,12 +183,28 @@ export const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
 
 export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
-    text: "c check · x discard · esc close",
+    text: "↑↓ move · ↵ edit · s save · c check · x discard · esc close",
     actions: SETTINGS_PENDING_FOOTER_ACTIONS
   },
   {
-    text: "c · x · esc",
+    text: "↑↓ · ↵ edit · s · c · x · esc",
     actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ edit", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ↵ s c x esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "s", action: "save-edit" },
       { token: "c", action: "check" },
       { token: "x", action: "discard-pending" },
       { token: "esc", action: "cancel" }

@@ -1,6 +1,7 @@
 import {
   PROMPT_CACHE_POLICY_V2_VALUES,
   type PromptCachePolicyV2,
+  type SettingsActivationErrorCodeV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
@@ -209,8 +210,7 @@ export function beginSettingsPasteEdit(
     || row === "allow-insecure-http"
     || row === "cache-policy"
   ) return false;
-  if (settingsRowUsesServer(row)
-    && (!overlay.view.editable || overlay.view.pendingRevision !== null)) {
+  if (settingsRowUsesServer(row) && !overlay.view.editable) {
     return false;
   }
   beginSettingsRowEdit(overlay, config);
@@ -291,6 +291,23 @@ export function applySettingsRowEdit(
   overlay.edit = null;
   overlay.result = null;
   return { kind: "draft" };
+}
+
+/** One spelling for every surface that reports why an activation failed. */
+export function settingsActivationFailureText(
+  errorCode: SettingsActivationErrorCodeV2
+): string {
+  switch (errorCode) {
+    case "credential_unresolved":
+      return "credential not found (env var or stored key)";
+    case "candidate_invalid":
+      return "provider check failed";
+    case "activation_crashed":
+      return "activation was interrupted";
+    case "activation_failed":
+    case "readiness_failed":
+      return "rolled back after an interruption";
+  }
 }
 
 export function settingsDraftChanged(overlay: SettingsOverlayState): boolean {

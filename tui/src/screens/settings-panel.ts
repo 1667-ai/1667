@@ -3,6 +3,7 @@ import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import {
   boundedSettingsCursor,
+  settingsActivationFailureText,
   settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowCycles,
@@ -218,16 +219,45 @@ function settingsStatusLines(
     };
   }
   if (view.pendingRevision !== null) {
+    // The server nulls any outcome whose candidate was replaced or
+    // discarded, so a staged view's outcome always describes this candidate.
+    const outcome = view.lastActivationOutcome;
+    const failure = outcome !== null && outcome.result !== "committed"
+      ? settingsActivationFailureText(outcome.errorCode)
+      : null;
     return {
       top: [],
       bottom: bottomStatus([
         [
           raisedSegment(
-            `  ⟳ revision ${view.pendingRevision} pending restart · active revision ${view.activeRevision} still running`,
-            "focus / accent"
+            failure === null
+              ? `  ⟳ revision ${view.pendingRevision} saved · not active yet · revision ${view.activeRevision} still running`
+              : `  ▲ revision ${view.pendingRevision} saved, not active · ${failure}`,
+            failure === null ? "focus / accent" : "danger text"
           )
         ],
-        [raisedSegment("  editing frozen · x discards the pending candidate", "chrome")]
+        [raisedSegment("  s retries activation · x discards the saved candidate", "chrome")]
+      ])
+    };
+  }
+  // A clean view with a failure outcome is a startup rollback: the candidate
+  // is gone, and staying silent about it is the exact failure class this
+  // surface exists to prevent.
+  const rolledBack = view.lastActivationOutcome !== null
+    && view.lastActivationOutcome.result !== "committed"
+    ? view.lastActivationOutcome
+    : null;
+  if (rolledBack !== null) {
+    return {
+      top: [],
+      bottom: bottomStatus([
+        [
+          raisedSegment(
+            `  ▲ revision ${rolledBack.candidateRevision} did not activate · ${settingsActivationFailureText(rolledBack.errorCode)}`,
+            "danger text"
+          )
+        ],
+        [raisedSegment(`  revision ${view.activeRevision} still active · edit & s saves a new attempt`, "chrome")]
       ])
     };
   }

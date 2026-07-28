@@ -238,7 +238,8 @@ describe("run C overlay frames", () => {
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective: source.settings
+      effective: source.settings,
+      lastActivationOutcome: null
     };
     source.settingsView = legacy;
     source.api.getSettings = async () => legacy;
@@ -251,6 +252,28 @@ describe("run C overlay frames", () => {
     const lines = frame.split("\n");
     expect(lines.findIndex((line) => line.includes("legacy data format 1")))
       .toBeLessThan(lines.findIndex((line) => line.includes("provider")));
+  });
+
+  test("a startup rollback shows its outcome instead of a silent success line", async () => {
+    const source = demoAppSource();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    source.settingsView = {
+      ...source.settingsView,
+      stateGeneration: 6,
+      lastActivationOutcome: {
+        transactionId: "m1.0000000000000.00000000000000000000000000000000",
+        candidateRevision: 2,
+        result: "rolled-back",
+        errorCode: "readiness_failed",
+        atStateGeneration: 6
+      }
+    };
+    source.api.getSettings = async () => source.settingsView;
+
+    const frame = await renderOnce(source, 120, 36, ",");
+    expect(frame).toContain("revision 2 did not activate");
+    expect(frame).toContain("rolled back after an interruption");
+    expect(frame).toContain("revision 1 still active");
   });
 
   test("facts rail frames context honestly as the next request; F folds it", async () => {
