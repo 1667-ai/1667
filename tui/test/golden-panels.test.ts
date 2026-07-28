@@ -258,7 +258,7 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("│");
     expect(frame).toContain("facts · 5 ───────── relevance-lit");
     expect(frame).toContain("next request  ~884 / 32.8k");
-    expect(frame).toContain("▮▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯   31.9k free");
+    expect(frame).toContain(`▮${"▮".repeat(19)}   31.9k free`);
     // A gauge is not a quota readout: no percentage anywhere on the rail.
     expect(/\d+%/.test(frame)).toBeFalse();
     expect(frame).not.toContain("1,667");

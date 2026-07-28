@@ -75,7 +75,8 @@ describe("honest next-request context meter", () => {
     // Category totals are still knowable without a window; only bars are not.
     expect(expanded).toContain("voice");
     for (const text of [collapsed, expanded]) {
-      expect(text).not.toContain("▯");
+      // No window sizes no bar: the track and the ink are the same cell now,
+      // so the absence to assert is any run of gauge cells at all.
       expect(text).not.toContain("▮▮");
       expect(/\d+%/.test(text)).toBeFalse();
     }
@@ -273,8 +274,11 @@ describe("honest next-request context meter", () => {
     expect(frame.derived.hitRows.some((row) => row?.overrides?.some((hit) =>
       hit.target.kind === "action" && hit.target.action === "toggle-context-meter"))).toBeTrue();
     // A 2.6% request inks one cell of the 33 and leaves the rest visibly free.
-    const bar = text.split("\n").find((line) => line.includes("▯"))!;
-    expect(bar).toContain("▮");
+    // Ink and track share a glyph, so the free run is the dimmed one.
+    const gauge = frame.lines.find((line) =>
+      line.some((part) => part.text.includes("▮") && part.role === "dimmed page")
+      && line.some((part) => part.text.includes("▮") && part.role !== "dimmed page"))!;
+    expect(gauge).toBeDefined();
     expect(frameText(renderStoryScreen(initialState(demoAppSource(), true), { width: 140, height: 36 }).lines))
       .not.toContain("context · next request");
   });
@@ -312,8 +316,16 @@ describe("honest next-request context meter", () => {
     const text = plainLine(bar);
 
     expect(visibleWidth(text)).toBe(35);
-    expect(text.endsWith(`${"▮".repeat(32)}▯`)).toBeTrue();
-    expect(new Set(bar.filter((part) => part.text.includes("▮")).map((part) => part.role)))
+    expect(text.endsWith("▮".repeat(33))).toBeTrue();
+    // The last cell stays free, which now reads as the dimmed role rather than
+    // a different glyph.
+    expect(bar.at(-1)!.role).toBe("dimmed page");
+    expect(bar.at(-1)!.text).toBe("▮");
+    // The inked run carries the four category colours; the free cell is the
+    // dimmed one asserted above.
+    expect(new Set(bar
+      .filter((part) => part.text.includes("▮") && part.role !== "dimmed page")
+      .map((part) => part.role)))
       .toEqual(new Set(["context voice", "context facts", "context recent", "context summary"]));
   });
 
@@ -391,13 +403,13 @@ describe("honest next-request context meter", () => {
     const meter = (rows: number) => contextMeterLines(model, false, rows).map((line) => plainLine(line).trim());
 
     expect(meter(4)).toEqual([
-      "─".repeat(33), "next request  ~953 / 8k", "▮▮▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯      7k free",
+      "─".repeat(33), "next request  ~953 / 8k", `▮▮${"▮".repeat(18)}      7k free`,
       "ch 12 · summarize frees ~12.3k"
     ]);
     // The rule is decoration; the gauge repeats what the numbers already say.
     // Both go before the chapter's fix, which is the one actionable line here.
     expect(meter(3)).toEqual([
-      "next request  ~953 / 8k", "▮▮▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯      7k free", "ch 12 · summarize frees ~12.3k"
+      "next request  ~953 / 8k", `▮▮${"▮".repeat(18)}      7k free`, "ch 12 · summarize frees ~12.3k"
     ]);
     expect(meter(2)).toEqual(["next request  ~953 / 8k", "ch 12 · summarize frees ~12.3k"]);
     expect(meter(1)).toEqual(["next request  ~953 / 8k"]);
@@ -581,7 +593,10 @@ describe("honest next-request context meter", () => {
       expect(railRoles()).toContain(role);
     }
     state.config = { ...state.config, composeFocus: "on" };
-    expect(new Set(railRoles())).toEqual(new Set(["dimmed page"]));
+    // Focus dim leaves nothing lit, but the gauge's inked cells mute to chrome
+    // rather than collapsing into the track: a uniform bar would read as a
+    // full window while the numbers above it said otherwise.
+    expect(new Set(railRoles())).toEqual(new Set(["dimmed page", "chrome"]));
   });
 
   test("80-column status retains the complete next-request value", () => {
