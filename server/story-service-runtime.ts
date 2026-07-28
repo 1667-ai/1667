@@ -398,7 +398,9 @@ export abstract class StoryServiceRuntime {
     await this.errorReporter.report(
       new Error([
         "Archived provider warning cleanup failed.",
-        `mutationId=${mutationId}`
+        ...(MUTATION_ID_PATTERN.test(mutationId)
+          ? [`mutationId=${mutationId}`]
+          : [])
       ].join(" ")),
       {
         service: "provider-recovery",

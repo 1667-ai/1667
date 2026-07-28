@@ -181,6 +181,48 @@ test("HTTP warning cleanup retries without replacing resolved state", async (t) 
   assert.equal(entry.error?.cause, undefined);
 });
 
+test("HTTP warning cleanup omits a legacy ID from diagnostics", async (t) => {
+  const dataDir = await initializedDataDirectory(
+    t,
+    "1667-outbox-http-legacy-warning-"
+  );
+  const machineDir = await realpath(
+    await mkdtemp(path.join(
+      tmpdir(),
+      "1667-outbox-http-legacy-warning-machine-"
+    ))
+  );
+  t.after(() => rm(machineDir, { recursive: true, force: true }));
+  const mutationId =
+    `m1-${Date.now().toString(36)}-${"8".repeat(32)}`;
+  await archivedProviderWarning(dataDir, mutationId);
+  const reporter = await InternalErrorReporter.open(machineDir);
+  const service = new StoryService({
+    dataDir,
+    machineDir,
+    errorReporter: reporter
+  });
+  try {
+    await service.init();
+    const blockedArchive = archiveFile(dataDir, mutationId);
+    await rm(blockedArchive);
+    await mkdir(blockedArchive);
+
+    assert.deepEqual(
+      await service.getUnknownOutcomeStatus("story", mutationId),
+      { state: "resolved", deleted: true }
+    );
+    await rm(blockedArchive, { recursive: true });
+  } finally {
+    await service.dispose();
+    await reporter.close();
+  }
+
+  const log = await readFile(internalErrorLogPath(machineDir), "utf8");
+  assert.match(log, /Archived provider warning cleanup failed/);
+  assert.equal(log.includes(mutationId), false);
+});
+
 test("HTTP disposal stops a scheduled archive cleanup retry", async (t) => {
   const dataDir = await initializedDataDirectory(
     t,
@@ -225,7 +267,7 @@ async function initializedDataDirectory(
 async function archivedProviderWarning(
   dataDir: string,
   mutationId: string,
-  providerMutationId: string
+  providerMutationId?: string
 ): Promise<MutationOutbox> {
   const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
   await outbox.init();
