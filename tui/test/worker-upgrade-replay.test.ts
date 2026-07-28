@@ -126,6 +126,69 @@ async function buildRetainedLocalMutation(point: "afterPublish" | "afterPrepared
   };
 }
 
+test("a retained settle-stopped createNode replays with the streamed prose surviving", async () => {
+  // A stopped generation settles its paid prose through createNode with a
+  // genId. That request keeps the full tier, so the durable intent is the
+  // only copy that survives a crash in the window before the worker commits.
+  const vaultParent = await realpath(
+    await mkdtemp(path.join(tmpdir(), "1667-settle-replay-"))
+  );
+  const dataDir = path.join(vaultParent, "vault");
+  const machineDir = path.join(vaultParent, "machine");
+  await mkdir(machineDir, { mode: 0o700 });
+  const prose = "Streamed prose that was already paid for.";
+  let storyId: string;
+  try {
+    const seeded = await createWorkerStoryApi({ dataDir, machineDir });
+    let parentId: string | null;
+    let expectedAggregateVersion: NonNullable<unknown>;
+    try {
+      await seeded.recovery;
+      const stories = await seeded.api.listStories();
+      storyId = stories[0]!.id;
+      const payload = await seeded.api.loadStory(storyId);
+      parentId = payload.path.at(-1)?.id ?? null;
+      if (payload.aggregateVersion === undefined) {
+        throw new Error("Seeded story is missing successor-Q version metadata");
+      }
+      expectedAggregateVersion = payload.aggregateVersion;
+    } finally {
+      await seeded.dispose();
+    }
+
+    // The crash window: the intent is durable, the request was never sent.
+    const mutationId = createDurableMutationId();
+    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
+    await outbox.init();
+    await outbox.enqueue(
+      mutationId,
+      "createNode",
+      {
+        storyId,
+        body: {
+          parentId,
+          instruction: "Continue",
+          text: prose,
+          genId: crypto.randomUUID()
+        }
+      },
+      expectedAggregateVersion as never
+    );
+
+    const backend = await createWorkerStoryApi({ dataDir, machineDir });
+    try {
+      expect(await backend.recovery).toEqual([]);
+      expect(await outbox.list()).toEqual([]);
+      const replayed = await backend.api.loadStory(storyId);
+      expect(replayed.path.at(-1)?.text).toBe(prose);
+    } finally {
+      await backend.dispose();
+    }
+  } finally {
+    await rm(vaultParent, { recursive: true, force: true });
+  }
+});
+
 test("upgrade replay of a published local mutation converges through the full tier", async () => {
   const fixture = await buildRetainedLocalMutation("afterPublish");
   const machineDir = path.join(fixture.vaultParent, "machine");

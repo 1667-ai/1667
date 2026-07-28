@@ -468,6 +468,65 @@ describe("embedded backend worker", () => {
       expect(await outbox.list()).toEqual([]);
       expect(await outbox.listCancellationMarkers()).toEqual([]);
 
+      // A plain human createNode is marker-eligible: no intent, marker set.
+      const creating = backend.api.createNode("story-1", {
+        parentId: "node-1",
+        instruction: "",
+        text: "Typed by the author"
+      });
+      const humanCreate = await waitForRequest(worker, "createNode");
+      expect(humanCreate.durability).toBe("manifest-only");
+      expect(await outbox.list()).toEqual([]);
+      worker.message({ type: "result", id: humanCreate.id, value: { id: "story-1", nodes: [], path: [] } });
+      await creating;
+
+      // A createNode that settles a stopped generation carries paid streamed
+      // prose that exists only in this process: it keeps the full tier, so
+      // the durable intent is the surviving copy for replay.
+      const createNodeRequests = () => worker.messages.filter(
+        (message) => message.type === "request" && message.method === "createNode"
+      ) as Array<Extract<MainToWorkerMessage, { type: "request" }>>;
+      const seenCreates = createNodeRequests().length;
+      const settling = backend.api.createNode("story-1", {
+        parentId: "node-1",
+        instruction: "Continue",
+        text: "Streamed prose worth money",
+        genId: crypto.randomUUID()
+      });
+      for (let waited = 0; waited < 1_000 && createNodeRequests().length <= seenCreates; waited += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      const settleCreate = createNodeRequests().at(-1)!;
+      expect(createNodeRequests().length).toBe(seenCreates + 1);
+      expect(settleCreate.durability).toBe(undefined);
+      const settleIntents = await outbox.list();
+      expect(settleIntents).toHaveLength(1);
+      expect(settleIntents[0]!.mutationId).toBe(settleCreate.mutationId!);
+      expect(settleIntents[0]!.method).toBe("createNode");
+      worker.message({ type: "result", id: settleCreate.id, value: { id: "story-1", nodes: [], path: [] } });
+      await settling;
+      expect(await outbox.list()).toEqual([]);
+
+      // Restoring a chapter break re-installs removed summary nodes, so it
+      // keeps the full tier as well.
+      const restoring = backend.api.restoreChapterBreak("story-1", "break-1", {
+        break: {
+          id: "break-1",
+          parentPartId: "node-1",
+          title: "Kept chapter",
+          createdAt: new Date().toISOString()
+        },
+        summaries: []
+      });
+      const restore = await waitForRequest(worker, "restoreChapterBreak");
+      expect(restore.durability).toBe(undefined);
+      const restoreIntents = await outbox.list();
+      expect(restoreIntents).toHaveLength(1);
+      expect(restoreIntents[0]!.method).toBe("restoreChapterBreak");
+      worker.message({ type: "result", id: restore.id, value: { id: "story-1", nodes: [], path: [] } });
+      await restoring;
+      expect(await outbox.list()).toEqual([]);
+
       // A provider-backed mutation still writes its intent before the send
       // and durably removes it before the caller's promise resolves.
       const continuing = backend.api.continueStory(
@@ -933,6 +992,52 @@ describe("embedded backend worker", () => {
         id: invalidDtoId,
         failure: { code: "invalid_request", status: 400 }
       });
+
+      // The manifest-only marker is rejected whenever the request is not
+      // eligible: a settled generation's prose, a chapter-break restore, or
+      // a request without an expected aggregate version must keep the full
+      // durability tier.
+      const markedContracts: Array<{ method: string; input: unknown; version?: unknown }> = [
+        {
+          method: "createNode",
+          input: { storyId: "unused", body: { parentId: null, instruction: "", text: "paid", genId: crypto.randomUUID() } },
+          version: { kind: "v6", revision: "00000000000000000001" }
+        },
+        {
+          method: "restoreChapterBreak",
+          input: { storyId: "unused", breakId: "break", removed: { break: {}, summaries: [] } },
+          version: { kind: "v6", revision: "00000000000000000001" }
+        },
+        {
+          method: "switchLine",
+          input: { storyId: "unused", nodeId: "node" }
+        }
+      ];
+      for (const contract of markedContracts) {
+        const markedId = operationId();
+        const marked = nextMessage(worker);
+        worker.postMessage({
+          type: "request",
+          id: markedId,
+          method: contract.method,
+          input: contract.input,
+          protocolVersion: WORKER_PROTOCOL_VERSION,
+          deadlineMs,
+          mutationId: createDurableMutationId(),
+          durability: "manifest-only",
+          ...(contract.version === undefined ? {} : {
+            expectedAggregateVersion: contract.version
+          })
+        });
+        expect(await marked).toMatchObject({
+          type: "error",
+          id: markedId,
+          failure: {
+            code: "invalid_request",
+            message: "Manifest-only durability requires an eligible local mutation with an expected aggregate version"
+          }
+        });
+      }
 
       const mutationId = `m1-${Date.now().toString(36)}-${"1".padStart(32, "0")}`;
       const createOneId = operationId();
