@@ -219,7 +219,9 @@ function isBuiltArtifactTarget(value: unknown): value is BuiltArtifactTarget {
     && (BUILT_ARTIFACT_TARGETS as readonly string[]).includes(value);
 }
 
-function isCanonicalTimestamp(value: string): boolean {
+/** Millisecond-precision UTC instant, and a real one: the shape test alone
+ *  admits `2026-13-01T00:00:00.000Z`, whose `Date` is invalid. */
+export function isCanonicalTimestamp(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
   const parsed = new Date(value);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
