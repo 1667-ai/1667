@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   releaseTargetForArtifact,
+  releaseTargetForRuntime,
   BUILT_ARTIFACT_TARGETS,
   PUBLISHED_ARTIFACT_TARGETS,
   type BuiltArtifactTarget,
@@ -352,6 +353,37 @@ function repositoryRoot(): string {
   return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 }
 
+/**
+ * Refuses to build a target on a machine that is not that target.
+ *
+ * `bun build --compile` emits an executable for the machine it runs on. The
+ * release path supplies the build identity instead of deriving one, so the
+ * `artifactTarget` stamped into `build-manifest.json` is whatever the matrix
+ * said, and the smoke that compares the executable against that same supplied
+ * identity structurally cannot see a difference. The only thing binding a
+ * matrix target to a machine is the runner label map in the workflow, and
+ * GitHub repoints labels. So read the machine, map it through the one release
+ * target table, and refuse anything but the target that was asked for. A
+ * refused build is a missing archive, which stops the release; an unrefused
+ * one is an attested archive that cannot execute on the platform it names.
+ */
+export function assertRunnerBuildsTarget(
+  target: BuiltArtifactTarget,
+  platform: string,
+  arch: string
+): CanonicalReleaseTarget {
+  const host = releaseTargetForRuntime(platform, arch);
+  if (host === null) {
+    throw new Error(`This machine is ${platform}-${arch}, which is no release target`);
+  }
+  if (host.artifactTarget !== target) {
+    throw new Error(
+      `This machine builds ${host.artifactTarget}, but ${target} was asked for`
+    );
+  }
+  return host;
+}
+
 function builtTarget(value: string | undefined): BuiltArtifactTarget {
   const target = BUILT_ARTIFACT_TARGETS.find((candidate) => candidate === value);
   if (target === undefined) throw new Error(`Unsupported release target ${String(value)}`);
@@ -370,6 +402,8 @@ const USAGE = [
   "      the published targets, as JSON",
   "  check <version> <commit> <timestamp>",
   "      accept or reject the release source; writes no file",
+  "  runner <target>",
+  "      accept or reject this machine as that target's build host",
   "  identity <version> <commit> <timestamp> <target>",
   "      the build identity the compiler embeds",
   "  stage <version> <commit> <timestamp> <target> <build-dir> <out>",
@@ -403,6 +437,12 @@ function runCommand(argv: readonly string[]): string {
     const identities = releaseIdentitiesForSource(facts);
     return `release source accepted: ${identities.evidence.productVersion} at ${
       facts.sourceCommit} built ${facts.buildTimestamp}\n`;
+  }
+  if (command === "runner") {
+    const [target] = rest;
+    if (rest.length !== 1 || target === undefined) throw new Error(USAGE);
+    const host = assertRunnerBuildsTarget(builtTarget(target), process.platform, process.arch);
+    return `this machine builds ${host.artifactTarget}\n`;
   }
   if (command === "identity") {
     if (rest.length !== 4) throw new Error(USAGE);

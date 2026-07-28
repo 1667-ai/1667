@@ -10,19 +10,25 @@ export interface ReleaseTargetDescriptor {
   readonly arch: "arm64" | "x64";
   readonly libc: "glibc" | null;
   readonly executable: "bin/1667" | "bin/1667.exe";
-  /** Why this target is built and verified but not published, or null when it ships. */
+  /**
+   * Why this target is not published, or null when it ships. The string is
+   * shown to a user of that platform, so it has to say what is true of the
+   * target today — including whether anything still builds it.
+   */
   readonly heldFromPublication: string | null;
 }
 
 /**
  * Canonical ordered package/runtime policy for every native release target.
  *
- * Membership here means built and verified: CI compiles the target, smoke-tests
- * the executable it produces, and proves its fail-closed boundaries. Publication
- * is the narrower question `heldFromPublication` answers, and every consumer has
- * to pick one of the two — a target that is built but not published belongs in
- * the launcher's dependency graph, the package matrix and the registry no more
- * than a target that does not exist.
+ * Membership here defines a native release target and nothing more. It does not
+ * promise that CI compiles the target on every change: it no longer does for
+ * every member, and the `heldFromPublication` string on the target concerned is
+ * where that is stated rather than left for a reader to assume. Publication is
+ * the narrower question that same field answers, and every consumer has to pick
+ * one of the two sets — a target that is not published belongs in the launcher's
+ * dependency graph, the package matrix and the registry no more than a target
+ * that does not exist.
  */
 export const RELEASE_TARGETS = Object.freeze([
   Object.freeze({
@@ -68,8 +74,8 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "x64",
     libc: null,
     executable: "bin/1667.exe",
-    heldFromPublication: "the Windows platform work is built and verified on every "
-      + "change, and maintainers have not approved it for publication"
+    heldFromPublication: "CI does not build the Windows platform work at present, "
+      + "so it is unverified, and maintainers have not approved it for publication"
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);
 
@@ -154,8 +160,9 @@ export function releaseTargetForRuntime(
 }
 
 /**
- * What a user on a held target is told. Their platform is supported and its
- * executable is built on every change; only the package is withheld. Reporting
+ * What a user on a held target is told. Their platform is supported and the
+ * source builds an executable for it; the package is what is withheld, and the
+ * hold reason above says whether anything still verifies that build. Reporting
  * an unsupported platform instead would send them looking for support that is
  * already there, so this names the reason and the route that does work.
  */

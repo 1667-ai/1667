@@ -80,8 +80,11 @@ jobs:
             exit 1
           fi
 
+      # This job runs two pure-JavaScript commands through tsx and compiles
+      # nothing, so it has no use for a dependency's install script. See the
+      # release job for why a release path installs without them.
       - name: Install runtime dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Resolve the published targets
         id: policy
@@ -155,8 +158,29 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      # This job compiles the executable, so the prebuilt native dependency it
+      # embeds has to be installed the way it is installed everywhere else,
+      # install script and all. It is also the one job in this workflow that
+      # holds no permission beyond the read the checkout needs: it mints no
+      # token, signs nothing, and writes nothing outside its own artifact.
       - name: Install runtime dependencies
         run: npm ci
+
+      # matrix.target is bound to a machine by nothing but the runner label map
+      # above, and GitHub repoints labels: macos-15-intel is a retiring class,
+      # and macos-13/macos-14 changed default architecture during their lives.
+      # A repointed label would compile an arm64 executable, stamp
+      # `darwin-x64` into its build-manifest.json — the identity is supplied
+      # here rather than derived from the host, so nothing downstream disagrees
+      # — and the release job would attest exactly those bytes. Prove the
+      # machine is the target before anything is compiled, and fail if it is
+      # not.
+      - name: Refuse a runner that is not the matrix target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/release-github-assets.ts runner "$TARGET"
 
       - name: Install TUI dependencies
         working-directory: tui
@@ -232,8 +256,17 @@ jobs:
           node-version: 22.22.0
           cache: npm
 
+      # No install scripts here, and the reason is this job's permissions. A
+      # postinstall script from any package in the tree — three declare one —
+      # would run as this job, with ACTIONS_ID_TOKEN_REQUEST_TOKEN and
+      # ACTIONS_ID_TOKEN_REQUEST_URL in its environment, and could mint an
+      # OIDC token and attest bytes this workflow never built under this
+      # repository's name. That attestation is the only evidence this release
+      # path offers, and the notes tell readers to verify with it. npm is here
+      # so tsx can run two pure-JavaScript commands, `checksums` and `notes`,
+      # neither of which loads a native module; nothing in this job compiles.
       - name: Install runtime dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Download every archive
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

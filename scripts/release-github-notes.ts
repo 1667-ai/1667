@@ -24,6 +24,13 @@ const PLATFORM_LABELS: Readonly<Record<CanonicalReleaseTarget["platform"], strin
  * `shared/release-targets.ts` moves a target into the table and out of this
  * paragraph without an edit here.
  *
+ * Nothing here claims a position in the release history. The workflow can be
+ * dispatched again at any version, and these notes are generated from the
+ * version alone, so a sentence that is true only of the first release would go
+ * false with no edit and no failing check. Every sentence therefore has to hold
+ * for the tenth dispatch as well as the first, or be derived from a fact this
+ * repository checks.
+ *
  * Two claims are deliberately absent. There is no signed-tag provenance: the
  * evidence this release offers is the build-provenance attestation, and the
  * notes say only that. There is no install script and no one-line shell
@@ -39,9 +46,10 @@ export function releaseNotesMarkdown(version: string): string {
   return [
     `# 1667 v${version}`,
     "",
-    "The first published builds of 1667, a full-screen terminal environment for",
-    "writing fiction with language models. This is a pre-release: the interface, the",
-    "stored data format, and the packaging can still change between versions.",
+    "Native builds of 1667, a full-screen terminal environment for writing fiction",
+    "with language models. Every release on this path is a pre-release: the",
+    "interface, the stored data format, and the packaging can still change between",
+    "versions.",
     "",
     "## Downloads",
     "",
@@ -96,20 +104,37 @@ export function releaseNotesMarkdown(version: string): string {
 
 /**
  * Why the version carries a prerelease identifier. npm cannot republish a
- * version, so the stable number is not spent on a preview. A stable release
+ * version, so a stable number is never spent on a preview. A stable release
  * says nothing here.
+ *
+ * Every sentence has to hold for the tenth release as well as the first, so
+ * this states the standing rule and the two version strings it produced,
+ * rather than anything about which release this is.
  */
 function reservedVersionNote(version: string): readonly string[] {
   const parsed = parseSemVer(version);
   if (parsed === null || parsed.prerelease.length === 0) return [];
   const stable = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
   return [
-    `This build is \`${version}\`. \`${stable}\` is held for the first npm publication,`,
-    "because npm cannot replace a version once it is published.",
+    `This build is \`${version}\`, a preview of \`${stable}\`. A stable number is not`,
+    "spent on a preview, because npm cannot replace a version once it is published.",
     ""
   ];
 }
 
+/**
+ * Which targets are absent and what a reader may assume about them. The names
+ * are derived — clearing `heldFromPublication` empties this section — but the
+ * verification claim is not, and must not be written as one this repository
+ * cannot keep. A held target is not necessarily a built one: routine CI does
+ * not compile every target today, so promising that a held target is "built and
+ * tested on every change" would be a false assurance handed to the one reader
+ * who is about to build from source. Claim nothing continuous: say the target
+ * is not built here now, that the source still compiles, and that what a reader
+ * builds is unverified. That stays true whether CI coverage widens or narrows,
+ * and a reader who is told nothing verifies it cannot be misled by a promise
+ * that quietly lapsed.
+ */
 function heldTargetSection(): readonly string[] {
   const held: readonly string[] = RELEASE_TARGETS
     .filter((descriptor) => descriptor.heldFromPublication !== null)
@@ -120,10 +145,11 @@ function heldTargetSection(): readonly string[] {
   return [
     "## Targets not published here",
     "",
-    `${names} ${single ? "is" : "are"} not in this release. ${single ? "It is" : "They are"}`,
-    "built and tested on every change to `main`, and you can build the executable",
-    "yourself with `bun run build:standalone` in `tui/`. Held back from",
-    "distribution, not dropped.",
+    `${names} ${single ? "is" : "are"} not in this release, and ${single ? "is" : "are"} not`,
+    "built by this repository's CI at the moment. The source still compiles",
+    `${single ? "it" : "them"}: run \`bun run build:standalone\` in \`tui/\`. Nothing is`,
+    "verifying that build today, so treat what you get as untested. Held back",
+    "from distribution, not dropped.",
     ""
   ];
 }

@@ -296,10 +296,12 @@ checkout.
 
 `shared/release-targets.ts` decides which targets are published, in the single
 `heldFromPublication` field each target carries. `windows-x64` is held from
-publication today. A held target still builds and tests on every change, and
-returns to the published set — matrix, notes table, held-target paragraph and
-archive set alike — when that one field is cleared. No release script keeps a
-target list of its own.
+publication today, and routine CI does not build it either, so its hold reason
+says plainly that it is unverified and the release notes tell a reader who
+builds it from source to treat that build as untested. A held target returns to
+the published set — matrix, notes table, held-target paragraph and archive set
+alike — when that one field is cleared. No release script keeps a target list of
+its own.
 
 The dispatched version must match the root package, the TUI package, and the
 lockfile. The `check` command refuses any other value, in the `prepare` job.
