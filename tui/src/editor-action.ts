@@ -1,24 +1,13 @@
 import { countWords } from "../../shared/story-text.js";
 import type { AppSource } from "./app.js";
 import {
-  backspaceComposer,
-  deleteComposerForward,
   composerSelection,
   insertComposerText,
-  moveComposerHorizontal,
   redoComposerEdit,
   selectedComposerText,
   undoComposerEdit
 } from "./composer-model.js";
-import {
-  deleteComposerLine,
-  deleteComposerToLineBoundary,
-  deleteComposerWord,
-  moveComposerBufferBoundary,
-  moveComposerLineBoundary,
-  moveComposerWord,
-  selectAllComposer
-} from "./composer-editing.js";
+import { applyComposerEdit } from "./composer-editing.js";
 import { moveComposerVisualVertical } from "./composer-wrapping.js";
 import { copyToClipboard, readFromClipboard } from "./clipboard.js";
 import { recordHumanWords } from "./config.js";
@@ -78,28 +67,25 @@ export async function inlineEditorAction(
     disarmEditorConfirmations(editor);
     return insertComposerText(editor.composer, "\n");
   }
-  if (resolved.action === "cursor-left") return moveComposerHorizontal(editor.composer, -1);
-  if (resolved.action === "cursor-right") return moveComposerHorizontal(editor.composer, 1);
   const wrapWidth = Math.max(1, (context.renderer?.width ?? 80) - 4);
-  if (resolved.action === "cursor-up") return void moveComposerVisualVertical(editor.composer, -1, wrapWidth);
-  if (resolved.action === "cursor-down") return void moveComposerVisualVertical(editor.composer, 1, wrapWidth);
-  if (resolved.action === "select-left") return moveComposerHorizontal(editor.composer, -1, true);
-  if (resolved.action === "select-right") return moveComposerHorizontal(editor.composer, 1, true);
-  if (resolved.action === "select-up") return void moveComposerVisualVertical(editor.composer, -1, wrapWidth, true);
-  if (resolved.action === "select-down") return void moveComposerVisualVertical(editor.composer, 1, wrapWidth, true);
-  if (resolved.action === "cursor-word-left") return moveComposerWord(editor.composer, -1);
-  if (resolved.action === "cursor-word-right") return moveComposerWord(editor.composer, 1);
-  if (resolved.action === "select-word-left") return moveComposerWord(editor.composer, -1, true);
-  if (resolved.action === "select-word-right") return moveComposerWord(editor.composer, 1, true);
-  if (resolved.action === "cursor-line-start") return moveComposerLineBoundary(editor.composer, false);
-  if (resolved.action === "cursor-line-end") return moveComposerLineBoundary(editor.composer, true);
-  if (resolved.action === "select-line-start") return moveComposerLineBoundary(editor.composer, false, true);
-  if (resolved.action === "select-line-end") return moveComposerLineBoundary(editor.composer, true, true);
-  if (resolved.action === "cursor-buffer-start") return moveComposerBufferBoundary(editor.composer, false);
-  if (resolved.action === "cursor-buffer-end") return moveComposerBufferBoundary(editor.composer, true);
-  if (resolved.action === "select-buffer-start") return moveComposerBufferBoundary(editor.composer, false, true);
-  if (resolved.action === "select-buffer-end") return moveComposerBufferBoundary(editor.composer, true, true);
-  if (resolved.action === "select-all") return selectAllComposer(editor.composer);
+  if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
+    moveComposerVisualVertical(
+      editor.composer,
+      resolved.action === "cursor-up" ? -1 : 1,
+      wrapWidth,
+      resolved.extendSelection
+    );
+    return;
+  }
+  const kind = applyComposerEdit(
+    editor.composer,
+    resolved.action,
+    resolved.extendSelection
+  );
+  if (kind !== null) {
+    if (kind === "delete") disarmEditorConfirmations(editor);
+    return;
+  }
   if (resolved.action === "undo-edit" || resolved.action === "redo-edit") {
     const changed = resolved.action === "undo-edit"
       ? undoComposerEdit(editor.composer)
@@ -108,24 +94,9 @@ export async function inlineEditorAction(
     else state.toast = resolved.action === "undo-edit" ? "nothing to undo" : "nothing to redo";
     return;
   }
-  if (resolved.action === "delete-forward" || resolved.action === "delete-word-left"
-    || resolved.action === "delete-word-right" || resolved.action === "delete-line"
-    || resolved.action === "delete-line-start" || resolved.action === "delete-line-end") {
-    disarmEditorConfirmations(editor);
-    if (resolved.action === "delete-forward") deleteComposerForward(editor.composer);
-    else if (resolved.action === "delete-word-left") deleteComposerWord(editor.composer, -1);
-    else if (resolved.action === "delete-word-right") deleteComposerWord(editor.composer, 1);
-    else if (resolved.action === "delete-line") deleteComposerLine(editor.composer);
-    else deleteComposerToLineBoundary(editor.composer, resolved.action === "delete-line-end");
-    return;
-  }
   if (resolved.action === "input") {
     disarmEditorConfirmations(editor);
     return insertComposerText(editor.composer, resolved.text ?? "");
-  }
-  if (resolved.action === "backspace") {
-    disarmEditorConfirmations(editor);
-    return backspaceComposer(editor.composer);
   }
   if (resolved.action === "save-edit") await saveInlineEditor(state, source, context, editor);
 }

@@ -12,16 +12,8 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
-import {
-  backspaceComposer,
-  deleteComposerForward,
-  insertComposerText,
-  moveComposerHorizontal
-} from "./composer-model.js";
-import {
-  moveComposerLineBoundary,
-  selectAllComposer
-} from "./composer-editing.js";
+import { insertComposerText } from "./composer-model.js";
+import { applyComposerEdit } from "./composer-editing.js";
 import { readFromClipboard } from "./clipboard.js";
 import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
@@ -221,30 +213,18 @@ async function settingsInlineEditAction(
   if (resolved.action === "input") {
     if (overlay.conflict !== null) overlay.conflict.armed = false;
     insertComposerText(edit.composer, resolved.text ?? "");
-  } else if (resolved.action === "backspace") {
-    if (overlay.conflict !== null) overlay.conflict.armed = false;
-    backspaceComposer(edit.composer);
-  } else if (resolved.action === "delete-forward") {
-    if (overlay.conflict !== null) overlay.conflict.armed = false;
-    deleteComposerForward(edit.composer);
-  } else if (resolved.action === "cursor-left") {
-    moveComposerHorizontal(edit.composer, -1);
-  } else if (resolved.action === "cursor-right") {
-    moveComposerHorizontal(edit.composer, 1);
-  } else if (resolved.action === "select-left") {
-    moveComposerHorizontal(edit.composer, -1, true);
-  } else if (resolved.action === "select-right") {
-    moveComposerHorizontal(edit.composer, 1, true);
-  } else if (resolved.action === "cursor-line-start") {
-    moveComposerLineBoundary(edit.composer, false);
-  } else if (resolved.action === "cursor-line-end") {
-    moveComposerLineBoundary(edit.composer, true);
-  } else if (resolved.action === "select-line-start") {
-    moveComposerLineBoundary(edit.composer, false, true);
-  } else if (resolved.action === "select-line-end") {
-    moveComposerLineBoundary(edit.composer, true, true);
-  } else if (resolved.action === "select-all") {
-    selectAllComposer(edit.composer);
+    return;
+  }
+  const kind = applyComposerEdit(
+    edit.composer,
+    resolved.action,
+    resolved.extendSelection
+  );
+  if (kind !== null) {
+    if (kind === "delete" && overlay.conflict !== null) {
+      overlay.conflict.armed = false;
+    }
+    return;
   }
 }
 

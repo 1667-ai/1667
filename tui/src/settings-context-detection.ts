@@ -20,13 +20,10 @@ export async function detectSettingsContext(
     const editable = overlay.view.editable;
     const probed = editable ? overlay.draft.generation : overlay.view.effective;
     try {
-      if (probed.provider !== "dry-run" && probed.model.trim().length === 0) {
-        overlay.result = {
-          state: "warning",
-          message: "enter a model ID before detecting context"
-        };
-        return;
-      }
+      // No model-first gate here. Whether one is needed is the probe's own
+      // knowledge — KoboldCpp and llama.cpp answer from the loaded model
+      // without being told its name — and a provider that does need one
+      // returns nothing, which lands on the manual-entry warning below.
       const { contextWindow } = await source.api.probeContextWindow(
         settingsProviderProbeTarget(overlay.view, probed)
       );

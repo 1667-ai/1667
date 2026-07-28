@@ -90,7 +90,10 @@ export const SETTINGS_PROVIDER_CHOICES: readonly SettingsProviderChoice[] = [
     plaintextDefaultRequiresOwnedLoopback: true,
     defaults: {
       baseUrl: "http://127.0.0.1:5001/v1",
-      model: "koboldcpp",
+      // KoboldCpp serves the model that the user loaded, and reports its
+      // name. Seed no model ID. The old placeholder matched nothing in
+      // `/models`, so `c` reported the model as missing.
+      model: "",
       apiKeyEnv: null,
       contextWindow: null
     }

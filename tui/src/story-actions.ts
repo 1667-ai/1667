@@ -4,15 +4,14 @@ import type { AppSource } from "./app.js";
 import { openFactFromSelection, openPartEditor } from "./editor-action.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { copyToClipboard } from "./clipboard.js";
+import { applyComposerEdit } from "./composer-editing.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
 import { openMap } from "./map-actions.js";
 import { createNewStory } from "./library-actions.js";
 import { resolveRerouteTarget } from "./path-layout.js";
 import {
-  backspaceComposer,
   insertComposerText,
-  moveComposerHorizontal,
   moveComposerVertical,
   setComposerText
 } from "./composer-model.js";
@@ -371,14 +370,6 @@ export async function composeAction(
     return;
   }
   if (resolved.action === "newline") { insertComposerText(state.composer, "\n"); return; }
-  if (resolved.action === "cursor-left") {
-    moveComposerHorizontal(state.composer, -1, resolved.extendSelection);
-    return;
-  }
-  if (resolved.action === "cursor-right") {
-    moveComposerHorizontal(state.composer, 1, resolved.extendSelection);
-    return;
-  }
   if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
     const direction = resolved.action === "cursor-up" ? -1 : 1;
     if (!moveComposerVertical(state.composer, direction, resolved.extendSelection)
@@ -388,6 +379,11 @@ export async function composeAction(
     }
     return;
   }
+  if (applyComposerEdit(
+    state.composer,
+    resolved.action,
+    resolved.extendSelection
+  ) !== null) return;
   if (resolved.action === "history-previous") return historyMove(state, -1);
   if (resolved.action === "history-next") return historyMove(state, 1);
   if (resolved.action === "send") {
@@ -437,7 +433,6 @@ export async function composeAction(
     return;
   }
   if (resolved.action === "input") insertComposerText(state.composer, resolved.text ?? "");
-  else if (resolved.action === "backspace") backspaceComposer(state.composer);
 }
 
 export async function pruneAction(

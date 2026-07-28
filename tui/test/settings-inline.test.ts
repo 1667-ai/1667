@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
+import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
 import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
@@ -28,7 +30,9 @@ import { publishSettingsView } from "../src/overlay-publication.js";
 import {
   localProviderPresetsSupported,
   selectableSettingsProviderChoices,
-  SETTINGS_PROVIDER_CHOICES
+  settingsProviderChoice,
+  SETTINGS_PROVIDER_CHOICES,
+  type SettingsProviderChoiceId
 } from "../src/settings-provider-choices.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
@@ -351,7 +355,7 @@ describe("inline settings menu", () => {
       {
         label: "KoboldCpp",
         baseUrl: "http://127.0.0.1:5001/v1",
-        model: "koboldcpp"
+        model: ""
       }
     ]);
     expect(selectableSettingsProviderChoices(false).some(
@@ -422,7 +426,7 @@ describe("inline settings menu", () => {
     await press(key("right"));
     expect(state.settings?.draft.generation).toMatchObject({
       baseUrl: "http://127.0.0.1:5001/v1",
-      model: "koboldcpp"
+      model: ""
     });
   });
 
@@ -797,13 +801,59 @@ describe("inline settings menu", () => {
     expect(state.settings?.draft.generation.contextWindow).toBe(null);
   });
 
-  test("context detection requires a real model ID for provider presets", async () => {
+  test("p probes blank-model KoboldCpp and llama.cpp drafts at the real boundary", async () => {
+    const cases = [
+      { id: "koboldcpp", contextWindow: 65_536 },
+      { id: "llama-cpp", contextWindow: 32_768 }
+    ] as const satisfies readonly {
+      id: SettingsProviderChoiceId;
+      contextWindow: number;
+    }[];
+
+    for (const expected of cases) {
+      const { source, state, press } = harness();
+      const choice = SETTINGS_PROVIDER_CHOICES.find(
+        (candidate) => candidate.id === expected.id
+      )!;
+      let probes = 0;
+      source.api.probeContextWindow = async (target) => {
+        probes += 1;
+        if (!("kind" in target)) throw new Error("expected a settings document");
+        const runtime = effectiveGenerationRuntime(
+          parseSettingsDocumentV2(target.document),
+          target.purpose,
+          {},
+          {},
+          { allowBlankModel: true }
+        );
+        expect(runtime.settings.model).toBe("");
+        expect(runtime.providerRuntime.preset).toBe(expected.id);
+        return { contextWindow: expected.contextWindow };
+      };
+      await openSettings(press);
+      state.settings!.draft = {
+        ...state.settings!.draft,
+        generation: {
+          ...state.settings!.draft.generation,
+          provider: choice.provider,
+          ...choice.defaults
+        }
+      };
+      expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe(expected.id);
+      expect(state.settings!.draft.generation.model).toBe("");
+      await selectRow(press, state, "context-window");
+
+      await press(key("p"));
+
+      expect(probes).toBe(1);
+      expect(state.settings?.draft.generation.contextWindow).toBe(expected.contextWindow);
+      expect(state.settings?.result).toMatchObject({ state: "ready" });
+    }
+  });
+
+  test("a probe that cannot answer sends the writer to manual entry", async () => {
     const { source, state, press } = harness();
-    let probes = 0;
-    source.api.probeContextWindow = async () => {
-      probes += 1;
-      return { contextWindow: 65_536 };
-    };
+    source.api.probeContextWindow = async () => ({ contextWindow: null });
     await openSettings(press);
     state.settings!.draft = {
       ...state.settings!.draft,
@@ -817,10 +867,9 @@ describe("inline settings menu", () => {
     await selectRow(press, state, "context-window");
     await press(key("p"));
 
-    expect(probes).toBe(0);
     expect(state.settings?.result).toEqual({
       state: "warning",
-      message: "enter a model ID before detecting context"
+      message: "context window unavailable · enter it here"
     });
   });
 
