@@ -11,7 +11,6 @@ import {
   type WorkerToMainMessage
 } from "../shared/worker-protocol.js";
 import {
-  isDefinitiveProviderFailure,
   ProviderError,
   ServiceError
 } from "./errors.js";
@@ -305,7 +304,7 @@ function mutationOutcome(error: unknown): "terminal" | "uncertain" {
     return "uncertain";
   }
   if (error instanceof ProviderError) {
-    return isDefinitiveProviderFailure(error) ? "terminal" : "uncertain";
+    return "terminal";
   }
   if (error instanceof ServiceError) {
     return error.code === "internal" ? "uncertain" : "terminal";

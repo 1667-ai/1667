@@ -134,6 +134,34 @@ test("restart proof-cleans an exact unpublished activation successor", async (t)
   );
 });
 
+test("startup rollback of an interrupted activation surfaces a rolled-back outcome", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-settings-v2-rollback-outcome-");
+  const { ledger, staged } = await installCompletedStagingReceipt(dataDir);
+  const prepared = reduceSettingsStateV2(
+    reduceSettingsStateV2(staged, {
+      kind: "begin-validation",
+      transactionId: MUTATION_A
+    }),
+    { kind: "prepare" }
+  );
+  await stageSettingsState(dataDir, prepared);
+  await publishStagedSettingsState(dataDir);
+
+  const restarted = new SettingsStore(dataDir, { ledger, now: () => FIXED_TIME });
+  await restarted.init(2);
+
+  const view = await restarted.loadView();
+  assert.equal(view.pendingRevision, null);
+  assert.equal(view.activeRevision, 1);
+  assert.deepEqual(view.lastActivationOutcome, {
+    transactionId: MUTATION_A,
+    candidateRevision: 2,
+    result: "rolled-back",
+    errorCode: "readiness_failed",
+    atStateGeneration: prepared.stateGeneration + 2
+  }, "the recovered rollback is surfaced, never silent");
+});
+
 test("restart fails closed on a skipped unpublished activation successor", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-v2-skipped-next-");
   const { ledger, staged } = await installCompletedStagingReceipt(dataDir);

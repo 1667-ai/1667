@@ -12,7 +12,7 @@ import {
   releaseTargetForArtifact,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
-import { createReleaseIdentitySet, type ReleaseIdentitySet } from "./release-identity.js";
+import { type ReleaseIdentitySet } from "./release-identity.js";
 import { MAX_RELEASE_SBOM_BYTES } from "./release-package-policy.js";
 import {
   releaseBundledComponents,
@@ -24,10 +24,10 @@ import {
   type SpdxDocument
 } from "./release-sbom-document.js";
 import { createSpdxValidator } from "./release-sbom-schema.js";
+import { releaseIdentitiesForSource } from "./release-source-facts.js";
 
 const MAX_NPM_LOCKFILE_BYTES = 8 * 1024 * 1024;
 const MAX_BUN_LOCKFILE_BYTES = 8 * 1024 * 1024;
-const MAX_EVIDENCE_BYTES = 1024 * 1024;
 
 export interface ReleaseSbom {
   readonly packageName: string;
@@ -94,32 +94,25 @@ export function releaseSbomForPackage(set: ReleaseSbomSet, packageName: string):
   return found;
 }
 
-export interface ReleaseSbomInputPaths {
-  readonly sourceEvidence: string;
-  readonly npmLockfile: string;
-  readonly bunLockfile: string;
-}
-
-export function defaultReleaseSbomInputs(sourceEvidence: string): ReleaseSbomInputPaths {
+/**
+ * The two lockfiles in this checkout, which are the only dependency sources an
+ * SBOM is built from. Paths rather than parameters: the SBOM describes the
+ * commit the job checked out, so there is nothing to configure and nothing for
+ * a caller to point somewhere else.
+ */
+export function repositoryReleaseComponentSources(): ReleaseComponentSources {
   const root = repositoryRoot();
   return Object.freeze({
-    sourceEvidence,
-    npmLockfile: path.join(root, "package-lock.json"),
-    bunLockfile: path.join(root, "tui", "bun.lockb")
+    npmLockfile: parseJsonRejectingDuplicateKeys(
+      boundedFile(path.join(root, "package-lock.json"), MAX_NPM_LOCKFILE_BYTES, "Release npm lockfile")
+        .toString("utf8")
+    ),
+    bunLockfile: boundedFile(
+      path.join(root, "tui", "bun.lockb"),
+      MAX_BUN_LOCKFILE_BYTES,
+      "Release Bun lockfile"
+    )
   });
-}
-
-export function readReleaseSboms(paths: ReleaseSbomInputPaths): ReleaseSbomSet {
-  const evidence = parseJsonRejectingDuplicateKeys(
-    boundedFile(paths.sourceEvidence, MAX_EVIDENCE_BYTES, "Release source evidence")
-      .toString("utf8")
-  );
-  const npmLockfile = parseJsonRejectingDuplicateKeys(
-    boundedFile(paths.npmLockfile, MAX_NPM_LOCKFILE_BYTES, "Release npm lockfile")
-      .toString("utf8")
-  );
-  const bunLockfile = boundedFile(paths.bunLockfile, MAX_BUN_LOCKFILE_BYTES, "Release Bun lockfile");
-  return createReleaseSboms(createReleaseIdentitySet(evidence), { npmLockfile, bunLockfile });
 }
 
 function formatSbom(
@@ -170,17 +163,20 @@ function isMainModule(): boolean {
   }
 }
 
+// The three source facts, never a document: see releaseIdentitiesForSource.
+const USAGE = "usage: release-sbom.ts <version> <commit> <timestamp> <package-name>";
+
 if (isMainModule()) {
   try {
-    if (process.argv.length !== 4) {
-      throw new Error("usage: release-sbom.ts <source-evidence.json> <package-name>");
+    const [version, sourceCommit, buildTimestamp, packageName] = process.argv.slice(2);
+    if (process.argv.length !== 6 || version === undefined || sourceCommit === undefined
+      || buildTimestamp === undefined || packageName === undefined) {
+      throw new Error(USAGE);
     }
-    const evidencePath = process.argv[2];
-    const packageName = process.argv[3];
-    if (evidencePath === undefined || packageName === undefined) {
-      throw new Error("usage: release-sbom.ts <source-evidence.json> <package-name>");
-    }
-    const set = readReleaseSboms(defaultReleaseSbomInputs(evidencePath));
+    const set = createReleaseSboms(
+      releaseIdentitiesForSource({ version, sourceCommit, buildTimestamp }),
+      repositoryReleaseComponentSources()
+    );
     const sbom = releaseSbomForPackage(set, packageName);
     process.stdout.write(sbom.text);
     process.stderr.write(`release-sbom-sha256 ${sbom.sha256} ${sbom.bytes}\n`);

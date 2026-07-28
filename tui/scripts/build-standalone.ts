@@ -117,7 +117,20 @@ async function buildEmbeddedWorker(
 
 async function deriveBuildIdentity(): Promise<BuildIdentity> {
   const supplied = process.env.AI_1667_BUILD_IDENTITY_JSON;
-  if (supplied !== undefined) return parseBuildIdentity(JSON.parse(supplied));
+  if (supplied !== undefined) {
+    const identity = parseBuildIdentity(JSON.parse(supplied));
+    // The compile emits an executable for this machine, and the smoke below
+    // compares that executable against this same supplied identity, so a
+    // target the supplier got wrong would be compared with itself and pass.
+    // The machine is the only fact that decides what was compiled.
+    const host = currentArtifactTarget();
+    if (identity.artifactTarget !== host) {
+      throw new Error(
+        `Supplied build identity targets ${identity.artifactTarget}, but this machine builds ${host}`
+      );
+    }
+    return identity;
+  }
   const [rootPackage, tuiPackage, rootLock, sourceCommit, sourceStatus] = await Promise.all([
     readJson(path.join(repositoryRoot, "package.json")),
     readJson(path.join(tuiRoot, "package.json")),

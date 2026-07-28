@@ -1,6 +1,6 @@
 import {
   GenerationResultError,
-  isDefinitiveProviderFailure,
+  isTerminalGenerationFailure,
   ProviderError,
   ServiceError
 } from "./errors.js";
@@ -21,13 +21,13 @@ export function receiptOnlyProviderError(
   error: unknown
 ): PreparedDomainError | null {
   if (error instanceof ProviderError) {
-    return isDefinitiveProviderFailure(error) ? "provider_failure" : null;
+    return "provider_failure";
   }
   if (!(error instanceof ServiceError) || !isPreparedDomainError(error.code)) {
     return null;
   }
   if (error.code === "provider_failure"
-    && !isDefinitiveProviderFailure(error)) {
+    && !isTerminalGenerationFailure(error)) {
     return null;
   }
   return error.code;
@@ -98,7 +98,7 @@ export function requireMatchingAcknowledgedProviderReceipt(
 export function providerOutcomeUnknown(mutationId: string): ServiceError {
   return new ServiceError(
     409,
-    `Provider outcome is unknown for mutation ${mutationId}; acknowledge it before continuing.`,
+    `The model request ${mutationId} stopped before 1667 received a final result. Reload the story before you send another request.`,
     "generation_outcome_unknown"
   );
 }
@@ -106,7 +106,7 @@ export function providerOutcomeUnknown(mutationId: string): ServiceError {
 export function providerOutcomeAcknowledged(mutationId: string): ServiceError {
   return new ServiceError(
     409,
-    `Provider outcome was acknowledged for mutation ${mutationId}.`,
+    `The interrupted model request ${mutationId} is closed and cannot run again.`,
     "generation_outcome_unknown_acknowledged"
   );
 }

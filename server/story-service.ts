@@ -200,6 +200,10 @@ export class StoryService extends StoryServiceRuntime {
       mutationRequest,
       originalProviderMutationId
     );
+    await this.dismissArchivedMutationWarning(
+      originalProviderMutationId,
+      storyId
+    );
     return committed.story === null
       ? null
       : buildStoryPayload(committed.story, {
@@ -213,10 +217,17 @@ export class StoryService extends StoryServiceRuntime {
     originalProviderMutationId: string
   ) {
     this.ensureOpen();
-    return await this.storyMutations.getUnknownOutcomeStatus(
+    const status = await this.storyMutations.getUnknownOutcomeStatus(
       storyId,
       originalProviderMutationId
     );
+    if (status.state === "resolved") {
+      await this.dismissArchivedMutationWarning(
+        originalProviderMutationId,
+        storyId
+      );
+    }
+    return status;
   }
 
   async deleteStory(id: string, mutationRequest?: unknown): Promise<{ ok: true }> {

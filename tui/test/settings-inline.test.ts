@@ -200,7 +200,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;
@@ -251,7 +252,8 @@ describe("inline settings menu", () => {
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective: source.settings
+      effective: source.settings,
+      lastActivationOutcome: null
     };
     source.settingsView = legacy;
     source.api.getSettings = async () => legacy;
@@ -457,7 +459,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;
@@ -493,18 +496,26 @@ describe("inline settings menu", () => {
 
     await press(key("s"));
     expect(commands).toHaveLength(1);
+    // Every entered key mints a fresh, crypto-strength secret ID: the server
+    // refuses to rebind an ID the active document still resolves to a
+    // different target, and the shared machine tier needs collision-proof
+    // names across projects.
+    const firstId = Object.keys(commands[0]!.connectionSecrets ?? {})[0]!;
+    expect(firstId).toMatch(
+      /^demo\.k[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
     expect(commands[0]!.connectionSecrets).toEqual({
-      demo: "sk-pasted-secret"
+      [firstId]: "sk-pasted-secret"
     });
     expect(commands[0]!.document.connections.demo?.auth).toEqual({
       type: "bearer-stored",
-      secretId: "demo"
+      secretId: firstId
     });
     expect(JSON.stringify(commands[0]!.document)).not.toContain("sk-pasted-secret");
 
     await draftRow(press, state, "api-key", "");
     await press(key("s"));
-    expect(commands[1]!.connectionSecrets).toEqual({ demo: null });
+    expect(commands[1]!.connectionSecrets).toEqual({ [firstId]: null });
     expect(commands[1]!.document.connections.demo?.auth).toEqual({ type: "none" });
 
     await selectRow(press, state, "provider");
@@ -520,13 +531,16 @@ describe("inline settings menu", () => {
     await press(key("return"));
     await press(key("s"));
 
+    const thirdId = Object.keys(commands[2]!.connectionSecrets ?? {})[0]!;
+    expect(thirdId.startsWith("demo.k")).toBeTrue();
+    expect(thirdId).not.toBe(firstId);
     expect(commands[2]!.connectionSecrets).toEqual({
-      demo: "anthropic-pasted-secret"
+      [thirdId]: "anthropic-pasted-secret"
     });
     expect(commands[2]!.document.connections.demo?.auth).toEqual({
       type: "header-stored",
       name: "x-api-key",
-      secretId: "demo"
+      secretId: thirdId
     });
   });
 
@@ -880,44 +894,214 @@ describe("inline settings menu", () => {
     expect(state.settings?.checking).toBeFalse();
   });
 
-  test("pending settings keep local rows editable, freeze server rows, and discard durably", async () => {
+  test("a save whose activation fails surfaces the reason and keeps editing available", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const active = source.settingsView;
+    source.api.saveSettings = async (command) => {
+      const candidateRevision = active.activeRevision + 1;
+      const outcome = {
+        transactionId: command.mutationId,
+        candidateRevision,
+        result: "validation-failed" as const,
+        errorCode: "candidate_invalid" as const,
+        atStateGeneration: active.stateGeneration + 3
+      };
+      source.settingsView = {
+        ...active,
+        stateGeneration: active.stateGeneration + 3,
+        pendingRevision: candidateRevision,
+        document: command.document,
+        lastActivationOutcome: outcome
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: active.stateGeneration + 1,
+        activeSettingsRevision: active.activeRevision,
+        pendingSettingsRevision: candidateRevision,
+        activationOutcome: outcome
+      };
+    };
+    source.api.getSettings = async () => source.settingsView;
+
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "https://api.openai.com/v1");
+    await draftRow(press, state, "model", "gpt-5.6");
+    await draftRow(press, state, "api-key-env", "NEW_PROVIDER_KEY");
+    await press(key("s"));
+
+    expect(state.toast).toBe("saved, not active · provider check failed");
+    expect(state.settings?.view.pendingRevision).not.toBe(null);
+    // Editing stays available for the retry.
+    await selectRow(press, state, "model");
+    await press(key("return"));
+    expect(state.settings?.edit?.row).toBe("model");
+  });
+
+  test("a save whose activation commits reports active credentials without a restart", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const active = source.settingsView;
+    source.api.saveSettings = async (command) => {
+      const candidateRevision = active.activeRevision + 1;
+      const outcome = {
+        transactionId: command.mutationId,
+        candidateRevision,
+        result: "committed" as const,
+        errorCode: null,
+        atStateGeneration: active.stateGeneration + 6
+      };
+      source.settingsView = {
+        ...active,
+        stateGeneration: active.stateGeneration + 6,
+        activeRevision: candidateRevision,
+        pendingRevision: null,
+        document: command.document,
+        effective: basicSettingsFromDocument(command.document),
+        lastActivationOutcome: outcome
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: active.stateGeneration + 1,
+        activeSettingsRevision: active.activeRevision,
+        pendingSettingsRevision: candidateRevision,
+        activationOutcome: outcome
+      };
+    };
+    source.api.getSettings = async () => source.settingsView;
+
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    await press(key("right"));
+    await draftRow(press, state, "base-url", "https://api.openai.com/v1");
+    await draftRow(press, state, "model", "gpt-5.6");
+    await draftRow(press, state, "api-key-env", "NEW_PROVIDER_KEY");
+    await press(key("s"));
+
+    expect(state.toast).toBe("settings saved · credentials active");
+    expect(state.settings?.view.pendingRevision).toBe(null);
+    expect(state.settings?.view.effective.model).toBe("gpt-5.6");
+  });
+
+  test("a staged view stays fully editable and can retry, check, or discard", async () => {
     const { source, state, press } = harness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");
     const active = source.settingsView;
     const candidateSettings = { ...source.settings, model: "candidate-model" };
-    const pending = {
+    const staged = {
       ...active,
+      stateGeneration: active.stateGeneration + 3,
       pendingRevision: active.activeRevision + 1,
-      document: applyBasicSettingsDraft(active.document, candidateSettings)
+      document: applyBasicSettingsDraft(active.document, candidateSettings),
+      lastActivationOutcome: {
+        transactionId: "m1.0000000000000.00000000000000000000000000000000",
+        candidateRevision: active.activeRevision + 1,
+        result: "validation-failed" as const,
+        errorCode: "candidate_invalid" as const,
+        atStateGeneration: active.stateGeneration + 3
+      }
     };
-    source.settingsView = pending;
+    source.settingsView = staged;
     source.api.getSettings = async () => source.settingsView;
+    const probes: ProviderProbeTarget[] = [];
+    source.api.checkModelServer = async (target) => {
+      probes.push(target);
+      return { state: "ready", message: "staged candidate is reachable" };
+    };
     let expectedGeneration: number | null = null;
     source.api.discardPendingSettings = async (command) => {
       expectedGeneration = command.expectedStateGeneration;
       source.settingsView = {
         ...active,
-        stateGeneration: pending.stateGeneration + 1,
+        stateGeneration: staged.stateGeneration + 1,
         pendingRevision: null
       };
       return {
         kind: "settings",
         settingsStateGeneration: source.settingsView.stateGeneration,
         activeSettingsRevision: source.settingsView.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
 
     await openSettings(press);
-    await draftRow(press, state, "compose-focus", "on");
-    expect(state.config.composeFocus).toBe("on");
-    await selectRow(press, state, "provider");
-    await press(key("return"));
-    expect(state.settings?.edit).toBe(null);
-    expect(state.toast).toContain("pending restart");
-    await press(key("x"));
+    // The overlay edits the staged candidate document, not the active one.
+    expect(state.settings?.draft.generation.model).toBe("candidate-model");
+    await draftRow(press, state, "model", "fixed-model");
+    expect(state.settings?.draft.generation.model).toBe("fixed-model");
+    expect(settingsDraftChanged(state.settings!)).toBeTrue();
 
-    expect(expectedGeneration).toBe(pending.stateGeneration);
+    // check server probes the edited draft over the staged document.
+    await press(key("c"));
+    expect(probes).toHaveLength(1);
+    expect(generationFromProbeTarget(probes[0]!).model).toBe("fixed-model");
+
+    await press(key("x"));
+    expect(expectedGeneration).toBe(staged.stateGeneration);
+    expect(state.settings?.view.pendingRevision).toBe(null);
+  });
+
+  test("s retries a staged activation without requiring an edit first", async () => {
+    const { source, state, press } = harness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const active = source.settingsView;
+    const candidateSettings = { ...source.settings, model: "candidate-model" };
+    const staged = {
+      ...active,
+      stateGeneration: active.stateGeneration + 3,
+      pendingRevision: active.activeRevision + 1,
+      document: applyBasicSettingsDraft(active.document, candidateSettings),
+      lastActivationOutcome: {
+        transactionId: "m1.0000000000000.00000000000000000000000000000000",
+        candidateRevision: active.activeRevision + 1,
+        result: "validation-failed" as const,
+        errorCode: "candidate_invalid" as const,
+        atStateGeneration: active.stateGeneration + 3
+      }
+    };
+    source.settingsView = staged;
+    source.api.getSettings = async () => source.settingsView;
+    const commands: SaveSettingsCommand[] = [];
+    source.api.saveSettings = async (command) => {
+      commands.push(command);
+      const candidateRevision = staged.pendingRevision + 1;
+      const outcome = {
+        transactionId: command.mutationId,
+        candidateRevision,
+        result: "committed" as const,
+        errorCode: null,
+        atStateGeneration: staged.stateGeneration + 6
+      };
+      source.settingsView = {
+        ...active,
+        stateGeneration: staged.stateGeneration + 6,
+        activeRevision: candidateRevision,
+        pendingRevision: null,
+        document: command.document,
+        effective: basicSettingsFromDocument(command.document),
+        lastActivationOutcome: outcome
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: staged.stateGeneration + 1,
+        activeSettingsRevision: staged.activeRevision,
+        pendingSettingsRevision: candidateRevision,
+        activationOutcome: outcome
+      };
+    };
+
+    await openSettings(press);
+    expect(settingsDraftChanged(state.settings!)).toBeFalse();
+    await press(key("s"));
+
+    expect(commands).toHaveLength(1);
+    expect(basicSettingsFromDocument(commands[0]!.document).model)
+      .toBe("candidate-model");
+    expect(commands[0]!.expectedStateGeneration).toBe(staged.stateGeneration);
+    expect(state.toast).toBe("settings saved · credentials active");
     expect(state.settings?.view.pendingRevision).toBe(null);
   });
 
@@ -958,7 +1142,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;
@@ -1032,7 +1217,8 @@ describe("inline settings menu", () => {
         kind: "settings",
         settingsStateGeneration: current.stateGeneration,
         activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null
+        pendingSettingsRevision: null,
+        activationOutcome: null
       };
     };
     source.api.getSettings = async () => current;

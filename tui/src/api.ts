@@ -331,6 +331,19 @@ export function createApi(
     storyId,
     () => loadVersionedStory(storyId, callerSignal)
   );
+  const runProviderMutation = async <T>(
+    storyId: string,
+    work: () => Promise<T>
+  ): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      // A terminal provider failure can advance the receipt-only story
+      // revision without returning a payload that carries the new token.
+      versions.forget(storyId);
+      throw error;
+    }
+  };
   const stream = async (
     storyId: string,
     path: string,
@@ -340,42 +353,44 @@ export function createApi(
   ) => {
     if (signal.aborted) return null;
     try {
-      const expectedAggregateVersion = await expectedVersion(
-        storyId,
-        signal
-      );
-      return await compatible(
-        async (metadata) => {
-          const entryRecoveryEpoch = recoveryEpoch;
-          return await runOperation({
-            method: "POST",
-            path,
-            serverInstanceId: metadata.serverInstanceId,
-            requestedLifetimeMs: HTTP_GENERATION_REQUEST_TIMEOUT_MS,
-            expectedAggregateVersion,
-            callerSignal: signal,
-            beforeSend: () => {
-              if (recoveryEpoch !== entryRecoveryEpoch) {
-                throw new ApiRecoveryRequiredError();
-              }
-            },
-            execute: async (lease) =>
-              await streamSse(
-                transport,
-                url(path),
-                payload,
-                onDelta,
-                lease.signal,
-                signal,
-                lease.headers
-              ),
-            shouldRetry: (error) => !(error instanceof ApiError)
-          });
-        },
-        true,
-        signal,
-        true
-      );
+      return await runProviderMutation(storyId, async () => {
+        const expectedAggregateVersion = await expectedVersion(
+          storyId,
+          signal
+        );
+        return await compatible(
+          async (metadata) => {
+            const entryRecoveryEpoch = recoveryEpoch;
+            return await runOperation({
+              method: "POST",
+              path,
+              serverInstanceId: metadata.serverInstanceId,
+              requestedLifetimeMs: HTTP_GENERATION_REQUEST_TIMEOUT_MS,
+              expectedAggregateVersion,
+              callerSignal: signal,
+              beforeSend: () => {
+                if (recoveryEpoch !== entryRecoveryEpoch) {
+                  throw new ApiRecoveryRequiredError();
+                }
+              },
+              execute: async (lease) =>
+                await streamSse(
+                  transport,
+                  url(path),
+                  payload,
+                  onDelta,
+                  lease.signal,
+                  signal,
+                  lease.headers
+                ),
+              shouldRetry: (error) => !(error instanceof ApiError)
+            });
+          },
+          true,
+          signal,
+          true
+        );
+      });
     } catch (error) {
       if (signal.aborted) return null;
       throw error;
@@ -472,14 +487,16 @@ export function createApi(
       { title }
     ),
     autonameStory: async (id) => {
-      const current = await loadVersionedStory(id);
-      return await mutateStoryPayload(
-        id,
-        "POST",
-        `/api/stories/${id}/autoname`,
-        { expectedTitle: current.title },
-        HTTP_GENERATION_REQUEST_TIMEOUT_MS
-      );
+      return await runProviderMutation(id, async () => {
+        const current = await loadVersionedStory(id);
+        return await mutateStoryPayload(
+          id,
+          "POST",
+          `/api/stories/${id}/autoname`,
+          { expectedTitle: current.title },
+          HTTP_GENERATION_REQUEST_TIMEOUT_MS
+        );
+      });
     },
     acknowledgeUnknownOutcomes: async (
       storyId,
@@ -668,13 +685,13 @@ export function createApi(
         removed
       ),
     summarizeChapter: (storyId, breakId) =>
-      mutateStoryPayload(
+      runProviderMutation(storyId, () => mutateStoryPayload(
         storyId,
         "POST",
         `/api/stories/${storyId}/chapter-breaks/${breakId}/summarize`,
         {},
         HTTP_GENERATION_REQUEST_TIMEOUT_MS
-      ),
+      )),
     editChapterSummary: async (storyId, summaryId, text, expected) =>
       mutateStoryPayload(
         storyId,

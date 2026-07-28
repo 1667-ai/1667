@@ -594,8 +594,6 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     editor: null,
     retakePrompt: null,
     toast: null,
-    unknownOutcomes: [],
-    unknownOutcomeAcknowledgementArmed: null,
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,
     freshLandedAt: new Map(),
     now: 1_667_000_000_000,

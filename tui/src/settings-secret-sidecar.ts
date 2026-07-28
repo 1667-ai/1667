@@ -6,6 +6,7 @@ import type {
 import { validateProviderSecretValue } from "../../shared/provider-secret-value.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
+import { MAX_SETTINGS_ID_SCALARS } from "../../server/settings-v2-scalars.js";
 import type { SettingsOverlayState } from "./state.js";
 
 /** Apply the write-only sidecar intent to auth references, never key material. */
@@ -58,7 +59,7 @@ export function applyStoredApiKeyEdit(
     return (error instanceof Error ? error.message : "Stored API key is invalid")
       .replace(/^Stored API key/u, "API key");
   }
-  const secretId = storedSecretIdFor(selected.connectionId);
+  const secretId = mintStoredSecretId(selected.connectionId);
   overlay.connectionSecrets = { [secretId]: value };
   overlay.draft = {
     ...overlay.draft,
@@ -97,7 +98,7 @@ export function rekeyPendingStoredSecret(
   if (pending === undefined) return;
   const selected = defaultConnection(overlay.view);
   if (selected === null) return;
-  const secretId = storedSecretIdFor(selected.connectionId);
+  const secretId = mintStoredSecretId(selected.connectionId);
   overlay.connectionSecrets = { [secretId]: pending };
 }
 
@@ -130,6 +131,14 @@ function defaultConnectionInDocument(document: SettingsDocumentV2): {
   };
 }
 
-function storedSecretIdFor(connectionId: string): string {
-  return connectionId;
+/** Every entered key gets a fresh ID. The server treats a stored secret ID
+ * as an immutable binding of one credential target to one value: reusing an
+ * ID across a provider or endpoint change would overwrite the value the
+ * still-active revision resolves, so the save would be refused. The shared
+ * machine tier holds every project's keys under one namespace, so the suffix
+ * is a crypto-strength UUID: two projects minting for the same connection ID
+ * must never collide onto one credential slot. */
+function mintStoredSecretId(connectionId: string): string {
+  const suffix = `.k${crypto.randomUUID()}`;
+  return `${connectionId.slice(0, MAX_SETTINGS_ID_SCALARS - suffix.length)}${suffix}`;
 }

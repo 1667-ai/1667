@@ -26,7 +26,7 @@ This public repository contains pre-release source.
 | Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
-| GitHub release | 1667 does not publish a GitHub release. |
+| GitHub release | A maintainer dispatches `Release (GitHub)`. It publishes one archive per published target as a pre-release, with a build-provenance attestation on every file. `windows-x64` is held from publication. |
 
 Build and run 1667 from source. You can also build a local standalone
 executable.
@@ -246,9 +246,9 @@ policy.
 Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
 endpoint also needs proof that the current user owns the exact socket.
 
-A provider connection can permit plain HTTP on a private network. Enable
-**Allow insecure HTTP (LAN)** for that connection. 1667 resolves the host once
-and requires a private-network address. It then pins the verified address.
+A provider connection can permit plain HTTP on a private network. Set
+**insecure HTTP (LAN)** to `on` for that connection. 1667 resolves the host
+once and requires a private-network address. It then pins the verified address.
 
 Public hosts and all connections with credentials require authenticated HTTPS.
 

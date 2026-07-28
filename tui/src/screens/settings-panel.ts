@@ -3,6 +3,7 @@ import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import {
   boundedSettingsCursor,
+  settingsActivationFailureText,
   settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowCycles,
@@ -38,11 +39,17 @@ import {
 /** Settings rows wear the same `  ▸ ` cursor lead as every other list panel,
  * so `›` stays the prompt glyph it is everywhere else. */
 const SETTINGS_LEAD_WIDTH = 4;
-const SETTINGS_LABEL_WIDTH = 17;
+/** Wide enough for every label the panel has, so all the values start in one
+ * column. A test holds the labels to it. */
+const SETTINGS_LABEL_WIDTH = 20;
 
-/** Column the value starts in, relative to the content line. A label wider
- * than the column pushes its own value right and keeps one cell of air. Only
- * `settingsRow` reads this, because only `settingsRow` paints the value. */
+/** Column the value starts in, relative to the content line. Only
+ * `settingsRow` reads this, because only `settingsRow` paints the value.
+ *
+ * A label too wide for the column pushes its own value right and keeps one
+ * cell of air. That row alone leaves the column, which the test reports. The
+ * arrows stay on the brackets, because they come from this same number. A
+ * constant here put them on the label instead. */
 function settingsValueLeft(label: string): number {
   return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
 }
@@ -218,16 +225,45 @@ function settingsStatusLines(
     };
   }
   if (view.pendingRevision !== null) {
+    // The server nulls any outcome whose candidate was replaced or
+    // discarded, so a staged view's outcome always describes this candidate.
+    const outcome = view.lastActivationOutcome;
+    const failure = outcome !== null && outcome.result !== "committed"
+      ? settingsActivationFailureText(outcome.errorCode)
+      : null;
     return {
       top: [],
       bottom: bottomStatus([
         [
           raisedSegment(
-            `  ⟳ revision ${view.pendingRevision} pending restart · active revision ${view.activeRevision} still running`,
-            "focus / accent"
+            failure === null
+              ? `  ⟳ revision ${view.pendingRevision} saved · not active yet · revision ${view.activeRevision} still running`
+              : `  ▲ revision ${view.pendingRevision} saved, not active · ${failure}`,
+            failure === null ? "focus / accent" : "danger text"
           )
         ],
-        [raisedSegment("  editing frozen · x discards the pending candidate", "chrome")]
+        [raisedSegment("  s retries activation · x discards the saved candidate", "chrome")]
+      ])
+    };
+  }
+  // A clean view with a failure outcome is a startup rollback: the candidate
+  // is gone, and staying silent about it is the exact failure class this
+  // surface exists to prevent.
+  const rolledBack = view.lastActivationOutcome !== null
+    && view.lastActivationOutcome.result !== "committed"
+    ? view.lastActivationOutcome
+    : null;
+  if (rolledBack !== null) {
+    return {
+      top: [],
+      bottom: bottomStatus([
+        [
+          raisedSegment(
+            `  ▲ revision ${rolledBack.candidateRevision} did not activate · ${settingsActivationFailureText(rolledBack.errorCode)}`,
+            "danger text"
+          )
+        ],
+        [raisedSegment(`  revision ${view.activeRevision} still active · edit & s saves a new attempt`, "chrome")]
       ])
     };
   }

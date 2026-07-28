@@ -34,8 +34,8 @@ export function exitForBackendRestart(
   try {
     writeSync(
       process.stderr.fd,
-      "1667: backend_restart_required: backend stopped; restart 1667. "
-        + `Interrupted changes will be checked on next launch.${diagnostic}\n`
+      "1667: the local backend stopped before it confirmed the last change. "
+        + `Restart 1667. Saved state will be checked before more work is accepted.${diagnostic}\n`
     );
   } finally {
     process.exit(BACKEND_RESTART_REQUIRED_EXIT_CODE);

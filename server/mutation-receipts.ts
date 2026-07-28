@@ -18,7 +18,7 @@ import {
   chapterBreakRemovalFingerprint
 } from "./chapter-breaks.js";
 import {
-  isDefinitiveProviderFailure,
+  isTerminalGenerationFailure,
   ServiceError
 } from "./errors.js";
 import {
@@ -214,7 +214,7 @@ export class MutationReceiptStore {
           return await this.failureTerminalizer.reject(durabilityLoss);
         }
         if (receipt.state === "provider_started"
-          && !isDefinitiveGenerationFailure(error)) {
+          && !isTerminalGenerationReceiptFailure(error)) {
           return await this.failureTerminalizer.reject(
             generationOutcomeUnknown({ diagnosticCause: error })
           );
@@ -342,8 +342,8 @@ function idempotencyConflict(): ServiceError {
   return new ServiceError(409, "Mutation ID was already used with different input", "idempotency_conflict");
 }
 
-function isDefinitiveGenerationFailure(error: unknown): boolean {
-  return isDefinitiveProviderFailure(error)
+function isTerminalGenerationReceiptFailure(error: unknown): boolean {
+  return isTerminalGenerationFailure(error)
     || (error instanceof ServiceError
       && error.code === "generation_outcome_unknown_acknowledged");
 }

@@ -470,22 +470,44 @@ test("the generator and the staged-entry policy enforce the same size bound", ()
 });
 
 /**
- * The Bun version the release workflow installs. `bun build --compile` embeds
- * the compiling toolchain's own runtime, so this pin — not the `engines` floor
- * in `tui/package.json` — is the fact that decides what the executable ships.
+ * Every workflow that compiles an executable with `bun build --compile`.
+ * `release-github.yml` is the pin that compiles what a user downloads;
+ * `ci.yml` is the pin that compiles what every change is tested against. Both
+ * must install the same Bun, because one declared runtime goes into the SBOM
+ * inside every archive.
+ */
+const BUN_COMPILING_WORKFLOWS = ["ci.yml", "release-github.yml"] as const;
+
+/**
+ * The Bun version the workflows install. `bun build --compile` embeds the
+ * compiling toolchain's own runtime, so this pin — not the `engines` floor in
+ * `tui/package.json` — is the fact that decides what the executable ships, and
+ * the SBOM in each archive declares it to whoever downloads the archive.
+ * Reading one workflow would let the other be bumped alone, and every archive
+ * built by the bumped one would then ship an SPDX document naming a Bun it
+ * does not embed: a false statement inside the bytes the attestation vouches
+ * for, in the document whose purpose is a vulnerability lookup.
  */
 function pinnedWorkflowBunVersion(): string {
-  const workflow = readFileSync(
-    path.join(REPOSITORY_ROOT, ".github", "workflows", "ci.yml"),
-    "utf8"
-  );
-  const pins = [...workflow.matchAll(/^[ \t]*bun-version:[ \t]*(\S+)[ \t]*$/gmu)]
-    .map((match) => match[1]);
-  assert.ok(pins.length > 0, "the workflow pins no Bun version");
+  const pins: string[] = [];
+  for (const file of BUN_COMPILING_WORKFLOWS) {
+    const workflow = readFileSync(
+      path.join(REPOSITORY_ROOT, ".github", "workflows", file),
+      "utf8"
+    );
+    const found = [...workflow.matchAll(/^[ \t]*bun-version:[ \t]*(\S+)[ \t]*$/gmu)]
+      .map((match) => match[1] as string);
+    assert.ok(found.length > 0, `${file} pins no Bun version`);
+    pins.push(...found);
+  }
   const distinct = [...new Set(pins)];
-  assert.equal(distinct.length, 1, `the workflow pins several Bun versions: ${distinct.join(", ")}`);
+  assert.equal(
+    distinct.length,
+    1,
+    `${BUN_COMPILING_WORKFLOWS.join(" and ")} pin several Bun versions: ${distinct.join(", ")}`
+  );
   const pinned = distinct[0];
-  if (pinned === undefined) throw new Error("the workflow pins no Bun version");
+  if (pinned === undefined) throw new Error("the workflows pin no Bun version");
   return pinned;
 }
 

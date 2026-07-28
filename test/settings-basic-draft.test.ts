@@ -408,7 +408,8 @@ test("pending views display the candidate while retaining the active effective p
     activeRevision: 1,
     pendingRevision: 2,
     document: candidate,
-    effective: active
+    effective: active,
+    lastActivationOutcome: null
   };
 
   assert.equal(basicSettingsForDisplay(view).model, "candidate-model");
@@ -427,7 +428,8 @@ test("clean editable views display their document while format-1 views display e
     activeRevision: 1,
     pendingRevision: null,
     document: DOCUMENT,
-    effective
+    effective,
+    lastActivationOutcome: null
   };
   const legacy = {
     dataFormat: 1 as const,
@@ -436,7 +438,8 @@ test("clean editable views display their document while format-1 views display e
     activeRevision: null,
     pendingRevision: null,
     document: null,
-    effective
+    effective,
+    lastActivationOutcome: null
   };
 
   assert.equal(basicSettingsForDisplay(editable).model, "old-model");

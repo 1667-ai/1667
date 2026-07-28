@@ -8,8 +8,8 @@ read_when:
 
 # Release preflight for 1667
 
-This repository does not support hosted publication. It supports local release
-preflight only.
+This repository does not support hosted npm publication. It supports local
+release preflight, and it publishes native archives as a GitHub pre-release.
 
 Maintainers reserved the package names. Do not publish packages. Do not move
 registry tags. Do not describe a candidate as an official release.
@@ -286,6 +286,75 @@ tarballs against release package policy, and installs them. Because
 target by naming the hold, and executes the installed executable directly.
 Clearing the hold restores the launcher run without another change to the
 smoke.
+
+## GitHub pre-release of native archives
+
+`.github/workflows/release-github.yml` publishes one archive per published
+release target. A maintainer dispatches it from the default branch and supplies
+the version. The workflow refuses every other ref, and refuses a dirty
+checkout.
+
+`shared/release-targets.ts` decides which targets are published, in the single
+`heldFromPublication` field each target carries. `windows-x64` is held from
+publication today, and routine CI does not build it either, so its hold reason
+says plainly that it is unverified and the release notes tell a reader who
+builds it from source to treat that build as untested. A held target returns to
+the published set — matrix, notes table, held-target paragraph and archive set
+alike — when that one field is cleared. No release script keeps a target list of
+its own.
+
+The dispatched version must match the root package, the TUI package, and the
+lockfile. The `check` command refuses any other value, in the `prepare` job.
+
+Exactly three strings cross a job boundary: the version, the source commit, and
+one build timestamp. The `prepare` job publishes them as job outputs, and every
+later job rebuilds its release identity in memory from them. That is why every
+archive in a run carries the same `build-manifest.json` identity.
+
+The workflow never writes a source evidence document and never uploads one. A
+`ReleaseSourceEvidence` value types `tagObjectType` as `"annotated"` and
+`tagSignature` as `"verified"`, so any copy of it asserts a verified signed tag
+that this workflow neither obtains nor checks — and the tag does not exist until
+the release job creates it. Preflight accepts that same document as the
+signed-tag evidence for npm publication, which cannot be withdrawn, so a
+downloadable copy would be a ready-made credential for that gate. The signature
+claim stays in memory: no file the release ships carries `tagSignature` or
+`tagObjectType`. `tagName` does ship, in the SPDX package comment, where it
+names the tag the release creates at the source commit.
+
+Each archive is named `1667_<version>_<target>.tar.gz`. It contains one
+directory with the same name. Underscores separate the three fields because a
+prerelease version and a target both contain hyphens: `1667_0.1.0-rc.1_linux-x64`
+states where the version ends and `1667-0.1.0-rc.1-linux-x64` does not. That
+directory contains the native executable,
+`LICENSE`, `NOTICE`, `build-manifest.json`, and `sbom.spdx.json`. A downloaded
+archive is a distribution, so Apache License section 4(a) and section 4(d)
+apply to it exactly as they apply to an npm tarball. Both files travel inside
+the archive, at the same reviewed digests preflight pins.
+
+`scripts/release-github-assets.ts` holds the file set, the staging command, and
+the checksum format. `scripts/release-source-facts.ts` holds the three source
+facts and turns them into release identities. `scripts/release-archive.ts` holds
+the archive names and the checksum file name. `scripts/release-github-notes.ts`
+holds the release notes. `test/release-github-assets.test.ts` covers all four,
+including the absence of any uploaded evidence document. The workflow contains
+no file list and no target list.
+
+Staging refuses to assemble an archive that lacks `LICENSE` or `NOTICE`. The
+release workflow runs `node --import tsx`, which strips types without checking
+them, so the tuple type and the tests are not in the release path; that check
+is, and it names the missing file and the target.
+
+`checksums.txt` lists the SHA-256 of every uploaded asset except itself.
+
+The workflow attests every uploaded file with
+`actions/attest-build-provenance`, using `id-token: write` and
+`attestations: write` in that job alone. A reader verifies one archive with
+`gh attestation verify <file> --repo 1667-ai/1667`.
+
+This path does not verify a tag signature, and the release notes claim none.
+The attestation is the evidence a GitHub pre-release offers. npm publication
+still requires the trusted inputs above.
 
 ## Retain release evidence
 

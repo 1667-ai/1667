@@ -418,8 +418,8 @@ test("Q acknowledgement clears an unknown provider outcome and terminalizes both
 });
 
 for (const status of [null, 408, 500] as const) {
-  test(`Q retains unknown provider state after ${status ?? "transport"} failure`, async (t) => {
-    const fixture = await setup(t, `1667-q-provider-unknown-${status ?? "transport"}-`);
+  test(`Q terminalizes local state after ${status ?? "transport"} provider failure`, async (t) => {
+    const fixture = await setup(t, `1667-q-provider-terminal-${status ?? "transport"}-`);
     await assert.rejects(
       fixture.mutations.runProvider(
         request(fixture.v5Hash),
@@ -443,9 +443,23 @@ for (const status of [null, 408, 500] as const) {
         },
         () => null
       ),
-      hasServiceError("generation_outcome_unknown")
+      hasServiceError("provider_failure")
     );
     assert.equal(retried, false);
+    const current = await fixture.stories.loadVersioned(STORY_ID);
+    const committed = await fixture.mutations.runLocal(
+      requestFor(
+        OTHER_MUTATION_ID,
+        OTHER_FINGERPRINT,
+        current.aggregateVersion!
+      ),
+      "renameStory",
+      (story) => { story.title = "Provider failure did not fence local work"; }
+    );
+    assert.equal(
+      committed.story.title,
+      "Provider failure did not fence local work"
+    );
   });
 }
 

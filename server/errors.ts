@@ -82,14 +82,13 @@ export class DurableMutationResultError extends ServiceError {
   }
 }
 
-export function isDefinitiveProviderFailure(error: unknown): boolean {
-  if (error instanceof GenerationResultError
-    || error instanceof DurableMutationResultError) return true;
+/** The local generation mutation cannot commit after this failure.
+ * A provider can still complete or bill a request after a transport failure,
+ * but it cannot write the local story. */
+export function isTerminalGenerationFailure(error: unknown): boolean {
   return error instanceof ProviderError
-    && error.status !== null
-    && error.status >= 400
-    && error.status < 500
-    && error.status !== 408;
+    || error instanceof GenerationResultError
+    || error instanceof DurableMutationResultError;
 }
 
 function codeForStatus(status: number): ServiceErrorCode {

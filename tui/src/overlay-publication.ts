@@ -50,9 +50,7 @@ export function publishSettingsView(
     state.settings.result = null;
     if (message !== null) state.toast = message;
   }
-  if (state.settings !== null && (!view.editable || view.pendingRevision !== null)) {
-    state.toast = view.editable
-      ? "settings pending restart · editing frozen, draft kept"
-      : "legacy settings are read-only · draft kept";
+  if (state.settings !== null && !view.editable) {
+    state.toast = "legacy settings are read-only · draft kept";
   }
 }

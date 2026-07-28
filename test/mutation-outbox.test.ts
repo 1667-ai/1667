@@ -178,13 +178,13 @@ test("HTTP-mode services refuse retained embedded mutations", async (t) => {
   await workerService.dispose();
 });
 
-test("HTTP-mode services expose archived ambiguity warnings", async (t) => {
+test("HTTP-mode services retire resolved archived ambiguity warnings", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-outbox-http-warning-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   await initializeLockAwareDirectory(dataDir);
   const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
   await outbox.init();
-  const mutationId = `m1-${Date.now().toString(36)}-${"4".padStart(32, "0")}`;
+  const mutationId = "m1.1767225600000.4123456789abcdef0123456789abcdef";
   await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
   await outbox.archive(mutationId, {
     kind: "plain",
@@ -201,6 +201,18 @@ test("HTTP-mode services expose archived ambiguity warnings", async (t) => {
       method: intent.method,
       code: resolution.code
     })), [{ mutationId, method: "autonameStory", code: "generation_outcome_unknown" }]);
+    assert.deepEqual(
+      await service.getUnknownOutcomeStatus("other-story", mutationId),
+      { state: "resolved", deleted: true }
+    );
+    assert.equal(service.archivedMutationWarnings.length, 1);
+    assert.equal((await outbox.listArchived()).length, 1);
+    assert.deepEqual(
+      await service.getUnknownOutcomeStatus("story", mutationId),
+      { state: "resolved", deleted: true }
+    );
+    assert.deepEqual(service.archivedMutationWarnings, []);
+    assert.deepEqual(await outbox.listArchived(), []);
   } finally {
     await service.dispose();
   }
