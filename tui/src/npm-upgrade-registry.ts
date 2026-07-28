@@ -1,12 +1,12 @@
 import { isSemVer, parseSemVer } from "../../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
+  PUBLISHED_PLATFORM_PACKAGES,
   RELEASE_LAUNCHER_PACKAGE,
-  RELEASE_PLATFORM_PACKAGES,
   registryPathForPackage,
   releasePlatformDependencyGraph,
   releaseTargetForPackage,
-  type ReleasePlatformPackage
+  type PublishedPlatformPackage
 } from "../../shared/release-targets.js";
 import {
   UpgradeFailure,
@@ -16,9 +16,11 @@ import {
 export const NPM_REGISTRY_ORIGIN = "https://registry.npmjs.org";
 export const NPM_METADATA_MAX_BYTES = 64 * 1024;
 export const LAUNCHER_PACKAGE = RELEASE_LAUNCHER_PACKAGE;
-export const PLATFORM_PACKAGES = RELEASE_PLATFORM_PACKAGES;
+// The registry only answers for packages that were published, so a held
+// target's package is not something this client may look up or expect.
+export const PLATFORM_PACKAGES = PUBLISHED_PLATFORM_PACKAGES;
 
-export type PlatformPackage = ReleasePlatformPackage;
+export type PlatformPackage = PublishedPlatformPackage;
 export type RegistryFetch = (input: string, init: RequestInit) => Promise<Response>;
 
 interface ExactMetadataExpectation {

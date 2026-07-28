@@ -2,10 +2,10 @@ import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_MAX_CLIENT_PROTOCOL_VERSION,
   HTTP_MIN_CLIENT_PROTOCOL_VERSION,
-  PACKAGED_ARTIFACT_TARGETS,
+  BUILT_ARTIFACT_TARGETS,
   parseBuildIdentity,
   type BuildIdentity,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import { exactRecord } from "./release-boundary-validation.js";
 
@@ -63,7 +63,7 @@ const PACKAGE_VERSION_KEYS = new Set([
  */
 export function createReleaseIdentitySet(value: unknown): ReleaseIdentitySet {
   const evidence = parseSourceEvidence(value);
-  const identities = PACKAGED_ARTIFACT_TARGETS.map((artifactTarget) => {
+  const identities = BUILT_ARTIFACT_TARGETS.map((artifactTarget) => {
     return releaseBuildIdentity(evidence, artifactTarget);
   });
   return Object.freeze({
@@ -75,7 +75,7 @@ export function createReleaseIdentitySet(value: unknown): ReleaseIdentitySet {
 
 export function releaseIdentityForTarget(
   set: ReleaseIdentitySet,
-  target: PackagedArtifactTarget
+  target: BuiltArtifactTarget
 ): ReleaseBuildIdentity {
   const identity = set.identities.find((candidate) => candidate.artifactTarget === target);
   if (identity === undefined) throw new Error(`Release identity is missing target ${target}`);
@@ -138,7 +138,7 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
     tagTargetCommit,
     buildTimestamp,
     packageVersions
-  }, PACKAGED_ARTIFACT_TARGETS[0]);
+  }, BUILT_ARTIFACT_TARGETS[0]);
 
   return Object.freeze({
     schemaVersion: 1 as const,
@@ -156,7 +156,7 @@ function parseSourceEvidence(value: unknown): ReleaseSourceEvidence {
 
 function releaseBuildIdentity(
   evidence: ReleaseSourceEvidence,
-  artifactTarget: PackagedArtifactTarget
+  artifactTarget: BuiltArtifactTarget
 ): ReleaseBuildIdentity {
   const identity = parseBuildIdentity({
     schemaVersion: 1,

@@ -26,14 +26,24 @@ export type BackgroundUpdateStarter = (
   onNotice: (message: string) => void
 ) => () => void;
 
+/**
+ * The runtime is a parameter for the same reason it is one in
+ * `currentPlatformPackage`: whether a starter exists follows the target's
+ * publication state, so a test that could only ask about its own host would
+ * assert one branch and say nothing about the other.
+ */
 export function createBackgroundUpdateStarter(
   config: UserConfig,
-  environment: Readonly<Record<string, string | undefined>> = process.env
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  platform = process.platform,
+  arch = process.arch
 ): BackgroundUpdateStarter | null {
   const preferences = resolveUpdatePreferences(config.updates, environment);
   if (preferences.mode === "off") return null;
-  const releaseTarget = releaseTargetForRuntime(process.platform, process.arch);
-  if (releaseTarget === null) return null;
+  const releaseTarget = releaseTargetForRuntime(platform, arch);
+  // A held target has no published package, so a background check could only
+  // poll the registry for something that is not there. Stay quiet instead.
+  if (releaseTarget === null || releaseTarget.heldFromPublication !== null) return null;
 
   // 1667 does not infer or persist installer ownership. Every launch is
   // manual; the immutable build identity still keys notification hints.
