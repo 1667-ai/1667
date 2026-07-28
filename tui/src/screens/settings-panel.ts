@@ -39,11 +39,17 @@ import {
 /** Settings rows wear the same `  ▸ ` cursor lead as every other list panel,
  * so `›` stays the prompt glyph it is everywhere else. */
 const SETTINGS_LEAD_WIDTH = 4;
-const SETTINGS_LABEL_WIDTH = 17;
+/** Wide enough for every label the panel has, so all the values start in one
+ * column. A test holds the labels to it. */
+const SETTINGS_LABEL_WIDTH = 20;
 
-/** Column the value starts in, relative to the content line. A label wider
- * than the column pushes its own value right and keeps one cell of air. Only
- * `settingsRow` reads this, because only `settingsRow` paints the value. */
+/** Column the value starts in, relative to the content line. Only
+ * `settingsRow` reads this, because only `settingsRow` paints the value.
+ *
+ * A label too wide for the column pushes its own value right and keeps one
+ * cell of air. That row alone leaves the column, which the test reports. The
+ * arrows stay on the brackets, because they come from this same number. A
+ * constant here put them on the label instead. */
 function settingsValueLeft(label: string): number {
   return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
 }

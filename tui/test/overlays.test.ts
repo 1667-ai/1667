@@ -128,7 +128,12 @@ describe("settings text contract", () => {
 });
 
 describe("settings cache summary", () => {
-  test("keeps TTL and write premium visible inside the 50-cell panel value", () => {
+  /** The narrowest panel that shows a full-width row. An 80-cell terminal
+   * gives 68 cells of content, and the value starts 24 cells in. A longer
+   * summary than this loses its write premium to the ellipsis. */
+  const NARROWEST_VALUE_CELLS = 44;
+
+  test("keeps TTL and write premium visible in the 80-cell terminal", () => {
     const summaries = [
       promptCacheRowValue(cacheView("anthropic", "claude-sonnet-5", "auto")),
       promptCacheRowValue(cacheView("anthropic", "claude-sonnet-5", "long")),
@@ -142,7 +147,8 @@ describe("settings cache summary", () => {
       "‹ auto › · breakpoints · ≥30m · 1.25× writes",
       "‹ long › · stable key · ≤24h · no premium"
     ]);
-    expect(summaries.every((summary) => [...summary].length <= 50)).toBeTrue();
+    const widest = Math.max(...summaries.map((summary) => [...summary].length));
+    expect(widest).toBeLessThan(NARROWEST_VALUE_CELLS + 1);
   });
 
   test("derives capability from the complete unsaved route", () => {
