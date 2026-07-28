@@ -8,8 +8,8 @@ read_when:
 
 # Release preflight for 1667
 
-This repository does not support hosted publication. It supports local release
-preflight only.
+This repository does not support hosted npm publication. It supports local
+release preflight, and it publishes native archives as a GitHub pre-release.
 
 Maintainers reserved the package names. Do not publish packages. Do not move
 registry tags. Do not describe a candidate as an official release.
@@ -247,6 +247,46 @@ default-port publication, and lock guidance.
 The Windows candidate also verifies the protected machine-tier DACL. It rejects
 reparse points. It stages the exact npm package layout. It runs the launcher
 against the staged executable.
+
+## GitHub pre-release of native archives
+
+`.github/workflows/release-github.yml` publishes one archive per published
+release target. A maintainer dispatches it from the default branch and supplies
+the version. The workflow refuses every other ref, and refuses a dirty
+checkout.
+
+`scripts/release-publication.ts` decides which targets are published.
+`windows-x64` is held from publication today. A held target still builds and
+tests on every change, and returns to the published set by leaving that list.
+
+The dispatched version must match the root package, the TUI package, and the
+lockfile. The command that records the source evidence refuses any other value.
+
+Each archive is named `1667_<version>_<target>.tar.gz`. It contains one
+directory with the same name. Underscores separate the three fields because a
+prerelease version and a target both contain hyphens: `1667_0.1.0-rc.1_linux-x64`
+states where the version ends and `1667-0.1.0-rc.1-linux-x64` does not. That
+directory contains the native executable,
+`LICENSE`, `NOTICE`, `build-manifest.json`, and `sbom.spdx.json`. A downloaded
+archive is a distribution, so Apache License section 4(a) and section 4(d)
+apply to it exactly as they apply to an npm tarball. Both files travel inside
+the archive, at the same reviewed digests preflight pins.
+
+`scripts/release-github-assets.ts` holds the file set, the staging command, the
+checksum format, and the source evidence. `scripts/release-github-notes.ts`
+holds the release notes. `test/release-github-assets.test.ts` covers both. The
+workflow contains no file list and no target list.
+
+`checksums.txt` lists the SHA-256 of every uploaded asset except itself.
+
+The workflow attests every uploaded file with
+`actions/attest-build-provenance`, using `id-token: write` and
+`attestations: write` in that job alone. A reader verifies one archive with
+`gh attestation verify <file> --repo 1667-ai/1667`.
+
+This path does not verify a tag signature, and the release notes claim none.
+The attestation is the evidence a GitHub pre-release offers. npm publication
+still requires the trusted inputs above.
 
 ## Retain release evidence
 

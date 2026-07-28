@@ -81,15 +81,24 @@ describe("keys reference", () => {
   });
 
   test("a minimum-width short panel keeps build identity and a scroll cue", () => {
-    const top = text(20, 10);
+    // A short identity, given explicitly: whether today's version fits a
+    // twenty-column panel is a fact about the version string, not about this
+    // panel. `1667 v0.1.0-rc.1` does not fit, and the test below covers what
+    // the panel does with an identity that long.
+    const identity = "1667 v1.2.3";
+    const top = frameText(render(20, 10, 0, identity).composition.lines);
     const total = Number(top.match(/\? ↑↓1\/(\d+)/)?.[1]);
     expect(Number.isFinite(total)).toBeTrue();
-    expect(top).toContain(`1667 ${AI_1667_VERSION_TAG}`);
-    expect(top).not.toContain(`1667 ${AI_1667_VERSION_TAG}…`);
+    expect(top).toContain(identity);
+    expect(top).not.toContain(`${identity}…`);
 
-    const bottom = render(20, 10, 500);
+    const bottom = render(20, 10, 500, identity);
     expect(frameText(bottom.composition.lines))
       .toContain(`? ↑↓${bottom.scrollTop + 1}/${total}`);
+  });
+
+  test("the running build identity reaches the top of a panel with room for it", () => {
+    expect(text(40, 12)).toContain(`1667 ${AI_1667_VERSION_TAG}`);
   });
 
   test("a long valid build identity wraps into reachable compact content", () => {
