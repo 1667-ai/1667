@@ -211,7 +211,10 @@ async function receiveRequest(value: Record<string, unknown>): Promise<void> {
     return failures.tracked(error);
   }
 
-  const cancellation = new WorkerRequestCancellation(mutation);
+  const cancellation = new WorkerRequestCancellation(
+    mutation,
+    message.mutationId
+  );
   const deadlineDelay = message.deadlineMs - Date.now();
   if (deadlineDelay <= 0) {
     return failures.tracked(

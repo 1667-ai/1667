@@ -210,7 +210,10 @@ test("a blocked provider request preserves its recovery target across a crash", 
   assertRecoveryTarget(replayError, providerMutationId);
   assert.equal(providerCalled, false);
 
-  const cancellation = new WorkerRequestCancellation(true);
+  const cancellation = new WorkerRequestCancellation(
+    true,
+    warningMutationId
+  );
   cancellation.cancel("deadline");
   const deadlineError = cancellation.failure(replayError).error;
   assertRecoveryTarget(deadlineError, providerMutationId);
