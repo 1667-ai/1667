@@ -20,6 +20,14 @@ const COLLECTOR_SOURCE = path.join(REPOSITORY_ROOT, "scripts", "release-evidence
 const VERSION = "9.8.7";
 const TAG = `v${VERSION}`;
 const TIMESTAMP = "2026-07-27T08:09:10.011Z";
+/**
+ * The certificate fixture's validity window, fixed rather than relative to the
+ * run. Every commit and tag this fixture makes carries a pinned date, and Git
+ * verifies a tag signature at that date, so a window anchored to "now" stops
+ * containing it as soon as the calendar moves on.
+ */
+const CERTIFICATE_VALID_FROM = "20200101000000";
+const CERTIFICATE_VALID_TO = "20400101000000";
 const FINGERPRINT = "SHA256:LtYSV9KYHYXvf8qGwf/HQDPsMehEsIQckR3N+wRB72k";
 
 /**
@@ -155,7 +163,12 @@ async function createFixture(t: TestContext, options: FixtureOptions = {}): Prom
       "-s", keyPath("authority"),
       "-I", "release-bot",
       "-n", "release@1667.test",
-      "-V", "-1d:+365d",
+      // Absolute, and wide. Git verifies a tag signature at the tag's own
+      // timestamp, which this fixture pins to a fixed date; a window relative
+      // to now drifts past that date and the certificate silently stops being
+      // valid, so the test would pass on the day it was written and fail the
+      // next morning having changed nothing.
+      "-V", `${CERTIFICATE_VALID_FROM}:${CERTIFICATE_VALID_TO}`,
       `${keyPath("release")}.pub`
     ]);
   }
