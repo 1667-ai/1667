@@ -1,15 +1,16 @@
 ---
-summary: Local release-package preflight and its trust boundary
+summary: Local release-package production, preflight, and trust boundary
 read_when:
   - preparing or inspecting 1667 release packages
   - changing release identity, package layout, SBOMs, or artifact manifests
   - proposing hosted publication
 ---
 
-# Release preflight for 1667
+# Release packages for 1667
 
 This repository does not support hosted npm publication. It supports local
-release preflight, and it publishes native archives as a GitHub pre-release.
+release package production and preflight. It publishes native archives as a
+GitHub pre-release.
 
 Maintainers reserved the package names. Do not publish packages. Do not move
 registry tags. Do not describe a candidate as an official release.
@@ -157,6 +158,51 @@ The release plan uses `tagSignature: "verified"` for step 3. Each native
 
 Preflight checks agreement between the claims and package contents. Preflight
 also binds the claims to the tarball digests.
+
+## Stage and pack release packages
+
+Put each native executable in this directory structure:
+
+```text
+<builds>/<release-target>/<executable>
+```
+
+Stage the five published release packages:
+
+```sh
+npm run release:stage -- \
+  <version> <source-commit> <build-timestamp> <builds> <staging>
+```
+
+The stage command writes one directory for each published release package. It
+uses the same content assembler as the GitHub archive producer. It adds the
+package manifest to each directory.
+
+The stage command sets each file modification time to the release build
+timestamp. It also sets each directory modification time to that timestamp.
+This action makes repeated pack operations reproducible for the same inputs.
+The stage command moves the staging directory into place only after all five
+packages pass validation.
+
+Pack the five directories:
+
+```sh
+npm run release:pack -- <version> <staging> <tarballs>
+```
+
+Run the pack command through npm. The command uses the exact Node executable
+and npm CLI that started the npm script. The command refuses relative tool
+paths.
+
+The pack command disables lifecycle scripts. It validates each output tarball
+against the release package policy. It writes the tarball path, SHA-256, and
+size to standard output as canonical JSON.
+The pack command moves the tarball directory into place only after all five
+tarballs pass validation.
+
+The batch commands exclude each held target. Use `stageReleasePackage` and
+`packReleasePackage` to keep a held target package under native verification.
+Do not add a held target to the publication batch.
 
 ## Run preflight
 

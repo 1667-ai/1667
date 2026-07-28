@@ -58,12 +58,10 @@ export interface ReleaseSbomSet {
  * the published platform packages, because that list *is* the launcher's
  * `optionalDependencies`.
  *
- * Nothing stages `sbom.spdx.json` from this generator yet, so no consumer binds
- * to its bytes. When the staging step lands, the preflight gains the same check
- * it already applies to `build-manifest.json`: regenerate the expected document
- * from the release evidence and reject a tarball whose staged copy disagrees.
- * Determinism is what makes that comparison possible, which is why it is
- * asserted here rather than assumed.
+ * The generator validates the document. The release content assembler stages
+ * its exact text as `sbom.spdx.json`. Preflight requires the SBOM entry and
+ * binds it through the tarball digest. Preflight does not compare the SBOM
+ * text with a regenerated document.
  */
 export function createReleaseSboms(
   identities: ReleaseIdentitySet,

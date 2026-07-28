@@ -1,15 +1,8 @@
 #!/usr/bin/env -S node --import tsx
 
-import { createHash } from "node:crypto";
 import {
-  chmodSync,
-  copyFileSync,
-  lstatSync,
-  mkdirSync,
   readdirSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync
+  realpathSync
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,21 +15,25 @@ import {
   type BuiltArtifactTarget,
   type CanonicalReleaseTarget
 } from "../shared/release-targets.js";
-import { isSemVer } from "../shared/semver.js";
 import {
   assertPublishedReleaseTarget,
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
 } from "./release-archive.js";
 import { sha256Digest } from "./release-boundary-validation.js";
+import {
+  digestStagedFile,
+  releaseContentFileSet,
+  stageReleaseContent,
+  type ReleaseContentEntry,
+  type StagedReleaseFile
+} from "./release-content.js";
 import { releaseNotesMarkdown } from "./release-github-notes.js";
 import { releaseIdentityForTarget } from "./release-identity.js";
 import {
-  createReleasePlatformManifest,
-  RELEASE_LICENSE_FILES,
-  RELEASE_LICENSE_FILE_DIGESTS
+  RELEASE_LICENSE_FILES
 } from "./release-package-manifests.js";
-import { createReleasePackageBuildManifest } from "./release-package-templates.js";
+import { createReleasePlatformPackageTemplate } from "./release-package-templates.js";
 import {
   createReleaseSboms,
   releaseSbomForPackage,
@@ -47,69 +44,14 @@ import {
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
-export const RELEASE_BUILD_MANIFEST_FILE = "build-manifest.json" as const;
-export const RELEASE_SBOM_FILE = "sbom.spdx.json" as const;
-
-const MAX_EXECUTABLE_BYTES = 256 * 1024 * 1024;
 /** Release asset basenames: a version may carry `+` build metadata. */
 const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
 
-export type ReleaseContentSource =
-  | { readonly kind: "executable" }
-  | {
-      readonly kind: "repository-file";
-      readonly repositoryPath: string;
-      readonly sha256: string;
-      readonly bytes: number;
-    }
-  | { readonly kind: "build-manifest" }
-  | { readonly kind: "sbom" };
-
-export interface ReleaseContentEntry {
-  /** Path inside the assembled directory, POSIX separators. */
-  readonly path: string;
-  readonly mode: number;
-  readonly source: ReleaseContentSource;
-}
-
-export interface ReleaseContentLayout {
-  /**
-   * Where the executable sits inside the assembled directory. A downloaded
-   * archive puts it at the top level so `./<stem>/1667` runs; an npm package
-   * declares `bin/1667`, which is why this is a parameter rather than a
-   * constant. The npm stager, when it is written, calls this same function with
-   * that path and adds `package.json` to what it writes; it must not grow a
-   * second copy of the file list.
-   */
-  readonly executablePath: string;
-}
-
-/**
- * The exact contents of one release archive: nothing more, nothing less.
- *
- * The names come from the platform package manifest, so the archive a user
- * downloads and the tarball npm would publish carry the same set, and a file
- * added there cannot be silently missing here — an unrecognised name throws.
- * `LICENSE` and `NOTICE` are not optional and are not decoration. Apache-2.0
- * section 4(a) requires a copy of the licence for each recipient of the work
- * and 4(d) requires the NOTICE content in each distribution; an archive is
- * what a recipient receives, so the obligation is met inside the archive
- * rather than beside it. Both carry the reviewed digests, so a wrong or
- * truncated file fails staging instead of shipping.
- */
-export function releaseContentFileSet(
-  target: BuiltArtifactTarget,
-  version: string,
-  layout?: ReleaseContentLayout
-): readonly ReleaseContentEntry[] {
-  if (!isSemVer(version)) throw new Error(`Release contents need a SemVer version, not ${version}`);
-  const descriptor = releaseTargetForArtifact(target);
-  const executablePath = layout?.executablePath ?? path.posix.basename(descriptor.executable);
-  const manifest = createReleasePlatformManifest(target, version);
-  return Object.freeze(manifest.files.map((name) => {
-    return contentEntry(name, descriptor, executablePath);
-  }));
-}
+export {
+  RELEASE_BUILD_MANIFEST_FILE,
+  RELEASE_SBOM_FILE,
+  releaseContentFileSet
+} from "./release-content.js";
 
 /**
  * The archive layout: every file at the top level of the extracted directory,
@@ -146,49 +88,6 @@ export function releaseArchiveFileSet(
   return entries;
 }
 
-function contentEntry(
-  name: string,
-  descriptor: CanonicalReleaseTarget,
-  executablePath: string
-): ReleaseContentEntry {
-  if (name === descriptor.executable) {
-    return Object.freeze({
-      path: executablePath,
-      mode: descriptor.platform === "win32" ? 0o644 : 0o755,
-      source: Object.freeze({ kind: "executable" as const })
-    });
-  }
-  for (const licenceFile of RELEASE_LICENSE_FILES) {
-    if (name !== licenceFile) continue;
-    const pinned = RELEASE_LICENSE_FILE_DIGESTS[licenceFile];
-    return Object.freeze({
-      path: licenceFile,
-      mode: 0o644,
-      source: Object.freeze({
-        kind: "repository-file" as const,
-        repositoryPath: licenceFile,
-        sha256: pinned.sha256,
-        bytes: pinned.bytes
-      })
-    });
-  }
-  if (name === RELEASE_BUILD_MANIFEST_FILE) {
-    return Object.freeze({
-      path: RELEASE_BUILD_MANIFEST_FILE,
-      mode: 0o644,
-      source: Object.freeze({ kind: "build-manifest" as const })
-    });
-  }
-  if (name === RELEASE_SBOM_FILE) {
-    return Object.freeze({
-      path: RELEASE_SBOM_FILE,
-      mode: 0o644,
-      source: Object.freeze({ kind: "sbom" as const })
-    });
-  }
-  throw new Error(`Release contents have no source for ${name}`);
-}
-
 export interface ReleaseAssetDigest {
   readonly name: string;
   readonly sha256: string;
@@ -214,12 +113,6 @@ export function formatReleaseChecksums(assets: readonly ReleaseAssetDigest[]): s
     .sort((left, right) => compareNames(left.name, right.name))
     .map((asset) => `${asset.sha256}  ${asset.name}\n`)
     .join("");
-}
-
-export interface StagedReleaseFile {
-  readonly path: string;
-  readonly sha256: string;
-  readonly bytes: number;
 }
 
 export interface StagedReleaseArchive {
@@ -252,77 +145,28 @@ export function stageReleaseArchive(options: StageReleaseArchiveOptions): Staged
   const descriptor = releaseTargetForArtifact(target);
   const stem = releaseArchiveStem(version, target);
   const directory = path.join(path.resolve(options.outputDirectory), stem);
-  mkdirSync(directory, { recursive: true, mode: 0o755 });
-
+  const entries = releaseArchiveFileSet(target, version);
+  const template = createReleasePlatformPackageTemplate(identities, target);
   const sbom = releaseSbomForPackage(
     createReleaseSboms(identities, repositoryReleaseComponentSources()),
     descriptor.packageName
   );
-  const buildManifest = createReleasePackageBuildManifest(
-    identities.evidence,
-    descriptor.packageName,
-    target
-  );
-  const files: StagedReleaseFile[] = [];
-  for (const entry of releaseArchiveFileSet(target, version)) {
-    const destination = path.join(directory, entry.path);
-    if (entry.source.kind === "executable") {
-      const executable = boundedRegularFile(
-        path.join(path.resolve(options.buildDirectory), path.posix.basename(descriptor.executable)),
-        MAX_EXECUTABLE_BYTES,
-        "Release executable"
-      );
-      copyFileSync(executable, destination);
-    } else if (entry.source.kind === "repository-file") {
-      writeFileSync(destination, reviewedRepositoryFile(entry.source));
-    } else if (entry.source.kind === "build-manifest") {
-      writeFileSync(destination, `${canonicalJson(buildManifest)}\n`, "utf8");
-    } else {
-      writeFileSync(destination, `${sbom.text}\n`, "utf8");
-    }
-    chmodSync(destination, entry.mode);
-    files.push(digestOf(directory, entry.path));
-  }
-  assertDirectoryHolds(directory, files.map((file) => file.path));
+  const staged = stageReleaseContent({
+    template,
+    sbom,
+    entries,
+    executable: path.join(
+      path.resolve(options.buildDirectory),
+      path.posix.basename(descriptor.executable)
+    ),
+    directory
+  });
   return Object.freeze({
     target,
     version,
     stem,
-    directory,
-    files: Object.freeze(files)
-  });
-}
-
-/** Reads a repository-root file and refuses any bytes but the reviewed ones. */
-function reviewedRepositoryFile(
-  source: Extract<ReleaseContentSource, { kind: "repository-file" }>
-): Buffer {
-  const file = path.join(repositoryRoot(), source.repositoryPath);
-  const bytes = readFileSync(boundedRegularFile(file, source.bytes, source.repositoryPath));
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  if (bytes.byteLength !== source.bytes || sha256 !== source.sha256) {
-    throw new Error(`${source.repositoryPath} is not the reviewed file this release may ship`);
-  }
-  return bytes;
-}
-
-function assertDirectoryHolds(directory: string, expected: readonly string[]): void {
-  const staged = readdirSync(directory).sort(compareNames);
-  const wanted = [...expected].sort(compareNames);
-  if (staged.length !== wanted.length || staged.some((name, index) => name !== wanted[index])) {
-    throw new Error(
-      `Staged ${directory} holds ${staged.join(", ")}; the release requires ${wanted.join(", ")}`
-    );
-  }
-}
-
-function digestOf(directory: string, name: string): StagedReleaseFile {
-  const bytes = readFileSync(path.join(directory, name));
-  if (bytes.byteLength === 0) throw new Error(`Staged ${name} is empty`);
-  return Object.freeze({
-    path: name,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    bytes: bytes.byteLength
+    directory: staged.directory,
+    files: staged.files
   });
 }
 
@@ -331,7 +175,7 @@ export function directoryAssetDigests(directory: string): readonly ReleaseAssetD
   return Object.freeze(readdirSync(resolved, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name !== RELEASE_CHECKSUMS_FILE)
     .map((entry) => {
-      const file = digestOf(resolved, entry.name);
+      const file = digestStagedFile(resolved, entry.name);
       return Object.freeze({ name: file.path, sha256: file.sha256 });
     }));
 }
@@ -339,18 +183,6 @@ export function directoryAssetDigests(directory: string): readonly ReleaseAssetD
 function compareNames(left: string, right: string): number {
   if (left === right) return 0;
   return left < right ? -1 : 1;
-}
-
-function boundedRegularFile(file: string, maximumBytes: number, label: string): string {
-  const stat = lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > maximumBytes) {
-    throw new Error(`${label} must be a bounded regular file`);
-  }
-  return realpathSync(file);
-}
-
-function repositoryRoot(): string {
-  return path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 }
 
 /**

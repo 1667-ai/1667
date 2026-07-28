@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -383,14 +392,21 @@ test("every target in one run stamps the same version, commit and timestamp", (t
 test("staging fails on a missing executable rather than writing a partial archive", (t) => {
   const scratch = mkdtempSync(path.join(tmpdir(), "1667-release-archive-"));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const outputDirectory = path.join(scratch, "stage");
+  const stem = releaseArchiveStem(VERSION, "linux-x64");
   // No stub executable: staging must fail on a missing input rather than write
   // a partial archive.
   assert.throws(() => stageReleaseArchive({
     ...FACTS,
     target: "linux-x64",
     buildDirectory: path.join(scratch, "dist"),
-    outputDirectory: path.join(scratch, "stage")
+    outputDirectory
   }), /Release executable|ENOENT/);
+  assert.equal(existsSync(path.join(outputDirectory, stem)), false);
+  assert.equal(
+    readdirSync(outputDirectory).some((name) => name.startsWith(`.${stem}-`)),
+    false
+  );
 });
 
 // The forgeable-credential guard. A `ReleaseSourceEvidence` document asserts a
