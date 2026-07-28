@@ -134,12 +134,11 @@ function defaultConnectionInDocument(document: SettingsDocumentV2): {
 /** Every entered key gets a fresh ID. The server treats a stored secret ID
  * as an immutable binding of one credential target to one value: reusing an
  * ID across a provider or endpoint change would overwrite the value the
- * still-active revision resolves, so the save would be refused — and a
- * shared machine tier holds every project's keys under one namespace, where
- * unique IDs also keep projects from colliding. */
+ * still-active revision resolves, so the save would be refused. The shared
+ * machine tier holds every project's keys under one namespace, so the suffix
+ * is a crypto-strength UUID: two projects minting for the same connection ID
+ * must never collide onto one credential slot. */
 function mintStoredSecretId(connectionId: string): string {
-  const suffix = `.k${Date.now().toString(36)}${
-    Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, "0")
-  }`;
+  const suffix = `.k${crypto.randomUUID()}`;
   return `${connectionId.slice(0, MAX_SETTINGS_ID_SCALARS - suffix.length)}${suffix}`;
 }

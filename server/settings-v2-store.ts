@@ -58,6 +58,7 @@ import {
   type SettingsMutationOperation
 } from "./settings-v2-mutation.js";
 import {
+  deleteProviderSecret,
   pruneProviderSecrets,
   readProviderSecrets,
   removeProviderSecretsScratch,
@@ -133,7 +134,9 @@ export class SettingsV2Store {
   async init(): Promise<void> {
     await this.ledger.init();
     let state = await this.recoverReceiptTransaction();
+    const preActivation = state;
     state = await this.recoverActivation(state);
+    await this.deleteSupersededSecrets([preActivation], state);
     if (this.prunesSecrets) {
       await removeProviderSecretsScratch(this.secretsDir);
       await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
@@ -170,6 +173,9 @@ export class SettingsV2Store {
     readonly storedSecrets: Awaited<ReturnType<typeof readProviderSecrets>>;
   }> {
     for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 5));
+      }
       const state = await readSettingsState(this.dataDir);
       const storedSecrets = await readProviderSecrets(this.secretsDir);
       const referenced = storedSecretIdsInDocument(activeSettingsDocument(state));
@@ -496,7 +502,30 @@ export class SettingsV2Store {
       // replaced stored secrets unreferenced, so prune again.
       await this.pruneUnreferencedSecrets(settled);
     }
+    await this.deleteSupersededSecrets([current, next], settled);
     return settingsResult(prepared, responseActivationOutcome(settled, request.mutationId));
+  }
+
+  /** Delete exactly the stored credentials this transition superseded. The
+   * shared machine tier disables reference pruning — other projects'
+   * references are invisible there — but an ID this transition replaced or
+   * discarded was written by this project and is referenced by nothing after
+   * it settles, so a targeted delete is safe where a scan is not. A failed
+   * validation keeps every document and therefore deletes nothing. */
+  private async deleteSupersededSecrets(
+    preceding: readonly SettingsStateV2[],
+    settled: SettingsStateV2
+  ): Promise<void> {
+    const remaining = storedSecretIdsInState(settled);
+    const superseded = new Set<string>();
+    for (const state of preceding) {
+      for (const secretId of storedSecretIdsInState(state)) {
+        if (!remaining.has(secretId)) superseded.add(secretId);
+      }
+    }
+    for (const secretId of superseded) {
+      await deleteProviderSecret(this.secretsDir, secretId);
+    }
   }
 
   private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {

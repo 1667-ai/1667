@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { SETTINGS_STATE_V2_NEXT_FILE } from "../server/data-directory-layout.js";
 import { readProviderSecrets } from "../server/provider-secret-store.js";
 import { resolveProviderHeaders } from "../server/provider-runtime.js";
@@ -15,6 +16,7 @@ import {
 } from "../server/settings-v2-runtime.js";
 import { readSettingsState } from "../server/settings-state-file.js";
 import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
+import type { MutationId } from "../server/mutation-ledger-types.js";
 import {
   FIXED_TIME,
   MUTATION_A,
@@ -26,6 +28,8 @@ import {
   initializedFormat2Directory,
   saveCommand
 } from "./settings-store-fixtures.js";
+
+const MUTATION_D = `m1.1767225600003.${"d".repeat(32)}` as MutationId;
 
 test("a credential save activates in-process and generation uses the new credentials", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-inprocess-activate-");
@@ -543,6 +547,132 @@ test("distinct routed connections validate concurrently inside one probe budget"
   assert.equal((await store.loadView()).pendingRevision, null);
 });
 
+test("a shared-tier rotation deletes exactly the superseded credential after commit", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-tier-rotation-");
+  const secretsDir = await scratchSecretsDir(t);
+  let providerReady = true;
+  const store = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => providerReady,
+    secretsDir
+  });
+  await store.init(2);
+  await store.save({
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("demo.k-old")),
+    connectionSecrets: { "demo.k-old": "sk-old" }
+  });
+  assert.deepEqual([...(await readProviderSecrets(secretsDir)).keys()], ["demo.k-old"]);
+
+  // A failed replacement keeps both values: the active document still
+  // resolves the old one, and the staged candidate still owns the new one.
+  providerReady = false;
+  const stagedGeneration = (await store.loadView()).stateGeneration!;
+  await store.save({
+    ...saveCommand(MUTATION_B, stagedGeneration, storedSecretDocument("demo.k-new")),
+    connectionSecrets: { "demo.k-new": "sk-new" }
+  });
+  assert.deepEqual(
+    [...(await readProviderSecrets(secretsDir)).keys()].sort(),
+    ["demo.k-new", "demo.k-old"],
+    "a failed activation deletes nothing"
+  );
+  assert.equal(
+    resolveProviderHeaders((await store.loadGeneration()).settings, {}).headers.authorization,
+    "Bearer sk-old"
+  );
+
+  // The retry that commits deletes exactly what it superseded — the old
+  // active binding and the replaced failed candidate — with no reference
+  // scan against the shared tier.
+  providerReady = true;
+  const retryGeneration = (await store.loadView()).stateGeneration!;
+  await store.save({
+    ...saveCommand(MUTATION_C, retryGeneration, storedSecretDocument("demo.k-new2")),
+    connectionSecrets: { "demo.k-new2": "sk-new2" }
+  });
+  assert.deepEqual([...(await readProviderSecrets(secretsDir)).keys()], ["demo.k-new2"]);
+  assert.equal(
+    resolveProviderHeaders((await store.loadGeneration()).settings, {}).headers.authorization,
+    "Bearer sk-new2"
+  );
+});
+
+test("shared-tier discard and startup commit remove exactly their superseded credentials", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-tier-recovery-");
+  const secretsDir = await scratchSecretsDir(t);
+  const active = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => true,
+    secretsDir
+  });
+  await active.init(2);
+  await active.save({
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("tier:active")),
+    connectionSecrets: { "tier:active": "sk-active" }
+  });
+
+  // A staged candidate left behind by an interrupted save.
+  const interrupted = new SettingsStore(dataDir, {
+    activationMode: "recover-only",
+    environment: {},
+    now: () => FIXED_TIME,
+    secretsDir
+  });
+  await interrupted.init(2);
+  const generation = (await interrupted.loadView()).stateGeneration!;
+  await interrupted.save({
+    ...saveCommand(MUTATION_B, generation, storedSecretDocument("tier:candidate")),
+    connectionSecrets: { "tier:candidate": "sk-candidate" }
+  });
+  assert.deepEqual(
+    [...(await readProviderSecrets(secretsDir)).keys()].sort(),
+    ["tier:active", "tier:candidate"]
+  );
+
+  // Discarding the candidate removes its credential from the shared tier.
+  const discardGeneration = (await interrupted.loadView()).stateGeneration!;
+  await interrupted.discardPending({
+    transportOperationId: "transport:tier-discard",
+    mutationId: MUTATION_C,
+    expectedStateGeneration: discardGeneration
+  });
+  assert.deepEqual(
+    [...(await readProviderSecrets(secretsDir)).keys()],
+    ["tier:active"],
+    "the discarded candidate's credential does not linger in the shared tier"
+  );
+
+  // A startup commit of a leftover staged candidate removes the credential
+  // it superseded.
+  const restaged = new SettingsStore(dataDir, {
+    activationMode: "recover-only",
+    environment: {},
+    now: () => FIXED_TIME,
+    secretsDir
+  });
+  await restaged.init(2);
+  const restageGeneration = (await restaged.loadView()).stateGeneration!;
+  await restaged.save({
+    ...saveCommand(MUTATION_D, restageGeneration, storedSecretDocument("tier:replacement")),
+    connectionSecrets: { "tier:replacement": "sk-replacement" }
+  });
+  const recovered = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => true,
+    secretsDir
+  });
+  await recovered.init(2);
+  assert.equal((await recovered.loadView()).pendingRevision, null);
+  assert.deepEqual(
+    [...(await readProviderSecrets(secretsDir)).keys()],
+    ["tier:replacement"],
+    "the startup commit deletes the binding it superseded"
+  );
+});
+
 test("a saved-but-unactivated credential target stays testable; unsaved targets still require a save", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-inprocess-staged-probe-");
   const store = new SettingsStore(dataDir, {
@@ -576,6 +706,12 @@ test("a saved-but-unactivated credential target stays testable; unsaved targets 
     hasServiceCode("credential_test_requires_activation")
   );
 });
+
+async function scratchSecretsDir(t: TestContext): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "1667-secrets-tier-"));
+  t.after(async () => await rm(directory, { recursive: true, force: true }));
+  return directory;
+}
 
 function storedSecretDocument(
   secretId: string,

@@ -492,10 +492,14 @@ describe("inline settings menu", () => {
 
     await press(key("s"));
     expect(commands).toHaveLength(1);
-    // Every entered key mints a fresh secret ID: the server refuses to rebind
-    // an ID the active document still resolves to a different target.
+    // Every entered key mints a fresh, crypto-strength secret ID: the server
+    // refuses to rebind an ID the active document still resolves to a
+    // different target, and the shared machine tier needs collision-proof
+    // names across projects.
     const firstId = Object.keys(commands[0]!.connectionSecrets ?? {})[0]!;
-    expect(firstId.startsWith("demo.k")).toBeTrue();
+    expect(firstId).toMatch(
+      /^demo\.k[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
     expect(commands[0]!.connectionSecrets).toEqual({
       [firstId]: "sk-pasted-secret"
     });
