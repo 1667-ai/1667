@@ -86,14 +86,14 @@ const EMPTY_MIGRATION_RECEIPT: FormatMigrationReceipt = Object.freeze({
  */
 export class MutationLedgerStore {
   private readonly root: string;
-  /** Non-leaf ledger directories this instance already proved durable. A
-   * path enters the set only after its full inspect/mkdir/parent-flush
-   * barrier completed, so later writes skip both the redundant parent
-   * re-fsync and the per-write privacy re-inspection, while a chain a
-   * crashed process left half-flushed is still re-proven once per store
-   * instance. Per-record leaf directories never enter the set: recovery and
-   * collection remove them, and excluding them bounds the set to the shared
-   * hierarchy instead of one entry per mutation. */
+  /** Non-leaf ledger directories this instance already proved durable. The
+   * set elides only the redundant parent durability flush: the privacy and
+   * identity inspections still run on every write, so a swapped ancestor
+   * fails closed, and a chain a crashed process left half-flushed is still
+   * re-proven once per store instance. Per-record leaf directories never
+   * enter the set: recovery and collection remove them, and excluding them
+   * bounds the set to the shared hierarchy instead of one retained path per
+   * mutation. */
   private readonly durableDirectories = new Set<string>();
 
   constructor(private readonly dataDir: string) {
@@ -488,8 +488,7 @@ export class MutationLedgerStore {
 
   private async ensureDurableDirectory(parent: string, name: string): Promise<void> {
     const target = path.join(parent, name);
-    if (this.durableDirectories.has(target)) return;
-    await ensurePrivateDirectory(parent, name);
+    await ensurePrivateDirectory(parent, name, this.durableDirectories.has(target));
     this.durableDirectories.add(target);
   }
 

@@ -63,12 +63,15 @@ interface StoryReceiptShape {
 
 export async function ensurePrivateDirectory(
   parent: string,
-  name: string
+  name: string,
+  knownDurable = false
 ): Promise<void> {
   const target = path.join(parent, name);
+  let created = false;
   try {
     await inspectPrivateDirectory(parent);
     await mkdir(target, { mode: 0o700 });
+    created = true;
   } catch (error) {
     if (!isErrorCode(error, "EEXIST")) throw receiptUnavailable(error);
   }
@@ -76,7 +79,9 @@ export async function ensurePrivateDirectory(
     await inspectPrivateDirectory(target);
     // Existing paths are flushed too: a prior failed barrier or process crash
     // must become durable before a child receipt record can be committed.
-    await syncPrivateDirectory(parent);
+    // Only a directory the caller has already proven durable skips the flush
+    // — and never one this call just created.
+    if (created || !knownDurable) await syncPrivateDirectory(parent);
   } catch (error) {
     throw receiptUnavailable(error);
   }

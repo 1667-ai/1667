@@ -3,6 +3,8 @@ import {
   link,
   lstat,
   readdir,
+  rename,
+  symlink,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -193,6 +195,29 @@ test("orphan prepared cleanup is direct, proof-bearing, and preserves other evid
     );
     assert.equal((await lstat(path.join(receiptDirectory(dataDir), "started.json"))).isFile(), true);
   });
+});
+
+test("a swapped ledger ancestor fails closed on later writes", {
+  skip: process.platform === "win32"
+}, async (t) => {
+  const { dataDir, store } = await testStore(t, "1667-ledger-swapped-ancestor-");
+  await store.writeUserRecord(preparedRecord());
+
+  // The first write proved the shared hierarchy durable; replacing an
+  // ancestor afterwards must still be caught by the per-write inspection.
+  const settingsDir = path.join(dataDir, MUTATION_LEDGER_DIRECTORY, "settings");
+  const movedDir = path.join(dataDir, "settings-moved");
+  await rename(settingsDir, movedDir);
+  await symlink(movedDir, settingsDir);
+
+  const second = {
+    ...preparedRecord(),
+    key: "m1.1767225600000.101112131415161718191a1b1c1d1e1f"
+  };
+  await assert.rejects(
+    store.writeUserRecord(second),
+    hasCode("receipt_storage_unavailable")
+  );
 });
 
 test("missing receipt lookup is read-only and repeated direct lookup stays bounded", {
