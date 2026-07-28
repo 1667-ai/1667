@@ -1,6 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { exactStringPattern } from "./story-wire-patterns.js";
+import { isDurableMutationId } from "../shared/durable-mutation-id.js";
 import {
   MUTATION_INPUT_PROTOCOL_VERSION,
   LEGACY_WORKER_PROTOCOL_VERSION,
@@ -8,21 +10,29 @@ import {
   isWorkerMethod,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
-import {
-  decodeFailureEnvelope,
-  type FailureEnvelope
-} from "../shared/failure-envelope.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
+import {
+  parseStoryAggregateVersion
+} from "../shared/story-aggregate-version.js";
+import {
+  createArchivedMutationOutboxRecord,
+  dismissArchivedMutationOutboxRecord,
+  parseArchivedMutationOutboxRecord,
+  providerRecoveryFromArchive,
+  type ArchivedMutationOutboxRecord,
+  type MutationOutboxDurability,
+  type MutationOutboxResolution
+} from "./mutation-outbox-archive.js";
 import { ServiceError } from "./errors.js";
 import {
   mkdirDurable,
   requireDurableCommit,
+  syncDirectory,
   unlinkDurable,
   writeDurableAtomic
 } from "./story-lifecycle.js";
 
 const LEGACY_MUTATION_ID_PATTERN = exactStringPattern("m1-[0-9a-z]+-[0-9a-f]{32}");
-const DURABLE_MUTATION_ID_PATTERN = exactStringPattern("m1\\.[0-9]{13}\\.[0-9a-f]{32}");
 const CANCELLATION_MARKER_SUFFIX = ".cancelled.json";
 
 export interface MutationOutboxRecord {
@@ -40,15 +50,17 @@ export interface MutationOutboxRecord {
   cancelledAt?: string;
 }
 
-export type MutationOutboxResolution = FailureEnvelope;
+export { providerRecoveryFromArchive };
+export type {
+  ArchivedMutationOutboxRecord,
+  MutationOutboxDurability,
+  MutationOutboxResolution
+};
 
-export interface ArchivedMutationOutboxRecord {
-  format: "1667-mutation-outbox-archive";
-  schemaVersion: 1;
-  intent: MutationOutboxRecord;
-  resolution: MutationOutboxResolution;
-  resolvedAt: string;
-}
+const DEFAULT_MUTATION_OUTBOX_DURABILITY: MutationOutboxDurability = {
+  unlinkDurable,
+  syncDirectory
+};
 
 interface MutationOutboxCancellationMarker {
   format: "1667-mutation-outbox-cancellation";
@@ -74,7 +86,10 @@ export class MutationOutbox {
   private admissionQueue: Promise<void> = Promise.resolve();
   private nextSequence: number | null = null;
 
-  constructor(private readonly dir: string) {}
+  constructor(
+    private readonly dir: string,
+    private readonly durability = DEFAULT_MUTATION_OUTBOX_DURABILITY
+  ) {}
 
   async init(): Promise<void> {
     await mkdirDurable(this.dir);
@@ -121,11 +136,13 @@ export class MutationOutbox {
     validateMutationId(mutationId);
     await removeDurablyIfPresent(
       this.file(mutationId),
-      `Clearing mutation outbox intent ${mutationId}`
+      `Clearing mutation outbox intent ${mutationId}`,
+      this.durability
     );
     await removeDurablyIfPresent(
       this.cancellationFile(mutationId),
-      `Clearing mutation outbox cancellation ${mutationId}`
+      `Clearing mutation outbox cancellation ${mutationId}`,
+      this.durability
     );
   }
 
@@ -173,7 +190,8 @@ export class MutationOutbox {
    * authoritative, so the old ID can never re-enter provider execution. */
   async archive(
     mutationId: string,
-    resolution: MutationOutboxResolution
+    resolution: MutationOutboxResolution,
+    providerMutationId?: string
   ): Promise<ArchivedMutationOutboxRecord> {
     validateMutationId(mutationId);
     const intent = parseRecord(
@@ -182,13 +200,25 @@ export class MutationOutbox {
     );
     const archiveDir = this.archiveDir();
     await mkdirDurable(archiveDir);
-    const archived: ArchivedMutationOutboxRecord = {
-      format: "1667-mutation-outbox-archive",
-      schemaVersion: 1,
+    const archived = createArchivedMutationOutboxRecord(
       intent,
       resolution,
-      resolvedAt: new Date().toISOString()
-    };
+      providerMutationId
+    );
+    const existing = await this.readArchived(mutationId);
+    if (existing?.schemaVersion === 2) {
+      if (archived.schemaVersion !== 2
+        || !isDeepStrictEqual(existing.intent, archived.intent)
+        || !isDeepStrictEqual(existing.resolution, archived.resolution)
+        || !isDeepStrictEqual(
+          existing.providerRecovery,
+          archived.providerRecovery
+        )) {
+        throw corruptOutbox(mutationId);
+      }
+      await this.remove(mutationId);
+      return existing;
+    }
     requireDurableCommit(
       await writeDurableAtomic(path.join(archiveDir, `${mutationId}.json`), `${JSON.stringify(archived)}\n`),
       `Archiving ambiguous mutation outbox intent ${mutationId}`
@@ -253,28 +283,49 @@ export class MutationOutbox {
       const mutationId = name.slice(0, -5);
       validateMutationId(mutationId);
       const value: unknown = JSON.parse(await readFile(path.join(this.archiveDir(), name), "utf8"));
-      records.push(parseArchivedRecord(value, mutationId));
+      records.push(parseArchivedMutationOutboxRecord(
+        value,
+        mutationId,
+        parseRecord
+      ));
     }
     return records;
+  }
+
+  /** Remove active intents whose exact terminal archive already committed. */
+  async retireExactlyArchivedIntents(
+    records: readonly MutationOutboxRecord[],
+    archivedRecords: readonly ArchivedMutationOutboxRecord[]
+  ): Promise<MutationOutboxRecord[]> {
+    const exactArchives = new Map(
+      archivedRecords
+        .filter((record) => record.schemaVersion === 2)
+        .map((record) => [record.intent.mutationId, record])
+    );
+    const retained: MutationOutboxRecord[] = [];
+    for (const record of records) {
+      const archived = exactArchives.get(record.mutationId);
+      if (archived === undefined) {
+        retained.push(record);
+        continue;
+      }
+      if (!isDeepStrictEqual(archived.intent, record)) {
+        throw corruptOutbox(record.mutationId);
+      }
+      await this.remove(record.mutationId);
+    }
+    return retained;
   }
 
   /** Retire the actionable warning after aggregate acknowledgement or status
    * reconciliation proves the archived provider fence is no longer pending. */
   async dismissArchived(mutationId: string): Promise<void> {
     validateMutationId(mutationId);
-    try {
-      requireDurableCommit(
-        await unlinkDurable(
-          path.join(this.archiveDir(), `${mutationId}.json`)
-        ),
-        `Dismissing archived mutation warning ${mutationId}`
-      );
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return;
-      }
-      throw error;
-    }
+    await dismissArchivedMutationOutboxRecord(
+      path.join(this.archiveDir(), `${mutationId}.json`),
+      `Dismissing archived mutation warning ${mutationId}`,
+      this.durability
+    );
   }
 
   private file(mutationId: string): string {
@@ -287,6 +338,31 @@ export class MutationOutbox {
 
   private archiveDir(): string {
     return path.join(path.dirname(this.dir), `${path.basename(this.dir)}-archive`);
+  }
+
+  private async readArchived(
+    mutationId: string
+  ): Promise<ArchivedMutationOutboxRecord | null> {
+    try {
+      const value: unknown = JSON.parse(
+        await readFile(
+          path.join(this.archiveDir(), `${mutationId}.json`),
+          "utf8"
+        )
+      );
+      return parseArchivedMutationOutboxRecord(
+        value,
+        mutationId,
+        parseRecord
+      );
+    } catch (error) {
+      if (error instanceof Error
+        && "code" in error
+        && error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async serializeAdmission(work: () => Promise<void>): Promise<void> {
@@ -305,14 +381,19 @@ export class MutationOutbox {
 export async function assertNoPendingMutationIntents(dataDir: string): Promise<ArchivedMutationOutboxRecord[]> {
   const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
   await outbox.init();
-  if ((await outbox.list()).length > 0) {
+  const archived = await outbox.listArchived();
+  const pending = await outbox.retireExactlyArchivedIntents(
+    await outbox.list(),
+    archived
+  );
+  if (pending.length > 0) {
     throw new ServiceError(
       409,
       "Retained embedded mutations require recovery; start the TUI with --embedded before opening another writer.",
       "mutation_outcome_unknown"
     );
   }
-  return await outbox.listArchived();
+  return archived;
 }
 
 function parseRecord(value: unknown, mutationId: string): MutationOutboxRecord {
@@ -329,7 +410,23 @@ function parseRecord(value: unknown, mutationId: string): MutationOutboxRecord {
       && (typeof record.cancelledAt !== "string" || !Number.isFinite(Date.parse(record.cancelledAt))))) {
     throw corruptOutbox(mutationId);
   }
-  return record as MutationOutboxRecord;
+  let expectedAggregateVersion: StoryAggregateVersion | undefined;
+  try {
+    expectedAggregateVersion = record.expectedAggregateVersion === undefined
+      ? undefined
+      : parseStoryAggregateVersion(
+          record.expectedAggregateVersion,
+          "mutation outbox expectedAggregateVersion"
+        );
+  } catch {
+    throw corruptOutbox(mutationId);
+  }
+  return {
+    ...(record as MutationOutboxRecord),
+    ...(expectedAggregateVersion === undefined
+      ? {}
+      : { expectedAggregateVersion })
+  };
 }
 
 function isRetainedOutboxMutation(method: WorkerMethod, protocolVersion: number | undefined): boolean {
@@ -348,22 +445,6 @@ function compareAdmissionOrder(left: MutationOutboxRecord, right: MutationOutbox
   return left.createdAt.localeCompare(right.createdAt) || left.mutationId.localeCompare(right.mutationId);
 }
 
-function parseArchivedRecord(value: unknown, mutationId: string): ArchivedMutationOutboxRecord {
-  if (value === null || typeof value !== "object") throw corruptOutbox(mutationId);
-  const archived = value as Partial<ArchivedMutationOutboxRecord>;
-  const resolution = decodeFailureEnvelope(archived.resolution);
-  if (archived.format !== "1667-mutation-outbox-archive" || archived.schemaVersion !== 1
-    || archived.intent === undefined || parseRecord(archived.intent, mutationId).mutationId !== mutationId
-    || typeof archived.resolvedAt !== "string" || !Number.isFinite(Date.parse(archived.resolvedAt))
-    || resolution === null) {
-    throw corruptOutbox(mutationId);
-  }
-  return {
-    ...(archived as ArchivedMutationOutboxRecord),
-    resolution
-  };
-}
-
 function parseCancellationMarker(
   value: unknown,
   mutationId: string
@@ -380,9 +461,13 @@ function parseCancellationMarker(
   return marker as MutationOutboxCancellationMarker;
 }
 
-async function removeDurablyIfPresent(file: string, message: string): Promise<void> {
+async function removeDurablyIfPresent(
+  file: string,
+  message: string,
+  durability: MutationOutboxDurability
+): Promise<void> {
   try {
-    requireDurableCommit(await unlinkDurable(file), message);
+    requireDurableCommit(await durability.unlinkDurable(file), message);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
@@ -390,7 +475,7 @@ async function removeDurablyIfPresent(file: string, message: string): Promise<vo
 }
 
 function validateMutationId(value: string): void {
-  if (!LEGACY_MUTATION_ID_PATTERN.test(value) && !DURABLE_MUTATION_ID_PATTERN.test(value)) {
+  if (!LEGACY_MUTATION_ID_PATTERN.test(value) && !isDurableMutationId(value)) {
     throw new ServiceError(500, "Mutation outbox contains an invalid ID");
   }
 }

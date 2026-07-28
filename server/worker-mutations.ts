@@ -7,6 +7,9 @@ import {
   type WorkerInput,
   type WorkerOutput
 } from "../shared/worker-protocol.js";
+import {
+  isProviderRecoveryContext
+} from "../shared/provider-recovery.js";
 import { ServiceError } from "./errors.js";
 import {
   chapterBreakRemovalFingerprint,
@@ -111,18 +114,33 @@ const MUTATIONS: MutationRegistry = {
     }
   }),
   acknowledgeUnknownOutcomes: define<"acknowledgeUnknownOutcomes">({
-    parse: (value) => requiredStrings<"acknowledgeUnknownOutcomes">(
-      value,
-      "acknowledgeUnknownOutcomes",
-      "storyId",
-      "originalProviderMutationId"
-    ),
+    parse: (value) => {
+      const input = requireRecord(
+        value,
+        "acknowledgeUnknownOutcomes input"
+      );
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        originalProviderMutationId: requireString(
+          input.originalProviderMutationId,
+          "originalProviderMutationId"
+        ),
+        ...(input.providerRecovery === undefined
+          ? {}
+          : {
+              providerRecovery: requireProviderRecoveryContext(
+                input.providerRecovery
+              )
+            })
+      };
+    },
     storyId: (input) => input.storyId,
     execute: (service, input, _plan, context) =>
       service.acknowledgeUnknownOutcomes(
         input.storyId,
         input.originalProviderMutationId,
-        context.storyMutationRequest
+        context.storyMutationRequest,
+        input.providerRecovery
       )
   }),
   deleteStory: define<"deleteStory">({
@@ -702,4 +720,11 @@ function requireStringValue(value: unknown, label: string): string {
 
 function badInput(message: string): ServiceError {
   return new ServiceError(400, message);
+}
+
+function requireProviderRecoveryContext(value: unknown) {
+  if (!isProviderRecoveryContext(value)) {
+    throw badInput("providerRecovery is invalid");
+  }
+  return value;
 }

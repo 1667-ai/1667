@@ -1,4 +1,7 @@
 import type { Story } from "../shared/types.js";
+import {
+  isProviderMutationId
+} from "../shared/provider-recovery.js";
 import { ServiceError } from "./errors.js";
 import type {
   MutationCoordinator,
@@ -18,7 +21,15 @@ import type {
   MutationResult,
   PreparedProviderAcknowledgementRecord
 } from "./mutation-ledger-types.js";
-import { requireExpectedStoryVersion } from "./story-aggregate-state.js";
+import {
+  requireExpectedStoryVersion,
+  storyAggregateVersion
+} from "./story-aggregate-state.js";
+import {
+  emptyStoryReceipt,
+  resolveProviderRecovery,
+  type ProviderRecoveryWarning
+} from "./story-provider-recovery.js";
 import {
   commitPreparedStoryTransaction,
   corruptStoryReceipt,
@@ -51,61 +62,52 @@ export class StoryUnknownOutcomeStore {
 
   async status(
     storyId: string,
-    originalProviderMutationId: MutationId
+    warning: ProviderRecoveryWarning
   ) {
     const aggregateKey = `story:${storyId}` as const;
     return await this.stories.withOptionalAggregateSession(
       storyId,
       async (session) => {
-        let receipt = await this.ledger.loadStoryReceipt(
-          aggregateKey,
-          originalProviderMutationId
-        );
+        const warningReceipt = isProviderMutationId(warning.mutationId)
+          ? await this.ledger.loadStoryReceipt(
+              aggregateKey,
+              warning.mutationId
+            )
+          : null;
         if (session === null) {
-          if (receipt.completed !== null || receipt.acknowledged !== null
-            || emptyStoryReceipt(receipt)) {
+          if (warningReceipt === null
+            || warningReceipt.completed !== null
+            || warningReceipt.acknowledged !== null
+            || emptyStoryReceipt(warningReceipt)) {
             return { state: "resolved" as const, deleted: true };
           }
-          throw corruptStoryReceipt(originalProviderMutationId);
+          throw corruptStoryReceipt(warning.mutationId);
         }
         await this.recovery.finalizeAggregateTransaction(session, null);
-        receipt = await this.ledger.loadStoryReceipt(
+        const resolution = await resolveProviderRecovery(
+          this.ledger,
           aggregateKey,
-          originalProviderMutationId
+          warning,
+          session.snapshot.manifest.unresolvedProvider,
+          storyAggregateVersion(session.snapshot)
         );
         const deleted = session.snapshot.manifest.kind === "deleted";
-        const pointer = session.snapshot.manifest.unresolvedProvider;
-        if (receipt.completed !== null || receipt.acknowledged !== null) {
-          if (pointer?.mutationId === originalProviderMutationId) {
-            throw corruptStoryReceipt(originalProviderMutationId);
-          }
+        if (resolution.state === "resolved") {
           return { state: "resolved" as const, deleted };
-        }
-        if (emptyStoryReceipt(receipt)) {
-          if (pointer?.mutationId === originalProviderMutationId) {
-            throw corruptStoryReceipt(originalProviderMutationId);
-          }
-          return { state: "resolved" as const, deleted };
-        }
-        if (receipt.started === null || receipt.prepared !== null
-          || pointer === null
-          || pointer.mutationId !== originalProviderMutationId
-          || pointer.fingerprintHash !== receipt.started.fingerprintHash
-          || receipt.started.aggregateKey !== aggregateKey) {
-          throw corruptStoryReceipt(originalProviderMutationId);
         }
         return {
           state: "pending" as const,
+          pendingProviderMutationId: resolution.providerMutationId,
           deleted,
           aggregateVersion: session.snapshot.storageKind === "v5"
             ? {
-              kind: "v5" as const,
-              manifestHash: session.snapshot.manifestHash
-            }
+                kind: "v5" as const,
+                manifestHash: session.snapshot.manifestHash
+              }
             : {
-              kind: "v6" as const,
-              revision: session.snapshot.manifest.revision
-            }
+                kind: "v6" as const,
+                revision: session.snapshot.manifest.revision
+              }
         };
       }
     );
@@ -113,10 +115,10 @@ export class StoryUnknownOutcomeStore {
 
   async run(
     input: unknown,
-    originalProviderMutationId: MutationId
+    warning: ProviderRecoveryWarning
   ): Promise<StoryAcknowledgementCommit> {
     return await this.coordinator.runStory(input, async (request) => {
-      if (request.mutationId === originalProviderMutationId) {
+      if (request.mutationId === warning.mutationId) {
         throw new ServiceError(
           409,
           "Acknowledgement must use a different mutation ID.",
@@ -130,12 +132,7 @@ export class StoryUnknownOutcomeStore {
       requireFreshStoryMutation(receipt, request.mutationId, this.now);
       requireMatchingAcknowledgementReceipt(
         receipt,
-        request,
-        originalProviderMutationId
-      );
-      const original = await this.ledger.loadStoryReceipt(
-        request.scope,
-        originalProviderMutationId
+        request
       );
       return await this.stories.withAggregateSession(
         storyIdFromScope(request.scope),
@@ -144,6 +141,44 @@ export class StoryUnknownOutcomeStore {
             session,
             request.mutationId
           );
+          let pendingProviderMutationId: MutationId;
+          let original: StoryMutationReceipt;
+          if (receipt.prepared === null) {
+            const resolution = await resolveProviderRecovery(
+              this.ledger,
+              request.scope,
+              warning,
+              session.snapshot.manifest.unresolvedProvider,
+              storyAggregateVersion(session.snapshot)
+            );
+            if (resolution.state === "resolved") {
+              throw new ServiceError(
+                409,
+                "The provider outcome is not currently awaiting acknowledgement.",
+                "conflict"
+              );
+            }
+            pendingProviderMutationId = resolution.providerMutationId;
+            original = resolution.receipt;
+          } else {
+            if (receipt.prepared.purpose
+              !== "provider-acknowledgement") {
+              throw corruptStoryReceipt(request.mutationId);
+            }
+            pendingProviderMutationId =
+              receipt.prepared.originalProviderMutationId;
+            original = await this.ledger.loadStoryReceipt(
+              request.scope,
+              pendingProviderMutationId
+            );
+          }
+          if (request.mutationId === pendingProviderMutationId) {
+            throw new ServiceError(
+              409,
+              "Acknowledgement must use a different mutation ID.",
+              "idempotency_conflict"
+            );
+          }
           const originalEvidence = original.started === null
             ? null
             : {
@@ -175,7 +210,7 @@ export class StoryUnknownOutcomeStore {
           const pointer = session.snapshot.manifest.unresolvedProvider;
           const startedHash = hashStartedMutationRecord(original.started);
           if (pointer === null
-            || pointer.mutationId !== originalProviderMutationId
+            || pointer.mutationId !== pendingProviderMutationId
             || pointer.fingerprintHash !== original.started.fingerprintHash
             || original.started.aggregateKey !== request.scope) {
             throw new ServiceError(
@@ -212,7 +247,7 @@ export class StoryUnknownOutcomeStore {
             method: "acknowledgeUnknownOutcomes",
             oldStateHash,
             newStateHash: hashStoryManifest(manifest),
-            originalProviderMutationId,
+            originalProviderMutationId: pendingProviderMutationId,
             originalStartedRecordHash: startedHash,
             result: storyResult(manifest),
             preparedAt: timestamp(this.now)
@@ -230,7 +265,7 @@ export class StoryUnknownOutcomeStore {
                 schema: 1,
                 kind: "acknowledged",
                 aggregateKey: request.scope,
-                mutationId: originalProviderMutationId,
+                mutationId: pendingProviderMutationId,
                 startedRecordHash: startedHash,
                 acknowledgementMutationId: request.mutationId,
                 acknowledgementPreparedHash: preparedHash,
@@ -249,17 +284,9 @@ export class StoryUnknownOutcomeStore {
   }
 }
 
-function emptyStoryReceipt(receipt: StoryMutationReceipt): boolean {
-  return receipt.started === null
-    && receipt.prepared === null
-    && receipt.completed === null
-    && receipt.acknowledged === null;
-}
-
 function requireMatchingAcknowledgementReceipt(
   receipt: StoryMutationReceipt,
-  request: MutationCoordinatorRequest<StoryMutationTarget>,
-  originalProviderMutationId: MutationId
+  request: MutationCoordinatorRequest<StoryMutationTarget>
 ): void {
   if (receipt.prepared === null) {
     if (receipt.started !== null || receipt.completed !== null
@@ -274,7 +301,6 @@ function requireMatchingAcknowledgementReceipt(
     || prepared.key !== request.mutationId
     || prepared.method !== "acknowledgeUnknownOutcomes"
     || prepared.fingerprintHash !== request.fingerprint
-    || prepared.originalProviderMutationId !== originalProviderMutationId
     || receipt.started !== null
     || receipt.acknowledged !== null) {
     throw new ServiceError(

@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   DiagnosticServiceError,
+  ProviderRecoveryRequiredError,
   ServiceError
 } from "../server/errors.js";
 import {
@@ -16,12 +17,17 @@ import {
 import {
   restoreStoredServiceFailure
 } from "../server/service-error-policy.js";
+import { MutationReceiptStore } from "../server/mutation-receipts.js";
 import { WorkerErrorReporter } from "../server/worker-error-reporter.js";
 import { receiptUnavailable } from "../server/mutation-ledger-store-support.js";
 import {
   temporaryDiagnosticDirectory
 } from "./internal-error-test-support.js";
 import { errorFromFailureIncident } from "../server/reported-service-error.js";
+import { createDurableMutationId } from "../shared/durable-mutation-id.js";
+import {
+  MUTATION_INPUT_PROTOCOL_VERSION
+} from "../shared/worker-protocol.js";
 
 test("plain internal receipt replay cannot invent a new diagnostic", async (t) => {
   const machineDir = await temporaryDiagnosticDirectory(t);
@@ -68,6 +74,108 @@ test("thrown undefined still receives a persistent diagnostic", async (t) => {
     await readFile(internalErrorLogPath(machineDir), "utf8"),
     new RegExp(message.failure.diagnosticRef)
   );
+});
+
+test("worker errors retain their private provider recovery target", async () => {
+  const providerMutationId =
+    "m1.1767225600001.7123456789abcdef0123456789abcdef";
+  const message = await WorkerErrorReporter.disabled().workerMessage(
+    {
+      workerInstanceId: "1".repeat(32),
+      sequence: 1n
+    },
+    new ProviderRecoveryRequiredError(
+      providerMutationId
+    ),
+    { mutationId: providerMutationId }
+  );
+
+  assert.equal(message.providerMutationId, providerMutationId);
+  assert.equal(message.failure.message, "The model request stopped. You can try again.");
+});
+
+test("legacy receipt IDs do not become provider target wire fields", async () => {
+  const message = await WorkerErrorReporter.disabled().workerMessage(
+    {
+      workerInstanceId: "3".repeat(32),
+      sequence: 1n
+    },
+    new ProviderRecoveryRequiredError(
+      `m1-${Date.now().toString(36)}-${"9".padStart(32, "0")}`
+    )
+  );
+
+  assert.equal(message.providerMutationId, undefined);
+  assert.equal(message.failure.code, "generation_outcome_unknown");
+});
+
+test("legacy warning IDs cannot emit current provider target fields", async () => {
+  const providerMutationId =
+    "m1.1767225600001.9123456789abcdef0123456789abcdef";
+  const message = await WorkerErrorReporter.disabled().workerMessage(
+    {
+      workerInstanceId: "4".repeat(32),
+      sequence: 1n
+    },
+    new ProviderRecoveryRequiredError(providerMutationId),
+    {
+      mutationId:
+        `m1-${Date.now().toString(36)}-${"a".padStart(32, "0")}`
+    }
+  );
+
+  assert.equal(message.providerMutationId, undefined);
+  assert.equal(message.failure.code, "generation_outcome_unknown");
+});
+
+test("provider recovery logs only its safe correlation target", async (t) => {
+  const machineDir = await temporaryDiagnosticDirectory(t);
+  const reporter = await WorkerErrorReporter.open(machineDir);
+  t.after(async () => await reporter.close());
+  const providerMutationId = createDurableMutationId();
+  const receipts = new MutationReceiptStore(
+    path.join(machineDir, "receipts"),
+    async () => {
+      throw new Error("A provider warning has no result");
+    }
+  );
+  await receipts.init();
+  let recoveryError: unknown;
+  try {
+    await receipts.run(
+      providerMutationId,
+      "autonameStory",
+      { id: "story" },
+      async (plan) => {
+        await plan.providerStarted();
+        throw new Error(
+          "https://private-endpoint.invalid credential prompt response"
+        );
+      },
+      MUTATION_INPUT_PROTOCOL_VERSION,
+      () => undefined
+    );
+  } catch (error) {
+    recoveryError = error;
+  }
+  assert.equal(
+    recoveryError instanceof ProviderRecoveryRequiredError,
+    true
+  );
+  const message = await reporter.workerMessage(
+    {
+      workerInstanceId: "2".repeat(32),
+      sequence: 1n
+    },
+    recoveryError,
+    { mutationId: providerMutationId }
+  );
+
+  assert.equal(message.providerMutationId, providerMutationId);
+  assert.equal(message.failure.kind, "diagnostic");
+  const log = await readFile(internalErrorLogPath(machineDir), "utf8");
+  assert.match(log, new RegExp(providerMutationId.replaceAll(".", "\\.")));
+  assert.doesNotMatch(log, /private-endpoint|credential|prompt|response/);
 });
 
 test("an unreported private failure can be persisted at a later boundary", async (t) => {

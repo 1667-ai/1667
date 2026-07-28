@@ -3,6 +3,7 @@ import test from "node:test";
 import { MAX_IMPORT_BYTES, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 import {
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
+  PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
@@ -22,6 +23,25 @@ test("protocol-v6 mutation inputs survive the response-wire version bump", () =>
     input: { id: "story", title: "Title" },
     protocolVersion: PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
     mutationId: "m1.1767225600000.0123456789abcdef0123456789abcdef",
+    deadlineMs: Date.now() + 60_000
+  }, id);
+
+  assert.equal(
+    parsed.protocolVersion,
+    PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
+  );
+});
+
+test("protocol-v7 mutation inputs retain the protocol-v6 identity", () => {
+  const id = {
+    workerInstanceId: "b".repeat(32),
+    sequence: 1n
+  };
+  const parsed = parseWorkerRequest({
+    method: "renameStory",
+    input: { id: "story", title: "Title" },
+    protocolVersion: PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
+    mutationId: "m1.1767225600000.1123456789abcdef0123456789abcdef",
     deadlineMs: Date.now() + 60_000
   }, id);
 

@@ -8,11 +8,13 @@ import {
   removePrivateFile,
   syncPrivateDirectory
 } from "../../server/private-file-publication.js";
-import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
+import {
+  createDurableMutationId,
+  isDurableMutationId
+} from "../../shared/durable-mutation-id.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 
 const INTENT_DIRECTORY = "http-mutation-intents";
-const MUTATION_ID = /^m1\.[0-9]{13}\.[0-9a-f]{32}$/;
 const HASH = /^[0-9a-f]{64}$/;
 const MAX_INTENT_BYTES = 1_024;
 const POLICY = {
@@ -189,7 +191,7 @@ function decodeIntent(
     || record.fingerprint !== fingerprint
     || !HASH.test(record.fingerprint)
     || typeof record.mutationId !== "string"
-    || !MUTATION_ID.test(record.mutationId)
+    || !isDurableMutationId(record.mutationId)
     || typeof record.createdAt !== "string"
     || canonicalTime(record.createdAt) !== record.createdAt) {
     throw corruptIntent();

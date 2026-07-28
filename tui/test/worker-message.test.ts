@@ -37,7 +37,9 @@ describe("worker message decoding", () => {
           message: "Internal server error",
           status: 500
         }),
-        mutationOutcome: "terminal"
+        mutationOutcome: "terminal",
+        providerMutationId:
+          "m1.1767225600001.7123456789abcdef0123456789abcdef"
       },
       { type: "delta", id: OPERATION_ID, sequence: 0, text: "text" },
       { type: "complete", id: OPERATION_ID, value: undefined },

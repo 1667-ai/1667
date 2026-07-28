@@ -15,10 +15,15 @@ import {
   type StoryPayload
 } from "../shared/types.js";
 import {
+  durableMutationTimestampMs,
+  isDurableMutationId
+} from "../shared/durable-mutation-id.js";
+import {
   chapterBreakRemovalFingerprint
 } from "./chapter-breaks.js";
 import {
   isTerminalGenerationFailure,
+  ProviderRecoveryRequiredError,
   ServiceError
 } from "./errors.js";
 import {
@@ -45,14 +50,16 @@ import {
   type MutationRecoveryMode
 } from "./mutation-plan.js";
 import {
-  generationOutcomeUnknown,
   unknownOutcomeFromDurabilityFailure
 } from "./mutation-recovery.js";
+import {
+  isProviderMutationMethod
+} from "./mutation-ledger-types.js";
+import { isProviderMutationId } from "../shared/provider-recovery.js";
 import { mkdirDurable, requireDurableCommit, writeDurableAtomic } from "./story-lifecycle.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 
 const LEGACY_MUTATION_ID_PATTERN = exactStringPattern("m1-([0-9a-z]+)-([0-9a-f]{32})");
-const DURABLE_MUTATION_ID_PATTERN = exactStringPattern("m1\\.([0-9]{13})\\.([0-9a-f]{32})");
 // Receipts written before protocolVersion was persisted were all emitted by
 // the first embedded-worker protocol shipped on this branch.
 
@@ -123,14 +130,31 @@ export class MutationReceiptStore {
         // Once a provider may have seen the original request, no later wire or
         // schema mismatch can prove that request did not complete. Preserve
         // ambiguity so the caller archives and warns instead of clearing it.
-        if (identityMismatch && existing.state === "provider_started") throw generationOutcomeUnknown();
+        if (identityMismatch && existing.state === "provider_started") {
+          throw providerRecoveryRequired(mutationId);
+        }
         if (identityMismatch) throw idempotencyConflict();
         if (existing.state === "completed") return await this.resolve(existing) as T;
         if (existing.state === "failed") {
-          throw restoreMutationReceiptFailure(existing.failure);
+          if (!isRecoverableProviderWarningFailure(existing)) {
+            throw restoreMutationReceiptFailure(existing.failure);
+          }
+          // Builds before exact provider-target transfer could persist a
+          // blocked outer receipt B as failed. Current IDs can re-enter the
+          // story resolver to identify the authoritative provider receipt A.
+          // A pre-Q ID has no story-ledger proof, so it remains uncertain and
+          // cannot dispatch another provider request.
+          delete existing.failure;
+          const exactRecovery = isProviderMutationId(mutationId);
+          existing.state = exactRecovery ? "pending" : "provider_started";
+          receipt = existing;
+          recoveryMode = exactRecovery ? "pending" : "provider-uncertain";
+        } else {
+          receipt = existing;
+          recoveryMode = existing.state === "provider_started"
+            ? "provider-uncertain"
+            : "pending";
         }
-        receipt = existing;
-        recoveryMode = existing.state === "provider_started" ? "provider-uncertain" : "pending";
       } else {
         validateUnseenMutationId(mutationId);
         receipt = {
@@ -194,6 +218,9 @@ export class MutationReceiptStore {
           if (receipt.state === "provider_started") return;
           receipt.state = "provider_started";
           await this.save(receipt);
+        },
+        providerRecoveryRequired: () => {
+          throw providerRecoveryRequired(mutationId);
         }
       });
       // A predecessor compatibility check must be able to refuse a future
@@ -209,14 +236,21 @@ export class MutationReceiptStore {
         if (isMutationReceiptPersistenceError(error)) {
           throw error;
         }
+        // Keep exact provider ambiguity replayable. This is either an outer
+        // pending receipt blocked by another request or this receipt's own
+        // provider-started recovery.
+        if (error instanceof ProviderRecoveryRequiredError) {
+          throw error;
+        }
         const durabilityLoss = unknownOutcomeFromDurabilityFailure(error);
         if (durabilityLoss !== null) {
           return await this.failureTerminalizer.reject(durabilityLoss);
         }
         if (receipt.state === "provider_started"
           && !isTerminalGenerationReceiptFailure(error)) {
-          return await this.failureTerminalizer.reject(
-            generationOutcomeUnknown({ diagnosticCause: error })
+          throw new ProviderRecoveryRequiredError(
+            mutationId,
+            { diagnostic: true }
           );
         }
         return await this.failureTerminalizer.persist(
@@ -303,11 +337,15 @@ export function mutationFingerprint(
 }
 
 export function validateUnseenMutationId(mutationId: string, now = Date.now()): void {
-  const durable = DURABLE_MUTATION_ID_PATTERN.exec(mutationId);
-  const legacy = durable === null ? LEGACY_MUTATION_ID_PATTERN.exec(mutationId) : null;
-  const match = durable ?? legacy;
-  if (match === null) throw invalidMutationId();
-  const createdAt = Number.parseInt(match[1]!, durable === null ? 36 : 10);
+  const durableTimestamp = durableMutationTimestampMs(mutationId);
+  const legacy = durableTimestamp === null
+    ? LEGACY_MUTATION_ID_PATTERN.exec(mutationId)
+    : null;
+  if (durableTimestamp === null && legacy === null) {
+    throw invalidMutationId();
+  }
+  const createdAt = durableTimestamp
+    ?? Number.parseInt(legacy![1]!, 36);
   if (!Number.isSafeInteger(createdAt)) throw invalidMutationId();
   if (createdAt < now - MUTATION_ID_RETRY_WINDOW_MS || createdAt > now + MUTATION_ID_CLOCK_SKEW_MS) {
     throw new ServiceError(409, "Mutation ID is outside its retry window", "mutation_expired");
@@ -316,7 +354,7 @@ export function validateUnseenMutationId(mutationId: string, now = Date.now()): 
 
 function validateMutationIdSyntax(mutationId: string): void {
   if (!LEGACY_MUTATION_ID_PATTERN.test(mutationId)
-    && !DURABLE_MUTATION_ID_PATTERN.test(mutationId)) throw invalidMutationId();
+    && !isDurableMutationId(mutationId)) throw invalidMutationId();
 }
 
 function canonicalJson(value: unknown): string {
@@ -346,6 +384,20 @@ function isTerminalGenerationReceiptFailure(error: unknown): boolean {
   return isTerminalGenerationFailure(error)
     || (error instanceof ServiceError
       && error.code === "generation_outcome_unknown_acknowledged");
+}
+
+function isRecoverableProviderWarningFailure(
+  receipt: MutationReceipt
+): boolean {
+  return receipt.state === "failed"
+    && receipt.failure?.code === "generation_outcome_unknown"
+    && isProviderMutationMethod(receipt.method);
+}
+
+function providerRecoveryRequired(
+  mutationId: string
+): ProviderRecoveryRequiredError {
+  return new ProviderRecoveryRequiredError(mutationId);
 }
 
 export function deterministicMutationEntityId(

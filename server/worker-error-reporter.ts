@@ -10,6 +10,10 @@ import {
   InternalErrorReporter,
   type InternalErrorReporterOptions
 } from "./internal-error-reporter.js";
+import {
+  ProviderRecoveryRequiredError
+} from "./errors.js";
+import { isProviderMutationId } from "../shared/provider-recovery.js";
 
 export type WorkerErrorReporterOptions = InternalErrorReporterOptions;
 
@@ -19,6 +23,7 @@ export interface ReportedRuntimeError {
 
 export interface WorkerErrorMessageContext {
   readonly operation?: WorkerMethod;
+  readonly mutationId?: string;
   readonly mutationOutcome?: "terminal" | "uncertain";
 }
 
@@ -67,6 +72,12 @@ export class WorkerErrorReporter {
       type: "error",
       id,
       failure: reported.failure,
+      ...(error instanceof ProviderRecoveryRequiredError
+        && context.mutationId !== undefined
+        && isProviderMutationId(context.mutationId)
+        && isProviderMutationId(error.providerMutationId)
+        ? { providerMutationId: error.providerMutationId }
+        : {}),
       ...(context.mutationOutcome === undefined
         ? {}
         : { mutationOutcome: context.mutationOutcome })

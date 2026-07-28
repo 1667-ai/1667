@@ -581,6 +581,7 @@ test("Q deletion preserves an unknown provider pointer until deleted acknowledge
     await fixture.mutations.getUnknownOutcomeStatus(STORY_ID, MUTATION_ID),
     {
       state: "pending",
+      pendingProviderMutationId: MUTATION_ID,
       deleted: true,
       aggregateVersion: {
         kind: "v6",

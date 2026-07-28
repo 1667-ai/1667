@@ -59,6 +59,18 @@ fails after it sends response headers.
 The worker can report that a local result needs a saved-state check. This report
 is terminal. The TUI keeps the worker available. It archives the request,
 reloads the story, and then accepts a new request.
+If a newer request finds an older provider-start record, recovery uses the
+record that the story identifies. It does not use the newer request ID. Thus,
+recovery removes the story fence before the writer tries the request again.
+The newer request stays pending until recovery stores the older request ID.
+Thus, a process stop cannot replace the older request ID with a general error.
+A request deadline cannot replace the older request ID with a general error.
+Archive format 2 stores the older request ID. An older version of 1667 cannot
+read this format. It stops before it can remove a different provider record.
+If warning cleanup fails after recovery, 1667 keeps the recovered story result.
+It retries warning cleanup in the background.
+The private log records the story ID and both request IDs when recovery uses
+the older record. It also records an error if it cannot close that record.
 
 If the backend stops before terminal publication, 1667 retains the durable
 provider-start record. At the next start, 1667 closes this record and reloads

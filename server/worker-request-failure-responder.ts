@@ -22,6 +22,7 @@ interface WorkerFailureReporter {
 
 interface WorkerRequestFailureContext {
   readonly operation?: WorkerMethod;
+  readonly mutationId?: string;
   readonly mutationOutcome?: WorkerMutationFailureOutcome;
 }
 
@@ -38,6 +39,7 @@ export class WorkerRequestFailureResponder {
 
   forParsedRequest(
     operation: WorkerMethod,
+    mutationId: string | undefined,
     mutationOutcome?: WorkerMutationFailureOutcome
   ): WorkerRequestFailureResponder {
     return new WorkerRequestFailureResponder(
@@ -45,7 +47,7 @@ export class WorkerRequestFailureResponder {
       this.reporter,
       this.operations,
       this.id,
-      { operation, mutationOutcome }
+      { operation, mutationId, mutationOutcome }
     );
   }
 
@@ -78,6 +80,7 @@ export class WorkerRequestFailureResponder {
   ): Promise<Extract<WorkerToMainMessage, { type: "error" }>> {
     return await this.reporter.workerMessage(this.id, error, {
       operation: this.context.operation,
+      mutationId: this.context.mutationId,
       mutationOutcome
     });
   }

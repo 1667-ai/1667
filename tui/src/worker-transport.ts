@@ -18,12 +18,17 @@ import {
   type WorkerOperationId,
   type WorkerOutput
 } from "../../shared/worker-protocol.js";
+import { LifecycleRetry } from "../../shared/lifecycle-retry.js";
 import { sameBuildIdentity } from "../../shared/build-identity.js";
 import { resolveDataDirectory } from "../../server/data-directory.js";
 import { ServiceError } from "../../server/errors.js";
-import { MutationOutbox, storyIdFromMutationIntent,
+import {
+  MutationOutbox,
+  providerRecoveryFromArchive,
+  storyIdFromMutationIntent,
   type ArchivedMutationOutboxRecord,
-  type MutationOutboxRecord } from "../../server/mutation-outbox.js";
+  type MutationOutboxRecord
+} from "../../server/mutation-outbox.js";
 import { validateWorkerRequestSize } from "../../server/worker-request-size.js";
 import { WorkerLifecycle, type WorkerLike } from "./worker-lifecycle.js";
 import { decodeWorkerMessage } from "./worker-message.js";
@@ -51,6 +56,10 @@ export class WorkerTransport {
   private readonly recoveryCoordinator: OutboxRecoveryCoordinator<WorkerApiError>;
   private readonly worker: WorkerLike;
   private readonly outbox: SerializedWorkerOutbox;
+  private readonly archivedMutationCleanup =
+    new LifecycleRetry<string>();
+  private readonly archivesDeferredUntilReplay = new Set<string>();
+  private archivedMutationCleanupStop: Promise<void> | null = null;
   private restartRequired: BackendRestartRequiredError | null = null;
   private resolveRestartSignal!: (error: BackendRestartRequiredError) => void;
   private readonly restartSignal = new Promise<BackendRestartRequiredError>(
@@ -110,15 +119,17 @@ export class WorkerTransport {
     let workerReady = false;
     let recoveryRecords: MutationOutboxRecord[] = [];
     let archivedRecords: ArchivedMutationOutboxRecord[] = [];
+    let deferredArchiveMutationIds: string[] = [];
     const outbox = this.outbox.store;
     try {
       await this.lifecycle.ready;
       workerReady = true;
       if (outbox !== null) {
-        ({ recoveryRecords, archivedRecords } = await loadWorkerRecoveryOutbox(
-          this.outbox,
-          outbox
-        ));
+        ({
+          recoveryRecords,
+          archivedRecords,
+          deferredArchiveMutationIds
+        } = await loadWorkerRecoveryOutbox(this.outbox, outbox));
       }
     } catch (error) {
       const failure = workerReady
@@ -128,14 +139,20 @@ export class WorkerTransport {
       throw failure;
     }
     for (const archived of archivedRecords) {
+      const providerRecovery = providerRecoveryFromArchive(archived);
       this.recoveryCoordinator.warn({
         mutationId: archived.intent.mutationId,
         method: archived.intent.method,
         storyId: storyIdFromMutationIntent(archived.intent),
+        ...(providerRecovery === undefined
+          ? {}
+          : { providerRecovery }),
         resolution: "archived",
         error: workerApiErrorFromFailure(archived.resolution)
       });
     }
+    deferredArchiveMutationIds.forEach((mutationId) =>
+      this.archivesDeferredUntilReplay.add(mutationId));
     this.recoveryCoordinator.start(recoveryRecords);
   }
 
@@ -152,10 +169,24 @@ export class WorkerTransport {
   }
 
   async dismissArchivedMutation(mutationId: string): Promise<void> {
+    await this.retireArchivedMutation(mutationId, true);
+  }
+
+  private async retireArchivedMutation(
+    mutationId: string,
+    dismissWarning: boolean
+  ): Promise<void> {
     const outbox = this.outbox.store;
     if (outbox === null) return;
-    await this.outbox.run(() => outbox.dismissArchived(mutationId));
-    this.recoveryCoordinator.dismissWarning(mutationId);
+    await this.archivedMutationCleanup.start(
+      mutationId,
+      async () => {
+        await this.outbox.run(() => outbox.dismissArchived(mutationId));
+        if (dismissWarning) {
+          this.recoveryCoordinator.dismissWarning(mutationId);
+        }
+      }
+    );
   }
 
   private async beginCall<M extends WorkerMethod>(
@@ -312,6 +343,7 @@ export class WorkerTransport {
   async dispose(): Promise<void> {
     if (this.lifecycle.beginDispose()) {
       try {
+        await this.stopArchivedMutationCleanup();
         const prepared = preparePendingWorkerShutdown(
           this.pending, this.outbox, this.worker,
           this.options.cancelGraceMs ?? WORKER_CANCEL_GRACE_MS,
@@ -346,6 +378,7 @@ export class WorkerTransport {
       return;
     }
     try {
+      await this.stopArchivedMutationCleanup();
       await this.lifecycle.awaitTermination();
     } catch (error) {
       if (this.restartRequired !== null) throw this.restartRequired;
@@ -470,7 +503,7 @@ export class WorkerTransport {
     });
   }
 
-  private replayMutation(record: MutationOutboxRecord): Promise<void> {
+  private async replayMutation(record: MutationOutboxRecord): Promise<void> {
     if (!this.lifecycle.acceptingRequests) return Promise.reject(new Error("Embedded backend stopped during mutation recovery"));
     const stream = STREAM_METHODS.has(record.method);
     const deadlineAfterMs = GENERATION_METHODS.has(record.method)
@@ -524,7 +557,16 @@ export class WorkerTransport {
         error
       );
     }
-    return registered.promise;
+    await registered.promise;
+    if (!this.archivesDeferredUntilReplay.delete(record.mutationId)) {
+      return;
+    }
+    const warning = this.recoveryCoordinator.warnings.find(
+      ({ mutationId }) => mutationId === record.mutationId
+    );
+    if (warning?.resolution !== "archived") {
+      await this.retireArchivedMutation(record.mutationId, false);
+    }
   }
 
   private fail(error: Error, graceful: boolean): void {
@@ -566,11 +608,17 @@ export class WorkerTransport {
     return this.requireRestart(error.message, error);
   }
   private close(error: Error): void {
+    void this.stopArchivedMutationCleanup();
     if (!this.lifecycle.close(error)) return;
     this.pending.close(error);
     this.worker.removeEventListener("message", this.onMessage);
     this.worker.removeEventListener("error", this.onError);
     this.worker.removeEventListener("close", this.onClose);
+  }
+  private stopArchivedMutationCleanup(): Promise<void> {
+    this.archivedMutationCleanupStop ??=
+      this.archivedMutationCleanup.stop();
+    return this.archivedMutationCleanupStop;
   }
   private acknowledgeTerminal(id: WorkerOperationId): void {
     try {

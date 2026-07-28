@@ -152,7 +152,7 @@ test("durable plain failures cannot gain a transient later reference", async (t)
   );
 });
 
-test("outcome substitutions retain their private diagnostic causes", async (t) => {
+test("outcome substitutions keep safe diagnostic causes", async (t) => {
   const dir = await mkdtemp(
     path.join(tmpdir(), "1667-mutation-outcome-diagnostic-")
   );
@@ -178,8 +178,9 @@ test("outcome substitutions retain their private diagnostic causes", async (t) =
   assert.equal((uncertainMutation as Error).cause, durabilityFailure);
 
   const providerFailure = new Error("private post-admission failure");
+  const providerMutationId = currentMutationId("3");
   const uncertainGeneration = await rejectionOf(store.run(
-    currentMutationId("3"),
+    providerMutationId,
     "autonameStory",
     { id: "story" },
     async (execution) => {
@@ -187,7 +188,14 @@ test("outcome substitutions retain their private diagnostic causes", async (t) =
       throw providerFailure;
     }
   ));
-  assert.equal((uncertainGeneration as Error).cause, providerFailure);
+  const diagnostic = (uncertainGeneration as Error).cause;
+  assert(diagnostic instanceof Error);
+  assert.equal(diagnostic.name, "ProviderRecoveryDiagnostic");
+  assert.equal(
+    diagnostic.message,
+    `Provider request outcome is unknown. providerMutationId=${providerMutationId}`
+  );
+  assert.doesNotMatch(diagnostic.message, /private post-admission failure/);
 });
 
 test("every receipt save boundary retains its private persistence cause", async () => {
@@ -230,7 +238,7 @@ test("every receipt save boundary retains its private persistence cause", async 
 });
 
 function currentMutationId(suffix: string): string {
-  return `m1-${Date.now().toString(36)}-${suffix.padStart(32, "0")}`;
+  return `m1.${Date.now().toString().padStart(13, "0")}.${suffix.padStart(32, "0")}`;
 }
 
 async function rejectionOf(operation: Promise<unknown>): Promise<unknown> {

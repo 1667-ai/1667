@@ -10,6 +10,10 @@ import {
   isBoundedFailureCode
 } from "./failure-envelope.js";
 import {
+  isProviderRecoveryContext,
+  type ProviderRecoveryContext
+} from "./provider-recovery.js";
+import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_MAX_CLIENT_PROTOCOL_VERSION,
   HTTP_MIN_CLIENT_PROTOCOL_VERSION,
@@ -42,6 +46,7 @@ export interface HttpRecoveryWarning {
   code: string;
   message: string;
   status: number | null;
+  providerRecovery?: ProviderRecoveryContext;
   /** Additive protocol-v5 field; older clients ignore it. */
   diagnosticRef?: DiagnosticReference;
 }
@@ -57,6 +62,8 @@ export function isHttpRecoveryWarning(
     && isBoundedFailureCode(warning.code)
     && typeof warning.message === "string"
     && (warning.status === null || Number.isSafeInteger(warning.status))
+    && (warning.providerRecovery === undefined
+      || isProviderRecoveryContext(warning.providerRecovery))
     && (warning.diagnosticRef === undefined
       || isDiagnosticReference(warning.diagnosticRef));
 }

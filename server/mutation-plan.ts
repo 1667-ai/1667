@@ -4,7 +4,7 @@ import type {
 import type { GenerationSettings, Story, StoryPayload } from "../shared/types.js";
 import type { BindGenerationIntent } from "./generation-http.js";
 import type { RemovedChapterBreak } from "./chapter-breaks.js";
-import { generationOutcomeUnknown, mutationOutcomeUnknown } from "./mutation-recovery.js";
+import { mutationOutcomeUnknown } from "./mutation-recovery.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { StoryStore } from "./stories.js";
 
@@ -86,6 +86,7 @@ export interface MutationPlanStorage {
     load: () => Promise<RemovedChapterBreak>
   ): Promise<RemovedChapterBreak>;
   providerStarted(): Promise<void>;
+  providerRecoveryRequired(): never;
 }
 
 export function createMutationPlan<M extends MutatingWorkerMethod>(
@@ -101,7 +102,9 @@ export function createMutationPlan<M extends MutatingWorkerMethod>(
     preserveChapterBreakRemoval: (expectedFingerprint, load) =>
       storage.preserveChapterBreakRemoval(expectedFingerprint, load),
     providerStarted: () => {
-      if (recoveryMode === "provider-uncertain") throw generationOutcomeUnknown();
+      if (recoveryMode === "provider-uncertain") {
+        return storage.providerRecoveryRequired();
+      }
       return storage.providerStarted();
     },
     reconcileStory: async (stories, storyId, matches) => {
@@ -113,7 +116,9 @@ export function createMutationPlan<M extends MutatingWorkerMethod>(
     generationAction: (committed) => {
       if (recoveryMode === "new") return "execute";
       if (committed) return "return-committed";
-      if (recoveryMode === "provider-uncertain") throw generationOutcomeUnknown();
+      if (recoveryMode === "provider-uncertain") {
+        return storage.providerRecoveryRequired();
+      }
       return "execute";
     }
   };

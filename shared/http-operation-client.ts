@@ -676,6 +676,11 @@ function decodeRecoveryWarnings(value: unknown): HttpRecoveryWarning[] {
       code: warning.code,
       message: warning.message,
       status: warning.status,
+      ...(warning.providerRecovery === undefined
+        ? {}
+        : {
+            providerRecovery: warning.providerRecovery
+          }),
       ...(warning.diagnosticRef === undefined
         ? {}
         : { diagnosticRef: warning.diagnosticRef })

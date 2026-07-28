@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { MutationOutbox } from "../server/mutation-outbox.js";
+import {
+  MutationOutbox,
+  providerRecoveryFromArchive
+} from "../server/mutation-outbox.js";
 import { StoryService } from "../server/story-service.js";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { MUTATION_INPUT_PROTOCOL_VERSION } from "../shared/worker-protocol.js";
@@ -92,14 +101,282 @@ test("mutation outbox durably dismisses an acknowledged archive", async (t) => {
   await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
   await outbox.archive(mutationId, {
     kind: "plain",
-    code: "generation_outcome_unknown",
-    message: "Unknown provider outcome",
-    status: 409
+    code: "internal",
+    message: "Internal server error",
+    status: 500
   });
   assert.equal((await outbox.listArchived()).length, 1);
   await outbox.dismissArchived(mutationId);
   await outbox.dismissArchived(mutationId);
   assert.deepEqual(await new MutationOutbox(dir).listArchived(), []);
+});
+
+test("mutation outbox retains the exact provider recovery target", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-provider-target-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const warningMutationId =
+    "m1.1767225600000.6123456789abcdef0123456789abcdef";
+  const providerMutationId =
+    "m1.1767225600001.7123456789abcdef0123456789abcdef";
+  const outbox = new MutationOutbox(dir);
+  await outbox.init();
+  await outbox.enqueue(
+    warningMutationId,
+    "autonameStory",
+    { id: "story" },
+    { kind: "v6", revision: "00000000000000000002" }
+  );
+  await assert.rejects(
+    outbox.archive(warningMutationId, {
+      kind: "plain",
+      code: "generation_outcome_unknown",
+      message: "Unknown provider outcome",
+      status: 409
+    }),
+    /corrupt/
+  );
+  await outbox.archive(
+    warningMutationId,
+    {
+      kind: "plain",
+      code: "generation_outcome_unknown",
+      message: "Unknown provider outcome",
+      status: 409
+    },
+    providerMutationId
+  );
+
+  const archived = (await outbox.listArchived())[0];
+  assert.equal(archived?.schemaVersion, 2);
+  assert.deepEqual(archived?.providerRecovery, {
+    kind: "target",
+    providerMutationId
+  });
+});
+
+test("exact archives retire stale intents without replacing their target", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-exact-retire-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const warningMutationId =
+    "m1.1767225600000.a123456789abcdef0123456789abcdef";
+  const providerMutationId =
+    "m1.1767225600001.b123456789abcdef0123456789abcdef";
+  const otherProviderMutationId =
+    "m1.1767225600002.c123456789abcdef0123456789abcdef";
+  const resolution = {
+    kind: "plain" as const,
+    code: "generation_outcome_unknown" as const,
+    message: "The model request stopped. You can try again.",
+    status: 409
+  };
+  const outbox = new MutationOutbox(dir);
+  await outbox.init();
+  await outbox.enqueue(
+    warningMutationId,
+    "autonameStory",
+    { id: "story" },
+    { kind: "v6", revision: "00000000000000000002" }
+  );
+  const archived = await outbox.archive(
+    warningMutationId,
+    resolution,
+    providerMutationId
+  );
+  await writeFile(
+    path.join(dir, `${warningMutationId}.json`),
+    `${JSON.stringify(archived.intent)}\n`
+  );
+
+  await assert.rejects(
+    outbox.archive(
+      warningMutationId,
+      resolution,
+      otherProviderMutationId
+    ),
+    /corrupt/
+  );
+  assert.deepEqual(
+    (await outbox.listArchived())[0]?.providerRecovery,
+    { kind: "target", providerMutationId }
+  );
+
+  const records = await outbox.list();
+  const retained = await outbox.retireExactlyArchivedIntents(
+    records,
+    await outbox.listArchived()
+  );
+  assert.deepEqual(retained, []);
+  assert.deepEqual(await outbox.list(), []);
+});
+
+test("pre-Q provider warnings remain schema-version-1 archives", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-pre-q-warning-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const mutationId =
+    `m1-${Date.now().toString(36)}-${"7".padStart(32, "0")}`;
+  const outbox = new MutationOutbox(dir);
+  await outbox.init();
+  await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
+  await assert.rejects(
+    outbox.archive(mutationId, {
+      kind: "plain",
+      code: "generation_outcome_unknown",
+      message: "The model request stopped. You can try again.",
+      status: 409
+    }, "m1.1767225600001.8123456789abcdef0123456789abcdef"),
+    /corrupt/
+  );
+  const archived = await outbox.archive(mutationId, {
+    kind: "plain",
+    code: "generation_outcome_unknown",
+    message: "The model request stopped. You can try again.",
+    status: 409
+  });
+
+  assert.equal(archived.schemaVersion, 1);
+  assert.equal(providerRecoveryFromArchive(archived), undefined);
+  const archiveFile = path.join(
+    path.dirname(dir),
+    `${path.basename(dir)}-archive`,
+    `${mutationId}.json`
+  );
+  await writeFile(archiveFile, `${JSON.stringify({
+    ...archived,
+    schemaVersion: 2,
+    providerRecovery: {
+      kind: "target",
+      providerMutationId:
+        "m1.1767225600001.8123456789abcdef0123456789abcdef"
+    }
+  })}\n`);
+  await assert.rejects(
+    new MutationOutbox(dir).listArchived(),
+    /corrupt/
+  );
+});
+
+test("mutation outbox reads legacy archives without accepting new fields", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-outbox-legacy-archive-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const mutationId =
+    "m1.1767225600000.8123456789abcdef0123456789abcdef";
+  const expectedAggregateVersion = {
+    kind: "v6" as const,
+    revision: "00000000000000000002"
+  };
+  const archiveDir = path.join(
+    path.dirname(dir),
+    `${path.basename(dir)}-archive`
+  );
+  await mkdir(archiveDir, { recursive: true });
+  const legacyArchive = {
+    format: "1667-mutation-outbox-archive",
+    schemaVersion: 1,
+    intent: {
+      format: "1667-mutation-outbox",
+      schemaVersion: 1,
+      mutationId,
+      sequence: 1,
+      protocolVersion: MUTATION_INPUT_PROTOCOL_VERSION,
+      method: "autonameStory",
+      input: { id: "story" },
+      expectedAggregateVersion,
+      createdAt: new Date().toISOString()
+    },
+    resolution: {
+      kind: "plain",
+      code: "generation_outcome_unknown",
+      message: "The model request stopped.",
+      status: 409
+    },
+    resolvedAt: new Date().toISOString()
+  };
+  const archiveFile = path.join(archiveDir, `${mutationId}.json`);
+  await writeFile(archiveFile, `${JSON.stringify(legacyArchive)}\n`);
+
+  const [archived] = await new MutationOutbox(dir).listArchived();
+  assert.deepEqual(
+    archived === undefined
+      ? undefined
+      : providerRecoveryFromArchive(archived),
+    {
+      kind: "legacy",
+      warningAggregateVersion: expectedAggregateVersion
+    }
+  );
+
+  await writeFile(archiveFile, `${JSON.stringify({
+    ...legacyArchive,
+    intent: {
+      ...legacyArchive.intent,
+      method: "renameStory"
+    }
+  })}\n`);
+  const [nonProviderArchive] =
+    await new MutationOutbox(dir).listArchived();
+  assert.equal(
+    nonProviderArchive === undefined
+      ? undefined
+      : providerRecoveryFromArchive(nonProviderArchive),
+    undefined
+  );
+
+  await writeFile(archiveFile, `${JSON.stringify({
+    ...legacyArchive,
+    providerRecovery: {
+      kind: "target",
+      providerMutationId:
+        "m1.1767225600001.9123456789abcdef0123456789abcdef"
+    }
+  })}\n`);
+  await assert.rejects(
+    new MutationOutbox(dir).listArchived(),
+    /corrupt/
+  );
+
+  await writeFile(archiveFile, `${JSON.stringify({
+    ...legacyArchive,
+    schemaVersion: 2
+  })}\n`);
+  await assert.rejects(
+    new MutationOutbox(dir).listArchived(),
+    /corrupt/
+  );
+
+  const providerRecovery = {
+    kind: "target",
+    providerMutationId:
+      "m1.1767225600001.9123456789abcdef0123456789abcdef"
+  };
+  await writeFile(archiveFile, `${JSON.stringify({
+    ...legacyArchive,
+    schemaVersion: 2,
+    intent: {
+      ...legacyArchive.intent,
+      method: "renameStory"
+    },
+    providerRecovery
+  })}\n`);
+  await assert.rejects(
+    new MutationOutbox(dir).listArchived(),
+    /corrupt/
+  );
+
+  await writeFile(archiveFile, `${JSON.stringify({
+    ...legacyArchive,
+    schemaVersion: 2,
+    resolution: {
+      kind: "plain",
+      code: "mutation_outcome_unknown",
+      message: "The mutation outcome is unknown.",
+      status: 409
+    },
+    providerRecovery
+  })}\n`);
+  await assert.rejects(
+    new MutationOutbox(dir).listArchived(),
+    /corrupt/
+  );
 });
 
 test("legacy internal archive messages stay private during recovery", async (t) => {
@@ -109,6 +386,15 @@ test("legacy internal archive messages stay private during recovery", async (t) 
   const outbox = new MutationOutbox(dir);
   await outbox.init();
   await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
+  await assert.rejects(
+    outbox.archive(mutationId, {
+      kind: "plain",
+      code: "internal",
+      message: "Internal server error",
+      status: 500
+    }, "m1.1767225600001.a123456789abcdef0123456789abcdef"),
+    /corrupt/
+  );
   await outbox.archive(mutationId, {
     kind: "plain",
     code: "internal",
@@ -176,46 +462,6 @@ test("HTTP-mode services refuse retained embedded mutations", async (t) => {
   });
   await workerService.init();
   await workerService.dispose();
-});
-
-test("HTTP-mode services retire resolved archived ambiguity warnings", async (t) => {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-outbox-http-warning-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
-  await initializeLockAwareDirectory(dataDir);
-  const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
-  await outbox.init();
-  const mutationId = "m1.1767225600000.4123456789abcdef0123456789abcdef";
-  await outbox.enqueue(mutationId, "autonameStory", { id: "story" });
-  await outbox.archive(mutationId, {
-    kind: "plain",
-    code: "generation_outcome_unknown",
-    message: "The provider outcome is unknown.",
-    status: 409
-  });
-
-  const service = StoryService.withoutDiagnostics({ dataDir });
-  await service.init();
-  try {
-    assert.deepEqual(service.archivedMutationWarnings.map(({ intent, resolution }) => ({
-      mutationId: intent.mutationId,
-      method: intent.method,
-      code: resolution.code
-    })), [{ mutationId, method: "autonameStory", code: "generation_outcome_unknown" }]);
-    assert.deepEqual(
-      await service.getUnknownOutcomeStatus("other-story", mutationId),
-      { state: "resolved", deleted: true }
-    );
-    assert.equal(service.archivedMutationWarnings.length, 1);
-    assert.equal((await outbox.listArchived()).length, 1);
-    assert.deepEqual(
-      await service.getUnknownOutcomeStatus("story", mutationId),
-      { state: "resolved", deleted: true }
-    );
-    assert.deepEqual(service.archivedMutationWarnings, []);
-    assert.deepEqual(await outbox.listArchived(), []);
-  } finally {
-    await service.dispose();
-  }
 });
 
 async function initializeLockAwareDirectory(dataDir: string): Promise<void> {
