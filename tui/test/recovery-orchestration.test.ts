@@ -877,7 +877,7 @@ describe("backend recovery orchestration", () => {
     const settled = deferred<void>();
     const repaint = () => {
       if (state.backendTask === null
-        && state.toast === "model request stopped · you can try again · state reloaded") {
+        && state.toast === "model request stopped · you can try again") {
         settled.resolve();
       }
     };
@@ -930,7 +930,7 @@ describe("backend recovery orchestration", () => {
     const settled = deferred<void>();
     const repaint = () => {
       if (state.backendTask === null
-        && state.toast === "interrupted change checked · state reloaded") {
+        && state.toast === "interrupted change checked") {
         settled.resolve();
       }
     };
@@ -949,7 +949,7 @@ describe("backend recovery orchestration", () => {
     reload.resolve(source.payload);
     await settled.promise;
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(state.toast).toBe("interrupted change checked · state reloaded");
+    expect(state.toast).toBe("interrupted change checked");
     expect(reloads).toBe(1);
     expect(feed.publish([warning])).toBeFalse();
     stop();

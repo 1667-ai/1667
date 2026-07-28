@@ -44,7 +44,7 @@ test("generation recovery carries its provider context", async () => {
   const repaint = () => {
     if (state.backendTask === null
       && state.toast
-        === "model request stopped · you can try again · state reloaded") {
+        === "model request stopped · you can try again") {
       settled.resolve();
     }
   };
