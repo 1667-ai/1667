@@ -93,7 +93,10 @@ test("settings sidecar stays out of state and ledger, then activates stored auth
   );
   const first = new SettingsStore(dataDir, {
     environment: {},
-    now: () => FIXED_TIME
+    now: () => FIXED_TIME,
+    // The in-process attempt fails so the candidate stays staged for the
+    // restart below to activate.
+    validateCandidate: async () => false
   });
   await first.init(2);
   await first.save({
@@ -190,7 +193,9 @@ test("pending replacement retains the active revision secret until activation", 
   const active = new SettingsStore(dataDir, {
     environment: {},
     now: () => FIXED_TIME,
-    validateCandidate: async () => true
+    // The replacement's in-process activation fails, which keeps it staged
+    // and must keep the active revision's secret readable.
+    validateCandidate: async () => false
   });
   await active.init(2);
   const activeView = await active.loadView();
@@ -277,7 +282,8 @@ test("discarding a candidate prunes its newly stored connection secret", async (
   const document = candidateStoredConnectionDocument(secretId);
   const store = new SettingsStore(dataDir, {
     environment: {},
-    now: () => FIXED_TIME
+    now: () => FIXED_TIME,
+    validateCandidate: async () => false
   });
   await store.init(2);
   await store.save({
@@ -292,7 +298,7 @@ test("discarding a candidate prunes its newly stored connection secret", async (
   await store.discardPending({
     transportOperationId: "transport:discard-candidate-secret",
     mutationId: MUTATION_B,
-    expectedStateGeneration: 2
+    expectedStateGeneration: 4
   });
 
   assert.equal((await readProviderSecrets(dataDir)).has(secretId), false);

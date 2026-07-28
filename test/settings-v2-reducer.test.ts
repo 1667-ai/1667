@@ -49,7 +49,7 @@ test("non-credential edit replaces active immediately and advances each counter 
   assert.deepEqual(state.lastTransaction, POINTER_A);
 });
 
-test("credential edit stages one immutable candidate and freezes every further save", () => {
+test("credential edit stages one candidate and a later save replaces it in place", () => {
   const candidate = credentialedDocument();
   assert.equal(
     settingsDocumentsChangeCredentialReferences(INITIAL_SETTINGS_DOCUMENT_V2, candidate),
@@ -60,14 +60,39 @@ test("credential edit stages one immutable candidate and freezes every further s
   assert.equal(staged.activeRevision, 1);
   assert.equal(staged.pendingRevision, 2);
   assert.deepEqual(Object.keys(staged.documents), ["1", "2"]);
-  assert.throws(
-    () => reduceSettingsStateV2(staged, {
-      kind: "save-document",
-      document: { ...candidate, writing: { defaultAuthorBrief: "Later edit." } },
-      lastTransaction: POINTER_B
-    }),
-    /requires clean/
-  );
+
+  const replaced = reduceSettingsStateV2(staged, {
+    kind: "save-document",
+    document: { ...candidate, writing: { defaultAuthorBrief: "Later edit." } },
+    lastTransaction: POINTER_B
+  });
+  assert.equal(settingsStateRelation(replaced), "staged");
+  assert.equal(replaced.activeRevision, 1);
+  assert.equal(replaced.pendingRevision, 3);
+  assert.deepEqual(Object.keys(replaced.documents), ["1", "3"]);
+  assert.deepEqual(replaced.lastTransaction, POINTER_B);
+
+  const reverted = reduceSettingsStateV2(staged, {
+    kind: "save-document",
+    document: writingDocumentV2("Reverted to credential-free settings."),
+    lastTransaction: POINTER_B
+  });
+  assert.equal(settingsStateRelation(reverted), "clean");
+  assert.equal(reverted.activeRevision, 3);
+  assert.deepEqual(Object.keys(reverted.documents), ["3"]);
+
+  // Saving the active document's exact content from staged is the discard
+  // edge, not an "unchanged" error: the candidate leaves, the active stays.
+  const discarded = reduceSettingsStateV2(staged, {
+    kind: "save-document",
+    document: INITIAL_SETTINGS_DOCUMENT_V2,
+    lastTransaction: POINTER_B
+  });
+  assert.equal(settingsStateRelation(discarded), "clean");
+  assert.equal(discarded.activeRevision, 1);
+  assert.deepEqual(Object.keys(discarded.documents), ["1"]);
+  assert.equal(discarded.lastActivationOutcome, null);
+  assert.deepEqual(discarded.lastTransaction, POINTER_B);
 });
 
 test("activation follows the exhaustive role matrix without renumbering documents", () => {
@@ -105,7 +130,7 @@ test("activation follows the exhaustive role matrix without renumbering document
   });
 });
 
-test("validation failure and rollback restore the old active document exactly", () => {
+test("validation failure keeps the candidate staged and rollback restores the old active document", () => {
   const staged = stage(credentialedDocument());
   const validating = reduceSettingsStateV2(staged, {
     kind: "begin-validation",
@@ -115,11 +140,27 @@ test("validation failure and rollback restore the old active document exactly", 
     kind: "validation-failed",
     errorCode: "credential_unresolved"
   });
-  assert.equal(settingsStateRelation(failed), "clean");
+  assert.equal(settingsStateRelation(failed), "staged");
   assert.equal(failed.activeRevision, 1);
-  assert.deepEqual(Object.keys(failed.documents), ["1"]);
+  assert.equal(failed.pendingRevision, 2, "the rejected candidate is never discarded silently");
+  assert.deepEqual(Object.keys(failed.documents), ["1", "2"]);
   assert.equal(failed.settingsRevisionClock, 2, "failed candidate revision is never reused");
   assert.equal(failed.lastActivationOutcome?.result, "validation-failed");
+  assert.equal(failed.lastActivationOutcome?.errorCode, "credential_unresolved");
+
+  // Replacing or discarding the candidate takes its outcome with it, so no
+  // surface can keep rendering a failure for a candidate that is gone.
+  const replaced = reduceSettingsStateV2(failed, {
+    kind: "save-document",
+    document: credentialedDocument("REPLACEMENT_PROVIDER_KEY"),
+    lastTransaction: POINTER_B
+  });
+  assert.equal(replaced.lastActivationOutcome, null);
+  const discardedAfterFailure = reduceSettingsStateV2(failed, {
+    kind: "discard-pending",
+    lastTransaction: POINTER_B
+  });
+  assert.equal(discardedAfterFailure.lastActivationOutcome, null);
 
   const prepared = reduceSettingsStateV2(validating, { kind: "prepare" });
   const promoted = reduceSettingsStateV2(prepared, { kind: "promote" });
@@ -158,7 +199,8 @@ test("recovery is deterministic, bounded, and never retries a staged candidate",
     transactionId: MUTATION_A
   });
   const recoveredValidation = recoverSettingsStateV2(validating);
-  assert.equal(settingsStateRelation(recoveredValidation), "clean");
+  assert.equal(settingsStateRelation(recoveredValidation), "staged");
+  assert.equal(recoveredValidation.pendingRevision, 2, "an interrupted validation keeps its candidate");
   assert.equal(recoveredValidation.lastActivationOutcome?.errorCode, "activation_crashed");
 
   const prepared = reduceSettingsStateV2(validating, { kind: "prepare" });
@@ -299,6 +341,13 @@ function stage(document: SettingsDocumentV2): SettingsStateV2 {
     document,
     lastTransaction: POINTER_A
   });
+}
+
+function writingDocumentV2(brief: string): SettingsDocumentV2 {
+  return {
+    ...INITIAL_SETTINGS_DOCUMENT_V2,
+    writing: { defaultAuthorBrief: brief }
+  };
 }
 
 function credentialedDocument(

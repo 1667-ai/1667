@@ -1,5 +1,6 @@
 import {
   SETTINGS_ROUTE_PURPOSE_VALUES,
+  type SettingsActivationOutcomeV2,
   type SettingsDocumentV2,
   type SettingsMutationResult,
   type SettingsStateV2,
@@ -35,6 +36,7 @@ import {
   isExactSettingsActivationSuccessor,
   recoveryEventForSettingsStateV2,
   reduceSettingsStateV2,
+  SETTINGS_SAVE_ADMISSIBLE_RELATIONS,
   settingsStateRelation
 } from "./settings-v2-reducer.js";
 import {
@@ -56,6 +58,7 @@ import {
   type SettingsMutationOperation
 } from "./settings-v2-mutation.js";
 import {
+  deleteProviderSecret,
   pruneProviderSecrets,
   readProviderSecrets,
   removeProviderSecretsScratch,
@@ -80,9 +83,17 @@ import {
 } from "./settings-state-file.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
+import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
+
+/** IDs minted by this project's sidecar: a crypto-UUID suffix that cannot
+ * predate the mint-per-key change and cannot arise from another writer's
+ * connection-derived or caller-selected naming. Only these ever qualify for
+ * targeted supersession deletion in the shared machine tier. */
+const MINTED_SECRET_ID_PATTERN =
+  /\.k[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface SettingsV2StoreOptions {
   readonly coordinator?: MutationCoordinator;
@@ -96,7 +107,9 @@ export interface SettingsV2StoreOptions {
 }
 
 /** Format-2 settings authority: admission, receipts, aggregate replacement,
- * bounded recovery, and restart activation all meet at this one boundary. */
+ * bounded recovery, and activation all meet at this one boundary. A staged
+ * save activates in-process inside the save request; init() activation is
+ * crash recovery plus retry for a staged document an earlier run left behind. */
 export class SettingsV2Store {
   private readonly coordinator: MutationCoordinator;
   private readonly ledger: MutationLedgerStore;
@@ -128,7 +141,9 @@ export class SettingsV2Store {
   async init(): Promise<void> {
     await this.ledger.init();
     let state = await this.recoverReceiptTransaction();
+    const preActivation = state;
     state = await this.recoverActivation(state);
+    await this.deleteSupersededSecrets([preActivation], state);
     if (this.prunesSecrets) {
       await removeProviderSecretsScratch(this.secretsDir);
       await pruneProviderSecrets(this.secretsDir, storedSecretIdsInState(state));
@@ -142,10 +157,7 @@ export class SettingsV2Store {
   }
 
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
-    const [state, storedSecrets] = await Promise.all([
-      readSettingsState(this.dataDir),
-      readProviderSecrets(this.secretsDir)
-    ]);
+    const { state, storedSecrets } = await this.readRuntimeSnapshot();
     const runtime = effectiveGenerationRuntime(
       activeSettingsDocument(state),
       purpose,
@@ -158,6 +170,32 @@ export class SettingsV2Store {
     return runtime;
   }
 
+  /** One coherent (state, secrets) pair. Secrets are written before the state
+   * that references them is published, and pruned only after the state that
+   * unreferences them is published — so the only torn pair a reader can see
+   * is an old effective revision next to a secret file that already lost its
+   * credential. Retrying that exact condition converges on the newer state. */
+  private async readRuntimeSnapshot(): Promise<{
+    readonly state: SettingsStateV2;
+    readonly storedSecrets: Awaited<ReturnType<typeof readProviderSecrets>>;
+  }> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 5));
+      }
+      const state = await readSettingsState(this.dataDir);
+      const storedSecrets = await readProviderSecrets(this.secretsDir);
+      const referenced = storedSecretIdsInDocument(activeSettingsDocument(state));
+      if ([...referenced].every((secretId) => storedSecrets.has(secretId))) {
+        return { state, storedSecrets };
+      }
+    }
+    throw new ServiceError(
+      503,
+      "Settings changed repeatedly while reading provider credentials; retry."
+    );
+  }
+
   async loadEffective() {
     return (await this.loadRuntime()).settings;
   }
@@ -168,8 +206,7 @@ export class SettingsV2Store {
     readonly connectionId: string;
     readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
   }[]> {
-    const state = await readSettingsState(this.dataDir);
-    const storedSecrets = await readProviderSecrets(this.secretsDir);
+    const { state, storedSecrets } = await this.readRuntimeSnapshot();
     const document = activeSettingsDocument(state);
     const exact: Array<{
       readonly connectionId: string;
@@ -212,14 +249,21 @@ export class SettingsV2Store {
     const document = parseSettingsDocumentV2(documentValue);
     const route = selectSettingsRoute(document, purpose);
     const connectionId = route.model.connectionId;
+    const { state, storedSecrets } = await this.readRuntimeSnapshot();
     if (usesCredentialReferences(route.connection)) {
-      const state = await readSettingsState(this.dataDir);
       const activeConnection =
         activeSettingsDocument(state).connections[connectionId];
-      if (
-        activeConnection === undefined
-        || !sameActivatedCredentialTarget(activeConnection, route.connection)
-      ) {
+      const activeTargetSaved = activeConnection !== undefined
+        && sameActivatedCredentialTarget(activeConnection, route.connection);
+      // A staged candidate only exists after its own durable save, so probing
+      // its credential target is as legitimate as probing the active one —
+      // and it is exactly what recovery from a failed activation needs.
+      const pendingConnection = state.pendingRevision === null
+        ? undefined
+        : pendingSettingsDocument(state).connections[connectionId];
+      const pendingTargetSaved = pendingConnection !== undefined
+        && sameActivatedCredentialTarget(pendingConnection, route.connection);
+      if (!activeTargetSaved && !pendingTargetSaved) {
         throw new ServiceError(
           409,
           "A new or changed credential target must be saved and activated before it can be tested.",
@@ -233,7 +277,7 @@ export class SettingsV2Store {
       {},
       this.environment,
       { allowBlankModel: true },
-      await readProviderSecrets(this.secretsDir)
+      storedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime.settings;
@@ -336,7 +380,7 @@ export class SettingsV2Store {
         );
       } else {
         requireSettingsReceiptNotAhead(prepared, current);
-        return settingsResult(prepared);
+        return settingsResult(prepared, responseActivationOutcome(current, request.mutationId));
       }
     }
 
@@ -351,8 +395,15 @@ export class SettingsV2Store {
       );
     }
     const relation = settingsStateRelation(current);
-    if (operation.method === "saveSettings" && relation !== "clean") {
-      throw new ServiceError(409, "Pending settings must be activated or discarded before another edit.");
+    // One spelling of save admission: the reducer owns the set, this layer
+    // only maps inadmissible relations onto the transport's 409. A staged
+    // save replaces the pending candidate, so a failed activation stays
+    // directly editable instead of demanding an explicit discard first.
+    if (
+      operation.method === "saveSettings"
+      && !SETTINGS_SAVE_ADMISSIBLE_RELATIONS.includes(relation)
+    ) {
+      throw new ServiceError(409, "Settings activation is incomplete; retry after restarting the backend.");
     }
     if (operation.method === "discardPendingSettings" && relation !== "staged") {
       throw new ServiceError(409, "There are no pending settings to discard.");
@@ -366,8 +417,22 @@ export class SettingsV2Store {
         operation.document,
         connectionSecretEntries
       );
+      requireActiveSecretRebindingRekeyed(
+        activeSettingsDocument(current),
+        operation.document,
+        connectionSecretEntries
+      );
+      requireMintedSecretIntroduction(
+        current,
+        operation.document,
+        connectionSecretEntries
+      );
+      // Clean state only: from staged, a save of the active document is the
+      // discard-pending route below, and taking this shortcut instead would
+      // leave the failed candidate silently pending.
       if (
-        connectionSecretEntries.length > 0
+        relation === "clean"
+        && connectionSecretEntries.length > 0
         && hashSettingsDocumentV2(operation.document)
           === hashSettingsDocumentV2(activeSettingsDocument(current))
       ) {
@@ -386,7 +451,7 @@ export class SettingsV2Store {
         await this.ledger.writeUserRecord(
           completeSettingsMutation(prepared, this.timestamp())
         );
-        return settingsResult(prepared);
+        return settingsResult(prepared, responseActivationOutcome(current, request.mutationId));
       }
     }
 
@@ -432,7 +497,71 @@ export class SettingsV2Store {
     await publishStagedSettingsState(this.dataDir);
     await this.pruneUnreferencedSecrets(next);
     await this.ledger.writeUserRecord(completeSettingsMutation(prepared, this.timestamp()));
-    return settingsResult(prepared);
+    // A credential-touching save activates in the same request: the same
+    // sequence init() uses for crash recovery, still inside the coordinator's
+    // settings scope. The durable receipt keeps its staging result; the
+    // response and the view's lastActivationOutcome carry what happened next.
+    // A validation failure keeps the candidate staged, so nothing is
+    // discarded silently.
+    let settled = next;
+    if (
+      operation.method === "saveSettings"
+      && this.activationMode === "activation-capable"
+      && settingsStateRelation(next) === "staged"
+    ) {
+      settled = await this.activateStaged(next);
+      // A committed activation may drop the old revision; only now are its
+      // replaced stored secrets unreferenced, so prune again.
+      await this.pruneUnreferencedSecrets(settled);
+    }
+    await this.deleteSupersededSecrets([current, next], settled);
+    return settingsResult(prepared, responseActivationOutcome(settled, request.mutationId));
+  }
+
+  /** Delete exactly the stored credentials this transition superseded. The
+   * shared machine tier disables reference pruning — other projects'
+   * references are invisible there — but an ID this transition replaced or
+   * discarded was written by this project and is referenced by nothing after
+   * it settles, so a targeted delete is safe where a scan is not. A failed
+   * validation keeps every document and therefore deletes nothing.
+   *
+   * Deletion is gated on provable mint provenance: only IDs carrying the
+   * sidecar's crypto-UUID suffix qualify, because they cannot predate the
+   * mint-per-key change and cannot arise from another writer's derivation.
+   * Legacy connection-derived IDs and caller-selected API IDs are never
+   * deleted; they keep their pre-existing accumulate-forever behavior rather
+   * than risk removing a name another project also resolves. One residual
+   * remains: project-tier state copied by hand shares its minted IDs, so a
+   * rotation in the minting project deletes a credential the copy still
+   * references, and the copy's generations fail with an unresolved
+   * credential until its user re-enters the key. That trade is accepted —
+   * manual-copy-only, availability-only, self-healing — because the
+   * alternative of never deleting would permanently accumulate plaintext
+   * keys for every user on every rotation (issue #90 tracks the durable
+   * ownership design).
+   *
+   * Cleanup is deliberately not crash-recoverable. The unrecoverable window
+   * runs from the durable commit to this call — milliseconds — and the
+   * artifact is one superseded credential inside a 0600 machine-tier file;
+   * before this change every rotation leaked its value there permanently,
+   * so this is a strict improvement, and a persisted cleanup record would
+   * cost settings-state schema churn that outweighs the residual. */
+  private async deleteSupersededSecrets(
+    preceding: readonly SettingsStateV2[],
+    settled: SettingsStateV2
+  ): Promise<void> {
+    const remaining = storedSecretIdsInState(settled);
+    const superseded = new Set<string>();
+    for (const state of preceding) {
+      for (const secretId of storedSecretIdsInState(state)) {
+        if (!remaining.has(secretId) && MINTED_SECRET_ID_PATTERN.test(secretId)) {
+          superseded.add(secretId);
+        }
+      }
+    }
+    for (const secretId of superseded) {
+      await deleteProviderSecret(this.secretsDir, secretId);
+    }
   }
 
   private async pruneUnreferencedSecrets(state: SettingsStateV2): Promise<void> {
@@ -573,8 +702,8 @@ export class SettingsV2Store {
     let candidateReady = false;
     try {
       assertRuntimeDocumentSupported(candidate);
-      candidateReady = true;
       const validatedConnections = new Set<string>();
+      const probeTargets: GenerationSettings[] = [];
       for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
         const route = selectSettingsRoute(candidate, purpose);
         if (validatedConnections.has(route.model.connectionId)) continue;
@@ -587,14 +716,16 @@ export class SettingsV2Store {
           {},
           storedSecrets
         ).settings;
-        if (
-          providerRequestTransportAvailable(effective)
-          && !await this.validateCandidate(effective)
-        ) {
-          candidateReady = false;
-          break;
-        }
+        if (providerRequestTransportAvailable(effective)) probeTargets.push(effective);
       }
+      // Distinct connections validate concurrently, so the whole attempt is
+      // bounded by one probe deadline rather than their sum — an activation
+      // that runs inside a save request must settle well before the client's
+      // own request deadline gives up on it.
+      const results = await Promise.all(
+        probeTargets.map((target) => this.validateCandidate(target))
+      );
+      candidateReady = results.every((ready) => ready);
     } catch {
       candidateReady = false;
     }
@@ -644,11 +775,25 @@ function pointsToUserMutation(state: SettingsStateV2, mutationId: string): boole
     && state.lastTransaction.mutationId === mutationId;
 }
 
-function settingsResult(prepared: PreparedUserMutationRecord): SettingsMutationResult {
+function settingsResult(
+  prepared: PreparedUserMutationRecord,
+  activationOutcome: SettingsActivationOutcomeV2 | null
+): SettingsMutationResult {
   if (prepared.result.kind !== "settings") {
     throw corruptSettingsStateReceipt(prepared.key);
   }
-  return Object.freeze({ ...prepared.result });
+  return Object.freeze({ ...prepared.result, activationOutcome });
+}
+
+/** The response reports an activation attempt only when it belongs to this
+ * mutation; the reducer nulls outcomes whose candidate was since replaced or
+ * discarded, so a stale story can never ride a receipt replay. */
+function responseActivationOutcome(
+  state: SettingsStateV2,
+  mutationId: string
+): SettingsActivationOutcomeV2 | null {
+  const outcome = state.lastActivationOutcome;
+  return outcome !== null && outcome.transactionId === mutationId ? outcome : null;
 }
 
 function storedSecretIdsInDocument(document: SettingsDocumentV2): Set<string> {
@@ -668,6 +813,72 @@ function storedSecretIdsInState(state: SettingsStateV2): Set<string> {
     for (const secretId of storedSecretIdsInDocument(document)) ids.add(secretId);
   }
   return ids;
+}
+
+/** A stored secret ID binds one credential target to one value. While the
+ * active document still resolves an ID, a save may overwrite its value only
+ * for that same target — rotation in place. Rebinding it to a different
+ * target would hand the new key to the old endpoint through every reader of
+ * the still-active revision, including one racing this very save, and the
+ * mismatched pairing would persist if the candidate then failed validation. */
+function requireActiveSecretRebindingRekeyed(
+  active: SettingsDocumentV2,
+  submitted: SettingsDocumentV2,
+  entries: readonly (readonly [string, string | null])[]
+): void {
+  for (const [secretId, value] of entries) {
+    if (value === null) continue;
+    const activeReferences = connectionsResolvingStoredSecret(active, secretId);
+    if (activeReferences.length === 0) continue;
+    const submittedReferences = connectionsResolvingStoredSecret(submitted, secretId);
+    const rotationInPlace = activeReferences.every((reference) =>
+      submittedReferences.some((candidate) =>
+        sameActivatedCredentialTarget(reference, candidate)));
+    if (!rotationInPlace) {
+      throw new ServiceError(
+        400,
+        "A stored key for a changed credential target needs a new secret ID; the active settings still resolve this one.",
+        "invalid_request"
+      );
+    }
+  }
+}
+
+function connectionsResolvingStoredSecret(
+  document: SettingsDocumentV2,
+  secretId: string
+): readonly SettingsDocumentV2["connections"][string][] {
+  return Object.values(document.connections).filter(
+    (connection) => storedCredentialSecretId(connection.auth) === secretId
+  );
+}
+
+/** The minted namespace (`.k<uuid>` suffix) is reserved. A save may reference
+ * a mint-shaped secret ID only when the current state's documents already
+ * reference it — existing references, including a copied project's, keep
+ * working — or when this same save stores the ID's key material, which is the
+ * shape of a genuine sidecar mint. Referencing a foreign minted ID without
+ * its material is refused, so a mint-shaped ID inside a project's documents
+ * provably entered through a mint, which is what keeps targeted supersession
+ * deletion in the shared tier safe. */
+function requireMintedSecretIntroduction(
+  current: SettingsStateV2,
+  submitted: SettingsDocumentV2,
+  entries: readonly (readonly [string, string | null])[]
+): void {
+  const known = storedSecretIdsInState(current);
+  const supplied = new Set(
+    entries.filter(([, value]) => value !== null).map(([secretId]) => secretId)
+  );
+  for (const secretId of storedSecretIdsInDocument(submitted)) {
+    if (!MINTED_SECRET_ID_PATTERN.test(secretId)) continue;
+    if (known.has(secretId) || supplied.has(secretId)) continue;
+    throw new ServiceError(
+      400,
+      "A minted secret ID can only enter settings through the save that stores its key; store the key or reference an ID these settings already use.",
+      "invalid_request"
+    );
+  }
 }
 
 function requireConnectionSecretsMatchDocument(

@@ -92,11 +92,11 @@ The release matrix contains exactly five release packages:
 
 The matrix contains one launcher package and four platform packages.
 
-`windows-x64` is built and verified on every change. Its package,
+Routine CI does not build `windows-x64`. Its package,
 `@1667-ai/windows-x64`, is not in this matrix, is not in the launcher's optional
-dependencies, is not packed by the release pack step, and is not published. The
-Windows smoke still stages and packs that layout locally, which is how the
-package a hold withholds is kept from rotting while the hold is in force.
+dependencies, is not packed by the release pack step, and is not published.
+Run the Windows native tests and package smoke before Windows release work
+resumes.
 
 All release packages declare the canonical Git repository. The Linux platform
 packages declare `libc: ["glibc"]`. The launcher package and the macOS platform

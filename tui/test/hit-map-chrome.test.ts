@@ -643,6 +643,81 @@ describe("hit map clickable chrome", () => {
     }
   });
 
+  test("every settings label fits its column, so the values line up", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    footerCases.at(-1)!.setup(state, source);
+    const frame = render(state, 120, 30);
+
+    // Each closed choice opens on the first cell of its value, so the opening
+    // arrows share a column exactly when the labels all fit theirs.
+    const opens = new Map<number, number>();
+    for (const [rowIndex, row] of state.hitRows.entries()) {
+      for (const region of row?.overrides ?? []) {
+        if (region.target.kind !== "action" || region.target.index === undefined) continue;
+        if (region.target.action !== "take-previous") continue;
+        opens.set(region.target.index, region.left);
+        expect([...plainLine(frame[rowIndex]!)][region.left]).toMatch(/[‹[]/u);
+      }
+    }
+
+    // theme, compose focus, provider, insecure HTTP, cache policy
+    expect(opens.size).toBe(5);
+    expect(new Set(opens.values()).size).toBe(1);
+  });
+
+  test("cache policy arrows sit on its brackets while the cost detail follows", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    const index = SETTINGS_ROW_IDS.indexOf("cache-policy");
+    footerCases.at(-1)!.setup(state, source);
+    state.settings!.cursor = index;
+    const frame = render(state, 120, 30);
+
+    const selectorRow = state.hitRows.findIndex((row) =>
+      row?.overrides?.some((region) =>
+        region.target.kind === "action" && region.target.index === index) === true);
+    const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>
+      region.target.kind === "action" && region.target.index === index);
+    const line = plainLine(frame[selectorRow]!);
+    expect([...line][arrows[0]!.left]).toBe("‹");
+    expect([...line][arrows[1]!.left]).toBe("›");
+    // The arrows are not the ends of the value — the cost keeps rendering.
+    expect(line.slice(line.indexOf("›") + 1)).toContain("TTL none");
+
+    const clicked = mouseToAction(click(arrows[1]!.left, selectorRow), state)!;
+    await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+    expect(state.settings?.draft.cachePolicy).toBe("auto");
+  });
+
+  test("a truncated selector value leaves no arrow behind at any panel width", () => {
+    let widest = 0;
+    for (let width = 30; width <= 120; width += 1) {
+      const source = demoAppSource();
+      const state = initialState(source, false);
+      state.stream = null;
+      footerCases.at(-1)!.setup(state, source);
+      state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("cache-policy");
+      const frame = render(state, width, 30);
+      let arrows = 0;
+      for (const [rowIndex, row] of state.hitRows.entries()) {
+        for (const region of row?.overrides ?? []) {
+          if (region.target.kind !== "action" || region.target.index === undefined) continue;
+          arrows += 1;
+          const line = [...plainLine(frame[rowIndex]!)];
+          // The whole region, not just its first cell, has to be on the glyph.
+          expect(line[region.left]).toMatch(/[‹›[\]]/u);
+          expect(line[region.right - 1]).toMatch(/[‹›[\]]/u);
+        }
+      }
+      widest = arrows;
+    }
+    // Otherwise a panel that painted no arrows at all would pass the sweep.
+    expect(widest).toBeGreaterThan(0);
+  });
+
   test("story model, local provider, and context hint open their exact Settings rows", async () => {
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: null };

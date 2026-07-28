@@ -1,13 +1,15 @@
+import { graphemeCells } from "../cell-width.js";
 import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
-import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
+  settingsActivationFailureText,
   settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowCycles,
   settingsRows,
-  SETTINGS_ROW_IDS
+  SETTINGS_ROW_IDS,
+  type SettingsRowPresentation
 } from "../settings-overlay-model.js";
 import type { OverlayState } from "../state.js";
 import {
@@ -18,6 +20,14 @@ import {
   raisedSegment
 } from "./overlay.js";
 import { panelRowWindow } from "./panel-table-layout.js";
+import {
+  fittingFooter,
+  SETTINGS_CHOICE_FOOTERS,
+  SETTINGS_CONTEXT_FOOTERS,
+  SETTINGS_EDIT_FOOTERS,
+  SETTINGS_PENDING_FOOTERS,
+  SETTINGS_TEXT_FOOTERS
+} from "./settings-panel-footers.js";
 import { renderComposerInput } from "./story/composer.js";
 import {
   truncate,
@@ -26,187 +36,23 @@ import {
   type FrameLine
 } from "./story/frame.js";
 
-export const SETTINGS_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" },
-  { token: "↓", action: "focus-next" },
-  { token: "←", action: "take-previous" },
-  { token: "→ choose", action: "take-next" },
-  { token: "↵ next", action: "open-selected" },
-  { token: "s save", action: "save-edit" },
-  { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-const SETTINGS_TEXT_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" },
-  { token: "↓", action: "focus-next" },
-  { token: "↵ edit", action: "open-selected" },
-  { token: "s save", action: "save-edit" },
-  { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" },
-  { token: "↓", action: "focus-next" },
-  { token: "↵ edit", action: "open-selected" },
-  { token: "p detect", action: "detect-context" },
-  { token: "s save", action: "save-edit" },
-  { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-const SETTINGS_EDIT_FOOTER_ACTIONS = [
-  { token: "←", action: "cursor-left" },
-  { token: "→", action: "cursor-right" },
-  { token: "↵ keep", action: "commit-field" },
-  { token: "esc cancel", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
 /** Settings rows wear the same `  ▸ ` cursor lead as every other list panel,
  * so `›` stays the prompt glyph it is everywhere else. */
 const SETTINGS_LEAD_WIDTH = 4;
-const SETTINGS_LABEL_WIDTH = 17;
-/** Column the value starts in, relative to the content line. */
-const SETTINGS_VALUE_LEFT = SETTINGS_LEAD_WIDTH + SETTINGS_LABEL_WIDTH;
+/** Wide enough for every label the panel has, so all the values start in one
+ * column. A test holds the labels to it. */
+const SETTINGS_LABEL_WIDTH = 20;
 
-const SETTINGS_PENDING_FOOTER_ACTIONS = [
-  { token: "c check", action: "check" },
-  { token: "x discard", action: "discard-pending" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-interface SettingsFooter {
-  text: string;
-  actions: ReadonlyArray<{ token: string; action: KeyAction }>;
+/** Column the value starts in, relative to the content line. Only
+ * `settingsRow` reads this, because only `settingsRow` paints the value.
+ *
+ * A label too wide for the column pushes its own value right and keeps one
+ * cell of air. That row alone leaves the column, which the test reports. The
+ * arrows stay on the brackets, because they come from this same number. A
+ * constant here put them on the label instead. */
+function settingsValueLeft(label: string): number {
+  return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
 }
-
-const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · esc close",
-    actions: SETTINGS_FOOTER_ACTIONS
-  },
-  {
-    text: "↑↓ · ←→ choose · ↵ next · s · c · esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "←", action: "take-previous" },
-      { token: "→ choose", action: "take-next" },
-      { token: "↵ next", action: "open-selected" },
-      { token: "s", action: "save-edit" },
-      { token: "c", action: "check" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "↑↓ ←→ ↵ esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "←", action: "take-previous" },
-      { token: "→", action: "take-next" },
-      { token: "↵", action: "open-selected" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "↑↓ move · ↵ edit · s save · c check · esc close",
-    actions: SETTINGS_TEXT_FOOTER_ACTIONS
-  },
-  {
-    text: "↑↓ · ↵ edit · s · c · esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵ edit", action: "open-selected" },
-      { token: "s", action: "save-edit" },
-      { token: "c", action: "check" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "↑↓ ↵ esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵", action: "open-selected" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
-    actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
-  },
-  {
-    text: "↑↓ · ↵ edit · p detect · s · c · esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵ edit", action: "open-selected" },
-      { token: "p detect", action: "detect-context" },
-      { token: "s", action: "save-edit" },
-      { token: "c", action: "check" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "↑↓ ↵ p esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵", action: "open-selected" },
-      { token: "p", action: "detect-context" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "←→ cursor · ↵ keep row · esc cancel",
-    actions: SETTINGS_EDIT_FOOTER_ACTIONS
-  },
-  {
-    text: "←→ · ↵ keep · esc",
-    actions: [
-      { token: "←", action: "cursor-left" },
-      { token: "→", action: "cursor-right" },
-      { token: "↵ keep", action: "commit-field" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "←→ ↵ esc",
-    actions: [
-      { token: "←", action: "cursor-left" },
-      { token: "→", action: "cursor-right" },
-      { token: "↵", action: "commit-field" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "c check · x discard · esc close",
-    actions: SETTINGS_PENDING_FOOTER_ACTIONS
-  },
-  {
-    text: "c · x · esc",
-    actions: [
-      { token: "c", action: "check" },
-      { token: "x", action: "discard-pending" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -222,13 +68,13 @@ export function renderSettingsPanel(
   const rows = settingsRows(overlay, state.config);
   const status = settingsStatusLines(overlay);
   const horizontal = panelHorizontalGeometry(width, 76);
-  const valueWidth = Math.max(1, horizontal.contentWidth - SETTINGS_VALUE_LEFT);
   const resultVisible = overlay.checking || overlay.probing || overlay.result !== null;
   const fixedRows = 3 + status.top.length + status.bottom.length + (resultVisible ? 1 : 0);
   const editableRows = rows.slice(2);
-  const renderedRows = rows.map((row, index) =>
-    settingsLine(row.label, row.value, index, overlay, valueWidth)
+  const painted = rows.map((row, index) =>
+    settingsRow(row, index, overlay, horizontal.contentWidth)
   );
+  const renderedRows = painted.map((row) => row.line);
   const resultLine: FrameLine | null = overlay.checking
     ? [raisedSegment("  ⟳ checking model server…", "focus / accent")]
     : overlay.probing
@@ -299,27 +145,24 @@ export function renderSettingsPanel(
   const overrides: HitRegion[][] = content.map(() => []);
   // Every closed-choice row carries its own arrows, and the action names the
   // row so a click moves the cursor there first — mouse and keyboard then act
-  // on the same row.
-  for (const [selectorIndex, selector] of rows.entries()) {
-    if (!settingsRowCycles(selector.id)) continue;
+  // on the same row. The columns come from the row that painted the brackets,
+  // so no second opinion about the drawn value can move an arrow off one.
+  for (const [selectorIndex, selector] of painted.entries()) {
+    if (selector.arrows === null) continue;
     const selectorRow = targets.findIndex((target) =>
       target?.kind === "list" && target.index === selectorIndex
     );
-    if (selectorRow < 0 || overlay.edit?.row === selector.id) continue;
-    const selectorLeft = SETTINGS_VALUE_LEFT;
-    // Measure the value as drawn. An override past the painted text would stay
-    // clickable — `hitAt` consults overrides before row bounds.
-    const selectorWidth = visibleWidth(truncate(selector.value, valueWidth));
+    if (selectorRow < 0) continue;
     overrides[selectorRow] = [
       {
         target: { kind: "action", action: "take-previous", index: selectorIndex },
-        left: selectorLeft,
-        right: selectorLeft + 1
+        left: selector.arrows.previous,
+        right: selector.arrows.previous + 1
       },
       {
         target: { kind: "action", action: "take-next", index: selectorIndex },
-        left: selectorLeft + selectorWidth - 1,
-        right: selectorLeft + selectorWidth
+        left: selector.arrows.next,
+        right: selector.arrows.next + 1
       }
     ];
   }
@@ -355,14 +198,6 @@ export function renderSettingsPanel(
   );
 }
 
-function fittingFooter(
-  variants: ReadonlyArray<SettingsFooter>,
-  availableWidth: number
-): SettingsFooter {
-  return variants.find((variant) => visibleWidth(variant.text) <= availableWidth)
-    ?? variants.at(-1)!;
-}
-
 /** The panel's two notice positions.
  *
  * `top` is for a precondition: something that changes what every field below it
@@ -390,16 +225,45 @@ function settingsStatusLines(
     };
   }
   if (view.pendingRevision !== null) {
+    // The server nulls any outcome whose candidate was replaced or
+    // discarded, so a staged view's outcome always describes this candidate.
+    const outcome = view.lastActivationOutcome;
+    const failure = outcome !== null && outcome.result !== "committed"
+      ? settingsActivationFailureText(outcome.errorCode)
+      : null;
     return {
       top: [],
       bottom: bottomStatus([
         [
           raisedSegment(
-            `  ⟳ revision ${view.pendingRevision} pending restart · active revision ${view.activeRevision} still running`,
-            "focus / accent"
+            failure === null
+              ? `  ⟳ revision ${view.pendingRevision} saved · not active yet · revision ${view.activeRevision} still running`
+              : `  ▲ revision ${view.pendingRevision} saved, not active · ${failure}`,
+            failure === null ? "focus / accent" : "danger text"
           )
         ],
-        [raisedSegment("  editing frozen · x discards the pending candidate", "chrome")]
+        [raisedSegment("  s retries activation · x discards the saved candidate", "chrome")]
+      ])
+    };
+  }
+  // A clean view with a failure outcome is a startup rollback: the candidate
+  // is gone, and staying silent about it is the exact failure class this
+  // surface exists to prevent.
+  const rolledBack = view.lastActivationOutcome !== null
+    && view.lastActivationOutcome.result !== "committed"
+    ? view.lastActivationOutcome
+    : null;
+  if (rolledBack !== null) {
+    return {
+      top: [],
+      bottom: bottomStatus([
+        [
+          raisedSegment(
+            `  ▲ revision ${rolledBack.candidateRevision} did not activate · ${settingsActivationFailureText(rolledBack.errorCode)}`,
+            "danger text"
+          )
+        ],
+        [raisedSegment(`  revision ${view.activeRevision} still active · edit & s saves a new attempt`, "chrome")]
       ])
     };
   }
@@ -439,43 +303,81 @@ function bottomStatus(lines: FrameLine[]): FrameLine[] {
   return [...padding, ...lines];
 }
 
-function settingsLine(
-  label: string,
-  value: string,
+/** A painted row, and where it put the arrows of a closed choice.
+ *
+ * `arrows` is `null` when the row is not a closed choice, when the composer
+ * owns it, or when the panel is too narrow to paint the closing bracket. The
+ * caller must not place a hit region then: `hitAt` consults overrides before
+ * row bounds, so an override past the painted glyph would stay clickable. */
+interface PaintedSettingsRow {
+  readonly line: FrameLine;
+  readonly arrows: { readonly previous: number; readonly next: number } | null;
+}
+
+function settingsRow(
+  row: SettingsRowPresentation,
   index: number,
   overlay: NonNullable<OverlayState["settings"]>,
-  valueWidth: number
-): FrameLine {
+  contentWidth: number
+): PaintedSettingsRow {
   const selected = index === overlay.cursor;
   const edit = selected ? overlay.edit : null;
+  const valueLeft = settingsValueLeft(row.label);
+  const valueWidth = Math.max(1, contentWidth - valueLeft);
+  const lead = `${selected ? "  ▸ " : "    "}${row.label}`;
   const prefix = raisedSegment(
-    `${selected ? "  ▸ " : "    "}${label.padEnd(SETTINGS_LABEL_WIDTH)}`,
+    lead + " ".repeat(valueLeft - visibleWidth(lead)),
     selected ? "focus / accent" : "chrome"
   );
   if (edit === null) {
-    return [
-      prefix,
-      raisedSegment(
-        truncate(value, valueWidth),
-        selected ? "focus / accent" : "prose"
-      )
-    ];
+    const drawn = truncate(row.value, valueWidth);
+    return {
+      line: [
+        prefix,
+        raisedSegment(drawn, selected ? "focus / accent" : "prose")
+      ],
+      arrows: settingsRowCycles(row.id)
+        ? bracketArrows(drawn, valueLeft)
+        : null
+    };
   }
   const displayComposer = settingsEditDisplayComposer(edit);
-  return [
-    prefix,
-    raisedSegment("[", "chrome"),
-    ...renderComposerInput(
-      displayComposer,
-      0,
-      composerPosition(displayComposer).column,
-      Math.max(1, valueWidth - 2),
-      "streaming",
-      false,
-      ""
-    ),
-    raisedSegment("]", "chrome")
-  ];
+  return {
+    line: [
+      prefix,
+      raisedSegment("[", "chrome"),
+      ...renderComposerInput(
+        displayComposer,
+        0,
+        composerPosition(displayComposer).column,
+        Math.max(1, valueWidth - 2),
+        "streaming",
+        false,
+        ""
+      ),
+      raisedSegment("]", "chrome")
+    ],
+    arrows: null
+  };
+}
+
+/** A closed choice opens on its first cell and closes on its bracket. The
+ * detail a row may add after that bracket is not part of the choice. */
+function bracketArrows(
+  drawn: string,
+  valueLeft: number
+): PaintedSettingsRow["arrows"] {
+  const cells = graphemeCells(drawn);
+  const opening = cells[0]?.text;
+  if (opening !== "‹" && opening !== "[") return null;
+  let column = 0;
+  for (const cell of cells) {
+    if (column > 0 && (cell.text === "›" || cell.text === "]")) {
+      return { previous: valueLeft, next: valueLeft + column };
+    }
+    column += cell.width;
+  }
+  return null;
 }
 
 function listTarget(index: number): HitTarget {
