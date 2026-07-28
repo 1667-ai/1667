@@ -121,7 +121,7 @@ export function settingsRows(
     { id: "base-url", label: "base URL", value: settings.baseUrl || "—" },
     {
       id: "allow-insecure-http",
-      label: "Allow insecure HTTP (LAN)",
+      label: "insecure HTTP (LAN)",
       value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
     },
     { id: "model", label: "model", value: settings.model || "—" },

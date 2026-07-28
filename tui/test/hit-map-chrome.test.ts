@@ -643,6 +643,30 @@ describe("hit map clickable chrome", () => {
     }
   });
 
+  test("every settings label fits its column, so the values line up", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    footerCases.at(-1)!.setup(state, source);
+    const frame = render(state, 120, 30);
+
+    // Each closed choice opens on the first cell of its value, so the opening
+    // arrows share a column exactly when the labels all fit theirs.
+    const opens = new Map<number, number>();
+    for (const [rowIndex, row] of state.hitRows.entries()) {
+      for (const region of row?.overrides ?? []) {
+        if (region.target.kind !== "action" || region.target.index === undefined) continue;
+        if (region.target.action !== "take-previous") continue;
+        opens.set(region.target.index, region.left);
+        expect([...plainLine(frame[rowIndex]!)][region.left]).toMatch(/[‹[]/u);
+      }
+    }
+
+    // theme, compose focus, provider, insecure HTTP, cache policy
+    expect(opens.size).toBe(5);
+    expect(new Set(opens.values()).size).toBe(1);
+  });
+
   test("cache policy arrows sit on its brackets while the cost detail follows", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
