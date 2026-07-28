@@ -52,7 +52,7 @@ import {
   removeTag,
   switchTake,
   switchTakeAt,
-  undoSwitch
+  undoChapterBreakChange
 } from "./story-mutations.js";
 import {
   followStoryViewport,
@@ -173,7 +173,7 @@ export async function navAction(
   else if (resolved.action === "take-at" && resolved.take !== undefined) {
     await switchTakeAt(state, source, resolved.take, context);
   }
-  else if (resolved.action === "undo") await undoSwitch(state, source, context);
+  else if (resolved.action === "undo") await undoChapterBreakChange(state, source, context);
 }
 
 export function closeActions(state: RuntimeState): void {

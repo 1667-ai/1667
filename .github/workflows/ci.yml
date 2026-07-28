@@ -64,20 +64,34 @@ jobs:
         working-directory: tui
         run: bun run build:standalone
 
-  # darwin-x64 builds on main and on demand, but not on pull requests. It is the
-  # slowest target here by roughly ten times (6m13s against 2m14s for its arm64
-  # sibling on the same commit) and it runs on macos-15-intel, a retiring runner
-  # class heavily enough contended to report wall times near twice its own CPU
-  # time. Gating every merge on it bought latency and flakes, not signal. It
-  # still runs on every push to main, so a regression surfaces on the commit
-  # that caused it rather than at release time.
+  # Two targets build on main and on demand, but not on pull requests. Both still
+  # run on every push to main, so a regression surfaces on the commit that caused
+  # it rather than at release time. Neither is unverified: gating every merge on
+  # them bought latency and flakes, not signal.
+  #
+  # darwin-x64 is the slowest target here by roughly ten times (6m13s against
+  # 2m14s for its arm64 sibling on the same commit) and it runs on
+  # macos-15-intel, a retiring runner class that is slower per core and contended
+  # enough to report wall-clock times well above its own CPU time.
+  # test/performance-budget.ts holds the measured figures.
+  #
+  # windows-x64 fails differently: the compiled prompt-tokenizer smoke hits its
+  # fixed 90s timeout and the whole job fails, repeatedly, on commits that touch
+  # nothing near it and that pass on re-run unchanged. That is a hang rather than
+  # contention — a freshly compiled executable being held by a scanner is the
+  # usual cause on these runners — and moving the job off the gate reduces how
+  # often it costs a pull request without pretending to fix it.
+  #
+  # windows-x64 is also held from publication today, so nothing installs it. It
+  # keeps building here because the hold promises it stays verified; that promise
+  # is the reason this is a schedule change and not a deletion.
   packaged-platform:
     name: packaged-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
         target: ${{ fromJSON(github.event_name == 'pull_request'
-          && '["darwin-arm64","linux-arm64","linux-x64","windows-x64"]'
+          && '["darwin-arm64","linux-arm64","linux-x64"]'
           || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64","windows-x64"]') }}
     runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
     timeout-minutes: 15

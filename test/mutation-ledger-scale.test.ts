@@ -8,8 +8,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { assertWithinBudget, budgetTimeout, fileBudget, startTiming } from "./performance-budget.js";
 import { SETTINGS_STATE_V2_FILE } from "../server/data-directory-format.js";
 import {
   formatMutationLedgerRecord,
@@ -30,9 +30,11 @@ import { INITIAL_SETTINGS_STATE_V2_TEXT } from "../server/settings-v2-default.js
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 const POPULATED_RECEIPT_COUNT = 1_025;
+// These lookups read receipt files, so they measure wall-clock time.
+const LOOKUP_BUDGET = fileBudget(2_000);
 
 test("settings receipt lookup stays direct beyond 1,024 terminal receipts", {
-  timeout: 60_000
+  timeout: budgetTimeout([LOOKUP_BUDGET], 50_000)
 }, async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-ledger-populated-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
@@ -49,7 +51,7 @@ test("settings receipt lookup stays direct beyond 1,024 terminal receipts", {
     history.at(-1)!
   ];
 
-  const startedAt = performance.now();
+  const read = startTiming();
   for (const entry of expected) {
     assert.deepEqual(
       await store.loadUserReceipt("settings", entry.prepared.key),
@@ -60,14 +62,16 @@ test("settings receipt lookup stays direct beyond 1,024 terminal receipts", {
     await store.loadUserReceipt("settings", historyMutationId(POPULATED_RECEIPT_COUNT)),
     { prepared: null, completed: null }
   );
-  const elapsed = performance.now() - startedAt;
+  const timing = read();
 
   assert.deepEqual(await readFile(settingsFile), settingsBytesBefore);
-  t.diagnostic(
+  assertWithinBudget(
+    t,
     `${POPULATED_RECEIPT_COUNT.toLocaleString()} terminal receipts; `
-      + `first/middle/last/missing direct lookups in ${elapsed.toFixed(1)}ms`
+      + "first/middle/last/missing direct lookups",
+    LOOKUP_BUDGET,
+    timing
   );
-  assert.ok(elapsed < 2_000, `populated direct receipt lookups took ${elapsed.toFixed(1)}ms`);
 });
 
 interface SeededTerminalSettingsReceipt {

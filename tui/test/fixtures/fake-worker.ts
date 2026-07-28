@@ -1,6 +1,6 @@
 import {
   platformPerformanceBudget
-} from "../../../test/platform-performance-budget.js";
+} from "../../../test/performance-budget.js";
 import {
   WORKER_BUILD_IDENTITY,
   WORKER_PROTOCOL_VERSION,

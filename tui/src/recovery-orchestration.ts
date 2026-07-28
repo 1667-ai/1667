@@ -193,10 +193,16 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
           if (outcome.kind === "failed") throw outcome.error;
           if (disposition === "offline") return;
           const result = outcome.result;
-          if (warnings.length > 0 || result.interactionStable || result.changedStory) {
-            state.toast = warnings.length === 0
-              ? "startup recovery complete · state reloaded"
-              : `${recoveryNotice(warnings)} · state reloaded`;
+          // The reload above runs on every start, warnings or not, because the
+          // worker recovers its own state first and this reconciles against it.
+          // Saying so is another matter: a clean pass changed nothing the reader
+          // can see, and `interactionStable` only says a toast is safe to set,
+          // not that anything happened. Speak when there is something to act on
+          // — a warning, or a reload that landed on a different story.
+          if (warnings.length > 0) {
+            state.toast = `${recoveryNotice(warnings)} · state reloaded`;
+          } else if (result.changedStory) {
+            state.toast = "story reloaded";
           }
           repaint();
           adopted = true;

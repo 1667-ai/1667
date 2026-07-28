@@ -13,6 +13,9 @@
 1667 also provides a direct connection to a selected model provider. This
 repository contains the terminal user interface (TUI) and its backend runtime.
 
+This README uses the Technical Names in
+[Technical terms](docs/technical-terms.md).
+
 ## Status
 
 This public repository contains pre-release source.
@@ -27,28 +30,6 @@ This public repository contains pre-release source.
 
 Build and run 1667 from source. You can also build a local standalone
 executable.
-
-## Technical terms
-
-This README uses these Technical Names:
-
-| Term | Meaning |
-| --- | --- |
-| TUI | The terminal user interface |
-| backend | The service that stores stories and sends provider requests |
-| project | A project root and its `.1667/` directory |
-| story part | One unit of story prose |
-| take | One alternative version of a story part |
-| story line | The selected path through story parts |
-| tag | A name and a status on the end of one story line |
-| mass map | A map that shows all takes |
-| provider | A local or hosted service that supplies a language model |
-| machine tier | Private 1667 data for one machine |
-| project tier | Story data and settings in a `.1667/` directory |
-| working tier | User files in a project root |
-| frame | One complete terminal screen |
-| standalone executable | One executable that contains the runtime dependencies |
-| release target | One supported operating system and processor architecture |
 
 ## Features
 
@@ -197,7 +178,7 @@ the 1667 editor to change story data.
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
 | Generate a new take | `r` or `R` |
-| Undo | `u` |
+| Undo an added or removed chapter break | `u` |
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
 | Open commands | `Ctrl+P` or `:` |
 | Open settings or the key list | `,` or `?` |
@@ -399,6 +380,7 @@ restoration, 1667 writes one JSON report to standard error.
 
 ## Technical documents
 
+- [Technical terms](docs/technical-terms.md)
 - [Generation boundaries](docs/generation-boundaries.md)
 - [Summary branches](docs/summary-branches.md)
 - [Automatic story names](docs/autoname.md)
