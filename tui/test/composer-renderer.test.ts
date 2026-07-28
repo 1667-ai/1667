@@ -359,6 +359,16 @@ describe("composer renderer", () => {
     expect(applyComposeMode(story, true)[0]!.map((part) => part.role)).toEqual([
       "dimmed page", "dimmed page", "dimmed page", "dimmed page"
     ]);
+
+    // The gauge's fill is told apart from its track by colour alone, so it
+    // mutes rather than collapsing: one uniform bar would read as a full
+    // window while the numbers above it said otherwise.
+    const gauge: FrameLine[] = [[
+      segment("▮▮", "context recent"),
+      segment("▮▮▮▮", "dimmed page")
+    ]];
+    expect(applyComposeMode(gauge, true)[0]!.map((part) => part.role))
+      .toEqual(["chrome", "dimmed page"]);
   });
 
   test("inserts and renders a very large paste without argument-limit or quadratic cursor work", () => {

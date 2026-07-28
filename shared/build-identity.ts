@@ -11,9 +11,9 @@ export {
 } from "./release-targets.js";
 
 export const AI_1667_PRODUCT = "1667" as const;
-export const HTTP_API_PROTOCOL_VERSION = 6;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 6;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 6;
+export const HTTP_API_PROTOCOL_VERSION = 7;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 7;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 7;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 
@@ -219,7 +219,9 @@ function isBuiltArtifactTarget(value: unknown): value is BuiltArtifactTarget {
     && (BUILT_ARTIFACT_TARGETS as readonly string[]).includes(value);
 }
 
-function isCanonicalTimestamp(value: string): boolean {
+/** Millisecond-precision UTC instant, and a real one: the shape test alone
+ *  admits `2026-13-01T00:00:00.000Z`, whose `Date` is invalid. */
+export function isCanonicalTimestamp(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
   const parsed = new Date(value);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;

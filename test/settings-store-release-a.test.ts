@@ -71,7 +71,7 @@ test("format-2 immediate save replays before version policy and distinguishes co
   assert.equal((await store.loadView()).stateGeneration, 3);
 });
 
-test("format-2 credential save stages, freezes writes, and can be explicitly discarded", async (t) => {
+test("format-2 credential save activates in-process; a failed activation stays staged and discardable", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-v2-pending-");
   const store = new SettingsStore(dataDir, { environment: {}, now: () => FIXED_TIME });
   await store.init(2);
@@ -84,32 +84,41 @@ test("format-2 credential save stages, freezes writes, and can be explicitly dis
   assert.equal(staged.settingsStateGeneration, 2);
   assert.equal(staged.activeSettingsRevision, 1);
   assert.equal(staged.pendingSettingsRevision, 2);
+
   const stagedView = await store.loadView();
   if (stagedView.document === null) throw new Error("format-2 settings document is missing");
-  assert.equal(stagedView.document.connections["builtin:dry-run"]?.auth.type, "bearer-env");
-  assert.equal(stagedView.effective.provider, "dry-run", "pending credentials never become effective");
-
-  await assert.rejects(
-    store.save(saveCommand(MUTATION_B, 2, writingDocument("Must remain frozen."))),
-    hasServiceCode("conflict")
+  assert.equal(
+    stagedView.stateGeneration,
+    4,
+    "the save request itself runs the activation attempt"
   );
+  assert.equal(stagedView.pendingRevision, 2, "a failed activation never discards the candidate");
+  assert.equal(stagedView.document.connections["builtin:dry-run"]?.auth.type, "bearer-env");
+  assert.equal(stagedView.effective.provider, "dry-run", "rejected credentials never become effective");
+  assert.deepEqual(stagedView.lastActivationOutcome, {
+    transactionId: MUTATION_A,
+    candidateRevision: 2,
+    result: "validation-failed",
+    errorCode: "credential_unresolved",
+    atStateGeneration: 4
+  });
 
   const discarded = await store.discardPending({
     transportOperationId: "transport:discard",
     mutationId: MUTATION_C,
-    expectedStateGeneration: 2
+    expectedStateGeneration: 4
   });
-  assert.equal(discarded.settingsStateGeneration, 3);
+  assert.equal(discarded.settingsStateGeneration, 5);
   assert.equal(discarded.activeSettingsRevision, 1);
   assert.equal(discarded.pendingSettingsRevision, null);
   assert.equal((await store.loadView()).effective.provider, "dry-run");
 
   const saved = await store.save(saveCommand(
     MUTATION_B,
-    3,
+    5,
     writingDocument("Editing resumes after discard.")
   ));
-  assert.equal(saved.settingsStateGeneration, 4);
+  assert.equal(saved.settingsStateGeneration, 6);
   assert.equal(saved.pendingSettingsRevision, null);
   assert.equal((await store.loadView()).effective.systemPrompt, "Editing resumes after discard.");
 });
@@ -162,6 +171,8 @@ test("restart activates a staged credential document when every reference resolv
     1,
     credentialedDocument("AI_1667_ACTIVATION_KEY")
   );
+  // The in-process attempt fails (no environment), so the candidate stays
+  // staged; the restart with the credential present retries and activates.
   const staged = await first.save(command);
 
   const restarted = new SettingsStore(dataDir, {
@@ -177,7 +188,7 @@ test("restart activates a staged credential document when every reference resolv
   });
   await restarted.init(2);
   const view = await restarted.loadView();
-  assert.equal(view.stateGeneration, 7);
+  assert.equal(view.stateGeneration, 9);
   assert.equal(view.activeRevision, 2);
   assert.equal(view.pendingRevision, null);
   assert.equal(view.effective.provider, "openai-compatible");
@@ -204,15 +215,24 @@ test("restart activates a staged credential document when every reference resolv
   }));
   assert.deepEqual(
     await restarted.save({ ...command, transportOperationId: "transport:post-activation-retry" }),
-    staged,
-    "receipt replay returns the original staging result after activation advances state"
+    {
+      ...staged,
+      activationOutcome: {
+        transactionId: MUTATION_A,
+        candidateRevision: 2,
+        result: "committed",
+        errorCode: null,
+        atStateGeneration: 9
+      }
+    },
+    "receipt replay keeps the durable staging result and reports the attempt that has since run"
   );
   assert.deepEqual((await readSettingsState(dataDir)).lastActivationOutcome, {
     transactionId: MUTATION_A,
     candidateRevision: 2,
     result: "committed",
     errorCode: null,
-    atStateGeneration: 7
+    atStateGeneration: 9
   });
 });
 
@@ -282,10 +302,13 @@ test("activation validates every distinct routed connection", async (t) => {
     "https://api.openai.com/v1",
     "https://prose.example/v1"
   ]);
-  assert.equal((await restarted.loadView()).activeRevision, 1);
+  const view = await restarted.loadView();
+  assert.equal(view.activeRevision, 1);
+  assert.equal(view.pendingRevision, 2, "the rejected candidate stays staged");
+  assert.equal(view.lastActivationOutcome?.errorCode, "candidate_invalid");
 });
 
-test("restart rejects an unresolved credential once and keeps the old active document", async (t) => {
+test("restart retries an unresolved credential and keeps the candidate staged on failure", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-settings-v2-missing-env-");
   const first = new SettingsStore(dataDir, { environment: {}, now: () => FIXED_TIME });
   await first.init(2);
@@ -298,9 +321,9 @@ test("restart rejects an unresolved credential once and keeps the old active doc
   const restarted = new SettingsStore(dataDir, { environment: {}, now: () => FIXED_TIME });
   await restarted.init(2);
   const view = await restarted.loadView();
-  assert.equal(view.stateGeneration, 4);
+  assert.equal(view.stateGeneration, 6, "save-time attempt plus one startup retry");
   assert.equal(view.activeRevision, 1);
-  assert.equal(view.pendingRevision, null);
+  assert.equal(view.pendingRevision, 2, "startup recovery never discards the candidate");
   assert.equal(view.effective.provider, "dry-run");
   const state = await readSettingsState(dataDir);
   assert.equal(state.settingsRevisionClock, 2, "rejected candidate revision is never reused");
@@ -309,7 +332,7 @@ test("restart rejects an unresolved credential once and keeps the old active doc
     candidateRevision: 2,
     result: "validation-failed",
     errorCode: "credential_unresolved",
-    atStateGeneration: 4
+    atStateGeneration: 6
   });
 });
 
@@ -366,7 +389,7 @@ test("recover-only maintenance leaves staged settings untouched", async (t) => {
 
   const view = await maintenance.loadView();
   assert.equal(validationCalls, 0);
-  assert.equal(view.stateGeneration, 2);
+  assert.equal(view.stateGeneration, 4, "the failed save-time attempt already advanced the state");
   assert.equal(view.activeRevision, 1);
   assert.equal(view.pendingRevision, 2);
   assert.equal(view.effective.provider, "dry-run");
@@ -387,7 +410,12 @@ test("migrated plaintext presets use owned loopback only on supported targets", 
       t,
       `1667-settings-v2-${preset}-`
     );
-    const first = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+    const first = new SettingsStore(dataDir, {
+      now: () => FIXED_TIME,
+      // Keep the save-time attempt hermetic: on owned-loopback targets it
+      // fails and stays staged; elsewhere the probe is skipped entirely.
+      validateCandidate: async () => false
+    });
     await first.init(2);
     const migrated = convertGenerationSettingsV1({
       ...effectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2),

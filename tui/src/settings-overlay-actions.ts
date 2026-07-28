@@ -6,7 +6,10 @@ import {
   promptCachePolicyPresentation
 } from "../../shared/prompt-cache-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
-import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import type {
+  SettingsDocumentV2,
+  SettingsMutationResult
+} from "../../shared/settings-v2-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
 import {
@@ -32,12 +35,15 @@ import {
   beginSettingsRowEdit,
   boundedSettingsCursor,
   cycleAllowInsecureHttp,
+  cyclePromptCachePolicy,
   cycleSettingsProvider,
   initialSettingsOverlay,
   sameGenerationSettings,
   sameSettingsDraft,
   SETTINGS_ROW_IDS,
+  settingsActivationFailureText,
   settingsDraftChanged,
+  settingsRowCycles,
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
@@ -94,12 +100,11 @@ export async function settingsOverlayAction(
         row === "theme"
         || row === "provider"
         || row === "allow-insecure-http"
+        || row === "cache-policy"
       ) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
         state.toast = "legacy settings are read-only";
-      } else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
       }
     }
   } else if (overlay.edit !== null) {
@@ -115,8 +120,6 @@ export async function settingsOverlayAction(
     const serverBacked = settingsRowUsesServer(row);
     if (serverBacked && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
-    } else if (serverBacked && overlay.view.pendingRevision !== null) {
-      state.toast = "settings pending restart · discard pending before editing";
     } else if (row === "theme") {
       const index = THEME_NAMES.indexOf(state.config.theme);
       applyTheme(state, context, THEME_NAMES[(index + 1) % THEME_NAMES.length]!);
@@ -124,6 +127,8 @@ export async function settingsOverlayAction(
       applyProviderChoice(overlay, state, 1);
     } else if (row === "allow-insecure-http") {
       applyAllowInsecureHttp(overlay, state);
+    } else if (row === "cache-policy") {
+      applyPromptCachePolicyChoice(overlay, state, 1);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -143,19 +148,14 @@ export async function settingsOverlayAction(
       // `d` used to toggle this, which collided with delete everywhere else.
       // It cycles with the other closed-choice rows instead.
       applyComposeFocus(state, source, state.config.composeFocus === "on" ? "off" : "on");
-    } else if (row === "provider") {
+    } else if (settingsRowUsesServer(row) && settingsRowCycles(row)) {
       if (!overlay.view.editable) state.toast = "legacy settings are read-only";
-      else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
-      } else {
+      else if (row === "provider") {
         applyProviderChoice(overlay, state, step);
-      }
-    } else if (row === "allow-insecure-http") {
-      if (!overlay.view.editable) state.toast = "legacy settings are read-only";
-      else if (overlay.view.pendingRevision !== null) {
-        state.toast = "settings pending restart · discard pending before editing";
-      } else {
+      } else if (row === "allow-insecure-http") {
         applyAllowInsecureHttp(overlay, state);
+      } else if (row === "cache-policy") {
+        applyPromptCachePolicyChoice(overlay, state, step);
       }
     }
   } else if (resolved.action === "discard-pending") {
@@ -268,13 +268,13 @@ async function saveSettingsDraft(
   overlay: SettingsOverlayState
 ): Promise<void> {
   if (!overlay.view.editable) return void (state.toast = "legacy settings are read-only");
-  if (overlay.view.pendingRevision !== null) {
-    return void (state.toast = "settings pending restart · editing frozen");
-  }
   if (state.connection.down) {
     return void (state.toast = "offline · draft kept until the connection returns");
   }
-  if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay)) {
+  // A staged view means the last activation attempt did not commit; saving
+  // the unmodified candidate is the retry, so the no-op guards step aside.
+  const stagedRetry = overlay.view.pendingRevision !== null;
+  if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay) && !stagedRetry) {
     overlay.conflict = null;
     state.toast = "unchanged · no-op";
     return;
@@ -311,7 +311,8 @@ async function saveSettingsDraft(
       return;
     }
     if (
-      document === overlay.view.document
+      !stagedRetry
+      && document === overlay.view.document
       && Object.keys(connectionSecrets).length === 0
     ) {
       overlay.draft = overlay.base;
@@ -362,11 +363,22 @@ async function saveSettingsDraft(
       intent.draft,
       intent.connectionSecrets
     );
-    const message = result.pendingSettingsRevision === null
-      ? "settings saved"
-      : "settings staged · restart required";
+    const message = settingsSaveMessage(result);
     state.toast = newerEdits ? `${message} · newer edits kept` : message;
   });
+}
+
+/** A credential-touching save activates inside the save request, so the
+ * mutation result itself reports this save's activation outcome. */
+function settingsSaveMessage(result: SettingsMutationResult): string {
+  const outcome = result.activationOutcome;
+  if (outcome === null) {
+    return result.pendingSettingsRevision === null
+      ? "settings saved"
+      : "settings saved · activation pending";
+  }
+  if (outcome.result === "committed") return "settings saved · credentials active";
+  return `saved, not active · ${settingsActivationFailureText(outcome.errorCode)}`;
 }
 
 async function discardPendingSettings(
@@ -421,13 +433,13 @@ async function checkSettings(
     overlay.result = null;
     context.repaint();
     try {
-      const checked = overlay.view.editable && overlay.view.pendingRevision === null
+      const checked = overlay.view.editable
         ? overlay.draft.generation
         : overlay.view.effective;
       const result = await source.api.checkModelServer(
         settingsProviderProbeTarget(overlay.view, checked)
       );
-      const current = overlay.view.editable && overlay.view.pendingRevision === null
+      const current = overlay.view.editable
         ? overlay.draft.generation
         : overlay.view.effective;
       if (task.owns() && state.settings === overlay
@@ -468,6 +480,15 @@ function applyComposeFocus(
   source.config = state.config;
   if (!state.demo) saveConfig(state.config);
   state.toast = `compose focus · ${composeFocus}`;
+}
+
+function applyPromptCachePolicyChoice(
+  overlay: SettingsOverlayState,
+  state: RuntimeState,
+  step: -1 | 1
+): void {
+  const policy = cyclePromptCachePolicy(overlay, step);
+  state.toast = `cache policy · ${policy} · s saves settings`;
 }
 
 function applyAllowInsecureHttp(

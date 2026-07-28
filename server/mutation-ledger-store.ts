@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -86,13 +87,29 @@ const EMPTY_MIGRATION_RECEIPT: FormatMigrationReceipt = Object.freeze({
  */
 export class MutationLedgerStore {
   private readonly root: string;
+  /** Non-leaf ledger directories this instance already proved durable, keyed
+   * by pathname and holding the proven device/inode identity. The map elides
+   * only the redundant parent durability flush, and only while the directory
+   * at that pathname is the exact one proven earlier: the privacy and
+   * identity inspections still run on every write, so a swapped ancestor
+   * fails closed and a replaced directory — even a valid private one — is
+   * flushed like a new one. Per-record leaf directories never enter the map:
+   * recovery and collection remove them, and excluding them bounds the map
+   * to the shared hierarchy instead of one retained path per mutation.
+   *
+   * Trust boundary: the identity-keyed proof assumes the single-writer
+   * invariant of the locked data directory. It does not defend against an
+   * external process re-binding pathnames between writes — for example
+   * renaming a proven directory away and back around its own flush — which
+   * is outside the ledger's threat model. */
+  private readonly durableDirectories = new Map<string, Stats>();
 
   constructor(private readonly dataDir: string) {
     this.root = path.join(dataDir, MUTATION_LEDGER_DIRECTORY);
   }
 
   async init(): Promise<void> {
-    await ensurePrivateDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
+    await this.ensureDurableDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
   }
 
   async loadUserReceipt(
@@ -140,7 +157,7 @@ export class MutationLedgerStore {
         throw corruptReceipt(mutationId);
       }
     } else {
-      await this.ensureLedgerDirectory(userMutationLedgerSegments(aggregateKey, mutationId));
+      await this.ensureLedgerDirectory(userMutationLedgerSegments(aggregateKey, mutationId), "user");
       await this.readUserReceipt(directory, aggregateKey, mutationId);
     }
     await writeImmutableRecord(directory, canonical.record, canonical.bytes);
@@ -163,7 +180,7 @@ export class MutationLedgerStore {
         throw corruptReceipt(key);
       }
     } else {
-      await this.ensureLedgerDirectory(segments);
+      await this.ensureLedgerDirectory(segments, "format-migration");
       await this.readReceipt(directory, "settings", key);
     }
     await writeImmutableRecord(directory, canonical.record, canonical.bytes);
@@ -198,7 +215,7 @@ export class MutationLedgerStore {
         throw corruptReceipt(mutationId);
       }
     } else {
-      await this.ensureLedgerDirectory(userMutationLedgerSegments(aggregateKey, mutationId));
+      await this.ensureLedgerDirectory(userMutationLedgerSegments(aggregateKey, mutationId), "user");
       const existing = await this.readStoryReceipt(directory, aggregateKey, mutationId);
       if (canonical.record.kind === "prepared") {
         requirePreparedStartedRelation(canonical.record, existing.started, mutationId);
@@ -456,16 +473,35 @@ export class MutationLedgerStore {
     return path.join(this.root, ...userMutationLedgerSegments(aggregateKey, mutationId));
   }
 
-  private async ensureLedgerDirectory(segments: readonly string[]): Promise<void> {
-    await ensurePrivateDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
+  private async ensureLedgerDirectory(
+    segments: readonly string[],
+    kind: "user" | "format-migration"
+  ): Promise<void> {
+    await this.ensureDurableDirectory(this.dataDir, MUTATION_LEDGER_DIRECTORY);
     let parent = this.root;
     for (const [index, segment] of segments.entries()) {
-      const internalReceipt = segments.length === 3 && index === 2;
-      if (internalReceipt) await requireOnlyFormatMigrationEntry(parent, segment, true);
-      await ensurePrivateDirectory(parent, segment);
-      if (internalReceipt) await requireOnlyFormatMigrationEntry(parent, segment, false);
+      if (index < segments.length - 1) {
+        await this.ensureDurableDirectory(parent, segment);
+      } else if (kind === "format-migration") {
+        // The single-receipt fence must re-run on every write.
+        await requireOnlyFormatMigrationEntry(parent, segment, true);
+        await ensurePrivateDirectory(parent, segment);
+        await requireOnlyFormatMigrationEntry(parent, segment, false);
+      } else {
+        await ensurePrivateDirectory(parent, segment);
+      }
       parent = path.join(parent, segment);
     }
+  }
+
+  private async ensureDurableDirectory(parent: string, name: string): Promise<void> {
+    const target = path.join(parent, name);
+    const identity = await ensurePrivateDirectory(
+      parent,
+      name,
+      this.durableDirectories.get(target)
+    );
+    this.durableDirectories.set(target, identity);
   }
 
   private async findUserDirectory(

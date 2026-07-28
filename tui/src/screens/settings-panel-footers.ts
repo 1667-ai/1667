@@ -1,0 +1,213 @@
+import type { KeyAction } from "../keys.js";
+import { visibleWidth } from "./story/frame.js";
+
+/** Footer variants for the settings panel, widest first.
+ *
+ * Each mode of the panel has its own list. `fittingFooter` takes the first
+ * variant that fits the panel, so a narrow panel loses words before it loses
+ * keys. The tokens are click targets, so the text and the actions must stay in
+ * the same order. */
+export interface SettingsFooter {
+  text: string;
+  actions: ReadonlyArray<{ token: string; action: KeyAction }>;
+}
+
+export function fittingFooter(
+  variants: ReadonlyArray<SettingsFooter>,
+  availableWidth: number
+): SettingsFooter {
+  return variants.find((variant) => visibleWidth(variant.text) <= availableWidth)
+    ?? variants.at(-1)!;
+}
+
+export const SETTINGS_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" },
+  { token: "↓", action: "focus-next" },
+  { token: "←", action: "take-previous" },
+  { token: "→ choose", action: "take-next" },
+  { token: "↵ next", action: "open-selected" },
+  { token: "s save", action: "save-edit" },
+  { token: "c check", action: "check" },
+  { token: "esc close", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+
+const SETTINGS_TEXT_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" },
+  { token: "↓", action: "focus-next" },
+  { token: "↵ edit", action: "open-selected" },
+  { token: "s save", action: "save-edit" },
+  { token: "c check", action: "check" },
+  { token: "esc close", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+
+const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" },
+  { token: "↓", action: "focus-next" },
+  { token: "↵ edit", action: "open-selected" },
+  { token: "p detect", action: "detect-context" },
+  { token: "s save", action: "save-edit" },
+  { token: "c check", action: "check" },
+  { token: "esc close", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+
+const SETTINGS_EDIT_FOOTER_ACTIONS = [
+  { token: "←", action: "cursor-left" },
+  { token: "→", action: "cursor-right" },
+  { token: "↵ keep", action: "commit-field" },
+  { token: "esc cancel", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+
+// A staged candidate stays fully editable: the pending footers keep the
+// normal editing keys and add the discard.
+const SETTINGS_PENDING_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" },
+  { token: "↓", action: "focus-next" },
+  { token: "↵ edit", action: "open-selected" },
+  { token: "s save", action: "save-edit" },
+  { token: "c check", action: "check" },
+  { token: "x discard", action: "discard-pending" },
+  { token: "esc close", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+
+export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · esc close",
+    actions: SETTINGS_FOOTER_ACTIONS
+  },
+  {
+    text: "↑↓ · ←→ choose · ↵ next · s · c · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ choose", action: "take-next" },
+      { token: "↵ next", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ ↵ esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ↵ edit · s save · c check · esc close",
+    actions: SETTINGS_TEXT_FOOTER_ACTIONS
+  },
+  {
+    text: "↑↓ · ↵ edit · s · c · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ edit", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ↵ esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
+    actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
+  },
+  {
+    text: "↑↓ · ↵ edit · p detect · s · c · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ edit", action: "open-selected" },
+      { token: "p detect", action: "detect-context" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ↵ p esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "p", action: "detect-context" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+export const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "←→ cursor · ↵ keep row · esc cancel",
+    actions: SETTINGS_EDIT_FOOTER_ACTIONS
+  },
+  {
+    text: "←→ · ↵ keep · esc",
+    actions: [
+      { token: "←", action: "cursor-left" },
+      { token: "→", action: "cursor-right" },
+      { token: "↵ keep", action: "commit-field" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "←→ ↵ esc",
+    actions: [
+      { token: "←", action: "cursor-left" },
+      { token: "→", action: "cursor-right" },
+      { token: "↵", action: "commit-field" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ↵ edit · s save · c check · x discard · esc close",
+    actions: SETTINGS_PENDING_FOOTER_ACTIONS
+  },
+  {
+    text: "↑↓ · ↵ edit · s · c · x · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ edit", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ↵ s c x esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];

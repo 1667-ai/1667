@@ -11,7 +11,7 @@ import { boundedFactSelection, factRows, factTags, parseFactEditor } from "../sr
 import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.js";
 import { libraryRows, libraryTotals, typedTitleMatches } from "../src/library-model.js";
 import { deriveSummaryProgress, summaryStretch } from "../src/summary-model.js";
-import { promptCacheSummary } from "../src/settings-cache-summary.js";
+import { promptCacheRowValue } from "../src/settings-overlay-model.js";
 import { convertGenerationSettingsV1 } from "../../server/settings-v2-conversion.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
@@ -128,27 +128,33 @@ describe("settings text contract", () => {
 });
 
 describe("settings cache summary", () => {
-  test("keeps TTL and write premium visible inside the 50-cell panel value", () => {
+  /** The narrowest panel that shows a full-width row. An 80-cell terminal
+   * gives 68 cells of content, and the value starts 24 cells in. A longer
+   * summary than this loses its write premium to the ellipsis. */
+  const NARROWEST_VALUE_CELLS = 44;
+
+  test("keeps TTL and write premium visible in the 80-cell terminal", () => {
     const summaries = [
-      promptCacheSummary(cacheView("anthropic", "claude-sonnet-5", "auto")),
-      promptCacheSummary(cacheView("anthropic", "claude-sonnet-5", "long")),
-      promptCacheSummary(cacheView("openai-compatible", "gpt-5.6", "auto")),
-      promptCacheSummary(cacheView("openai-compatible", "gpt-5.4", "long"))
+      promptCacheRowValue(cacheView("anthropic", "claude-sonnet-5", "auto")),
+      promptCacheRowValue(cacheView("anthropic", "claude-sonnet-5", "long")),
+      promptCacheRowValue(cacheView("openai-compatible", "gpt-5.6", "auto")),
+      promptCacheRowValue(cacheView("openai-compatible", "gpt-5.4", "long"))
     ];
 
     expect(summaries).toEqual([
-      "auto · stable block · 5m · 1.25× writes",
-      "long · stable block · 1h · 2× writes",
-      "auto · breakpoints · ≥30m · 1.25× writes",
-      "long · stable key · ≤24h · no premium"
+      "‹ auto › · stable block · 5m · 1.25× writes",
+      "‹ long › · stable block · 1h · 2× writes",
+      "‹ auto › · breakpoints · ≥30m · 1.25× writes",
+      "‹ long › · stable key · ≤24h · no premium"
     ]);
-    expect(summaries.every((summary) => summary.length <= 50)).toBeTrue();
+    const widest = Math.max(...summaries.map((summary) => [...summary].length));
+    expect(widest).toBeLessThan(NARROWEST_VALUE_CELLS + 1);
   });
 
   test("derives capability from the complete unsaved route", () => {
     const view = cacheView("anthropic", "claude-sonnet-5", "auto");
     const base = settingsTextDraftForView(view);
-    const summary = promptCacheSummary(view, {
+    const summary = promptCacheRowValue(view, {
       generation: {
         ...base.generation,
         provider: "dry-run",
@@ -304,6 +310,7 @@ function cacheView(
     activeRevision: 1,
     pendingRevision: null,
     document,
-    effective: basicSettingsFromDocument(document)
+    effective: basicSettingsFromDocument(document),
+    lastActivationOutcome: null
   };
 }

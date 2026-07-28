@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { open, rename, type FileHandle } from "node:fs/promises";
+import { lstat, open, rename, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, decodeCanonicalUtf8 } from "./canonical-json.js";
 import {
@@ -15,6 +15,7 @@ import {
   syncPrivateDirectory,
   type PrivateFilePolicy
 } from "./private-file-publication.js";
+import { isErrorCode } from "./mutation-ledger-store-support.js";
 import { isLockContention, lockFile, type OsFileLock } from "./os-file-lock.js";
 import { requireSecretId } from "./settings-v2-scalars.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
@@ -29,7 +30,32 @@ const PROVIDER_SECRETS_POLICY: PrivateFilePolicy = Object.freeze({
   maxBytes: MAX_PROVIDER_SECRETS_FILE_BYTES
 });
 
+/** Reads share the writers' lock: a lockless read racing a live publication
+ * would observe its transient link counts as corruption, and the read-side
+ * recovery could discard a scratch the writer is about to publish. A missing
+ * store stays lock-free, so a secretless project directory never grows a
+ * lock file just because something looked. */
 export async function readProviderSecrets(
+  dataDir: string
+): Promise<Map<string, string>> {
+  if (!await providerSecretsFilePresent(dataDir)) return new Map();
+  return await withSecretsLock(
+    dataDir,
+    async () => await readProviderSecretsUnlocked(dataDir)
+  );
+}
+
+async function providerSecretsFilePresent(dataDir: string): Promise<boolean> {
+  try {
+    await lstat(path.join(dataDir, PROVIDER_SECRETS_FILE));
+    return true;
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
+async function readProviderSecretsUnlocked(
   dataDir: string
 ): Promise<Map<string, string>> {
   const bytes = await readOptionalPrivateFile(
@@ -60,7 +86,7 @@ export async function writeProviderSecret(
   requireSecretId(secretId, "Provider secret ID");
   const secret = validateProviderSecretValue(value);
   await withSecretsLock(dataDir, async () => {
-    const secrets = await readProviderSecrets(dataDir);
+    const secrets = await readProviderSecretsUnlocked(dataDir);
     secrets.set(secretId, secret);
     await publishProviderSecrets(dataDir, secrets);
   });
@@ -72,7 +98,7 @@ export async function deleteProviderSecret(
 ): Promise<void> {
   requireSecretId(secretId, "Provider secret ID");
   await withSecretsLock(dataDir, async () => {
-    const secrets = await readProviderSecrets(dataDir);
+    const secrets = await readProviderSecretsUnlocked(dataDir);
     if (!secrets.delete(secretId)) return;
     await publishProviderSecrets(dataDir, secrets);
   });
@@ -91,7 +117,7 @@ export async function pruneProviderSecrets(
   const current = await readProviderSecrets(dataDir);
   if ([...current.keys()].every((secretId) => keep.has(secretId))) return;
   await withSecretsLock(dataDir, async () => {
-    const secrets = await readProviderSecrets(dataDir);
+    const secrets = await readProviderSecretsUnlocked(dataDir);
     let changed = false;
     for (const secretId of secrets.keys()) {
       if (!keep.has(secretId)) {
