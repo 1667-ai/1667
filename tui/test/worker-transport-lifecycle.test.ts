@@ -76,7 +76,7 @@ describe("embedded worker transport lifecycle", () => {
     await expectRestartRequiredDisposal(backend);
   });
 
-  test("treats operation_unknown as terminal for reads and a hard fence for mutations", async () => {
+  test("keeps the worker available when it no longer retains an operation", async () => {
     const readWorker = new FakeWorker(true);
     const readBackend = await createWorkerStoryApi({ worker: readWorker, readyTimeoutMs: 100 });
     const reading = readBackend.api.listStories();
@@ -94,23 +94,57 @@ describe("embedded worker transport lifecycle", () => {
     expect(readWorker.terminateCalls).toBe(0);
     await readBackend.dispose();
 
-    const mutationWorker = new FakeWorker();
+    const dataDir = await mkdtemp(path.join(
+      tmpdir(),
+      "1667-worker-operation-unknown-"
+    ));
+    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
+    await outbox.init();
+    const warningMutationIds: string[] = [];
+    const mutationWorker = new FakeWorker(true);
     const mutationBackend = await createWorkerStoryApi({
       worker: mutationWorker,
+      outbox,
+      onRecoveryWarnings: (warnings) => {
+        warningMutationIds.push(...warnings.map(({ mutationId }) => mutationId));
+      },
       readyTimeoutMs: 100
     });
-    const mutating = mutationBackend.api.createStory("missing lifecycle");
-    const mutationRequest = await waitForRequest(mutationWorker, "createStory");
-    mutationWorker.message({
-      type: "operation",
-      id: mutationRequest.id,
-      state: "unknown",
-      terminal: true
-    });
-    expect((await rejection(mutating)).message).toContain("no longer retains");
-    expect((await mutationBackend.failure).message).toContain("no longer retains");
-    expect(mutationWorker.terminateCalls).toBe(1);
-    await expectRestartRequiredDisposal(mutationBackend);
+    try {
+      let backendFailed = false;
+      void mutationBackend.failure.then(() => { backendFailed = true; });
+      const mutating = mutationBackend.api.createStory("missing lifecycle");
+      const mutationRequest = await waitForRequest(mutationWorker, "createStory");
+      mutationWorker.message({
+        type: "operation",
+        id: mutationRequest.id,
+        state: "unknown",
+        terminal: true
+      });
+      expect((await rejection(mutating)).message).toBe(
+        "Something interrupted the last change. You can try again."
+      );
+      expect(mutationWorker.terminateCalls).toBe(0);
+      expect(backendFailed).toBeFalse();
+      expect(warningMutationIds).toEqual([mutationRequest.mutationId]);
+      expect(await outbox.list()).toEqual([]);
+      expect(await outbox.listArchived()).toHaveLength(1);
+
+      const readingAfterMutation = mutationBackend.api.listStories();
+      const readAfterMutationRequest = await waitForRequest(
+        mutationWorker,
+        "listStoriesPage"
+      );
+      mutationWorker.message({
+        type: "result",
+        id: readAfterMutationRequest.id,
+        value: { items: [], cursor: null, catalogVersion: "1" }
+      });
+      expect(await readingAfterMutation).toEqual([]);
+    } finally {
+      await mutationBackend.dispose();
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   test("cancels a live mutation before enforcing its hard deadline fence", async () => {

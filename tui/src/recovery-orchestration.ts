@@ -397,7 +397,7 @@ async function loadReconciliationTarget(
 export function recoveryNotice(warnings: readonly WorkerRecoveryWarning[]): string {
   return warnings.some(({ error }) =>
     error.code === "generation_outcome_unknown")
-    ? "last model request stopped"
+    ? "model request stopped · you can try again"
     : "interrupted change checked";
 }
 

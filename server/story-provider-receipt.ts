@@ -95,10 +95,10 @@ export function requireMatchingAcknowledgedProviderReceipt(
   }
 }
 
-export function providerOutcomeUnknown(mutationId: string): ServiceError {
+export function providerOutcomeUnknown(_mutationId: string): ServiceError {
   return new ServiceError(
     409,
-    `The model request ${mutationId} stopped before 1667 received a final result. Reload the story before you send another request.`,
+    "The model request stopped. 1667 will reload the story, and then you can try again.",
     "generation_outcome_unknown"
   );
 }

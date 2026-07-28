@@ -53,7 +53,12 @@ manual renames beat autoname, rewrites and summaries revalidate their source,
 continuations preserve a line moved by the writer, and a Stop save wins by
 generation ID. A provider failure cannot write the local story. 1667 records
 the local generation as failed and accepts more work. It does not automatically
-repeat the provider request.
+repeat the provider request. This rule also applies when the model connection
+fails after it sends response headers.
+
+The worker can report that a local result needs a saved-state check. This report
+is terminal. The TUI keeps the worker available. It archives the request,
+reloads the story, and then accepts a new request.
 
 If the backend stops before terminal publication, 1667 retains the durable
 provider-start record. At the next start, 1667 closes this record and reloads

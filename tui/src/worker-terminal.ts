@@ -61,12 +61,16 @@ async function settleOwnedWorkerTerminal(
       || isServiceOwnedSettingsMutation(pending.method))
     && message.mutationOutcome !== "terminal";
   let replayResolution: RecoveryWarning<WorkerApiError>["resolution"] | null = null;
+  let warningStoryId: string | null = null;
   const mutationId = pending.mutationId;
   const store = outbox.store;
   if (mutationId !== undefined && store !== null) {
-    if (pending.replay && uncertainMutation && message.type === "error") {
-      await outbox.run(() => store.archive(mutationId, message.failure));
+    if (uncertainMutation && message.type === "error") {
+      const archived = await outbox.run(
+        () => store.archive(mutationId, message.failure)
+      );
       replayResolution = "archived";
+      warningStoryId = storyIdFromMutationIntent(archived.intent);
     } else if (!uncertainMutation) {
       await outbox.run(() => store.remove(mutationId));
       if (pending.replay && message.type === "error") {
@@ -84,7 +88,7 @@ async function settleOwnedWorkerTerminal(
     recovery.warn({
       mutationId: pending.mutationId,
       method: pending.method,
-      storyId: storyIdFromMutationIntent(
+      storyId: warningStoryId ?? storyIdFromMutationIntent(
         recovery.recordFor(pending.mutationId)
       ),
       resolution: replayResolution
@@ -94,8 +98,26 @@ async function settleOwnedWorkerTerminal(
     pending.resolve(undefined);
     return;
   }
+  if (message.type === "error"
+    && uncertainMutation
+    && pending.mutationId !== undefined) {
+    pendingRequests.discard(message.id);
+    context.acknowledge();
+    const error = workerError(message);
+    recovery.warn({
+      mutationId: pending.mutationId,
+      method: pending.method,
+      storyId: warningStoryId,
+      resolution: replayResolution ?? "archived",
+      error
+    });
+    pending.reject(error);
+    return;
+  }
   if (uncertainMutation && message.type === "error") {
-    context.fail(workerError(message));
+    pendingRequests.discard(message.id);
+    context.acknowledge();
+    pending.reject(workerError(message));
     return;
   }
   if (!pendingRequests.isCurrent(pending)) return;

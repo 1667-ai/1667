@@ -45,7 +45,12 @@ export class OutboxRecoveryCoordinator<E extends Error> {
   private active = false;
   private readonly records = new Map<string, MutationOutboxRecord>();
 
-  constructor(private readonly replay: (record: MutationOutboxRecord) => Promise<void>) {}
+  constructor(
+    private readonly replay: (record: MutationOutboxRecord) => Promise<void>,
+    private readonly onWarning: (
+      warnings: readonly RecoveryWarning<E>[]
+    ) => void = () => undefined
+  ) {}
 
   get blocksMutations(): boolean { return this.active; }
 
@@ -63,6 +68,18 @@ export class OutboxRecoveryCoordinator<E extends Error> {
 
   warn(warning: RecoveryWarning<E>): void {
     this.warnings.push(warning);
+    try {
+      this.onWarning([warning]);
+    } catch {
+      // The warning remains available for the next recovery publication.
+    }
+  }
+
+  dismissWarning(mutationId: string): void {
+    const index = this.warnings.findIndex(
+      (warning) => warning.mutationId === mutationId
+    );
+    if (index >= 0) this.warnings.splice(index, 1);
   }
 
   recordFor(mutationId: string): MutationOutboxRecord | null {

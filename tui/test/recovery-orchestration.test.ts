@@ -877,7 +877,7 @@ describe("backend recovery orchestration", () => {
     const settled = deferred<void>();
     const repaint = () => {
       if (state.backendTask === null
-        && state.toast === "last model request stopped · state reloaded") {
+        && state.toast === "model request stopped · you can try again · state reloaded") {
         settled.resolve();
       }
     };
