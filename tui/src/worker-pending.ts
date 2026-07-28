@@ -31,7 +31,8 @@ interface OpenPendingCall {
   replay: boolean;
   stream: boolean;
   mutationId?: string;
-  durableIntent?: boolean;
+  /** Required so no call site can imply a durable intent it never wrote. */
+  durableIntent: boolean;
   onDelta?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number;
@@ -110,7 +111,7 @@ export class PendingRequestRegistry {
       method: options.method,
       replay: options.replay,
       stream: options.stream,
-      durableIntent: options.durableIntent ?? options.mutationId !== undefined,
+      durableIntent: options.durableIntent,
       cancelled: false,
       settling: false,
       expectedSequence: 0,

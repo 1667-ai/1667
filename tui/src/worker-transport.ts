@@ -184,15 +184,21 @@ export class WorkerTransport {
     const mutationId = mutating && !isServiceOwnedSettingsMutation(method)
       ? createMutationId()
       : undefined;
-    // Local durability tier: the worker commits these through one atomic
-    // manifest publish and this transport never replays them, so no durable
-    // intent is written. A crash loses at most the in-flight mutation; the
-    // pre-Q lane (no aggregate version) keeps the full intent pipeline.
-    const localTier = mutationId !== undefined
+    // Single tier decision: a fresh local mutation on a versioned aggregate
+    // gets the manifest-only marker, writes no durable intent, and is never
+    // replayed — a crash loses at most this one in-flight mutation. Every
+    // other mutation (and every outbox replay, which never carries the
+    // marker) keeps the full intent pipeline; the pre-Q lane without an
+    // aggregate version stays full-tier as well.
+    const durability = mutationId !== undefined
       && isLocalDurabilityMutation(method)
-      && options.expectedAggregateVersion !== undefined;
+      && options.expectedAggregateVersion !== undefined
+      ? "manifest-only" as const
+      : undefined;
     const outbox = this.outbox.store;
-    const intent = mutationId === undefined || localTier || outbox === null
+    const intent = mutationId === undefined
+      || durability !== undefined
+      || outbox === null
       ? undefined
       : await prepareWorkerMutationIntent({
         mutationId,
@@ -268,7 +274,8 @@ export class WorkerTransport {
           ...(mutationId === undefined ? {} : { mutationId }),
           ...(options.expectedAggregateVersion === undefined ? {} : {
             expectedAggregateVersion: options.expectedAggregateVersion
-          })
+          }),
+          ...(durability === undefined ? {} : { durability })
         });
       } catch (error) {
         const pending = this.pending.discard(registered.id);
@@ -441,6 +448,8 @@ export class WorkerTransport {
       replay: true,
       stream,
       mutationId: record.mutationId,
+      // Replays exist because the intent exists; it must settle durably.
+      durableIntent: true,
       timeoutMs: deadlineAfterMs,
       onTimeout: (id) => {
         const pending = this.pending.get(id);

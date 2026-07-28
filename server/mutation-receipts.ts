@@ -30,8 +30,9 @@ import {
 import {
   corruptMutationReceipt,
   encodeMutationResult,
-  isMutationFingerprint,
+  loadVerifiedChapterBreakRemoval,
   parseMutationReceipt,
+  requireChapterBreakRemovalFingerprint,
   requireRemovalArtifact,
   restoreMutationReceiptFailure,
   type MutationReceipt
@@ -43,8 +44,11 @@ import {
   type MutationPreflightPlan,
   type MutationRecoveryMode
 } from "./mutation-plan.js";
-import { generationOutcomeUnknown, mutationOutcomeUnknown } from "./mutation-recovery.js";
-import { mkdirDurable, requireDurableCommit, StoryDurabilityError, writeDurableAtomic } from "./story-lifecycle.js";
+import {
+  generationOutcomeUnknown,
+  unknownOutcomeFromDurabilityFailure
+} from "./mutation-recovery.js";
+import { mkdirDurable, requireDurableCommit, writeDurableAtomic } from "./story-lifecycle.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 
 const LEGACY_MUTATION_ID_PATTERN = exactStringPattern("m1-([0-9a-z]+)-([0-9a-f]{32})");
@@ -163,9 +167,7 @@ export class MutationReceiptStore {
           await this.save(receipt);
         },
         preserveChapterBreakRemoval: async (expectedFingerprint, load) => {
-          if (!isMutationFingerprint(expectedFingerprint)) {
-            throw new ServiceError(400, "Invalid chapter-break removal fingerprint");
-          }
+          requireChapterBreakRemovalFingerprint(expectedFingerprint);
           const existingArtifact = receipt.artifact;
           if (existingArtifact !== undefined) {
             if (existingArtifact.kind !== "chapter-break-removal"
@@ -176,14 +178,10 @@ export class MutationReceiptStore {
             }
             return structuredClone(existingArtifact.value);
           }
-          const value = structuredClone(await load());
-          if (chapterBreakRemovalFingerprint(value) !== expectedFingerprint) {
-            throw new ServiceError(
-              409,
-              "Chapter-break removal input no longer matches the aggregate.",
-              "conflict"
-            );
-          }
+          const value = await loadVerifiedChapterBreakRemoval(
+            expectedFingerprint,
+            load
+          );
           receipt.artifact = {
             kind: "chapter-break-removal",
             fingerprint: expectedFingerprint,
@@ -211,10 +209,9 @@ export class MutationReceiptStore {
         if (isMutationReceiptPersistenceError(error)) {
           throw error;
         }
-        if (error instanceof StoryDurabilityError) {
-          return await this.failureTerminalizer.reject(
-            mutationOutcomeUnknown({ diagnosticCause: error })
-          );
+        const durabilityLoss = unknownOutcomeFromDurabilityFailure(error);
+        if (durabilityLoss !== null) {
+          return await this.failureTerminalizer.reject(durabilityLoss);
         }
         if (receipt.state === "provider_started"
           && !isDefinitiveGenerationFailure(error)) {

@@ -4,6 +4,7 @@ import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   canonicalWorkerInputProtocolVersion,
   isCurrentWorkerInputProtocolVersion,
+  isLocalDurabilityMutation,
   isMutatingWorkerMethod,
   isWorkerMutationMethod,
   isWorkerMethod,
@@ -60,6 +61,21 @@ export function parseWorkerRequest(
           || protocolVersion === PREDECESSOR_WORKER_PROTOCOL_VERSION)))) {
     throw new ServiceError(400, "Unsupported worker request protocol version");
   }
+  if (message.durability !== undefined) {
+    if (message.durability !== "manifest-only") {
+      throw new ServiceError(400, "Worker request durability must be manifest-only when present");
+    }
+    // The marker is a caller promise that no durable replay source exists.
+    // Only a listed local mutation on a versioned aggregate may carry it;
+    // anything else fails closed into a protocol rejection.
+    if (!isLocalDurabilityMutation(message.method)
+      || message.expectedAggregateVersion === undefined) {
+      throw new ServiceError(
+        400,
+        "Manifest-only durability requires a local mutation with an expected aggregate version"
+      );
+    }
+  }
   return {
     type: "request",
     id,
@@ -70,6 +86,9 @@ export function parseWorkerRequest(
     mutationId,
     ...(message.expectedAggregateVersion === undefined ? {} : {
       expectedAggregateVersion: message.expectedAggregateVersion
+    }),
+    ...(message.durability === undefined ? {} : {
+      durability: "manifest-only" as const
     })
   };
 }

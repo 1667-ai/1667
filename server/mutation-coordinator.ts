@@ -67,20 +67,18 @@ export type SettingsMutationTarget = MutationTarget<"settings", SettingsAggregat
 
 export type StoryMutationTarget = MutationTarget<`story:${string}`, StoryAggregateVersion>;
 
-/**
- * "full" keeps the exactly-once receipt/ledger pipeline. "manifest-only" is
- * the local durability tier: the mutation commits through one atomic manifest
- * publish and records no per-mutation receipt, so a crash may lose it but can
- * never corrupt the aggregate. Only story scopes may request it.
- */
-export type MutationDurability = "full" | "manifest-only";
-
 export type MutationCoordinatorRequest<Target extends MutationTarget> = Readonly<{
   transportOperationId: string;
   mutationId: MutationId;
   fingerprint: Hash256;
-  /** Absent means "full"; only externally parsed requests normalize it. */
-  durability?: MutationDurability;
+  /**
+   * Local durability tier opt-in for story scopes: the mutation commits
+   * through one atomic manifest publish and records no per-mutation receipt,
+   * so a crash may lose it but can never corrupt the aggregate. Absent means
+   * the full exactly-once receipt/ledger pipeline; the field admits only the
+   * one literal because "full" is expressed by omission.
+   */
+  durability?: "manifest-only";
 } & Target>;
 
 export type MutationCoordinatorAdmissionRequest<Target extends MutationTarget> = Readonly<{
@@ -277,8 +275,8 @@ function parseRequest<Target extends MutationTarget>(
 function parseDurability(
   value: unknown,
   scope: string
-): MutationDurability {
-  if (value === undefined) return "full";
+): "manifest-only" | undefined {
+  if (value === undefined) return undefined;
   if (value !== "manifest-only") {
     throw invalidRequest("Mutation durability must be manifest-only when present");
   }
@@ -318,15 +316,15 @@ function parseAdmissionRecord<Target extends MutationTarget>(
 function requestWithFingerprint<Target extends MutationTarget>(
   admission: MutationCoordinatorAdmissionRequest<Target>,
   fingerprintInput: unknown,
-  durability: MutationDurability = "full"
+  durability?: "manifest-only"
 ): MutationCoordinatorRequest<Target> {
   return Object.freeze({
     transportOperationId: admission.transportOperationId,
     mutationId: admission.mutationId,
     fingerprint: fingerprintValue(fingerprintInput),
-    // "full" stays implicit so the canonical five-field record is unchanged
-    // for every caller that does not opt into the local durability tier.
-    ...(durability === "full" ? {} : { durability }),
+    // Full durability stays implicit so the canonical five-field record is
+    // unchanged for every caller outside the local durability tier.
+    ...(durability === undefined ? {} : { durability }),
     scope: admission.scope,
     expectedAggregateVersion: admission.expectedAggregateVersion
   }) as MutationCoordinatorRequest<Target>;

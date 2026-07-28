@@ -321,6 +321,14 @@ export type MainToWorkerMessage =
       deadlineMs: number;
       mutationId?: string;
       expectedAggregateVersion?: unknown;
+      /**
+       * Explicit local-durability-tier marker. The transport sets it only on
+       * a fresh call it did not record in the durable outbox, so a request
+       * that arrives without it — an outbox replay, an older build, or the
+       * HTTP path — always takes the full receipt/ledger pipeline. The tier
+       * is selected by this marker, never inferred from the method.
+       */
+      durability?: "manifest-only";
     }
   | { type: "ack"; id: WorkerOperationId; sequence: number }
   | { type: "cancel"; id: WorkerOperationId; reason: WorkerCancelReason }

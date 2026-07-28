@@ -128,15 +128,13 @@ async function executeMutation(
   let parsed:
     ReturnType<typeof parseWorkerMutation<typeof method>>
     | undefined;
-  // Local durability tier: this transport creates a fresh mutation ID per
-  // call and retains no replay source for these methods, so no receipt is
-  // needed for deduplication and the story transaction commits through one
-  // atomic manifest publish. Requests without an aggregate version take the
-  // pre-Q compatibility lane below, which still needs the receipt store.
-  if (
-    isLocalDurabilityMutation(method)
-    && message.expectedAggregateVersion !== undefined
-  ) {
+  // Local durability tier, selected by the explicit wire marker and never by
+  // method inference: the transport sets the marker only on a fresh call
+  // without a durable replay source, so an outbox replay retained by any
+  // build — which arrives without the marker — always takes the full
+  // receipt/ledger path below. `parseWorkerRequest` already rejected the
+  // marker for anything but a listed local mutation with an aggregate version.
+  if (message.durability === "manifest-only" && isLocalDurabilityMutation(method)) {
     return await executeLocalTierMutation(
       service,
       message,
