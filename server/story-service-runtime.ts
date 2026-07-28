@@ -1,4 +1,5 @@
 import path from "node:path";
+import { LifecycleRetry } from "../shared/lifecycle-retry.js";
 import type { ArchivedMutationOutboxRecord } from "./mutation-outbox.js";
 import {
   assertNoPendingMutationIntents,
@@ -26,7 +27,11 @@ import { StoryServiceGeneration } from "./story-service-generation.js";
 import { StoryServiceLocal } from "./story-service-local.js";
 import { StoryStore } from "./stories.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
-import { isProviderMutationMethod } from "./mutation-ledger-types.js";
+import {
+  isProviderMutationMethod
+} from "./mutation-ledger-types.js";
+import { MUTATION_ID_PATTERN } from "./mutation-ledger-scalars.js";
+import { isStoryId } from "./story-v5-strict.js";
 
 interface StoryServiceCommonOptions {
   /** The machine tier holding provider secrets. Absent keeps them in place. */
@@ -99,6 +104,8 @@ export abstract class StoryServiceRuntime {
   private readonly machineDir: string | undefined;
   private readonly active = new Set<AbortController>();
   private readonly activeOperations = new Set<Promise<unknown>>();
+  private readonly archivedMutationCleanup =
+    new LifecycleRetry<string>();
   private readonly generationAdmission = new GenerationAdmissionRegistry();
   private readonly promptCache = new PromptCacheRuntime();
   private readonly lifecycle = new ServiceLifecycle();
@@ -182,6 +189,7 @@ export abstract class StoryServiceRuntime {
     await this.lifecycle.dispose(async () => {
       this.cancelActive();
       try {
+        await this.archivedMutationCleanup.stop();
         await Promise.allSettled([...this.activeOperations]);
         await this.stories.waitForMaintenance();
         await this.storyCatalog.dispose();
@@ -200,22 +208,24 @@ export abstract class StoryServiceRuntime {
     storyId: string
   ): Promise<void> {
     if (this.externalMutationRecovery) return;
-    const warning = this.archivedMutationWarnings.find(
-      ({ intent }) => intent.mutationId === mutationId
-    );
-    if (warning === undefined
-      || warning.resolution.code !== "generation_outcome_unknown"
-      || !isProviderMutationMethod(warning.intent.method)
-      || storyIdFromMutationIntent(warning.intent) !== storyId) {
-      return;
-    }
+    const warning = this.archivedProviderWarning(mutationId, storyId);
+    if (warning === undefined) return;
     const outbox = new MutationOutbox(
       path.join(this.storageRoot, "mutation-outbox")
     );
-    await outbox.init();
-    await outbox.dismissArchived(mutationId);
-    this.archivedMutationWarnings = this.archivedMutationWarnings.filter(
-      ({ intent }) => intent.mutationId !== mutationId
+    await this.archivedMutationCleanup.start(
+      mutationId,
+      async () => {
+        await outbox.init();
+        await outbox.dismissArchived(mutationId);
+        this.archivedMutationWarnings =
+          this.archivedMutationWarnings.filter(
+            ({ intent }) => intent.mutationId !== mutationId
+          );
+      },
+      async () => await this.reportArchivedMutationCleanupFailure(
+        mutationId
+      )
     );
   }
 
@@ -254,6 +264,67 @@ export abstract class StoryServiceRuntime {
 
   protected ensureOpen(): void {
     this.lifecycle.assertReady();
+  }
+
+  protected archivedProviderWarning(
+    mutationId: string,
+    storyId: string
+  ): ArchivedMutationOutboxRecord | undefined {
+    return this.archivedMutationWarnings.find(
+      ({ intent, resolution }) =>
+        intent.mutationId === mutationId
+        && resolution.code === "generation_outcome_unknown"
+        && isProviderMutationMethod(intent.method)
+        && storyIdFromMutationIntent(intent) === storyId
+    );
+  }
+
+  protected async reportProviderRecoveryFailure(
+    storyId: string,
+    warningMutationId: string
+  ): Promise<void> {
+    const identifiers = [
+      ...(isStoryId(storyId) ? [`storyId=${storyId}`] : []),
+      ...(MUTATION_ID_PATTERN.test(warningMutationId)
+        ? [`warningMutationId=${warningMutationId}`]
+        : [])
+    ];
+    await this.errorReporter.report(
+      new Error([
+        "Provider fence retirement failed.",
+        ...identifiers
+      ].join(" ")),
+      {
+        service: "provider-recovery",
+        operation: "story-fence-retire"
+      }
+    );
+  }
+
+  protected async reportProviderFenceRedirect(
+    storyId: string,
+    warningMutationId: string,
+    pendingProviderMutationId: string
+  ): Promise<void> {
+    const identifiers = [
+      ...(isStoryId(storyId) ? [`storyId=${storyId}`] : []),
+      ...(MUTATION_ID_PATTERN.test(warningMutationId)
+        ? [`warningMutationId=${warningMutationId}`]
+        : []),
+      ...(MUTATION_ID_PATTERN.test(pendingProviderMutationId)
+        ? [`pendingProviderMutationId=${pendingProviderMutationId}`]
+        : [])
+    ];
+    await this.errorReporter.report(
+      new Error([
+        "Provider dispatch did not start because the story retained an older fence.",
+        ...identifiers
+      ].join(" ")),
+      {
+        service: "provider-recovery",
+        operation: "story-fence-redirect"
+      }
+    );
   }
 
   private configureStorage(storageRoot: string, displayPath: string): void {
@@ -318,6 +389,21 @@ export abstract class StoryServiceRuntime {
         error,
         { service: "mutation-receipt" }
       )
+    );
+  }
+
+  private async reportArchivedMutationCleanupFailure(
+    mutationId: string
+  ): Promise<void> {
+    await this.errorReporter.report(
+      new Error([
+        "Archived provider warning cleanup failed.",
+        `mutationId=${mutationId}`
+      ].join(" ")),
+      {
+        service: "provider-recovery",
+        operation: "warning-retire"
+      }
     );
   }
 }

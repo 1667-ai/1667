@@ -20,9 +20,16 @@ This file records notable changes to 1667. Product terms use the definitions in
   response headers. A terminal saved-state check also keeps the worker
   available. 1667 reloads the story and tells the writer to try again. 1667
   does not repeat the provider request automatically. If an older interrupted
-  request remains at startup, 1667 closes its local record and reloads the
-  story. The command palette no longer asks the writer to acknowledge an
-  unknown generation. Thanks @10fra for the report.
+  request remains, 1667 closes the record that the story identifies. A newer
+  blocked request stays replayable across a process stop. It cannot lose the
+  older record ID during a request deadline or leave that record in place.
+  1667 then reloads the story. The command palette no longer asks the writer
+  to acknowledge an unknown generation. The private log records this recovery
+  without story text, prompts, endpoints, credentials, or nested failure
+  details. 1667 retries warning cleanup in the background if the first cleanup
+  fails. The HTTP API protocol and the worker protocol increase from 7 to 8.
+  Thus, an older process cannot discard the exact recovery record. Thanks
+  @10fra for the reports.
 - **`u` now takes back an added or removed chapter break only.** It also
   reversed a take switch, and it said so on each take switch. Two keys did one
   job: `←` and `→` already walk the takes of one part. Worse, a key named undo

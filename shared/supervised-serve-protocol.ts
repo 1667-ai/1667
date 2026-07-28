@@ -11,6 +11,7 @@ import {
   isWorkerMutationMethod,
   messageByteLength
 } from "./worker-protocol.js";
+import { isDurableMutationId } from "./durable-mutation-id.js";
 import {
   MAX_CREDENTIAL_NAMES_PER_STATE,
   isCredentialEnvironmentName
@@ -244,8 +245,7 @@ function decodeDescriptor(value: unknown): HttpSupervisedOperationDescriptor {
   }
   const mutationId = descriptor.mutationId;
   if (mutationId !== null
-    && (typeof mutationId !== "string"
-      || !/^m1\.[0-9]{13}\.[0-9a-f]{32}$/.test(mutationId))) {
+    && !isDurableMutationId(mutationId)) {
     throw invalid("operation mutation ID is invalid");
   }
   if (isWorkerMutationMethod(descriptor.operation) !== (mutationId !== null)) {

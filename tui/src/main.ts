@@ -542,6 +542,9 @@ export function httpRecoveryWarning(warning: HttpRecoveryWarning) {
     mutationId: warning.mutationId,
     method: warning.method,
     storyId: warning.storyId,
+    ...(warning.providerRecovery === undefined
+      ? {}
+      : { providerRecovery: warning.providerRecovery }),
     resolution: "archived" as const,
     error: new WorkerApiError(createCompatibleHttpFailureEnvelope(
       warning,

@@ -411,7 +411,8 @@ async function retireUnknownGenerations(
     if (storyId === null) continue;
     const retire = () => source.api.acknowledgeUnknownOutcomes(
       storyId,
-      warning.mutationId
+      warning.mutationId,
+      warning.providerRecovery
     );
     await (source.backendRecovery?.runRecoveryMutation(retire) ?? retire());
   }

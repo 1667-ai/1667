@@ -184,6 +184,7 @@ async function receiveRequest(value: Record<string, unknown>): Promise<void> {
   const mutation = isWorkerMutationMethod(message.method);
   failures = failures.forParsedRequest(
     message.method,
+    message.mutationId,
     mutation ? "terminal" : undefined
   );
   if (service === null) {

@@ -9,12 +9,16 @@ import type {
   StoryPayload,
   StorySummary
 } from "../shared/types.js";
+import type {
+  ProviderRecoveryContext
+} from "../shared/provider-recovery.js";
 import {
   isServiceOwnedSettingsMutation,
   type LocalDurabilityMutationMethod,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
 import { runLocalTierMutation } from "./mutation-local-tier.js";
+import { providerRecoveryFromArchive } from "./mutation-outbox.js";
 import type { RemovedChapterBreak } from "./chapter-breaks.js";
 import { probeContextWindow } from "./context-probe.js";
 import { ServiceError } from "./errors.js";
@@ -192,16 +196,32 @@ export class StoryService extends StoryServiceRuntime {
 
   async acknowledgeUnknownOutcomes(
     storyId: string,
-    originalProviderMutationId: string,
-    mutationRequest: unknown
+    warningMutationId: string,
+    mutationRequest: unknown,
+    providerRecovery?: ProviderRecoveryContext
   ): Promise<StoryPayload | null> {
     this.ensureOpen();
+    const archived = this.archivedProviderWarning(
+      warningMutationId,
+      storyId
+    );
+    const recovery = providerRecovery
+      ?? (archived === undefined
+        ? undefined
+        : providerRecoveryFromArchive(archived));
     const committed = await this.storyMutations.runAcknowledge(
       mutationRequest,
-      originalProviderMutationId
-    );
+      warningMutationId,
+      recovery
+    ).catch(async (error: unknown) => {
+      await this.reportProviderRecoveryFailure(
+        storyId,
+        warningMutationId
+      ).catch(() => undefined);
+      throw error;
+    });
     await this.dismissArchivedMutationWarning(
-      originalProviderMutationId,
+      warningMutationId,
       storyId
     );
     return committed.story === null
@@ -214,19 +234,37 @@ export class StoryService extends StoryServiceRuntime {
 
   async getUnknownOutcomeStatus(
     storyId: string,
-    originalProviderMutationId: string
+    warningMutationId: string,
+    providerRecovery?: ProviderRecoveryContext
   ) {
     this.ensureOpen();
+    const warning = this.archivedProviderWarning(
+      warningMutationId,
+      storyId
+    );
     const status = await this.storyMutations.getUnknownOutcomeStatus(
       storyId,
-      originalProviderMutationId
+      warningMutationId,
+      providerRecovery
+        ?? (warning === undefined
+          ? undefined
+          : providerRecoveryFromArchive(warning))
     );
-    if (status.state === "resolved") {
-      await this.dismissArchivedMutationWarning(
-        originalProviderMutationId,
-        storyId
-      );
+    if (status.state === "pending") {
+      const { pendingProviderMutationId, ...publicStatus } = status;
+      if (pendingProviderMutationId !== warningMutationId) {
+        await this.reportProviderFenceRedirect(
+          storyId,
+          warningMutationId,
+          pendingProviderMutationId
+        ).catch(() => undefined);
+      }
+      return publicStatus;
     }
+    await this.dismissArchivedMutationWarning(
+      warningMutationId,
+      storyId
+    );
     return status;
   }
 

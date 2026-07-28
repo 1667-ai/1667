@@ -4,6 +4,7 @@ import type {
   WorkerOutput
 } from "../../shared/worker-protocol.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
+import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
 import { textHash, type StoryApi } from "./api.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 
@@ -64,6 +65,13 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       throw error;
     }
   };
+  const dismissArchivedMutation = async (
+    mutationId: string
+  ): Promise<void> => {
+    await transport.dismissArchivedMutation?.(
+      mutationId
+    ).catch(() => undefined);
+  };
   return {
     listStories: async () => {
       const held = new Map<string, StorySummary>();
@@ -106,13 +114,20 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         ));
       });
     },
-    acknowledgeUnknownOutcomes: async (storyId, originalProviderMutationId) => {
+    acknowledgeUnknownOutcomes: async (
+      storyId,
+      originalProviderMutationId,
+      providerRecovery
+    ) => {
       const status = await transport.call("getUnknownOutcomeStatus", {
         storyId,
-        originalProviderMutationId
+        originalProviderMutationId,
+        ...(providerRecovery === undefined
+          ? {}
+          : { providerRecovery })
       });
       if (status.state === "resolved") {
-        await transport.dismissArchivedMutation?.(originalProviderMutationId);
+        await dismissArchivedMutation(originalProviderMutationId);
         if (status.deleted) {
           versions.delete(storyId);
           return null;
@@ -122,10 +137,16 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       versions.set(storyId, status.aggregateVersion);
       const payload = await transport.call(
         "acknowledgeUnknownOutcomes",
-        { storyId, originalProviderMutationId },
+        {
+          storyId,
+          originalProviderMutationId,
+          ...(providerRecovery === undefined
+            ? {}
+            : { providerRecovery })
+        },
         { expectedAggregateVersion: status.aggregateVersion }
       );
-      await transport.dismissArchivedMutation?.(originalProviderMutationId);
+      await dismissArchivedMutation(originalProviderMutationId);
       if (payload === null) {
         versions.delete(storyId);
         return null;

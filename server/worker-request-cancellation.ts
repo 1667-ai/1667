@@ -1,5 +1,9 @@
 import type { WorkerCancelReason } from "../shared/worker-protocol.js";
-import { DiagnosticServiceError, ServiceError } from "./errors.js";
+import {
+  DiagnosticServiceError,
+  ProviderRecoveryRequiredError,
+  ServiceError
+} from "./errors.js";
 
 export interface WorkerCancellationFailure {
   readonly error: unknown;
@@ -37,6 +41,12 @@ export class WorkerRequestCancellation {
   failure(error: unknown): WorkerCancellationFailure {
     const deadlineFailure = this.deadlineFailure;
     if (deadlineFailure === null) return { error };
+    // This error proves that the current request did not reach the provider.
+    // Its target identifies an older provider request that still owns the
+    // story fence. A deadline must not replace that recovery identity.
+    if (error instanceof ProviderRecoveryRequiredError) {
+      return { error };
+    }
     if (isExpectedDeadlineCancellation(
       error,
       deadlineFailure,

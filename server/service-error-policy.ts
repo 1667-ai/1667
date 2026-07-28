@@ -7,6 +7,7 @@ import type { DiagnosticReference } from "../shared/diagnostic-reference.js";
 import {
   DiagnosticServiceError,
   ProviderError,
+  ProviderRecoveryRequiredError,
   PublicRuntimeError,
   ServiceError,
   type ServiceErrorCode
@@ -119,6 +120,10 @@ function privateDiagnosticSelection(
   classified = classifyServiceError(error)
 ): PrivateDiagnosticSelection {
   if (error instanceof DiagnosticServiceError) {
+    return { kind: "present", error: error.diagnosticCause };
+  }
+  if (error instanceof ProviderRecoveryRequiredError
+    && error.hasDiagnosticCause) {
     return { kind: "present", error: error.diagnosticCause };
   }
   return classified.exposure === "private"

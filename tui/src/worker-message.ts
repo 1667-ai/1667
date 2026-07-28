@@ -5,6 +5,9 @@ import {
   type WorkerOperationState,
   type WorkerToMainMessage
 } from "../../shared/worker-protocol.js";
+import {
+  isProviderMutationId
+} from "../../shared/provider-recovery.js";
 import { parseBuildIdentity } from "../../shared/build-identity.js";
 import { decodeFailureEnvelope } from "../../shared/failure-envelope.js";
 
@@ -137,13 +140,16 @@ function decodeErrorMessage(
   if (!hasExactKeys(
     message,
     ["type", "id", "failure"],
-    ["mutationOutcome"]
+    ["mutationOutcome", "providerMutationId"]
   )) return null;
   const id = decodeOperationId(message.id);
   const failure = decodeFailureEnvelope(message.failure);
   const outcome = message.mutationOutcome;
+  const providerMutationId = message.providerMutationId;
   if (id === null
     || failure === null
+    || (providerMutationId !== undefined
+      && !isProviderMutationId(providerMutationId))
     || (outcome !== undefined
       && outcome !== "terminal"
       && outcome !== "uncertain")) {
@@ -153,6 +159,9 @@ function decodeErrorMessage(
     type: "error",
     id,
     failure,
+    ...(providerMutationId === undefined
+      ? {}
+      : { providerMutationId }),
     ...(outcome === undefined ? {} : { mutationOutcome: outcome })
   });
 }

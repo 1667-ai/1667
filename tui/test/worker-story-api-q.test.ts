@@ -108,13 +108,24 @@ test("a provider failure invalidates the held Q revision", async () => {
 
 test("deleted unknown outcomes use status revision and retire their archive", async () => {
   const dismissed: string[] = [];
+  let acknowledgedProviderMutationId: unknown;
   let acknowledgementVersion: unknown;
-  const mutationId = "m1.1767225600000.0123456789abcdef0123456789abcdef";
+  const providerRecovery = {
+    kind: "target" as const,
+    providerMutationId:
+      "m1.1767225600001.1123456789abcdef0123456789abcdef"
+  };
+  const recoveryVersions: unknown[] = [];
+  const warningMutationId = "m1.1767225600000.0123456789abcdef0123456789abcdef";
   const api = storyApiFromWorkerTransport({
-    call: async (method: string, _input: unknown, options?: {
+    call: async (method: string, input: unknown, options?: {
       expectedAggregateVersion?: unknown;
     }) => {
       if (method === "getUnknownOutcomeStatus") {
+        recoveryVersions.push(
+          (input as { providerRecovery?: unknown })
+            .providerRecovery
+        );
         return {
           state: "pending",
           deleted: true,
@@ -125,6 +136,13 @@ test("deleted unknown outcomes use status revision and retire their archive", as
         };
       }
       if (method === "acknowledgeUnknownOutcomes") {
+        recoveryVersions.push(
+          (input as { providerRecovery?: unknown })
+            .providerRecovery
+        );
+        acknowledgedProviderMutationId =
+          (input as { originalProviderMutationId: unknown })
+            .originalProviderMutationId;
         acknowledgementVersion = options?.expectedAggregateVersion;
         return null;
       }
@@ -133,13 +151,24 @@ test("deleted unknown outcomes use status revision and retire their archive", as
     dismissArchivedMutation: async (id: string) => { dismissed.push(id); }
   } as never);
 
-  expect(await api.acknowledgeUnknownOutcomes("deleted-story", mutationId))
+  expect(await api.acknowledgeUnknownOutcomes(
+    "deleted-story",
+    warningMutationId,
+    providerRecovery
+  ))
     .toBe(null);
+  expect(acknowledgedProviderMutationId).toBe(
+    warningMutationId
+  );
   expect(acknowledgementVersion).toEqual({
     kind: "v6",
     revision: "00000000000000000007"
   });
-  expect(dismissed).toEqual([mutationId]);
+  expect(recoveryVersions).toEqual([
+    providerRecovery,
+    providerRecovery
+  ]);
+  expect(dismissed).toEqual([warningMutationId]);
 });
 
 test("restart reconciliation dismisses an already resolved archive without a second mutation", async () => {
@@ -161,6 +190,42 @@ test("restart reconciliation dismisses an already resolved archive without a sec
     .toBe(null);
   expect(mutations).toBe(0);
   expect(dismissed).toEqual([mutationId]);
+});
+
+test("archive cleanup failure cannot replace a committed acknowledgement", async () => {
+  const source = demoAppSource();
+  const payload = {
+    ...structuredClone(source.payload),
+    id: "recovered-story",
+    aggregateVersion: {
+      kind: "v6" as const,
+      revision: "00000000000000000008" as const
+    }
+  };
+  const mutationId =
+    "m1.1767225600000.2123456789abcdef0123456789abcdef";
+  const api = storyApiFromWorkerTransport({
+    call: async (method: string) => {
+      if (method === "getUnknownOutcomeStatus") {
+        return {
+          state: "pending",
+          deleted: false,
+          aggregateVersion: {
+            kind: "v6",
+            revision: "00000000000000000007"
+          }
+        };
+      }
+      if (method === "acknowledgeUnknownOutcomes") return payload;
+      throw new Error(`Unexpected method: ${method}`);
+    },
+    dismissArchivedMutation: async () => {
+      throw new Error("Injected archive cleanup failure");
+    }
+  } as never);
+
+  expect(await api.acknowledgeUnknownOutcomes(payload.id, mutationId))
+    .toEqual(payload);
 });
 
 test("chapter removal sends the bounded preview fingerprint and exact version", async () => {

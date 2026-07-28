@@ -8,6 +8,7 @@ import {
   MUTATION_INPUT_PROTOCOL_VERSION,
   MUTATION_ID_RETRY_WINDOW_MS,
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
+  PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
   PRE_Q_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
@@ -18,6 +19,7 @@ import {
   DurableMutationResultError,
   GenerationResultError,
   ProviderError,
+  ProviderRecoveryRequiredError,
   ServiceError
 } from "../server/errors.js";
 import { chapterBreakRemovalFingerprint } from "../server/chapter-breaks.js";
@@ -58,17 +60,30 @@ class MutationReceiptStore extends ProductionMutationReceiptStore {
   }
 }
 
-test("response-only worker upgrades preserve mutation identity", () => {
+test("provider recovery starts a new mutation input identity", () => {
   const input = { id: "story", title: "Stable" };
 
   assert.equal(
+    mutationFingerprint(
+      "renameStory",
+      input,
+      PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION
+    ),
+    mutationFingerprint(
+      "renameStory",
+      input,
+      PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
+    )
+  );
+  assert.notEqual(
     mutationFingerprint("renameStory", input, WORKER_PROTOCOL_VERSION),
     mutationFingerprint(
       "renameStory",
       input,
-      MUTATION_INPUT_PROTOCOL_VERSION
+      PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION
     )
   );
+  assert.equal(MUTATION_INPUT_PROTOCOL_VERSION, WORKER_PROTOCOL_VERSION);
 });
 
 test("predecessor chapter removal intents retain their receipt identity", () => {
@@ -182,7 +197,7 @@ test("completed mutation receipts survive restart and reject changed input", asy
   assert.deepEqual(await restarted.run(mutationId, "renameStory", input, async () => {
     calls += 1;
     return storyPayload("story", "Wrong");
-  }, undefined, () => {
+  }, PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION, () => {
     preflights += 1;
     throw new Error("completed receipts resolve before compatibility preflight");
   }), payload);
@@ -193,7 +208,8 @@ test("completed mutation receipts survive restart and reject changed input", asy
       mutationId,
       "renameStory",
       { id: "story", title: "Different" },
-      async () => storyPayload("story", "Different")
+      async () => storyPayload("story", "Different"),
+      PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
     ),
     hasCode("idempotency_conflict")
   );
@@ -458,7 +474,7 @@ test("provider admission stays ambiguous while pre-provider work resumes idempot
       await execution.providerStarted();
       return "not reached";
     }, LEGACY_WORKER_PROTOCOL_VERSION),
-    hasCode("generation_outcome_unknown")
+    hasProviderRecoveryTarget(providerId)
   );
 
   const pendingId = currentMutationId("4");
@@ -485,12 +501,42 @@ test("provider ambiguity survives a worker protocol upgrade", async (t) => {
       await execution.providerStarted();
       return "must not call provider";
     }),
-    hasCode("generation_outcome_unknown")
+    hasProviderRecoveryTarget(mutationId)
   );
   await assert.rejects(
     store.run(mutationId, "autonameStory", { id: "changed" }, async () => "must not run"),
-    hasCode("generation_outcome_unknown")
+    hasProviderRecoveryTarget(mutationId)
   );
+});
+
+test("unknown post-provider failures retain their recovery target", async (t) => {
+  const dir = await mkdtemp(path.join(
+    tmpdir(),
+    "1667-mutation-provider-unknown-"
+  ));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = new MutationReceiptStore(
+    dir,
+    async () => { throw new Error("unused"); }
+  );
+  await store.init();
+  const mutationId = currentMutationId("32");
+  let calls = 0;
+  const work = async (execution: { providerStarted(): Promise<void> }) => {
+    await execution.providerStarted();
+    calls += 1;
+    throw new Error("Injected failure after provider admission");
+  };
+
+  await assert.rejects(
+    store.run(mutationId, "autonameStory", { id: "story" }, work),
+    hasProviderRecoveryTarget(mutationId)
+  );
+  await assert.rejects(
+    store.run(mutationId, "autonameStory", { id: "story" }, work),
+    hasProviderRecoveryTarget(mutationId)
+  );
+  assert.equal(calls, 1);
 });
 
 test("provider-started receipts can reconcile a known committed result", async (t) => {
@@ -803,6 +849,14 @@ function mutationIdAt(timestamp: number, suffix: string): string {
 
 function hasCode(code: string): (error: unknown) => boolean {
   return (error) => error instanceof ServiceError && error.code === code;
+}
+
+function hasProviderRecoveryTarget(
+  providerMutationId: string
+): (error: unknown) => boolean {
+  return (error) =>
+    error instanceof ProviderRecoveryRequiredError
+    && error.providerMutationId === providerMutationId;
 }
 
 async function writeReceipt(

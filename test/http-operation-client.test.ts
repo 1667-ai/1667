@@ -224,8 +224,14 @@ test("operation admission errors preserve internal diagnostic references", async
 
 test("operation sessions preserve recovery diagnostic references", async () => {
   const diagnosticRef = "err_deadbeefdeadbeefdeadbeef";
+  const providerRecovery = {
+    kind: "target" as const,
+    providerMutationId:
+      "m1.1767225600001.1123456789abcdef0123456789abcdef"
+  };
   let recoveredReference: string | undefined;
   let recoveredCode: string | undefined;
+  let recoveredProviderContext: unknown;
   const fetch = operationFixture(async (pathname, init) => {
     if (pathname === "/api/operations/status") return terminalStatus(init);
     return Response.json({ ok: true });
@@ -236,6 +242,7 @@ test("operation sessions preserve recovery diagnostic references", async () => {
     code: "future_warning",
     message: "Future compatible warning",
     status: 500,
+    providerRecovery,
     diagnosticRef
   }]);
   const client = operationClient(
@@ -248,6 +255,7 @@ test("operation sessions preserve recovery diagnostic references", async () => {
         ? undefined
         : warning.diagnosticRef;
       recoveredCode = warning?.code;
+      recoveredProviderContext = warning?.providerRecovery;
     }
   );
 
@@ -260,6 +268,10 @@ test("operation sessions preserve recovery diagnostic references", async () => {
 
   assert.equal(recoveredReference, diagnosticRef);
   assert.equal(recoveredCode, "future_warning");
+  assert.deepEqual(
+    recoveredProviderContext,
+    providerRecovery
+  );
 });
 
 test("operation-session creation stops when its only caller cancels", async () => {

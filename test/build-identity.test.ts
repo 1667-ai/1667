@@ -23,15 +23,13 @@ const packaged = createPackagedBuildIdentity(packagedInput);
 
 test("source identity is explicit and cannot masquerade as a packaged build", () => {
   // Pinned on purpose, so the advertised version and the wire shape can only
-  // move together. v7 added `lastActivationOutcome` to the settings view and
-  // `activationOutcome` to the settings mutation result; a v6 client decodes
-  // both with closed records, so it has to be refused at preflight rather
-  // than negotiate a session and then fail to decode. Change this only
-  // alongside the wire change that earns it.
+  // move together. v8 added exact provider recovery to warnings and
+  // acknowledgement inputs. An older peer must fail at preflight instead of
+  // losing the provider target.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    7,
-    "operation-session reservation requires HTTP API v7"
+    8,
+    "exact provider recovery requires HTTP API v8"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

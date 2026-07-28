@@ -14,6 +14,12 @@ import {
   ProviderError,
   ServiceError
 } from "./errors.js";
+import {
+  parseStoryAggregateVersion
+} from "../shared/story-aggregate-version.js";
+import {
+  isProviderRecoveryContext
+} from "../shared/provider-recovery.js";
 import { mutationFingerprint } from "./mutation-receipts.js";
 import { toPublicServiceError } from "./service-error-policy.js";
 import { StoryService } from "./story-service.js";
@@ -257,7 +263,10 @@ async function invokeReadOnly(
         requireString(
           input.originalProviderMutationId,
           "originalProviderMutationId"
-        )
+        ),
+        input.providerRecovery === undefined
+          ? undefined
+          : requireProviderRecoveryContext(input.providerRecovery)
       );
     case "previewChapterBreakRemoval": {
       const preview = await service.previewChapterBreakRemoval(
@@ -310,4 +319,11 @@ function mutationOutcome(error: unknown): "terminal" | "uncertain" {
     return error.code === "internal" ? "uncertain" : "terminal";
   }
   return "uncertain";
+}
+
+function requireProviderRecoveryContext(value: unknown) {
+  if (!isProviderRecoveryContext(value)) {
+    throw new ServiceError(400, "providerRecovery is invalid");
+  }
+  return value;
 }

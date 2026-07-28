@@ -382,6 +382,7 @@ test("mixed local/provider sequence recovers at every crash boundary", async (t)
     await fixture.mutations.getUnknownOutcomeStatus(STORY_ID, THIRD_MUTATION_ID),
     {
       state: "pending",
+      pendingProviderMutationId: THIRD_MUTATION_ID,
       deleted: false,
       aggregateVersion: { kind: "v6", revision: "00000000000000000003" }
     }

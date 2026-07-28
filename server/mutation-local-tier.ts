@@ -36,6 +36,9 @@ export async function runLocalTierMutation<
     providerStarted: () => {
       throw localTierViolation(method, "a provider start");
     },
+    providerRecoveryRequired: () => {
+      throw localTierViolation(method, "provider recovery");
+    },
     preserveChapterBreakRemoval: loadVerifiedChapterBreakRemoval
   });
   try {

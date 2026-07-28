@@ -1,5 +1,8 @@
 import type { WorkerMethod } from "../../shared/worker-protocol.js";
 import type {
+  ProviderRecoveryContext
+} from "../../shared/provider-recovery.js";
+import type {
   ArchivedMutationOutboxRecord,
   MutationOutbox,
   MutationOutboxRecord
@@ -10,6 +13,7 @@ export interface RecoveryWarning<E extends Error> {
   mutationId: string;
   method: WorkerMethod;
   storyId: string | null;
+  providerRecovery?: ProviderRecoveryContext;
   resolution: "archived" | "cleared";
   error: E;
 }
@@ -20,6 +24,7 @@ export async function loadWorkerRecoveryOutbox(
 ): Promise<{
   recoveryRecords: MutationOutboxRecord[];
   archivedRecords: ArchivedMutationOutboxRecord[];
+  deferredArchiveMutationIds: string[];
 }> {
   for (const mutationId of await outbox.run(() => store.listCancellationMarkers())) {
     await outbox.run(() => store.remove(mutationId));
@@ -32,9 +37,23 @@ export async function loadWorkerRecoveryOutbox(
   for (const record of cancelledRecords) {
     await outbox.run(() => store.remove(record.mutationId));
   }
+  const recoveryRecords = await outbox.run(() =>
+    store.retireExactlyArchivedIntents(
+      records.filter((record) => record.cancelledAt === undefined),
+      archivedRecords
+    )
+  );
+  const recoveryIds = new Set(
+    recoveryRecords.map(({ mutationId }) => mutationId)
+  );
   return {
-    recoveryRecords: records.filter((record) => record.cancelledAt === undefined),
-    archivedRecords
+    recoveryRecords,
+    archivedRecords: archivedRecords.filter(
+      ({ intent }) => !recoveryIds.has(intent.mutationId)
+    ),
+    deferredArchiveMutationIds: archivedRecords
+      .filter(({ intent }) => recoveryIds.has(intent.mutationId))
+      .map(({ intent }) => intent.mutationId)
   };
 }
 

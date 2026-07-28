@@ -2,7 +2,13 @@ import {
   isServiceOwnedSettingsMutation,
   type WorkerToMainMessage
 } from "../../shared/worker-protocol.js";
-import { storyIdFromMutationIntent } from "../../server/mutation-outbox.js";
+import type {
+  ProviderRecoveryContext
+} from "../../shared/provider-recovery.js";
+import {
+  providerRecoveryFromArchive,
+  storyIdFromMutationIntent
+} from "../../server/mutation-outbox.js";
 import {
   WorkerApiError,
   workerApiErrorFromFailure
@@ -62,17 +68,21 @@ async function settleOwnedWorkerTerminal(
     && message.mutationOutcome !== "terminal";
   let replayResolution: RecoveryWarning<WorkerApiError>["resolution"] | null = null;
   let warningStoryId: string | null = null;
+  let providerRecovery: ProviderRecoveryContext | undefined;
   const mutationId = pending.mutationId;
   const store = outbox.store;
   // Local-durability-tier mutations publish no intent, so there is nothing
   // durable to remove or archive here. Terminal recovery below still runs.
   if (mutationId !== undefined && store !== null && pending.durableIntent) {
     if (uncertainMutation && message.type === "error") {
-      const archived = await outbox.run(
-        () => store.archive(mutationId, message.failure)
-      );
+      const archived = await outbox.run(() => store.archive(
+        mutationId,
+        message.failure,
+        message.providerMutationId
+      ));
       replayResolution = "archived";
       warningStoryId = storyIdFromMutationIntent(archived.intent);
+      providerRecovery = providerRecoveryFromArchive(archived);
     } else if (!uncertainMutation) {
       await outbox.run(() => store.remove(mutationId));
       if (pending.replay && message.type === "error") {
@@ -87,12 +97,16 @@ async function settleOwnedWorkerTerminal(
     pendingRequests.discard(message.id);
     context.acknowledge();
     const error = workerError(message);
+    const replayRecord = recovery.recordFor(pending.mutationId);
     recovery.warn({
       mutationId: pending.mutationId,
       method: pending.method,
       storyId: warningStoryId ?? storyIdFromMutationIntent(
-        recovery.recordFor(pending.mutationId)
+        replayRecord
       ),
+      ...(providerRecovery === undefined
+        ? {}
+        : { providerRecovery }),
       resolution: replayResolution
         ?? (uncertainMutation ? "archived" : "cleared"),
       error
@@ -110,6 +124,9 @@ async function settleOwnedWorkerTerminal(
       mutationId: pending.mutationId,
       method: pending.method,
       storyId: warningStoryId,
+      ...(providerRecovery === undefined
+        ? {}
+        : { providerRecovery }),
       resolution: replayResolution ?? "archived",
       error
     });

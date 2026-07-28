@@ -606,7 +606,7 @@ describe("embedded backend worker", () => {
     await service.dispose();
 
     const timestamp = Date.now().toString(36);
-    const uncertainId = `m1-${timestamp}-${"3".padStart(32, "0")}`;
+    const uncertainId = createDurableMutationId();
     const uncertainInput = { id: story.id, expectedTitle: story.title };
     await writeFile(path.join(dataDir, "mutation-receipts", `${uncertainId}.json`), `${JSON.stringify({
       format: "1667-mutation",
@@ -638,8 +638,13 @@ describe("embedded backend worker", () => {
         "utf8"
       ))).toMatchObject({
         format: "1667-mutation-outbox-archive",
+        schemaVersion: 2,
         intent: { mutationId: uncertainId, method: "autonameStory" },
-        resolution: { code: "generation_outcome_unknown" }
+        resolution: { code: "generation_outcome_unknown" },
+        providerRecovery: {
+          kind: "target",
+          providerMutationId: uncertainId
+        }
       });
     } finally {
       await backend.dispose();

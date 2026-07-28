@@ -2,6 +2,7 @@ import {
   GenerationResultError,
   isTerminalGenerationFailure,
   ProviderError,
+  ProviderRecoveryRequiredError,
   ServiceError
 } from "./errors.js";
 import type {
@@ -95,12 +96,10 @@ export function requireMatchingAcknowledgedProviderReceipt(
   }
 }
 
-export function providerOutcomeUnknown(_mutationId: string): ServiceError {
-  return new ServiceError(
-    409,
-    "The model request stopped. 1667 will reload the story, and then you can try again.",
-    "generation_outcome_unknown"
-  );
+export function providerOutcomeUnknown(
+  mutationId: string
+): ProviderRecoveryRequiredError {
+  return new ProviderRecoveryRequiredError(mutationId);
 }
 
 export function providerOutcomeAcknowledged(mutationId: string): ServiceError {

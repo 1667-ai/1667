@@ -1,4 +1,5 @@
 import type { FailureCode } from "../shared/failure-envelope.js";
+import { isDurableMutationId } from "../shared/durable-mutation-id.js";
 
 export type ServiceErrorCode = FailureCode;
 
@@ -70,6 +71,43 @@ export class GenerationResultError extends ServiceError {
     );
     this.name = "GenerationResultError";
   }
+}
+
+/** A provider warning that identifies the durable provider request which the
+ * recovery owner must close. The public message does not expose this ID. */
+export class ProviderRecoveryRequiredError extends ServiceError {
+  constructor(
+    readonly providerMutationId: string,
+    options: { readonly diagnostic?: boolean } = {}
+  ) {
+    super(
+      409,
+      "The model request stopped. You can try again.",
+      "generation_outcome_unknown",
+      options.diagnostic === true
+        ? { cause: providerRecoveryDiagnostic(providerMutationId) }
+        : {}
+    );
+    this.name = "ProviderRecoveryRequiredError";
+    this.hasDiagnosticCause = options.diagnostic === true;
+    this.diagnosticCause = this.cause;
+  }
+
+  readonly hasDiagnosticCause: boolean;
+  readonly diagnosticCause: unknown;
+}
+
+function providerRecoveryDiagnostic(
+  providerMutationId: string
+): Error {
+  const error = new Error([
+    "Provider request outcome is unknown.",
+    ...(isDurableMutationId(providerMutationId)
+      ? [`providerMutationId=${providerMutationId}`]
+      : [])
+  ].join(" "));
+  error.name = "ProviderRecoveryDiagnostic";
+  return error;
 }
 
 /** A durable mutation receipt already proved this provider-class outcome

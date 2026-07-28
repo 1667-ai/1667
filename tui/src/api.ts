@@ -63,6 +63,7 @@ import {
 import { isWorkerMutationMethod } from "../../shared/worker-protocol.js";
 import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
+import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { HttpStoryVersions } from "./http-story-versions.js";
@@ -105,7 +106,8 @@ export interface StoryApi {
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
-    originalProviderMutationId: string
+    originalProviderMutationId: string,
+    providerRecovery?: ProviderRecoveryContext
   ): Promise<StoryPayload | null>;
   deleteStory(id: string): Promise<{ ok: true }>;
   exportMarkdown(id: string): Promise<string>;

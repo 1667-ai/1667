@@ -1,4 +1,7 @@
 import type { Story } from "../shared/types.js";
+import type {
+  ProviderRecoveryContext
+} from "../shared/provider-recovery.js";
 import {
   LOCAL_DURABILITY_MUTATION_METHODS,
   type LocalDurabilityMutationMethod
@@ -7,6 +10,7 @@ import { ServiceError } from "./errors.js";
 import type {
   MutationCoordinator,
   MutationCoordinatorRequest,
+  StoryAggregateVersion,
   StoryMutationTarget
 } from "./mutation-coordinator.js";
 import {
@@ -148,11 +152,15 @@ export class StoryMutationStore {
 
   async getUnknownOutcomeStatus(
     storyId: string,
-    originalProviderMutationId: MutationId
+    warningMutationId: MutationId,
+    providerRecovery?: ProviderRecoveryContext
   ) {
     return await this.unknownOutcomes.status(
       storyId,
-      originalProviderMutationId
+      {
+        mutationId: warningMutationId,
+        recovery: providerRecovery
+      }
     );
   }
 
@@ -431,11 +439,15 @@ export class StoryMutationStore {
 
   async runAcknowledge(
     input: unknown,
-    originalProviderMutationId: MutationId
+    warningMutationId: MutationId,
+    providerRecovery?: ProviderRecoveryContext
   ): Promise<StoryAcknowledgementCommit> {
     return await this.unknownOutcomes.run(
       input,
-      originalProviderMutationId
+      {
+        mutationId: warningMutationId,
+        recovery: providerRecovery
+      }
     );
   }
 }
