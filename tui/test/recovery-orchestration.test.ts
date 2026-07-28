@@ -932,7 +932,7 @@ describe("backend recovery orchestration", () => {
 
     feed.publish([], true);
     await entered.promise;
-    state.undo = [{ kind: "switch", leafId: "p13", nodeId: focusId }];
+    state.undo = [{ kind: "create-break", breakId: "chapter-break-1" }];
     state.prune = {
       kind: "subtree", nodeId: "p13", part: 13, take: 1,
       takeCount: 1, parts: 1, lines: 1, tags: []
@@ -1009,7 +1009,7 @@ describe("backend recovery orchestration", () => {
       choosingStatus: true, existing: false, returnMode: "NAV" as const
     };
     const rename = { breakId: "chapter-break-1", value: "typed chapter title" };
-    state.undo = [{ kind: "switch", leafId: "p13", nodeId: "p12" }];
+    state.undo = [{ kind: "create-break", breakId: "chapter-break-1" }];
     state.prune = prune;
     state.tag = tag;
     state.mode = "TAG";

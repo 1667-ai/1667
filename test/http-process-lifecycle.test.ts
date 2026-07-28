@@ -40,11 +40,20 @@ test("process lifecycle correlates readiness publication failures", async (t) =>
   );
   const root = new Error("run-record publication failed");
   let reference: string | null = null;
+  const reporter = await InternalErrorReporter.open(stateRoot);
+  const report = reporter.report.bind(reporter);
+  Object.defineProperty(reporter, "report", {
+    value: async (...args: Parameters<InternalErrorReporter["report"]>) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return await report(...args);
+    }
+  });
 
   const listener = await startHttpListener({
     port: 0,
     dataDir,
-    authStore: { stateRoot }
+    authStore: { stateRoot },
+    errorReporterLease: new InternalErrorReporterLease(reporter)
   });
   await assert.rejects(
     runHttpListenerUntilSignal(

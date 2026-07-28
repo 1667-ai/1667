@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`u` now takes back an added or removed chapter break only.** It also
+  reversed a take switch, and it said so on each take switch. Two keys did one
+  job: `←` and `→` already walk the takes of one part. Worse, a key named undo
+  that answers a navigation key implies that it can answer a destructive one. It
+  cannot: `d` prunes takes and their children, and nothing brings them back. `u`
+  now reaches an added or removed chapter break, which includes the summary of a
+  removed break. It does not reach a chapter rename, a summary edit, or any
+  prose. The take-switch message no longer names it. Thanks @10fra for the
+  report.
 - **A fresh install now opens with facts.** The tour carries five facts about
   the instrument. "A Door in the Hedge" carries four facts about its own world.
   The facts overlay no longer opens empty at the point where the tour tells you

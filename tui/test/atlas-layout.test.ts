@@ -449,7 +449,7 @@ describe("atlas layout model", () => {
     expect(ids.indexOf("continued-leaf")).toBeLessThan(ids.indexOf("older-sketch"));
   });
   test("a line stopped before its structural child still owns a row", () => {
-    // `u` (undo take switch) and stopping a generation both switch with
+    // Stopping a generation and summarising both switch with
     // stopAtNode, leaving the line on a node that still has a child. Collapsing
     // that node into the run erased the reader's position from the map.
     const payload = createDemoController().switchTo("p12", { stopAtNode: true });

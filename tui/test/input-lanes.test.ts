@@ -86,7 +86,6 @@ describe("responsive input lanes", () => {
     expect(state.focusIndex).toBe(0);
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("x");
-    expect(state.undo).toHaveLength(1);
     expect(state.backendTask).toBe(null);
   });
 
