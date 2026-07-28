@@ -125,9 +125,9 @@ test("completion tags exclude the candidate and impose strict release order", ()
   );
 });
 
-test("npm publication remains structurally blocked until the SBOM boundary changes", () => {
+test("npm publication remains blocked after the SBOM boundary change", () => {
   assert.equal(NPM_PUBLICATION_READY, false);
-  assert.throws(() => requireNpmPublicationReady(), /SBOM generation/u);
+  assert.throws(() => requireNpmPublicationReady(), /prepublication release controls/u);
 });
 
 test("verify mode does not require GitHub publication authority", () => {

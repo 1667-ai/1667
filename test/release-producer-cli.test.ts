@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
   PUBLISHED_PACKAGE_COUNT,
+  RELEASE_LAUNCHER_PACKAGE,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import { npmPackInvocationFromEnvironment } from "../scripts/release-pack.js";
@@ -20,6 +21,24 @@ const FACTS = Object.freeze({
   version: "0.1.0-rc.1",
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-28T10:20:30.000Z"
+});
+
+test("the SBOM command rejects a version that does not describe the checkout", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    "tsx",
+    "scripts/release-sbom.ts",
+    "9.9.9",
+    FACTS.sourceCommit,
+    FACTS.buildTimestamp,
+    RELEASE_LAUNCHER_PACKAGE
+  ], {
+    cwd: REPOSITORY_ROOT,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Release root version does not match 9\.9\.9/u);
 });
 
 test("the npm stage and pack commands produce the complete matrix", async (t) => {

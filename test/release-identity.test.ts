@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BUILT_ARTIFACT_TARGETS } from "../shared/build-identity.js";
-import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import {
+  assertReleasePackageVersions,
+  createReleaseIdentitySet,
+  type ReleasePackageVersions
+} from "../scripts/release-identity.js";
 
 const evidence = {
   schemaVersion: 1,
@@ -20,6 +24,23 @@ const evidence = {
     rootLockPackage: "1.2.3-beta.1"
   }
 } as const;
+
+for (const field of [
+  "root",
+  "tui",
+  "rootLock",
+  "rootLockPackage"
+] satisfies readonly (keyof ReleasePackageVersions)[]) {
+  test(`release package version gate rejects ${field} drift`, () => {
+    assert.throws(
+      () => assertReleasePackageVersions(evidence.productVersion, {
+        ...evidence.packageVersions,
+        [field]: "1.2.4"
+      }),
+      new RegExp(`Release ${field} version does not match`, "u")
+    );
+  });
+}
 
 test("signed clean tag evidence produces one immutable release identity per target", () => {
   const release = createReleaseIdentitySet(evidence);

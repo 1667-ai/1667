@@ -13,7 +13,6 @@ import {
   releaseTargetForArtifact,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
-import { createReleaseIdentitySet } from "../scripts/release-identity.js";
 import {
   createReleaseLauncherManifest,
   RELEASE_LICENSE_FILE_DIGESTS
@@ -31,6 +30,7 @@ import {
   type ReleaseComponentSources
 } from "../scripts/release-sbom-components.js";
 import {
+  launcherSbomDocument,
   platformSbomDocument,
   spdxTimestamp,
   type SpdxDocument,
@@ -42,6 +42,10 @@ import {
   type ReleaseSbom
 } from "../scripts/release-sbom.js";
 import {
+  createReleaseSbomSource,
+  type ReleaseSbomSource
+} from "../scripts/release-sbom-source.js";
+import {
   createSpdxValidator,
   loadSpdxSchema,
   SPDX_SCHEMA_SHA256,
@@ -52,22 +56,11 @@ const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
 
-const identities = createReleaseIdentitySet({
-  schemaVersion: 1,
+const source = createReleaseSbomSource({
   productVersion: "3.0.0",
   sourceCommit: SOURCE_COMMIT,
-  sourceDirty: false,
   tagName: "v3.0.0",
-  tagObjectType: "annotated",
-  tagSignature: "verified",
-  tagTargetCommit: SOURCE_COMMIT,
-  buildTimestamp: BUILD_TIMESTAMP,
-  packageVersions: {
-    root: "3.0.0",
-    tui: "3.0.0",
-    rootLock: "3.0.0",
-    rootLockPackage: "3.0.0"
-  }
+  buildTimestamp: BUILD_TIMESTAMP
 });
 
 /** The real repository lockfiles: the only two dependency sources involved. */
@@ -123,8 +116,8 @@ function relationshipExists(
 }
 
 test("release SBOM generation is byte-for-byte deterministic", () => {
-  const first = createReleaseSboms(identities, repositorySources());
-  const second = createReleaseSboms(identities, repositorySources());
+  const first = createReleaseSboms(source, repositorySources());
+  const second = createReleaseSboms(source, repositorySources());
   const flatten = (set: ReturnType<typeof createReleaseSboms>): readonly ReleaseSbom[] => {
     return [set.launcher, ...set.platforms];
   };
@@ -144,8 +137,97 @@ test("release SBOM generation is byte-for-byte deterministic", () => {
   assert.equal(digests.size, left.length, "no document may be a copy of another");
 });
 
+test("release SBOM generation rejects authorization evidence", () => {
+  const authorizationEvidence = {
+    ...source,
+    tagSignature: "verified"
+  } as unknown as ReleaseSbomSource;
+  const sources = repositorySources();
+  const components = releaseBundledComponents(sources, "linux-x64");
+  for (const generate of [
+    () => createReleaseSboms(authorizationEvidence, sources),
+    () => launcherSbomDocument(authorizationEvidence),
+    () => platformSbomDocument(authorizationEvidence, "linux-x64", components)
+  ]) {
+    assert.throws(generate, /Release SBOM source has unknown or missing fields/u);
+  }
+});
+
+test("release SBOM generation rejects a non-SemVer product version", () => {
+  assert.throws(
+    () => createReleaseSboms(
+      { ...source, productVersion: "3.0" },
+      repositorySources()
+    ),
+    /invalid product version/u
+  );
+});
+
+test("release SBOM generation rejects a noncanonical source commit", () => {
+  assert.throws(
+    () => createReleaseSboms(
+      { ...source, sourceCommit: SOURCE_COMMIT.toUpperCase() },
+      repositorySources()
+    ),
+    /invalid source commit/u
+  );
+});
+
+test("release SBOM generation rejects a noncanonical build timestamp", () => {
+  assert.throws(
+    () => createReleaseSboms(
+      { ...source, buildTimestamp: "2026-07-23T10:20:30Z" },
+      repositorySources()
+    ),
+    /invalid build timestamp/u
+  );
+});
+
+test("release SBOM generation rejects a tag that does not match the version", () => {
+  assert.throws(
+    () => createReleaseSboms(
+      { ...source, tagName: "v3.0.1" },
+      repositorySources()
+    ),
+    /tag does not match/u
+  );
+});
+
+test("release SBOM generation rejects a coercible non-string source field", () => {
+  const coercibleCommit = {
+    toString: () => SOURCE_COMMIT
+  } as unknown as string;
+  assert.throws(
+    () => createReleaseSboms(
+      { ...source, sourceCommit: coercibleCommit },
+      repositorySources()
+    ),
+    /sourceCommit must be a non-empty string/u
+  );
+});
+
+test("one release SBOM set snapshots getter-backed source facts once", () => {
+  let sourceCommitReads = 0;
+  const getterBackedSource = {
+    ...source,
+    get sourceCommit(): string {
+      sourceCommitReads += 1;
+      return sourceCommitReads === 1 ? SOURCE_COMMIT : "f".repeat(40);
+    }
+  };
+  const set = createReleaseSboms(getterBackedSource, repositorySources());
+  assert.equal(sourceCommitReads, 1);
+  for (const sbom of [set.launcher, ...set.platforms]) {
+    assert.match(sbom.document.documentNamespace, new RegExp(`${SOURCE_COMMIT}$`, "u"));
+    assert.equal(
+      packageNamed(sbom.document, "1667").downloadLocation,
+      `git+https://github.com/1667-ai/1667.git@${SOURCE_COMMIT}`
+    );
+  }
+});
+
 test("release SBOM documents carry no time source but the release build timestamp", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   const expected = spdxTimestamp(BUILD_TIMESTAMP);
   assert.equal(expected, "2026-07-23T10:20:30Z");
   for (const sbom of [set.launcher, ...set.platforms]) {
@@ -163,7 +245,7 @@ test("every release SBOM validates against the vendored SPDX 2.3 schema", () => 
   const schema = loadSpdxSchema();
   assert.equal(schema["$id"], "http://spdx.org/rdf/terms/2.3");
   const validate = createSpdxValidator();
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   for (const sbom of [set.launcher, ...set.platforms]) {
     validate(parseJsonRejectingDuplicateKeys(sbom.text));
     assert.equal(sbom.document.spdxVersion, "SPDX-2.3");
@@ -173,7 +255,7 @@ test("every release SBOM validates against the vendored SPDX 2.3 schema", () => 
 });
 
 test("a platform SBOM names the product, the embedded runtime and every bundled dependency", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   const document = platformSbom(set, "linux-x64").document;
   assert.deepEqual(packageNames(document), [
     "1667",
@@ -224,7 +306,7 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
 });
 
 test("every component carries a canonical package URL", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   const platform = platformSbom(set, "linux-x64").document;
 
   // An npm scope is the purl namespace: `@` percent-encoded, `/` left literal.
@@ -268,7 +350,7 @@ test("every component carries a canonical package URL", () => {
 });
 
 test("the product's download location puts the commit in the SPDX revision slot", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   // `<vcs>+<transport>://<host>/<path>[@<revision>][#<sub_path>]`: after `#`
   // the commit would name a path inside the checkout, not the revision.
   const expected = `git+https://github.com/1667-ai/1667.git@${SOURCE_COMMIT}`;
@@ -279,7 +361,7 @@ test("the product's download location puts the commit in the SPDX revision slot"
 });
 
 test("a platform SBOM relates the product to the runtime and to what pulls each dependency in", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   const document = platformSbom(set, "linux-x64").document;
   const product = packageNamed(document, "1667").SPDXID;
   assert.ok(document.relationships.some((entry) => {
@@ -318,7 +400,7 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
 });
 
 test("each platform SBOM names only its own target's native library", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   // Total over the target union, so restoring or adding a target fails to
   // compile here rather than comparing against a silent undefined.
   const expected: Record<BuiltArtifactTarget, readonly string[]> = {
@@ -362,7 +444,7 @@ test("each platform SBOM names only its own target's native library", () => {
 });
 
 test("the launcher SBOM is a different document, not a platform copy", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   const launcher = releaseSbomForPackage(set, RELEASE_LAUNCHER_PACKAGE).document;
   assert.deepEqual(packageNames(launcher), ["1667", ...[...PUBLISHED_PLATFORM_PACKAGES].sort()]);
   assert.equal(packageNamed(launcher, "1667").packageFileName, "bin/1667.js");
@@ -453,7 +535,7 @@ function launcherInspectionWithSbomBytes(bytes: number): ReturnType<
 }
 
 test("the generator and the staged-entry policy enforce the same size bound", () => {
-  const set = createReleaseSboms(identities, repositorySources());
+  const set = createReleaseSboms(source, repositorySources());
   for (const entry of [set.launcher, ...set.platforms]) {
     assert.ok(entry.bytes > 0 && entry.bytes <= MAX_RELEASE_SBOM_BYTES);
     assert.equal(entry.bytes, Buffer.byteLength(entry.text, "utf8"));
@@ -638,7 +720,7 @@ test("the inventory and its exclusions account for every package in both lockfil
 
 test("an empty inventory cannot be published as a well-formed document", () => {
   assert.throws(
-    () => platformSbomDocument(identities, "linux-x64", []),
+    () => platformSbomDocument(source, "linux-x64", []),
     /would list no components/u
   );
 });

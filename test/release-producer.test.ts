@@ -67,16 +67,23 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
   const buildDirectories = await stageBuildInputs(builds);
   const firstStage = path.join(root, "stage-a");
   let first: readonly StagedReleasePackage[];
+  let publishedSourceCommitReads = 0;
   const previousUmask = process.umask(0o077);
   try {
     first = stagePublishedReleasePackages({
-      ...facts,
+      version: facts.version,
+      get sourceCommit(): string {
+        publishedSourceCommitReads += 1;
+        return publishedSourceCommitReads === 1 ? COMMIT : "f".repeat(40);
+      },
+      buildTimestamp: facts.buildTimestamp,
       buildDirectories,
       outputDirectory: firstStage
     });
   } finally {
     process.umask(previousUmask);
   }
+  assert.equal(publishedSourceCommitReads, 1);
   assert.equal(first.length, PUBLISHED_PACKAGE_COUNT);
   assert.deepEqual(
     first.map((entry) => entry.artifactTarget),
@@ -199,12 +206,19 @@ test("a held target stages and validates without entering the published batch", 
   t.after(() => rm(root, { recursive: true, force: true }));
   const executable = path.join(root, path.posix.basename(held.executable));
   await writeExecutable(executable, held.artifactTarget);
+  let heldSourceCommitReads = 0;
   const staged = stageReleasePackage({
-    ...facts,
+    version: facts.version,
+    get sourceCommit(): string {
+      heldSourceCommitReads += 1;
+      return heldSourceCommitReads === 1 ? COMMIT : "f".repeat(40);
+    },
+    buildTimestamp: facts.buildTimestamp,
     artifactTarget: held.artifactTarget,
     executable,
     outputDirectory: path.join(root, "stage")
   });
+  assert.equal(heldSourceCommitReads, 1);
   assert.equal(staged.published, false);
   assert.equal(staged.packageName, held.packageName);
   assert.equal(staged.packageManifest.name, held.packageName);

@@ -40,6 +40,7 @@ import {
   repositoryReleaseComponentSources
 } from "./release-sbom.js";
 import {
+  releaseDescriptionInputsForSource,
   releaseIdentitiesForSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
@@ -139,7 +140,7 @@ export interface StageReleaseArchiveOptions extends ReleaseSourceFacts {
  * afterwards so a stray file cannot ride along either.
  */
 export function stageReleaseArchive(options: StageReleaseArchiveOptions): StagedReleaseArchive {
-  const identities = releaseIdentitiesForSource(options);
+  const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
   const version = identities.evidence.productVersion;
   const target = options.target;
   const descriptor = releaseTargetForArtifact(target);
@@ -148,7 +149,7 @@ export function stageReleaseArchive(options: StageReleaseArchiveOptions): Staged
   const entries = releaseArchiveFileSet(target, version);
   const template = createReleasePlatformPackageTemplate(identities, target);
   const sbom = releaseSbomForPackage(
-    createReleaseSboms(identities, repositoryReleaseComponentSources()),
+    createReleaseSboms(sbomSource, repositoryReleaseComponentSources()),
     descriptor.packageName
   );
   const staged = stageReleaseContent({

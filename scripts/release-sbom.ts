@@ -12,7 +12,6 @@ import {
   releaseTargetForArtifact,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
-import { type ReleaseIdentitySet } from "./release-identity.js";
 import { MAX_RELEASE_SBOM_BYTES } from "./release-package-policy.js";
 import {
   releaseBundledComponents,
@@ -24,7 +23,14 @@ import {
   type SpdxDocument
 } from "./release-sbom-document.js";
 import { createSpdxValidator } from "./release-sbom-schema.js";
-import { releaseIdentitiesForSource } from "./release-source-facts.js";
+import {
+  createReleaseSbomSource,
+  type ReleaseSbomSource
+} from "./release-sbom-source.js";
+import {
+  assertRepositoryPackageVersions,
+  releaseSbomSourceForFacts
+} from "./release-source-facts.js";
 
 const MAX_NPM_LOCKFILE_BYTES = 8 * 1024 * 1024;
 const MAX_BUN_LOCKFILE_BYTES = 8 * 1024 * 1024;
@@ -64,21 +70,22 @@ export interface ReleaseSbomSet {
  * text with a regenerated document.
  */
 export function createReleaseSboms(
-  identities: ReleaseIdentitySet,
+  sourceInput: ReleaseSbomSource,
   sources: ReleaseComponentSources
 ): ReleaseSbomSet {
+  const source = createReleaseSbomSource(sourceInput);
   const validate = createSpdxValidator();
   const launcher = formatSbom(
     RELEASE_LAUNCHER_PACKAGE,
     "launcher",
-    launcherSbomDocument(identities),
+    launcherSbomDocument(source),
     validate
   );
   const platforms = BUILT_ARTIFACT_TARGETS.map((target) => {
     return formatSbom(
       releaseTargetForArtifact(target).packageName,
       target,
-      platformSbomDocument(identities, target, releaseBundledComponents(sources, target)),
+      platformSbomDocument(source, target, releaseBundledComponents(sources, target)),
       validate
     );
   });
@@ -161,7 +168,7 @@ function isMainModule(): boolean {
   }
 }
 
-// The three source facts, never a document: see releaseIdentitiesForSource.
+// The three source facts become only the four fields an SBOM uses.
 const USAGE = "usage: release-sbom.ts <version> <commit> <timestamp> <package-name>";
 
 if (isMainModule()) {
@@ -171,8 +178,9 @@ if (isMainModule()) {
       || buildTimestamp === undefined || packageName === undefined) {
       throw new Error(USAGE);
     }
+    assertRepositoryPackageVersions(version);
     const set = createReleaseSboms(
-      releaseIdentitiesForSource({ version, sourceCommit, buildTimestamp }),
+      releaseSbomSourceForFacts({ version, sourceCommit, buildTimestamp }),
       repositoryReleaseComponentSources()
     );
     const sbom = releaseSbomForPackage(set, packageName);

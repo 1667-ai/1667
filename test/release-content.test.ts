@@ -15,7 +15,10 @@ import {
   releaseSbomForPackage,
   repositoryReleaseComponentSources
 } from "../scripts/release-sbom.js";
-import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
+import {
+  releaseIdentitiesForSource,
+  releaseSbomSourceForFacts
+} from "../scripts/release-source-facts.js";
 
 const FACTS = Object.freeze({
   version: "0.1.0-rc.1",
@@ -36,7 +39,7 @@ test("the content assembler refuses entries that differ from the template", (t) 
   assert.throws(() => stageReleaseContent({
     template,
     sbom: releaseSbomForPackage(
-      createReleaseSboms(identities, repositoryReleaseComponentSources()),
+      createReleaseSboms(releaseSbomSourceForFacts(FACTS), repositoryReleaseComponentSources()),
       template.packageManifest.name
     ),
     entries,

@@ -43,7 +43,7 @@ import {
   type ReleaseSbomSet
 } from "./release-sbom.js";
 import {
-  releaseIdentitiesForSource,
+  releaseDescriptionInputsForSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
 
@@ -78,8 +78,11 @@ export function stageReleasePackage(
   const finalRoot = freshOutputPath(options.outputDirectory, options.artifactTarget);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const identities = releaseIdentitiesForSource(options);
-    const sboms = createReleaseSboms(identities, repositoryReleaseComponentSources());
+    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const sboms = createReleaseSboms(
+      sbomSource,
+      repositoryReleaseComponentSources()
+    );
     const staged = stagePreparedPackage({
       template: packageTemplate(identities, options.artifactTarget),
       sboms,
@@ -106,8 +109,11 @@ export function stagePublishedReleasePackages(
   const finalRoot = freshOutputPath(options.outputDirectory);
   const temporaryRoot = freshSiblingDirectory(finalRoot);
   try {
-    const identities = releaseIdentitiesForSource(options);
-    const sboms = createReleaseSboms(identities, repositoryReleaseComponentSources());
+    const { identities, sbomSource } = releaseDescriptionInputsForSource(options);
+    const sboms = createReleaseSboms(
+      sbomSource,
+      repositoryReleaseComponentSources()
+    );
     const launcher = stagePreparedPackage({
       template: createReleaseLauncherPackageTemplate(identities),
       sboms,

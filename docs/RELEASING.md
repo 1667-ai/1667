@@ -9,8 +9,9 @@ read_when:
 # Release packages for 1667
 
 This repository contains a hosted npm publication workflow. A safety interlock
-currently disables publication. Issue #82 must change the SBOM input boundary
-before maintainers remove the interlock.
+disables publication. SBOM generation rejects signed-tag authorization fields.
+Host compatibility and registry controls must be complete before maintainers
+remove the interlock.
 
 The repository supports local release package production and preflight. It
 publishes native archives as a GitHub pre-release.
@@ -18,9 +19,8 @@ publishes native archives as a GitHub pre-release.
 Maintainers reserved the package names. Do not publish packages. Do not move
 registry tags. Do not describe a candidate as an official release.
 
-Publication still requires a separate publication decision. Maintainers must
-approve that decision. The repository must implement that decision before
-publication.
+Publication also requires an explicit maintainer decision. The protected
+environment must approve the publish job.
 
 ## Technical terms
 
@@ -319,9 +319,10 @@ The workflow does not accept an npm token. The jobs with OIDC authority disable
 dependency lifecycle scripts. Each job verifies retained inputs before it uses
 them.
 
-The `preflight` job currently runs the safety interlock before it enters the
-`publish` environment. Do not remove the interlock before issue #82 is complete.
-Do not dispatch this workflow for publication while the interlock is active.
+The `preflight`, `publish`, and `release` jobs run the publication readiness
+check before they create signed-tag evidence. The check currently stops
+publication. The SBOM boundary is complete. The remaining prepublication
+controls must be complete before maintainers enable publication.
 
 ## Local gates
 
@@ -420,6 +421,11 @@ downloadable copy would be a ready-made credential for that gate. The signature
 claim stays in memory: no file the release ships carries `tagSignature` or
 `tagObjectType`. `tagName` does ship, in the SPDX package comment, where it
 names the tag the release creates at the source commit.
+
+SBOM generation does not consume `ReleaseSourceEvidence`. It consumes an exact
+`ReleaseSbomSource` record. This record contains the product version, source
+commit, build timestamp, and tag name. The SBOM input rejects additional
+fields. SBOM generation cannot accept a signed-tag authorization claim.
 
 Each archive is named `1667_<version>_<target>.tar.gz`. It contains one
 directory with the same name. Underscores separate the three fields because a

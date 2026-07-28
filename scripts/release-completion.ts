@@ -24,17 +24,13 @@ export interface ReleaseCompletionRef {
   readonly peeledName: string;
 }
 
-/**
- * Hosted npm publication stays disabled until SBOM generation consumes only
- * bill-of-materials inputs. Issue #82 removes this interlock with that fix.
- */
+/** Hosted npm publication stays disabled until all prepublication controls pass. */
 export const NPM_PUBLICATION_READY = false;
 
 export function requireNpmPublicationReady(): void {
   if (!NPM_PUBLICATION_READY) {
     throw new Error(
-      "npm publication is disabled until SBOM generation no longer needs"
-      + " a tag-signature authorization claim"
+      "npm publication is disabled until all prepublication release controls pass"
     );
   }
 }
