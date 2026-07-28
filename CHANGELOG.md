@@ -50,22 +50,17 @@ This file records notable changes to 1667. Product terms use the definitions in
   you make a second line Canon, the first line becomes Alt and keeps its name,
   its colour, and its date. Before, the first line lost its status. It then
   looked the same as a line with no tag. Thanks @10fra for the report.
-- **1667 builds and verifies Windows x64, and withholds its package.** The
+- **1667 withholds its Windows x64 package.** The
   Windows machine tier installs a protected DACL for the current user and
-  SYSTEM. Native tests reject reparse points. CI builds the executable, stages
-  the exact npm package layout, and validates it on every change. The launcher
-  does not pin `@1667-ai/windows-x64`. npm fails an optional dependency softly,
-  so a launcher that named a package nobody published would install cleanly on
-  Windows and then fail at every launch, and npm does not allow a published
-  version to be replaced. A Windows user who runs the launcher is told that the
-  package is withheld, and is pointed at the source that does build.
-- **Pull requests no longer wait on the macOS x64 build.** CI still builds and
-  tests all five release targets on `main` and on demand. Pull requests gate on
-  macOS arm64, Linux arm64, Linux x64, and Windows x64. The macOS x64 runner is
-  about ten times slower than its siblings. The runner has sufficient
-  contention to cause wall-clock measurement failures. A macOS x64 regression
-  now occurs on the commit that introduced it. Thanks @10fra for the CI latency
-  review.
+  SYSTEM. Native tests reject reparse points. The launcher does not pin
+  `@1667-ai/windows-x64`. npm fails an optional dependency softly. Thus, a
+  launcher that named an unpublished package would install without an error.
+  It would then fail at each launch. npm does not permit a replacement of a
+  published version. A Windows user who runs the launcher gets the source build
+  route. Routine CI does not build this target.
+- **Routine CI now builds three release targets.** CI builds macOS arm64, Linux
+  arm64, and Linux x64. CI does not build macOS x64 or Windows x64. These two
+  targets caused failures on `main`, and their release work is not active.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
   story writes use 1667 identifiers. Thanks @10fra for the migration report.

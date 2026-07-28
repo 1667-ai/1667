@@ -23,7 +23,7 @@ This public repository contains pre-release source.
 | Item | Current status |
 | --- | --- |
 | Source repository | GitHub provides public access. |
-| Standalone candidates | CI builds and tests five targets on `main` and four targets on pull requests. CI does not publish these files. |
+| Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
 | GitHub release | 1667 does not publish a GitHub release. |
@@ -327,16 +327,11 @@ bun bench/perf.ts
 
 GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
 standalone build on Linux x64. CI also runs the root tests, TUI tests, and
-standalone build on each release target. CI does not run the separate frame
-performance gate.
+standalone build on macOS arm64 and Linux arm64. CI does not run the separate
+frame performance gate.
 
-Four release targets run on every pull request: macOS arm64, Linux arm64,
-Linux x64, and Windows x64. macOS x64 runs on every push to `main` and on
-demand, not on pull requests. It is approximately ten times slower than the
-other targets. It runs on a runner that GitHub will retire. The runner has
-sufficient contention to cause intermittent wall-time test failures. Thus, CI
-does not use macOS x64 as a pull request gate. A regression occurs on the
-`main` commit that introduced it.
+Routine CI does not test macOS x64 or Windows x64. Test these targets before
+their release work resumes.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and

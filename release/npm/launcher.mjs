@@ -15,7 +15,7 @@ export const LAUNCHER_PACKAGE_NAME = "@1667-ai/cli";
 export const LAUNCHER_SOURCE_URL = "https://github.com/1667-ai/1667";
 // Held targets stay in this table. Dropping one would make its platform report
 // as unsupported, which is a different problem with a different fix: the
-// platform is supported and built, and only its package is withheld.
+// platform is supported and builds from source, and only its package is withheld.
 export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
   "darwin-arm64": Object.freeze({
     packageName: "@1667-ai/darwin-arm64",
@@ -55,8 +55,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     cpu: "x64",
     libc: null,
     executable: "bin/1667.exe",
-    heldFromPublication: "the Windows platform work is built and verified on every "
-      + "change, and maintainers have not approved it for publication"
+    heldFromPublication: "maintainers have not approved the Windows platform work "
+      + "for publication"
   })
 });
 const BUILD_MANIFEST_KEYS = new Set([
