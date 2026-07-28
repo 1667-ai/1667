@@ -44,7 +44,7 @@ import { wrapText } from "../wrap.js";
 import { truncate, truncateTail, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { renderSettingsPanel } from "./settings-panel.js";
 
-export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel.js";
+export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 
 export const CHAPTERS_FOOTER_ACTIONS = [
   { token: "↵", action: "open-selected" }, { token: "s sum", action: "summarize-chapter" },
