@@ -196,8 +196,11 @@ export async function publishPrivateFileNoReplace(
   // Commit barrier: the complete no-replace final entry is now durable.
   await syncPrivateDirectory(directory, policy.label);
 
+  // Scratch removal needs no barrier of its own. The final entry is already
+  // durable, and a crash before this unlink lands leaves the same-inode pair
+  // `recoverPrivatePublication` is written to finish. Paying a second barrier
+  // here bought nothing and cost as much as the publication itself.
   await unlink(scratch);
-  await syncPrivateDirectory(directory, policy.label);
   const published = await inspectPrivateRegularFile(file, policy, 1);
   requireSameIdentity(finalInfo, published, file);
 }
