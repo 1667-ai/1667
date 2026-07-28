@@ -95,7 +95,13 @@ export class MutationLedgerStore {
    * fails closed and a replaced directory — even a valid private one — is
    * flushed like a new one. Per-record leaf directories never enter the map:
    * recovery and collection remove them, and excluding them bounds the map
-   * to the shared hierarchy instead of one retained path per mutation. */
+   * to the shared hierarchy instead of one retained path per mutation.
+   *
+   * Trust boundary: the identity-keyed proof assumes the single-writer
+   * invariant of the locked data directory. It does not defend against an
+   * external process re-binding pathnames between writes — for example
+   * renaming a proven directory away and back around its own flush — which
+   * is outside the ledger's threat model. */
   private readonly durableDirectories = new Map<string, Stats>();
 
   constructor(private readonly dataDir: string) {
