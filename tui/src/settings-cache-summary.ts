@@ -11,20 +11,12 @@ import type {
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 
-/** The policy is the part the row cycles; the detail is what that choice costs.
- * The selector row draws them apart so the arrows can sit on the policy alone,
- * and `promptCacheSummary` joins them back for every read-only caller. */
+/** The policy is the part the row cycles; the detail is what that choice
+ * costs. The row keeps them apart so the arrows can sit on the policy alone
+ * and the detail can follow the closing bracket. */
 export interface PromptCacheSummaryParts {
   readonly policy: PromptCachePolicyV2;
   readonly detail: string;
-}
-
-export function promptCacheSummary(
-  view: SettingsView,
-  draft?: SettingsTextDraft
-): string {
-  const parts = promptCacheSummaryParts(view, draft);
-  return `${parts.policy} · ${parts.detail}`;
 }
 
 export function promptCacheSummaryParts(

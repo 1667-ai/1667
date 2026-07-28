@@ -669,6 +669,7 @@ describe("hit map clickable chrome", () => {
   });
 
   test("a truncated selector value leaves no arrow behind at any panel width", () => {
+    let widest = 0;
     for (let width = 30; width <= 120; width += 1) {
       const source = demoAppSource();
       const state = initialState(source, false);
@@ -676,13 +677,21 @@ describe("hit map clickable chrome", () => {
       footerCases.at(-1)!.setup(state, source);
       state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("cache-policy");
       const frame = render(state, width, 30);
+      let arrows = 0;
       for (const [rowIndex, row] of state.hitRows.entries()) {
         for (const region of row?.overrides ?? []) {
           if (region.target.kind !== "action" || region.target.index === undefined) continue;
-          expect([...plainLine(frame[rowIndex]!)][region.left]).toMatch(/[‹›[\]]/u);
+          arrows += 1;
+          const line = [...plainLine(frame[rowIndex]!)];
+          // The whole region, not just its first cell, has to be on the glyph.
+          expect(line[region.left]).toMatch(/[‹›[\]]/u);
+          expect(line[region.right - 1]).toMatch(/[‹›[\]]/u);
         }
       }
+      widest = arrows;
     }
+    // Otherwise a panel that painted no arrows at all would pass the sweep.
+    expect(widest).toBeGreaterThan(0);
   });
 
   test("story model, local provider, and context hint open their exact Settings rows", async () => {

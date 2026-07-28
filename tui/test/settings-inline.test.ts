@@ -22,8 +22,7 @@ import { pasteInto } from "../src/keys.js";
 import {
   beginSettingsPasteEdit,
   SETTINGS_ROW_IDS,
-  settingsDraftChanged,
-  settingsRows
+  settingsDraftChanged
 } from "../src/settings-overlay-model.js";
 import { publishSettingsView } from "../src/overlay-publication.js";
 import {
@@ -637,7 +636,7 @@ describe("inline settings menu", () => {
   });
 
   test("cache policy states its cost beside the chosen policy", async () => {
-    const { state, press } = harness();
+    const { state, cache, press } = harness();
     await openSettings(press);
     await selectRow(press, state, "provider");
     while (state.settings?.draft.generation.provider !== "anthropic") {
@@ -647,9 +646,11 @@ describe("inline settings menu", () => {
     await selectRow(press, state, "cache-policy");
     await press(key("right"));
 
-    const value = settingsRows(state.settings!, state.config)
-      .find((row) => row.id === "cache-policy")!.value;
-    expect(value).toBe("‹ auto › · stable block · 5m · 1.25× writes");
+    const rendered = frameText(renderStoryScreen(
+      state,
+      { width: 100, height: 30, wrapCache: cache }
+    ).lines);
+    expect(rendered).toContain("‹ auto › · stable block · 5m · 1.25× writes");
   });
 
   test("the selected row and inline field render inside Settings", async () => {

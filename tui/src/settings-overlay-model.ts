@@ -144,7 +144,7 @@ export function settingsRows(
     {
       id: "cache-policy",
       label: "cache policy",
-      value: promptCacheRowValue(overlay)
+      value: promptCacheRowValue(overlay.view, overlay.draft)
     },
     {
       id: "system-prompt",
@@ -252,9 +252,6 @@ export function applySettingsRowEdit(
   }
   if (edit.row === "allow-insecure-http") {
     return { kind: "error", message: "insecure HTTP is a selector" };
-  }
-  if (edit.row === "cache-policy") {
-    return { kind: "error", message: "cache policy is a selector" };
   }
   if (edit.row === "system-prompt") {
     const systemPrompt = parseInlineSystemPrompt(edit.composer.text);
@@ -546,8 +543,13 @@ function parseInlineSystemPrompt(value: string): string | { kind: "error"; messa
   }
 }
 
-function promptCacheRowValue(overlay: SettingsOverlayState): string {
-  const parts = promptCacheSummaryParts(overlay.view, overlay.draft);
+/** The cycled policy in brackets, then what the choice costs. The panel puts
+ * the arrows on the brackets, so the detail has to stay outside them. */
+export function promptCacheRowValue(
+  view: SettingsView,
+  draft?: SettingsTextDraft
+): string {
+  const parts = promptCacheSummaryParts(view, draft);
   return `‹ ${parts.policy} › · ${parts.detail}`;
 }
 

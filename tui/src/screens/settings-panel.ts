@@ -1,14 +1,14 @@
 import { graphemeCells } from "../cell-width.js";
 import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
-import type { KeyAction } from "../keys.js";
 import {
   boundedSettingsCursor,
   settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowCycles,
   settingsRows,
-  SETTINGS_ROW_IDS
+  SETTINGS_ROW_IDS,
+  type SettingsRowPresentation
 } from "../settings-overlay-model.js";
 import type { OverlayState } from "../state.js";
 import {
@@ -19,6 +19,14 @@ import {
   raisedSegment
 } from "./overlay.js";
 import { panelRowWindow } from "./panel-table-layout.js";
+import {
+  fittingFooter,
+  SETTINGS_CHOICE_FOOTERS,
+  SETTINGS_CONTEXT_FOOTERS,
+  SETTINGS_EDIT_FOOTERS,
+  SETTINGS_PENDING_FOOTERS,
+  SETTINGS_TEXT_FOOTERS
+} from "./settings-panel-footers.js";
 import { renderComposerInput } from "./story/composer.js";
 import {
   truncate,
@@ -27,194 +35,17 @@ import {
   type FrameLine
 } from "./story/frame.js";
 
-export const SETTINGS_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" },
-  { token: "↓", action: "focus-next" },
-  { token: "←", action: "take-previous" },
-  { token: "→ choose", action: "take-next" },
-  { token: "↵ next", action: "open-selected" },
-  { token: "s save", action: "save-edit" },
-  { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-const SETTINGS_TEXT_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" },
-  { token: "↓", action: "focus-next" },
-  { token: "↵ edit", action: "open-selected" },
-  { token: "s save", action: "save-edit" },
-  { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-const SETTINGS_CONTEXT_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" },
-  { token: "↓", action: "focus-next" },
-  { token: "↵ edit", action: "open-selected" },
-  { token: "p detect", action: "detect-context" },
-  { token: "s save", action: "save-edit" },
-  { token: "c check", action: "check" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-const SETTINGS_EDIT_FOOTER_ACTIONS = [
-  { token: "←", action: "cursor-left" },
-  { token: "→", action: "cursor-right" },
-  { token: "↵ keep", action: "commit-field" },
-  { token: "esc cancel", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
 /** Settings rows wear the same `  ▸ ` cursor lead as every other list panel,
  * so `›` stays the prompt glyph it is everywhere else. */
 const SETTINGS_LEAD_WIDTH = 4;
 const SETTINGS_LABEL_WIDTH = 17;
 
 /** Column the value starts in, relative to the content line. A label wider
- * than the column pushes its own value right and keeps one cell of air. This
- * is the only place that column is decided: the painted lead, the truncation
- * budget, and the selector arrows all read it, because a second opinion about
- * where the value starts is what puts an arrow on top of a letter. */
+ * than the column pushes its own value right and keeps one cell of air. Only
+ * `settingsRow` reads this, because only `settingsRow` paints the value. */
 function settingsValueLeft(label: string): number {
   return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
 }
-
-const SETTINGS_PENDING_FOOTER_ACTIONS = [
-  { token: "c check", action: "check" },
-  { token: "x discard", action: "discard-pending" },
-  { token: "esc close", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-
-interface SettingsFooter {
-  text: string;
-  actions: ReadonlyArray<{ token: string; action: KeyAction }>;
-}
-
-const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "↑↓ move · ←→ choose · ↵ next · s save · c check · esc close",
-    actions: SETTINGS_FOOTER_ACTIONS
-  },
-  {
-    text: "↑↓ · ←→ choose · ↵ next · s · c · esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "←", action: "take-previous" },
-      { token: "→ choose", action: "take-next" },
-      { token: "↵ next", action: "open-selected" },
-      { token: "s", action: "save-edit" },
-      { token: "c", action: "check" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "↑↓ ←→ ↵ esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "←", action: "take-previous" },
-      { token: "→", action: "take-next" },
-      { token: "↵", action: "open-selected" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "↑↓ move · ↵ edit · s save · c check · esc close",
-    actions: SETTINGS_TEXT_FOOTER_ACTIONS
-  },
-  {
-    text: "↑↓ · ↵ edit · s · c · esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵ edit", action: "open-selected" },
-      { token: "s", action: "save-edit" },
-      { token: "c", action: "check" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "↑↓ ↵ esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵", action: "open-selected" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
-    actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
-  },
-  {
-    text: "↑↓ · ↵ edit · p detect · s · c · esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵ edit", action: "open-selected" },
-      { token: "p detect", action: "detect-context" },
-      { token: "s", action: "save-edit" },
-      { token: "c", action: "check" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "↑↓ ↵ p esc",
-    actions: [
-      { token: "↑", action: "focus-previous" },
-      { token: "↓", action: "focus-next" },
-      { token: "↵", action: "open-selected" },
-      { token: "p", action: "detect-context" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_EDIT_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "←→ cursor · ↵ keep row · esc cancel",
-    actions: SETTINGS_EDIT_FOOTER_ACTIONS
-  },
-  {
-    text: "←→ · ↵ keep · esc",
-    actions: [
-      { token: "←", action: "cursor-left" },
-      { token: "→", action: "cursor-right" },
-      { token: "↵ keep", action: "commit-field" },
-      { token: "esc", action: "cancel" }
-    ]
-  },
-  {
-    text: "←→ ↵ esc",
-    actions: [
-      { token: "←", action: "cursor-left" },
-      { token: "→", action: "cursor-right" },
-      { token: "↵", action: "commit-field" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
-
-const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
-  {
-    text: "c check · x discard · esc close",
-    actions: SETTINGS_PENDING_FOOTER_ACTIONS
-  },
-  {
-    text: "c · x · esc",
-    actions: [
-      { token: "c", action: "check" },
-      { token: "x", action: "discard-pending" },
-      { token: "esc", action: "cancel" }
-    ]
-  }
-];
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -230,16 +61,13 @@ export function renderSettingsPanel(
   const rows = settingsRows(overlay, state.config);
   const status = settingsStatusLines(overlay);
   const horizontal = panelHorizontalGeometry(width, 76);
-  const valueLefts = rows.map((row) => settingsValueLeft(row.label));
-  const valueWidths = valueLefts.map(
-    (left) => Math.max(1, horizontal.contentWidth - left)
-  );
   const resultVisible = overlay.checking || overlay.probing || overlay.result !== null;
   const fixedRows = 3 + status.top.length + status.bottom.length + (resultVisible ? 1 : 0);
   const editableRows = rows.slice(2);
-  const renderedRows = rows.map((row, index) =>
-    settingsLine(row.label, row.value, index, overlay, valueLefts[index]!, valueWidths[index]!)
+  const painted = rows.map((row, index) =>
+    settingsRow(row, index, overlay, horizontal.contentWidth)
   );
+  const renderedRows = painted.map((row) => row.line);
   const resultLine: FrameLine | null = overlay.checking
     ? [raisedSegment("  ⟳ checking model server…", "focus / accent")]
     : overlay.probing
@@ -310,32 +138,24 @@ export function renderSettingsPanel(
   const overrides: HitRegion[][] = content.map(() => []);
   // Every closed-choice row carries its own arrows, and the action names the
   // row so a click moves the cursor there first — mouse and keyboard then act
-  // on the same row.
-  for (const [selectorIndex, selector] of rows.entries()) {
-    if (!settingsRowCycles(selector.id)) continue;
+  // on the same row. The columns come from the row that painted the brackets,
+  // so no second opinion about the drawn value can move an arrow off one.
+  for (const [selectorIndex, selector] of painted.entries()) {
+    if (selector.arrows === null) continue;
     const selectorRow = targets.findIndex((target) =>
       target?.kind === "list" && target.index === selectorIndex
     );
-    if (selectorRow < 0 || overlay.edit?.row === selector.id) continue;
-    // Read the brackets out of the value as drawn. A closed choice can carry
-    // read-only detail after its closing bracket, and a narrow panel can cut
-    // the bracket off entirely — an override past the painted glyph would stay
-    // clickable, because `hitAt` consults overrides before row bounds.
-    const brackets = selectorBracketColumns(
-      truncate(selector.value, valueWidths[selectorIndex]!)
-    );
-    if (brackets === null) continue;
-    const selectorLeft = valueLefts[selectorIndex]!;
+    if (selectorRow < 0) continue;
     overrides[selectorRow] = [
       {
         target: { kind: "action", action: "take-previous", index: selectorIndex },
-        left: selectorLeft + brackets.open,
-        right: selectorLeft + brackets.open + 1
+        left: selector.arrows.previous,
+        right: selector.arrows.previous + 1
       },
       {
         target: { kind: "action", action: "take-next", index: selectorIndex },
-        left: selectorLeft + brackets.close,
-        right: selectorLeft + brackets.close + 1
+        left: selector.arrows.next,
+        right: selector.arrows.next + 1
       }
     ];
   }
@@ -369,14 +189,6 @@ export function renderSettingsPanel(
       footerActions: footer.actions
     }
   );
-}
-
-function fittingFooter(
-  variants: ReadonlyArray<SettingsFooter>,
-  availableWidth: number
-): SettingsFooter {
-  return variants.find((variant) => visibleWidth(variant.text) <= availableWidth)
-    ?? variants.at(-1)!;
 }
 
 /** The panel's two notice positions.
@@ -455,60 +267,77 @@ function bottomStatus(lines: FrameLine[]): FrameLine[] {
   return [...padding, ...lines];
 }
 
-function settingsLine(
-  label: string,
-  value: string,
+/** A painted row, and where it put the arrows of a closed choice.
+ *
+ * `arrows` is `null` when the row is not a closed choice, when the composer
+ * owns it, or when the panel is too narrow to paint the closing bracket. The
+ * caller must not place a hit region then: `hitAt` consults overrides before
+ * row bounds, so an override past the painted glyph would stay clickable. */
+interface PaintedSettingsRow {
+  readonly line: FrameLine;
+  readonly arrows: { readonly previous: number; readonly next: number } | null;
+}
+
+function settingsRow(
+  row: SettingsRowPresentation,
   index: number,
   overlay: NonNullable<OverlayState["settings"]>,
-  valueLeft: number,
-  valueWidth: number
-): FrameLine {
+  contentWidth: number
+): PaintedSettingsRow {
   const selected = index === overlay.cursor;
   const edit = selected ? overlay.edit : null;
-  const lead = `${selected ? "  ▸ " : "    "}${label}`;
+  const valueLeft = settingsValueLeft(row.label);
+  const valueWidth = Math.max(1, contentWidth - valueLeft);
+  const lead = `${selected ? "  ▸ " : "    "}${row.label}`;
   const prefix = raisedSegment(
-    lead + " ".repeat(Math.max(0, valueLeft - visibleWidth(lead))),
+    lead + " ".repeat(valueLeft - visibleWidth(lead)),
     selected ? "focus / accent" : "chrome"
   );
   if (edit === null) {
-    return [
-      prefix,
-      raisedSegment(
-        truncate(value, valueWidth),
-        selected ? "focus / accent" : "prose"
-      )
-    ];
+    const drawn = truncate(row.value, valueWidth);
+    return {
+      line: [
+        prefix,
+        raisedSegment(drawn, selected ? "focus / accent" : "prose")
+      ],
+      arrows: settingsRowCycles(row.id)
+        ? bracketArrows(drawn, valueLeft)
+        : null
+    };
   }
   const displayComposer = settingsEditDisplayComposer(edit);
-  return [
-    prefix,
-    raisedSegment("[", "chrome"),
-    ...renderComposerInput(
-      displayComposer,
-      0,
-      composerPosition(displayComposer).column,
-      Math.max(1, valueWidth - 2),
-      "streaming",
-      false,
-      ""
-    ),
-    raisedSegment("]", "chrome")
-  ];
+  return {
+    line: [
+      prefix,
+      raisedSegment("[", "chrome"),
+      ...renderComposerInput(
+        displayComposer,
+        0,
+        composerPosition(displayComposer).column,
+        Math.max(1, valueWidth - 2),
+        "streaming",
+        false,
+        ""
+      ),
+      raisedSegment("]", "chrome")
+    ],
+    arrows: null
+  };
 }
 
-/** Columns of the pair that wraps a closed choice, relative to the value. Both
- * spellings are one cell wide, so the column is where the arrow gets painted.
- * `null` means the drawn value lost a bracket to truncation. */
-function selectorBracketColumns(
-  drawn: string
-): { open: number; close: number } | null {
+/** A closed choice opens on its first cell and closes on its bracket. The
+ * detail a row may add after that bracket is not part of the choice. */
+function bracketArrows(
+  drawn: string,
+  valueLeft: number
+): PaintedSettingsRow["arrows"] {
+  const cells = graphemeCells(drawn);
+  const opening = cells[0]?.text;
+  if (opening !== "‹" && opening !== "[") return null;
   let column = 0;
-  let open: number | null = null;
-  for (const cell of graphemeCells(drawn)) {
-    if (open === null) {
-      if (cell.text === "‹" || cell.text === "[") open = column;
-    } else if (cell.text === "›" || cell.text === "]") {
-      return { open, close: column };
+  for (const cell of cells) {
+    if (column > 0 && (cell.text === "›" || cell.text === "]")) {
+      return { previous: valueLeft, next: valueLeft + column };
     }
     column += cell.width;
   }

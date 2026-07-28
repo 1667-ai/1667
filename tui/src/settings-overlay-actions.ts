@@ -156,7 +156,7 @@ export async function settingsOverlayAction(
         applyProviderChoice(overlay, state, step);
       } else if (row === "allow-insecure-http") {
         applyAllowInsecureHttp(overlay, state);
-      } else {
+      } else if (row === "cache-policy") {
         applyPromptCachePolicyChoice(overlay, state, step);
       }
     }
