@@ -246,9 +246,9 @@ policy.
 Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
 endpoint also needs proof that the current user owns the exact socket.
 
-A provider connection can permit plain HTTP on a private network. Enable
-**Allow insecure HTTP (LAN)** for that connection. 1667 resolves the host once
-and requires a private-network address. It then pins the verified address.
+A provider connection can permit plain HTTP on a private network. Set
+**insecure HTTP (LAN)** to `on` for that connection. 1667 resolves the host
+once and requires a private-network address. It then pins the verified address.
 
 Public hosts and all connections with credentials require authenticated HTTPS.
 
