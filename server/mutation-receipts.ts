@@ -142,7 +142,7 @@ export class MutationReceiptStore {
         needsInitialSave = true;
       }
       const plan = createMutationPlan(method, recoveryMode, {
-        entityId: (namespace, index = 0) => deterministicEntityId(mutationId, namespace, index),
+        entityId: (namespace, index = 0) => deterministicMutationEntityId(mutationId, namespace, index),
         bindGenerationIntent: async (settings, context) => {
           const namespace = "generation-intent";
           const fingerprint = createHash("sha256")
@@ -351,7 +351,11 @@ function isDefinitiveGenerationFailure(error: unknown): boolean {
       && error.code === "generation_outcome_unknown_acknowledged");
 }
 
-function deterministicEntityId(mutationId: string, namespace: string, index: number): string {
+export function deterministicMutationEntityId(
+  mutationId: string,
+  namespace: string,
+  index: number
+): string {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error("Mutation entity index must be a non-negative integer");
   return uuidFromDigestHex(
     createHash("sha256").update(`${mutationId}\0${namespace}\0${index}`).digest("hex")

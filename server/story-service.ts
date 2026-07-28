@@ -11,8 +11,10 @@ import type {
 } from "../shared/types.js";
 import {
   isServiceOwnedSettingsMutation,
+  type LocalDurabilityMutationMethod,
   type WorkerMethod
 } from "../shared/worker-protocol.js";
+import { runLocalTierMutation } from "./mutation-local-tier.js";
 import type { RemovedChapterBreak } from "./chapter-breaks.js";
 import { probeContextWindow } from "./context-probe.js";
 import { ServiceError } from "./errors.js";
@@ -98,6 +100,20 @@ export class StoryService extends StoryServiceRuntime {
   ): Promise<T> {
     this.ensureOpen();
     return await this.mutationReceipts.run(mutationId, method, input, work, inputProtocolVersion, preflight);
+  }
+
+  /**
+   * Local durability tier: no receipt wraps the work. The caller must be a
+   * single-process transport with no retry source for this mutation ID; the
+   * story transaction inside commits through one atomic manifest publish.
+   */
+  async runLocalMutation<M extends LocalDurabilityMutationMethod, T>(
+    mutationId: string,
+    method: M,
+    work: (plan: MutationPlan<M>) => Promise<T>
+  ): Promise<T> {
+    this.ensureOpen();
+    return await runLocalTierMutation(mutationId, method, work);
   }
 
   async listStories(): Promise<StorySummary[]> {

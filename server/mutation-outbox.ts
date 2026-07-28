@@ -293,7 +293,11 @@ export class MutationOutbox {
 }
 
 /** Every lock-owning writer must call this before opening StoryStore. Deferred
- * worker intents are older than any maintenance action and must replay first. */
+ * worker intents are older than any maintenance action and must replay first.
+ * Only full-tier mutations (provider-backed and lifecycle methods) publish
+ * intents; local-durability-tier mutations commit or vanish atomically, so
+ * their absence here proves nothing is pending for them. Local-method intents
+ * retained by an older build still replay through this fence. */
 export async function assertNoPendingMutationIntents(dataDir: string): Promise<ArchivedMutationOutboxRecord[]> {
   const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
   await outbox.init();

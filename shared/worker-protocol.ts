@@ -202,6 +202,36 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
   return MUTATING_METHODS.has(method as MutatingWorkerMethod);
 }
 
+/**
+ * Mutations that never contact a provider and mutate exactly one existing
+ * story aggregate. Losing one to a crash costs the user one keypress, so they
+ * use the local durability tier: one atomic manifest publish, with no caller
+ * outbox intent, no legacy receipt, and no ledger prepared/completed pair.
+ *
+ * Everything else keeps the full exactly-once pipeline: provider-backed
+ * mutations must never re-bill or lose streamed prose, and the lifecycle
+ * mutations (create/import/delete/acknowledge) anchor creation records,
+ * reaper tombstones, and the provider-fence protocol in the ledger.
+ */
+export const LOCAL_DURABILITY_MUTATION_METHODS = [
+  "renameStory", "switchLine",
+  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
+  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak"
+] as const satisfies readonly MutatingWorkerMethod[];
+
+export type LocalDurabilityMutationMethod =
+  typeof LOCAL_DURABILITY_MUTATION_METHODS[number];
+
+const LOCAL_DURABILITY_METHOD_SET: ReadonlySet<string> =
+  new Set(LOCAL_DURABILITY_MUTATION_METHODS);
+
+export function isLocalDurabilityMutation(
+  method: WorkerMethod
+): method is LocalDurabilityMutationMethod {
+  return LOCAL_DURABILITY_METHOD_SET.has(method);
+}
+
 export type ServiceOwnedSettingsMutationMethod = "saveSettings" | "discardPendingSettings";
 const SERVICE_OWNED_SETTINGS_MUTATIONS: ReadonlySet<ServiceOwnedSettingsMutationMethod> = new Set([
   "saveSettings",

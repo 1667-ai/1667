@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Local story changes commit with one atomic write.** A take switch, a text
+  edit, a tag change, a fact change, or a chapter-break change now commits
+  through one atomic publish of the story manifest. Before, each of these
+  changes also wrote a caller intent, a receipt pair, and a ledger record pair,
+  each with its own disk barrier. Those records protect paid model calls, and
+  model-backed work keeps all of them. A crash during a local change can lose
+  that one change, and only that change. It cannot damage the story, and the
+  next start loads the story cleanly. On the tour vault, a take switch dropped
+  from about 25 ms to about 14 ms.
 - **`u` now takes back an added or removed chapter break only.** It also
   reversed a take switch, and it said so on each take switch. Two keys did one
   job: `←` and `→` already walk the takes of one part. Worse, a key named undo

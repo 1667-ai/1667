@@ -29,7 +29,9 @@ import {
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { ActiveProviderStarts } from "./story-provider-active-starts.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
+import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import {
+  commitManifestOnlyStoryTransaction,
   commitPreparedStoryTransaction,
   commitReceiptOnlyStoryTransaction,
   corruptStoryReceipt,
@@ -90,6 +92,25 @@ const LOCAL_METHODS: ReadonlySet<string> = new Set<LocalStoryMutationMethod>([
   "removeChapterBreak",
   "restoreChapterBreak"
 ]);
+
+// The local durability tier in shared/worker-protocol.ts must cover exactly
+// the methods runLocal accepts; on drift this constant fails to typecheck.
+type LocalTierMethod =
+  import("../shared/worker-protocol.js").LocalDurabilityMutationMethod;
+type MutuallyAssignable<A, B> =
+  [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const LOCAL_TIER_MATCHES_RUN_LOCAL:
+  MutuallyAssignable<LocalStoryMutationMethod, LocalTierMethod> = true;
+void LOCAL_TIER_MATCHES_RUN_LOCAL;
+
+/** A local-tier mutation ID that reaches the store is fresh by construction:
+ * no receipt exists, so recovery evidence for it is always empty. */
+const UNRECORDED_STORY_RECEIPT: StoryMutationReceipt = Object.freeze({
+  started: null,
+  prepared: null,
+  completed: null,
+  acknowledged: null
+});
 
 export interface StoryMutationCommit<Value = void> {
   readonly story: Story;
@@ -200,6 +221,14 @@ export class StoryMutationStore {
     }
     return await this.coordinator.runStory(input, async (request) => {
       const storyId = storyIdFromScope(request.scope);
+      if (request.durability === "manifest-only") {
+        return await this.runManifestOnlyLocal(
+          storyId,
+          request,
+          mutate,
+          replayValue
+        );
+      }
       const receipt = await this.ledger.loadStoryReceipt(
         request.scope,
         request.mutationId
@@ -321,6 +350,77 @@ export class StoryMutationStore {
           value
         };
       });
+    });
+  }
+
+  /**
+   * Local durability tier: one atomic manifest publish, no receipt or ledger
+   * records. The caller sends a fresh mutation ID with no replay source, so a
+   * crash loses at most this mutation and can never duplicate it. Recovery of
+   * an earlier transaction still runs first: a retained transaction pointer
+   * is finalized and a torn staged manifest is discarded before this
+   * mutation may stage its own replacement.
+   */
+  private async runManifestOnlyLocal(
+    storyId: string,
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    mutate: (
+      story: Story,
+      session: StoryAggregateSession
+    ) => unknown | typeof STORY_UNCHANGED
+      | Promise<unknown | typeof STORY_UNCHANGED>,
+    replayValue: () => unknown
+  ): Promise<StoryMutationCommit<unknown>> {
+    requireFreshUnseenMutationId(request.mutationId, this.now().getTime());
+    return await this.stories.withAggregateSession(storyId, async (session) => {
+      await this.recovery.finalizeAggregateTransaction(
+        session,
+        request.mutationId
+      );
+      await this.recovery.recover(
+        session,
+        request,
+        UNRECORDED_STORY_RECEIPT
+      );
+      requireExpectedLocalStoryVersion(
+        session.snapshot,
+        request.expectedAggregateVersion,
+        this.activeProviderStarts.predecessor(
+          storyId,
+          session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
+        )
+      );
+      const story = await session.loadLive();
+      const outcome = await mutate(story, session);
+      if (outcome === STORY_UNCHANGED) {
+        return {
+          story,
+          result: storyResult(session.snapshot.manifest),
+          aggregateVersion: storyAggregateVersion(session.snapshot),
+          value: replayValue()
+        };
+      }
+      const replacement = await session.prepareContent(story);
+      const manifest = reduceStoryV6({
+        kind: "present",
+        manifest: session.snapshot.manifest,
+        manifestHash: session.snapshot.manifestHash
+      }, {
+        kind: "local-committed",
+        expectedManifestHash: session.snapshot.manifestHash,
+        content: replacement.content,
+        summary: replacement.summary
+      });
+      if (manifest === null) {
+        throw new Error("Local story mutation produced no aggregate");
+      }
+      await commitManifestOnlyStoryTransaction(session, manifest, this.hooks);
+      return {
+        story: replacement.story,
+        result: storyResult(manifest),
+        aggregateVersion: storyAggregateVersion(session.snapshot),
+        value: outcome
+      };
     });
   }
 

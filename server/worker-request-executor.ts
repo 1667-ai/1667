@@ -1,9 +1,11 @@
 import {
   STREAM_METHODS,
+  isLocalDurabilityMutation,
   isMutatingWorkerMethod,
   isServiceOwnedSettingsMutation,
   isWorkerMutationMethod,
   workerOperationKey,
+  type LocalDurabilityMutationMethod,
   type MainToWorkerMessage,
   type WorkerMethod,
   type WorkerToMainMessage
@@ -126,6 +128,23 @@ async function executeMutation(
   let parsed:
     ReturnType<typeof parseWorkerMutation<typeof method>>
     | undefined;
+  // Local durability tier: this transport creates a fresh mutation ID per
+  // call and retains no replay source for these methods, so no receipt is
+  // needed for deduplication and the story transaction commits through one
+  // atomic manifest publish. Requests without an aggregate version take the
+  // pre-Q compatibility lane below, which still needs the receipt store.
+  if (
+    isLocalDurabilityMutation(method)
+    && message.expectedAggregateVersion !== undefined
+  ) {
+    return await executeLocalTierMutation(
+      service,
+      message,
+      method,
+      onDelta,
+      signal
+    );
+  }
   // Exact terminal replays invoke neither callback. New/pending work parses
   // once after receipt identity wins and preflights before persistence.
   const input = () => parsed ??= parseWorkerMutation(
@@ -171,6 +190,49 @@ async function executeMutation(
     (plan) => message.expectedAggregateVersion === undefined
       ? preflightWorkerMutation(service, input(), plan)
       : undefined
+  );
+}
+
+async function executeLocalTierMutation<M extends LocalDurabilityMutationMethod>(
+  service: StoryService,
+  message: WorkerRequest,
+  method: M,
+  onDelta: (text: string) => void,
+  signal: AbortSignal
+): Promise<unknown> {
+  return await service.runLocalMutation(
+    message.mutationId!,
+    method,
+    (plan) => {
+      const parsedInput = parseWorkerMutation(
+        method,
+        message.input,
+        message.protocolVersion
+      );
+      const storyId = storyIdForWorkerMutation(parsedInput, plan);
+      if (storyId === null) {
+        throw new ServiceError(
+          500,
+          `Local mutation ${method} has no aggregate target`
+        );
+      }
+      return executeWorkerMutation(service, parsedInput, plan, {
+        onDelta,
+        signal,
+        storyMutationRequest: {
+          transportOperationId: workerOperationKey(message.id),
+          mutationId: message.mutationId!,
+          fingerprint: mutationFingerprint(
+            method,
+            message.input,
+            message.protocolVersion
+          ),
+          durability: "manifest-only",
+          scope: `story:${storyId}` as const,
+          expectedAggregateVersion: message.expectedAggregateVersion
+        }
+      });
+    }
   );
 }
 

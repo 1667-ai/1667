@@ -10,6 +10,7 @@ import {
   WORKER_PROTOCOL_VERSION,
   WORKER_STREAM_DEADLINE_MS,
   WORKER_UNARY_TIMEOUT_MS,
+  isLocalDurabilityMutation,
   isServiceOwnedSettingsMutation,
   isWorkerMutationMethod,
   type WorkerInput,
@@ -183,8 +184,15 @@ export class WorkerTransport {
     const mutationId = mutating && !isServiceOwnedSettingsMutation(method)
       ? createMutationId()
       : undefined;
+    // Local durability tier: the worker commits these through one atomic
+    // manifest publish and this transport never replays them, so no durable
+    // intent is written. A crash loses at most the in-flight mutation; the
+    // pre-Q lane (no aggregate version) keeps the full intent pipeline.
+    const localTier = mutationId !== undefined
+      && isLocalDurabilityMutation(method)
+      && options.expectedAggregateVersion !== undefined;
     const outbox = this.outbox.store;
-    const intent = mutationId === undefined || outbox === null
+    const intent = mutationId === undefined || localTier || outbox === null
       ? undefined
       : await prepareWorkerMutationIntent({
         mutationId,
@@ -229,6 +237,7 @@ export class WorkerTransport {
         method,
         stream,
         ...(mutationId === undefined ? {} : { mutationId }),
+        durableIntent: intent !== undefined,
         ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
         timeoutMs,

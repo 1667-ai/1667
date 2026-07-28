@@ -105,6 +105,31 @@ export async function commitPreparedStoryTransaction(
   }
 }
 
+/**
+ * Local-durability-tier commit: stage, then one atomic publish. No ledger
+ * record precedes or follows the manifest rename because the published
+ * manifest carries no transaction pointer — a crash before the rename leaves
+ * only a staged replacement that the next session discards, and a crash
+ * after it leaves a complete aggregate.
+ */
+export async function commitManifestOnlyStoryTransaction(
+  session: StoryAggregateSession,
+  manifest: StoryManifestV6,
+  hooks: StoryMutationHooks = {}
+): Promise<void> {
+  await session.stageManifest(manifest);
+  try {
+    await hooks.afterStage?.();
+  } catch (error) {
+    if (!(error instanceof InjectedStoryMutationCrash)) {
+      await session.discardStagedManifest().catch(() => undefined);
+    }
+    throw error;
+  }
+  await session.publishStagedManifest();
+  await hooks.afterPublish?.();
+}
+
 export async function commitReceiptOnlyStoryTransaction(
   ledger: MutationLedgerStore,
   prepared: PreparedRecord,

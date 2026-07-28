@@ -68,6 +68,15 @@ export function reduceStoryV6(
         unresolvedProvider: manifest.unresolvedProvider
       });
     }
+    case "local-committed": {
+      requireLive(manifest, event);
+      requireReplacementIdentity(manifest.id, event.summary, event.content.id);
+      return nextLive(manifest, previousManifestHash, null, {
+        content: event.content,
+        summary: event.summary,
+        unresolvedProvider: manifest.unresolvedProvider
+      });
+    }
     case "provider-started": {
       requireLive(manifest, event);
       requireProviderPointer(event.provider);
@@ -154,7 +163,7 @@ interface NextLiveValues {
 function nextLive(
   manifest: LiveStoryManifestV6,
   previousManifestHash: Hash256,
-  lastTransaction: UserTransactionPointer,
+  lastTransaction: UserTransactionPointer | null,
   values: NextLiveValues
 ): LiveStoryManifestV6 {
   return {
