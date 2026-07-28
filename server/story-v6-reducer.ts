@@ -58,11 +58,19 @@ export function reduceStoryV6(
   const previousManifestHash = requireExpectedManifestHash(state.manifestHash, event.expectedManifestHash);
 
   switch (event.kind) {
-    case "local-prepared": {
+    case "local-prepared":
+    case "local-committed": {
       requireLive(manifest, event);
-      requireMutationId(event.mutationId);
       requireReplacementIdentity(manifest.id, event.summary, event.content.id);
-      return nextLive(manifest, previousManifestHash, preparedPointer(event.mutationId), {
+      // "local-committed" may only be reduced by the manifest-only commit
+      // path: its null pointer promises recovery that no ledger records were
+      // written for this replacement — nothing here can verify that promise.
+      let pointer: PreparedUserTransactionPointer | null = null;
+      if (event.kind === "local-prepared") {
+        requireMutationId(event.mutationId);
+        pointer = preparedPointer(event.mutationId);
+      }
+      return nextLive(manifest, previousManifestHash, pointer, {
         content: event.content,
         summary: event.summary,
         unresolvedProvider: manifest.unresolvedProvider
@@ -154,7 +162,7 @@ interface NextLiveValues {
 function nextLive(
   manifest: LiveStoryManifestV6,
   previousManifestHash: Hash256,
-  lastTransaction: UserTransactionPointer,
+  lastTransaction: UserTransactionPointer | null,
   values: NextLiveValues
 ): LiveStoryManifestV6 {
   return {

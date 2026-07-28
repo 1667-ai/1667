@@ -1,4 +1,8 @@
 import type { Story } from "../shared/types.js";
+import {
+  LOCAL_DURABILITY_MUTATION_METHODS,
+  type LocalDurabilityMutationMethod
+} from "../shared/worker-protocol.js";
 import { ServiceError } from "./errors.js";
 import type {
   MutationCoordinator,
@@ -10,13 +14,11 @@ import {
   type StoryMutationReceipt
 } from "./mutation-ledger-store.js";
 import {
-  PROVIDER_MUTATION_METHODS,
   isPreparedDomainError,
   type MutationId,
   type MutationResult,
   type PreparedUserMutationRecord,
-  type ProviderMutationMethod,
-  type StoryMutationMethod
+  type ProviderMutationMethod
 } from "./mutation-ledger-types.js";
 import {
   StoryProviderMutationStore
@@ -30,6 +32,7 @@ import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { ActiveProviderStarts } from "./story-provider-active-starts.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import {
+  commitManifestOnlyStoryTransaction,
   commitPreparedStoryTransaction,
   commitReceiptOnlyStoryTransaction,
   corruptStoryReceipt,
@@ -63,33 +66,20 @@ export type {
 };
 export type StoryMutationStoreHooks = StoryMutationHooks;
 
-export type LocalStoryMutationMethod = Exclude<
-  StoryMutationMethod,
-  | "createStory"
-  | "importSillyTavern"
-  | "deleteStory"
-  | "acknowledgeUnknownOutcomes"
-  | typeof PROVIDER_MUTATION_METHODS[number]
->;
+/** The single source for this set is the shared protocol array; the alias
+ * keeps the ledger-side name while guaranteeing both sides cannot drift. */
+export type LocalStoryMutationMethod = LocalDurabilityMutationMethod;
 
-const LOCAL_METHODS: ReadonlySet<string> = new Set<LocalStoryMutationMethod>([
-  "renameStory",
-  "switchLine",
-  "createNode",
-  "editNode",
-  "deleteNode",
-  "pruneUnusedTakes",
-  "takeFromCut",
-  "putBookmark",
-  "deleteBookmark",
-  "createFact",
-  "patchFact",
-  "deleteFact",
-  "createChapterBreak",
-  "renameChapterBreak",
-  "removeChapterBreak",
-  "restoreChapterBreak"
-]);
+const LOCAL_METHODS: ReadonlySet<string> = new Set(
+  LOCAL_DURABILITY_MUTATION_METHODS
+);
+
+/** The durability tier of one admitted local command. "manifest-only" holds
+ * only for a marked request with no durable evidence for its mutation ID:
+ * any evidence means an earlier full-tier execution exists — for example a
+ * replay retained by a pre-tiering build — and those requests fail closed
+ * into the full receipt/ledger semantics. */
+type LocalDurabilityTier = "full" | "manifest-only";
 
 export interface StoryMutationCommit<Value = void> {
   readonly story: Story;
@@ -198,56 +188,67 @@ export class StoryMutationStore {
     if (!LOCAL_METHODS.has(method)) {
       throw new Error(`Unsupported local story method: ${method}`);
     }
-    return await this.coordinator.runStory(input, async (request) => {
-      const storyId = storyIdFromScope(request.scope);
-      const receipt = await this.ledger.loadStoryReceipt(
-        request.scope,
-        request.mutationId
-      );
-      requireFreshStoryMutation(receipt, request.mutationId, this.now);
-      if (receipt.prepared !== null) {
-        requireMatchingPrepared(receipt, request, method);
-      } else if (receipt.started !== null
-        || receipt.completed !== null
-        || receipt.acknowledged !== null) {
-        throw corruptStoryReceipt(request.mutationId);
-      }
-      return await this.stories.withAggregateSession(storyId, async (session) => {
-        await this.recovery.finalizeAggregateTransaction(
-          session,
-          request.mutationId
-        );
-        const terminal = await this.recovery.recover(
-          session,
-          request,
-          receipt
-        );
-        if (terminal !== null) {
-          return {
-            story: await session.loadLive(),
-            result: terminal,
-            aggregateVersion: storyAggregateVersion(session.snapshot),
-            value: replayValue()
-          };
-        }
-        requireExpectedLocalStoryVersion(
-          session.snapshot,
-          request.expectedAggregateVersion,
-          this.activeProviderStarts.predecessor(
-            storyId,
-            session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
-          )
-        );
-        const story = await session.loadLive();
-        let value: unknown;
-        let replacement;
-        try {
-          const outcome = await mutate(story, session);
-          if (outcome === STORY_UNCHANGED) {
-            const prepared = prepareReceiptOnlyStorySuccess(
+    return await this.coordinator.runStory(input, async (request) =>
+      await this.withRecoveredStorySession(
+        request,
+        method,
+        async (session, terminal, tier) => {
+          if (terminal !== null) {
+            return {
+              story: await session.loadLive(),
+              result: terminal,
+              aggregateVersion: storyAggregateVersion(session.snapshot),
+              value: replayValue()
+            };
+          }
+          const story = await session.loadLive();
+          let value: unknown;
+          let replacement;
+          try {
+            const outcome = await mutate(story, session);
+            if (outcome === STORY_UNCHANGED) {
+              if (tier === "manifest-only") {
+                return {
+                  story,
+                  result: storyResult(session.snapshot.manifest),
+                  aggregateVersion: storyAggregateVersion(session.snapshot),
+                  value: replayValue()
+                };
+              }
+              const prepared = prepareReceiptOnlyStorySuccess(
+                method,
+                request,
+                session,
+                timestamp(this.now)
+              );
+              await commitReceiptOnlyStoryTransaction(
+                this.ledger,
+                prepared,
+                this.now,
+                this.hooks
+              );
+              return {
+                story,
+                result: prepared.result,
+                aggregateVersion: storyAggregateVersion(session.snapshot),
+                value: replayValue()
+              };
+            }
+            value = outcome;
+            replacement = await session.prepareContent(story);
+          } catch (error) {
+            // A manifest-only mutation has no replay to keep deterministic,
+            // so a domain rejection needs no receipt-only record either.
+            if (tier === "manifest-only"
+              || !(error instanceof ServiceError)
+              || !isPreparedDomainError(error.code)) {
+              throw error;
+            }
+            const prepared = prepareReceiptOnlyStoryError(
               method,
               request,
               session,
+              error.code,
               timestamp(this.now)
             );
             await commitReceiptOnlyStoryTransaction(
@@ -256,71 +257,114 @@ export class StoryMutationStore {
               this.now,
               this.hooks
             );
-            return {
-              story,
-              result: prepared.result,
-              aggregateVersion: storyAggregateVersion(session.snapshot),
-              value: replayValue()
-            };
-          }
-          value = outcome;
-          replacement = await session.prepareContent(story);
-        } catch (error) {
-          if (!(error instanceof ServiceError)
-            || !isPreparedDomainError(error.code)) {
             throw error;
           }
-          const prepared = prepareReceiptOnlyStoryError(
-            method,
-            request,
-            session,
-            error.code,
-            timestamp(this.now)
-          );
-          await commitReceiptOnlyStoryTransaction(
-            this.ledger,
-            prepared,
-            this.now,
-            this.hooks
-          );
-          throw error;
+          const manifest = reduceStoryV6({
+            kind: "present",
+            manifest: session.snapshot.manifest,
+            manifestHash: session.snapshot.manifestHash
+          }, tier === "manifest-only"
+            ? {
+                kind: "local-committed",
+                expectedManifestHash: session.snapshot.manifestHash,
+                content: replacement.content,
+                summary: replacement.summary
+              }
+            : {
+                kind: "local-prepared",
+                mutationId: request.mutationId,
+                expectedManifestHash: session.snapshot.manifestHash,
+                content: replacement.content,
+                summary: replacement.summary
+              });
+          if (manifest === null) {
+            throw new Error("Local story mutation produced no aggregate");
+          }
+          if (tier === "manifest-only") {
+            await commitManifestOnlyStoryTransaction(
+              session,
+              manifest,
+              this.hooks
+            );
+          } else {
+            await commitPreparedStoryTransaction({
+              session,
+              ledger: this.ledger,
+              manifest,
+              prepared: prepareLocalRecord(
+                method,
+                request,
+                session,
+                manifest,
+                timestamp(this.now)
+              ),
+              now: this.now,
+              hooks: this.hooks
+            });
+          }
+          return {
+            story: replacement.story,
+            result: storyResult(manifest),
+            aggregateVersion: storyAggregateVersion(session.snapshot),
+            value
+          };
         }
-        const manifest = reduceStoryV6({
-          kind: "present",
-          manifest: session.snapshot.manifest,
-          manifestHash: session.snapshot.manifestHash
-        }, {
-          kind: "local-prepared",
-          mutationId: request.mutationId,
-          expectedManifestHash: session.snapshot.manifestHash,
-          content: replacement.content,
-          summary: replacement.summary
-        });
-        if (manifest === null) {
-          throw new Error("Local story mutation produced no aggregate");
-        }
-        const prepared = prepareLocalRecord(
-          method,
-          request,
-          session,
-          manifest,
-          timestamp(this.now)
+      ));
+  }
+
+  /**
+   * Shared admission spine for receipt-backed local commands and deletion:
+   * durable evidence lookup, freshness, identity matching, prior-transaction
+   * finalization, torn-stage recovery, and the version check with its
+   * provider-fence predecessor. The durability tier is resolved here, from
+   * evidence rather than trust: the manifest-only marker applies only when
+   * this mutation ID has no durable evidence, so a replay of a full-tier
+   * execution — however it arrives — takes the full-tier semantics and its
+   * recovery, never the receipt-free path.
+   */
+  private async withRecoveredStorySession<T>(
+    request: MutationCoordinatorRequest<StoryMutationTarget>,
+    method: LocalStoryMutationMethod | "deleteStory",
+    work: (
+      session: StoryAggregateSession,
+      terminal: Extract<MutationResult, { kind: "story" }> | null,
+      tier: LocalDurabilityTier
+    ) => Promise<T>
+  ): Promise<T> {
+    const storyId = storyIdFromScope(request.scope);
+    const receipt = await this.ledger.loadStoryReceipt(
+      request.scope,
+      request.mutationId
+    );
+    requireFreshStoryMutation(receipt, request.mutationId, this.now);
+    if (receipt.prepared !== null) {
+      requireMatchingLocalPrepared(receipt, request, method);
+    } else if (receipt.started !== null
+      || receipt.completed !== null
+      || receipt.acknowledged !== null) {
+      throw corruptStoryReceipt(request.mutationId);
+    }
+    const tier: LocalDurabilityTier =
+      request.durability === "manifest-only" && receipt.prepared === null
+        ? "manifest-only"
+        : "full";
+    return await this.stories.withAggregateSession(storyId, async (session) => {
+      await this.recovery.finalizeAggregateTransaction(
+        session,
+        request.mutationId
+      );
+      const terminal = await this.recovery.recover(session, request, receipt);
+      if (terminal === null) {
+        requireExpectedLocalStoryVersion(
+          session.snapshot,
+          request.expectedAggregateVersion,
+          this.activeProviderStarts.predecessor(
+            storyId,
+            session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
+          )
         );
-        await commitPreparedStoryTransaction({
-          session,
-          ledger: this.ledger,
-          manifest,
-          prepared,
-          now: this.now,
-          hooks: this.hooks
-        });
-        return {
-          story: replacement.story,
-          result: storyResult(manifest),
-          aggregateVersion: storyAggregateVersion(session.snapshot),
-          value
-        };
-      });
+      }
+      return await work(session, terminal, tier);
     });
   }
 
@@ -337,78 +381,52 @@ export class StoryMutationStore {
   }
 
   async runDelete(input: unknown): Promise<StoryDeletionCommit> {
-    return await this.coordinator.runStory(input, async (request) => {
-      const receipt = await this.ledger.loadStoryReceipt(
-        request.scope,
-        request.mutationId
-      );
-      requireFreshStoryMutation(receipt, request.mutationId, this.now);
-      if (receipt.prepared !== null) {
-        requireMatchingDeleteReceipt(receipt, request);
-      } else if (receipt.started !== null || receipt.completed !== null
-        || receipt.acknowledged !== null) {
-        throw corruptStoryReceipt(request.mutationId);
-      }
-      const storyId = storyIdFromScope(request.scope);
-      return await this.stories.withAggregateSession(storyId, async (session) => {
-        await this.recovery.finalizeAggregateTransaction(
-          session,
-          request.mutationId
-        );
-        const terminal = await this.recovery.recover(
-          session,
-          request,
-          receipt
-        );
-        if (terminal !== null) return { result: terminal };
-        requireExpectedLocalStoryVersion(
-          session.snapshot,
-          request.expectedAggregateVersion,
-          this.activeProviderStarts.predecessor(
-            storyId,
-            session.snapshot.manifest.unresolvedProvider?.mutationId ?? null
-          )
-        );
-        const oldStateHash = session.snapshot.manifestHash;
-        const manifest = reduceStoryV6({
-          kind: "present",
-          manifest: session.snapshot.manifest,
-          manifestHash: oldStateHash
-        }, {
-          kind: "delete-prepared",
-          mutationId: request.mutationId,
-          expectedManifestHash: oldStateHash,
-          deletedAt: timestamp(this.now)
-        });
-        if (manifest === null) {
-          throw new Error("Delete transition removed its recovery tombstone");
+    return await this.coordinator.runStory(input, async (request) =>
+      await this.withRecoveredStorySession(
+        request,
+        "deleteStory",
+        async (session, terminal) => {
+          if (terminal !== null) return { result: terminal };
+          const oldStateHash = session.snapshot.manifestHash;
+          const manifest = reduceStoryV6({
+            kind: "present",
+            manifest: session.snapshot.manifest,
+            manifestHash: oldStateHash
+          }, {
+            kind: "delete-prepared",
+            mutationId: request.mutationId,
+            expectedManifestHash: oldStateHash,
+            deletedAt: timestamp(this.now)
+          });
+          if (manifest === null) {
+            throw new Error("Delete transition removed its recovery tombstone");
+          }
+          await session.ensureCleanupPending();
+          const prepared: PreparedUserMutationRecord = {
+            schema: 1,
+            kind: "prepared",
+            purpose: "mutation",
+            aggregateKey: request.scope,
+            key: request.mutationId,
+            fingerprintHash: request.fingerprint,
+            method: "deleteStory",
+            oldStateHash,
+            newStateHash: hashStoryManifest(manifest),
+            startedRecordHash: null,
+            result: storyResult(manifest),
+            preparedAt: timestamp(this.now)
+          };
+          await commitPreparedStoryTransaction({
+            session,
+            ledger: this.ledger,
+            manifest,
+            prepared,
+            now: this.now,
+            hooks: this.hooks
+          });
+          return { result: storyResult(manifest) };
         }
-        await session.ensureCleanupPending();
-        const prepared: PreparedUserMutationRecord = {
-          schema: 1,
-          kind: "prepared",
-          purpose: "mutation",
-          aggregateKey: request.scope,
-          key: request.mutationId,
-          fingerprintHash: request.fingerprint,
-          method: "deleteStory",
-          oldStateHash,
-          newStateHash: hashStoryManifest(manifest),
-          startedRecordHash: null,
-          result: storyResult(manifest),
-          preparedAt: timestamp(this.now)
-        };
-        await commitPreparedStoryTransaction({
-          session,
-          ledger: this.ledger,
-          manifest,
-          prepared,
-          now: this.now,
-          hooks: this.hooks
-        });
-        return { result: storyResult(manifest) };
-      });
-    });
+      ));
   }
 
   async runAcknowledge(
@@ -445,31 +463,16 @@ function prepareLocalRecord(
   };
 }
 
-function requireMatchingPrepared(
+function requireMatchingLocalPrepared(
   receipt: StoryMutationReceipt,
   request: MutationCoordinatorRequest<StoryMutationTarget>,
-  method: LocalStoryMutationMethod
+  method: LocalStoryMutationMethod | "deleteStory"
 ): void {
   const prepared = receipt.prepared;
   if (prepared === null || prepared.purpose !== "mutation"
     || prepared.aggregateKey !== request.scope
     || prepared.key !== request.mutationId
     || prepared.method !== method
-    || prepared.fingerprintHash !== request.fingerprint
-    || prepared.startedRecordHash !== null) {
-    throw storyIdempotencyConflict();
-  }
-}
-
-function requireMatchingDeleteReceipt(
-  receipt: StoryMutationReceipt,
-  request: MutationCoordinatorRequest<StoryMutationTarget>
-): void {
-  const prepared = receipt.prepared;
-  if (prepared === null || prepared.purpose !== "mutation"
-    || prepared.aggregateKey !== request.scope
-    || prepared.key !== request.mutationId
-    || prepared.method !== "deleteStory"
     || prepared.fingerprintHash !== request.fingerprint
     || prepared.startedRecordHash !== null) {
     throw storyIdempotencyConflict();

@@ -34,6 +34,7 @@ const REQUEST_KEYS = new Set([
   "scope",
   "expectedAggregateVersion"
 ]);
+const OPTIONAL_REQUEST_KEYS = new Set(["durability"]);
 const ADMISSION_REQUEST_KEYS = new Set([
   "transportOperationId",
   "mutationId",
@@ -70,6 +71,14 @@ export type MutationCoordinatorRequest<Target extends MutationTarget> = Readonly
   transportOperationId: string;
   mutationId: MutationId;
   fingerprint: Hash256;
+  /**
+   * Local durability tier opt-in for story scopes: the mutation commits
+   * through one atomic manifest publish and records no per-mutation receipt,
+   * so a crash may lose it but can never corrupt the aggregate. Absent means
+   * the full exactly-once receipt/ledger pipeline; the field admits only the
+   * one literal because "full" is expressed by omission.
+   */
+  durability?: "manifest-only";
 } & Target>;
 
 export type MutationCoordinatorAdmissionRequest<Target extends MutationTarget> = Readonly<{
@@ -249,9 +258,32 @@ function parseRequest<Target extends MutationTarget>(
   input: unknown,
   parseTarget: MutationTargetParser<Target>
 ): MutationCoordinatorRequest<Target> {
-  const record = exactRecord(input, "Mutation request", REQUEST_KEYS);
+  const record = exactRecord(
+    input,
+    "Mutation request",
+    REQUEST_KEYS,
+    OPTIONAL_REQUEST_KEYS
+  );
   const admission = parseAdmissionRecord(record, parseTarget);
-  return requestWithFingerprint(admission, record.fingerprint);
+  return requestWithFingerprint(
+    admission,
+    record.fingerprint,
+    parseDurability(record.durability, admission.scope)
+  );
+}
+
+function parseDurability(
+  value: unknown,
+  scope: string
+): "manifest-only" | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "manifest-only") {
+    throw invalidRequest("Mutation durability must be manifest-only when present");
+  }
+  if (!scope.startsWith("story:")) {
+    throw invalidRequest("Manifest-only durability requires a story scope");
+  }
+  return "manifest-only";
 }
 
 function parseAdmissionRequest<Target extends MutationTarget>(
@@ -283,12 +315,16 @@ function parseAdmissionRecord<Target extends MutationTarget>(
 
 function requestWithFingerprint<Target extends MutationTarget>(
   admission: MutationCoordinatorAdmissionRequest<Target>,
-  fingerprintInput: unknown
+  fingerprintInput: unknown,
+  durability?: "manifest-only"
 ): MutationCoordinatorRequest<Target> {
   return Object.freeze({
     transportOperationId: admission.transportOperationId,
     mutationId: admission.mutationId,
     fingerprint: fingerprintValue(fingerprintInput),
+    // Full durability stays implicit so the canonical five-field record is
+    // unchanged for every caller outside the local durability tier.
+    ...(durability === undefined ? {} : { durability }),
     scope: admission.scope,
     expectedAggregateVersion: admission.expectedAggregateVersion
   }) as MutationCoordinatorRequest<Target>;
@@ -374,17 +410,22 @@ function parseStoryTarget(
   };
 }
 
+const NO_OPTIONAL_KEYS: ReadonlySet<string> = new Set();
+
 function exactRecord(
   value: unknown,
   label: string,
-  keys: ReadonlySet<string>
+  keys: ReadonlySet<string>,
+  optionalKeys: ReadonlySet<string> = NO_OPTIONAL_KEYS
 ): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw invalidRequest(`${label} must be an object`);
   }
   const ownKeys = Reflect.ownKeys(value);
-  if (ownKeys.some((key) => typeof key !== "string" || !keys.has(key))
-    || keys.size !== ownKeys.length) {
+  const ownKeySet = new Set(ownKeys);
+  if (ownKeys.some((key) => typeof key !== "string"
+      || !(keys.has(key) || optionalKeys.has(key)))
+    || [...keys].some((key) => !ownKeySet.has(key))) {
     throw invalidRequest(`${label} must contain exactly: ${[...keys].join(", ")}`);
   }
   return value as Record<string, unknown>;

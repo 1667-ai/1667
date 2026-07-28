@@ -10,6 +10,7 @@ import {
   WORKER_PROTOCOL_VERSION,
   WORKER_STREAM_DEADLINE_MS,
   WORKER_UNARY_TIMEOUT_MS,
+  isManifestOnlyDurabilityEligible,
   isServiceOwnedSettingsMutation,
   isWorkerMutationMethod,
   type WorkerInput,
@@ -198,8 +199,22 @@ export class WorkerTransport {
     const mutationId = mutating && !isServiceOwnedSettingsMutation(method)
       ? createMutationId()
       : undefined;
+    // Single tier decision: a fresh, marker-eligible local mutation on a
+    // versioned aggregate gets the manifest-only marker, writes no durable
+    // intent, and is never replayed — a crash loses at most one human
+    // action. Everything else (provider work, inputs that embed paid or
+    // store-absent content, the pre-Q lane without an aggregate version, and
+    // every outbox replay, which never carries the marker) keeps the full
+    // intent pipeline.
+    const durability = mutationId !== undefined
+      && options.expectedAggregateVersion !== undefined
+      && isManifestOnlyDurabilityEligible(method, input)
+      ? "manifest-only" as const
+      : undefined;
     const outbox = this.outbox.store;
-    const intent = mutationId === undefined || outbox === null
+    const intent = mutationId === undefined
+      || durability !== undefined
+      || outbox === null
       ? undefined
       : await prepareWorkerMutationIntent({
         mutationId,
@@ -244,6 +259,7 @@ export class WorkerTransport {
         method,
         stream,
         ...(mutationId === undefined ? {} : { mutationId }),
+        durableIntent: intent !== undefined,
         ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
         timeoutMs,
@@ -274,7 +290,8 @@ export class WorkerTransport {
           ...(mutationId === undefined ? {} : { mutationId }),
           ...(options.expectedAggregateVersion === undefined ? {} : {
             expectedAggregateVersion: options.expectedAggregateVersion
-          })
+          }),
+          ...(durability === undefined ? {} : { durability })
         });
       } catch (error) {
         const pending = this.pending.discard(registered.id);
@@ -464,6 +481,8 @@ export class WorkerTransport {
       replay: true,
       stream,
       mutationId: record.mutationId,
+      // Replays exist because the intent exists; it must settle durably.
+      durableIntent: true,
       timeoutMs: deadlineAfterMs,
       onTimeout: (id) => {
         const pending = this.pending.get(id);

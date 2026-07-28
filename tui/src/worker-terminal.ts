@@ -64,7 +64,9 @@ async function settleOwnedWorkerTerminal(
   let warningStoryId: string | null = null;
   const mutationId = pending.mutationId;
   const store = outbox.store;
-  if (mutationId !== undefined && store !== null) {
+  // Local-durability-tier mutations publish no intent, so there is nothing
+  // durable to remove or archive here. Terminal recovery below still runs.
+  if (mutationId !== undefined && store !== null && pending.durableIntent) {
     if (uncertainMutation && message.type === "error") {
       const archived = await outbox.run(
         () => store.archive(mutationId, message.failure)

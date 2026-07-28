@@ -143,6 +143,35 @@ export function isMutationFingerprint(value: unknown): value is string {
   return typeof value === "string" && FINGERPRINT_PATTERN.test(value);
 }
 
+export function requireChapterBreakRemovalFingerprint(
+  value: string
+): void {
+  if (!isMutationFingerprint(value)) {
+    throw new ServiceError(400, "Invalid chapter-break removal fingerprint");
+  }
+}
+
+/**
+ * The one home for chapter-break removal conflict semantics: shape-check the
+ * expected fingerprint, load a private copy, and require the exact match.
+ * Callers own any persistence of the returned value.
+ */
+export async function loadVerifiedChapterBreakRemoval(
+  expectedFingerprint: string,
+  load: () => Promise<RemovedChapterBreakResult>
+): Promise<RemovedChapterBreakResult> {
+  requireChapterBreakRemovalFingerprint(expectedFingerprint);
+  const value = structuredClone(await load());
+  if (chapterBreakRemovalFingerprint(value) !== expectedFingerprint) {
+    throw new ServiceError(
+      409,
+      "Chapter-break removal input no longer matches the aggregate.",
+      "conflict"
+    );
+  }
+  return value;
+}
+
 export function requireRemovalArtifact(
   receipt: MutationReceipt
 ): RemovedChapterBreakResult {

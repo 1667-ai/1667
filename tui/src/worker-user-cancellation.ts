@@ -21,7 +21,9 @@ export function cancelPendingWorkerRequest(
   if (pending === undefined) return;
   const mutationId = pending.mutationId;
   const store = options.outbox.store;
-  if (mutationId === undefined || store === null) {
+  // Without a durable intent (local durability tier) there is nothing for a
+  // replacement process to replay, so cancellation needs no durable marker.
+  if (mutationId === undefined || store === null || !pending.durableIntent) {
     deliverCancellation(options, pending);
     return;
   }
