@@ -437,6 +437,59 @@ describe("embedded backend worker", () => {
     }
   });
 
+  test("local mutations skip the durable outbox intent while provider mutations keep it", async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-local-tier-"));
+    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
+    await outbox.init();
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({ worker, outbox, readyTimeoutMs: 100 });
+    try {
+      await backend.recovery;
+      const switching = backend.api.switchLine("story-1", "node-1");
+      const load = await waitForRequest(worker, "loadStory");
+      worker.message({ type: "result", id: load.id, value: {
+        id: "story-1",
+        nodes: [],
+        path: [],
+        aggregateVersion: { kind: "v6", revision: "00000000000000000001" }
+      } });
+      const local = await waitForRequest(worker, "switchLine");
+      expect(typeof local.mutationId).toBe("string");
+      expect(local.expectedAggregateVersion).toEqual({
+        kind: "v6",
+        revision: "00000000000000000001"
+      });
+      // The local durability tier publishes no intent before or after send.
+      expect(await outbox.list()).toEqual([]);
+      worker.message({ type: "result", id: local.id, value: { id: "story-1", nodes: [], path: [] } });
+      await switching;
+      expect(await outbox.list()).toEqual([]);
+      expect(await outbox.listCancellationMarkers()).toEqual([]);
+
+      // A provider-backed mutation still writes its intent before the send
+      // and durably removes it before the caller's promise resolves.
+      const continuing = backend.api.continueStory(
+        "story-1",
+        "continue",
+        "gen-1",
+        {},
+        () => {},
+        new AbortController().signal
+      );
+      const generation = await waitForRequest(worker, "continueStory");
+      const inflight = await outbox.list();
+      expect(inflight).toHaveLength(1);
+      expect(inflight[0]!.mutationId).toBe(generation.mutationId!);
+      expect(inflight[0]!.method).toBe("continueStory");
+      worker.message({ type: "complete", id: generation.id, value: null });
+      expect(await continuing).toBe(null);
+      expect(await outbox.list()).toEqual([]);
+    } finally {
+      await backend.dispose();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
   test("keeps new mutations fenced after startup recovery rejects", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "1667-worker-recovery-reject-"));
     const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));

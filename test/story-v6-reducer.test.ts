@@ -315,6 +315,8 @@ function makeEvent(kind: StoryV6Event["kind"]): StoryV6Event {
     }
     case "local-prepared":
       return { kind, expectedManifestHash: HASH_A, mutationId: LOCAL_ID, content, summary };
+    case "local-committed":
+      return { kind, expectedManifestHash: HASH_A, content, summary };
     case "provider-started":
       return { kind, expectedManifestHash: HASH_A, provider: PROVIDER };
     case "provider-terminal-prepared":

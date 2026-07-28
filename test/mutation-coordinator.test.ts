@@ -152,6 +152,70 @@ test("story coordinator rejects malformed scope/version pairs before admission",
   }
 });
 
+test("story coordinator accepts the optional manifest-only durability tier", async () => {
+  const coordinator = createMutationCoordinator();
+  const full = await coordinator.runStory(storyRequest(1), (request) => {
+    assert.equal(request.durability, undefined);
+    assert.deepEqual(Reflect.ownKeys(request), [
+      "transportOperationId",
+      "mutationId",
+      "fingerprint",
+      "scope",
+      "expectedAggregateVersion"
+    ]);
+    return "full";
+  });
+  assert.equal(full, "full");
+  const local = await coordinator.runStory(
+    { ...storyRequest(2), durability: "manifest-only" },
+    (request) => {
+      assert.equal(request.durability, "manifest-only");
+      assert.ok(Object.isFrozen(request));
+      return "manifest-only";
+    }
+  );
+  assert.equal(local, "manifest-only");
+});
+
+test("durability tier requests fail closed outside their contract", async (t) => {
+  const cases: ReadonlyArray<{
+    name: string;
+    run: (coordinator: ReturnType<typeof createMutationCoordinator>, handler: () => void) => Promise<unknown>;
+  }> = [
+    {
+      name: "settings scope cannot request manifest-only durability",
+      run: (coordinator, handler) => coordinator.runSettings(
+        { ...settingsRequest(1), durability: "manifest-only" },
+        handler
+      )
+    },
+    {
+      name: "explicit full durability must stay implicit",
+      run: (coordinator, handler) => coordinator.runStory(
+        { ...storyRequest(1), durability: "full" },
+        handler
+      )
+    },
+    {
+      name: "non-string durability",
+      run: (coordinator, handler) => coordinator.runStory(
+        { ...storyRequest(1), durability: true },
+        handler
+      )
+    }
+  ];
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      let called = false;
+      await assert.rejects(
+        fixture.run(createMutationCoordinator(), () => { called = true; }),
+        hasServiceError("invalid_request", 400)
+      );
+      assert.equal(called, false);
+    });
+  }
+});
+
 test("one coordinator admits settings and different stories but conflicts on the same story", async () => {
   const coordinator = createMutationCoordinator();
   const storyHold = deferred();
