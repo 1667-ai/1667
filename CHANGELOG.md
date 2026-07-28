@@ -61,6 +61,7 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **Routine CI now builds three release targets.** CI builds macOS arm64, Linux
   arm64, and Linux x64. CI does not build macOS x64 or Windows x64. These two
   targets caused failures on `main`, and their release work is not active.
+  Thanks @10fra for the CI coverage decision.
 - **Migrated StoryTavern bundles open in 1667.** 1667 accepts the predecessor
   manifest and text-revision identifiers without changing content hashes. New
   story writes use 1667 identifiers. Thanks @10fra for the migration report.
