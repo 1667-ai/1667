@@ -12,7 +12,6 @@ import { SETTINGS_STATE_V2_FILE } from "../../server/data-directory-layout.js";
 import { internalErrorLogPath } from "../../server/internal-error-log.js";
 import { MutationOutbox } from "../../server/mutation-outbox.js";
 import {
-  BackendRestartRequiredError,
   createWorkerStoryApi,
   WorkerApiError
 } from "../src/worker-api.js";
@@ -138,8 +137,8 @@ test("archived diagnostics remain warnings without worker replay", async () => {
   }
 });
 
-test("mutation hard fences retain internal diagnostic references", async () => {
-  const worker = new FakeWorker();
+test("uncertain terminal failures retain diagnostics without stopping the worker", async () => {
+  const worker = new FakeWorker(true);
   const backend = await createWorkerStoryApi({
     worker,
     readyTimeoutMs: 100
@@ -158,13 +157,18 @@ test("mutation hard fences retain internal diagnostic references", async () => {
   });
 
   const pendingError = await rejection(pending);
-  expect(pendingError instanceof BackendRestartRequiredError).toBeTrue();
+  expect(pendingError instanceof WorkerApiError).toBeTrue();
   expect(pendingError).toMatchObject({
     diagnosticRef: "err_deadbeefdeadbeefdeadbeef"
   });
-  expect(await backend.failure).toBe(pendingError);
-  const disposalError = await rejection(backend.dispose());
-  expect(disposalError).toBe(pendingError);
+  expect(worker.terminateCalls).toBe(0);
+  expect(await Promise.race([
+    backend.failure.then(() => "failed" as const),
+    new Promise<"running">((resolve) =>
+      setTimeout(() => resolve("running"), 10)
+    )
+  ])).toBe("running");
+  await backend.dispose();
 });
 
 async function temporaryDirectory(prefix: string): Promise<string> {

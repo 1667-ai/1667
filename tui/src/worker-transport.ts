@@ -86,7 +86,10 @@ export class WorkerTransport {
     this.outbox = new SerializedWorkerOutbox(outbox);
     this.worker = options.worker ?? createDefaultWorker();
     this.lifecycle = new WorkerLifecycle(this.worker, options, (error) => this.fail(error, false));
-    this.recoveryCoordinator = new OutboxRecoveryCoordinator((record) => this.replayMutation(record));
+    this.recoveryCoordinator = new OutboxRecoveryCoordinator(
+      (record) => this.replayMutation(record),
+      (warnings) => { options.onRecoveryWarnings?.(warnings); }
+    );
     this.worker.addEventListener("message", this.onMessage);
     this.worker.addEventListener("error", this.onError);
     this.worker.addEventListener("close", this.onClose);
@@ -152,6 +155,7 @@ export class WorkerTransport {
     const outbox = this.outbox.store;
     if (outbox === null) return;
     await this.outbox.run(() => outbox.dismissArchived(mutationId));
+    this.recoveryCoordinator.dismissWarning(mutationId);
   }
 
   private async beginCall<M extends WorkerMethod>(
@@ -166,6 +170,17 @@ export class WorkerTransport {
     if (!this.lifecycle.acceptingRequests) return Promise.reject(new Error("Embedded backend is not running"));
     if (isAborted(options.signal)) return Promise.resolve(null as WorkerOutput<M>);
     const mutating = isWorkerMutationMethod(method);
+    if (mutating
+      && this.recoveryCoordinator.warnings.length > 0
+      && this.options.onRecoveryWarnings?.(
+        this.recoveryCoordinator.warnings
+      ) === true) {
+      throw workerApiErrorFromFailure(createFailureEnvelope({
+        code: "mutation_outcome_unknown",
+        message: "1667 is reloading saved state. Try again when the reload is complete.",
+        status: 409
+      }));
+    }
     // Reads may proceed while startup recovery reconciles authoritative state,
     // but a new write must not overtake an older retained intent. In particular,
     // a delete racing replay could otherwise make deterministic absence look
@@ -406,15 +421,32 @@ export class WorkerTransport {
     if (message.type === "operation") {
       if (pending === undefined || pending.settling || message.state === "running") return;
       if (message.state === "unknown") {
-        const error = new WorkerApiError(createFailureEnvelope({
-          code: "operation_unknown",
-          message: "Embedded backend no longer retains this operation",
-          status: 410
-        }));
         if (isWorkerMutationMethod(pending.method)) {
-          this.failForRestart(error.message, error);
+          await settleWorkerTerminal({
+            message: {
+              type: "error",
+              id: message.id,
+              failure: createFailureEnvelope({
+                code: "operation_unknown",
+                message: "Something interrupted the last change. You can try again.",
+                status: 410
+              }),
+              mutationOutcome: "uncertain"
+            },
+            pending,
+            pendingRequests: this.pending,
+            outbox: this.outbox,
+            recovery: this.recoveryCoordinator,
+            acknowledge: () => this.acknowledgeTerminal(message.id),
+            fail: (error) => this.failForRestart(error.message, error)
+          });
           return;
         }
+        const error = new WorkerApiError(createFailureEnvelope({
+          code: "operation_unknown",
+          message: "The requested data is no longer available. Try again.",
+          status: 410
+        }));
         this.pending.discard(message.id);
         pending.reject(error);
         return;

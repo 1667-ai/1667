@@ -900,28 +900,105 @@ describe("embedded backend worker", () => {
     expect(await disposalError).toBe(failure);
   });
 
-  test("terminates and retains recovery state for an uncertain mutation outcome", async () => {
-    const worker = new FakeWorker();
-    const backend = await createWorkerStoryApi({ worker, readyTimeoutMs: 100 });
-    const pending = backend.api.createStory("uncertain");
-    const request = await waitForRequest(worker, "createStory");
-    worker.message({
-      type: "error",
-      id: request.id,
-      failure: createFailureEnvelope({
-        code: "mutation_outcome_unknown",
-        message: "Mutation receipt durability could not be confirmed",
-        status: 500
-      }),
-      mutationOutcome: "uncertain"
+  test("keeps the worker available after an uncertain terminal mutation result", async () => {
+    const dataDir = await mkdtemp(path.join(
+      tmpdir(),
+      "1667-worker-live-uncertain-"
+    ));
+    const outbox = new MutationOutbox(path.join(dataDir, "mutation-outbox"));
+    await outbox.init();
+    const warningBatches: string[][] = [];
+    let recoveryPending = true;
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({
+      worker,
+      outbox,
+      readyTimeoutMs: 100,
+      onRecoveryWarnings: (warnings) => {
+        warningBatches.push(warnings.map(({ mutationId }) => mutationId));
+        return recoveryPending;
+      }
     });
+    try {
+      const pending = backend.api.createStory("uncertain");
+      const request = await waitForRequest(worker, "createStory");
+      worker.message({
+        type: "error",
+        id: request.id,
+        failure: createFailureEnvelope({
+          code: "mutation_outcome_unknown",
+          message: "The change stopped. Saved state will be reloaded.",
+          status: 409
+        }),
+        mutationOutcome: "uncertain"
+      });
 
-    const pendingError = await rejection(pending);
-    expect(pendingError.message).toContain("could not be confirmed");
-    const backendFailure = await backend.failure;
-    expect(backendFailure.message).toContain("could not be confirmed");
-    expect(worker.terminateCalls).toBe(1);
-    await expectRestartRequiredDisposal(backend);
+      expect((await rejection(pending)).message).toContain(
+        "Saved state will be reloaded"
+      );
+      expect(worker.terminateCalls).toBe(0);
+      expect(warningBatches).toHaveLength(1);
+      expect(await outbox.list()).toEqual([]);
+      expect(await outbox.listArchived()).toHaveLength(1);
+
+      const listed = backend.api.listStories();
+      const listRequest = await waitForRequest(worker, "listStoriesPage");
+      worker.message({
+        type: "result",
+        id: listRequest.id,
+        value: { items: [], cursor: null }
+      });
+      expect(await listed).toEqual([]);
+      const requestsBeforeBlockedRetry = worker.messages.filter(
+        ({ type }) => type === "request"
+      ).length;
+      expect((await rejection(
+        backend.api.createStory("blocked during reload")
+      )).message).toBe(
+        "1667 is reloading saved state. Try again when the reload is complete."
+      );
+      expect(worker.messages.filter(
+        ({ type }) => type === "request"
+      )).toHaveLength(requestsBeforeBlockedRetry);
+
+      recoveryPending = false;
+      const retry = backend.api.createStory("retry after reload");
+      let retryRequest: Extract<
+        MainToWorkerMessage,
+        { type: "request" }
+      > | undefined;
+      for (let attempt = 0; attempt < 100 && retryRequest === undefined; attempt += 1) {
+        const candidate = worker.messages.findLast((message) =>
+          message.type === "request" && message.method === "createStory"
+        );
+        if (candidate?.type === "request" && candidate !== request) {
+          retryRequest = candidate;
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+      }
+      if (retryRequest === undefined) throw new Error("retry request was not sent");
+      worker.message({
+        type: "result",
+        id: retryRequest.id,
+        value: {
+          id: "retry-story",
+          title: "retry after reload",
+          nodes: [],
+          path: []
+        }
+      });
+      expect((await retry).id).toBe("retry-story");
+      expect(await Promise.race([
+        backend.failure.then(() => "failed" as const),
+        new Promise<"running">((resolve) =>
+          setTimeout(() => resolve("running"), 10)
+        )
+      ])).toBe("running");
+    } finally {
+      await backend.dispose();
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   test("rejects unknown and malformed protocol messages without killing the worker", async () => {

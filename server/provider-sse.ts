@@ -168,9 +168,13 @@ export async function* providerSseEvents(
         if (active) providerTransportFinished?.();
         events.close();
       } catch (error) {
-        events.fail(
-          deadlineMessage === null ? error : new ProviderError(deadlineMessage)
-        );
+        events.fail(providerStreamFailure(
+          error,
+          deadlineMessage,
+          callerSignal,
+          secrets,
+          redact
+        ));
       } finally {
         clearTimeout(totalTimer);
         if (phaseTimer !== null) clearTimeout(phaseTimer);
@@ -194,6 +198,21 @@ export async function* providerSseEvents(
     clearTimeout(totalTimer);
     if (phaseTimer !== null) clearTimeout(phaseTimer);
   }
+}
+
+function providerStreamFailure(
+  error: unknown,
+  deadlineMessage: string | null,
+  callerSignal: AbortSignal,
+  secrets: readonly string[],
+  redact: (value: string, secrets: readonly string[]) => string
+): unknown {
+  if (callerSignal.aborted) return callerSignal.reason;
+  if (deadlineMessage !== null) return new ProviderError(deadlineMessage);
+  if (error instanceof ProviderError) return error;
+  return new ProviderError(
+    `Model stream failed: ${safeMessage(error, secrets, redact)}`
+  );
 }
 
 async function boundedResponseText(response: Response): Promise<string> {

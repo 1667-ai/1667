@@ -20,7 +20,9 @@ test("recovery notice describes a stopped model request in product terms", () =>
     )
   };
 
-  expect(recoveryNotice([warning])).toBe("last model request stopped");
+  expect(recoveryNotice([warning])).toBe(
+    "model request stopped · you can try again"
+  );
 });
 
 test("recovery feed replays early warnings and deduplicates live metadata", () => {

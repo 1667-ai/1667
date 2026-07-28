@@ -467,14 +467,15 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
   const storyFolder = dataDir === null
     ? ""
     : storyFolderForBackend(true, dataDir);
+  const backendRecovery = new RecoveryWarningFeed();
   const worker = dataDir === null ? null : await createWorkerStoryApi({
     dataDir,
-    printLogs: args.printLogs
+    printLogs: args.printLogs,
+    onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings)
   });
   const httpAttach = worker === null
     ? await attachHttpServer(await attachOrigin(args), args.authFile)
     : null;
-  const backendRecovery = new RecoveryWarningFeed();
   if (worker !== null) {
     try {
       // Startup remains non-interactive until retained mutations settle. The

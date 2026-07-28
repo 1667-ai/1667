@@ -171,7 +171,10 @@ export class MutationOutbox {
   /** Preserve an ambiguous intent as a durable startup warning, then remove
    * it from the active replay fence. Its mutation receipt remains
    * authoritative, so the old ID can never re-enter provider execution. */
-  async archive(mutationId: string, resolution: MutationOutboxResolution): Promise<void> {
+  async archive(
+    mutationId: string,
+    resolution: MutationOutboxResolution
+  ): Promise<ArchivedMutationOutboxRecord> {
     validateMutationId(mutationId);
     const intent = parseRecord(
       JSON.parse(await readFile(this.file(mutationId), "utf8")) as unknown,
@@ -191,6 +194,7 @@ export class MutationOutbox {
       `Archiving ambiguous mutation outbox intent ${mutationId}`
     );
     await this.remove(mutationId);
+    return archived;
   }
 
   async list(): Promise<MutationOutboxRecord[]> {

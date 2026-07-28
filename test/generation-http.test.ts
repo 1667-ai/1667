@@ -212,6 +212,51 @@ providerTest("generation HTTP: provider failure permits a reviewed retry", async
   assert.equal((await getStory(base, story.id)).nodes.length, 2);
 });
 
+providerTest("generation HTTP: a dropped model stream permits a reviewed retry", async (t) => {
+  let attempt = 0;
+  const model = await fakeModel(t, (_body, response) => {
+    attempt += 1;
+    if (attempt === 1) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: "Partial" }, finish_reason: null }]
+        })}\n\n`
+      );
+      response.socket?.destroy();
+      return;
+    }
+    stream(response, ["Recovered."]);
+  });
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "Opening.");
+  const request = {
+    parentId: story.path[0]!.id,
+    instruction: "Continue.",
+    genId: "retry-after-dropped-stream"
+  };
+
+  const failed = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post(request)
+  );
+  assert.equal(failed.status, 502);
+  assert.equal(
+    (await failed.json() as { code: string }).code,
+    "provider_failure"
+  );
+  assert.equal((await getStory(base, story.id)).nodes.length, 1);
+
+  const retried = await fetchWithApiProtocol(
+    `${base}/api/stories/${story.id}/continue`,
+    post(request)
+  );
+  assert.equal(retried.status, 200);
+  assert.match(await retried.text(), /"type":"done"/);
+  assert.equal(model.requests.length, 2);
+  assert.equal((await getStory(base, story.id)).nodes.length, 2);
+});
+
 providerTest("generation HTTP: deleting the requested parent during streaming yields an error event", async (t) => {
   let release!: () => void;
   let requested!: () => void;

@@ -37,4 +37,8 @@ export interface WorkerStoryApiOptions {
   shutdownGraceMs?: number;
   terminationConfirmMs?: number;
   cancelGraceMs?: number;
+  /** Publishes retained mutation warnings to the interactive recovery owner. */
+  onRecoveryWarnings?: (
+    warnings: readonly WorkerRecoveryWarning[]
+  ) => boolean | void;
 }

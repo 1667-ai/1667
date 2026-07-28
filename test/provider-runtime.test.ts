@@ -1030,7 +1030,8 @@ test("provider failures discard buffered nonterminal deltas", async (t) => {
   await new Promise<void>((resolve) => setTimeout(resolve, 20));
   await assert.rejects(
     iterator.next(),
-    /provider failed after buffering/
+    (error: unknown) => error instanceof ProviderError
+      && /provider failed after buffering/.test(error.message)
   );
 });
 
