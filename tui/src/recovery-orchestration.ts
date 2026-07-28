@@ -189,7 +189,7 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
           // not that anything happened. Speak when there is something to act on
           // — a warning, or a reload that landed on a different story.
           if (warnings.length > 0) {
-            state.toast = `${recoveryNotice(warnings)} · state reloaded`;
+            state.toast = recoveryNotice(warnings);
           } else if (result.changedStory) {
             state.toast = "story reloaded";
           }
