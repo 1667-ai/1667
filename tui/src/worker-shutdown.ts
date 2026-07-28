@@ -17,7 +17,10 @@ export async function preparePendingWorkerShutdown(
     const cancellations = ids.flatMap((id) => {
       const pending = pendingRequests.get(id);
       const mutationId = pending?.mutationId;
-      return mutationId === undefined || pending?.replay !== false || pending.settling
+      // Intent-less local-tier mutations have no durable record to fence:
+      // termination alone bounds them, and nothing replays them later.
+      return mutationId === undefined || pending?.replay !== false
+        || pending.settling || !pending.durableIntent
         ? []
         : [outbox.runIndependent(async () => {
           if (!pendingRequests.isCurrent(pending) || pending.settling) return;

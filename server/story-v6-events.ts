@@ -34,6 +34,10 @@ export type StoryV6Event =
   | ({ kind: "create-prepared" } & CreationPreparedEvent)
   | ({ kind: "import-prepared" } & CreationPreparedEvent)
   | ({ kind: "local-prepared"; mutationId: MutationId } & PreparedStoryContent & ExistingStoryEvent)
+  /** Local-durability-tier commit: the publish itself is the only durable
+   * evidence, so the replacement installs no transaction pointer for
+   * recovery to resolve against ledger records that were never written. */
+  | ({ kind: "local-committed" } & PreparedStoryContent & ExistingStoryEvent)
   | ({ kind: "provider-started"; provider: ProviderPointer } & ExistingStoryEvent)
   | ({
       kind: "provider-terminal-prepared";

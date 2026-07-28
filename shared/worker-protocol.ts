@@ -202,6 +202,74 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
   return MUTATING_METHODS.has(method as MutatingWorkerMethod);
 }
 
+/**
+ * Mutations that never contact a provider and mutate exactly one existing
+ * story aggregate. Losing one to a crash costs the user one keypress, so they
+ * use the local durability tier: one atomic manifest publish, with no caller
+ * outbox intent, no legacy receipt, and no ledger prepared/completed pair.
+ *
+ * Everything else keeps the full exactly-once pipeline: provider-backed
+ * mutations must never re-bill or lose streamed prose, and the lifecycle
+ * mutations (create/import/delete/acknowledge) anchor creation records,
+ * reaper tombstones, and the provider-fence protocol in the ledger.
+ */
+export const LOCAL_DURABILITY_MUTATION_METHODS = [
+  "renameStory", "switchLine",
+  "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
+  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak"
+] as const satisfies readonly MutatingWorkerMethod[];
+
+export type LocalDurabilityMutationMethod =
+  typeof LOCAL_DURABILITY_MUTATION_METHODS[number];
+
+const LOCAL_DURABILITY_METHOD_SET: ReadonlySet<string> =
+  new Set(LOCAL_DURABILITY_MUTATION_METHODS);
+
+/** Membership in the local method set. Necessary for the manifest-only
+ * marker but not sufficient: `isManifestOnlyDurabilityEligible` also
+ * inspects the input, because some local methods can carry content that
+ * exists nowhere else durable. */
+export function isLocalDurabilityMutation(
+  method: WorkerMethod
+): method is LocalDurabilityMutationMethod {
+  return LOCAL_DURABILITY_METHOD_SET.has(method);
+}
+
+/**
+ * The single marker predicate, shared by the transport (where the marker is
+ * set instead of a durable intent) and the worker's request parser (where a
+ * marked request outside this contract is rejected). A request is eligible
+ * for the manifest-only tier only when losing it to a crash re-costs at most
+ * one human action. Two local methods can embed content whose only durable
+ * copy would be the outbox intent, so they keep the full tier:
+ *
+ * - `createNode` with a `genId` settles a stopped generation; its text is
+ *   paid streamed prose held only in caller memory.
+ * - `restoreChapterBreak` re-installs removed summary nodes whose text may
+ *   be paid provider output already deleted from the store.
+ *
+ * Malformed inputs are not eligible: they fail toward the full tier, whose
+ * validation rejects them with the mutation identity durably fenced.
+ */
+export function isManifestOnlyDurabilityEligible(
+  method: WorkerMethod,
+  input: unknown
+): method is LocalDurabilityMutationMethod {
+  if (!isLocalDurabilityMutation(method)) return false;
+  if (method === "restoreChapterBreak") return false;
+  if (method === "createNode") return !createNodeCarriesGeneration(input);
+  return true;
+}
+
+function createNodeCarriesGeneration(input: unknown): boolean {
+  if (input === null || typeof input !== "object") return true;
+  const body = (input as Record<string, unknown>).body;
+  if (body === null || typeof body !== "object") return true;
+  const genId = (body as Record<string, unknown>).genId;
+  return genId !== undefined && genId !== null;
+}
+
 export type ServiceOwnedSettingsMutationMethod = "saveSettings" | "discardPendingSettings";
 const SERVICE_OWNED_SETTINGS_MUTATIONS: ReadonlySet<ServiceOwnedSettingsMutationMethod> = new Set([
   "saveSettings",
@@ -291,6 +359,14 @@ export type MainToWorkerMessage =
       deadlineMs: number;
       mutationId?: string;
       expectedAggregateVersion?: unknown;
+      /**
+       * Explicit local-durability-tier marker. The transport sets it only on
+       * a fresh call it did not record in the durable outbox, so a request
+       * that arrives without it — an outbox replay, an older build, or the
+       * HTTP path — always takes the full receipt/ledger pipeline. The tier
+       * is selected by this marker, never inferred from the method.
+       */
+      durability?: "manifest-only";
     }
   | { type: "ack"; id: WorkerOperationId; sequence: number }
   | { type: "cancel"; id: WorkerOperationId; reason: WorkerCancelReason }

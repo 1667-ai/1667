@@ -337,6 +337,31 @@ test("live cancellation bypasses another mutation's stalled publication", async 
   }
 });
 
+test("local durability mutations cancel without any durable outbox transition", async () => {
+  const worker = new FakeWorker(true);
+  const outbox = new ForbiddenTransitionOutbox();
+  const transport = await startTransport(worker, outbox, 50);
+  const cancel = new AbortController();
+  const outcome = transport.call(
+    "switchLine",
+    { storyId: "story", nodeId: "node" },
+    {
+      signal: cancel.signal,
+      expectedAggregateVersion: { kind: "v6", revision: "00000000000000000001" }
+    }
+  );
+  const request = await waitForRequest(worker, "switchLine");
+  expect(typeof request.mutationId).toBe("string");
+  cancel.abort();
+  expect(await waitForControlMessage(worker, "cancel", request.id)).toMatchObject({
+    reason: "user"
+  });
+  worker.message({ type: "result", id: request.id, value: { id: "story" } });
+  expect(await outcome).toEqual({ id: "story" });
+  expect(outbox.transitions).toEqual([]);
+  await transport.dispose();
+});
+
 async function startTransport(
   worker: FakeWorker,
   outbox: MutationOutbox,
@@ -349,6 +374,18 @@ async function startTransport(
   }, outbox);
   await transport.start();
   return transport;
+}
+
+/** Fails the test if any durable outbox transition is attempted. */
+class ForbiddenTransitionOutbox extends MutationOutbox {
+  readonly transitions: string[] = [];
+
+  constructor() { super("unused-forbidden-transition-outbox"); }
+  override async enqueue(): Promise<void> { this.transitions.push("enqueue"); }
+  override async cancel(): Promise<void> { this.transitions.push("cancel"); }
+  override async remove(): Promise<void> { this.transitions.push("remove"); }
+  override async list(): Promise<[]> { return []; }
+  override async listArchived(): Promise<[]> { return []; }
 }
 
 class RecordingCancellationOutbox extends MutationOutbox {

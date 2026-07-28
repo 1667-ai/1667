@@ -331,6 +331,7 @@ describe("embedded worker transport lifecycle", () => {
       method: "listStories",
       replay: false,
       stream: false,
+      durableIntent: false,
       timeoutMs: 10_000,
       onTimeout: () => {}
     });

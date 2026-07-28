@@ -12,6 +12,10 @@ export interface PendingCall {
   readonly replay: boolean;
   readonly stream: boolean;
   readonly mutationId?: string;
+  /** True when a durable outbox intent was published for this mutation.
+   * Local-durability-tier mutations carry a mutation ID without an intent,
+   * so cancellation and terminal settlement skip outbox transitions. */
+  readonly durableIntent: boolean;
   cancelled: boolean;
   settling: boolean;
   expectedSequence: number;
@@ -27,6 +31,8 @@ interface OpenPendingCall {
   replay: boolean;
   stream: boolean;
   mutationId?: string;
+  /** Required so no call site can imply a durable intent it never wrote. */
+  durableIntent: boolean;
   onDelta?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number;
@@ -105,6 +111,7 @@ export class PendingRequestRegistry {
       method: options.method,
       replay: options.replay,
       stream: options.stream,
+      durableIntent: options.durableIntent,
       cancelled: false,
       settling: false,
       expectedSequence: 0,

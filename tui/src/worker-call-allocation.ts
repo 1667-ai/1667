@@ -11,6 +11,7 @@ interface OpenPendingWorkerCallOptions {
   method: WorkerMethod;
   stream: boolean;
   mutationId?: string;
+  durableIntent: boolean;
   onDelta?: (text: string) => void;
   signal?: AbortSignal;
   timeoutMs: number | null;
@@ -34,6 +35,7 @@ export function openPendingWorkerCall<T>(
       replay: false,
       stream: options.stream,
       ...(options.mutationId === undefined ? {} : { mutationId: options.mutationId }),
+      durableIntent: options.durableIntent,
       ...(options.onDelta === undefined ? {} : { onDelta: options.onDelta }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       timeoutMs: options.timeoutMs ?? options.deadlineAfterMs,

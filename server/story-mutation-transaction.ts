@@ -65,13 +65,39 @@ export interface PreparedStoryTransaction {
   readonly afterPublish?: () => void | Promise<void>;
 }
 
-/** One write-side implementation of the prepared/state/terminal order. */
+/** Shared stage step for both durability tiers. An afterStage failure always
+ * propagates with the staged replacement left in place: staged residue is
+ * owned by recovery in both tiers, so the crash surface stays identical. */
+async function stageManifestForCommit(
+  session: StoryAggregateSession,
+  manifest: StoryManifestV6,
+  hooks: StoryMutationHooks
+): Promise<void> {
+  await session.stageManifest(manifest);
+  await hooks.afterStage?.();
+}
+
+/** Shared publish step for both durability tiers. `onVisible` runs the
+ * moment the rename lands, before the afterPublish hook can fail, so the
+ * full tier can classify later errors as post-commit. */
+async function publishStagedManifestForCommit(
+  session: StoryAggregateSession,
+  hooks: StoryMutationHooks,
+  onVisible?: () => void
+): Promise<void> {
+  await session.publishStagedManifest();
+  onVisible?.();
+  await hooks.afterPublish?.();
+}
+
+/** One write-side implementation of the prepared/state/terminal order: the
+ * shared stage/publish core, extended with the ledger prepared record before
+ * the publish and the completed record after it. */
 export async function commitPreparedStoryTransaction(
   transaction: PreparedStoryTransaction
 ): Promise<void> {
   const hooks = transaction.hooks ?? {};
-  await transaction.session.stageManifest(transaction.manifest);
-  await hooks.afterStage?.();
+  await stageManifestForCommit(transaction.session, transaction.manifest, hooks);
   try {
     await transaction.ledger.writeStoryRecord(transaction.prepared);
     await hooks.afterPrepared?.();
@@ -84,9 +110,11 @@ export async function commitPreparedStoryTransaction(
 
   let published = false;
   try {
-    await transaction.session.publishStagedManifest();
-    published = true;
-    await hooks.afterPublish?.();
+    await publishStagedManifestForCommit(
+      transaction.session,
+      hooks,
+      () => { published = true; }
+    );
     await transaction.afterPublish?.();
     await transaction.ledger.writeStoryRecord(
       completedRecord(transaction.prepared, timestamp(transaction.now))
@@ -103,6 +131,22 @@ export async function commitPreparedStoryTransaction(
       { cause: error }
     );
   }
+}
+
+/**
+ * Local-durability-tier commit: the shared stage/publish core with no ledger
+ * extension. No record precedes or follows the manifest rename because the
+ * published manifest carries no transaction pointer — a crash before the
+ * rename leaves only a staged replacement that the next session discards,
+ * and a crash after it leaves a complete aggregate.
+ */
+export async function commitManifestOnlyStoryTransaction(
+  session: StoryAggregateSession,
+  manifest: StoryManifestV6,
+  hooks: StoryMutationHooks = {}
+): Promise<void> {
+  await stageManifestForCommit(session, manifest, hooks);
+  await publishStagedManifestForCommit(session, hooks);
 }
 
 export async function commitReceiptOnlyStoryTransaction(
