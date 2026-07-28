@@ -4,7 +4,7 @@ import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   canonicalWorkerInputProtocolVersion,
   isCurrentWorkerInputProtocolVersion,
-  isLocalDurabilityMutation,
+  isManifestOnlyDurabilityEligible,
   isMutatingWorkerMethod,
   isWorkerMutationMethod,
   isWorkerMethod,
@@ -65,14 +65,16 @@ export function parseWorkerRequest(
     if (message.durability !== "manifest-only") {
       throw new ServiceError(400, "Worker request durability must be manifest-only when present");
     }
-    // The marker is a caller promise that no durable replay source exists.
-    // Only a listed local mutation on a versioned aggregate may carry it;
-    // anything else fails closed into a protocol rejection.
-    if (!isLocalDurabilityMutation(message.method)
+    // The marker is a caller promise that no durable replay source exists
+    // and that losing the request re-costs at most one human action. The
+    // shared eligibility predicate mirrors the transport's marker site, so a
+    // marked request that embeds irreplaceable content — for example a
+    // createNode settling a stopped generation — fails closed here.
+    if (!isManifestOnlyDurabilityEligible(message.method, message.input)
       || message.expectedAggregateVersion === undefined) {
       throw new ServiceError(
         400,
-        "Manifest-only durability requires a local mutation with an expected aggregate version"
+        "Manifest-only durability requires an eligible local mutation with an expected aggregate version"
       );
     }
   }

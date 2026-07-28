@@ -10,7 +10,7 @@ import {
   WORKER_PROTOCOL_VERSION,
   WORKER_STREAM_DEADLINE_MS,
   WORKER_UNARY_TIMEOUT_MS,
-  isLocalDurabilityMutation,
+  isManifestOnlyDurabilityEligible,
   isServiceOwnedSettingsMutation,
   isWorkerMutationMethod,
   type WorkerInput,
@@ -184,15 +184,16 @@ export class WorkerTransport {
     const mutationId = mutating && !isServiceOwnedSettingsMutation(method)
       ? createMutationId()
       : undefined;
-    // Single tier decision: a fresh local mutation on a versioned aggregate
-    // gets the manifest-only marker, writes no durable intent, and is never
-    // replayed — a crash loses at most this one in-flight mutation. Every
-    // other mutation (and every outbox replay, which never carries the
-    // marker) keeps the full intent pipeline; the pre-Q lane without an
-    // aggregate version stays full-tier as well.
+    // Single tier decision: a fresh, marker-eligible local mutation on a
+    // versioned aggregate gets the manifest-only marker, writes no durable
+    // intent, and is never replayed — a crash loses at most one human
+    // action. Everything else (provider work, inputs that embed paid or
+    // store-absent content, the pre-Q lane without an aggregate version, and
+    // every outbox replay, which never carries the marker) keeps the full
+    // intent pipeline.
     const durability = mutationId !== undefined
-      && isLocalDurabilityMutation(method)
       && options.expectedAggregateVersion !== undefined
+      && isManifestOnlyDurabilityEligible(method, input)
       ? "manifest-only" as const
       : undefined;
     const outbox = this.outbox.store;
