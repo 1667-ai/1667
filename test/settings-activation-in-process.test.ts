@@ -249,10 +249,69 @@ test("mid-activation states keep the old document effective until the commit edg
   assert.equal(promotedView.effective.provider, "dry-run");
   assert.equal(promotedView.activeRevision, 1);
   assert.equal(promotedView.pendingRevision, 2);
-  // Commit is the durable point of no return: recovery only completes it.
+  // Commit is the durable point of no return: recovery only completes it, so
+  // the candidate reads as plainly active — never as its own pending revision.
   assert.equal(
     effectiveGenerationSettings(activeSettingsDocument(committed)).provider,
     "openai-compatible"
+  );
+  const committedView = settingsViewFromState(committed);
+  assert.equal(committedView.pendingRevision, null);
+  assert.equal(committedView.activeRevision, 2);
+  assert.equal(committedView.effective.provider, "openai-compatible");
+});
+
+test("generation snapshots stay coherent while an activation replaces a stored credential", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-inprocess-snapshot-");
+  const store = new SettingsStore(dataDir, {
+    environment: {},
+    now: () => FIXED_TIME,
+    validateCandidate: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return true;
+    }
+  });
+  await store.init(2);
+  await store.save({
+    ...saveCommand(MUTATION_A, 1, storedSecretDocument("first:secret")),
+    connectionSecrets: { "first:secret": "sk-first" }
+  });
+  const generation = (await store.loadView()).stateGeneration!;
+
+  let stop = false;
+  const hammer = (async () => {
+    while (!stop) {
+      const { settings } = await store.loadGeneration();
+      const authorization = resolveProviderHeaders(settings, {}).headers.authorization;
+      assert.equal(
+        authorization === "Bearer sk-first" || authorization === "Bearer sk-second",
+        true,
+        `torn runtime snapshot: ${String(authorization)}`
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  })();
+  try {
+    await store.save({
+      ...saveCommand(MUTATION_B, generation, storedSecretDocument("second:secret")),
+      connectionSecrets: { "second:secret": "sk-second" }
+    });
+    // Keep reading across the post-activation prune window as well.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  } finally {
+    stop = true;
+  }
+  await hammer;
+
+  assert.equal(
+    resolveProviderHeaders((await store.loadGeneration()).settings, {}).headers.authorization,
+    "Bearer sk-second",
+    "readers converge on the committed credential"
+  );
+  assert.deepEqual(
+    [...(await readProviderSecrets(dataDir)).keys()],
+    ["second:secret"],
+    "the replaced credential is still pruned once no coherent snapshot can reference it"
   );
 });
 

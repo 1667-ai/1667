@@ -81,13 +81,21 @@ export async function readBoundedMutableAuthorityFile(
     allowedLinkCounts: [0, 1]
   } as const;
 
+  // A rename can expose its inode under both names for an instant, so a
+  // transient second link is one more shape of "replacement in flight": it is
+  // retried, while a link count that never settles still fails closed on the
+  // final attempt.
+  const replacementInFlight = (info: Stats, attempt: number): boolean =>
+    attempt < 7 && info.isFile() && Number(info.nlink) === 2;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     let handle: FileHandle | undefined;
     try {
       const pathInfo = await lstat(file);
+      if (replacementInFlight(pathInfo, attempt)) continue;
       requireBoundedRegularFile(pathInfo, file, maxBytes, linkedPolicy);
       handle = await open(file, constants.O_RDONLY | noFollowFlag());
       const before = await handle.stat();
+      if (replacementInFlight(before, attempt)) continue;
       requireBoundedRegularFile(before, file, maxBytes, openedPolicy);
       if (!sameFileIdentity(pathInfo, before)) continue;
 
@@ -100,6 +108,7 @@ export async function readBoundedMutableAuthorityFile(
       }
 
       const after = await handle.stat();
+      if (replacementInFlight(after, attempt)) continue;
       requireBoundedRegularFile(after, file, maxBytes, openedPolicy);
       if (
         total !== Number(before.size)

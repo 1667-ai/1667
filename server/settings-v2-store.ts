@@ -146,10 +146,7 @@ export class SettingsV2Store {
   }
 
   async loadRuntime(purpose: SettingsRoutePurpose = "default") {
-    const [state, storedSecrets] = await Promise.all([
-      readSettingsState(this.dataDir),
-      readProviderSecrets(this.secretsDir)
-    ]);
+    const { state, storedSecrets } = await this.readRuntimeSnapshot();
     const runtime = effectiveGenerationRuntime(
       activeSettingsDocument(state),
       purpose,
@@ -162,6 +159,29 @@ export class SettingsV2Store {
     return runtime;
   }
 
+  /** One coherent (state, secrets) pair. Secrets are written before the state
+   * that references them is published, and pruned only after the state that
+   * unreferences them is published — so the only torn pair a reader can see
+   * is an old effective revision next to a secret file that already lost its
+   * credential. Retrying that exact condition converges on the newer state. */
+  private async readRuntimeSnapshot(): Promise<{
+    readonly state: SettingsStateV2;
+    readonly storedSecrets: Awaited<ReturnType<typeof readProviderSecrets>>;
+  }> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const state = await readSettingsState(this.dataDir);
+      const storedSecrets = await readProviderSecrets(this.secretsDir);
+      const referenced = storedSecretIdsInDocument(activeSettingsDocument(state));
+      if ([...referenced].every((secretId) => storedSecrets.has(secretId))) {
+        return { state, storedSecrets };
+      }
+    }
+    throw new ServiceError(
+      503,
+      "Settings changed repeatedly while reading provider credentials; retry."
+    );
+  }
+
   async loadEffective() {
     return (await this.loadRuntime()).settings;
   }
@@ -172,8 +192,7 @@ export class SettingsV2Store {
     readonly connectionId: string;
     readonly providerRuntime: ReturnType<typeof providerRuntimeFromV2>;
   }[]> {
-    const state = await readSettingsState(this.dataDir);
-    const storedSecrets = await readProviderSecrets(this.secretsDir);
+    const { state, storedSecrets } = await this.readRuntimeSnapshot();
     const document = activeSettingsDocument(state);
     const exact: Array<{
       readonly connectionId: string;
@@ -216,8 +235,8 @@ export class SettingsV2Store {
     const document = parseSettingsDocumentV2(documentValue);
     const route = selectSettingsRoute(document, purpose);
     const connectionId = route.model.connectionId;
+    const { state, storedSecrets } = await this.readRuntimeSnapshot();
     if (usesCredentialReferences(route.connection)) {
-      const state = await readSettingsState(this.dataDir);
       const activeConnection =
         activeSettingsDocument(state).connections[connectionId];
       const activeTargetSaved = activeConnection !== undefined
@@ -244,7 +263,7 @@ export class SettingsV2Store {
       {},
       this.environment,
       { allowBlankModel: true },
-      await readProviderSecrets(this.secretsDir)
+      storedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime.settings;

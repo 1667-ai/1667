@@ -19,7 +19,14 @@ import {
 export function settingsViewFromState(
   state: SettingsStateV2
 ): Extract<SettingsView, { dataFormat: 2 }> {
-  const shown = state.pendingRevision === null
+  // A committed activation is past its point of no return: the candidate is
+  // the document generation already uses, so the view reports it as plainly
+  // active rather than as its own pending revision — even when the final
+  // tidy-up publish is still owed after a crash.
+  const pendingRevision = settingsStateRelation(state) === "committed"
+    ? null
+    : state.pendingRevision;
+  const shown = pendingRevision === null
     ? activeSettingsDocument(state)
     : pendingSettingsDocument(state);
   return {
@@ -27,7 +34,7 @@ export function settingsViewFromState(
     editable: true,
     stateGeneration: state.stateGeneration,
     activeRevision: effectiveActiveSettingsRevision(state),
-    pendingRevision: state.pendingRevision,
+    pendingRevision,
     document: shown,
     effective: effectiveGenerationSettings(activeSettingsDocument(state)),
     lastActivationOutcome: state.lastActivationOutcome
