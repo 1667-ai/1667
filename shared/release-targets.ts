@@ -10,19 +10,17 @@ export interface ReleaseTargetDescriptor {
   readonly arch: "arm64" | "x64";
   readonly libc: "glibc" | null;
   readonly executable: "bin/1667" | "bin/1667.exe";
-  /** Why this target is built and verified but not published, or null when it ships. */
+  /** Why this target is not published, or null when it ships. */
   readonly heldFromPublication: string | null;
 }
 
 /**
  * Canonical ordered package/runtime policy for every native release target.
  *
- * Membership here means built and verified: CI compiles the target, smoke-tests
- * the executable it produces, and proves its fail-closed boundaries. Publication
- * is the narrower question `heldFromPublication` answers, and every consumer has
- * to pick one of the two — a target that is built but not published belongs in
- * the launcher's dependency graph, the package matrix and the registry no more
- * than a target that does not exist.
+ * Membership here defines a native release target. Publication is the narrower
+ * question that `heldFromPublication` answers. Each consumer must select the
+ * correct set. A target that is not published does not belong in the launcher
+ * dependency graph, the package matrix, or the registry.
  */
 export const RELEASE_TARGETS = Object.freeze([
   Object.freeze({
@@ -68,8 +66,8 @@ export const RELEASE_TARGETS = Object.freeze([
     arch: "x64",
     libc: null,
     executable: "bin/1667.exe",
-    heldFromPublication: "the Windows platform work is built and verified on every "
-      + "change, and maintainers have not approved it for publication"
+    heldFromPublication: "maintainers have not approved the Windows platform work "
+      + "for publication"
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);
 
@@ -154,10 +152,9 @@ export function releaseTargetForRuntime(
 }
 
 /**
- * What a user on a held target is told. Their platform is supported and its
- * executable is built on every change; only the package is withheld. Reporting
- * an unsupported platform instead would send them looking for support that is
- * already there, so this names the reason and the route that does work.
+ * What a user on a held target is told. The platform is supported, but its
+ * package is withheld. An unsupported-platform message would incorrectly hide
+ * the source build route.
  */
 export function heldTargetRefusal(descriptor: CanonicalReleaseTarget): string {
   if (descriptor.heldFromPublication === null) {

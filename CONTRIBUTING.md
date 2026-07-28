@@ -41,12 +41,9 @@ cd tui && bun install
 
 ## Run the gates before you push
 
-CI runs every gate on each shipped target. A pull request is not mergeable until
-those gates pass on macOS arm64, Linux arm64, and Linux x64. macOS x64 is the
-exception: it runs on every push to `main` rather than on pull requests, because
-it is roughly ten times slower than the other targets and its runner class is
-contended enough to flake. Nothing tests macOS x64 before merge, so treat a
-change with target-specific risk there as needing a watch on `main` afterwards.
+CI runs the gates on macOS arm64, Linux arm64, and Linux x64. A pull request is
+not mergeable until those gates pass. Routine CI does not test macOS x64 or
+Windows x64. Test these targets before their release work resumes.
 
 Running the same gates locally first is faster than waiting on a round trip, and
 it is the only way to see the Linux-only suites before you push:
@@ -57,7 +54,7 @@ scripts/ci-local.sh
 
 On macOS arm64, this script runs `darwin-arm64` natively. It runs `linux-x64`
 and `linux-arm64` in Docker. It does not run `darwin-x64` or `windows-x64`.
-GitHub CI runs these targets.
+GitHub CI does not run these targets.
 
 On Windows x64, run the root gates and the TUI gates directly. Run
 `bun run build:standalone` to test the Windows package candidate.
