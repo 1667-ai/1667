@@ -52,9 +52,9 @@ import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
   BoundedCleanupQueue,
   STORY_CLEANUP_IO_CONCURRENCY,
+  StoryCleanupIntent,
   cleanupPending,
-  clearCleanupPending,
-  markCleanupPending
+  clearCleanupPending
 } from "./story-cleanup.js";
 import { captureStorySnapshot, isCurrentSnapshot, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import {
@@ -455,11 +455,11 @@ export class StoryStore {
     if (slot.kind === "v5") {
       const { manifest: current, sourceSchemaVersion } = slot;
       const previousRevisionIds = manifestRevisionIds(current);
-      const cleanupWasPending = await cleanupPending(this.bundlePath(story.id));
+      const cleanup = await StoryCleanupIntent.begin(this.bundlePath(story.id), story.id);
       const duplicate = await this.removeVerifiedLegacyDuplicate(story.id);
       if (duplicate !== null) requireDurableCommit(duplicate, `Removing legacy duplicate ${story.id}`);
       // Durable recovery intent must precede immutable object publication by encode.
-      if (!cleanupWasPending) await markCleanupPending(this.bundlePath(story.id), story.id);
+      await cleanup.publish();
       try {
         const objects = new StoryObjectStore(this.bundlePath(story.id));
         const candidate = this.snapshots.get(story);
@@ -469,14 +469,16 @@ export class StoryStore {
         const nextRevisionIds = new Set(manifestRevisionIds(manifest));
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
-        const needsCleanup = sourceSchemaVersion !== STORY_SCHEMA_VERSION
-          || previousRevisionIds.some((revisionId) => !nextRevisionIds.has(revisionId));
+        const settled = await cleanup.settle(
+          sourceSchemaVersion !== STORY_SCHEMA_VERSION
+            || previousRevisionIds.some((revisionId) => !nextRevisionIds.has(revisionId))
+        );
         await objects.flush();
         await objects.verifyGraph(manifestRevisionIds(manifest));
         const commit = await this.writeManifest(this.manifestPath(story.id), serializeManifest(manifest));
         this.snapshots.set(story, captureStorySnapshot(story, manifest, objects.verifiedRevisionGraph()));
         requireDurableCommit(commit, `Saving story ${story.id}`);
-        if (needsCleanup || cleanupWasPending) {
+        if (settled === "sweep-owed") {
           this.cleanupQueue.schedule(story.id);
         } else {
           let cleared = false;
@@ -530,7 +532,7 @@ export class StoryStore {
 
   private async hydrateManifest(manifest: StoryManifestV5, bundleDir: string): Promise<Story> {
     const decoded = await decodeStoryBundle(manifest, bundleDir, { activeOnly: true });
-    this.snapshots.set(decoded.story, captureStorySnapshot(decoded.story, manifest, decoded.revisions));
+    this.snapshots.set(decoded.story, captureStorySnapshot(decoded.story, manifest, decoded.liveRevisions));
     return decoded.story;
   }
 

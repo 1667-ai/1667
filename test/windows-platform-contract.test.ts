@@ -6,7 +6,8 @@ import {
   mkdtemp,
   realpath,
   rm,
-  symlink
+  symlink,
+  writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -54,8 +55,68 @@ test("Windows machine tier secures each default state path component", {
   await assertPrivateSecurity(root);
 });
 
+test("Windows machine tier does not rewrite its sibling data ACL", {
+  skip: process.platform !== "win32"
+}, async (t) => {
+  const parent = await temporaryDirectory(t, "1667-windows-data-acl-");
+  await grantInheritedEveryone(parent);
+  const product = path.join(parent, "1667");
+  const data = path.join(product, "Data");
+  const story = path.join(data, "story.json");
+  const root = path.join(product, "State");
+  await mkdir(data, { recursive: true });
+  await writeFile(story, "story");
+  const dataBefore = await readSecurity(data);
+  const storyBefore = await readSecurity(story);
+  assert.ok(dataBefore.rules.some((rule) => rule.sid === "S-1-1-0"));
+  assert.ok(storyBefore.rules.some((rule) => rule.sid === "S-1-1-0"));
+  const adapter = await createWindowsPrivateStateRootAdapter();
+
+  assert.equal(
+    await adapter.preparePrivateStateRoot(root, parent),
+    root
+  );
+
+  assert.deepEqual(await readSecurity(data), dataBefore);
+  assert.deepEqual(await readSecurity(story), storyBefore);
+  await assertPrivateSecurity(product);
+  await assertPrivateSecurity(root);
+});
+
+test("Windows machine tier repairs unsafe existing descendants", {
+  skip: process.platform !== "win32"
+}, async (t) => {
+  const parent = await temporaryDirectory(t, "1667-windows-child-acl-");
+  const root = path.join(parent, "state");
+  const http = path.join(root, "http");
+  const secret = path.join(http, "auth.json");
+  assert.equal(await resolveMachineTierRoot({ override: root }), root);
+  await mkdir(http);
+  await writeFile(secret, "secret");
+  await grantInheritedEveryone(http);
+  assert.ok(
+    (await readSecurity(http)).rules.some((rule) => rule.sid === "S-1-1-0")
+  );
+
+  assert.equal(await resolveMachineTierRoot({ override: root }), root);
+
+  await assertPrivateSecurity(http);
+  await assertPrivateFileSecurity(secret);
+});
+
 async function assertPrivateSecurity(directory: string): Promise<void> {
-  const security = await readSecurity(directory);
+  await assertPrivateAcl(directory, 3);
+}
+
+async function assertPrivateFileSecurity(file: string): Promise<void> {
+  await assertPrivateAcl(file, 0);
+}
+
+async function assertPrivateAcl(
+  target: string,
+  inheritance: number
+): Promise<void> {
+  const security = await readSecurity(target);
   assert.equal(security.protected, true);
   assert.equal(security.owner, security.user);
   assert.deepEqual(
@@ -66,7 +127,7 @@ async function assertPrivateSecurity(directory: string): Promise<void> {
     assert.equal(rule.inherited, false);
     assert.equal(rule.type, "Allow");
     assert.equal(rule.rights, 0x001f01ff);
-    assert.equal(rule.inheritance, 3);
+    assert.equal(rule.inheritance, inheritance);
     assert.equal(rule.propagation, 0);
   }
 }
@@ -141,7 +202,7 @@ test("Node Windows adapter stays inside the server startup budget", {
   );
 });
 
-test("Windows machine tier repairs an existing non-user owner", {
+test("Windows machine tier repairs an owner after a partial maximum open", {
   skip: process.platform !== "win32"
     || (
       process.env.CI !== "true"
@@ -152,8 +213,6 @@ test("Windows machine tier repairs an existing non-user owner", {
   const root = path.join(parent, "state");
   await mkdir(root);
   await setRestrictedNonUserOwner(root);
-  const before = await readSecurity(root);
-  assert.notEqual(before.owner, before.user);
 
   assert.equal(await resolveMachineTierRoot({ override: root }), root);
   await assertPrivateSecurity(root);
@@ -175,12 +234,20 @@ interface SecuritySnapshot {
 
 async function readSecurity(directory: string): Promise<SecuritySnapshot> {
   const script = String.raw`
-$acl = [IO.Directory]::GetAccessControl(
-  $env:AI_1667_TEST_WINDOWS_PATH,
-  (
-    [Security.AccessControl.AccessControlSections]::Owner
-  ) -bor [Security.AccessControl.AccessControlSections]::Access
-)
+$sections = (
+  [Security.AccessControl.AccessControlSections]::Owner
+) -bor [Security.AccessControl.AccessControlSections]::Access
+$acl = if ([IO.Directory]::Exists($env:AI_1667_TEST_WINDOWS_PATH)) {
+  [IO.Directory]::GetAccessControl(
+    $env:AI_1667_TEST_WINDOWS_PATH,
+    $sections
+  )
+} else {
+  [IO.File]::GetAccessControl(
+    $env:AI_1667_TEST_WINDOWS_PATH,
+    $sections
+  )
+}
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $rules = @($acl.GetAccessRules(
   $true,
@@ -212,12 +279,13 @@ async function grantInheritedEveryone(directory: string): Promise<void> {
   const script = String.raw`
 $everyone = New-Object Security.Principal.SecurityIdentifier("S-1-1-0")
 $acl = [IO.Directory]::GetAccessControl($env:AI_1667_TEST_WINDOWS_PATH)
+$inherit = (
+  [Security.AccessControl.InheritanceFlags]::ContainerInherit
+) -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
 $rule = New-Object Security.AccessControl.FileSystemAccessRule(
   $everyone,
   [Security.AccessControl.FileSystemRights]::FullControl,
-  (
-    [Security.AccessControl.InheritanceFlags]::ContainerInherit
-  ) -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit,
+  $inherit,
   [Security.AccessControl.PropagationFlags]::None,
   [Security.AccessControl.AccessControlType]::Allow
 )
@@ -245,7 +313,7 @@ $acl.SetAccessRuleProtection($true, $false)
 [void]$acl.AddAccessRule(
   (New-Object Security.AccessControl.FileSystemAccessRule(
     $user,
-    [Security.AccessControl.FileSystemRights]::Modify,
+    [Security.AccessControl.FileSystemRights]::ReadAttributes,
     $inherit,
     $propagation,
     $allow
@@ -329,7 +397,8 @@ async function runPowerShell(
     "v1.0",
     "powershell.exe"
   );
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const strictScript = '$ErrorActionPreference = "Stop"\n' + script;
+  const encoded = Buffer.from(strictScript, "utf16le").toString("base64");
   const { stdout } = await execFileAsync(
     executable,
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],

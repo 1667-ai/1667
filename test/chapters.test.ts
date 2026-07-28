@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { assembleChapterContext, deriveChapters, isChapterSummaryStale } from "../shared/chapters.js";
 import { activePath, childrenOf, computeRollups, contextSlice, switchToNode, takeIndex } from "../shared/story-tree.js";
 import type { ChapterBreak, StoryNode } from "../shared/types.js";
-import { platformPerformanceBudget } from "./platform-performance-budget.js";
+import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 
 const EARLY = "2026-01-01T00:00:00.000Z";
 const MADE = "2026-01-02T00:00:00.000Z";
@@ -114,18 +113,14 @@ test("chapter derivation and context assembly stay inside the platform budget", 
   const path = chain(5_000);
   const breaks: ChapterBreak[] = Array.from({ length: 40 }, (_, index) =>
     seam(`break-${index}`, `p${(index + 1) * 125}`, `Chapter ${index + 2}`));
-  const budgetMs = platformPerformanceBudget(50);
-  const started = performance.now();
+  const read = startTiming();
   const chapters = deriveChapters(path, breaks, path);
   const assembled = assembleChapterContext(path, breaks, path);
-  const elapsed = performance.now() - started;
-  context.diagnostic(`5k chapter derivation + assembly: ${elapsed.toFixed(1)}ms`);
+  const timing = read();
+
   assert.equal(chapters.length, 41);
   assert.equal(assembled.length, path.length);
-  assert.ok(
-    elapsed < budgetMs,
-    `chapter work took ${elapsed.toFixed(1)}ms (budget ${budgetMs}ms)`
-  );
+  assertWithinBudget(context, "5k chapter derivation + assembly", cpuBudget(50), timing);
 });
 
 function chain(count: number): StoryNode[] {

@@ -813,6 +813,38 @@ describe("backend recovery orchestration", () => {
     expect(state.toast).not.toBe("reconnected · story reloaded");
   });
 
+  test("a clean startup recovery reloads without announcing itself", async () => {
+    // Every start publishes an empty warning batch to force this reload, so a
+    // toast here fires on every launch and reports bookkeeping the reader never
+    // saw go wrong. The reload still has to happen.
+    const source = demoAppSource();
+    const feed = new RecoveryWarningFeed();
+    const recoveredPayload = { ...source.payload };
+    source.backendRecovery = feed;
+    let reloads = 0;
+    source.api.loadStory = async () => { reloads += 1; return recoveredPayload; };
+    const state = initialState(source, false);
+    const settled = deferred<void>();
+    const repaint = () => {
+      if (state.backendTask === null && state.payload === recoveredPayload) settled.resolve();
+    };
+    const backend = new ActionRuntime(state, repaint);
+    const stop = startRecoveryOrchestration({
+      state,
+      source,
+      backend,
+      invalidateCache: () => undefined,
+      repaint
+    });
+
+    feed.publish([], true);
+    await settled.promise;
+
+    expect(reloads).toBe(1);
+    expect(state.toast).toBe(null);
+    stop();
+  });
+
   test("same-story warnings remain visible and acknowledge after local input", async () => {
     const source = demoAppSource();
     const feed = new RecoveryWarningFeed();
@@ -900,7 +932,7 @@ describe("backend recovery orchestration", () => {
 
     feed.publish([], true);
     await entered.promise;
-    state.undo = [{ kind: "switch", leafId: "p13", nodeId: focusId }];
+    state.undo = [{ kind: "create-break", breakId: "chapter-break-1" }];
     state.prune = {
       kind: "subtree", nodeId: "p13", part: 13, take: 1,
       takeCount: 1, parts: 1, lines: 1, tags: []
@@ -977,7 +1009,7 @@ describe("backend recovery orchestration", () => {
       choosingStatus: true, existing: false, returnMode: "NAV" as const
     };
     const rename = { breakId: "chapter-break-1", value: "typed chapter title" };
-    state.undo = [{ kind: "switch", leafId: "p13", nodeId: "p12" }];
+    state.undo = [{ kind: "create-break", breakId: "chapter-break-1" }];
     state.prune = prune;
     state.tag = tag;
     state.mode = "TAG";

@@ -1,5 +1,8 @@
 export const RELEASE_LAUNCHER_PACKAGE = "@1667-ai/cli" as const;
 
+/** Where a user sent away from the registry gets the source that does build. */
+export const RELEASE_SOURCE_URL = "https://github.com/1667-ai/1667" as const;
+
 export interface ReleaseTargetDescriptor {
   readonly artifactTarget: string;
   readonly packageName: string;
@@ -7,9 +10,18 @@ export interface ReleaseTargetDescriptor {
   readonly arch: "arm64" | "x64";
   readonly libc: "glibc" | null;
   readonly executable: "bin/1667" | "bin/1667.exe";
+  /** Why this target is not published, or null when it ships. */
+  readonly heldFromPublication: string | null;
 }
 
-/** Canonical ordered package/runtime policy for every native release target. */
+/**
+ * Canonical ordered package/runtime policy for every native release target.
+ *
+ * Membership here defines a native release target. Publication is the narrower
+ * question that `heldFromPublication` answers. Each consumer must select the
+ * correct set. A target that is not published does not belong in the launcher
+ * dependency graph, the package matrix, or the registry.
+ */
 export const RELEASE_TARGETS = Object.freeze([
   Object.freeze({
     artifactTarget: "darwin-arm64",
@@ -17,7 +29,8 @@ export const RELEASE_TARGETS = Object.freeze([
     platform: "darwin",
     arch: "arm64",
     libc: null,
-    executable: "bin/1667"
+    executable: "bin/1667",
+    heldFromPublication: null
   }),
   Object.freeze({
     artifactTarget: "darwin-x64",
@@ -25,7 +38,8 @@ export const RELEASE_TARGETS = Object.freeze([
     platform: "darwin",
     arch: "x64",
     libc: null,
-    executable: "bin/1667"
+    executable: "bin/1667",
+    heldFromPublication: null
   }),
   Object.freeze({
     artifactTarget: "linux-arm64",
@@ -33,7 +47,8 @@ export const RELEASE_TARGETS = Object.freeze([
     platform: "linux",
     arch: "arm64",
     libc: "glibc",
-    executable: "bin/1667"
+    executable: "bin/1667",
+    heldFromPublication: null
   }),
   Object.freeze({
     artifactTarget: "linux-x64",
@@ -41,7 +56,8 @@ export const RELEASE_TARGETS = Object.freeze([
     platform: "linux",
     arch: "x64",
     libc: "glibc",
-    executable: "bin/1667"
+    executable: "bin/1667",
+    heldFromPublication: null
   }),
   Object.freeze({
     artifactTarget: "windows-x64",
@@ -49,7 +65,9 @@ export const RELEASE_TARGETS = Object.freeze([
     platform: "win32",
     arch: "x64",
     libc: null,
-    executable: "bin/1667.exe"
+    executable: "bin/1667.exe",
+    heldFromPublication: "maintainers have not approved the Windows platform work "
+      + "for publication"
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);
 
@@ -57,28 +75,65 @@ export function registryPathForPackage(packageName: string): string {
   return packageName.replaceAll("/", "%2f");
 }
 
-export type PackagedArtifactTarget = typeof RELEASE_TARGETS[number]["artifactTarget"];
-export type ReleasePlatformPackage = typeof RELEASE_TARGETS[number]["packageName"];
 export type CanonicalReleaseTarget = typeof RELEASE_TARGETS[number];
+/**
+ * The targets whose packages the release actually ships. Derived from
+ * `heldFromPublication` alone at the type level as well as at runtime, so
+ * clearing that one field is the whole of un-holding a target.
+ */
+export type PublishedReleaseTarget = Extract<
+  CanonicalReleaseTarget,
+  { heldFromPublication: null }
+>;
+export type BuiltArtifactTarget = CanonicalReleaseTarget["artifactTarget"];
+export type PublishedArtifactTarget = PublishedReleaseTarget["artifactTarget"];
+export type ReleasePlatformPackage = CanonicalReleaseTarget["packageName"];
+export type PublishedPlatformPackage = PublishedReleaseTarget["packageName"];
 
-export const PACKAGED_ARTIFACT_TARGETS = Object.freeze(
-  RELEASE_TARGETS.map((descriptor) => descriptor.artifactTarget)
-) as readonly [PackagedArtifactTarget, ...PackagedArtifactTarget[]];
-export const RELEASE_PLATFORM_PACKAGES: readonly ReleasePlatformPackage[] = Object.freeze(
-  RELEASE_TARGETS.map((descriptor) => descriptor.packageName)
+export const PUBLISHED_RELEASE_TARGETS: readonly PublishedReleaseTarget[] = Object.freeze(
+  RELEASE_TARGETS.filter((descriptor): descriptor is PublishedReleaseTarget => {
+    return descriptor.heldFromPublication === null;
+  })
 );
-export const RELEASE_PACKAGE_COUNT = RELEASE_TARGETS.length + 1;
 
-export function releaseTargetForArtifact(
-  artifactTarget: PackagedArtifactTarget
-): CanonicalReleaseTarget {
+/**
+ * Every target a release build produces an executable and an identity for, and
+ * therefore also stages, packs and smoke-tests. Anything that follows *staging*
+ * — a `sbom.spdx.json` sidecar, a build identity, a tarball inspection — uses
+ * this list. Anything that follows *publication* uses the `PUBLISHED_*` family.
+ */
+export const BUILT_ARTIFACT_TARGETS = Object.freeze(
+  RELEASE_TARGETS.map((descriptor) => descriptor.artifactTarget)
+) as readonly [BuiltArtifactTarget, ...BuiltArtifactTarget[]];
+/** The subset of those targets whose package is published. */
+export const PUBLISHED_ARTIFACT_TARGETS: readonly PublishedArtifactTarget[] = Object.freeze(
+  PUBLISHED_RELEASE_TARGETS.map((descriptor) => descriptor.artifactTarget)
+);
+export const PUBLISHED_PLATFORM_PACKAGES: readonly PublishedPlatformPackage[] = Object.freeze(
+  PUBLISHED_RELEASE_TARGETS.map((descriptor) => descriptor.packageName)
+);
+/** One launcher package plus one package per published platform. */
+export const PUBLISHED_PACKAGE_COUNT = PUBLISHED_RELEASE_TARGETS.length + 1;
+
+export type ReleaseTargetForArtifact<Target extends BuiltArtifactTarget> =
+  Extract<CanonicalReleaseTarget, { artifactTarget: Target }>;
+
+/**
+ * Naming one target literally yields that target's descriptor, so a caller
+ * asking for a published target gets a type that says so and cannot silently
+ * feed a held package name into a publication path.
+ */
+export function releaseTargetForArtifact<Target extends BuiltArtifactTarget>(
+  artifactTarget: Target
+): ReleaseTargetForArtifact<Target> {
   const descriptor = RELEASE_TARGETS.find((candidate) => {
     return candidate.artifactTarget === artifactTarget;
   });
   if (descriptor === undefined) {
     throw new Error(`Unsupported release artifact target ${artifactTarget}`);
   }
-  return descriptor;
+  // The find matched on the discriminant the return type selects on.
+  return descriptor as ReleaseTargetForArtifact<Target>;
 }
 
 export function releaseTargetForPackage(
@@ -96,10 +151,37 @@ export function releaseTargetForRuntime(
   }) ?? null;
 }
 
+/**
+ * What a user on a held target is told. The platform is supported, but its
+ * package is withheld. An unsupported-platform message would incorrectly hide
+ * the source build route.
+ */
+export function heldTargetRefusal(descriptor: CanonicalReleaseTarget): string {
+  if (descriptor.heldFromPublication === null) {
+    throw new Error(`${descriptor.artifactTarget} is published and holds no refusal`);
+  }
+  return `${descriptor.packageName} is not published yet: ${descriptor.heldFromPublication}. `
+    + `The ${descriptor.artifactTarget} target is supported and builds from source: `
+    + RELEASE_SOURCE_URL;
+}
+
+/**
+ * The launcher's exact optional dependencies. Held targets are absent: npm
+ * fails an optional dependency soft, so pinning a package that was never
+ * published would install cleanly and then throw on first launch, and npm does
+ * not allow replacing a published version to correct it.
+ *
+ * Each pin is typed as a published package before it is collected, so sourcing
+ * this from `RELEASE_TARGETS` — the one edit that would publish a held package
+ * irreversibly — stops compiling here rather than relying on a test to notice.
+ * The remaining assertion narrows nothing but totality: `Object.fromEntries`
+ * hands back a string-keyed record, so the compiler cannot see that every
+ * published package is present exactly once. Tests cover that half.
+ */
 export function releasePlatformDependencyGraph(
   version: string
-): Readonly<Record<ReleasePlatformPackage, string>> {
-  return Object.freeze(Object.fromEntries(
-    RELEASE_TARGETS.map((descriptor) => [descriptor.packageName, version])
-  ) as Record<ReleasePlatformPackage, string>);
+): Readonly<Record<PublishedPlatformPackage, string>> {
+  const pins: readonly (readonly [PublishedPlatformPackage, string])[] =
+    PUBLISHED_RELEASE_TARGETS.map((descriptor) => [descriptor.packageName, version]);
+  return Object.freeze(Object.fromEntries(pins) as Record<PublishedPlatformPackage, string>);
 }

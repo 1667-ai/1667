@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ChapterBreak, NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
-import { platformPerformanceBudget } from "../../test/platform-performance-budget.js";
+import {
+  CONSOLE_REPORT,
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  startTiming
+} from "../../test/performance-budget.js";
 import { initialState } from "../src/app.js";
 import { chapterListModel, chapterWindow } from "../src/chapter-model.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
@@ -10,6 +16,16 @@ import { nextRequestEstimate, type NextRequestContext } from "../src/request-pro
 import { buildRailModel, formatTokensEstimate } from "../src/rail.js";
 import { renderPanels } from "../src/screens/panels.js";
 import { frameText, type FrameLine } from "../src/screens/story/frame.js";
+
+// Bun applies a 5s default timeout, which is below the allowance this budget
+// needs on a loaded runner.
+//
+// This budget is larger than the wall-clock budget it replaced. Bun collects
+// garbage on other threads, and process.cpuUsage counts every thread, so this
+// allocation-heavy model reports more CPU time than wall-clock time. A hosted
+// runner measured 325.7ms of CPU time against 166.7ms of wall-clock time, where
+// this machine measured 147.1ms of CPU time.
+const BULK_MODEL_BUDGET = cpuBudget(1_500);
 
 describe("chapter view models", () => {
   test("derives divider and dead-end summary rows without putting summaries on the prose path", () => {
@@ -85,14 +101,14 @@ describe("chapter view models", () => {
 
   test("20k parts and 100 chapters stay inside the TUI bulk-model budget", () => {
     const payload = largePayload(20_000, 100);
-    const started = performance.now();
+    const read = startTiming();
     const view = createStoryViewModel(payload);
     const model = chapterListModel(payload, 8_000, estimateFor(payload), view);
-    const elapsed = performance.now() - started;
+    const timing = read();
     expect(view.rows).toHaveLength(20_099);
     expect(model.rows).toHaveLength(100);
-    expect(elapsed).toBeLessThan(platformPerformanceBudget(300));
-  });
+    assertWithinBudget(CONSOLE_REPORT, "20k parts and 100 chapters", BULK_MODEL_BUDGET, timing);
+  }, budgetTimeout([BULK_MODEL_BUDGET]));
 
   test("renders 70k chapters without passing the row set as function arguments", () => {
     const state = initialState(demoAppSource(), false);

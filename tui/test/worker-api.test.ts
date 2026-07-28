@@ -13,7 +13,7 @@ import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
-import { platformPerformanceBudget } from "../../test/platform-performance-budget.js";
+import { platformPerformanceBudget } from "../../test/performance-budget.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PROVIDER_CHECK_METHODS,

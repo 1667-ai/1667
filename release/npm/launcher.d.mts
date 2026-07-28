@@ -1,7 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 
 export const LAUNCHER_PACKAGE_NAME: "@1667-ai/cli";
-export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, Readonly<{
+export const LAUNCHER_SOURCE_URL: "https://github.com/1667-ai/1667";
+export type LauncherReleaseTarget = Readonly<{
   packageName:
     | "@1667-ai/darwin-arm64"
     | "@1667-ai/darwin-x64"
@@ -12,7 +13,9 @@ export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, Readonly<{
   cpu: "arm64" | "x64";
   libc: "glibc" | null;
   executable: "bin/1667" | "bin/1667.exe";
-}>>>;
+  heldFromPublication: string | null;
+}>;
+export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, LauncherReleaseTarget>>;
 
 export interface LaunchPlan {
   launcherRoot: string;
@@ -34,4 +37,8 @@ export interface LaunchOptions {
 
 export function resolveLaunchPlan(options?: LaunchOptions): LaunchPlan;
 export function selectTarget(platform: string, arch: string): string;
+export function heldTargetRefusal(
+  target: string,
+  policy: LauncherReleaseTarget
+): string;
 export function runLauncher(options?: LaunchOptions): ChildProcess;

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
+import {
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  startTiming,
+  type Timing
+} from "./performance-budget.js";
 import {
   formatSettingsDocumentV2,
   formatSettingsStateV2,
@@ -35,56 +41,50 @@ import type {
 const MUTATION = `m1.1767225600000.${"e".repeat(32)}`;
 const POINTER = { receiptKind: "user", mutationId: MUTATION, phase: "prepared" } as const;
 const PREVIOUS_MUTATION = `m1.1767225599999.${"d".repeat(32)}`;
+// One budget per subtest, named for what it bounds. budgetTimeout reads the
+// whole table, so a new subtest cannot leave the timeout behind.
+const BUDGETS = {
+  documentParses: cpuBudget(15_000),
+  aggregateParses: cpuBudget(15_000),
+  preflightCycles: cpuBudget(15_000),
+  nearLimitParse: cpuBudget(15_000),
+  nearLimitPreflight: cpuBudget(10_000)
+} as const;
+
 const PREVIOUS_POINTER = {
   receiptKind: "user",
   mutationId: PREVIOUS_MUTATION,
   phase: "prepared"
 } as const;
 
-// These budgets exist to catch algorithmic regressions in pure functions, so they
-// measure CPU rather than wall clock. The Intel macOS runner is oversubscribed
-// enough to report wall times near twice its own CPU time, while every other
-// platform runs the two within a few percent; billing that scheduler contention
-// against a pure-computation budget turns the whole matrix red at random.
-function measured(run: () => void): { wallMs: number; cpuMs: number } {
-  const startedCpu = process.cpuUsage();
-  const startedAt = performance.now();
-  run();
-  const wallMs = performance.now() - startedAt;
-  const usage = process.cpuUsage(startedCpu);
-  return { wallMs, cpuMs: (usage.user + usage.system) / 1_000 };
-}
 
-function timing(wallMs: number, cpuMs: number): string {
-  return `${wallMs.toFixed(1)}ms wall / ${cpuMs.toFixed(1)}ms CPU`;
-}
-
-test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, timeout: 180_000 }, async (t) => {
+test("settings v2 pure operations stay comfortably bounded", {
+  concurrency: 1,
+  timeout: budgetTimeout(Object.values(BUDGETS))
+}, async (t) => {
   await t.test("10,000 canonical document parses", (context) => {
     const iterations = 10_000;
     const text = formatSettingsDocumentV2(INITIAL_SETTINGS_DOCUMENT_V2);
     let parsed = 0;
-    const { wallMs, cpuMs } = measured(() => {
-      for (let index = 0; index < iterations; index += 1) {
-        parsed += parseSettingsDocumentV2Text(text).schemaVersion;
-      }
-    });
-    context.diagnostic(`${iterations.toLocaleString()} document parses in ${timing(wallMs, cpuMs)}`);
+    const read = startTiming();
+    for (let index = 0; index < iterations; index += 1) {
+      parsed += parseSettingsDocumentV2Text(text).schemaVersion;
+    }
+    const timing = read();
     assert.equal(parsed, iterations * 2);
-    assert.ok(cpuMs < 15_000, `document parsing took ${cpuMs.toFixed(1)}ms CPU`);
+    assertWithinBudget(context, `${iterations.toLocaleString()} document parses`, BUDGETS.documentParses, timing);
   });
 
   await t.test("5,000 canonical aggregate parses", (context) => {
     const iterations = 5_000;
     let generations = 0;
-    const { wallMs, cpuMs } = measured(() => {
-      for (let index = 0; index < iterations; index += 1) {
-        generations += parseSettingsStateV2Text(INITIAL_SETTINGS_STATE_V2_TEXT).stateGeneration;
-      }
-    });
-    context.diagnostic(`${iterations.toLocaleString()} aggregate parses in ${timing(wallMs, cpuMs)}`);
+    const read = startTiming();
+    for (let index = 0; index < iterations; index += 1) {
+      generations += parseSettingsStateV2Text(INITIAL_SETTINGS_STATE_V2_TEXT).stateGeneration;
+    }
+    const timing = read();
     assert.equal(generations, iterations);
-    assert.ok(cpuMs < 15_000, `aggregate parsing took ${cpuMs.toFixed(1)}ms CPU`);
+    assertWithinBudget(context, `${iterations.toLocaleString()} aggregate parses`, BUDGETS.aggregateParses, timing);
   });
 
   await t.test("500 staged whole-path preflights and bounded recoveries", (context) => {
@@ -97,25 +97,27 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
       apiKeyEnv: "PERFORMANCE_MODEL_KEY"
     });
     let recovered = 0;
-    const { wallMs, cpuMs } = measured(() => {
-      for (let index = 0; index < iterations; index += 1) {
-        const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
-          kind: "save-document",
-          document: candidate,
-          lastTransaction: POINTER
-        });
-        const validating = reduceSettingsStateV2(staged, {
-          kind: "begin-validation",
-          transactionId: MUTATION
-        });
-        recovered += recoverSettingsStateV2(validating).stateGeneration;
-      }
-    });
-    context.diagnostic(
-      `${iterations.toLocaleString()} preflight/recovery cycles in ${timing(wallMs, cpuMs)}`
-    );
+    const read = startTiming();
+    for (let index = 0; index < iterations; index += 1) {
+      const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
+        kind: "save-document",
+        document: candidate,
+        lastTransaction: POINTER
+      });
+      const validating = reduceSettingsStateV2(staged, {
+        kind: "begin-validation",
+        transactionId: MUTATION
+      });
+      recovered += recoverSettingsStateV2(validating).stateGeneration;
+    }
+    const timing = read();
     assert.equal(recovered, iterations * 4);
-    assert.ok(cpuMs < 15_000, `settings preflight/recovery took ${cpuMs.toFixed(1)}ms CPU`);
+    assertWithinBudget(
+      context,
+      `${iterations.toLocaleString()} preflight/recovery cycles`,
+      BUDGETS.preflightCycles,
+      timing
+    );
   });
 
   await t.test("near-limit document parse remains linear and bounded", (context) => {
@@ -125,13 +127,15 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
     assert.ok(bytes > 220 * 1024, `large fixture is only ${bytes} bytes`);
     assert.ok(bytes <= MAX_SETTINGS_DOCUMENT_BYTES);
     const iterations = 100;
-    const { wallMs, cpuMs } = measured(() => {
-      for (let index = 0; index < iterations; index += 1) parseSettingsDocumentV2Text(text);
-    });
-    context.diagnostic(
-      `${iterations} parses of ${bytes.toLocaleString()} bytes in ${timing(wallMs, cpuMs)}`
+    const read = startTiming();
+    for (let index = 0; index < iterations; index += 1) parseSettingsDocumentV2Text(text);
+    const timing = read();
+    assertWithinBudget(
+      context,
+      `${iterations} parses of ${bytes.toLocaleString()} bytes`,
+      BUDGETS.nearLimitParse,
+      timing
     );
-    assert.ok(cpuMs < 15_000, `near-limit parsing took ${cpuMs.toFixed(1)}ms CPU`);
   });
 
   await t.test("near-limit two-document preflight validates every activation successor", (context) => {
@@ -165,20 +169,22 @@ test("settings v2 pure operations stay comfortably bounded", { concurrency: 1, t
 
     const iterations = 3;
     let generations = 0;
-    const { wallMs, cpuMs } = measured(() => {
-      for (let index = 0; index < iterations; index += 1) {
-        generations += reduceSettingsStateV2(activeState, {
-          kind: "save-document",
-          document: candidate,
-          lastTransaction: POINTER
-        }).stateGeneration;
-      }
-    });
-    context.diagnostic(
-      `${iterations} preflights of ${stagedBytes.toLocaleString()} bytes in ${timing(wallMs, cpuMs)}`
-    );
+    const read = startTiming();
+    for (let index = 0; index < iterations; index += 1) {
+      generations += reduceSettingsStateV2(activeState, {
+        kind: "save-document",
+        document: candidate,
+        lastTransaction: POINTER
+      }).stateGeneration;
+    }
+    const timing = read();
     assert.equal(generations, iterations * 3);
-    assert.ok(cpuMs < 10_000, `near-limit settings preflight took ${cpuMs.toFixed(1)}ms CPU`);
+    assertWithinBudget(
+      context,
+      `${iterations} preflights of ${stagedBytes.toLocaleString()} bytes`,
+      BUDGETS.nearLimitPreflight,
+      timing
+    );
   });
 });
 

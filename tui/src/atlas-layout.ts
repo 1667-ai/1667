@@ -47,8 +47,9 @@ export interface AtlasLayoutOptions {
   deadlines?: FrameDeadlineCollector;
 }
 /** `activeEnd` marks a segment the reading line stops on while the node still
- *  has children — undo and stop-generation both leave the story there. Such a
- *  segment owns a row of its own so `◉ you` never disappears from the map. */
+ *  has children — stopping a generation and summarising both leave the story
+ *  there. Such a segment owns a row of its own so `◉ you` never disappears from
+ *  the map. */
 interface SegmentNode {
   anchor: NodeStub; end: NodeStub; children: VisualNode[];
   activeEnd: boolean; forkCount: number;

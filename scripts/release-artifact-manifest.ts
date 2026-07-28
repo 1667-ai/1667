@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   parseBuildIdentity,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import {
   type ReleaseBuildIdentity,
@@ -53,7 +53,7 @@ export interface ReleaseLauncherArtifactRecord extends ReleaseArtifactRecordBase
 }
 
 export interface ReleasePlatformArtifactRecord extends ReleaseArtifactRecordBase {
-  target: PackagedArtifactTarget;
+  target: BuiltArtifactTarget;
   buildIdentity: ReleaseBuildIdentity;
 }
 

@@ -18,13 +18,24 @@ import { summaryTakePrompt } from "../server/summary-take.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import type { GenerationSettings, Story, StoryNode } from "../shared/types.js";
-import { platformPerformanceBudget } from "./platform-performance-budget.js";
+import { assertWithinBudget, budgetTimeout, cpuBudget, startTiming } from "./performance-budget.js";
 
 const PART_COUNT = 256;
 const PART_CHARACTERS = 4_096;
 const FACT_CHARACTERS = 128 * 1_024;
 const ROUNDS = 25;
-const CPU_BUDGET_MS = platformPerformanceBudget(8_000);
+// These are pure computation, so the budgets measure CPU time. Each one is
+// named for the measurement it bounds.
+const BUDGETS = {
+  tokenizerInit: cpuBudget(8_000),
+  planConstruction: cpuBudget(8_000),
+  cacheScopes: cpuBudget(2_000),
+  rollingPlanning: cpuBudget(8_000),
+  structuredLowering: cpuBudget(8_000),
+  unchangedPrefixes: cpuBudget(2_000),
+  anthropicLowering: cpuBudget(8_000),
+  registryMutations: cpuBudget(2_000)
+} as const;
 const REGISTRY_MUTATIONS = 25_000;
 const REGISTRY_CAPACITY = 256;
 const REQUEST_SETTINGS: GenerationSettings = {
@@ -56,23 +67,18 @@ const ANTHROPIC_EXPLICIT_CONTEXT: PromptCacheContext = {
   adapter: "anthropic-official"
 };
 
-test("cold o200k tokenizer initialization remains bounded", { timeout: 30_000 }, (t) => {
-  const cpuStart = process.cpuUsage();
-  const wallStart = performance.now();
+test("cold o200k tokenizer initialization remains bounded", { timeout: budgetTimeout([BUDGETS.tokenizerInit]) }, (t) => {
+  const read = startTiming();
   const tokens = countO200kPromptTextTokens(["hello world"]);
-  const cpu = process.cpuUsage(cpuStart);
-  const cpuMs = (cpu.user + cpu.system) / 1_000;
-  const wallMs = performance.now() - wallStart;
+  const timing = read();
 
   assert.equal(tokens, 2);
-  assert.ok(
-    cpuMs < CPU_BUDGET_MS,
-    `cold o200k initialization used ${cpuMs.toFixed(1)}ms CPU; budget is ${CPU_BUDGET_MS}ms`
-  );
-  t.diagnostic(`cold o200k initialization: ${cpuMs.toFixed(1)}ms CPU, ${wallMs.toFixed(1)}ms wall`);
+  assertWithinBudget(t, "cold o200k initialization", BUDGETS.tokenizerInit, timing);
 });
 
-test("prompt planning and request lowering stay linear for a 1 MiB transcript", { timeout: 30_000 }, (t) => {
+test("prompt planning and request lowering stay linear for a 1 MiB transcript", {
+  timeout: budgetTimeout([BUDGETS.planConstruction])
+}, (t) => {
   const story = largeStory();
   const facts = `CANONICAL STORY FACTS\n${"fact-value ".repeat(Math.ceil(FACT_CHARACTERS / 11)).slice(0, FACT_CHARACTERS)}`;
   const targetPart = story.nodes[Math.floor(story.nodes.length / 2)]!;
@@ -126,8 +132,7 @@ test("prompt planning and request lowering stay linear for a 1 MiB transcript", 
     buildAnthropicMessagesRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF);
   }
   let loweredCharacters = 0;
-  const cpuStart = process.cpuUsage();
-  const wallStart = performance.now();
+  const read = startTiming();
   for (let round = 0; round < ROUNDS; round += 1) {
     for (const build of builders) {
       const prompt = build();
@@ -139,36 +144,26 @@ test("prompt planning and request lowering stay linear for a 1 MiB transcript", 
       ).length;
     }
   }
-  const cpu = process.cpuUsage(cpuStart);
-  const cpuMs = (cpu.user + cpu.system) / 1_000;
-  const wallMs = performance.now() - wallStart;
+  const timing = read();
 
   assert.ok(loweredCharacters > 160_000_000, "benchmark must exercise lowered provider bytes");
-  assert.ok(
-    cpuMs < CPU_BUDGET_MS,
-    `prompt-plan construction used ${cpuMs.toFixed(1)}ms CPU; budget is ${CPU_BUDGET_MS}ms`
-  );
-  t.diagnostic(
-    `${ROUNDS} rounds × ${builders.length} paths: ${cpuMs.toFixed(1)}ms CPU, ${wallMs.toFixed(1)}ms wall`
-  );
+  assertWithinBudget(t, `${ROUNDS} rounds × ${builders.length} paths`, BUDGETS.planConstruction, timing);
 });
 
 test("cache-scope derivation remains bounded and independent of prompt size", (t) => {
-  const cpuStart = process.cpuUsage();
+  const read = startTiming();
   let characters = 0;
   for (let index = 0; index < 20_000; index += 1) {
     characters += promptCacheScope(`story-${index}`, "continue").length;
   }
-  const cpu = process.cpuUsage(cpuStart);
-  const cpuMs = (cpu.user + cpu.system) / 1_000;
+  const timing = read();
   assert.equal(characters, 20_000 * 79);
-  assert.ok(cpuMs < platformPerformanceBudget(2_000), `20,000 cache scopes used ${cpuMs.toFixed(1)}ms CPU`);
-  t.diagnostic(`20,000 cache scopes: ${cpuMs.toFixed(1)}ms CPU`);
+  assertWithinBudget(t, "20,000 cache scopes", BUDGETS.cacheScopes, timing);
 });
 
 test(
   "warmed exact GPT-5.6 rolling planning and structured lowering stay bounded at 1 MiB",
-  { timeout: 60_000 },
+  { timeout: budgetTimeout([BUDGETS.rollingPlanning, BUDGETS.structuredLowering]) },
   (t) => {
     const story = largeStory();
     const priorPrompt = continuationBenchmarkPrompt(story.nodes.slice(0, -1));
@@ -179,12 +174,9 @@ test(
     const warmRuntime = new PromptCacheRuntime({ registryCapacity: 4 });
     warmRuntime.prepare(OPENAI_EXPLICIT_CONTEXT, scope, priorPrompt).commit();
 
-    const planningCpuStart = process.cpuUsage();
-    const planningWallStart = performance.now();
+    const readPlanning = startTiming();
     const warmPlan = warmRuntime.prepare(OPENAI_EXPLICIT_CONTEXT, scope, currentPrompt);
-    const planningCpu = process.cpuUsage(planningCpuStart);
-    const planningCpuMs = (planningCpu.user + planningCpu.system) / 1_000;
-    const planningWallMs = performance.now() - planningWallStart;
+    const planningTiming = readPlanning();
 
     assert.equal(warmPlan.wire.kind, "openai-explicit");
     assert.equal(warmPlan.wire.breakpoints.length, 2);
@@ -192,41 +184,26 @@ test(
       buildOpenAiChatRequestBody(settings, currentPrompt, warmPlan.wire)
     );
     assert.equal(occurrences(warmBody, '"prompt_cache_breakpoint"'), 2);
-    assert.ok(
-      planningCpuMs < CPU_BUDGET_MS,
-      `exact rolling cache planning used ${planningCpuMs.toFixed(1)}ms CPU; `
-      + `budget is ${CPU_BUDGET_MS}ms`
-    );
+    assertWithinBudget(t, "exact rolling cache planning", BUDGETS.rollingPlanning, planningTiming);
 
     let loweredCharacters = 0;
-    const cpuStart = process.cpuUsage();
-    const wallStart = performance.now();
+    const read = startTiming();
     for (let round = 0; round < ROUNDS; round += 1) {
       loweredCharacters += JSON.stringify(
         buildOpenAiChatRequestBody(settings, currentPrompt, warmPlan.wire)
       ).length;
     }
-    const cpu = process.cpuUsage(cpuStart);
-    const cpuMs = (cpu.user + cpu.system) / 1_000;
-    const wallMs = performance.now() - wallStart;
+    const timing = read();
     warmPlan.commit();
 
     assert.ok(loweredCharacters > 25_000_000, "benchmark must lower the full cached prompt");
-    assert.ok(
-      cpuMs < CPU_BUDGET_MS,
-      `structured OpenAI lowering used ${cpuMs.toFixed(1)}ms CPU; budget is ${CPU_BUDGET_MS}ms`
-    );
-    t.diagnostic(
-      `warmed GPT-5.6 rolling plan: ${planningCpuMs.toFixed(1)}ms CPU, `
-      + `${planningWallMs.toFixed(1)}ms wall; ${ROUNDS} structured lowerings: `
-      + `${cpuMs.toFixed(1)}ms CPU, ${wallMs.toFixed(1)}ms wall`
-    );
+    assertWithinBudget(t, `${ROUNDS} structured OpenAI lowerings`, BUDGETS.structuredLowering, timing);
   }
 );
 
 test(
   "unchanged GPT-5.6 stable prefixes reuse token qualification at 1 MiB",
-  { timeout: 30_000 },
+  { timeout: budgetTimeout([BUDGETS.unchangedPrefixes]) },
   (t) => {
     const story = largeStory();
     const prompt = continuationBenchmarkPrompt(story.nodes);
@@ -242,28 +219,20 @@ test(
     assert.equal(tokenCounts, 1);
     tokenCounts = 0;
 
-    const cpuStart = process.cpuUsage();
-    const wallStart = performance.now();
+    const read = startTiming();
     for (let round = 0; round < ROUNDS; round += 1) {
       runtime.prepare(OPENAI_EXPLICIT_CONTEXT, scope, prompt).commit();
     }
-    const cpu = process.cpuUsage(cpuStart);
-    const cpuMs = (cpu.user + cpu.system) / 1_000;
-    const wallMs = performance.now() - wallStart;
+    const timing = read();
 
     assert.equal(tokenCounts, 0, "registry-qualified prefixes must not be retokenized");
-    assert.ok(
-      cpuMs < platformPerformanceBudget(2_000),
-      `unchanged cached-prefix planning used ${cpuMs.toFixed(1)}ms CPU`
-    );
-    t.diagnostic(
-      `${ROUNDS} unchanged 1 MiB plans: ${cpuMs.toFixed(1)}ms CPU, `
-      + `${wallMs.toFixed(1)}ms wall, 0 tokenizer calls`
-    );
+    assertWithinBudget(t, `${ROUNDS} unchanged 1 MiB plans, 0 tokenizer calls`, BUDGETS.unchangedPrefixes, timing);
   }
 );
 
-test("Anthropic structured cached lowering stays bounded at 1 MiB", { timeout: 30_000 }, (t) => {
+test("Anthropic structured cached lowering stays bounded at 1 MiB", {
+  timeout: budgetTimeout([BUDGETS.anthropicLowering])
+}, (t) => {
   const story = largeStory();
   const prompt = continuationBenchmarkPrompt(story.nodes);
   const scope = promptCacheScope(story.id, "continue");
@@ -278,36 +247,26 @@ test("Anthropic structured cached lowering stays bounded at 1 MiB", { timeout: 3
   assert.equal(occurrences(warmBody, '"cache_control"'), 1);
 
   let loweredCharacters = 0;
-  const cpuStart = process.cpuUsage();
-  const wallStart = performance.now();
+  const read = startTiming();
   for (let round = 0; round < ROUNDS; round += 1) {
     const plan = runtime.prepare(ANTHROPIC_EXPLICIT_CONTEXT, scope, prompt);
     loweredCharacters += JSON.stringify(
       buildAnthropicMessagesRequestBody(settings, prompt, plan.wire)
     ).length;
   }
-  const cpu = process.cpuUsage(cpuStart);
-  const cpuMs = (cpu.user + cpu.system) / 1_000;
-  const wallMs = performance.now() - wallStart;
+  const timing = read();
 
   assert.ok(loweredCharacters > 25_000_000, "benchmark must lower the full cached prompt");
-  assert.ok(
-    cpuMs < CPU_BUDGET_MS,
-    `Anthropic cached lowering used ${cpuMs.toFixed(1)}ms CPU; budget is ${CPU_BUDGET_MS}ms`
-  );
-  t.diagnostic(
-    `${ROUNDS} Anthropic cached lowerings: ${cpuMs.toFixed(1)}ms CPU, ${wallMs.toFixed(1)}ms wall`
-  );
+  assertWithinBudget(t, `${ROUNDS} Anthropic cached lowerings`, BUDGETS.anthropicLowering, timing);
 });
 
 test("prompt-cache registry remains capped through 25,000 mutations and evictions", (t) => {
   const registry = new PromptCacheBreakpointRegistry(REGISTRY_CAPACITY);
-  const cpuStart = process.cpuUsage();
+  const read = startTiming();
   for (let index = 0; index < REGISTRY_MUTATIONS; index += 1) {
     registry.commit(`scope-${index}`, `boundary-${index}`);
   }
-  const cpu = process.cpuUsage(cpuStart);
-  const cpuMs = (cpu.user + cpu.system) / 1_000;
+  const timing = read();
   const firstRetained = REGISTRY_MUTATIONS - REGISTRY_CAPACITY;
 
   assert.equal(registry.size, REGISTRY_CAPACITY);
@@ -321,10 +280,11 @@ test("prompt-cache registry remains capped through 25,000 mutations and eviction
     `boundary-${REGISTRY_MUTATIONS - 1}`
   );
   assert.equal(registry.hashes().length, REGISTRY_CAPACITY);
-  assert.ok(cpuMs < platformPerformanceBudget(2_000), `25,000 registry mutations used ${cpuMs.toFixed(1)}ms CPU`);
-  t.diagnostic(
-    `${REGISTRY_MUTATIONS.toLocaleString()} registry mutations: `
-    + `${cpuMs.toFixed(1)}ms CPU, cap ${registry.size}`
+  assertWithinBudget(
+    t,
+    `${REGISTRY_MUTATIONS.toLocaleString()} registry mutations, cap ${registry.size}`,
+    BUDGETS.registryMutations,
+    timing
   );
 });
 

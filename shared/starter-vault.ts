@@ -32,10 +32,24 @@ export interface StarterBeat {
   readonly chapter?: string;
 }
 
+/** A fact the facts overlay opens with. The first line of `text` is the name
+ * the overlay lists; the rest is the body. */
+export interface StarterFact {
+  /** Stable slug; the seeder derives a deterministic fact id from it. */
+  readonly slug: string;
+  /** Sorts the fact into a chip at the top of the overlay. */
+  readonly tag: string;
+  readonly text: string;
+  /** Keys this fact's text teaches. Must match its `[token]` spellings. */
+  readonly keys?: readonly StarterKeyId[];
+}
+
 export interface StarterStory {
   readonly id: string;
   readonly title: string;
   readonly beats: readonly StarterBeat[];
+  /** Seeded in the same aggregate change as the prose. */
+  readonly facts: readonly StarterFact[];
 }
 
 const TOUR: StarterStory = {
@@ -127,9 +141,11 @@ const TOUR: StarterStory = {
           keys: ["edit", "takePrevious", "undo", "prune", "instructions"],
           text: "Press [e] to edit the focused part in place. Your changes become a take, so "
             + "the model's original stays reachable behind [←].\n\n"
-            + "[u] undoes. [d] prunes — it deletes takes and their children, which is how a "
-            + "story that sprawled during a long session gets its shape back. Pruning asks "
-            + "first if you are sure.\n\n"
+            + "[u] takes back a chapter break you made or removed, and only that. There is no "
+            + "undo for prose, so read the next sentence twice. [d] prunes — it deletes takes "
+            + "and their children, which is how a story that sprawled during a long session "
+            + "gets its shape back. Pruning asks first if you are sure, and [u] will not bring "
+            + "back what it takes.\n\n"
             + "One more: [p] toggles the instructions that produced each part. Try it here. "
             + "Every part in this tour carries the note it was written against, which is "
             + "usually the fastest way to remember what you were trying to do."
@@ -186,9 +202,12 @@ const TOUR: StarterStory = {
             + "[o] opens the library — every story you have, including the second starter "
             + "story sitting next to this one. That is how you switch.\n\n"
             + "[f] holds facts: the names, places, and rules you want kept straight, sent "
-            + "with every request so the model stops renaming your characters. A fact can "
+            + "with every request that writes prose so the model stops renaming your "
+            + "characters. A fact can "
             + "carry a tag of its own: a short word for sorting your facts, which is a "
-            + "different thing from tagging a story line back in the map.\n\n"
+            + "different thing from tagging a story line back in the map. There are a few "
+            + "in here already, and the hedge story next door keeps the kind you will "
+            + "actually write.\n\n"
             + "[x] opens a menu of whatever applies to the focused part, for the days you "
             + "would rather point than recall. [:] is the command palette, which can reach "
             + "things no key is bound to.\n\n"
@@ -228,6 +247,50 @@ const TOUR: StarterStory = {
         }
       ]
     }
+  ],
+  // The tour's facts describe the instrument, because the tour is the manual and
+  // a fact must be true of the story that carries it. The hedge story next door
+  // carries the other kind, which is the kind the reader will write.
+  facts: [
+    {
+      slug: "fixed-context",
+      tag: "how facts work",
+      text: "Facts are fixed context\n"
+        + "Every fact in this list travels with every request that writes prose, whole and "
+        + "unsummarised. That is what keeps a name spelled the same way in chapter nine as in "
+        + "chapter one. Chapter summaries are the exception: they are written from the prose "
+        + "alone, so nothing you record here can bend a recap of what already happened."
+    },
+    {
+      slug: "fact-shape",
+      tag: "how facts work",
+      text: "The first line is the name\n"
+        + "A fact is one block of text. Its first line names it in this list, and the lines "
+        + "under it are the body. Short name, specific body."
+    },
+    {
+      slug: "fact-tag",
+      tag: "how facts work",
+      text: "A tag sorts this list, and the model reads it\n"
+        + "The tag on a fact fills the chips at the top of this overlay, and it travels beside "
+        + "the fact in every request. A tag like \"rules\" tells the model what kind of thing it "
+        + "is holding, so write tags you would be content to have read back to you. It is a "
+        + "different thing from the tag you leave on a story line in the map."
+    },
+    {
+      slug: "fact-cost",
+      tag: "upkeep",
+      text: "A fact you never need is one you pay for every time\n"
+        + "Facts are the one part of the prompt that never gets shorter as the book grows. "
+        + "Prune this list the way you prune takes."
+    },
+    {
+      slug: "fact-examples",
+      tag: "upkeep",
+      text: "These are examples\n"
+        + "Delete them once the shape is obvious. Facts belong to one story, so removing these "
+        + "leaves the hedge story's own facts where they are."
+    }
   ]
 };
 
@@ -251,11 +314,58 @@ const SEED: StarterStory = {
         }
       ]
     }
+  ],
+  // Written the way a reader's own facts should read: what the model must not
+  // get wrong about a story that is one paragraph old.
+  facts: [
+    {
+      slug: "hedge",
+      tag: "places",
+      text: "The hedge\n"
+        + "Older than the house. Every gardener since the war has trimmed around it, and none "
+        + "has cut it back far enough to find where it ends."
+    },
+    {
+      slug: "door",
+      tag: "places",
+      text: "The green door\n"
+        + "Low, latched, set into the hedge. The hinges have not been oiled in living memory. "
+        + "The latch was on the garden side until this morning."
+    },
+    {
+      slug: "gardener",
+      tag: "people",
+      text: "The gardener\n"
+        + "The latest of a line of them. Trims around the door twice a year. Has never opened it, "
+        + "and does not think of this as a decision."
+    },
+    {
+      slug: "house-habit",
+      tag: "rules",
+      text: "Nobody in the house discusses the door\n"
+        + "This is habit, not fear. Opening it has never once been the most pressing thing to do "
+        + "that afternoon. Write it that way: no one warns anybody."
+    }
   ]
 };
 
 /** Both starter stories, in the order a fresh library lists them. */
 export const STARTER_STORIES: readonly StarterStory[] = [TOUR, SEED];
+
+/** Every piece of starter prose, whatever surface carries it, with the keys it
+ *  declares. The key contract walks this rather than the beats, so prose added
+ *  to a new surface is checked by the same tests instead of quietly escaping
+ *  them. */
+export function starterProse(): { slug: string; text: string; keys: readonly StarterKeyId[] }[] {
+  return STARTER_STORIES.flatMap((story) => [
+    ...story.beats.flatMap((beat) => beat.takes.map((take) => ({
+      slug: take.slug, text: take.text, keys: take.keys ?? []
+    }))),
+    ...story.facts.map((fact) => ({
+      slug: `fact:${fact.slug}`, text: fact.text, keys: fact.keys ?? []
+    }))
+  ]);
+}
 
 /** The story a fresh install opens on. */
 export const STARTER_OPENING_STORY_ID = TOUR.id;

@@ -132,6 +132,7 @@ describe("inline settings menu", () => {
         row === "theme"
         || row === "provider"
         || row === "allow-insecure-http"
+        || row === "cache-policy"
       ) {
         expect(state.settings?.edit).toBe(null);
       } else {
@@ -314,7 +315,10 @@ describe("inline settings menu", () => {
     expect(state.settings?.draft.generation.provider).toBe("dry-run");
     expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
 
-    await draftRow(press, state, "cache-policy", "long");
+    await selectRow(press, state, "cache-policy");
+    await press(key("right"));
+    await press(key("right"));
+    expect(state.settings?.draft.cachePolicy).toBe("long");
     await press(key("s"));
     expect(saves).toBe(0);
     expect(state.toast).toContain("Dry run never calls a model provider");
@@ -616,6 +620,51 @@ describe("inline settings menu", () => {
 
     await press(key("left"));
     expect(state.settings?.draft.generation.allowInsecureHttp).toBe(undefined);
+  });
+
+  test("cache policy is a selector that keeps every policy reachable", async () => {
+    const { state, cache, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "cache-policy");
+    expect(state.settings?.draft.cachePolicy).toBe("off");
+
+    await press(key("return"));
+    expect(state.settings?.edit).toBe(null);
+    expect(state.settings?.draft.cachePolicy).toBe("auto");
+    await press(key("right"));
+    expect(state.settings?.draft.cachePolicy).toBe("long");
+    await press(key("right"));
+    expect(state.settings?.draft.cachePolicy).toBe("off");
+    await press(key("left"));
+    expect(state.settings?.draft.cachePolicy).toBe("long");
+
+    // The demo route cannot honour a policy, and the row says so rather than
+    // hiding the choice behind a skipped step.
+    const rendered = frameText(renderStoryScreen(
+      state,
+      { width: 80, height: 24, wrapCache: cache }
+    ).lines);
+    expect(rendered).toContain("▸ cache policy");
+    expect(rendered).toContain("‹ long ›");
+    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save");
+  });
+
+  test("cache policy states its cost beside the chosen policy", async () => {
+    const { state, cache, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "provider");
+    while (state.settings?.draft.generation.provider !== "anthropic") {
+      await press(key("right"));
+    }
+    await draftRow(press, state, "model", "claude-sonnet-5");
+    await selectRow(press, state, "cache-policy");
+    await press(key("right"));
+
+    const rendered = frameText(renderStoryScreen(
+      state,
+      { width: 100, height: 30, wrapCache: cache }
+    ).lines);
+    expect(rendered).toContain("‹ auto › · stable block · 5m · 1.25× writes");
   });
 
   test("the selected row and inline field render inside Settings", async () => {

@@ -20,7 +20,9 @@ import {
 } from "./frame.js";
 
 const GAUGE_INK = "▮";
-const GAUGE_FREE = "▯";
+/** The same solid cell as the ink, dimmed. A hollow glyph turns the track into
+ *  a row of empty boxes and outshouts the fill it exists to measure. */
+const GAUGE_FREE = "▮";
 /** Collapsed bar cells; the rest of the row carries the free-space readout. */
 const GAUGE_CELLS = 20;
 const LEGEND_HALF = 15;

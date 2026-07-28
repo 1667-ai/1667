@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { assertWithinBudget, budgetTimeout, cpuBudget, startTiming } from "./performance-budget.js";
 import { parseMutationLedgerRecordText } from "../server/mutation-ledger-codec.js";
 import { parseMutationLedgerSegments, userMutationLedgerSegments } from "../server/mutation-ledger-paths.js";
 import { planMutationLedgerRecovery } from "../server/mutation-ledger-recovery.js";
@@ -24,33 +24,37 @@ const recoveryState = {
 const MUTATION = prepared.key;
 const HASH_B = "b".repeat(64);
 const NOW = "2026-01-01T00:00:00.000Z";
+// One budget per subtest, named for what it bounds.
+const BUDGETS = {
+  recordParses: cpuBudget(15_000),
+  pathMapping: cpuBudget(15_000),
+  recoveryPlans: cpuBudget(15_000)
+} as const;
 
-test("mutation ledger pure operations stay comfortably bounded", { concurrency: 1, timeout: 60_000 }, async (t) => {
+test("mutation ledger pure operations stay comfortably bounded", { concurrency: 1, timeout: budgetTimeout(Object.values(BUDGETS)) }, async (t) => {
   await t.test("20,000 strict canonical record parses", (context) => {
     const iterations = 20_000;
-    const startedAt = performance.now();
+    const read = startTiming();
     let parsed = 0;
     for (let index = 0; index < iterations; index += 1) {
       if (parseMutationLedgerRecordText(text).kind === "prepared") parsed += 1;
     }
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations.toLocaleString()} parses in ${elapsed.toFixed(1)}ms`);
+    const timing = read();
     assert.equal(parsed, iterations);
-    assert.ok(elapsed < 15_000, `record parsing took ${elapsed.toFixed(1)}ms`);
+    assertWithinBudget(context, `${iterations.toLocaleString()} record parses`, BUDGETS.recordParses, timing);
   });
 
   await t.test("50,000 path builds and direct identity parses", (context) => {
     const iterations = 50_000;
-    const startedAt = performance.now();
+    const read = startTiming();
     let parsed = 0;
     for (let index = 0; index < iterations; index += 1) {
       const segments = userMutationLedgerSegments("story:story-one", MUTATION);
       if (parseMutationLedgerSegments(segments, "story:story-one").kind === "user") parsed += 1;
     }
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations.toLocaleString()} build/parse pairs in ${elapsed.toFixed(1)}ms`);
+    const timing = read();
     assert.equal(parsed, iterations);
-    assert.ok(elapsed < 15_000, `path mapping took ${elapsed.toFixed(1)}ms`);
+    assertWithinBudget(context, `${iterations.toLocaleString()} build/parse pairs`, BUDGETS.pathMapping, timing);
   });
 
   await t.test("5,000 constant-evidence recovery plans", (context) => {
@@ -74,14 +78,13 @@ test("mutation ledger pure operations stay comfortably bounded", { concurrency: 
       originalProvider: null,
       recoveredAt: NOW
     };
-    const startedAt = performance.now();
+    const read = startTiming();
     let actions = 0;
     for (let index = 0; index < iterations; index += 1) {
       actions += planMutationLedgerRecovery(evidence).actions.length;
     }
-    const elapsed = performance.now() - startedAt;
-    context.diagnostic(`${iterations.toLocaleString()} recovery plans in ${elapsed.toFixed(1)}ms`);
+    const timing = read();
     assert.equal(actions, iterations);
-    assert.ok(elapsed < 15_000, `recovery planning took ${elapsed.toFixed(1)}ms`);
+    assertWithinBudget(context, `${iterations.toLocaleString()} recovery plans`, BUDGETS.recoveryPlans, timing);
   });
 });

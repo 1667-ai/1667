@@ -1,9 +1,13 @@
 // Writes the starter stories into a data directory this process just created.
 //
-// Everything is replayed through the ordinary authoring commands, so the vault
-// lands in whatever schema the build currently writes. There is no snapshot to
-// migrate: a schema change that breaks the starter stories breaks every story,
-// and is caught by the same tests.
+// Everything is replayed through the story functions that the ordinary
+// authoring commands apply. The vault thus lands in whatever schema the build
+// currently writes. There is no snapshot to migrate: a schema change that
+// breaks the starter stories breaks every story, and is caught by the same
+// tests.
+//
+// The authoring commands add a lock, a receipt and a transport. The vault needs
+// none of those. It applies the same story functions in one aggregate change.
 
 import { createHash } from "node:crypto";
 import {
@@ -11,8 +15,13 @@ import {
   STARTER_STORIES,
   type StarterStory
 } from "../shared/starter-vault.js";
+import type { TagStatus } from "../shared/types.js";
+import { createChapterBreak } from "./chapter-breaks.js";
 import { uuidFromDigestHex } from "./deterministic-uuid.js";
+import { createFacts } from "./story-facts.js";
+import { commitTake, switchLine } from "./story-nodes.js";
 import type { StoryService } from "./story-service.js";
+import { putStoryTag } from "./story-tags.js";
 
 /** Derive a stable UUID for a starter part. Every install lays the vault out
  * identically, and the create commands treat a known id as already-done, so a
@@ -37,56 +46,68 @@ export async function seedStarterVault(service: StoryService): Promise<void> {
 async function seedStory(service: StoryService, story: StarterStory): Promise<void> {
   await service.createStory(story.title, story.id);
 
-  const chapters: { parentPartId: string; title: string }[] = [];
-  const tags: { nodeId: string; name: string; status: string }[] = [];
-  let parentId: string | null = null;
+  // The whole story is known before the write starts. One aggregate change
+  // therefore writes all of it, and the story publishes one manifest.
+  await service.stories.mutate(story.id, (fresh) => {
+    const tags: { nodeId: string; name: string; status: TagStatus }[] = [];
+    let parentId: string | null = null;
 
-  for (const beat of story.beats) {
-    if (beat.chapter !== undefined) {
-      if (parentId === null) {
-        throw new Error(
-          `Starter story ${story.title} opens a chapter on its first beat, which has no seam to anchor to`
+    for (const beat of story.beats) {
+      if (beat.chapter !== undefined) {
+        if (parentId === null) {
+          throw new Error(
+            `Starter story ${story.title} opens a chapter on its first beat, which has no seam to anchor to`
+          );
+        }
+        createChapterBreak(
+          fresh,
+          parentId,
+          beat.chapter,
+          derivedId(story.id, "chapter", beat.chapter)
         );
       }
-      chapters.push({ parentPartId: parentId, title: beat.chapter });
-    }
-    for (const take of beat.takes) {
-      const nodeId = derivedId(story.id, "part", take.slug);
-      await service.createNode(
-        story.id,
-        {
-          text: take.text,
-          ...(take.instruction === undefined ? {} : { instruction: take.instruction }),
-          parentId
-        },
-        nodeId
-      );
-      if (take.tag !== undefined) {
-        tags.push({ nodeId, name: take.tag.name, status: take.tag.status });
+      for (const take of beat.takes) {
+        const nodeId = derivedId(story.id, "part", take.slug);
+        commitTake(fresh, {
+          parentId,
+          appendTo: null,
+          expectedTextHash: null,
+          instruction: take.instruction ?? "",
+          text: take.text.trim(),
+          model: "human",
+          genId: null,
+          nodeId
+        });
+        if (take.tag !== undefined) {
+          tags.push({ nodeId, name: take.tag.name, status: take.tag.status });
+        }
       }
+      // The first take carries the line onward; the rest hang off the same seam
+      // as alternatives. A beat always has one, so this never re-roots the story.
+      parentId = derivedId(story.id, "part", beat.takes[0].slug);
     }
-    // The first take carries the line onward; the rest hang off the same seam
-    // as alternatives. A beat always has one, so this never re-roots the story.
-    parentId = derivedId(story.id, "part", beat.takes[0].slug);
-  }
 
-  for (const chapter of chapters) {
-    await service.createChapterBreak(
-      story.id,
-      chapter.parentPartId,
-      chapter.title,
-      derivedId(story.id, "chapter", chapter.title)
-    );
-  }
+    // Each new take activates itself, so the line currently runs through the
+    // last take of every beat. Put it back on the first before anything reads it.
+    if (parentId !== null) switchLine(fresh, parentId);
 
-  // Each new take activates itself, so the line currently runs through the last
-  // take of every beat. Put it back on the first before anything reads it.
-  if (parentId !== null) await service.switchLine(story.id, parentId);
+    // Tags land last on purpose: tagging a line end and then extending it
+    // migrates the tag onto the new child, which would silently move every
+    // marker the tour points at.
+    for (const tag of tags) {
+      putStoryTag(fresh, tag.nodeId, tag.name, tag.status);
+    }
 
-  // Tags land last on purpose: tagging a line end and then extending
-  // it migrates the tag onto the new child, which would silently move
-  // every marker the tour points at.
-  for (const tag of tags) {
-    await service.putBookmark(story.id, tag.nodeId, tag.name, tag.status);
-  }
+    // Facts ride this same change. Seeding them through the fact command would
+    // publish a second manifest per story, doubling the write cost of a first
+    // run to buy nothing. One batch also gives every fact one createdAt, which
+    // is what "the vault arrived at once" should look like on disk.
+    if (story.facts.length > 0) {
+      createFacts(
+        fresh,
+        { facts: story.facts.map(({ tag, text }) => ({ tag, text })) },
+        (index) => derivedId(story.id, "fact", story.facts[index]!.slug)
+      );
+    }
+  });
 }

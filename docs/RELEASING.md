@@ -25,6 +25,7 @@ This document uses these Technical Names:
 | Term | Meaning |
 | --- | --- |
 | release target | One supported operating system and processor architecture |
+| held target | A release target that is built and verified but not published |
 | release package | One npm tarball in the release matrix |
 | launcher package | The JavaScript package named `@1667-ai/cli` |
 | platform package | A package that contains one native executable |
@@ -51,9 +52,35 @@ The preflight tool does not:
 - Access the network
 - Publish a package
 
+## Held targets
+
+A held target is built, identified, smoke-tested and staged like any other
+release target. It is not published. `heldFromPublication` in
+`shared/release-targets.ts` carries the reason a target is held, and every
+publication decision in this repository derives from that one field: the
+launcher's `optionalDependencies`, the package matrix, the release plan length,
+the pack templates, the launcher's bill of materials, and the upgrade path.
+Clearing that field is the whole of releasing a held target.
+
+Staging decisions are a different question and do not read that field. A held
+target still gets a build identity, a package manifest, a `build-manifest.json`
+and its own `sbom.spdx.json`, because it is still staged, packed and validated
+locally. Withholding any of those would stop exercising the layout the target
+will publish under, which is the one thing a hold has to keep proving.
+
+npm requires this separation. An optional dependency that resolves to nothing
+fails softly, so a launcher that pinned an unpublished platform package would
+install cleanly on that platform and then fail at every launch. npm does not
+allow a published version to be replaced, so correcting it needs a new launcher
+release. The launcher therefore never names a held target's package, and refuses
+that target by name: its platform is supported and its executable is built, and
+only the package is withheld.
+
+`windows-x64` is currently held.
+
 ## Release package matrix
 
-The release matrix contains exactly six release packages:
+The release matrix contains exactly five release packages:
 
 | Release target | Package name | `buildIdentity` |
 | --- | --- | --- |
@@ -62,9 +89,14 @@ The release matrix contains exactly six release packages:
 | macOS x64 | `@1667-ai/darwin-x64` | Trusted native identity |
 | Linux arm64 | `@1667-ai/linux-arm64` | Trusted native identity |
 | Linux x64 | `@1667-ai/linux-x64` | Trusted native identity |
-| Windows x64 | `@1667-ai/windows-x64` | Trusted native identity |
 
-The matrix contains one launcher package and five platform packages.
+The matrix contains one launcher package and four platform packages.
+
+Routine CI does not build `windows-x64`. Its package,
+`@1667-ai/windows-x64`, is not in this matrix, is not in the launcher's optional
+dependencies, is not packed by the release pack step, and is not published.
+Run the Windows native tests and package smoke before Windows release work
+resumes.
 
 All release packages declare the canonical Git repository. The Linux platform
 packages declare `libc: ["glibc"]`. The launcher package and the macOS platform
@@ -110,8 +142,11 @@ Collect these inputs before preflight:
 3. Run trusted signature verification with `git verify-tag <tag>`.
 4. Select one millisecond-precision UTC build timestamp for all targets.
 5. Use the same version in the root package, TUI package, and root lockfile.
-6. Run `--version --json` on each of the five native executables.
-7. Pack the launcher package and the five platform packages.
+6. Run `--version --json` on each of the four published native executables.
+7. Pack the launcher package and the four published platform packages.
+
+A held target's executable is built and smoke-tested, but the release plan has
+one entry per release package, so its identity has no slot in the plan.
 
 Each release package must contain `build-manifest.json`, `sbom.spdx.json`,
 `LICENSE`, and `NOTICE`. Each platform package must also contain its native
@@ -149,7 +184,7 @@ The SHA-256 value covers the exact standard-output bytes.
 ## Release plan
 
 The release plan must use strict JSON. The `artifacts` array must contain
-exactly six entries.
+exactly one entry per release package, and therefore exactly five entries.
 
 This excerpt shows the source evidence and one launcher entry. The excerpt is
 not a complete release plan.
@@ -245,8 +280,12 @@ also verify supervised child replacement, parent-death containment,
 default-port publication, and lock guidance.
 
 The Windows candidate also verifies the protected machine-tier DACL. It rejects
-reparse points. It stages the exact npm package layout. It runs the launcher
-against the staged executable.
+reparse points. It stages the exact npm package layout, packs it, validates both
+tarballs against release package policy, and installs them. Because
+`windows-x64` is held, it then verifies that the installed launcher refuses the
+target by naming the hold, and executes the installed executable directly.
+Clearing the hold restores the launcher run without another change to the
+smoke.
 
 ## Retain release evidence
 

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import {
-  PACKAGED_ARTIFACT_TARGETS,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  PUBLISHED_ARTIFACT_TARGETS,
   RELEASE_LAUNCHER_PACKAGE,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
@@ -13,7 +13,10 @@ import {
   createReleaseArtifactManifest,
   type ReleasePackageArtifactInput
 } from "../scripts/release-artifact-manifest.js";
-import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import {
+  createReleaseIdentitySet,
+  releaseIdentityForTarget
+} from "../scripts/release-identity.js";
 import {
   createReleaseLauncherManifest,
   createReleasePlatformManifest,
@@ -57,7 +60,7 @@ test("release artifact manifest is canonical, deterministic, and target ordered"
   assert.equal(JSON.stringify(JSON.parse(forward.text)), forward.text);
   assert.deepEqual(
     forward.manifest.artifacts.map((artifact) => artifact.target),
-    ["launcher", ...PACKAGED_ARTIFACT_TARGETS]
+    ["launcher", ...PUBLISHED_ARTIFACT_TARGETS]
   );
   for (const artifact of forward.manifest.artifacts) {
     if (artifact.target === "launcher") {
@@ -143,8 +146,8 @@ test("release artifact manifest rejects licence files that are not the reviewed 
 function releaseArtifacts(): ReleasePackageArtifactInput[] {
   return [
     artifact(launcherManifest(), null),
-    ...PACKAGED_ARTIFACT_TARGETS.map((target, index) => {
-      return artifact(platformManifest(target), identities.identities[index]!);
+    ...PUBLISHED_ARTIFACT_TARGETS.map((target) => {
+      return artifact(platformManifest(target), releaseIdentityForTarget(identities, target));
     })
   ];
 }
@@ -225,7 +228,7 @@ function launcherManifest() {
   return releasePackageJson(createReleaseLauncherManifest(VERSION));
 }
 
-function platformManifest(target: PackagedArtifactTarget) {
+function platformManifest(target: BuiltArtifactTarget) {
   return releasePackageJson(createReleasePlatformManifest(target, VERSION));
 }
 

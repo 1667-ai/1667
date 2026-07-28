@@ -1,6 +1,6 @@
 import {
   releaseTargetForArtifact,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 
 /** The name and version of a component listed in the same inventory. */
@@ -100,9 +100,9 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
   })),
   Object.freeze({
     name: "@opentui/core-win32-arm64",
-    reason: "Prebuilt native library for a target this project does not release. "
+    reason: "Prebuilt native library for a target this project does not build. "
       + "Bun resolves it in the lockfile; no packaged executable embeds it. The "
-      + "win32-x64 sibling is released and is inventoried, not excluded."
+      + "win32-x64 sibling is built and is inventoried, not excluded."
   })
 ]);
 
@@ -165,7 +165,7 @@ const TUI_BUNDLED_PACKAGES: readonly PinnedTuiPackage[] = Object.freeze([
  * package that named only the glibc build would understate what it ships.
  * macOS has no musl variant and therefore lists one.
  */
-const TUI_NATIVE_PACKAGES: Readonly<Record<PackagedArtifactTarget, readonly PinnedTuiPackage[]>> =
+const TUI_NATIVE_PACKAGES: Readonly<Record<BuiltArtifactTarget, readonly PinnedTuiPackage[]>> =
   Object.freeze({
     "darwin-arm64": Object.freeze([nativePackage(
       "@opentui/core-darwin-arm64",
@@ -218,7 +218,7 @@ interface UnresolvedComponent {
  */
 export function releaseBundledComponents(
   sources: ReleaseComponentSources,
-  target: PackagedArtifactTarget
+  target: BuiltArtifactTarget
 ): readonly ReleaseBundledComponent[] {
   const descriptor = releaseTargetForArtifact(target);
   const lockfile = lockfileBuffer(sources.bunLockfile);

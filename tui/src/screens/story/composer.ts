@@ -494,8 +494,16 @@ export function applyComposePageMode(
   return styledPage.map((line, index) => [...line, ...(styledRail[index] ?? [])]);
 }
 
+/** The context gauge tells its fill apart by colour alone, so collapsing every
+ *  rail role would leave one uniform bar reading as a full window. Focus dim
+ *  mutes those cells to chrome instead: nothing stays lit against the
+ *  composer, and the meter keeps the boundary it exists to draw. */
+const GAUGE_ROLES: ReadonlySet<DisplayRole> = new Set([
+  "context voice", "context facts", "context recent", "context summary"
+]);
+
 function composeRole(role: DisplayRole | undefined, focusDim: boolean): DisplayRole | undefined {
   if (role === undefined || role === "background" || role === "raised") return role;
-  if (focusDim) return "dimmed page";
+  if (focusDim) return GAUGE_ROLES.has(role) ? "chrome" : "dimmed page";
   return role === "focus / accent" || role === "accent · deep" ? "compose accent" : role;
 }

@@ -1,9 +1,10 @@
 import {
-  PACKAGED_ARTIFACT_TARGETS,
-  type PackagedArtifactTarget
+  type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import {
-  RELEASE_LAUNCHER_PACKAGE
+  PUBLISHED_ARTIFACT_TARGETS,
+  RELEASE_LAUNCHER_PACKAGE,
+  type PublishedArtifactTarget
 } from "../shared/release-targets.js";
 import {
   releaseIdentityForTarget,
@@ -19,7 +20,7 @@ import {
 } from "./release-package-manifests.js";
 
 export interface ReleasePackageBuildManifest<
-  ArtifactTarget extends "launcher" | PackagedArtifactTarget
+  ArtifactTarget extends "launcher" | BuiltArtifactTarget
 > {
   schemaVersion: 1;
   product: "1667";
@@ -46,7 +47,7 @@ export interface ReleaseLauncherPackageTemplate {
 export interface ReleasePlatformPackageTemplate {
   kind: "platform";
   packageManifest: ReleasePlatformPackageJson;
-  buildManifest: ReleasePackageBuildManifest<PackagedArtifactTarget>;
+  buildManifest: ReleasePackageBuildManifest<PublishedArtifactTarget>;
   buildIdentity: ReleaseBuildIdentity;
 }
 
@@ -59,7 +60,11 @@ export interface ReleasePackageTemplates {
   platforms: readonly ReleasePlatformPackageTemplate[];
 }
 
-/** Deterministic inputs for the pack step; no template contains npm scripts. */
+/**
+ * Deterministic inputs for the pack step; no template contains npm scripts.
+ * Packing is publication, so a target held back has no template here even
+ * though its executable and build identity are produced alongside the rest.
+ */
 export function createReleasePackageTemplates(
   identities: ReleaseIdentitySet
 ): ReleasePackageTemplates {
@@ -74,7 +79,7 @@ export function createReleasePackageTemplates(
     ),
     buildIdentity: null
   });
-  const platforms = PACKAGED_ARTIFACT_TARGETS.map((target) => {
+  const platforms = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
     const manifest = createReleasePlatformManifest(target, version);
     return Object.freeze({
       kind: "platform" as const,
@@ -91,7 +96,7 @@ export function createReleasePackageTemplates(
 }
 
 export function createReleasePackageBuildManifest<
-  ArtifactTarget extends "launcher" | PackagedArtifactTarget
+  ArtifactTarget extends "launcher" | BuiltArtifactTarget
 >(
   evidence: ReleasePackageBuildEvidence,
   packageName: string,

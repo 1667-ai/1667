@@ -64,22 +64,21 @@ jobs:
         working-directory: tui
         run: bun run build:standalone
 
-  # darwin-x64 builds on main and on demand, but not on pull requests. It is the
-  # slowest target here by roughly ten times (6m13s against 2m14s for its arm64
-  # sibling on the same commit) and it runs on macos-15-intel, a retiring runner
-  # class heavily enough contended to report wall times near twice its own CPU
-  # time. Gating every merge on it bought latency and flakes, not signal. It
-  # still runs on every push to main, so a regression surfaces on the commit
-  # that caused it rather than at release time.
+  # Routine CI does not build darwin-x64 or windows-x64. Add each target again
+  # when its release work resumes.
   packaged-platform:
     name: packaged-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(github.event_name == 'pull_request'
-          && '["darwin-arm64","linux-arm64","linux-x64","windows-x64"]'
-          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64","windows-x64"]') }}
-    runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
+        include:
+          - target: darwin-arm64
+            runner: macos-15
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: linux-x64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
       - name: Check out source
@@ -107,34 +106,12 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run native platform tests
-        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         run: npm test
 
-      - name: Run Intel macOS platform tests without benchmark contention
-        if: matrix.target == 'darwin-x64'
-        run: npm test -- --test-concurrency=1
-
-      - name: Run Windows platform tests without process contention
-        if: matrix.target == 'windows-x64'
-        run: npm test -- --test-concurrency=2
-
       - name: Run native TUI tests
-        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         working-directory: tui
         run: bun test
 
-      - name: Run Intel macOS TUI tests without filesystem contention
-        if: matrix.target == 'darwin-x64'
-        working-directory: tui
-        run: bun test --max-concurrency=1
-
-      - name: Run Windows TUI tests without runtime contention
-        if: matrix.target == 'windows-x64'
-        working-directory: tui
-        run: bun test --max-concurrency=1
-
       - name: Build and execute packaged candidate
         working-directory: tui
-        env:
-          AI_1667_WINDOWS_DEFAULT_STATE_SMOKE: ${{ matrix.target == 'windows-x64' && '1' || '0' }}
         run: bun run build:standalone

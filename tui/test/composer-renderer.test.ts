@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
-  platformPerformanceBudget
-} from "../../test/platform-performance-budget.js";
+  CONSOLE_REPORT,
+  assertWithinBudget,
+  budgetTimeout,
+  cpuBudget,
+  startTiming
+} from "../../test/performance-budget.js";
 import {
   backspaceComposer,
   composerLineCell,
@@ -37,6 +41,17 @@ import { frameText, segment, type FrameLine } from "../src/screens/story/frame.j
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+
+// Bun applies a 5s default timeout, which is below the allowance these budgets
+// need on a loaded runner. Every test below derives its own timeout.
+const BUDGETS = {
+  largePastePaint: cpuBudget(1_000),
+  largePasteEditing: cpuBudget(250),
+  uniformSoftWrap: cpuBudget(500),
+  wrappedInsert: cpuBudget(250),
+  wrappedKeystroke: cpuBudget(100),
+  flagInsertion: cpuBudget(1_000)
+} as const;
 
 describe("composer renderer", () => {
   test("uses the terminal-third cap unless config overrides it", () => {
@@ -344,6 +359,16 @@ describe("composer renderer", () => {
     expect(applyComposeMode(story, true)[0]!.map((part) => part.role)).toEqual([
       "dimmed page", "dimmed page", "dimmed page", "dimmed page"
     ]);
+
+    // The gauge's fill is told apart from its track by colour alone, so it
+    // mutes rather than collapsing: one uniform bar would read as a full
+    // window while the numbers above it said otherwise.
+    const gauge: FrameLine[] = [[
+      segment("▮▮", "context recent"),
+      segment("▮▮▮▮", "dimmed page")
+    ]];
+    expect(applyComposeMode(gauge, true)[0]!.map((part) => part.role))
+      .toEqual(["chrome", "dimmed page"]);
   });
 
   test("inserts and renders a very large paste without argument-limit or quadratic cursor work", () => {
@@ -354,21 +379,20 @@ describe("composer renderer", () => {
     expect(composer.text.slice(-4)).toBe("xxxb");
     expect(composer.cursor).toBe(200_001);
 
-    const started = performance.now();
+    const read = startTiming();
     const layout = renderComposerLayout({
       composer, terminalWidth: 100, terminalHeight: 30, measure: 72
     });
+    const timing = read();
     expect(frameText(layout.lines)).toContain("…");
-    expect(performance.now() - started).toBeLessThan(
-      platformPerformanceBudget(1_000)
-    );
+    assertWithinBudget(CONSOLE_REPORT, "large-paste first paint", BUDGETS.largePastePaint, timing);
 
     // The large-paste guarantee covers editing after the paste, not merely the
     // first paint. This caught whole-draft resegmentation on every keystroke.
     renderComposerLayout({
       composer, terminalWidth: 100, terminalHeight: 30, measure: 72, softWrap: true
     });
-    const editingStarted = performance.now();
+    const readEditing = startTiming();
     for (let index = 0; index < 25; index += 1) {
       insertComposerText(composer, "y");
       renderComposerLayout({
@@ -376,10 +400,8 @@ describe("composer renderer", () => {
       });
       backspaceComposer(composer);
     }
-    expect(performance.now() - editingStarted).toBeLessThan(
-      platformPerformanceBudget(250)
-    );
-  });
+    assertWithinBudget(CONSOLE_REPORT, "editing after a large paste", BUDGETS.largePasteEditing, readEditing());
+  }, budgetTimeout([BUDGETS.largePastePaint, BUDGETS.largePasteEditing]));
 
   test("undo and redo preserve untouched line indexes", () => {
     const composer = createComposer(Array.from(
@@ -411,17 +433,16 @@ describe("composer renderer", () => {
   test("soft-wraps a multi-megabyte uniform line without materializing every row", () => {
     const composer = createComposer("x".repeat(2_000_000));
     composer.fullscreen = true;
-    const started = performance.now();
+    const read = startTiming();
     const layout = renderComposerLayout({
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
+    const timing = read();
 
     expect(layout.lines).toHaveLength(29);
     expect(layout.scrollTop).toBeGreaterThan(20_000);
-    expect(performance.now() - started).toBeLessThan(
-      platformPerformanceBudget(500)
-    );
-  });
+    assertWithinBudget(CONSOLE_REPORT, "2 MiB uniform soft wrap", BUDGETS.uniformSoftWrap, timing);
+  }, budgetTimeout([BUDGETS.uniformSoftWrap]));
 
   test("keeps edits incremental on a multi-megabyte mixed-width line", () => {
     const composer = createComposer(`界${"x".repeat(2_000_000)}`);
@@ -430,16 +451,15 @@ describe("composer renderer", () => {
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
 
-    const started = performance.now();
+    const read = startTiming();
     insertComposerText(composer, "y");
     const layout = renderComposerLayout({
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
+    const timing = read();
     expect(layout.scrollTop).toBeGreaterThan(20_000);
-    expect(performance.now() - started).toBeLessThan(
-      platformPerformanceBudget(250)
-    );
-  });
+    assertWithinBudget(CONSOLE_REPORT, "insert into a wrapped 2 MiB line", BUDGETS.wrappedInsert, timing);
+  }, budgetTimeout([BUDGETS.wrappedInsert]));
 
   test("inserts a newline-heavy paste without exceeding the argument limit", () => {
     const composer = createComposer("tail");
@@ -458,16 +478,14 @@ describe("composer renderer", () => {
     renderComposerLayout({
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
-    const started = performance.now();
+    const read = startTiming();
     insertComposerText(composer, "x");
     renderComposerLayout({
       composer, terminalWidth: 100, terminalHeight: 30, measure: 100, softWrap: true
     });
 
-    expect(performance.now() - started).toBeLessThan(
-      platformPerformanceBudget(100)
-    );
-  });
+    assertWithinBudget(CONSOLE_REPORT, "one keystroke in a wrapped line", BUDGETS.wrappedKeystroke, read());
+  }, budgetTimeout([BUDGETS.wrappedKeystroke]));
 
   test("incremental wrap blocks match a fresh index across multiline replacements", () => {
     const composer = createComposer(Array.from(
@@ -499,9 +517,9 @@ describe("composer renderer", () => {
     expect(moveComposerVertical(composer, -1)).toBeTrue();
     expect(composerPosition(composer)).toEqual({ line: 0, column: 0 });
 
-    const started = performance.now();
+    const read = startTiming();
     insertComposerText(composer, "🇨");
-    const elapsed = performance.now() - started;
+    const timing = read();
 
     expect(composer.text.length).toBe(flags.length + "🇨\n".length);
     expect(composer.text.slice(0, 6)).toBe("🇨🇦🇧");
@@ -511,8 +529,8 @@ describe("composer renderer", () => {
     expect(composerLineCell(composer, 0, 50_000)?.text).toBe("🇧");
     expect(composerLineCount(composer)).toBe(2);
     expect(composer).toMatchObject({ cursor: 1 });
-    expect(elapsed).toBeLessThan(platformPerformanceBudget(1_000));
-  });
+    assertWithinBudget(CONSOLE_REPORT, "flag insertion at 50k clusters", BUDGETS.flagInsertion, timing);
+  }, budgetTimeout([BUDGETS.flagInsertion]));
 
   test("vertical movement preserves terminal-cell x across mixed-width lines", () => {
     const composer = createComposer("界界\nabcd\n🙂x");

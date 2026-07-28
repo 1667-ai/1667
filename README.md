@@ -13,6 +13,9 @@
 1667 also provides a direct connection to a selected model provider. This
 repository contains the terminal user interface (TUI) and its backend runtime.
 
+This README uses the Technical Names in
+[Technical terms](docs/technical-terms.md).
+
 ## Status
 
 This public repository contains pre-release source.
@@ -20,35 +23,13 @@ This public repository contains pre-release source.
 | Item | Current status |
 | --- | --- |
 | Source repository | GitHub provides public access. |
-| Standalone candidates | CI builds and tests five targets on `main` and four targets on pull requests. CI does not publish these files. |
+| Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
 | Installer | The repository does not contain an `install.sh` script. |
 | npm package | 1667 does not publish an npm package. |
 | GitHub release | 1667 does not publish a GitHub release. |
 
 Build and run 1667 from source. You can also build a local standalone
 executable.
-
-## Technical terms
-
-This README uses these Technical Names:
-
-| Term | Meaning |
-| --- | --- |
-| TUI | The terminal user interface |
-| backend | The service that stores stories and sends provider requests |
-| project | A project root and its `.1667/` directory |
-| story part | One unit of story prose |
-| take | One alternative version of a story part |
-| story line | The selected path through story parts |
-| tag | A name and a status on the end of one story line |
-| mass map | A map that shows all takes |
-| provider | A local or hosted service that supplies a language model |
-| machine tier | Private 1667 data for one machine |
-| project tier | Story data and settings in a `.1667/` directory |
-| working tier | User files in a project root |
-| frame | One complete terminal screen |
-| standalone executable | One executable that contains the runtime dependencies |
-| release target | One supported operating system and processor architecture |
 
 ## Features
 
@@ -197,7 +178,7 @@ the 1667 editor to change story data.
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
 | Generate a new take | `r` or `R` |
-| Undo | `u` |
+| Undo an added or removed chapter break | `u` |
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
 | Open commands | `Ctrl+P` or `:` |
 | Open settings or the key list | `,` or `?` |
@@ -346,16 +327,11 @@ bun bench/perf.ts
 
 GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
 standalone build on Linux x64. CI also runs the root tests, TUI tests, and
-standalone build on each release target. CI does not run the separate frame
-performance gate.
+standalone build on macOS arm64 and Linux arm64. CI does not run the separate
+frame performance gate.
 
-Four release targets run on every pull request: macOS arm64, Linux arm64,
-Linux x64, and Windows x64. macOS x64 runs on every push to `main` and on
-demand, not on pull requests. It is approximately ten times slower than the
-other targets. It runs on a runner that GitHub will retire. The runner has
-sufficient contention to cause intermittent wall-time test failures. Thus, CI
-does not use macOS x64 as a pull request gate. A regression occurs on the
-`main` commit that introduced it.
+Routine CI does not test macOS x64 or Windows x64. Test these targets before
+their release work resumes.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and
@@ -399,6 +375,7 @@ restoration, 1667 writes one JSON report to standard error.
 
 ## Technical documents
 
+- [Technical terms](docs/technical-terms.md)
 - [Generation boundaries](docs/generation-boundaries.md)
 - [Summary branches](docs/summary-branches.md)
 - [Automatic story names](docs/autoname.md)
