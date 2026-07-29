@@ -4,8 +4,11 @@ import { demoAppSource } from "./demo.js";
 import { createConnectionMonitor } from "./connection.js";
 import { loadConfig } from "./config.js";
 import {
+  configureReadingPositionStore,
   flushReadingPositionPersist,
-  loadReadingPositions
+  loadReadingPositions,
+  readingPositionScope,
+  readingPositionStorePathForScope
 } from "./reading-position-store.js";
 import { resolve } from "node:path";
 import {
@@ -517,7 +520,13 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       }
     }
     const config = loadConfig();
-    const readingPositions = loadReadingPositions();
+    const storeScope = readingPositionScope(
+      dataDir,
+      httpAttach?.origin ?? null
+    );
+    const storeFile = readingPositionStorePathForScope(storeScope);
+    configureReadingPositionStore(storeFile);
+    const readingPositions = loadReadingPositions({ file: storeFile });
     const startUpdateCheck = createBackgroundUpdateStarter(config);
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,

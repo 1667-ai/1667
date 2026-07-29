@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { STARTER_OPENING_STORY_ID } from "../../shared/starter-vault.js";
@@ -13,9 +13,12 @@ import {
   putReadingPosition
 } from "../src/reading-position.js";
 import {
+  configureReadingPositionStore,
   flushReadingPositionPersist,
   loadReadingPositions,
   markReadingPositionDirty,
+  readingPositionScope,
+  readingPositionStorePathForScope,
   saveReadingPositions
 } from "../src/reading-position-store.js";
 import { rememberFocus } from "../src/reading-position-persist.js";
@@ -78,6 +81,35 @@ describe("reading position", () => {
     const merged = mergeReadingPositionDirty(disk, dirty);
     expect(merged["story-new"]).toBe("part-new");
     expect(Object.keys(merged).length).toBe(MAX_READING_POSITIONS);
+  });
+
+  test("each vault scope has its own store file", () => {
+    const a = readingPositionStorePathForScope(readingPositionScope("/tmp/project-a/.1667", null));
+    const b = readingPositionStorePathForScope(readingPositionScope("/tmp/project-b/.1667", null));
+    const http = readingPositionStorePathForScope(readingPositionScope(null, "http://127.0.0.1:1667"));
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(http);
+    expect(a).toContain("reading-positions");
+  });
+
+  test("mkdir failure on a read-only parent does not throw during flush", () => {
+    const directory = mkdtempSync(join(tmpdir(), "1667-reading-ro-"));
+    const file = join(directory, "nested", "reading-positions.json");
+    // Make the parent non-writable so nested mkdir fails.
+    chmodSync(directory, 0o500);
+    try {
+      configureReadingPositionStore(file);
+      markReadingPositionDirty("story-a", "part-1", { file });
+      let thrown: unknown = null;
+      try {
+        flushReadingPositionPersist({ file });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBe(null);
+    } finally {
+      chmodSync(directory, 0o700);
+    }
   });
 
   test("rememberFocus is a no-op in demo mode so navigation stays light", () => {

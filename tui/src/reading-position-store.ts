@@ -4,10 +4,14 @@
  * Not user settings: this map updates as the reader moves. It lives in its
  * own file so settings writes (theme, quota, …) never race it.
  *
+ * Each vault (project data dir or HTTP attach origin) has its own file, so
+ * deterministic starter story ids do not leak across independent projects.
+ *
  * Durability is merge-on-write under an exclusive lock file: each flush
  * re-reads the map, applies only dirty story keys, then rewrites. Concurrent
  * clients updating different stories do not erase each other.
  */
+import { createHash } from "node:crypto";
 import { randomBytes } from "node:crypto";
 import {
   closeSync,
@@ -40,11 +44,41 @@ const LOCK_SPIN_MS = 10;
 /** Dirty keys for the next flush. `null` means delete that story entry. */
 const dirty = new Map<string, string | null>();
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
-let persistFile: string | undefined;
+/** Active vault store file; set once at process startup via configure. */
+let activeStoreFile: string = readingPositionStorePathForScope("default");
 
-export function readingPositionStorePath(): string {
+export function readingPositionRootDir(): string {
   const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-  return join(base, "1667", "reading-positions.json");
+  return join(base, "1667", "reading-positions");
+}
+
+/** Stable store path for one vault/server scope. */
+export function readingPositionStorePathForScope(scope: string): string {
+  const digest = createHash("sha256").update(scope, "utf8").digest("hex").slice(0, 24);
+  return join(readingPositionRootDir(), `${digest}.json`);
+}
+
+/** Project data dir or HTTP origin. Empty pieces collapse to "default". */
+export function readingPositionScope(
+  projectDataDir: string | null,
+  httpOrigin: string | null
+): string {
+  if (projectDataDir !== null && projectDataDir.length > 0) {
+    return `project:${projectDataDir}`;
+  }
+  if (httpOrigin !== null && httpOrigin.length > 0) {
+    return `http:${httpOrigin}`;
+  }
+  return "default";
+}
+
+/** Bind all subsequent load/mark/flush calls to this vault's file. */
+export function configureReadingPositionStore(file: string): void {
+  if (persistTimer !== null && dirty.size > 0 && activeStoreFile !== file) {
+    // Leaving a vault: flush the previous file before switching.
+    flushReadingPositionPersist({ file: activeStoreFile });
+  }
+  activeStoreFile = file;
 }
 
 export function loadReadingPositions(
@@ -52,7 +86,7 @@ export function loadReadingPositions(
 ): ReadingPositions {
   try {
     return normalizeReadingPositions(JSON.parse(
-      readFileSync(options.file ?? readingPositionStorePath(), "utf8")
+      readFileSync(options.file ?? activeStoreFile, "utf8")
     ));
   } catch {
     return {};
@@ -74,7 +108,7 @@ export function markReadingPositionDirty(
   options: ReadingPositionStoreOptions = {}
 ): void {
   dirty.set(storyId, partId);
-  if (options.file !== undefined) persistFile = options.file;
+  if (options.file !== undefined) activeStoreFile = options.file;
   if (persistTimer !== null) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
@@ -91,7 +125,7 @@ export function flushReadingPositionPersist(
     persistTimer = null;
   }
   if (dirty.size === 0) return;
-  const file = options.file ?? persistFile ?? readingPositionStorePath();
+  const file = options.file ?? activeStoreFile;
   const opts = { ...options, file };
   const snapshot = new Map(dirty);
   dirty.clear();
@@ -104,7 +138,13 @@ export function flushReadingPositionPersist(
 
 function withStoreLock(storeFile: string, work: () => void): void {
   const lockPath = `${storeFile}.lock`;
-  mkdirSync(dirname(storeFile), { recursive: true });
+  try {
+    mkdirSync(dirname(storeFile), { recursive: true });
+  } catch {
+    // Read-only home or non-directory path: still attempt unguarded write.
+    work();
+    return;
+  }
   const deadline = Date.now() + LOCK_WAIT_MS;
   let lockFd: number | null = null;
   while (lockFd === null && Date.now() < deadline) {
@@ -161,7 +201,7 @@ function writePositionsFile(
 ): void {
   let temporaryFile: string | null = null;
   try {
-    const file = options.file ?? readingPositionStorePath();
+    const file = options.file ?? activeStoreFile;
     const directory = dirname(file);
     mkdirSync(directory, { recursive: true });
     temporaryFile = `${file}.${process.pid}.`

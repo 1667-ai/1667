@@ -121,6 +121,7 @@ export async function navAction(
     if (part !== null) {
       state.focusIndex = index;
       followStoryViewport(state);
+      rememberFocus(state, source);
       const expanded = new Set(state.expandedPromptIds);
       if (expanded.has(part.id)) expanded.delete(part.id);
       else expanded.add(part.id);
@@ -152,7 +153,8 @@ export async function navAction(
       state,
       resolved.index ?? state.focusIndex,
       resolved.selectionText ?? null,
-      resolved.selectionSpans ?? []
+      resolved.selectionSpans ?? [],
+      source
     );
   }
   else if (resolved.action === "toggle-rail") {
@@ -190,7 +192,8 @@ export function openActions(
   state: RuntimeState,
   partIndex: number,
   selectionText: string | null = null,
-  selectionSpans: readonly StorySelectionSpan[] = []
+  selectionSpans: readonly StorySelectionSpan[] = [],
+  source?: AppSource
 ): void {
   const view = createStoryViewModel(state.payload, state.stream);
   const index = Math.max(0, Math.min(view.rows.length - 1, partIndex));
@@ -204,6 +207,7 @@ export function openActions(
     ...(selectionSpans.length === 0 ? {} : { selectionSpans })
   };
   state.mode = "ACTIONS";
+  if (source !== undefined) rememberFocus(state, source);
 }
 
 /** The menu the renderer draws — one source for both, so row N on screen is
