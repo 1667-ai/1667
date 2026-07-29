@@ -12,9 +12,6 @@ export const DATA_DIRECTORY_OWNER_MARKER = "owner.json";
 export const DATA_DIRECTORY_OWNER_MARKER_NEXT = "owner.json.next";
 /** Advisory record of the process serving this project. Never authoritative. */
 export const PROJECT_RUN_RECORD_FILE = "run.json";
-/** Local TUI reading cursor map. Machine-local; must not be committed. */
-export const READING_POSITIONS_FILE = "reading-positions.json";
-export const READING_POSITIONS_LOCK_FILE = "reading-positions.json.lock";
 
 /**
  * Names written by older builds. Nothing creates them; `1667 init

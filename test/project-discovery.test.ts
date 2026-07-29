@@ -152,7 +152,7 @@ test("every creator writes the gitignore that keeps secrets out of a commit", as
       path.join(directory, PROJECT_GITIGNORE_FILE),
       "utf8"
     )).split("\n");
-    for (const name of [PROVIDER_SECRETS_FILE, PROJECT_RUN_RECORD_FILE, "reading-positions.json"]) {
+    for (const name of [PROVIDER_SECRETS_FILE, PROJECT_RUN_RECORD_FILE]) {
       assert.equal(ignored.includes(name), true, `${directory} must ignore ${name}`);
     }
   }
