@@ -1,4 +1,5 @@
 import {
+  MAX_DELTA_BATCH_BYTES,
   isWorkerInstanceId,
   isWorkerOperationId,
   type WorkerOperationId,
@@ -83,14 +84,30 @@ function decodeProtocolError(
 function decodeResultMessage(
   message: Record<string, unknown>
 ): WorkerToMainMessage | null {
-  if (!hasExactKeys(message, ["type", "id", "value"])
-    || (message.type !== "result" && message.type !== "complete")) {
+  if ((message.type !== "result" && message.type !== "complete")
+    || !hasExactKeys(
+      message,
+      ["type", "id", "value"],
+      message.type === "complete" ? ["stoppedText"] : []
+    )) {
     return null;
   }
   const id = decodeOperationId(message.id);
-  return id === null
-    ? null
-    : Object.freeze({ type: message.type, id, value: message.value });
+  const stoppedText = message.stoppedText;
+  if (id === null
+    || (stoppedText !== undefined
+      && (typeof stoppedText !== "string"
+        || stoppedText.length === 0
+        || new TextEncoder().encode(stoppedText).byteLength
+          > MAX_DELTA_BATCH_BYTES))) {
+    return null;
+  }
+  return Object.freeze({
+    type: message.type,
+    id,
+    value: message.value,
+    ...(stoppedText === undefined ? {} : { stoppedText })
+  });
 }
 
 function decodeOperationMessage(

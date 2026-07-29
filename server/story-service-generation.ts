@@ -55,26 +55,30 @@ export class StoryServiceGeneration {
   ): Promise<StoryPayload> {
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
-        const committed = await this.dependencies.storyMutations.runProvider(
+        const committed =
+          await this.dependencies.storyMutations.runProviderOperation(
           options.mutationRequest,
           "autonameStory",
-          async (stories, qStarted) => {
-            await autonameStory(
-              id,
-              stories,
-              this.dependencies.settings,
-              this.dependencies.promptCache,
-              active,
-              async () => {
-                await qStarted();
-                await options.providerStarted?.();
-              },
-              options.autonameId,
-              options.expectedTitle,
-              options.bindIntent
-            );
-          },
-          () => undefined
+          {
+            signal: active,
+            work: async ({ stories, providerStarted, signal }) => {
+              await autonameStory(
+                id,
+                stories,
+                this.dependencies.settings,
+                this.dependencies.promptCache,
+                signal,
+                async () => {
+                  await providerStarted();
+                  await options.providerStarted?.();
+                },
+                options.autonameId,
+                options.expectedTitle,
+                options.bindIntent
+              );
+            },
+            replayValue: () => undefined
+          }
         );
         return buildStoryPayload(
           committed.story,
@@ -110,25 +114,30 @@ export class StoryServiceGeneration {
     return await this.dependencies.generationAdmission.run(id, genId, () =>
       this.dependencies.cancellable(signal, async (active) => {
         if (hooks.mutationRequest !== undefined) {
-          const committed = await this.dependencies.storyMutations.runProvider(
+          const committed =
+            await this.dependencies.storyMutations.runProviderOperation(
             hooks.mutationRequest,
             "continueStory",
-            async (stories, qStarted) => (await continueStory(
-              id,
-              body,
-              stories,
-              this.dependencies.settings,
-              this.dependencies.promptCache,
-              this.dependencies.generationAdmission,
-              onDelta,
-              active,
-              async () => {
-                await qStarted();
-                await hooks.providerStarted?.();
-              },
-              hooks.bindIntent
-            )) !== null,
-            () => true
+            {
+              signal: active,
+              work: async ({ stories, providerStarted, signal }) =>
+                (await continueStory(
+                  id,
+                  body,
+                  stories,
+                  this.dependencies.settings,
+                  this.dependencies.promptCache,
+                  this.dependencies.generationAdmission,
+                  onDelta,
+                  signal,
+                  async () => {
+                    await providerStarted();
+                    await hooks.providerStarted?.();
+                  },
+                  hooks.bindIntent
+                )) !== null,
+              replayValue: () => true
+            }
           );
           if (!committed.value) return null;
           return buildStoryPayload(
@@ -164,26 +173,31 @@ export class StoryServiceGeneration {
     const body = parseRewrite(value);
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
-        const committed = await this.dependencies.storyMutations.runProvider(
+        const committed =
+          await this.dependencies.storyMutations.runProviderOperation(
           options.mutationRequest,
           "rewriteNode",
-          async (stories, qStarted) => await rewriteNode(
-            id,
-            nodeId,
-            { ...body },
-            stories,
-            this.dependencies.settings,
-            this.dependencies.promptCache,
-            onDelta,
-            active,
-            async () => {
-              await qStarted();
-              await options.providerStarted?.();
-            },
-            options.rewriteId,
-            options.bindIntent
-          ),
-          () => true
+          {
+            signal: active,
+            work: async ({ stories, providerStarted, signal }) =>
+              await rewriteNode(
+                id,
+                nodeId,
+                { ...body },
+                stories,
+                this.dependencies.settings,
+                this.dependencies.promptCache,
+                onDelta,
+                signal,
+                async () => {
+                  await providerStarted();
+                  await options.providerStarted?.();
+                },
+                options.rewriteId,
+                options.bindIntent
+              ),
+            replayValue: () => true
+          }
         );
         return committed.value;
       });
@@ -219,28 +233,33 @@ export class StoryServiceGeneration {
     const body = parseSummaryTake(value);
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
-        const committed = await this.dependencies.storyMutations.runProvider(
+        const committed =
+          await this.dependencies.storyMutations.runProviderOperation(
           options.mutationRequest,
           "createSummaryTake",
-          async (stories, qStarted) => await createSummaryTake(
-            id,
-            body,
-            stories,
-            this.dependencies.settings,
-            this.dependencies.promptCache,
-            onDelta,
-            active,
-            async () => {
-              await qStarted();
-              await options.providerStarted?.();
-            },
-            {
-              summaryNodeId: options.summaryNodeId,
-              cutNodeId: options.cutNodeId
-            },
-            options.bindIntent
-          ),
-          () => options.summaryNodeId ?? null
+          {
+            signal: active,
+            work: async ({ stories, providerStarted, signal }) =>
+              await createSummaryTake(
+                id,
+                body,
+                stories,
+                this.dependencies.settings,
+                this.dependencies.promptCache,
+                onDelta,
+                signal,
+                async () => {
+                  await providerStarted();
+                  await options.providerStarted?.();
+                },
+                {
+                  summaryNodeId: options.summaryNodeId,
+                  cutNodeId: options.cutNodeId
+                },
+                options.bindIntent
+              ),
+            replayValue: () => options.summaryNodeId ?? null
+          }
         );
         return committed.value;
       });
@@ -276,27 +295,31 @@ export class StoryServiceGeneration {
   ): Promise<StoryPayload> {
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
-        const committed = await this.dependencies.storyMutations.runProvider(
+        const committed =
+          await this.dependencies.storyMutations.runProviderOperation(
           options.mutationRequest,
           "summarizeChapter",
-          async (stories, qStarted) => {
-            await summarizeChapter(
-              id,
-              breakId,
-              stories,
-              this.dependencies.settings,
-              this.dependencies.promptCache,
-              active,
-              {
-                ...options,
-                providerStarted: async () => {
-                  await qStarted();
-                  await options.providerStarted?.();
+          {
+            signal: active,
+            work: async ({ stories, providerStarted, signal }) => {
+              await summarizeChapter(
+                id,
+                breakId,
+                stories,
+                this.dependencies.settings,
+                this.dependencies.promptCache,
+                signal,
+                {
+                  ...options,
+                  providerStarted: async () => {
+                    await providerStarted();
+                    await options.providerStarted?.();
+                  }
                 }
-              }
-            );
-          },
-          () => undefined
+              );
+            },
+            replayValue: () => undefined
+          }
         );
         return buildStoryPayload(
           committed.story,

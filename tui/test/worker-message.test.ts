@@ -42,7 +42,12 @@ describe("worker message decoding", () => {
           "m1.1767225600001.7123456789abcdef0123456789abcdef"
       },
       { type: "delta", id: OPERATION_ID, sequence: 0, text: "text" },
-      { type: "complete", id: OPERATION_ID, value: undefined },
+      {
+        type: "complete",
+        id: OPERATION_ID,
+        value: undefined,
+        stoppedText: "buffered"
+      },
       {
         type: "operation",
         id: OPERATION_ID,

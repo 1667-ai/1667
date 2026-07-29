@@ -287,7 +287,7 @@ describe("generation draft restoration", () => {
     expect(edited.restoredPrompt.returnState.composer).toBe(edited.directComposer);
   });
 
-  test("legacy retake stop keeps its restored-draft notice through settlement", async () => {
+  test("legacy retake Stop restores its draft without cancellation chatter", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const entered = deferred<void>();
@@ -310,18 +310,18 @@ describe("generation draft restoration", () => {
     expect(state.mode).toBe("COMPOSE");
     expect(restoredPrompt.nodeId).toBe("p12");
     expect(state.composer).toBe(restoredPrompt.composer);
-    expect(state.toast).toBe("stopping · waiting for backend settlement");
+    expect(state.toast).toBe(null);
 
     await pending;
 
     expect(state.retakePrompt).toBe(restoredPrompt);
     expect(state.composer).toBe(restoredPrompt.composer);
     expect(state.focusIndex).toBe(rowIndexForNode(createStoryViewModel(state.payload), "p12"));
-    expect(state.toast).toBe("stopped before any text landed · draft restored");
+    expect(state.toast).toBe(null);
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 36 }).lines);
     expect(frame).toContain("compose · ¶ 12");
     expect(frame).toContain("part 12/13");
-    expect(frame).toContain("stopped before any text landed · draft restored");
+    expect(frame).not.toContain("model request");
   });
 
   test("late success clears only an unchanged restored Direct editor", async () => {

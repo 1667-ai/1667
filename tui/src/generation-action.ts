@@ -29,12 +29,6 @@ import {
   streamTrimmedText
 } from "./stream-text.js";
 
-const STOPPING_TOAST = "stopping · waiting for backend settlement";
-
-function restorationMayOwnFocus(state: RuntimeState, interactionCurrent: () => boolean): boolean {
-  return interactionCurrent() || state.toast === STOPPING_TOAST;
-}
-
 /** Generation owns the line from the pre-stream claim through adoption. */
 export function generationBusy(state: Pick<StoryScreenState, "stream" | "abort">): boolean {
   return state.stream !== null || state.abort?.kind === "generation";
@@ -57,9 +51,7 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
   }
   reconcileStoryActions(state);
   reconcileMapNavigation(state);
-  state.toast = active === null
-    ? restoredDraft ? "stopped before any text landed · draft restored" : "generation stopped"
-    : STOPPING_TOAST;
+  state.toast = null;
   repaint();
 }
 
@@ -83,6 +75,13 @@ export async function generate(
   const owns = task.owns;
   const storyCurrent = task.storyCurrent;
   const interactionCurrent = task.interactionCurrent;
+  let stopInteractionVersion: number | null = null;
+  signal.addEventListener("abort", () => {
+    stopInteractionVersion = state.interactionVersion;
+  }, { once: true });
+  const restorationMayOwnFocus = () => interactionCurrent()
+    || (stopInteractionVersion !== null
+      && state.interactionVersion === stopInteractionVersion);
   const focusPart = rowPart(createStoryViewModel(state.payload), state.focusIndex);
   const intent = continuationIntent(state.payload, focusPart?.id ?? null, instruction, regenerateNode);
   const path = state.payload.path;
@@ -100,29 +99,29 @@ export async function generate(
   } catch (error) {
     if (state.abort === active) state.abort = null;
     if (signal.aborted) {
-      const restored = restorePendingGenerationDraft(
-        state, pendingDraft, restorationMayOwnFocus(state, interactionCurrent)
+      restorePendingGenerationDraft(
+        state,
+        pendingDraft,
+        restorationMayOwnFocus()
       );
-      if (state.toast === STOPPING_TOAST) {
-        state.toast = restored
-          ? "stopped before generation began · draft restored"
-          : "stopped before generation began";
-      }
     } else if (owns() && storyCurrent()) {
-      restorePendingGenerationDraft(state, pendingDraft, restorationMayOwnFocus(state, interactionCurrent));
+      restorePendingGenerationDraft(
+        state,
+        pendingDraft,
+        restorationMayOwnFocus()
+      );
       state.toast = error instanceof Error ? error.message : String(error);
     }
     return repaint();
   }
   if (signal.aborted || !owns() || !storyCurrent()) {
     if (state.abort === active) state.abort = null;
-    const restored = signal.aborted && restorePendingGenerationDraft(
-      state, pendingDraft, restorationMayOwnFocus(state, interactionCurrent)
-    );
-    if (state.toast === STOPPING_TOAST) {
-      state.toast = restored
-        ? "stopped before generation began · draft restored"
-        : "stopped before generation began";
+    if (signal.aborted) {
+      restorePendingGenerationDraft(
+        state,
+        pendingDraft,
+        restorationMayOwnFocus()
+      );
     }
     return repaint();
   }
@@ -148,6 +147,7 @@ export async function generate(
   state.stream = stream;
   const previousFocus = state.focusIndex;
   let adopted = false;
+  let preserveStoppedStream = false;
   const streamingView = createStoryViewModel(state.payload, stream);
   const targetRow = rowIndexForNode(streamingView, targetId);
   if (interactionCurrent()) {
@@ -165,11 +165,13 @@ export async function generate(
       genId,
       apiTarget,
       (delta) => {
-        if (!owns() || !storyCurrent() || state.stream !== stream) return;
+        if (!owns()
+          || !storyCurrent()
+          || (state.stream !== stream && !signal.aborted)) return;
         appendStreamText(stream, delta);
         // Content identity makes exact reads miss while the completed prior
         // entry remains available for resumable append-prefix reuse.
-        repaint();
+        if (state.stream === stream) repaint();
       },
       signal
     );
@@ -185,19 +187,39 @@ export async function generate(
     }
   } catch (error) {
     if (!signal.aborted && storyCurrent()) {
-      restorePendingGenerationDraft(state, pendingDraft, restorationMayOwnFocus(state, interactionCurrent));
+      restorePendingGenerationDraft(
+        state,
+        pendingDraft,
+        restorationMayOwnFocus()
+      );
       state.toast = error instanceof Error ? error.message : String(error);
     }
   } finally {
-    if (signal.aborted && owns() && storyCurrent() && !adopted) {
-      adopted = await settleStoppedGeneration(
-        state, source, stream, pendingDraft, storyId, storyCurrent, interactionCurrent
+    if (signal.aborted
+      && owns()
+      && storyCurrent()
+      && !adopted) {
+      const settlement = await settleStoppedGeneration(
+        state,
+        source,
+        stream,
+        pendingDraft,
+        storyId,
+        storyCurrent,
+        interactionCurrent,
+        restorationMayOwnFocus
       );
+      adopted = settlement.adopted;
+      preserveStoppedStream = settlement.preserveStream;
     } else if (!adopted) {
-      restorePendingGenerationDraft(state, pendingDraft, restorationMayOwnFocus(state, interactionCurrent));
+      restorePendingGenerationDraft(
+        state,
+        pendingDraft,
+        restorationMayOwnFocus()
+      );
     }
     if (state.abort === active) state.abort = null;
-    if (state.stream === stream) {
+    if (state.stream === stream && !preserveStoppedStream) {
       const focus = captureStoryFocus(state);
       state.stream = null;
       restoreStoryFocus(state, focus);
@@ -206,9 +228,6 @@ export async function generate(
     }
     if (!adopted && interactionCurrent()) {
       state.focusIndex = Math.min(previousFocus, Math.max(0, createStoryViewModel(state.payload).rows.length - 1));
-    }
-    if (signal.aborted && storyCurrent() && state.toast === STOPPING_TOAST) {
-      state.toast = adopted ? "stopped · landed text kept" : "generation stopped";
     }
     cache.invalidate();
     repaint();
@@ -316,8 +335,12 @@ async function settleStoppedGeneration(
   pendingDraft: PendingGenerationDraft | null,
   storyId: string,
   storyCurrent: () => boolean,
-  interactionCurrent: () => boolean
-): Promise<boolean> {
+  interactionCurrent: () => boolean,
+  restorationMayOwnFocus: () => boolean
+): Promise<{
+  readonly adopted: boolean;
+  readonly preserveStream: boolean;
+}> {
   const substantive = streamHasSubstantiveText(stream);
   const text = stream.append ? stream.text : streamTrimmedText(stream);
   try {
@@ -346,35 +369,41 @@ async function settleStoppedGeneration(
         });
       }
     }
-    if (!storyCurrent()) return false;
+    if (!storyCurrent()) {
+      return { adopted: false, preserveStream: false };
+    }
     adoptSameStoryPayload(state, payload);
-    const restored = !substantive
-      && (restoreStoppedGenerationDraft(
-        state, stream, restorationMayOwnFocus(state, interactionCurrent)
-      ) || (stream.restoredRetakePrompt !== undefined
-        && state.retakePrompt === stream.restoredRetakePrompt));
+    if (!substantive) {
+      restoreStoppedGenerationDraft(
+        state,
+        stream,
+        restorationMayOwnFocus()
+      );
+    }
     if (substantive) clearPendingGenerationDraft(state, pendingDraft, stream);
     if (interactionCurrent() && substantive) {
       state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
     }
-    if (interactionCurrent() || state.toast === STOPPING_TOAST) {
-      state.toast = substantive
-        ? "stopped · landed text kept"
-        : restored
-          ? "stopped before any text landed · draft restored"
-          : "stopped before any text landed";
-    }
-    return true;
+    return { adopted: true, preserveStream: false };
   } catch (error) {
-    if (!storyCurrent()) return false;
+    if (!storyCurrent()) {
+      return { adopted: false, preserveStream: false };
+    }
     const payload = await source.api.loadStory(storyId).catch(() => null);
     const adopted = payload !== null && storyCurrent();
     if (adopted) adoptSameStoryPayload(state, payload);
-    restorePendingGenerationDraft(state, pendingDraft, restorationMayOwnFocus(state, interactionCurrent));
-    if ((interactionCurrent() || state.toast === STOPPING_TOAST) && storyCurrent()) {
+    if (substantive) {
+      state.stream = stream;
+    }
+    restorePendingGenerationDraft(
+      state,
+      pendingDraft,
+      restorationMayOwnFocus()
+    );
+    if (restorationMayOwnFocus() && storyCurrent()) {
       state.toast = error instanceof Error ? error.message : String(error);
     }
-    return adopted;
+    return { adopted, preserveStream: substantive };
   }
 }
 

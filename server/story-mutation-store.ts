@@ -27,14 +27,16 @@ import {
 import {
   StoryProviderMutationStore
 } from "./story-provider-mutation.js";
-import type { ProviderStoryMutationCommit } from "./story-provider-contract.js";
+import type {
+  ProviderStoryMutationCommit,
+  ProviderStoryRun
+} from "./story-provider-contract.js";
 import {
   requireExpectedLocalStoryVersion,
   storyAggregateVersion
 } from "./story-aggregate-state.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { ActiveProviderStarts } from "./story-provider-active-starts.js";
-import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import {
   commitManifestOnlyStoryTransaction,
   commitPreparedStoryTransaction,
@@ -376,16 +378,15 @@ export class StoryMutationStore {
     });
   }
 
-  async runProvider<Method extends ProviderMutationMethod, Value>(
+  async runProviderOperation<
+    Method extends ProviderMutationMethod,
+    Value
+  >(
     input: unknown,
     method: Method,
-    work: (
-      stories: ProviderStoryRuntime<Method>,
-      providerStarted: () => Promise<void>
-    ) => Promise<Value>,
-    replayValue: () => Value
+    operation: ProviderStoryRun<Method, Value>
   ): Promise<ProviderStoryMutationCommit<Value>> {
-    return await this.providers.run(input, method, work, replayValue);
+    return await this.providers.run(input, method, operation);
   }
 
   async runDelete(input: unknown): Promise<StoryDeletionCommit> {

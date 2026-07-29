@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -365,14 +366,16 @@ test("mixed local/provider sequence recovers at every crash boundary", async (t)
   // Boundary 2: provider mutation loses its transport mid-generation. The
   // full pipeline retains the durable start and the unknown-outcome fence.
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(THIRD_MUTATION_ID, "c".repeat(64), afterFirst.aggregateVersion),
       "autonameStory",
-      async (_stories, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(503, "Provider reply was lost", "internal");
-      },
-      () => null
+      providerOperation(
+        async (_stories, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(503, "Provider reply was lost", "internal");
+        },
+        () => null
+      )
     ),
     hasServiceError("internal")
   );

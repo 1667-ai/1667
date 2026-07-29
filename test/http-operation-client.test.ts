@@ -331,24 +331,115 @@ test("terminal settlement removes caller cancellation authority", async () => {
   assert.equal(cancelCalls, 0);
 });
 
-test("terminal settlement aborts a concurrent cancellation request", async () => {
+test("user cancellation reaches control before transport cancellation", async () => {
+  const controller = new AbortController();
+  const events: string[] = [];
+  let markCancelStarted!: () => void;
+  const cancelStarted = new Promise<void>((resolve) => {
+    markCancelStarted = resolve;
+  });
+  let releaseCancel!: () => void;
+  const cancelGate = new Promise<void>((resolve) => {
+    releaseCancel = resolve;
+  });
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/cancel") {
+      events.push("control");
+      markCancelStarted();
+      await cancelGate;
+      return cancellationStatus(init);
+    }
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
+  }));
+  const pending = client.run({
+    method: "POST",
+    path: "/api/stories/story/continue",
+    serverInstanceId: INSTANCE_ID,
+    callerSignal: controller.signal,
+    execute: async (lease) => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        lease.signal.addEventListener("abort", () => resolve(), {
+          once: true
+        });
+      });
+      events.push("transport");
+      return null;
+    }
+  });
+
+  await started;
+  controller.abort();
+  await cancelStarted;
+  assert.deepEqual(events, ["control"]);
+  releaseCancel();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(events, ["control"]);
+
+  assert.equal(await pending, null);
+  assert.deepEqual(events, ["control", "transport"]);
+});
+
+test("caller deadline also cancels server work", async () => {
+  const controller = new AbortController();
+  let cancelCalls = 0;
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/cancel") {
+      cancelCalls += 1;
+      return cancellationStatus(init);
+    }
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
+  }));
+  const pending = client.run({
+    method: "POST",
+    path: "/api/stories/story/autoname",
+    serverInstanceId: INSTANCE_ID,
+    callerSignal: controller.signal,
+    execute: async (lease) => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        lease.signal.addEventListener("abort", () => resolve(), {
+          once: true
+        });
+      });
+      return null;
+    }
+  });
+
+  await started;
+  controller.abort(new DOMException("request timed out", "TimeoutError"));
+
+  assert.equal(await pending, null);
+  assert.equal(cancelCalls, 1);
+});
+
+test("terminal settlement detaches a concurrent cancellation request", async () => {
   const controller = new AbortController();
   let cancelSignal: AbortSignal | undefined;
   let signalCancelStarted!: () => void;
   const cancelStarted = new Promise<void>((resolve) => {
     signalCancelStarted = resolve;
   });
+  let releaseCancel!: () => void;
+  const cancelGate = new Promise<void>((resolve) => {
+    releaseCancel = resolve;
+  });
   const client = operationClient(operationFixture(async (pathname, init) => {
     if (pathname === "/api/operations/cancel") {
       cancelSignal = init?.signal ?? undefined;
       signalCancelStarted();
-      return await new Promise<Response>((_resolve, reject) => {
-        cancelSignal?.addEventListener(
-          "abort",
-          () => reject(cancelSignal?.reason),
-          { once: true }
-        );
-      });
+      await cancelGate;
+      return cancellationStatus(init);
     }
     if (pathname === "/api/operations/status") return terminalStatus(init);
     return Response.json({ ok: true });
@@ -358,18 +449,159 @@ test("terminal settlement aborts a concurrent cancellation request", async () =>
     "/api/stories",
     INSTANCE_ID,
     2_000,
-    controller.signal
+    controller.signal,
+    undefined,
+    undefined
   );
 
   controller.abort();
   await cancelStarted;
-  await lease.settle();
+  const cancellation = lease.cancel();
+  let settlementComplete = false;
+  const settlement = lease.settle().then(() => {
+    settlementComplete = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
+  assert.equal(settlementComplete, true);
   assert.equal(cancelSignal?.aborted, true);
+  releaseCancel();
+
+  await settlement;
+  await cancellation;
 });
 
-test("run settles concurrently with a stalled caller cancellation", async () => {
+test("a supporting read abort also cancels server work", async () => {
   const controller = new AbortController();
+  let cancelCalls = 0;
+  let releaseCancel!: () => void;
+  const cancelGate = new Promise<void>((resolve) => {
+    releaseCancel = resolve;
+  });
+  let markTransportCanceled!: () => void;
+  const transportCanceled = new Promise<void>((resolve) => {
+    markTransportCanceled = resolve;
+  });
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/cancel") {
+      cancelCalls += 1;
+      await cancelGate;
+      return cancellationStatus(init);
+    }
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
+  }));
+  const pending = client.run({
+    method: "GET",
+    path: "/api/stories/story",
+    serverInstanceId: INSTANCE_ID,
+    callerSignal: controller.signal,
+    execute: async (lease) => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        lease.signal.addEventListener("abort", () => {
+          markTransportCanceled();
+          resolve();
+        }, { once: true });
+      });
+      throw lease.signal.reason;
+    }
+  });
+
+  await started;
+  controller.abort();
+  await transportCanceled;
+  assert.equal(cancelCalls, 1);
+  releaseCancel();
+
+  await assert.rejects(pending, (error) =>
+    error instanceof Error && error.name === "AbortError");
+});
+
+test("cancellation control loss does not fail a settled request", async () => {
+  const controller = new AbortController();
+  let releaseExecution!: () => void;
+  const executionGate = new Promise<void>((resolve) => {
+    releaseExecution = resolve;
+  });
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/cancel") {
+      throw new TypeError("cancellation control unavailable");
+    }
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
+  }));
+  const pending = client.run({
+    method: "POST",
+    path: "/api/stories/story/continue",
+    serverInstanceId: INSTANCE_ID,
+    callerSignal: controller.signal,
+    execute: async () => {
+      markStarted();
+      await executionGate;
+      return "completed";
+    }
+  });
+
+  await started;
+  controller.abort();
+  releaseExecution();
+
+  assert.equal(await pending, "completed");
+});
+
+test("cancellation control loss closes generation transport", async () => {
+  const controller = new AbortController();
+  let cancelCalls = 0;
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/cancel") {
+      cancelCalls += 1;
+      throw new TypeError("cancellation control unavailable");
+    }
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
+  }));
+  const pending = client.run({
+    method: "POST",
+    path: "/api/stories/story/continue",
+    serverInstanceId: INSTANCE_ID,
+    callerSignal: controller.signal,
+    execute: async (lease) => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        lease.signal.addEventListener("abort", () => resolve(), {
+          once: true
+        });
+      });
+      return null;
+    }
+  });
+
+  await started;
+  controller.abort();
+
+  assert.equal(await pending, null);
+  assert.equal(cancelCalls, 2);
+});
+
+test("stalled cancellation control has an interactive handoff bound", async () => {
+  const controller = new AbortController();
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
   const client = operationClient(operationFixture(async (pathname, init) => {
     if (pathname === "/api/operations/cancel") {
       return await new Promise<Response>((_resolve, reject) => {
@@ -382,22 +614,71 @@ test("run settles concurrently with a stalled caller cancellation", async () => 
     }
     if (pathname === "/api/operations/status") return terminalStatus(init);
     return Response.json({ ok: true });
-  }, 2_000));
-  const startedAt = performance.now();
-
-  assert.equal(await client.run({
-    method: "GET",
-    path: "/api/stories",
+  }));
+  const pending = client.run({
+    method: "POST",
+    path: "/api/stories/story/continue",
     serverInstanceId: INSTANCE_ID,
-    requestedLifetimeMs: 2_000,
     callerSignal: controller.signal,
-    execute: async () => {
-      controller.abort();
-      return "done";
+    execute: async (lease) => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        lease.signal.addEventListener("abort", () => resolve(), {
+          once: true
+        });
+      });
+      return null;
     }
-  }), "done");
+  });
 
-  assert.ok(performance.now() - startedAt < 250);
+  await started;
+  const startedAt = performance.now();
+  controller.abort();
+
+  assert.equal(await pending, null);
+  assert.ok(performance.now() - startedAt < 1_000);
+});
+
+test("generation Stop does not wait forever for terminal status", async () => {
+  const controller = new AbortController();
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  let statusCalls = 0;
+  const client = operationClient(operationFixture(async (pathname) => {
+    if (pathname === "/api/operations/cancel") {
+      throw new TypeError("cancellation control unavailable");
+    }
+    if (pathname === "/api/operations/status") {
+      statusCalls += 1;
+      throw new TypeError("status transport unavailable");
+    }
+    return Response.json({ ok: true });
+  }));
+  const pending = client.run({
+    method: "POST",
+    path: "/api/stories/story/continue",
+    serverInstanceId: INSTANCE_ID,
+    callerSignal: controller.signal,
+    execute: async (lease) => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        lease.signal.addEventListener("abort", () => resolve(), {
+          once: true
+        });
+      });
+      return null;
+    }
+  });
+
+  await started;
+  const startedAt = performance.now();
+  controller.abort();
+
+  assert.equal(await pending, null);
+  assert.ok(performance.now() - startedAt < 1_000);
+  assert.ok(statusCalls > 0);
 });
 
 test("status polling loss cannot settle ownership without terminal proof", async () => {
@@ -647,5 +928,19 @@ function terminalStatus(init: RequestInit | undefined): Response {
     state: "completed",
     terminal: true,
     cancelRequested: false
+  });
+}
+
+function cancellationStatus(init: RequestInit | undefined): Response {
+  const [sessionId, sequence] = (
+    new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
+  ).split(".");
+  return Response.json({
+    listenerInstanceId: INSTANCE_ID,
+    sessionId,
+    sequence,
+    state: "running",
+    terminal: false,
+    cancelRequested: true
   });
 }

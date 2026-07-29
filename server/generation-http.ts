@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { fixedPromptTexts, renderPromptPlan } from "../shared/prompt-plan.js";
-import { GenerationResultError, ServiceError as HttpError } from "./errors.js";
+import {
+  GenerationResultError,
+  GenerationStoppedError,
+  ServiceError as HttpError
+} from "./errors.js";
 import { hasDefinedProperty, optionalString, requireString } from "./validation.js";
 import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalizeGeneratedTitle } from "./autoname.js";
 import { activeHumanAttribution, attributionAfterReplacement } from "../shared/human-edit.js";
@@ -11,7 +15,10 @@ import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
 import { assertFactsFit, factsSystemMessage } from "./story-facts.js";
-import { streamModel, throwIfUncertainAbort, type DeltaConsumer } from "./generation-stream.js";
+import {
+  streamModel,
+  type DeltaConsumer
+} from "./generation-stream.js";
 import { activeLeaf, activePath, nodeById, pathTo } from "../shared/story-tree.js";
 import type { GenerationSettings, Story } from "../shared/types.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
@@ -76,8 +83,7 @@ export async function autonameStory(
     throw error;
   }
   if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    throw new GenerationResultError(409, "Story naming was cancelled");
+    throw new GenerationStoppedError("Story naming was cancelled");
   }
   let title: string;
   try {
@@ -211,7 +217,6 @@ export async function continueStory(
     )
   );
   if (raw === null) return null;
-  throwIfUncertainAbort(signal);
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
     throw new GenerationResultError(502, "The model did not continue from the exact final characters; nothing was saved.");
   }
@@ -363,7 +368,6 @@ export async function rewriteNode(
     createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
   );
   if (replacement === null) return false;
-  throwIfUncertainAbort(signal);
   if (requireLeftAnchor && !output.matchedPrefix) {
     throw new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved.");
   }

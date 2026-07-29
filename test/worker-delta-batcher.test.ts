@@ -66,6 +66,43 @@ test("disposing a credit-blocked batch releases the producer without posting", a
   assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
 });
 
+test("cancellation transfers text still inside the batching window", async () => {
+  const sent: DeltaMessage[] = [];
+  const batcher = new WorkerDeltaBatcher(
+    OPERATION_ID,
+    (message) => sent.push(message)
+  );
+
+  await batcher.push("arrived before Stop");
+  assert.equal(batcher.takeUnsent(), "arrived before Stop");
+  batcher.dispose();
+  assert.deepEqual(sent, []);
+});
+
+test("cancellation transfers text already waiting for transport credit", async () => {
+  const sent: DeltaMessage[] = [];
+  const batcher = new WorkerDeltaBatcher(
+    OPERATION_ID,
+    (message) => sent.push(message)
+  );
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await batcher.push(fullBatch);
+  }
+  const blocked = batcher.push("queued".padEnd(
+    MAX_DELTA_BATCH_BYTES,
+    "q"
+  ));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(
+    batcher.takeUnsent(),
+    "queued".padEnd(MAX_DELTA_BATCH_BYTES, "q")
+  );
+  batcher.dispose();
+  await blocked;
+});
+
 test("timed flushes apply backpressure and the final flush awaits their queue", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(OPERATION_ID, (message) => sent.push(message));

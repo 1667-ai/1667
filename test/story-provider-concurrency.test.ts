@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -52,21 +53,23 @@ for (const cachedKind of ["v5", "v6"] as const) {
     });
     t.after(() => releaseProvider());
 
-    const provider = fixture.mutations.runProvider(
+    const provider = fixture.mutations.runProviderOperation(
       requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
       "autonameStory",
-      async (stories, start) => {
-        await start();
-        providerStarted();
-        await providerGate;
-        return await stories.commitProviderEffect(STORY_ID, {
-          kind: "autoname",
-          expectedTitle,
-          title: "Generated title",
-          autonameId: "autoname-1"
-        });
-      },
-      () => storyFixture()
+      providerOperation(
+        async (stories, start) => {
+          await start();
+          providerStarted();
+          await providerGate;
+          return await stories.commitProviderEffect(STORY_ID, {
+            kind: "autoname",
+            expectedTitle,
+            title: "Generated title",
+            autonameId: "autoname-1"
+          });
+        },
+        () => storyFixture()
+      )
     );
     await started;
     const startedManifest = parseStoryManifestBytes(
@@ -170,20 +173,22 @@ test("Q provider snapshot hydration survives concurrent deletion cleanup", async
   const admitted = await fixture.stories.loadVersioned(STORY_ID);
   let hydratedText = "";
 
-  await fixture.mutations.runProvider(
+  await fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, admitted.aggregateVersion!),
     "continueStory",
-    async (stories) => {
-      const snapshot = await stories.loadForMutation(STORY_ID);
-      await fixture.stories.deleteNode(STORY_ID, inactiveId, 1);
-      await fixture.stories.waitForMaintenance();
-      await stories.hydratePath(snapshot, inactiveId);
-      hydratedText = snapshot.nodes.find(
-        (node) => node.id === inactiveId
-      )?.text ?? "";
-      return hydratedText;
-    },
-    () => ""
+    providerOperation(
+      async (stories) => {
+        const snapshot = await stories.loadForMutation(STORY_ID);
+        await fixture.stories.deleteNode(STORY_ID, inactiveId, 1);
+        await fixture.stories.waitForMaintenance();
+        await stories.hydratePath(snapshot, inactiveId);
+        hydratedText = snapshot.nodes.find(
+          (node) => node.id === inactiveId
+        )?.text ?? "";
+        return hydratedText;
+      },
+      () => ""
+    )
   );
 
   assert.equal(hydratedText, "Inactive source text");
@@ -211,14 +216,16 @@ test("Q provider admission releases its snapshot pin when finalization fails", a
   let workRan = false;
 
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       request(fixture.v5Hash),
       "autonameStory",
-      async () => {
-        workRan = true;
-        return storyFixture();
-      },
-      storyFixture
+      providerOperation(
+        async () => {
+          workRan = true;
+          return storyFixture();
+        },
+        storyFixture
+      )
     ),
     /Injected cleanup scheduling failure/
   );
@@ -236,36 +243,38 @@ test("Q terminal publication waits out a short competing story claim", async (t)
   t.after(() => releaseClaim());
   let holder: Promise<void> | null = null;
 
-  const committed = await fixture.mutations.runProvider(
+  const committed = await fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories, start) => {
-      await start();
-      const draft = await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Generated after contention"
-      });
-      let claimStarted!: () => void;
-      const started = new Promise<void>((resolve) => {
-        claimStarted = resolve;
-      });
-      holder = fixture.coordinator.runStory(
-        requestFor(
-          OTHER_MUTATION_ID,
-          OTHER_FINGERPRINT,
-          { kind: "v5", manifestHash: fixture.v5Hash }
-        ),
-        async () => {
-          claimStarted();
-          await claimGate;
-        }
-      );
-      await started;
-      setTimeout(releaseClaim, 25);
-      return draft;
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        const draft = await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Generated after contention"
+        });
+        let claimStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+          claimStarted = resolve;
+        });
+        holder = fixture.coordinator.runStory(
+          requestFor(
+            OTHER_MUTATION_ID,
+            OTHER_FINGERPRINT,
+            { kind: "v5", manifestHash: fixture.v5Hash }
+          ),
+          async () => {
+            claimStarted();
+            await claimGate;
+          }
+        );
+        await started;
+        setTimeout(releaseClaim, 25);
+        return draft;
+      },
+      storyFixture
+    )
   );
 
   await holder;
@@ -279,32 +288,34 @@ test("Q terminal publication waits out a short competing story claim", async (t)
 test("Q terminal effect conflicts retain their durable conflict result", async (t) => {
   const fixture = await setup(t, "1667-q-provider-terminal-conflict-");
   let workCalls = 0;
-  const operation = () => fixture.mutations.runProvider(
+  const operation = () => fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories, start) => {
-      workCalls += 1;
-      await start();
-      const draft = await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Generated title"
-      });
-      const current = await fixture.stories.loadVersioned(STORY_ID);
-      await fixture.mutations.runLocal(
-        requestFor(
-          OTHER_MUTATION_ID,
-          OTHER_FINGERPRINT,
-          current.aggregateVersion!
-        ),
-        "renameStory",
-        (story) => {
-          story.title = "Writer title";
-        }
-      );
-      return draft;
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        workCalls += 1;
+        await start();
+        const draft = await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Generated title"
+        });
+        const current = await fixture.stories.loadVersioned(STORY_ID);
+        await fixture.mutations.runLocal(
+          requestFor(
+            OTHER_MUTATION_ID,
+            OTHER_FINGERPRINT,
+            current.aggregateVersion!
+          ),
+          "renameStory",
+          (story) => {
+            story.title = "Writer title";
+          }
+        );
+        return draft;
+      },
+      storyFixture
+    )
   );
 
   await assert.rejects(operation(), hasServiceError("conflict"));
@@ -340,27 +351,29 @@ test("Q lets two providers prepare but only one publish start before network", a
   let networkStarts = 0;
 
   const contender = (mutationId: string, fingerprint: string, title: string) =>
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         mutationId,
         fingerprint,
         { kind: "v5", manifestHash: fixture.v5Hash }
       ),
       "autonameStory",
-      async (stories, start) => {
-        ready += 1;
-        if (ready === 1) firstPrepared();
-        if (ready === 2) releaseBoth();
-        await bothReady;
-        await start();
-        networkStarts += 1;
-        return await stories.commitProviderEffect(STORY_ID, {
-          kind: "autoname",
-          expectedTitle: "Original",
-          title
-        });
-      },
-      storyFixture
+      providerOperation(
+        async (stories, start) => {
+          ready += 1;
+          if (ready === 1) firstPrepared();
+          if (ready === 2) releaseBoth();
+          await bothReady;
+          await start();
+          networkStarts += 1;
+          return await stories.commitProviderEffect(STORY_ID, {
+            kind: "autoname",
+            expectedTitle: "Original",
+            title
+          });
+        },
+        storyFixture
+      )
     );
 
   const first = contender(MUTATION_ID, FINGERPRINT, "First");
@@ -418,36 +431,40 @@ test("Q a duplicate loser cannot revoke the active provider predecessor", async 
     releaseWinner = resolve;
   });
 
-  const winner = fixture.mutations.runProvider(
+  const winner = fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
     "autonameStory",
-    async (stories, start) => {
-      arrive();
-      markWinnerPrepared();
-      await bothPrepared;
-      await start();
-      markWinnerStarted();
-      await winnerGate;
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Generated title"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        arrive();
+        markWinnerPrepared();
+        await bothPrepared;
+        await start();
+        markWinnerStarted();
+        await winnerGate;
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Generated title"
+        });
+      },
+      storyFixture
+    )
   );
   await winnerPrepared;
-  const duplicate = fixture.mutations.runProvider(
+  const duplicate = fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
     "autonameStory",
-    async (_stories, start) => {
-      arrive();
-      await bothPrepared;
-      await winnerStarted;
-      await start();
-      assert.fail("The duplicate provider start must be rejected");
-    },
-    storyFixture
+    providerOperation(
+      async (_stories, start) => {
+        arrive();
+        await bothPrepared;
+        await winnerStarted;
+        await start();
+        assert.fail("The duplicate provider start must be rejected");
+      },
+      storyFixture
+    )
   );
 
   try {

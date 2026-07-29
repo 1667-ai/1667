@@ -79,6 +79,132 @@ describe("generation errors", () => {
     expect(state.toast).toBe("provider request failed");
   });
 
+  test("Stop keeps arrived text after cancellation control fails", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const entered = deferred<void>();
+    const gate = deferred<void>();
+    let saves = 0;
+    source.api.continueStory = async (
+      _storyId,
+      _instruction,
+      _genId,
+      _target,
+      onDelta
+    ) => {
+      onDelta("arrived text");
+      entered.resolve();
+      await gate.promise;
+      throw new Error("cancellation control failed");
+    };
+    source.api.createNode = async () => {
+      saves += 1;
+      return source.payload;
+    };
+
+    const pending = backend.run("generating prose", (task) =>
+      generate(state, source, cache, () => undefined, "", null, null, task));
+    await entered.promise;
+    requestGenerationStop(state, () => undefined);
+    gate.resolve();
+    await pending;
+
+    expect(saves).toBe(1);
+    expect(state.toast).toBe(null);
+  });
+
+  test("a stopped-text save failure stays visible", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const generationEntered = deferred<void>();
+    const generationGate = deferred<void>();
+    source.api.continueStory = async (
+      _storyId,
+      _instruction,
+      _genId,
+      _target,
+      onDelta
+    ) => {
+      onDelta("arrived text");
+      generationEntered.resolve();
+      await generationGate.promise;
+      return null;
+    };
+    source.api.createNode = async () => {
+      throw new Error("partial save failed");
+    };
+
+    const pending = backend.run("generating prose", (task) =>
+      generate(state, source, cache, () => undefined, "", null, null, task));
+    await generationEntered.promise;
+    requestGenerationStop(state, () => undefined);
+    generationGate.resolve();
+    await pending;
+
+    expect(state.toast).toBe("partial save failed");
+    expect(state.stream?.text).toBe("arrived text");
+  });
+
+  test("a failed stopped-text save cannot steal focus from later navigation", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    const cache = createWrapCache<ProseStyle>();
+    const backend = new ActionRuntime(state, () => undefined);
+    const generationEntered = deferred<void>();
+    const generationGate = deferred<void>();
+    const saveEntered = deferred<void>();
+    const saveGate = deferred<void>();
+    state.composer = createComposer();
+    const submitted = capturePendingDirectDraft(state, "submitted direction");
+    state.pendingGenerationDraft = submitted;
+    source.api.continueStory = async (
+      _storyId,
+      _instruction,
+      _genId,
+      _target,
+      onDelta
+    ) => {
+      onDelta("arrived text");
+      generationEntered.resolve();
+      await generationGate.promise;
+      return null;
+    };
+    source.api.createNode = async () => {
+      saveEntered.resolve();
+      await saveGate.promise;
+      throw new Error("partial save failed");
+    };
+
+    const pending = backend.run("generating prose", (task) =>
+      generate(
+        state,
+        source,
+        cache,
+        () => undefined,
+        submitted.text,
+        null,
+        submitted,
+        task
+      ));
+    await generationEntered.promise;
+    requestGenerationStop(state, () => undefined);
+    generationGate.resolve();
+    await saveEntered.promise;
+    beginInteraction(state);
+    state.mode = "MAP";
+    saveGate.resolve();
+    await pending;
+
+    expect(state.mode).toBe("MAP");
+    expect(state.composer.text).toBe("submitted direction");
+    expect(state.toast).toBe(null);
+    expect(state.stream?.text).toBe("arrived text");
+  });
+
   test("a later empty generation cannot resurrect an older submitted draft", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);

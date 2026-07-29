@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import {
   mkdtemp,
@@ -69,7 +70,7 @@ test("provider fence recovery records why dispatch did not start", async (t) => 
     providerMutationCreatedAt
   );
   await assert.rejects(
-    mutations.runProvider(
+    mutations.runProviderOperation(
       {
         transportOperationId: "provider-fence-fixture",
         mutationId: pendingProviderMutationId,
@@ -78,15 +79,17 @@ test("provider fence recovery records why dispatch did not start", async (t) => 
         expectedAggregateVersion: loaded.aggregateVersion!
       },
       "autonameStory",
-      async (_runtime, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(
-          503,
-          "Private provider failure sentinel",
-          "internal"
-        );
-      },
-      () => null
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(
+            503,
+            "Private provider failure sentinel",
+            "internal"
+          );
+        },
+        () => null
+      )
     ),
     hasCode("internal")
   );

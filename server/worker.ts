@@ -131,7 +131,7 @@ async function receive(value: unknown): Promise<void> {
     }
     const request = active.get(workerOperationKey(id));
     request?.cancel(reason);
-    request?.deltas?.dispose();
+    if (reason !== "user") request?.deltas?.dispose();
     postOperation(id, state);
     return;
   }

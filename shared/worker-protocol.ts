@@ -407,7 +407,12 @@ export type WorkerToMainMessage =
       providerMutationId?: string;
     }
   | { type: "delta"; id: WorkerOperationId; sequence: number; text: string }
-  | { type: "complete"; id: WorkerOperationId; value: unknown }
+  | {
+      type: "complete";
+      id: WorkerOperationId;
+      value: unknown;
+      stoppedText?: string;
+    }
   | {
       type: "operation";
       id: WorkerOperationId;

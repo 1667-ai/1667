@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -180,19 +181,21 @@ test("Q provider start preserves the legacy-schema sweep obligation through its 
   // The provider start publishes a metadata-only V6 manifest without
   // prepareContent — the wrap that erases sourceSchemaVersion forever.
   let markerAfterStart: boolean | null = null;
-  await fixture.mutations.runProvider(
+  await fixture.mutations.runProviderOperation(
     requestFor(PROVIDER_MUTATION_ID, FINGERPRINT, { kind: "v5", manifestHash: legacyHash }),
     "autonameStory",
-    async (stories, start) => {
-      await start();
-      markerAfterStart = await cleanupPending(bundleDir);
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Named by provider"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        markerAfterStart = await cleanupPending(bundleDir);
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Named by provider"
+        });
+      },
+      storyFixture
+    )
   );
   assert.equal(
     markerAfterStart,

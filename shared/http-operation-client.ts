@@ -5,7 +5,11 @@ import {
   type HttpCapabilityScope
 } from "./http-auth.js";
 import { createDurableMutationId } from "./durable-mutation-id.js";
-import { resolveHttpApiRoute } from "./http-operation-policy.js";
+import {
+  callerCancellationForLifetime,
+  resolveHttpApiRoute,
+  type HttpCallerCancellationStrategy
+} from "./http-operation-policy.js";
 import {
   HTTP_OPERATION_RESERVATION_PATH,
   HTTP_OPERATION_SESSION_PATH,
@@ -39,6 +43,8 @@ export type OperationFetch = (
 ) => Promise<Response>;
 
 type SessionRecord = HttpOperationSessionEnvelope;
+const GENERATION_CANCEL_HANDOFF_MS = 150;
+const GENERATION_SETTLEMENT_HANDOFF_MS = 500;
 
 interface SessionAttempt {
   readonly listenerInstanceId: string;
@@ -161,6 +167,7 @@ export class HttpOperationClient {
       );
       let sent = false;
       try {
+        options.callerSignal?.throwIfAborted();
         await options.beforeSend?.(lease);
         sent = true;
         return await options.execute(lease);
@@ -255,7 +262,8 @@ export class HttpOperationClient {
         reservation.deadlineEpochMs,
         callerSignal,
         this.shutdown.signal,
-        this.options.confirmListenerReplacement
+        this.options.confirmListenerReplacement,
+        callerCancellationForLifetime(policy.lifetime)
       );
     }
     throw new Error("1667 operation-session retry was exhausted");
@@ -391,7 +399,8 @@ function operationLease(
   callerSignal: AbortSignal | undefined,
   shutdownSignal: AbortSignal,
   confirmListenerReplacement:
-    HttpOperationClientOptions["confirmListenerReplacement"]
+    HttpOperationClientOptions["confirmListenerReplacement"],
+  callerCancellation: HttpCallerCancellationStrategy
 ): HttpOperationLease {
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(
@@ -402,8 +411,13 @@ function operationLease(
     Math.max(0, deadlineEpochMs - Date.now())
   );
   unrefDeadlineOutsideWindowsBun(deadlineTimer);
+  const callerTransport = new AbortController();
   const signal = AbortSignal.any([
-    ...(callerSignal === undefined ? [] : [callerSignal]),
+    ...(callerSignal === undefined
+      ? []
+      : [callerCancellation === "operation-first"
+          ? callerTransport.signal
+          : callerSignal]),
     deadline.signal,
     shutdownSignal
   ]);
@@ -412,27 +426,51 @@ function operationLease(
     [HTTP_OPERATION_TICKET_HEADER]: ticket
   };
   const cancellation = new AbortController();
-  let canceled: Promise<void> | null = null;
+  const settlementHandoff = new AbortController();
+  let transportTimer: ReturnType<typeof setTimeout> | null = null;
+  let settlementTimer: ReturnType<typeof setTimeout> | null = null;
+  let canceled: Promise<boolean> | null = null;
   let settled: Promise<void> | null = null;
   let settlementComplete = false;
   let lease!: HttpOperationLease;
-  const abortHandler = () => { void lease.cancel(); };
+  const cancelOperation = () => settlementComplete
+    ? Promise.resolve(false)
+    : canceled ??= confirmOperationCancellation(
+        fetch,
+        `${root}/api/operations/cancel`,
+        headers,
+        AbortSignal.any([
+          cancellation.signal,
+          AbortSignal.timeout(
+            callerCancellation === "operation-first"
+              ? GENERATION_CANCEL_HANDOFF_MS
+              : HTTP_OPERATION_LIFETIME_MS.control
+          )
+        ]),
+        serverInstanceId,
+        sessionId,
+        sequence
+      );
+  const abortHandler = () => {
+    if (callerCancellation === "transport-first") {
+      void lease.cancel();
+      return;
+    }
+    settlementTimer ??= setTimeout(() => {
+      settlementHandoff.abort();
+    }, GENERATION_SETTLEMENT_HANDOFF_MS);
+    transportTimer ??= setTimeout(() => {
+      callerTransport.abort(callerSignal?.reason);
+    }, GENERATION_CANCEL_HANDOFF_MS);
+    void cancelOperation();
+  };
   lease = {
     headers,
     signal,
     mutationId,
-    cancel: () => settlementComplete
-      ? Promise.resolve()
-      : canceled ??= control(
-          fetch,
-          `${root}/api/operations/cancel`,
-          "POST",
-          headers,
-          AbortSignal.any([
-            cancellation.signal,
-            AbortSignal.timeout(HTTP_OPERATION_LIFETIME_MS.control)
-          ])
-        ),
+    cancel: async () => {
+      await cancelOperation();
+    },
     settle: () => settled ??= acknowledgeWhenTerminal(
       fetch,
       root,
@@ -441,21 +479,21 @@ function operationLease(
       sessionId,
       sequence,
       deadlineEpochMs,
-      shutdownSignal,
+      AbortSignal.any([shutdownSignal, settlementHandoff.signal]),
       confirmListenerReplacement
     ).finally(() => {
       settlementComplete = true;
       callerSignal?.removeEventListener("abort", abortHandler);
       clearTimeout(deadlineTimer);
+      if (transportTimer !== null) clearTimeout(transportTimer);
+      if (settlementTimer !== null) clearTimeout(settlementTimer);
       deadline.abort();
       cancellation.abort();
+      settlementHandoff.abort();
     })
   };
-  callerSignal?.addEventListener(
-    "abort",
-    abortHandler,
-    { once: true }
-  );
+  if (callerSignal?.aborted === true) abortHandler();
+  else callerSignal?.addEventListener("abort", abortHandler, { once: true });
   return lease;
 }
 
@@ -467,7 +505,7 @@ async function acknowledgeWhenTerminal(
   sessionId: string,
   sequence: string,
   deadlineEpochMs: number,
-  shutdownSignal: AbortSignal,
+  stopSignal: AbortSignal,
   confirmListenerReplacement:
     HttpOperationClientOptions["confirmListenerReplacement"]
 ): Promise<void> {
@@ -475,10 +513,10 @@ async function acknowledgeWhenTerminal(
     deadlineEpochMs + HTTP_OPERATION_CANCEL_GRACE_MS;
   let pollDelayMs = 5;
   for (;;) {
-    if (shutdownSignal.aborted) return;
+    if (stopSignal.aborted) return;
     const now = Date.now();
     const statusSignal = AbortSignal.any([
-      shutdownSignal,
+      stopSignal,
       AbortSignal.timeout(Math.max(
         1,
         Math.min(
@@ -496,7 +534,10 @@ async function acknowledgeWhenTerminal(
     }).catch(() => null);
     if (response === null
       && confirmListenerReplacement !== undefined
-      && await confirmListenerReplacement(serverInstanceId).catch(() => false)) {
+      && await withCallerCancellation(
+        confirmListenerReplacement(serverInstanceId),
+        stopSignal
+      ).catch(() => false)) {
       return;
     }
     if (response !== null && (
@@ -531,7 +572,7 @@ async function acknowledgeWhenTerminal(
       remainingUntilUnavailable > 0
         ? Math.min(pollDelayMs, remainingUntilUnavailable)
         : pollDelayMs,
-      shutdownSignal
+      stopSignal
     )) return;
     pollDelayMs = Math.min(100, pollDelayMs * 2);
   }
@@ -568,6 +609,63 @@ async function control(
     redirect: "error",
     signal
   }).catch(() => undefined);
+}
+
+async function requestOperationCancellation(
+  fetch: OperationFetch,
+  url: string,
+  headers: Readonly<Record<string, string>>,
+  signal: AbortSignal,
+  serverInstanceId: string,
+  sessionId: string,
+  sequence: string
+): Promise<boolean> {
+  if (signal.aborted) return false;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      redirect: "error",
+      signal
+    });
+    if (!response.ok) return false;
+    const status = decodeStatus(
+      await jsonRecord(response),
+      serverInstanceId,
+      sessionId,
+      sequence
+    );
+    return status !== null
+      && (status.cancelRequested || status.terminal);
+  } catch {
+    return false;
+  }
+}
+
+async function confirmOperationCancellation(
+  fetch: OperationFetch,
+  url: string,
+  headers: Readonly<Record<string, string>>,
+  signal: AbortSignal,
+  serverInstanceId: string,
+  sessionId: string,
+  sequence: string
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (await requestOperationCancellation(
+      fetch,
+      url,
+      headers,
+      signal,
+      serverInstanceId,
+      sessionId,
+      sequence
+    )) {
+      return true;
+    }
+    if (attempt === 0 && !await waitForPoll(25, signal)) return false;
+  }
+  return false;
 }
 
 function replacedListener(

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import test from "node:test";
+import { readHttpAuthRecord } from "../server/http-auth-record.js";
 import { sha256 } from "../server/story-format.js";
 import type { GenerationSettings, StoryPayload } from "../shared/types.js";
+import { createApi } from "../tui/src/api.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
@@ -184,6 +187,60 @@ providerTest("generation HTTP: a racing Stop save wins by generation ID", async 
   assert.deepEqual(returned, saved);
   assert.equal(saved.path.filter((node) => node.genId === genId).length, 1);
   assert.equal(saved.path.at(-1)?.text, "Partial saved by Stop.");
+});
+
+providerTest("generation HTTP: Stop keeps text that already arrived", async (t) => {
+  const model = await fakeModel(t, async (_body, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(
+      `data: ${JSON.stringify({
+        choices: [{
+          delta: { content: "Partial text from the model." },
+          finish_reason: null
+        }]
+      })}\n\n`
+    );
+    await once(response, "close");
+  });
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  const { record } = await readHttpAuthRecord(base);
+  const api = createApi(base, undefined, {
+    authRecord: record,
+    fetch
+  });
+  let story = await api.createStory("Stop");
+  story = await api.createNode(story.id, {
+    parentId: null,
+    instruction: "Begin.",
+    text: "Opening."
+  });
+  const parentId = story.path.at(-1)!.id;
+  const genId = "stop-keeps-arrived-text";
+  const cancel = new AbortController();
+  const arrived: string[] = [];
+
+  const stopped = await api.continueStory(
+    story.id,
+    "Continue.",
+    genId,
+    { parentId },
+    (text) => {
+      arrived.push(text);
+      cancel.abort();
+    },
+    cancel.signal
+  );
+  assert.equal(stopped, null);
+  assert.equal(arrived.join(""), "Partial text from the model.");
+
+  story = await api.createNode(story.id, {
+    parentId,
+    instruction: "Continue.",
+    text: arrived.join(""),
+    genId
+  });
+  assert.equal(story.path.at(-1)?.genId, genId);
+  assert.equal(story.path.at(-1)?.text, "Partial text from the model.");
 });
 
 providerTest("generation HTTP: rewrite rejects an instruction-only concurrent edit", async (t) => {

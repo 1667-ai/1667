@@ -394,10 +394,12 @@ async function loadReconciliationTarget(
   return { payload, stories: refreshedStories, settingsView };
 }
 
-export function recoveryNotice(warnings: readonly WorkerRecoveryWarning[]): string {
+export function recoveryNotice(
+  warnings: readonly WorkerRecoveryWarning[]
+): string {
   return warnings.some(({ error }) =>
     error.code === "generation_outcome_unknown")
-    ? "model request stopped · you can try again"
+    ? "something interrupted the model · you can try again"
     : "interrupted change checked";
 }
 

@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Stop keeps model text that already arrived.** 1667 stops the model stream.
+  It waits for the request to finish in the background. It then saves the
+  arrived text with the generation ID. A full result that wins the race uses
+  the same generation ID. 1667 does not show a cancellation message for a Stop
+  that the writer requested.
 - **Enter now cycles Compose Focus in Settings.** `Enter` advances the Compose
   Focus row like the other closed-choice Settings rows. Paste does not open an
   editor for those rows. Thanks @10fra for the report.

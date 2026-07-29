@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import {
   access,
@@ -168,7 +169,7 @@ async function deletedFixture(
     };
   if (unresolvedProvider) {
     await assert.rejects(
-      mutations.runProvider(
+      mutations.runProviderOperation(
         {
           transportOperationId: "operation-provider",
           mutationId: PROVIDER_MUTATION_ID,
@@ -177,11 +178,13 @@ async function deletedFixture(
           expectedAggregateVersion
         },
         "autonameStory",
-        async (_stories, providerStarted) => {
-          await providerStarted();
-          throw new Error("Worker stopped after provider admission");
-        },
-        () => null
+        providerOperation(
+          async (_stories, providerStarted) => {
+            await providerStarted();
+            throw new Error("Worker stopped after provider admission");
+          },
+          () => null
+        )
       ),
       /Worker stopped after provider admission/
     );

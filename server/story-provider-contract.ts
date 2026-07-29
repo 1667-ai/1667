@@ -16,13 +16,29 @@ export interface ProviderStoryMutationCommit<Value> {
   readonly value: Value;
 }
 
+export interface ProviderStoryWorkContext<
+  Method extends ProviderMutationMethod
+> {
+  readonly stories: ProviderStoryRuntime<Method>;
+  readonly providerStarted: () => Promise<void>;
+  readonly signal: AbortSignal;
+}
+
 export type ProviderStoryWork<
   Method extends ProviderMutationMethod,
   Value
 > = (
-  stories: ProviderStoryRuntime<Method>,
-  providerStarted: () => Promise<void>
+  context: ProviderStoryWorkContext<Method>
 ) => Promise<Value>;
+
+export type ProviderStoryRun<
+  Method extends ProviderMutationMethod,
+  Value
+> = {
+  readonly signal: AbortSignal;
+  readonly work: ProviderStoryWork<Method, Value>;
+  readonly replayValue: () => Value;
+};
 
 export type ProviderStoryAdmission<Value> =
   | { kind: "replayed"; commit: ProviderStoryMutationCommit<Value> }

@@ -73,6 +73,24 @@ export class GenerationResultError extends ServiceError {
   }
 }
 
+/** Provider work stopped before it could commit. The durable provider record
+ * must close because no provider effect can still occur. */
+export class GenerationStoppedError extends GenerationResultError {
+  constructor(message = "The model request stopped.") {
+    super(409, message);
+    this.name = "GenerationStoppedError";
+  }
+}
+
+/** A user stopped provider work. The worker adapter reports the expected
+ * cancellation as a null result. */
+export class GenerationCancelledError extends GenerationStoppedError {
+  constructor() {
+    super("The model request was cancelled.");
+    this.name = "GenerationCancelledError";
+  }
+}
+
 /** A provider warning that identifies the durable provider request which the
  * recovery owner must close. The public message does not expose this ID. */
 export class ProviderRecoveryRequiredError extends ServiceError {

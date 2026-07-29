@@ -19,7 +19,10 @@ import {
   type HttpOperationSessionResponse,
   type HttpOperationStatusResponse
 } from "../shared/http-operation-protocol.js";
-import { ServiceError } from "./errors.js";
+import {
+  GenerationCancelledError,
+  ServiceError
+} from "./errors.js";
 import type { HttpSupervisedOperationDescriptor } from "../shared/supervised-serve-protocol.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { HttpOperationAuthority } from "./http-operation-authority.js";
@@ -306,7 +309,12 @@ export class HttpOperationSessionStore {
       operation.cancelRequested = true;
       this.finishRecord(operation, "canceled", this.now());
     } else if (operation.state === "running") {
-      this.requestCancellation(operation, new Error("HTTP operation canceled"));
+      this.requestCancellation(
+        operation,
+        operation.lifetime === "generation"
+          ? new GenerationCancelledError()
+          : new Error("HTTP operation canceled")
+      );
     }
     return httpOperationStatusResponse(this.listenerInstanceId, operation);
   }

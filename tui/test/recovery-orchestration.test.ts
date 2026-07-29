@@ -877,7 +877,7 @@ describe("backend recovery orchestration", () => {
     const settled = deferred<void>();
     const repaint = () => {
       if (state.backendTask === null
-        && state.toast === "model request stopped · you can try again") {
+        && calls.includes(`load:${source.payload.id}`)) {
         settled.resolve();
       }
     };
@@ -897,6 +897,9 @@ describe("backend recovery orchestration", () => {
       `retire:${source.payload.id}:${warning.mutationId}`,
       `load:${source.payload.id}`
     ]);
+    expect(state.toast).toBe(
+      "something interrupted the model · you can try again"
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(feed.publish([warning])).toBeFalse();
     stop();

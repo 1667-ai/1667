@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  GenerationCancelledError,
   ProviderRecoveryRequiredError,
   ServiceError
 } from "../server/errors.js";
@@ -57,7 +58,29 @@ test("user cancellation stays distinct from a deadline", () => {
   cancellation.cancel("user");
 
   cancellation.throwIfDeadlineExpired();
+  assert.ok(
+    cancellation.signal.reason instanceof GenerationCancelledError
+  );
+  assert.equal(
+    cancellation.settledUserCancellation(cancellation.signal.reason),
+    true
+  );
+  assert.equal(cancellation.settledUserCancellation(failure), false);
   assert.deepEqual(cancellation.failure(failure), { error: failure });
+});
+
+test("a deadline stays authoritative after user cancellation", () => {
+  const cancellation = new WorkerRequestCancellation(true);
+
+  cancellation.cancel("user");
+  const userReason = cancellation.signal.reason;
+  cancellation.cancel("deadline");
+
+  assert.equal(cancellation.settledUserCancellation(userReason), false);
+  assert.throws(
+    () => cancellation.throwIfDeadlineExpired(),
+    isServiceError("mutation_outcome_unknown")
+  );
 });
 
 test("deadline substitution retains its private error separately", () => {
