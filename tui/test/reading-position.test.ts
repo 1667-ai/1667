@@ -7,6 +7,8 @@ import { demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "../src/model.js";
 import {
   forgetReadingPosition,
+  MAX_READING_POSITIONS,
+  mergeReadingPositionDirty,
   openingFocusIndex,
   putReadingPosition
 } from "../src/reading-position.js";
@@ -65,6 +67,17 @@ describe("reading position", () => {
     flushReadingPositionPersist({ file });
     expect(loadReadingPositions({ file })).toEqual({ "story-a": "part-1b" });
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "story-a": "part-1b" });
+  });
+
+  test("merge at capacity keeps the newly dirty story", () => {
+    const disk: Record<string, string> = {};
+    for (let index = 0; index < MAX_READING_POSITIONS; index += 1) {
+      disk[`story-${index}`] = `part-${index}`;
+    }
+    const dirty = new Map<string, string | null>([["story-new", "part-new"]]);
+    const merged = mergeReadingPositionDirty(disk, dirty);
+    expect(merged["story-new"]).toBe("part-new");
+    expect(Object.keys(merged).length).toBe(MAX_READING_POSITIONS);
   });
 
   test("rememberFocus is a no-op in demo mode so navigation stays light", () => {

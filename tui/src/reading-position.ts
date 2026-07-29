@@ -12,7 +12,7 @@ import type { StreamView } from "./state.js";
 /** Story id → last focused part id. Local changing store, not settings. */
 export type ReadingPositions = Readonly<Record<string, string>>;
 
-const MAX_READING_POSITIONS = 256;
+export const MAX_READING_POSITIONS = 256;
 
 export function normalizeReadingPositions(value: unknown): ReadingPositions {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
@@ -21,9 +21,27 @@ export function normalizeReadingPositions(value: unknown): ReadingPositions {
     if (typeof storyId !== "string" || storyId.length === 0) continue;
     if (typeof partId !== "string" || partId.length === 0) continue;
     next[storyId] = partId;
-    if (Object.keys(next).length >= MAX_READING_POSITIONS) break;
   }
-  return next;
+  return capReadingPositions(next);
+}
+
+/** Apply dirty sets/deletes onto a disk snapshot, keeping dirty keys under the cap. */
+export function mergeReadingPositionDirty(
+  disk: ReadingPositions,
+  dirtyEntries: ReadonlyMap<string, string | null>
+): ReadingPositions {
+  const next: Record<string, string> = { ...disk };
+  const keep = new Set<string>();
+  for (const [storyId, partId] of dirtyEntries) {
+    if (partId === null) {
+      delete next[storyId];
+      keep.delete(storyId);
+      continue;
+    }
+    next[storyId] = partId;
+    keep.add(storyId);
+  }
+  return capReadingPositions(next, keep);
 }
 
 export function readingPartIdFor(
@@ -57,8 +75,30 @@ export function applyOpeningFocus(
   return openingFocusIndex(payload, readingPartIdFor(positions, payload.id));
 }
 
-/** Pure: set the focused part for a story. No-op when focus is not an
- * authoritative payload part (stream virtual rows are skipped). */
+/** Resolve a storeable part id for the focused row. Chapter dividers map to
+ * the first part of the chapter they open; stream virtual rows return null. */
+export function persistablePartId(
+  view: StoryViewModel,
+  focusIndex: number,
+  payload: StoryPayload
+): string | null {
+  const row = view.rows[focusIndex];
+  if (row === undefined) return null;
+  if (row.kind === "part") {
+    return payloadHasPart(payload, row.id) ? row.id : null;
+  }
+  if (row.kind === "chapter-divider") {
+    const first = row.openingChapter.parts[0];
+    return first !== undefined && payloadHasPart(payload, first.id) ? first.id : null;
+  }
+  if (row.kind === "chapter-summary") {
+    const first = row.chapter.parts[0];
+    return first !== undefined && payloadHasPart(payload, first.id) ? first.id : null;
+  }
+  return null;
+}
+
+/** Pure: set the focused part for a story. No-op when focus is not storeable. */
 export function putReadingPosition(
   positions: ReadingPositions,
   storyId: string,
@@ -66,12 +106,10 @@ export function putReadingPosition(
   focusIndex: number,
   payload: StoryPayload
 ): ReadingPositions {
-  const part = rowPart(view, focusIndex);
-  if (part === null) return positions;
-  // Never store stream placeholders — only ids the payload still carries.
-  if (!payloadHasPart(payload, part.id)) return positions;
-  if (positions[storyId] === part.id) return positions;
-  return trimReadingPositions({ ...positions, [storyId]: part.id }, storyId);
+  const partId = persistablePartId(view, focusIndex, payload);
+  if (partId === null) return positions;
+  if (positions[storyId] === partId) return positions;
+  return capReadingPositions({ ...positions, [storyId]: partId }, new Set([storyId]));
 }
 
 export function forgetReadingPosition(
@@ -108,16 +146,29 @@ function firstPartRowIndex(view: StoryViewModel): number {
   return 0;
 }
 
-function trimReadingPositions(
+/** Cap the map. Prefer retaining `keep` keys; otherwise drop insertion-oldest. */
+function capReadingPositions(
   positions: Record<string, string>,
-  keepStoryId: string
+  keep: ReadonlySet<string> = new Set()
 ): ReadingPositions {
-  const kept = new Map(Object.entries(positions));
-  if (kept.size <= MAX_READING_POSITIONS) return positions;
+  const entries = Object.entries(positions);
+  if (entries.length <= MAX_READING_POSITIONS) return positions;
+  const kept = new Map(entries);
   for (const key of [...kept.keys()]) {
     if (kept.size <= MAX_READING_POSITIONS) break;
-    if (key === keepStoryId) continue;
+    if (keep.has(key)) continue;
     kept.delete(key);
+  }
+  // If still over (every key is protected), drop unprotected-none by force from front.
+  for (const key of [...kept.keys()]) {
+    if (kept.size <= MAX_READING_POSITIONS) break;
+    if (keep.has(key) && kept.size <= keep.size) continue;
+    if (!keep.has(key)) kept.delete(key);
+  }
+  while (kept.size > MAX_READING_POSITIONS) {
+    const first = kept.keys().next().value;
+    if (first === undefined) break;
+    kept.delete(first);
   }
   return Object.fromEntries(kept);
 }
