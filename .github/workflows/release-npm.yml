@@ -266,7 +266,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          npm run release:stage -- \
+          npm run --silent release:stage -- \
             "$VERSION" "$GITHUB_SHA" "$RELEASE_TIMESTAMP" \
             dist/native/builds dist/staging \
             > dist/stage.json
@@ -276,7 +276,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          npm run release:pack -- "$VERSION" dist/staging dist/tarballs \
+          npm run --silent release:pack -- "$VERSION" dist/staging dist/tarballs \
             > dist/pack.json
           mkdir -p dist/observations dist/sboms
           cp dist/native/observations/*.json dist/observations/

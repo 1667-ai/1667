@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { execFile, spawnSync } from "node:child_process";
-import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { access, chmod, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import test from "node:test";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
@@ -15,7 +14,6 @@ import { npmPackInvocationFromEnvironment } from "../scripts/release-pack.js";
 import { releaseIdentityForTarget } from "../scripts/release-identity.js";
 import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
 
-const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.dirname(path.dirname(import.meta.filename));
 const FACTS = Object.freeze({
   version: "0.1.0",
@@ -41,7 +39,7 @@ test("the SBOM command rejects a version that does not describe the checkout", (
   assert.match(result.stderr, /Release root version does not match 9\.9\.9/u);
 });
 
-test("the npm stage and pack commands produce the complete matrix", async (t) => {
+test("the npm stage and pack commands redirect valid JSON for the complete matrix", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-cli-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const builds = path.join(root, "builds");
@@ -62,21 +60,23 @@ test("the npm stage and pack commands produce the complete matrix", async (t) =>
   }
   const npm = npmPackInvocationFromEnvironment();
   const staging = path.join(root, "staging");
+  const stageOutput = path.join(root, "stage.json");
   const staged = await runReleaseCommand(npm, "release:stage", [
     FACTS.version,
     FACTS.sourceCommit,
     FACTS.buildTimestamp,
     builds,
     staging
-  ]);
+  ], stageOutput);
   assert.equal(staged.packages.length, PUBLISHED_PACKAGE_COUNT);
 
   const tarballs = path.join(root, "tarballs");
+  const packOutput = path.join(root, "pack.json");
   const packed = await runReleaseCommand(npm, "release:pack", [
     FACTS.version,
     staging,
     tarballs
-  ]);
+  ], packOutput);
   assert.equal(packed.packages.length, PUBLISHED_PACKAGE_COUNT);
   await Promise.all(packed.packages.map((entry) => {
     const tarballPath = entry.tarballPath;
@@ -92,13 +92,24 @@ interface CommandOutput {
 async function runReleaseCommand(
   npm: ReturnType<typeof npmPackInvocationFromEnvironment>,
   script: string,
-  args: readonly string[]
+  args: readonly string[],
+  outputPath: string
 ): Promise<CommandOutput> {
-  const { stdout, stderr } = await execFileAsync(
-    npm.nodeExecutable,
-    [npm.npmCli, "run", "--silent", script, "--", ...args],
-    { cwd: REPOSITORY_ROOT, encoding: "utf8", maxBuffer: 1024 * 1024 }
-  );
-  assert.equal(stderr, "");
-  return JSON.parse(stdout) as CommandOutput;
+  const output = await open(outputPath, "wx");
+  try {
+    const result = spawnSync(
+      npm.nodeExecutable,
+      [npm.npmCli, "run", "--silent", script, "--", ...args],
+      {
+        cwd: REPOSITORY_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", output.fd, "pipe"]
+      }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+  } finally {
+    await output.close();
+  }
+  return JSON.parse(await readFile(outputPath, "utf8")) as CommandOutput;
 }

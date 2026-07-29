@@ -135,11 +135,22 @@ test("pack and publish jobs pin tools and publication has no npm token", () => {
     assert.match(job(name), /package-manager-cache: false/u);
     assert.doesNotMatch(job(name), /^\s+cache:/mu);
   }
-  assert.match(job("launcher"), /npm run release:pack/u);
   assert.match(job("publish"), /npm run release:publish -- publish/u);
   assert.doesNotMatch(WORKFLOW, /NODE_AUTH_TOKEN|NPM_TOKEN|\._authToken/u);
   assert.match(job("preflight"), /release-completion\.ts ready/u);
   assert.match(job("publish"), /release-completion\.ts ready/u);
+});
+
+test("JSON-producing workflow commands suppress npm lifecycle output", () => {
+  const launcher = job("launcher");
+  assert.match(
+    launcher,
+    /npm run --silent release:stage[\s\S]{0,200}\\\n[ \t]+> dist\/stage\.json/u
+  );
+  assert.match(
+    launcher,
+    /npm run --silent release:pack[\s\S]{0,120}\\\n[ \t]+> dist\/pack\.json/u
+  );
 });
 
 test("the build matrix is the canonical published target set", () => {
