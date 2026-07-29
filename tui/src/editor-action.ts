@@ -231,7 +231,7 @@ async function saveInlineEditor(
   }
 
   if (partSave === "inplace") {
-    return void (state.toast = "ctrl+shift+s only updates a story part in place");
+    return void (state.toast = "same-take save only updates a story part");
   }
 
   if (target.kind === "human-take") {

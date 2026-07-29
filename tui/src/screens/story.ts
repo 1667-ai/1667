@@ -508,7 +508,9 @@ function renderFullscreenComposer(
 
 function editorFooterHints(editor: InlineEditorSession): string {
   if (editor.target.kind === "part") {
-    return "shift+arrows select · ctrl+c/v · ctrl+s new take · ctrl+shift+s same take · esc cancel";
+    // ctrl+o is the portable same-take chord; ctrl+shift+s is an alias where
+    // the terminal reports modified keys.
+    return "shift+arrows select · ctrl+c/v · ctrl+s new take · ctrl+o same take · esc cancel";
   }
   return "shift+arrows select · ctrl+c/v · ctrl+s save · esc cancel";
 }

@@ -274,7 +274,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   if (mode === "EDITOR") {
     const name = key.name.toLowerCase();
-    // ctrl+shift+s updates the focused part in place; plain ctrl+s forks a take.
+    // Plain ctrl+s forks a take. Same-take save needs a chord that classic
+    // terminals can deliver: ctrl+s and ctrl+shift+s both arrive as 0x13
+    // without enhanced keyboard reporting, so ctrl+o is the portable path.
+    // ctrl+shift+s remains for terminals that can report the shift bit.
+    if (key.ctrl && name === "o") return { action: "save-edit-inplace" };
     if (key.ctrl && key.shift && name === "s") return { action: "save-edit-inplace" };
     if (key.ctrl && name === "s") return { action: "save-edit" };
     if (key.ctrl && name === "c") return { action: "copy-selection" };

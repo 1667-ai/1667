@@ -74,14 +74,15 @@ describe("inline editor", () => {
     expect(state.toast).toBe("edited take created");
   });
 
-  test("ctrl+shift+s overwrites the focused part in place", async () => {
+  test("ctrl+o overwrites the focused part in place", async () => {
     const { state, press } = harness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     const originalId = "p12";
 
     await press(key("e"));
     setComposerText(state.editor!.composer, "rewritten direction\n---\nrewritten prose");
-    await press(key("s", { ctrl: true, shift: true }));
+    // Raw control-O (0x0f) is the portable same-take chord on classic terminals.
+    await press(key("o", { sequence: "\u000f", ctrl: true }));
 
     expect(state.mode).toBe("NAV");
     expect(state.payload.path.find(({ id }) => id === originalId)).toMatchObject({
@@ -334,7 +335,7 @@ describe("inline editor", () => {
     }).lines);
     expect(frame).toContain("edit ¶");
     expect(frame).toContain("ctrl+s new take");
-    expect(frame).toContain("ctrl+shift+s same take");
+    expect(frame).toContain("ctrl+o same take");
     expect(frame).not.toContain("n continues");
 
     const original = state.editor!.initial;
@@ -369,7 +370,7 @@ describe("inline editor", () => {
     expect(state.editor).toBe(null);
   });
 
-  test("ctrl+shift+s keeps updating the opened part when newer input remains", async () => {
+  test("ctrl+o keeps updating the opened part when newer input remains", async () => {
     const { source, state, press } = harness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     await press(key("e"));
@@ -391,7 +392,7 @@ describe("inline editor", () => {
       await gate;
       return originalEdit(...args);
     };
-    const saving = press(key("s", { ctrl: true, shift: true }));
+    const saving = press(key("o", { sequence: "\u000f", ctrl: true }));
     await Promise.resolve();
     await press(key("x"));
     release();
@@ -401,7 +402,7 @@ describe("inline editor", () => {
     expect(state.editor?.initial).toBe(submitted);
     expect(state.editor?.composer.text).toBe(`${submitted}x`);
     expect(state.toast).toBe("take updated in place · newer edits kept");
-    await press(key("s", { ctrl: true, shift: true }));
+    await press(key("o", { sequence: "\u000f", ctrl: true }));
     expect(state.mode).toBe("NAV");
     expect({ creates, edits }).toEqual({ creates: 0, edits: 2 });
     expect(state.payload.path.find(({ id }) => id === "p12")?.text).toBe("saved prosex");
@@ -425,7 +426,7 @@ describe("inline editor", () => {
       return source.api.switchLine(args[0], "p5-alt", { stopAtNode: true });
     };
 
-    const saving = press(key("s", { ctrl: true, shift: true }));
+    const saving = press(key("o", { sequence: "\u000f", ctrl: true }));
     await Promise.resolve();
     await press(key("x"));
     release();
@@ -437,7 +438,7 @@ describe("inline editor", () => {
       kind: "part",
       node: { id: "p12", text: savedProse }
     });
-    await press(key("s", { ctrl: true, shift: true }));
+    await press(key("o", { sequence: "\u000f", ctrl: true }));
     expect(editedId).toBe("p12");
     // Path no longer includes p12 after the line switch; the second save still
     // mutates the opened take identity held by the editor session.
