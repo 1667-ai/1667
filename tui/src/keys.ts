@@ -17,7 +17,7 @@ export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
   | "undo" | "top" | "leaf" | "toggle-instructions" | "toggle-prompt" | "compose"
   | "cancel" | "quit" | "send" | "newline" | "history-previous"
-  | "save-edit" | "commit-field"
+  | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
   | "set-map-view"
@@ -82,7 +82,7 @@ export function isPlainNavigation(state: PlainNavigationState): boolean {
 export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "rename-item", "delete-item", "discard-pending",
-  "create-chapter", "summarize-chapter", "save-edit"
+  "create-chapter", "summarize-chapter", "save-edit", "save-edit-inplace"
 ]);
 
 /** Terminals disagree on how shifted letters arrive; accept all three forms. */
@@ -274,6 +274,8 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   if (mode === "EDITOR") {
     const name = key.name.toLowerCase();
+    // ctrl+shift+s updates the focused part in place; plain ctrl+s forks a take.
+    if (key.ctrl && key.shift && name === "s") return { action: "save-edit-inplace" };
     if (key.ctrl && name === "s") return { action: "save-edit" };
     if (key.ctrl && name === "c") return { action: "copy-selection" };
     if (key.ctrl && name === "x") return { action: "cut-selection" };

@@ -98,7 +98,13 @@ export async function inlineEditorAction(
     disarmEditorConfirmations(editor);
     return insertComposerText(editor.composer, resolved.text ?? "");
   }
-  if (resolved.action === "save-edit") await saveInlineEditor(state, source, context, editor);
+  if (resolved.action === "save-edit") {
+    await saveInlineEditor(state, source, context, editor, "default");
+    return;
+  }
+  if (resolved.action === "save-edit-inplace") {
+    await saveInlineEditor(state, source, context, editor, "inplace");
+  }
 }
 
 async function copySelection(
@@ -153,11 +159,14 @@ function closeInlineEditor(state: RuntimeState, editor: InlineEditorSession, toa
   if (toast !== undefined) state.toast = toast;
 }
 
+type PartSaveMode = "default" | "inplace";
+
 async function saveInlineEditor(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  editor: InlineEditorSession
+  editor: InlineEditorSession,
+  partSave: PartSaveMode
 ): Promise<void> {
   const submitted = editor.composer.text;
   if (submitted === editor.initial && editor.conflict === null) {
@@ -174,9 +183,11 @@ async function saveInlineEditor(
     const patch = parsePartFile(submitted);
     if (patch === null) return void (state.toast = "keep one --- line between direction and prose");
     const text = patch.text.trim();
-    const creating = target.savedNode === null;
+    // ctrl+s always forks; ctrl+shift+s always overwrites the opened part.
+    // Keys keep fixed meaning for the whole session (no sticky save identity).
+    const creating = partSave === "default";
     await context.backend.run(creating ? "creating edited take" : "saving edited take", async (task) => {
-      const previous = target.savedNode ?? target.node;
+      const previous = target.node;
       const knownNodeIds = new Set(state.payload.nodes.map(({ id }) => id));
       const payload = creating
         ? await source.api.createNode(task.storyId, {
@@ -191,9 +202,14 @@ async function saveInlineEditor(
       const landedNode = creating
         ? findCreatedTake(payload, knownNodeIds, target.node.parentId, patch.instruction, text)
         : payload.path.find(({ id }) => id === previous.id)
+          // Path may leave the edited take after a concurrent line switch; keep
+          // the opened identity with the prose we just wrote (not a NodeStub).
           ?? { ...previous, instruction: patch.instruction, text };
       const landedId = landedNode?.id ?? previous.id;
-      if (landedNode !== undefined) target.savedNode = landedNode;
+      if (!creating && landedNode !== undefined) {
+        // Keep the source node current so a later fork hashes the latest prose.
+        target.node = landedNode;
+      }
       if (state.editor === editor) {
         state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), landedId));
       }
@@ -204,9 +220,18 @@ async function saveInlineEditor(
         state.config = source.config;
       }
       context.cache.invalidate();
-      settleInlineSave(state, editor, submitted, creating ? "edited take created" : "edited take saved");
+      settleInlineSave(
+        state,
+        editor,
+        submitted,
+        creating ? "edited take created" : "take updated in place"
+      );
     });
     return;
+  }
+
+  if (partSave === "inplace") {
+    return void (state.toast = "ctrl+shift+s only updates a story part in place");
   }
 
   if (target.kind === "human-take") {

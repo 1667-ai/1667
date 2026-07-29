@@ -74,6 +74,65 @@ describe("inline editor", () => {
     expect(state.toast).toBe("edited take created");
   });
 
+  test("ctrl+shift+s overwrites the focused part in place", async () => {
+    const { state, press } = harness();
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
+    const originalId = "p12";
+
+    await press(key("e"));
+    setComposerText(state.editor!.composer, "rewritten direction\n---\nrewritten prose");
+    await press(key("s", { ctrl: true, shift: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.path.find(({ id }) => id === originalId)).toMatchObject({
+      instruction: "rewritten direction",
+      text: "rewritten prose"
+    });
+    expect(state.payload.nodes.find(({ id }) => id === originalId)?.preview)
+      .toContain("rewritten prose");
+    expect(state.toast).toBe("take updated in place");
+  });
+
+  test("ctrl+s always forks even after an earlier save in the same session", async () => {
+    const { source, state, press } = harness();
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
+    const parentId = state.payload.nodes.find(({ id }) => id === "p12")!.parentId;
+    const beforeIds = new Set(state.payload.nodes.map(({ id }) => id));
+    await press(key("e"));
+    setComposerText(state.editor!.composer, "first fork\n---\nfirst prose");
+
+    const originalCreate = source.api.createNode;
+    const originalEdit = source.api.editNode;
+    let creates = 0;
+    let edits = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    source.api.createNode = async (...args) => {
+      creates += 1;
+      await gate;
+      return originalCreate(...args);
+    };
+    source.api.editNode = async (...args) => {
+      edits += 1;
+      return originalEdit(...args);
+    };
+
+    const saving = press(key("s", { sequence: "\u0013", ctrl: true }));
+    await Promise.resolve();
+    await press(key("x"));
+    release();
+    await saving;
+
+    expect(state.mode).toBe("EDITOR");
+    expect(state.toast).toBe("edited take created · newer edits kept");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect({ creates, edits }).toEqual({ creates: 2, edits: 0 });
+    const forked = state.payload.nodes.filter(({ id, parentId: nodeParentId }) =>
+      !beforeIds.has(id) && nodeParentId === parentId);
+    expect(forked.length).toBe(2);
+  });
+
   test("demo edited takes preserve earlier human spans and mark only the new edit", async () => {
     const { state, press } = harness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
@@ -273,8 +332,9 @@ describe("inline editor", () => {
     const frame = frameText(renderStoryScreen(state, {
       width: 80, height: 24, wrapCache: cache
     }).lines);
-    expect(frame).toContain("edit as new take");
-    expect(frame).toContain("ctrl+s save");
+    expect(frame).toContain("edit ¶");
+    expect(frame).toContain("ctrl+s new take");
+    expect(frame).toContain("ctrl+shift+s same take");
     expect(frame).not.toContain("n continues");
 
     const original = state.editor!.initial;
@@ -309,7 +369,7 @@ describe("inline editor", () => {
     expect(state.editor).toBe(null);
   });
 
-  test("an edited take is created once, then updated when newer input remains", async () => {
+  test("ctrl+shift+s keeps updating the opened part when newer input remains", async () => {
     const { source, state, press } = harness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     await press(key("e"));
@@ -324,14 +384,14 @@ describe("inline editor", () => {
     const gate = new Promise<void>((resolve) => { release = resolve; });
     source.api.createNode = async (...args) => {
       creates += 1;
-      await gate;
       return originalCreate(...args);
     };
     source.api.editNode = async (...args) => {
       edits += 1;
+      await gate;
       return originalEdit(...args);
     };
-    const saving = press(key("s", { sequence: "\u0013", ctrl: true }));
+    const saving = press(key("s", { ctrl: true, shift: true }));
     await Promise.resolve();
     await press(key("x"));
     release();
@@ -340,52 +400,49 @@ describe("inline editor", () => {
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.initial).toBe(submitted);
     expect(state.editor?.composer.text).toBe(`${submitted}x`);
-    expect(state.toast).toBe("edited take created · newer edits kept");
-    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.toast).toBe("take updated in place · newer edits kept");
+    await press(key("s", { ctrl: true, shift: true }));
     expect(state.mode).toBe("NAV");
-    expect({ creates, edits }).toEqual({ creates: 1, edits: 1 });
-    expect(state.payload.path.at(-1)?.text).toBe("saved prosex");
+    expect({ creates, edits }).toEqual({ creates: 0, edits: 2 });
+    expect(state.payload.path.find(({ id }) => id === "p12")?.text).toBe("saved prosex");
   });
 
-  test("an edited take keeps its identity when another client reroutes during save", async () => {
+  test("an in-place save still targets the opened part when another client reroutes", async () => {
     const { source, state, press } = harness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
     await press(key("e"));
     const savedProse = `${"a".repeat(99)}💡 tail`;
     setComposerText(state.editor!.composer, `   \n---\n${savedProse}`);
 
-    const originalCreate = source.api.createNode;
     const originalEdit = source.api.editNode;
-    const knownIds = new Set(state.payload.nodes.map(({ id }) => id));
-    let createdId = "";
     let editedId = "";
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    source.api.createNode = async (...args) => {
+    source.api.editNode = async (...args) => {
       await gate;
-      const created = await originalCreate(...args);
-      createdId = created.nodes.find(({ id }) => !knownIds.has(id))!.id;
+      editedId = args[1].id;
+      await originalEdit(...args);
       return source.api.switchLine(args[0], "p5-alt", { stopAtNode: true });
     };
-    source.api.editNode = async (...args) => {
-      editedId = args[1].id;
-      return originalEdit(...args);
-    };
 
-    const saving = press(key("s", { sequence: "\u0013", ctrl: true }));
+    const saving = press(key("s", { ctrl: true, shift: true }));
     await Promise.resolve();
     await press(key("x"));
     release();
     await saving;
 
+    expect(editedId).toBe("p12");
     expect(state.payload.path.at(-1)?.id).toBe("p5-alt");
     expect(state.editor?.target).toMatchObject({
       kind: "part",
-      savedNode: { id: createdId, text: savedProse }
+      node: { id: "p12", text: savedProse }
     });
-    await press(key("s", { sequence: "\u0013", ctrl: true }));
-    expect(editedId).toBe(createdId);
-    expect(state.payload.path.at(-1)?.id).toBe("p5-alt");
+    await press(key("s", { ctrl: true, shift: true }));
+    expect(editedId).toBe("p12");
+    // Path no longer includes p12 after the line switch; the second save still
+    // mutates the opened take identity held by the editor session.
+    const restored = await source.api.switchLine(state.payload.id, "p12", { stopAtNode: true });
+    expect(restored.path.find(({ id }) => id === "p12")?.text).toBe(`${savedProse}x`);
   });
 
   test("a newly created human take becomes an edit when newer input remains", async () => {
