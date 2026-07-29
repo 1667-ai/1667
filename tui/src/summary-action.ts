@@ -5,6 +5,7 @@ import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import type { RuntimeState, SummaryOverlayState } from "./state.js";
 import { summaryStretch } from "./summary-model.js";
 import type { ActionContext } from "./action-context.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 
 type SummaryActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
@@ -74,6 +75,7 @@ export async function startSummary(
         state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(switched), switched.path[index]!.id));
         state.toast = "◈ summary take saved";
       }
+      rememberFocus(state, source);
       state.summary = null;
       state.mode = "NAV";
     } catch (error) {

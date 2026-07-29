@@ -2,7 +2,9 @@ import path from "node:path";
 import {
   DATA_DIRECTORY_LOCK,
   PROJECT_RUN_RECORD_FILE,
-  PROVIDER_SECRET_ENTRY_NAMES
+  PROVIDER_SECRET_ENTRY_NAMES,
+  READING_POSITIONS_FILE,
+  READING_POSITIONS_LOCK_FILE
 } from "./data-directory-layout.js";
 
 /** 1667 finds its stories the way git finds its objects. */
@@ -23,7 +25,11 @@ export function projectGitignoreContent(): string {
   const ignored = [
     ...PROVIDER_SECRET_ENTRY_NAMES,
     DATA_DIRECTORY_LOCK,
-    PROJECT_RUN_RECORD_FILE
+    PROJECT_RUN_RECORD_FILE,
+    READING_POSITIONS_FILE,
+    READING_POSITIONS_LOCK_FILE,
+    // Temporary atomic-write siblings: reading-positions.json.<pid>.<hex>.tmp
+    `${READING_POSITIONS_FILE}.*.tmp`
   ];
   return `${[...new Set(ignored)].sort().join("\n")}\n`;
 }

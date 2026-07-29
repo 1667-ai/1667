@@ -26,6 +26,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  READING_POSITIONS_FILE,
+  READING_POSITIONS_LOCK_FILE
+} from "../../server/data-directory-layout.js";
+import {
   mergeReadingPositionDirty,
   normalizeReadingPositions,
   type ReadingPositions
@@ -68,7 +72,7 @@ export function readingPositionStoreFile(
   httpOrigin: string | null
 ): string {
   if (projectDataDir !== null && projectDataDir.length > 0) {
-    return join(projectDataDir, "reading-positions.json");
+    return join(projectDataDir, READING_POSITIONS_FILE);
   }
   if (httpOrigin !== null && httpOrigin.length > 0) {
     return readingPositionStorePathForScope(`http:${httpOrigin}`);
@@ -266,6 +270,7 @@ function writePositionsFile(
     options.afterTemporaryFileSync?.(temporaryFile);
     renameSync(temporaryFile, file);
     temporaryFile = null;
+    ensureProjectGitignoreIgnoresStore(directory);
     syncDirectory(directory);
     return true;
   } catch {
@@ -291,5 +296,28 @@ function syncDirectory(directory: string): void {
     fsyncSync(descriptor);
   } finally {
     if (descriptor !== null) closeSync(descriptor);
+  }
+}
+
+/** Append ignore lines for existing projects created before this store existed. */
+function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
+  const gitignore = join(projectDir, ".gitignore");
+  const needed = [
+    READING_POSITIONS_FILE,
+    READING_POSITIONS_LOCK_FILE,
+    `${READING_POSITIONS_FILE}.*.tmp`
+  ];
+  try {
+    let text = readFileSync(gitignore, "utf8");
+    const lines = new Set(text.split("\n"));
+    let changed = false;
+    for (const line of needed) {
+      if (lines.has(line)) continue;
+      text = text.endsWith("\n") || text.length === 0 ? `${text}${line}\n` : `${text}\n${line}\n`;
+      changed = true;
+    }
+    if (changed) writeFileSync(gitignore, text, "utf8");
+  } catch {
+    // No gitignore or not writable — not fatal for the store write.
   }
 }
