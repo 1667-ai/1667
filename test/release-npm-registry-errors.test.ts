@@ -10,6 +10,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  NpmRegistryPendingError
+} from "../scripts/release-npm-provenance.js";
+import {
   NpmReleaseRegistry
 } from "../scripts/release-npm-registry.js";
 import {
@@ -81,6 +84,59 @@ test("a non-zero audit with missing evidence retries its structured result", asy
   assert.equal(sleeps, 1);
 });
 
+test("omitted npm audit arrays retry until the structured result is complete", async (t) => {
+  for (const field of ["invalid", "missing", "verified"] as const) {
+    await t.test(field, async (t) => {
+      const root = await mkdtemp(path.join(tmpdir(), `1667-npm-audit-omitted-${field}-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const npmCli = path.join(root, "npm.cjs");
+      const count = path.join(root, "audit-count");
+      const expected = publicationPackage();
+      const verified = provenanceAudit(expected);
+      const incomplete = structuredClone(verified) as Record<string, unknown>;
+      delete incomplete[field];
+      await writeSequencedFakeNpm(npmCli, count, incomplete, verified);
+      let sleeps = 0;
+      const registry = registryFor(npmCli, async () => {
+        sleeps += 1;
+      });
+
+      await registry.waitUntilVerified([expected]);
+
+      assert.equal(sleeps, 1);
+    });
+  }
+});
+
+test("present npm audit arrays with the wrong type fail without polling", async (t) => {
+  for (const field of ["invalid", "missing", "verified"] as const) {
+    await t.test(field, async (t) => {
+      const root = await mkdtemp(path.join(tmpdir(), `1667-npm-audit-malformed-${field}-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const npmCli = path.join(root, "npm.cjs");
+      const expected = publicationPackage();
+      const malformed = structuredClone(provenanceAudit(expected)) as Record<string, unknown>;
+      malformed[field] = {};
+      await writeFakeNpm(npmCli, malformed);
+      let sleeps = 0;
+      const registry = registryFor(npmCli, async () => {
+        sleeps += 1;
+      });
+
+      await assert.rejects(
+        registry.waitUntilVerified([expected]),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(!(error instanceof NpmRegistryPendingError));
+          assert.match(error.message, /must be an array/u);
+          return true;
+        }
+      );
+      assert.equal(sleeps, 0);
+    });
+  }
+});
+
 test("npm's immutable-version refusal becomes a recoverable publication result", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-npm-publish-conflict-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -140,6 +196,27 @@ async function writeFakeNpm(file: string, audit: unknown): Promise<void> {
     'if (process.argv[2] === "audit") {',
     `  process.stdout.write(${JSON.stringify(JSON.stringify(audit))});`,
     "  process.exitCode = 1;",
+    "}",
+    ""
+  ].join("\n"));
+  await chmod(file, 0o755);
+}
+
+async function writeSequencedFakeNpm(
+  file: string,
+  count: string,
+  firstAudit: unknown,
+  finalAudit: unknown
+): Promise<void> {
+  await writeFile(file, [
+    'const fs = require("node:fs");',
+    `const count = ${JSON.stringify(count)};`,
+    'if (process.argv[2] === "audit") {',
+    "  const attempt = fs.existsSync(count) ? Number(fs.readFileSync(count)) + 1 : 1;",
+    "  fs.writeFileSync(count, String(attempt));",
+    `  process.stdout.write(attempt === 1 ? ${
+      JSON.stringify(JSON.stringify(firstAudit))
+    } : ${JSON.stringify(JSON.stringify(finalAudit))});`,
     "}",
     ""
   ].join("\n"));

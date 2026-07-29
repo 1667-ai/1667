@@ -28,15 +28,15 @@ export function validateNpmAuditProvenance(
   }
 ): void {
   const audit = object(value, "npm signature audit");
-  const invalid = array(audit.invalid, "npm invalid signatures");
-  const missing = array(audit.missing, "npm missing signatures");
+  const invalid = auditArray(audit, "invalid", "npm invalid signatures");
+  const missing = auditArray(audit, "missing", "npm missing signatures");
   if (invalid.length !== 0) {
     throw new Error("npm signature audit reported invalid evidence");
   }
   if (missing.length !== 0) {
     throw new NpmRegistryPendingError("npm signature audit reported missing evidence");
   }
-  const verified = array(audit.verified, "npm verified attestations");
+  const verified = auditArray(audit, "verified", "npm verified attestations");
   const record = verified.map((entry) => object(entry, "npm verified package")).find((entry) => {
     return entry.name === expected.name && entry.version === expected.version;
   });
@@ -188,4 +188,15 @@ function object(value: unknown, label: string): Record<string, unknown> {
 function array(value: unknown, label: string): readonly unknown[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
   return value;
+}
+
+function auditArray(
+  audit: Record<string, unknown>,
+  field: "invalid" | "missing" | "verified",
+  label: string
+): readonly unknown[] {
+  if (!(field in audit)) {
+    throw new NpmRegistryPendingError(`${label} are not visible`);
+  }
+  return array(audit[field], label);
 }
