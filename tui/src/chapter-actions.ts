@@ -277,7 +277,10 @@ async function summarizeChapter(
     if (task.interactionCurrent()) {
       const view = createStoryViewModel(payload);
       const summaryIndex = view.rows.findIndex((row) => row.kind === "chapter-summary" && row.chapter.closedBy?.id === breakId);
-      if (summaryIndex >= 0) state.focusIndex = summaryIndex;
+      if (summaryIndex >= 0) {
+        state.focusIndex = summaryIndex;
+        rememberFocus(state, source);
+      }
       state.toast = refreshed
         ? `Chapter ${chapterWord(chapter.number)} summary refreshed`
         : `Chapter ${chapterWord(chapter.number)} summarized · ${formatTokensEstimate(chapter.rawTokens)} raw · prose untouched`;

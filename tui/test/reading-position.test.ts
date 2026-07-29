@@ -17,7 +17,7 @@ import {
   flushReadingPositionPersist,
   loadReadingPositions,
   markReadingPositionDirty,
-  readingPositionScope,
+  readingPositionStoreFile,
   readingPositionStorePathForScope,
   saveReadingPositions
 } from "../src/reading-position-store.js";
@@ -83,13 +83,15 @@ describe("reading position", () => {
     expect(Object.keys(merged).length).toBe(MAX_READING_POSITIONS);
   });
 
-  test("each vault scope has its own store file", () => {
-    const a = readingPositionStorePathForScope(readingPositionScope("/tmp/project-a/.1667", null));
-    const b = readingPositionStorePathForScope(readingPositionScope("/tmp/project-b/.1667", null));
-    const http = readingPositionStorePathForScope(readingPositionScope(null, "http://127.0.0.1:1667"));
-    expect(a).not.toBe(b);
-    expect(a).not.toBe(http);
-    expect(a).toContain("reading-positions");
+  test("project vaults store beside the data dir; HTTP uses a user-scoped file", () => {
+    const a = readingPositionStoreFile("/tmp/project-a/.1667", null);
+    const b = readingPositionStoreFile("/tmp/project-b/.1667", null);
+    const http = readingPositionStoreFile(null, "http://127.0.0.1:1667");
+    expect(a).toBe("/tmp/project-a/.1667/reading-positions.json");
+    expect(b).toBe("/tmp/project-b/.1667/reading-positions.json");
+    expect(http).toContain("reading-positions");
+    expect(http).not.toBe(a);
+    expect(readingPositionStorePathForScope("http:x")).toContain("reading-positions");
   });
 
   test("mkdir failure on a read-only parent does not throw during flush", () => {

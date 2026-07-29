@@ -7,8 +7,7 @@ import {
   configureReadingPositionStore,
   flushReadingPositionPersist,
   loadReadingPositions,
-  readingPositionScope,
-  readingPositionStorePathForScope
+  readingPositionStoreFile
 } from "./reading-position-store.js";
 import { resolve } from "node:path";
 import {
@@ -520,11 +519,10 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       }
     }
     const config = loadConfig();
-    const storeScope = readingPositionScope(
+    const storeFile = readingPositionStoreFile(
       dataDir,
       httpAttach?.origin ?? null
     );
-    const storeFile = readingPositionStorePathForScope(storeScope);
     configureReadingPositionStore(storeFile);
     const readingPositions = loadReadingPositions({ file: storeFile });
     const startUpdateCheck = createBackgroundUpdateStarter(config);

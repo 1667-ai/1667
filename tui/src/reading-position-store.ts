@@ -20,7 +20,6 @@ import {
   openSync,
   readFileSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -40,8 +39,6 @@ export interface ReadingPositionStoreOptions {
 const PERSIST_DEBOUNCE_MS = 400;
 const LOCK_WAIT_MS = 200;
 const LOCK_SPIN_MS = 10;
-/** Locks older than this are treated as abandoned after a crash. */
-const STALE_LOCK_MS = 2_000;
 
 /** Dirty keys for the next flush. `null` means delete that story entry. */
 const dirty = new Map<string, string | null>();
@@ -54,13 +51,32 @@ export function readingPositionRootDir(): string {
   return join(base, "1667", "reading-positions");
 }
 
-/** Stable store path for one vault/server scope. */
+/** Stable user-home path for HTTP attach (no project tier). */
 export function readingPositionStorePathForScope(scope: string): string {
   const digest = createHash("sha256").update(scope, "utf8").digest("hex").slice(0, 24);
   return join(readingPositionRootDir(), `${digest}.json`);
 }
 
-/** Project data dir or HTTP origin. Empty pieces collapse to "default". */
+/**
+ * Where the store lives for this session.
+ * Project vaults: inside the data directory so a deleted/recreated project
+ * cannot inherit the previous tutorial cursor (starter ids are deterministic).
+ * HTTP attach: under the user config tree, keyed by origin.
+ */
+export function readingPositionStoreFile(
+  projectDataDir: string | null,
+  httpOrigin: string | null
+): string {
+  if (projectDataDir !== null && projectDataDir.length > 0) {
+    return join(projectDataDir, "reading-positions.json");
+  }
+  if (httpOrigin !== null && httpOrigin.length > 0) {
+    return readingPositionStorePathForScope(`http:${httpOrigin}`);
+  }
+  return readingPositionStorePathForScope("default");
+}
+
+/** @deprecated Prefer readingPositionStoreFile; kept for tests of path hashing. */
 export function readingPositionScope(
   projectDataDir: string | null,
   httpOrigin: string | null
@@ -190,12 +206,19 @@ function withStoreLock(storeFile: string, work: () => boolean): boolean {
   }
 }
 
+/** Recover only when the recorded owner pid is dead — never by age alone. */
 function recoverStaleLock(lockPath: string): boolean {
   try {
-    const ageMs = Date.now() - statSync(lockPath).mtimeMs;
-    if (ageMs < STALE_LOCK_MS) return false;
-    unlinkSync(lockPath);
-    return true;
+    const text = readFileSync(lockPath, "utf8");
+    const pid = Number(text.split("\n")[0]);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return false; // owner still alive
+    } catch {
+      unlinkSync(lockPath);
+      return true;
+    }
   } catch {
     return false;
   }
