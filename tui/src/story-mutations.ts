@@ -127,6 +127,7 @@ export async function confirmPrune(
     if (task.interactionCurrent()) {
       state.focusIndex = Math.min(state.focusIndex, Math.max(0, createStoryViewModel(payload).rows.length - 1));
       followStoryViewport(state);
+      rememberFocus(state, source);
       state.toast = plan.kind === "subtree"
         ? `pruned ${plan.parts} ${plan.parts === 1 ? "part" : "parts"}`
         : `pruned ${plan.takes} unused ${plan.takes === 1 ? "take" : "takes"} · ${plan.parts} ${plan.parts === 1 ? "part" : "parts"}`;

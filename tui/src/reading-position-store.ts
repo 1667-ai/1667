@@ -52,7 +52,12 @@ let activeStoreFile: string = readingPositionStorePathForScope("default");
 let disposed = false;
 
 export function readingPositionRootDir(): string {
-  const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  const configured = process.env.XDG_CONFIG_HOME;
+  const base = configured !== undefined
+    && configured.length > 0
+    && (configured.startsWith("/") || /^[A-Za-z]:[\\/]/.test(configured))
+    ? configured
+    : join(homedir(), ".config");
   return join(base, "1667", "reading-positions");
 }
 
@@ -207,32 +212,47 @@ function withStoreLock(storeFile: string, work: () => boolean): boolean {
   }
 }
 
-/** Reclaim only when the recorded pid is not a live process. */
+/**
+ * Reclaim only when the recorded pid is dead (or empty past grace).
+ * Uses rename-to-claim so two reclaimers cannot both steal a live peer's lock.
+ */
 function reclaimDeadOwnerLock(lockPath: string): boolean {
   try {
     const info = lstatSync(lockPath);
     if (!info.isFile() || info.isSymbolicLink()) {
-      unlinkSync(lockPath);
-      return true;
+      return claimLockByRename(lockPath);
     }
     const text = readBoundedRegularFileSync(lockPath, 64) ?? "";
     const pid = Number(text.split("\n")[0]);
     if (!Number.isInteger(pid) || pid <= 0) {
-      // Crash or preemption window after O_EXCL before pid is written: wait.
       if (Date.now() - info.mtimeMs < EMPTY_LOCK_GRACE_MS) return false;
-      unlinkSync(lockPath);
-      return true;
+      return claimLockByRename(lockPath);
     }
     try {
       process.kill(pid, 0);
       return false;
     } catch {
-      unlinkSync(lockPath);
-      return true;
+      return claimLockByRename(lockPath);
     }
   } catch {
     return false;
   }
+}
+
+/** Atomically take ownership of a stale lock path by renaming it away. */
+function claimLockByRename(lockPath: string): boolean {
+  const claimed = `${lockPath}.reclaimed.${process.pid}.${randomBytes(4).toString("hex")}`;
+  try {
+    renameSync(lockPath, claimed);
+  } catch {
+    return false;
+  }
+  try {
+    unlinkSync(claimed);
+  } catch {
+    // ignore
+  }
+  return true;
 }
 
 function writePositionsFile(
