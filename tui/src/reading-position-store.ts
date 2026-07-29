@@ -41,6 +41,8 @@ export interface ReadingPositionStoreOptions {
 const PERSIST_DEBOUNCE_MS = 400;
 const LOCK_WAIT_MS = 250;
 const LOCK_SPIN_MS = 10;
+/** Empty lock (O_EXCL before pid write) stays held this long. */
+const EMPTY_LOCK_GRACE_MS = 1_000;
 const MAX_STORE_BYTES = 256 * 1024;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
@@ -216,6 +218,8 @@ function reclaimDeadOwnerLock(lockPath: string): boolean {
     const text = readBoundedRegularFileSync(lockPath, 64) ?? "";
     const pid = Number(text.split("\n")[0]);
     if (!Number.isInteger(pid) || pid <= 0) {
+      // Crash or preemption window after O_EXCL before pid is written: wait.
+      if (Date.now() - info.mtimeMs < EMPTY_LOCK_GRACE_MS) return false;
       unlinkSync(lockPath);
       return true;
     }
