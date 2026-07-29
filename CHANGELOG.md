@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Enter now cycles Compose Focus in Settings.** `Enter` advances the Compose
+  Focus row like the other closed-choice Settings rows. Paste does not open an
+  editor for those rows. Thanks @10fra for the report.
 - **The context meter now previews the maximum response growth.** A slow
   two-color pulse shows how much the configured response can add to the next
   request. The estimate stays visible during the pulse. Thanks @10fra for the

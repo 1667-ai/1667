@@ -24,7 +24,8 @@ import { pasteInto } from "../src/keys.js";
 import {
   beginSettingsPasteEdit,
   SETTINGS_ROW_IDS,
-  settingsDraftChanged
+  settingsDraftChanged,
+  settingsRowCycles
 } from "../src/settings-overlay-model.js";
 import { publishSettingsView } from "../src/overlay-publication.js";
 import {
@@ -132,12 +133,7 @@ describe("inline settings menu", () => {
       await press(key("return"));
       expect(state.mode).toBe("SETTINGS");
       expect(state.editor).toBe(null);
-      if (
-        row === "theme"
-        || row === "provider"
-        || row === "allow-insecure-http"
-        || row === "cache-policy"
-      ) {
+      if (settingsRowCycles(row)) {
         expect(state.settings?.edit).toBe(null);
       } else {
         expect(state.settings?.edit?.row).toBe(row);
@@ -230,7 +226,7 @@ describe("inline settings menu", () => {
     expect(state.toast).toBe("settings saved");
   });
 
-  test("theme is a scoped selector and compose focus remains an inline row", async () => {
+  test("theme is a scoped selector and compose focus cycles as a closed choice", async () => {
     const { source, state, press } = harness();
     await openSettings(press);
 
@@ -242,9 +238,49 @@ describe("inline settings menu", () => {
     await selectRow(press, state, "model");
     await press(key("left"));
     expect(state.config.theme).toBe("bond");
-    await draftRow(press, state, "compose-focus", "on");
+    await selectRow(press, state, "compose-focus");
+    expect(state.config.composeFocus).toBe("off");
+    await press(key("return"));
+    expect(state.settings?.edit).toBe(null);
     expect(state.config.composeFocus).toBe("on");
     expect(source.config.composeFocus).toBe("on");
+    await press(key("right"));
+    expect(state.config.composeFocus).toBe("off");
+  });
+
+  test("Enter on compose-focus toggles without opening a text field", async () => {
+    const { state, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "compose-focus");
+    expect(state.config.composeFocus).toBe("off");
+
+    await press(key("return"));
+    expect(state.settings?.edit).toBe(null);
+    expect(state.config.composeFocus).toBe("on");
+    expect(state.toast).toBe("compose focus · on");
+
+    await press(key("return"));
+    expect(state.settings?.edit).toBe(null);
+    expect(state.config.composeFocus).toBe("off");
+  });
+
+  test("paste refuses every closed choice and still opens text rows", async () => {
+    const { state, press } = harness();
+    await openSettings(press);
+
+    for (const row of SETTINGS_ROW_IDS) {
+      if (!settingsRowCycles(row)) continue;
+      await selectRow(press, state, row);
+      expect(beginSettingsPasteEdit(state.settings!, state.config)).toBeFalse();
+      expect(state.settings?.edit).toBe(null);
+      await press(key("v", { ctrl: true }));
+      expect(state.settings?.edit).toBe(null);
+      expect(state.toast).toBe("this row is a selector · use ←→");
+    }
+
+    await selectRow(press, state, "model");
+    expect(beginSettingsPasteEdit(state.settings!, state.config)).toBeTrue();
+    expect(state.settings?.edit?.row).toBe("model");
   });
 
   test("legacy settings keep local rows editable while server rows remain read-only", async () => {

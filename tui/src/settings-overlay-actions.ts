@@ -88,12 +88,7 @@ export async function settingsOverlayAction(
       await settingsInlineEditAction(resolved, state, source, context, overlay);
     } else {
       const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-      if (
-        row === "theme"
-        || row === "provider"
-        || row === "allow-insecure-http"
-        || row === "cache-policy"
-      ) {
+      if (settingsRowCycles(row)) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
         state.toast = "legacy settings are read-only";
@@ -109,18 +104,11 @@ export async function settingsOverlayAction(
     overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor);
   } else if (resolved.action === "open-selected" || resolved.action === "edit") {
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-    const serverBacked = settingsRowUsesServer(row);
-    if (serverBacked && !overlay.view.editable) {
+    // Enter advances every closed choice; the same set owns paste refusal.
+    if (settingsRowCycles(row)) {
+      cycleSettingsRow(row, 1, state, source, context, overlay);
+    } else if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
-    } else if (row === "theme") {
-      const index = THEME_NAMES.indexOf(state.config.theme);
-      applyTheme(state, context, THEME_NAMES[(index + 1) % THEME_NAMES.length]!);
-    } else if (row === "provider") {
-      applyProviderChoice(overlay, state, 1);
-    } else if (row === "allow-insecure-http") {
-      applyAllowInsecureHttp(overlay, state);
-    } else if (row === "cache-policy") {
-      applyPromptCachePolicyChoice(overlay, state, 1);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -132,23 +120,8 @@ export async function settingsOverlayAction(
     }
     const step = resolved.action === "take-next" ? 1 : -1;
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-    if (row === "theme") {
-      const index = THEME_NAMES.indexOf(state.config.theme);
-      const theme = THEME_NAMES[(index + step + THEME_NAMES.length) % THEME_NAMES.length]!;
-      applyTheme(state, context, theme);
-    } else if (row === "compose-focus") {
-      // `d` used to toggle this, which collided with delete everywhere else.
-      // It cycles with the other closed-choice rows instead.
-      applyComposeFocus(state, source, state.config.composeFocus === "on" ? "off" : "on");
-    } else if (settingsRowUsesServer(row) && settingsRowCycles(row)) {
-      if (!overlay.view.editable) state.toast = "legacy settings are read-only";
-      else if (row === "provider") {
-        applyProviderChoice(overlay, state, step);
-      } else if (row === "allow-insecure-http") {
-        applyAllowInsecureHttp(overlay, state);
-      } else if (row === "cache-policy") {
-        applyPromptCachePolicyChoice(overlay, state, step);
-      }
+    if (settingsRowCycles(row)) {
+      cycleSettingsRow(row, step, state, source, context, overlay);
     }
   } else if (resolved.action === "discard-pending") {
     await discardPendingSettings(state, source, context, overlay);
@@ -431,6 +404,44 @@ async function checkSettings(
       if (task.owns() && state.settings === overlay) overlay.checking = false;
     }
   });
+}
+
+/** Single action dispatcher for closed-choice settings rows. Callers gate on
+ * `settingsRowCycles` first; this applies the step (Enter always +1) and keeps
+ * legacy read-only toasts for server-backed selectors. */
+function cycleSettingsRow(
+  row: SettingsRowId,
+  step: -1 | 1,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  overlay: SettingsOverlayState
+): void {
+  if (settingsRowUsesServer(row) && !overlay.view.editable) {
+    state.toast = "legacy settings are read-only";
+    return;
+  }
+  if (row === "theme") {
+    const index = THEME_NAMES.indexOf(state.config.theme);
+    const theme = THEME_NAMES[
+      (index + step + THEME_NAMES.length) % THEME_NAMES.length
+    ]!;
+    applyTheme(state, context, theme);
+  } else if (row === "compose-focus") {
+    // `d` used to toggle this, which collided with delete everywhere else.
+    // It cycles with the other closed-choice rows instead.
+    applyComposeFocus(
+      state,
+      source,
+      state.config.composeFocus === "on" ? "off" : "on"
+    );
+  } else if (row === "provider") {
+    applyProviderChoice(overlay, state, step);
+  } else if (row === "allow-insecure-http") {
+    applyAllowInsecureHttp(overlay, state);
+  } else if (row === "cache-policy") {
+    applyPromptCachePolicyChoice(overlay, state, step);
+  }
 }
 
 function applyTheme(

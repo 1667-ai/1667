@@ -204,12 +204,8 @@ export function beginSettingsPasteEdit(
 ): boolean {
   if (overlay.edit !== null) return true;
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (
-    row === "theme"
-    || row === "provider"
-    || row === "allow-insecure-http"
-    || row === "cache-policy"
-  ) return false;
+  // Closed choices cycle in place; paste must not open their row editor.
+  if (settingsRowCycles(row)) return false;
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
     return false;
   }
