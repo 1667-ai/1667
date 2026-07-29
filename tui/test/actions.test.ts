@@ -304,7 +304,7 @@ describe("demo action pipeline", () => {
     fact.state.mode = "FACTS";
     fact.state.facts = {
       cursor: 0, query: "", chip: 0, selectedTag: null,
-      filtering: false, expandedId: null, deleteArmedId: factId
+      filtering: false, deleteArmedId: factId
     };
     await fact.pressKey(shifted("x"));
     expect(fact.state.payload.facts.some(({ id }) => id === factId)).toBeTrue();

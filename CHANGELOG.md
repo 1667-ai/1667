@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The context meter now previews the maximum response growth.** A slow
+  two-color pulse shows how much the configured response can add to the next
+  request. The estimate stays visible during the pulse. Thanks @10fra for the
+  design.
+- **Fact editing now opens directly from the Facts panel.** Press `Enter` or
+  double-click a Fact to open its editor. The editor includes the `people`,
+  `places`, `rules`, and `items` Fact tags from StoryTavern. A saved custom Fact
+  tag becomes available for other Facts. Thanks @10fra for the design.
 - **Local story changes commit with one atomic write.** A take switch, a text
   edit, a tag change, a fact change, or a chapter-break change now commits
   through one atomic publish of the story manifest. Before, each of these

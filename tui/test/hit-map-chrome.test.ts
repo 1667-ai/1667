@@ -68,7 +68,7 @@ interface FooterCase {
 const footerCases: FooterCase[] = [
   { name: "facts", mode: "FACTS", actions: FACTS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("d"), key("escape")],
-    setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: null }; } },
+    setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
   { name: "library", mode: "LIBRARY", actions: LIBRARY_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("n"), key("e"), key("/"), key("d"), key("escape")],
     setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
@@ -359,7 +359,7 @@ describe("hit map clickable chrome", () => {
       },
       (state: State) => {
         state.mode = "FACTS";
-        state.facts = { cursor: 0, query: "mar", chip: 0, selectedTag: null, filtering: true, expandedId: null, deleteArmedId: null };
+        state.facts = { cursor: 0, query: "mar", chip: 0, selectedTag: null, filtering: true, deleteArmedId: null };
       }
     ];
     for (const setup of cases) {
@@ -412,7 +412,7 @@ describe("hit map clickable chrome", () => {
       id: `f${index}`, tag: `a-very-long-tag-name-${index}`, text: `fact ${index}`,
       createdAt: "2022-10-25T09:00:00.000Z", updatedAt: "2022-10-25T09:00:00.000Z"
     })) };
-    state.facts = { cursor: 0, chip: 0, selectedTag: null, query: "", filtering: false, expandedId: null, deleteArmedId: null, prompt: null } as never;
+    state.facts = { cursor: 0, chip: 0, selectedTag: null, query: "", filtering: false, deleteArmedId: null, prompt: null } as never;
     const frame = render(state, 80, 24);
     const chipRows = state.hitRows
       .map((row, index) => ({ row, index }))
@@ -828,22 +828,6 @@ describe("hit map clickable chrome", () => {
     expect(state.composer.text).toBe("draft stays");
   });
 
-  test("expanded facts wrap within the raised panel", () => {
-    const source = demoAppSource();
-    source.payload.facts[0]!.text = Array.from({ length: 45 }, (_, index) => `lantern-${index}`).join(" ");
-    const state = initialState(source, false);
-    state.stream = null;
-    state.mode = "FACTS";
-    state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false,
-      expandedId: source.payload.facts[0]!.id, deleteArmedId: null };
-    const frame = render(state, 120, 36);
-    const raisedWidths = frame.map((line) => visibleWidth(line
-      .filter((segment) => segment.background === "raised").map((segment) => segment.text).join("")));
-    expect(Math.max(...raisedWidths) <= 106).toBeTrue();
-    expect(state.hitRows.filter((row) => row?.overrides?.some((region) =>
-      region.target.kind === "list" && region.target.index === 0)).length).toBeGreaterThan(2);
-  });
-
   test("every screen footer renders untruncated at wide and compact sizes", () => {
     const cases: Array<{ name: string; expected: string | ((width: number) => string); setup: (state: State, source: Source) => void }> = [
       { name: "actions", expected: "↑↓ move · ↵ run · esc close",
@@ -880,12 +864,12 @@ describe("hit map clickable chrome", () => {
         setup: (state) => { state.mode = "KEYS"; } },
       { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
-      { name: "facts", expected: "↑↓ · tab tags · ↵ view · / filter · e edit · n new · d delete · esc",
-        setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: null }; } },
+      { name: "facts", expected: "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
+        setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
         ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · tab tags · ↵ view · / filter · e edit · n new · d confirms · esc keeps",
-        setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: "fact-1" }; } },
+        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps",
+        setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
       { name: "tag manager", expected: "↑↓ move · d delete · esc commands",

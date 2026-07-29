@@ -57,9 +57,6 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
     const rows = factRows(payload.facts, facts.selectedTag, facts.query);
     const preservedIndex = factId === null ? -1 : rows.findIndex((fact) => fact.id === factId);
     if (preservedIndex >= 0) facts.cursor = preservedIndex;
-    if (facts.expandedId !== null && !payload.facts.some((fact) => fact.id === facts.expandedId)) {
-      facts.expandedId = null;
-    }
   }
   if (commands !== null && state.commands === commands && commands.view === "tags") {
     const preservedIndex = tagNodeId === null

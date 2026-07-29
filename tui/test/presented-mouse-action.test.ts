@@ -411,6 +411,34 @@ describe("presented mouse reconciliation", () => {
       .toBe(null);
   });
 
+  test("rebases a Fact double-click by Fact identity", () => {
+    const state = initialState(demoAppSource(), false);
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0,
+      query: "",
+      chip: 0,
+      selectedTag: null,
+      filtering: false, deleteArmedId: null
+    };
+    const factId = state.payload.facts[0]!.id;
+    const captured = interaction(state, 20);
+    const action = { action: "edit", index: 0, rowId: factId } as const;
+
+    state.payload = {
+      ...state.payload,
+      facts: [state.payload.facts[1]!, state.payload.facts[0]!]
+    };
+    expect(reconcile(state, action, captured, interaction(state, 21)))
+      .toEqual({ action: "edit", index: 1, rowId: factId });
+
+    state.payload = {
+      ...state.payload,
+      facts: state.payload.facts.filter((fact) => fact.id !== factId)
+    };
+    expect(reconcile(state, action, captured, interaction(state, 22))).toBe(null);
+  });
+
   test("refuses a take click once that ordinal names another sibling", () => {
     // `‹ take 2/5 ›` is a position among siblings. Prune an earlier one and
     // the same number switches the line to a different node.

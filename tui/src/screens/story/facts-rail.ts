@@ -1,4 +1,5 @@
 import { addHit, type HitRows } from "../../hit.js";
+import type { FrameDeadlineCollector } from "../../animation-deadline.js";
 import { RAIL_CONTENT_WIDTH, type RailModel } from "../../rail.js";
 import type { StoryFrameLayout } from "../../story-frame-layout.js";
 import { wrapText } from "../../wrap.js";
@@ -19,7 +20,10 @@ export function renderFactsRail(
   hits: HitRows,
   surfaceRows: number,
   layout: StoryFrameLayout,
-  expanded = false
+  expanded = false,
+  now = 0,
+  deadlines?: FrameDeadlineCollector,
+  growthPulse = true
 ): FrameLine[] {
   if (layout.factLeft === null) throw new Error("facts rail requires split frame layout");
   const factLeft = layout.factLeft;
@@ -56,7 +60,7 @@ export function renderFactsRail(
   // keeps the budget from shrinking as the pane grows.
   const reserve = model.facts.length > 0 ? 4 : 2;
   const budget = Math.max(0, surfaceRows - reserve, Math.min(surfaceRows, COLLAPSED_METER_ROWS));
-  const footer = contextMeterLines(model, expanded, budget);
+  const footer = contextMeterLines(model, expanded, budget, now, deadlines, growthPulse);
   const footerTop = surfaceRows - footer.length;
   // The facts own every row above the footer. One of those is normally left as
   // air under the last fact — but a rail short enough that the air would cost

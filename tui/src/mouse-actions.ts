@@ -1,4 +1,5 @@
 import type { MouseEvent } from "@opentui/core";
+import { factRows } from "./facts-model.js";
 import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
 import { generationBusy } from "./story-actions.js";
@@ -31,6 +32,104 @@ export type MouseActionState = Pick<RuntimeState,
 export interface SelectionSafeMouseGate {
   resolve(event: MouseGesture, resolved: ResolvedKey | null): ResolvedKey | null;
   reset(): void;
+}
+
+export interface FactDoubleClickGate {
+  resolve(
+    event: MouseGesture,
+    resolved: ResolvedKey | null,
+    state: MouseActionState
+  ): ResolvedKey | null;
+  reset(): void;
+}
+
+/**
+ * Multi-event click gestures (selection-safe release, Fact double-click).
+ * Keyboard/paste interrupt at enqueue time so a later mouse-down cannot finish
+ * a pair text already broke. Already-captured mouse actions stay in the queue
+ * and run FIFO — only incomplete gate state is cleared.
+ */
+export interface ClickGestureController {
+  readonly gates: ReadonlyArray<{ reset(): void }>;
+  /** Clear pending gate state (drag, scroll, frame loss, non-interactive paint). */
+  reset(): void;
+  /** Interrupt incomplete multi-event pairs at text-input enqueue time. */
+  interrupt(): void;
+}
+
+export function createClickGestureController(
+  gates: ReadonlyArray<{ reset(): void }>
+): ClickGestureController {
+  // reset and interrupt clear the same incomplete multi-event state; names
+  // stay distinct at call sites (frame lifecycle vs text-input enqueue).
+  const clear = () => {
+    for (const gate of gates) gate.reset();
+  };
+  return {
+    gates,
+    reset: clear,
+    interrupt: clear
+  };
+}
+
+/** A Fact row uses one click for selection and two for editing. The first
+ *  click on an already selected row stays quiet; it no longer opens a second
+ *  inline reading surface inside the panel. */
+export function createFactDoubleClickGate(
+  now: () => number = Date.now,
+  thresholdMs = 500
+): FactDoubleClickGate {
+  let previous: { id: string; at: number } | null = null;
+  return {
+    resolve(event, resolved, state) {
+      // Shift-drag/click belongs to the terminal's own selection. mouseToAction
+      // already returns null for Shift, but this gate hit-tests independently
+      // and must not arm or complete a Fact edit from those events either.
+      if (event.modifiers.shift) {
+        previous = null;
+        return resolved;
+      }
+      if (event.type === "drag" || event.type === "scroll") previous = null;
+      if (event.type !== "down") return resolved;
+      const target = event.button === 0 && state.facts !== null
+        ? hitAt(state.hitRows, event.x, event.y)
+        : null;
+      if (target?.kind !== "list") {
+        previous = null;
+        return resolved;
+      }
+      const fact = factRows(
+        state.payload.facts,
+        state.facts!.selectedTag,
+        state.facts!.query
+      )[target.index];
+      if (fact === undefined) {
+        previous = null;
+        return resolved;
+      }
+      const at = now();
+      if (previous?.id === fact.id && at - previous.at <= thresholdMs) {
+        previous = null;
+        return { action: "edit", index: target.index, rowId: fact.id };
+      }
+      previous = { id: fact.id, at };
+      return resolved?.action === "open-selected" ? null : resolved;
+    },
+    reset() {
+      previous = null;
+    }
+  };
+}
+
+/** Keyboard and paste cancel pending mouse click gestures when text input is
+ *  queued. The interrupt runs at wrap time so a second mouse-down cannot arm
+ *  edit while the key still waits for a presented frame. */
+export function withInterruptedClickGestures(
+  controller: ClickGestureController,
+  run: () => void | Promise<void>
+): () => void | Promise<void> {
+  controller.interrupt();
+  return () => run();
 }
 
 export function createSelectionSafeMouseGate(): SelectionSafeMouseGate {

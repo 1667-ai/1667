@@ -1004,12 +1004,10 @@ describe("backend recovery orchestration", () => {
     state.chapterDeleteArmedId = "chapter-break-1";
     state.chapters = {
       cursor: 1,
-      rename: { breakId: "chapter-break-1", value: "newer title" },
-      deleteArmedId: "chapter-break-1"
+      rename: { breakId: "chapter-break-1", value: "newer title" }, deleteArmedId: "chapter-break-1"
     };
     state.facts = {
-      cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false,
-      expandedId: null, deleteArmedId: "fact-1"
+      cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1"
     };
 
     reload.resolve(recoveredPayload);
@@ -1075,8 +1073,7 @@ describe("backend recovery orchestration", () => {
     state.mode = "TAG";
     state.chapters = { cursor: 1, rename, deleteArmedId: "chapter-break-2" };
     state.facts = {
-      cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false,
-      expandedId: null, deleteArmedId: "fact-1"
+      cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1"
     };
 
     reload.resolve(recoveredPayload);
@@ -1105,8 +1102,7 @@ describe("backend recovery orchestration", () => {
     source.api.loadStory = async () => recoveredPayload;
     const state = initialState(source, false);
     const facts = {
-      cursor: 1, query: "", chip: 0, selectedTag: null, filtering: false,
-      expandedId: selectedId, deleteArmedId: selectedId
+      cursor: 1, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: selectedId
     };
     state.mode = "FACTS";
     state.facts = facts;
@@ -1129,7 +1125,6 @@ describe("backend recovery orchestration", () => {
     expect(state.mode).toBe("FACTS");
     expect(state.facts).toBe(facts);
     expect(factRows(state.payload.facts, null, "")[state.facts!.cursor]?.id).toBe(selectedId);
-    expect(state.facts!.expandedId).toBe(selectedId);
     expect(state.facts!.deleteArmedId).toBe(selectedId);
     stop();
   });

@@ -19,6 +19,9 @@ read_when:
 | take | One alternative version of a story part |
 | story line | The selected path through story parts |
 | tag | A name and a status on the end of one story line |
+| Fact | One note that 1667 sends with a provider request |
+| Fact tag | A category name for a Fact |
+| context meter | The side-rail view of the next provider request size |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

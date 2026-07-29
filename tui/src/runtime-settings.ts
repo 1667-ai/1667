@@ -4,7 +4,7 @@ import type { StoryScreenState } from "./state.js";
 
 type GenerationRuntimeState = Pick<
   StoryScreenState,
-  "model" | "contextWindow" | "systemPrompt" | "assistantPrefill"
+  "model" | "contextWindow" | "maxTokens" | "systemPrompt" | "assistantPrefill"
 >;
 
 interface GenerationSettingsSource {
@@ -21,6 +21,7 @@ export function deriveGenerationRuntime(
   return {
     model: demo ? settings.model : settings.provider === "dry-run" ? "dry-run" : settings.model,
     contextWindow: settings.contextWindow ?? null,
+    maxTokens: settings.maxTokens,
     systemPrompt: settings.systemPrompt,
     assistantPrefill: supportsAssistantPrefill(settings)
   };

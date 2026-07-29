@@ -104,7 +104,7 @@ describe("run C overlay frames", () => {
       ...fact, id: `fact-${index + 1}`, text: `Fact ${String(index + 1).padStart(2, "0")}\nbody`, tag: "test"
     }));
     factsState.mode = "FACTS";
-    factsState.facts = { cursor: selected, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: null };
+    factsState.facts = { cursor: selected, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
     const facts = render(factsState);
     expect(facts.text).toContain("9–21/25");
     expect(facts.text).toContain("▸ Fact 21");
@@ -171,8 +171,7 @@ describe("run C overlay frames", () => {
     }));
     state.mode = "FACTS";
     state.facts = {
-      cursor: 20, query: "Fact 03", chip: 0, selectedTag: null, filtering: true,
-      expandedId: null, deleteArmedId: null
+      cursor: 20, query: "Fact 03", chip: 0, selectedTag: null, filtering: true, deleteArmedId: null
     };
     const rendered = renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() });
     const text = frameText(rendered.lines);
@@ -281,6 +280,7 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("│");
     expect(frame).toContain("facts · 5 ───────── relevance-lit");
     expect(frame).toContain("next request  ~884 / 32.8k");
+    expect(frame).not.toContain("+≤");
     expect(frame).toContain(`▮${"▮".repeat(19)}   31.9k free`);
     // A gauge is not a quota readout: no percentage anywhere on the rail.
     expect(/\d+%/.test(frame)).toBeFalse();
@@ -294,6 +294,7 @@ describe("run C overlay frames", () => {
     source.settings = { ...source.settings, contextWindow: null };
     const frame = await renderOnce(source, 150, 30);
     expect(frame).toContain("next request  ~884 tokens");
+    expect(frame).not.toContain("+≤");
     expect(frame).toContain("set context window · settings (,)");
     expect(frame).not.toContain("free");
     expect(/\d+%/.test(frame)).toBeFalse();

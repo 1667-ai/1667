@@ -85,7 +85,6 @@ export interface FactsOverlayState {
   /** Stable identity while the sorted chip list changes after a mutation. */
   selectedTag: string | null;
   filtering: boolean;
-  expandedId: string | null;
   deleteArmedId: string | null;
 }
 export interface CommandsOverlayState {
@@ -219,6 +218,9 @@ export interface StoryScreenState extends OverlayState {
   now: number;
   model: string;
   contextWindow: number | null;
+  /** Maximum provider response size. The context meter uses this as the
+   *  honest upper bound for how much the response can grow the next prompt. */
+  maxTokens: number;
   systemPrompt: string;
   /** Whether the configured provider accepts an assistant continuation prefill. */
   assistantPrefill: boolean;

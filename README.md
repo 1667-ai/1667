@@ -37,7 +37,7 @@ executable.
 - Add sibling takes to any story part.
 - Select a take for each story part.
 - Read a story as a story line, a tree, or a mass map.
-- View facts and estimated request context in the side rail.
+- View Facts and estimated request context in the side rail.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
 - Use the embedded backend worker without a network port.
@@ -186,6 +186,17 @@ the 1667 editor to change story data.
 
 The keys `h`, `j`, `k`, and `l` are not navigation keys. In the map, `l`
 follows or opens the selected story line. Press `?` for the complete key list.
+
+## Use Facts and the context meter
+
+Press `Enter` to edit the selected Fact. Double-click a Fact to edit it.
+
+In the Fact editor, press `Tab` or `Shift+Tab` to select a Fact tag. Press
+`Ctrl+T` to type a custom Fact tag. When you save the Fact, 1667 adds its
+custom Fact tag to the selector.
+
+The context meter shows the estimated next request. Its pulsing segment shows
+the maximum response growth. The segment changes between two visible colors.
 
 ## Model providers
 

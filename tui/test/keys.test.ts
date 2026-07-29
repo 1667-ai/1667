@@ -156,6 +156,9 @@ describe("arrow-first key routing", () => {
       expect(resolveKey(key("j"), mode).action).not.toBe("focus-next");
       expect(resolveKey(key("k"), mode).action).not.toBe("focus-previous");
     }
+    expect(resolveKey(key("return"), "FACTS").action).toBe("edit");
+    expect(resolveKey(key("return"), "FACTS", { overlayTyping: true }).action)
+      .toBe("open-selected");
   });
 
   test("keys overlay scrolls, suppresses NAV, and escape peels it", () => {
@@ -245,6 +248,9 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("up"), "COMPOSE").action).toBe("cursor-up");
     expect(resolveKey(key("down"), "COMPOSE").action).toBe("cursor-down");
     expect(resolveKey(key("return", { shift: true }), "COMPOSE").action).toBe("newline");
+    // OpenTUI raw LF / Ctrl+J insert a line; they never send the draft.
+    expect(resolveKey(key("linefeed", { sequence: "\n" }), "COMPOSE").action).toBe("newline");
+    expect(resolveKey(key("j", { sequence: "\n", ctrl: true }), "COMPOSE").action).toBe("newline");
     expect(resolveKey(key("f", { ctrl: true }), "COMPOSE").action).toBe("toggle-compose-fullscreen");
     expect(resolveKey(key("up", { ctrl: true }), "COMPOSE").action).toBe("history-previous");
     expect(resolveKey(key("down", { ctrl: true }), "COMPOSE").action).toBe("history-next");
@@ -280,6 +286,9 @@ describe("text surfaces and palette", () => {
 
   test("inline editor owns multiline input and saves with Ctrl+S / Ctrl+O", () => {
     expect(resolveKey(key("return"), "EDITOR").action).toBe("newline");
+    // Linefeed must resolve as newline, not as input that bypasses Fact-tag guards.
+    expect(resolveKey(key("linefeed", { sequence: "\n" }), "EDITOR").action).toBe("newline");
+    expect(resolveKey(key("j", { sequence: "\n", ctrl: true }), "EDITOR").action).toBe("newline");
     expect(resolveKey(key("s"), "EDITOR")).toEqual({ action: "input", text: "s" });
     expect(resolveKey(key("s", { sequence: "\u0013", ctrl: true }), "EDITOR").action).toBe("save-edit");
     // Portable same-take chord: classic terminals deliver ctrl+o as 0x0f.

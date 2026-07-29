@@ -12,7 +12,12 @@ import { moveComposerVisualVertical } from "./composer-wrapping.js";
 import { copyToClipboard, readFromClipboard } from "./clipboard.js";
 import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
-import { parseFactEditor } from "./facts-model.js";
+import {
+  admitEditorPaste,
+  factEditorInsert,
+  factEditorSavePayload,
+  handleFactEditorCommand
+} from "./fact-editor-policy.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
@@ -36,6 +41,12 @@ export async function inlineEditorAction(
 ): Promise<void> {
   const editor = state.editor;
   if (editor === null) return;
+
+  // Fact header grammar owns its commands; the generic path stays target-agnostic.
+  if (editor.target.kind === "fact" && handleFactEditorCommand(resolved, state, editor)) {
+    return;
+  }
+
   if (resolved.action === "cancel") return closeInlineEditor(state, editor);
   if (resolved.action === "copy-selection") return await copySelection(state, editor, false);
   if (resolved.action === "cut-selection") return await copySelection(state, editor, true);
@@ -58,14 +69,19 @@ export async function inlineEditorAction(
       return void (state.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v");
     }
     const clean = sanitizePastedText(text);
-    if (clean.length === 0) return void (state.toast = "clipboard has no insertable text");
-    disarmEditorConfirmations(editor);
-    insertComposerText(editor.composer, clean);
+    if (!admitEditorPaste(state, editor, clean)) {
+      state.toast = "clipboard has no insertable text";
+    }
     return;
   }
   if (resolved.action === "newline") {
     disarmEditorConfirmations(editor);
-    return insertComposerText(editor.composer, "\n");
+    const insert = editorInsert(editor, "\n", "newline");
+    if ("blocked" in insert) {
+      state.toast = insert.blocked;
+      return;
+    }
+    return insertComposerText(editor.composer, insert.text);
   }
   const wrapWidth = Math.max(1, (context.renderer?.width ?? 80) - 4);
   if (resolved.action === "cursor-up" || resolved.action === "cursor-down") {
@@ -96,7 +112,13 @@ export async function inlineEditorAction(
   }
   if (resolved.action === "input") {
     disarmEditorConfirmations(editor);
-    return insertComposerText(editor.composer, resolved.text ?? "");
+    const raw = resolved.text ?? "";
+    const insert = editorInsert(editor, raw, "input");
+    if ("blocked" in insert) {
+      state.toast = insert.blocked;
+      return;
+    }
+    return insertComposerText(editor.composer, insert.text);
   }
   if (resolved.action === "save-edit") {
     await saveInlineEditor(state, source, context, editor, "default");
@@ -105,6 +127,16 @@ export async function inlineEditorAction(
   if (resolved.action === "save-edit-inplace") {
     await saveInlineEditor(state, source, context, editor, "inplace");
   }
+}
+
+/** Target-specific insert policy. Non-Fact targets pass text through. */
+function editorInsert(
+  editor: InlineEditorSession,
+  raw: string,
+  source: "paste" | "input" | "newline"
+): { text: string } | { blocked: string } {
+  if (editor.target.kind === "fact") return factEditorInsert(editor.composer, raw, source);
+  return { text: raw };
 }
 
 async function copySelection(
@@ -264,8 +296,9 @@ async function saveInlineEditor(
   }
 
   if (target.kind === "fact") {
-    const parsed = parseFactEditor(submitted);
-    if (parsed.text.trim().length === 0) return void (state.toast = "fact text cannot be empty");
+    const validated = factEditorSavePayload(submitted);
+    if (!validated.ok) return void (state.toast = validated.toast);
+    const parsed = { tag: validated.tag, text: validated.text };
     const factId = target.factId;
     const creating = factId === null;
     await context.backend.run(creating ? "creating fact" : "saving fact", async (task) => {

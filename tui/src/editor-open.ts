@@ -33,7 +33,7 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     target: { kind: "fact", factId: fact?.id ?? null, base: fact },
     composer: createComposer(initial),
     initial,
-    title: `${fact === null ? "new" : "edit"} fact · optional tag: first line`,
+    title: `${fact === null ? "new" : "edit"} fact`,
     placeholder: "tag: optional\n\nfact text…",
     returnMode: "FACTS",
     conflict: null,
@@ -48,7 +48,7 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     composer: createComposer(initial),
     // This prefill is an unsaved draft, so Ctrl+S must create it unchanged.
     initial: serializeFactEditor(null),
-    title: "new fact from selection · optional tag: first line",
+    title: "new fact from selection",
     placeholder: "tag: optional\n\nfact text…",
     returnMode: "NAV",
     conflict: null,

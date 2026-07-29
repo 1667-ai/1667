@@ -112,6 +112,14 @@ function rebaseByStableIdentity(
   action: ResolvedKey,
   state: RuntimeState
 ): ResolvedKey | null {
+  if (action.action === "edit" && action.rowId !== undefined && state.facts !== null) {
+    const index = factRows(
+      state.payload.facts,
+      state.facts.selectedTag,
+      state.facts.query
+    ).findIndex((fact) => fact.id === action.rowId);
+    return index < 0 ? null : { ...action, index };
+  }
   if (action.action === "focus-index" && action.rowId !== undefined) {
     const index = createStoryViewModel(state.payload, state.stream).rows
       .findIndex((row) => row.id === action.rowId);

@@ -6,7 +6,11 @@ import { setComposerText } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
 import { hitAt } from "../src/hit.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
-import { captureMouseActionState, mouseToAction } from "../src/mouse-actions.js";
+import {
+  captureMouseActionState,
+  createFactDoubleClickGate,
+  mouseToAction
+} from "../src/mouse-actions.js";
 import { createStoryViewModel, rowPart } from "../src/model.js";
 import {
   beginSettingsRowEdit,
@@ -68,7 +72,7 @@ interface FooterCase {
 const footerCases: FooterCase[] = [
   { name: "facts", mode: "FACTS", actions: FACTS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("tab"), key("return"), key("/"), key("e"), key("n"), key("x"), key("escape")],
-    setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: null }; } },
+    setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
   { name: "library", mode: "LIBRARY", actions: LIBRARY_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("n"), key("r"), key("/"), key("d"), key("escape")],
     setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
@@ -577,16 +581,57 @@ describe("hit map from rendered frames", () => {
     await dispatch(resolved!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.mode).toBe("FACTS");
     expect(state.facts?.cursor).toBe(1);
-    expect(state.facts?.expandedId).toBe(source.payload.facts[1]!.id);
   });
 
-  test("keyboard facts open keeps the default collapsed panel", async () => {
+  test("keyboard facts open selects the first Fact without an editor", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     await dispatch({ action: "open-facts" }, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.mode).toBe("FACTS");
     expect(state.facts?.cursor).toBe(0);
-    expect(state.facts?.expandedId).toBe(null);
+  });
+
+  test("a Fact row requires two clicks and then opens its editor", async () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.mode = "FACTS";
+    state.facts = {
+      cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null
+    };
+    render(state);
+    const located = state.hitRows.flatMap((row, y) => row === null
+      ? []
+      : [row, ...row.overrides ?? []].map((hit) => ({ hit, y })))
+      .find(({ hit }) => hit.target.kind === "list" && hit.target.index === 0)!;
+    const event = click(located.hit.left + 2, located.y);
+    let now = 1_000;
+    for (const interruption of ["drag", "scroll"] as const) {
+      const interrupted = createFactDoubleClickGate(() => now);
+      expect(interrupted.resolve(event, mouseToAction(event, state), state)).toBe(null);
+      interrupted.resolve({
+        type: interruption,
+        button: 0,
+        x: located.hit.left + 2,
+        y: located.y,
+        modifiers: { shift: false, alt: false, ctrl: false }
+      } as never, null, state);
+      now += 120;
+      expect(interrupted.resolve(event, mouseToAction(event, state), state)).toBe(null);
+    }
+
+    const gate = createFactDoubleClickGate(() => now);
+    expect(gate.resolve(event, mouseToAction(event, state), state)).toBe(null);
+    now += 120;
+    const edit = gate.resolve(event, mouseToAction(event, state), state);
+    expect(edit).toEqual({
+      action: "edit",
+      index: 0,
+      rowId: source.payload.facts[0]!.id
+    });
+    await dispatch(edit!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
+
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.target).toMatchObject({ kind: "fact", factId: source.payload.facts[0]!.id });
   });
 
   test("clicking the selected map row reroutes rather than re-selecting", () => {
@@ -612,23 +657,6 @@ describe("hit map from rendered frames", () => {
     expect(state.map!.rowIds).toContain(state.map!.pathCursorId);
   });
 
-  test("expanded fact detail lines stay attached to their fact", () => {
-    const source = demoAppSource();
-    const state = initialState(source, false);
-    state.stream = null;
-    state.mode = "FACTS";
-    const firstFact = state.payload.facts[0]!;
-    state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: firstFact.id, deleteArmedId: null };
-    render(state);
-    const listRows = state.hitRows
-      .flatMap((row) => row?.overrides?.map((hit) => hit.target) ?? [])
-      .filter((target): target is { kind: "list"; index: number } => target?.kind === "list");
-    // The expanded fact occupies several rows, all pointing at index 0, and
-    // the next fact still resolves to 1 rather than being pushed off.
-    expect(listRows.filter((target) => target.index === 0).length).toBeGreaterThan(1);
-    expect(listRows.some((target) => target.index === 1)).toBeTrue();
-  });
-
   test("facts filter keeps reducer, highlight, and first-click selection aligned", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
@@ -642,8 +670,7 @@ describe("hit map from rendered frames", () => {
     ];
     state.mode = "FACTS";
     state.facts = {
-      cursor: 6, query: "", chip: 0, selectedTag: null, filtering: true,
-      expandedId: null, deleteArmedId: null
+      cursor: 6, query: "", chip: 0, selectedTag: null, filtering: true, deleteArmedId: null
     };
 
     await dispatch(
@@ -691,8 +718,7 @@ describe("hit map from rendered frames", () => {
     });
     state.mode = "FACTS";
     state.facts = {
-      cursor: 2, query: "", chip: 1, selectedTag: "world", filtering: false,
-      expandedId: null, deleteArmedId: null
+      cursor: 2, query: "", chip: 1, selectedTag: "world", filtering: false, deleteArmedId: null
     };
     await dispatch(
       { action: "edit" }, state, source, createWrapCache(),

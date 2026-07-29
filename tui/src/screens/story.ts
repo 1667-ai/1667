@@ -10,6 +10,7 @@ import {
   type StoryViewModel
 } from "../model.js";
 import { buildRailModel } from "../rail.js";
+import { factEditorChrome } from "../fact-editor-policy.js";
 import { projectNextRequest } from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
@@ -189,9 +190,18 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   });
   if (rail) {
     const focusedText = rowPart(view, state.focusIndex)?.node.text ?? "";
+    // Once output starts, its exact remaining provider-token allowance is not
+    // available. Keep the projected request live, but withhold a false maximum
+    // until the next request is ready to send.
+    const growthTokens = state.stream === null ? state.maxTokens : 0;
+    // Compose focus maps both growth pulse roles to chrome, so a pulse
+    // deadline would only force invisible repaints. Own the skip here where
+    // the dim is decided; the meter still owns deadline registration.
+    const growthPulse = !(state.mode === "COMPOSE" && state.config.composeFocus === "on");
     lines = renderFactsRail(lines,
-      buildRailModel(state.payload, focusedText, state.contextWindow, estimate),
-      hitRows, surfaceRows, frameLayout, state.contextMeterExpanded);
+      buildRailModel(state.payload, focusedText, state.contextWindow, estimate, growthTokens),
+      hitRows, surfaceRows, frameLayout, state.contextMeterExpanded, state.now, options.deadlines,
+      growthPulse);
   }
   if (state.mode === "COMPOSE") {
     lines = applyComposePageMode(
@@ -526,13 +536,16 @@ function renderInlineEditor(
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
   const editor = state.editor!;
+  const factChrome = editor.target?.kind === "fact"
+    ? factEditorChrome(editor.title, editor.composer.text)
+    : null;
   const layout = renderComposerLayout({
     composer: editor.composer,
     terminalWidth: width,
     terminalHeight: height,
     measure: width,
-    title: editor.title,
-    footerHints: editorFooterHints(editor),
+    title: factChrome?.title ?? editor.title,
+    footerHints: factChrome?.footerHints ?? editorFooterHints(editor),
     placeholder: editor.placeholder,
     footerNotice: state.toast ?? editor.conflict?.message ?? null,
     scrollTop: state.editorScrollTop,
