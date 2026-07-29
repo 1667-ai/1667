@@ -16,12 +16,15 @@ import {
   closeSync,
   constants,
   fsyncSync,
+  fstatSync,
+  lstatSync,
   mkdirSync,
   openSync,
-  readFileSync,
+  readSync,
   renameSync,
   unlinkSync,
-  writeFileSync
+  writeFileSync,
+  writeSync
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -43,6 +46,12 @@ export interface ReadingPositionStoreOptions {
 const PERSIST_DEBOUNCE_MS = 400;
 const LOCK_WAIT_MS = 200;
 const LOCK_SPIN_MS = 10;
+/** Bound project-local store reads; the map is a few KB of story→part ids. */
+const MAX_STORE_BYTES = 256 * 1024;
+const MAX_GITIGNORE_BYTES = 64 * 1024;
+/** Empty/malformed lock reclaim grace after a crash mid-ownership write. */
+const INVALID_LOCK_GRACE_MS = 2_000;
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 /** Dirty keys for the next flush. `null` means delete that story entry. */
 const dirty = new Map<string, string | null>();
@@ -105,10 +114,13 @@ export function configureReadingPositionStore(file: string): void {
 export function loadReadingPositions(
   options: ReadingPositionStoreOptions = {}
 ): ReadingPositions {
+  const text = readBoundedRegularFileSync(
+    options.file ?? activeStoreFile,
+    MAX_STORE_BYTES
+  );
+  if (text === null) return {};
   try {
-    return normalizeReadingPositions(JSON.parse(
-      readFileSync(options.file ?? activeStoreFile, "utf8")
-    ));
+    return normalizeReadingPositions(JSON.parse(text));
   } catch {
     return {};
   }
@@ -175,13 +187,15 @@ function withStoreLock(storeFile: string, work: () => boolean): boolean {
     try {
       lockFd = openSync(
         lockPath,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW,
         0o600
       );
       try {
-        writeFileSync(lockFd, `${process.pid}\n${Date.now()}\n`, "utf8");
+        const record = Buffer.from(`${process.pid}\n${Date.now()}\n`, "utf8");
+        writeSync(lockFd, record, 0, record.length, 0);
+        fsyncSync(lockFd);
       } catch {
-        // Ownership record is best-effort.
+        // Ownership record is best-effort; invalid locks reclaim after grace.
       }
     } catch (error) {
       if (!isExistError(error)) return work();
@@ -210,19 +224,34 @@ function withStoreLock(storeFile: string, work: () => boolean): boolean {
   }
 }
 
-/** Recover only when the recorded owner pid is dead — never by age alone. */
+/**
+ * Recover a lock only when its owner is known-dead, or the ownership record
+ * never finished writing and the lock is older than the grace window.
+ */
 function recoverStaleLock(lockPath: string): boolean {
   try {
-    const text = readFileSync(lockPath, "utf8");
-    const pid = Number(text.split("\n")[0]);
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    try {
-      process.kill(pid, 0);
-      return false; // owner still alive
-    } catch {
+    const info = lstatSync(lockPath);
+    if (!info.isFile() || info.isSymbolicLink()) {
       unlinkSync(lockPath);
       return true;
     }
+    const text = readBoundedRegularFileSync(lockPath, 256) ?? "";
+    const pid = Number(text.split("\n")[0]);
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid, 0);
+        return false; // owner still alive
+      } catch {
+        unlinkSync(lockPath);
+        return true;
+      }
+    }
+    // Invalid/missing ownership (crash after O_EXCL, before pid write).
+    if (Date.now() - info.mtimeMs >= INVALID_LOCK_GRACE_MS) {
+      unlinkSync(lockPath);
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -299,7 +328,10 @@ function syncDirectory(directory: string): void {
   }
 }
 
-/** Append ignore lines for existing projects created before this store existed. */
+/**
+ * Append ignore lines for existing projects. Never follows a symlink
+ * `.gitignore` — a committed link must not redirect writes outside the tier.
+ */
 function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
   const gitignore = join(projectDir, ".gitignore");
   const needed = [
@@ -308,16 +340,64 @@ function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
     `${READING_POSITIONS_FILE}.*.tmp`
   ];
   try {
-    let text = readFileSync(gitignore, "utf8");
+    const info = lstatSync(gitignore);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_GITIGNORE_BYTES) return;
+    const text = readBoundedRegularFileSync(gitignore, MAX_GITIGNORE_BYTES);
+    if (text === null) return;
     const lines = new Set(text.split("\n"));
+    let next = text;
     let changed = false;
     for (const line of needed) {
       if (lines.has(line)) continue;
-      text = text.endsWith("\n") || text.length === 0 ? `${text}${line}\n` : `${text}\n${line}\n`;
+      next = next.endsWith("\n") || next.length === 0 ? `${next}${line}\n` : `${next}\n${line}\n`;
       changed = true;
     }
-    if (changed) writeFileSync(gitignore, text, "utf8");
+    if (!changed) return;
+    // Atomic replace without following a symlink (open path with O_NOFOLLOW).
+    const tmp = `${gitignore}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+    const fd = openSync(
+      tmp,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW,
+      0o644
+    );
+    try {
+      const body = Buffer.from(next, "utf8");
+      writeSync(fd, body, 0, body.length, 0);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, gitignore);
   } catch {
-    // No gitignore or not writable — not fatal for the store write.
+    // No gitignore, symlink, or not writable — not fatal for the store write.
+  }
+}
+
+/** Read a regular file without following symlinks; null on any refusal. */
+function readBoundedRegularFileSync(file: string, maxBytes: number): string | null {
+  try {
+    const pathInfo = lstatSync(file);
+    // Refuse symlinks, dirs, devices, and oversized payloads. Soft UI store:
+    // do not require nlink===1 (strict authority files do; this map does not).
+    if (!pathInfo.isFile() || pathInfo.isSymbolicLink()) return null;
+    if (pathInfo.size > maxBytes) return null;
+    const fd = openSync(file, constants.O_RDONLY | NOFOLLOW);
+    try {
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.size > maxBytes) return null;
+      const size = Number(opened.size);
+      const buffer = Buffer.alloc(size);
+      let offset = 0;
+      while (offset < size) {
+        const read = readSync(fd, buffer, offset, size - offset, offset);
+        if (read === 0) break;
+        offset += read;
+      }
+      return buffer.subarray(0, offset).toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
   }
 }
