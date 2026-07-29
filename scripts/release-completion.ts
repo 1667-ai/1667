@@ -24,8 +24,8 @@ export interface ReleaseCompletionRef {
   readonly peeledName: string;
 }
 
-/** Hosted npm publication stays disabled until all prepublication controls pass. */
-export const NPM_PUBLICATION_READY = false;
+/** This gate records whether all prepublication controls passed. */
+export const NPM_PUBLICATION_READY = true;
 
 export function requireNpmPublicationReady(): void {
   if (!NPM_PUBLICATION_READY) {

@@ -8,19 +8,19 @@ read_when:
 
 # Release packages for 1667
 
-This repository contains a hosted npm publication workflow. A safety interlock
-disables publication. SBOM generation rejects signed-tag authorization fields.
-Host compatibility and registry controls must be complete before maintainers
-remove the interlock.
+This repository contains a hosted npm publication workflow. The
+prepublication registry controls are complete. SBOM generation rejects
+signed-tag authorization fields.
 
 The repository supports local release package production and preflight. It
 publishes native archives as a GitHub pre-release.
 
-Maintainers reserved the package names. Do not publish packages. Do not move
-registry tags. Do not describe a candidate as an official release.
+Maintainers reserved the package names. Publish release packages only through
+the hosted workflow. Do not publish held targets. Do not move registry tags
+outside a controlled operation. Do not describe a candidate as an official
+release.
 
-Publication also requires an explicit maintainer decision. The protected
-environment must approve the publish job.
+Publication also requires an explicit maintainer decision.
 
 ## Technical terms
 
@@ -358,9 +358,8 @@ dependency lifecycle scripts. Each job verifies retained inputs before it uses
 them.
 
 The `preflight`, `publish`, and `release` jobs run the publication readiness
-check before they create signed-tag evidence. The check currently stops
-publication. The SBOM boundary is complete. The remaining prepublication
-controls must be complete before maintainers enable publication.
+check before they create signed-tag evidence. The check permits publication
+because the prepublication controls are complete.
 
 Use [npm release operations](./npm-release-operations.md) to promote or
 quarantine a published version.

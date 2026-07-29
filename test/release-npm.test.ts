@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -21,8 +22,6 @@ import {
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import {
-  NPM_PUBLICATION_READY,
-  requireNpmPublicationReady,
   validateReleaseCandidate,
   validateReleaseReplay,
   type ReleaseCompletionRef
@@ -125,9 +124,19 @@ test("completion tags exclude the candidate and impose strict release order", ()
   );
 });
 
-test("npm publication remains blocked after the SBOM boundary change", () => {
-  assert.equal(NPM_PUBLICATION_READY, false);
-  assert.throws(() => requireNpmPublicationReady(), /prepublication release controls/u);
+test("the publication readiness CLI permits hosted publication", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    "tsx",
+    "scripts/release-completion.ts",
+    "ready"
+  ], {
+    cwd: path.dirname(path.dirname(fileURLToPath(import.meta.url))),
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
 });
 
 test("verify mode does not require GitHub publication authority", () => {
