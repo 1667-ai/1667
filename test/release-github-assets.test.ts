@@ -59,7 +59,7 @@ function heldFromPublication(target: BuiltArtifactTarget): boolean {
 const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // The version this release ships under. Tests that specifically exercise a
 // prerelease identifier use the separate hyphenated value.
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
@@ -123,7 +123,7 @@ test("the archive release CLI refuses the stable version reserved for npm", () =
   );
   assert.notEqual(run.status, 0);
   assert.equal(run.stdout, "");
-  assert.match(run.stderr, /GitHub archive release 0\.1\.0 must be a prerelease/u);
+  assert.match(run.stderr, /GitHub archive release 0\.1\.1 must be a prerelease/u);
 });
 
 test("a published archive holds the executable, both licence files, and both manifests", () => {
@@ -242,8 +242,8 @@ test("an npm layout reuses the file set and only moves the executable", () => {
 
 test("the archive name and its inner directory are the same stem", () => {
   const stem = releaseArchiveStem(VERSION, "linux-x64");
-  assert.equal(stem, "1667_0.1.0_linux-x64");
-  assert.equal(releaseArchiveFileName(VERSION, "linux-x64"), "1667_0.1.0_linux-x64.tar.gz");
+  assert.equal(stem, "1667_0.1.1_linux-x64");
+  assert.equal(releaseArchiveFileName(VERSION, "linux-x64"), "1667_0.1.1_linux-x64.tar.gz");
   assert.equal(releaseArchiveFileName("1.2.3", "darwin-arm64"), "1667_1.2.3_darwin-arm64.tar.gz");
   assert.throws(() => releaseArchiveStem("0.1", "linux-x64"), /SemVer/);
   assert.throws(() => releaseContentFileSet("linux-x64", "v0.1.0"), /SemVer/);
@@ -337,7 +337,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   });
 
   assert.equal(sourceCommitReads, 1);
-  assert.equal(staged.stem, "1667_0.1.0_linux-x64");
+  assert.equal(staged.stem, "1667_0.1.1_linux-x64");
   assert.equal(path.basename(staged.directory), staged.stem);
   assert.deepEqual(staged.files.map((file) => file.path).sort(), [
     "1667",
@@ -390,7 +390,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   for (const shipped of [buildManifestText, sbomText]) {
     assert.doesNotMatch(shipped, /tagSignature|tagObjectType|"verified"/u);
   }
-  assert.match(sbomText, /Built from tag v0\.1\.0 at a clean working tree/u);
+  assert.match(sbomText, /Built from tag v0\.1\.1 at a clean working tree/u);
 });
 
 // One build, described identically by every archive in the run. This is why the

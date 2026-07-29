@@ -16,7 +16,7 @@ import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(import.meta.filename));
 const FACTS = Object.freeze({
-  version: "0.1.0",
+  version: "0.1.1",
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-28T10:20:30.000Z"
 });

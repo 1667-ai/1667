@@ -39,10 +39,12 @@ class MismatchedIdentityWorker extends EventTarget {
 
   constructor() {
     super();
+    const currentVersion = createSourceBuildIdentity().productVersion;
+    const mismatchedVersion = currentVersion === "0.0.0" ? "0.0.1" : "0.0.0";
     queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: {
       type: "ready",
       protocolVersion: WORKER_PROTOCOL_VERSION,
-      buildIdentity: createSourceBuildIdentity("0.1.1"),
+      buildIdentity: createSourceBuildIdentity(mismatchedVersion),
       workerInstanceId: "1".repeat(32)
     } })));
   }
