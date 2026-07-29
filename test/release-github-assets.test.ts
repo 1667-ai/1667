@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -56,10 +57,10 @@ function heldFromPublication(target: BuiltArtifactTarget): boolean {
 }
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-// The version this release ships under. A prerelease identifier is the harder
-// case throughout: it is a hyphenated SemVer suffix, and every name, digest,
-// and manifest below has to keep it whole.
-const VERSION = "0.1.0-rc.1";
+// The version this release ships under. Tests that specifically exercise a
+// prerelease identifier use the separate hyphenated value.
+const VERSION = "0.1.0";
+const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
 /**
@@ -75,6 +76,11 @@ const FACTS = Object.freeze({
 const WORKFLOW = readFileSync(
   path.join(REPOSITORY_ROOT, ".github", "workflows", "release-github.yml"),
   "utf8"
+);
+const RELEASE_ASSETS_CLI = path.join(
+  REPOSITORY_ROOT,
+  "scripts",
+  "release-github-assets.ts"
 );
 
 function digestOf(bytes: Buffer | string): string {
@@ -97,6 +103,28 @@ function workflowJobs(): ReadonlyMap<string, string> {
   });
   return jobs;
 }
+
+test("the archive release CLI refuses the stable version reserved for npm", () => {
+  const run = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      RELEASE_ASSETS_CLI,
+      "check",
+      VERSION,
+      SOURCE_COMMIT,
+      BUILD_TIMESTAMP
+    ],
+    {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8"
+    }
+  );
+  assert.notEqual(run.status, 0);
+  assert.equal(run.stdout, "");
+  assert.match(run.stderr, /GitHub archive release 0\.1\.0 must be a prerelease/u);
+});
 
 test("a published archive holds the executable, both licence files, and both manifests", () => {
   const entries = releaseArchiveFileSet("linux-x64", VERSION);
@@ -214,8 +242,8 @@ test("an npm layout reuses the file set and only moves the executable", () => {
 
 test("the archive name and its inner directory are the same stem", () => {
   const stem = releaseArchiveStem(VERSION, "linux-x64");
-  assert.equal(stem, "1667_0.1.0-rc.1_linux-x64");
-  assert.equal(releaseArchiveFileName(VERSION, "linux-x64"), "1667_0.1.0-rc.1_linux-x64.tar.gz");
+  assert.equal(stem, "1667_0.1.0_linux-x64");
+  assert.equal(releaseArchiveFileName(VERSION, "linux-x64"), "1667_0.1.0_linux-x64.tar.gz");
   assert.equal(releaseArchiveFileName("1.2.3", "darwin-arm64"), "1667_1.2.3_darwin-arm64.tar.gz");
   assert.throws(() => releaseArchiveStem("0.1", "linux-x64"), /SemVer/);
   assert.throws(() => releaseContentFileSet("linux-x64", "v0.1.0"), /SemVer/);
@@ -224,7 +252,7 @@ test("the archive name and its inner directory are the same stem", () => {
 // Both the version and the target contain hyphens, so hyphens cannot also
 // separate them: the underscores keep each field readable and parseable.
 test("a prerelease version stays whole in the archive name", () => {
-  assert.deepEqual(releaseArchiveStem(VERSION, "linux-x64").split("_"), [
+  assert.deepEqual(releaseArchiveStem(PRERELEASE_VERSION, "linux-x64").split("_"), [
     "1667",
     "0.1.0-rc.1",
     "linux-x64"
@@ -238,9 +266,9 @@ test("a prerelease version stays whole in the archive name", () => {
 
 test("checksums cover every asset, sorted, and never the checksum file itself", () => {
   const digests = [
-    { name: releaseArchiveFileName(VERSION, "linux-x64"), sha256: "b".repeat(64) },
+    { name: releaseArchiveFileName(PRERELEASE_VERSION, "linux-x64"), sha256: "b".repeat(64) },
     { name: RELEASE_CHECKSUMS_FILE, sha256: "c".repeat(64) },
-    { name: releaseArchiveFileName(VERSION, "darwin-arm64"), sha256: "a".repeat(64) }
+    { name: releaseArchiveFileName(PRERELEASE_VERSION, "darwin-arm64"), sha256: "a".repeat(64) }
   ];
   assert.equal(formatReleaseChecksums(digests), [
     `${"a".repeat(64)}  1667_0.1.0-rc.1_darwin-arm64.tar.gz\n`,
@@ -309,7 +337,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   });
 
   assert.equal(sourceCommitReads, 1);
-  assert.equal(staged.stem, "1667_0.1.0-rc.1_linux-x64");
+  assert.equal(staged.stem, "1667_0.1.0_linux-x64");
   assert.equal(path.basename(staged.directory), staged.stem);
   assert.deepEqual(staged.files.map((file) => file.path).sort(), [
     "1667",
@@ -362,7 +390,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   for (const shipped of [buildManifestText, sbomText]) {
     assert.doesNotMatch(shipped, /tagSignature|tagObjectType|"verified"/u);
   }
-  assert.match(sbomText, /Built from tag v0\.1\.0-rc\.1 at a clean working tree/u);
+  assert.match(sbomText, /Built from tag v0\.1\.0 at a clean working tree/u);
 });
 
 // One build, described identically by every archive in the run. This is why the
@@ -535,12 +563,12 @@ test("no job holding a write permission runs a dependency install script", () =>
 });
 
 test("the release notes claim the attestation and nothing it does not have", () => {
-  const notes = releaseNotesMarkdown(VERSION);
+  const notes = releaseNotesMarkdown(PRERELEASE_VERSION);
   assert.match(notes, /^# 1667 v0\.1\.0-rc\.1$/mu);
   assert.match(notes, /pre-release/u);
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     assert.ok(
-      notes.includes(releaseArchiveFileName(VERSION, target)),
+      notes.includes(releaseArchiveFileName(PRERELEASE_VERSION, target)),
       `notes omit the ${target} archive`
     );
   }
@@ -550,7 +578,7 @@ test("the release notes claim the attestation and nothing it does not have", () 
   // platform is absent.
   assert.match(notes, /windows-x64/u);
   assert.match(notes, /build:standalone/u);
-  assert.ok(!notes.includes(`1667_${VERSION}_windows-x64.tar.gz`));
+  assert.ok(!notes.includes(`1667_${PRERELEASE_VERSION}_windows-x64.tar.gz`));
   // This workflow cannot determine registry availability. Its notes make no
   // npm availability claim. The prerelease identifier is explained rather
   // than left to look like a slip, and the explanation is the standing rule

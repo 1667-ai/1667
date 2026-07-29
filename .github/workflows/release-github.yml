@@ -14,9 +14,9 @@ on:
       version:
         description: >-
           Version to release, without a leading v (for example 0.1.0-rc.1). It
-          must match the version in package.json, tui/package.json, and the
-          lockfile; the command that checks the release source refuses it
-          otherwise.
+          must include a prerelease identifier. It must match the version in
+          package.json, tui/package.json, and the lockfile; the command that
+          checks the release source refuses it otherwise.
         required: true
         type: string
 

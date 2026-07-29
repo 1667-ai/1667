@@ -18,7 +18,7 @@ import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.dirname(path.dirname(import.meta.filename));
 const FACTS = Object.freeze({
-  version: "0.1.0-rc.1",
+  version: "0.1.0",
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-28T10:20:30.000Z"
 });

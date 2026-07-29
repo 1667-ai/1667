@@ -433,8 +433,8 @@ smoke.
 
 `.github/workflows/release-github.yml` publishes one archive per published
 release target. A maintainer dispatches it from the default branch and supplies
-the version. The workflow refuses every other ref, and refuses a dirty
-checkout.
+the version. The version must include a prerelease identifier. The workflow
+refuses every other ref, and refuses a dirty checkout.
 
 `shared/release-targets.ts` decides which targets are published, in the single
 `heldFromPublication` field each target carries. `windows-x64` is held from
