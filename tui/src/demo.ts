@@ -479,6 +479,7 @@ export function demoAppSource(dense = false): AppSource {
     exportDirectory: process.cwd(),
     connection: null,
     config: {
+      readingPositions: {},
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",

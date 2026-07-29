@@ -3,8 +3,9 @@ import { createComposer } from "./composer-model.js";
 import { capturePendingDirectDraft } from "./composer-ownership.js";
 import { reconcileFactEditor } from "./editor-reconciliation.js";
 import { boundedFactSelection, factRows } from "./facts-model.js";
-import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "./model.js";
+import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
+import { applyOpeningFocus } from "./reading-position.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
@@ -288,7 +289,7 @@ function reconcileStoryBoundIntent(
  * against the previous payload. Global visual preferences remain intact. */
 export function adoptStoryState(state: RuntimeState, payload: StoryPayload): void {
   state.payload = payload;
-  state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
+  state.focusIndex = applyOpeningFocus(payload, state.config);
   state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
   state.composer = createComposer();
   state.editor = null;

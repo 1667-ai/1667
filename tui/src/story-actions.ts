@@ -7,6 +7,7 @@ import { copyToClipboard } from "./clipboard.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
+import { withRememberedFocus } from "./reading-position.js";
 import { openMap } from "./map-actions.js";
 import { createNewStory } from "./library-actions.js";
 import { resolveRerouteTarget } from "./path-layout.js";
@@ -91,22 +92,27 @@ export async function navAction(
   else if (resolved.action === "focus-next") {
     state.focusIndex = Math.min(count - 1, state.focusIndex + 1);
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "focus-index") {
     state.focusIndex = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "focus-previous") {
     state.focusIndex = Math.max(0, state.focusIndex - 1);
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "top") {
     state.focusIndex = 0;
     pinStoryViewport(state, 0);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "leaf") {
     state.focusIndex = lastPartRowIndex(view);
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "toggle-instructions") state.showInstructions = !state.showInstructions;
   else if (resolved.action === "toggle-prompt") {
@@ -519,4 +525,19 @@ export function openTag(state: RuntimeState, targetId?: string): void {
     returnMode: origin
   };
   state.mode = "TAG";
+}
+
+/** Persist the focused part as this story's local reading position. */
+function rememberFocus(state: RuntimeState, source: AppSource): void {
+  if (source.demo || state.demo) return;
+  const next = withRememberedFocus(
+    state.config,
+    state.payload,
+    state.focusIndex,
+    state.stream
+  );
+  if (next === state.config) return;
+  saveConfig(next);
+  state.config = next;
+  source.config = next;
 }

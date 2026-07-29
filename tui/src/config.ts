@@ -13,6 +13,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isSemVer } from "../../shared/semver.js";
+import {
+  normalizeReadingPositions,
+  type ReadingPositions
+} from "./reading-position.js";
 
 export type ThemeName =
   | "lantern"
@@ -51,6 +55,8 @@ export interface UserConfig {
   composeMaxHeight: number | null;
   quota: QuotaLedger;
   updates: UpdatePreferences;
+  /** Local last-focused part per story. Soft UI state; not manuscript content. */
+  readingPositions: ReadingPositions;
 }
 
 const DEFAULTS: UserConfig = {
@@ -59,7 +65,8 @@ const DEFAULTS: UserConfig = {
   composeFocus: "off",
   composeMaxHeight: null,
   quota: { date: "", words: 0 },
-  updates: { mode: "off", channel: "stable", skippedVersion: null }
+  updates: { mode: "off", channel: "stable", skippedVersion: null },
+  readingPositions: {}
 };
 
 type ConfigRecord = Record<string, unknown>;
@@ -113,7 +120,10 @@ export function normalizeUserConfig(value: unknown): UserConfig {
       skippedVersion: isSemVer(rawUpdates.skippedVersion)
         ? rawUpdates.skippedVersion
         : null
-    }
+    },
+    readingPositions: normalizeReadingPositions(
+      configValue(raw, "readingPositions", "reading_positions")
+    )
   };
 }
 

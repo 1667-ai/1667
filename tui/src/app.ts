@@ -6,11 +6,6 @@ import {
 } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { GenerationSettings, StoryPayload, StorySummary } from "../../shared/types.js";
-import {
-  STARTER_OPENING_NODE_COUNT,
-  STARTER_OPENING_PART_COUNT,
-  STARTER_OPENING_STORY_ID
-} from "../../shared/starter-vault.js";
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { StoryApi } from "./api.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
@@ -34,6 +29,7 @@ import {
   mouseToAction
 } from "./mouse-actions.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
+import { openingFocusIndex, readingPartIdFor } from "./reading-position.js";
 import { handleOverlayAction } from "./overlay-actions.js";
 import { beginSettingsPasteEdit } from "./settings-overlay-model.js";
 import { createPalette } from "./palette.js";
@@ -558,32 +554,15 @@ export async function dispatch(
   repaint();
 }
 
-/** The tour opens at its first part for as long as it is still the tour: the
- *  parts it was seeded with, unchanged in number. A fresh vault would
- *  otherwise open a tutorial on its closing beat.
- *
- *  Counting nodes rather than parts is what makes "unchanged" mean it: a
- *  retake, a written take or an inline edit all add a node while leaving the
- *  line the same length. Continuing at the last part extends that part's prose
- *  without adding either, and is the one edit this cannot see.
- *
- *  There is deliberately no notion of having read it, so a reader who returns
- *  to an untouched tour gets its beginning again — which is what a tutorial
- *  should do. Knowing better means persisting a reading position, which is a
- *  storage decision of its own: see the follow-up issue rather than widening
- *  this guess. */
-function opensAtItsBeginning(payload: StoryPayload): boolean {
-  return payload.id === STARTER_OPENING_STORY_ID
-    && payload.path.length === STARTER_OPENING_PART_COUNT
-    && payload.nodes.length === STARTER_OPENING_NODE_COUNT;
-}
-
 export function initialState(source: AppSource, renderMode: boolean): RuntimeState {
   const view = createStoryViewModel(source.payload);
   const demoPathIndex = Math.max(0, source.payload.path.length - 2);
   const initialFocus = source.demo
     ? Math.max(0, rowIndexForPathIndex(view, demoPathIndex))
-    : opensAtItsBeginning(source.payload) ? 0 : lastPartRowIndex(view);
+    : openingFocusIndex(
+      source.payload,
+      readingPartIdFor(source.config, source.payload.id)
+    );
   return {
     payload: source.payload,
     focusIndex: initialFocus,
