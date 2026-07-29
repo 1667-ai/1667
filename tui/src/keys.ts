@@ -17,7 +17,7 @@ export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
   | "undo" | "top" | "leaf" | "toggle-instructions" | "toggle-prompt" | "compose"
   | "cancel" | "quit" | "send" | "newline" | "history-previous"
-  | "save-edit" | "commit-field"
+  | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
   | "set-map-view"
@@ -82,7 +82,7 @@ export function isPlainNavigation(state: PlainNavigationState): boolean {
 export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "rename-item", "delete-item", "discard-pending",
-  "create-chapter", "summarize-chapter", "save-edit"
+  "create-chapter", "summarize-chapter", "save-edit", "save-edit-inplace"
 ]);
 
 /** Terminals disagree on how shifted letters arrive; accept all three forms. */
@@ -274,6 +274,12 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   if (mode === "EDITOR") {
     const name = key.name.toLowerCase();
+    // Plain ctrl+s forks a take. Same-take save needs a chord that classic
+    // terminals can deliver: ctrl+s and ctrl+shift+s both arrive as 0x13
+    // without enhanced keyboard reporting, so ctrl+o is the portable path.
+    // ctrl+shift+s remains for terminals that can report the shift bit.
+    if (key.ctrl && name === "o") return { action: "save-edit-inplace" };
+    if (key.ctrl && key.shift && name === "s") return { action: "save-edit-inplace" };
     if (key.ctrl && name === "s") return { action: "save-edit" };
     if (key.ctrl && name === "c") return { action: "copy-selection" };
     if (key.ctrl && name === "x") return { action: "cut-selection" };

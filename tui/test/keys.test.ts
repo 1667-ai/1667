@@ -60,6 +60,11 @@ const DECLARED_DIVERGENCES = [
     actions: ["newline", "newline", "commit-field"] },
   { label: "ctrl+s", event: key("s", { ctrl: true }),
     actions: ["none", "save-edit", "commit-field"] },
+  { label: "ctrl+o", event: key("o", { sequence: "\u000f", ctrl: true }),
+    actions: ["none", "save-edit-inplace", "none"] },
+  { label: "ctrl+shift+s", event: key("s", { ctrl: true, shift: true }),
+    // Settings field commit still treats ctrl+s (with or without shift) as keep.
+    actions: ["none", "save-edit-inplace", "commit-field"] },
   { label: "ctrl+c", event: key("c", { ctrl: true }),
     actions: ["none", "copy-selection", "none"] },
   { label: "ctrl+x", event: key("x", { ctrl: true }),
@@ -273,10 +278,18 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("k"), "COMPOSE")).toEqual({ action: "input", text: "k" });
   });
 
-  test("inline editor owns multiline input and saves only with Ctrl+S", () => {
+  test("inline editor owns multiline input and saves with Ctrl+S / Ctrl+O", () => {
     expect(resolveKey(key("return"), "EDITOR").action).toBe("newline");
     expect(resolveKey(key("s"), "EDITOR")).toEqual({ action: "input", text: "s" });
     expect(resolveKey(key("s", { sequence: "\u0013", ctrl: true }), "EDITOR").action).toBe("save-edit");
+    // Portable same-take chord: classic terminals deliver ctrl+o as 0x0f.
+    expect(resolveKey(key("o", { sequence: "\u000f", ctrl: true }), "EDITOR").action)
+      .toBe("save-edit-inplace");
+    // Enhanced terminals may still report ctrl+shift+s distinctly.
+    expect(resolveKey(key("s", { ctrl: true, shift: true }), "EDITOR").action).toBe("save-edit-inplace");
+    // Without a shift bit, ctrl+shift+s collapses to the fork chord.
+    expect(resolveKey(key("s", { sequence: "\u0013", ctrl: true, shift: false }), "EDITOR").action)
+      .toBe("save-edit");
     expect(resolveKey(key("escape"), "EDITOR").action).toBe("cancel");
     expect(resolveKey(key("R", { sequence: "R", shift: true }), "EDITOR")).toEqual({ action: "input", text: "R" });
     expect(resolveKey(key("left", { shift: true }), "EDITOR"))

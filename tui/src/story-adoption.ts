@@ -267,8 +267,7 @@ function reconcileStoryBoundIntent(
     const target = editor.target;
     const targetExists = (target.kind === "fact" && (target.factId === null
         || state.payload.facts.some(({ id }) => id === target.factId)))
-      || (target.kind === "part" && state.payload.nodes.some(({ id }) =>
-        id === (target.savedNode ?? target.node).id))
+      || (target.kind === "part" && state.payload.nodes.some(({ id }) => id === target.node.id))
       || (target.kind === "human-take" && state.payload.nodes.some(({ id }) =>
         id === (target.savedNode ?? target.node).id))
       || (target.kind === "chapter-summary"

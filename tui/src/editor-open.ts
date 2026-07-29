@@ -19,7 +19,7 @@ export function openPartEditor(state: RuntimeState, humanSibling: boolean): void
     initial,
     title: humanSibling
       ? `write human take · sibling of ¶ ${part.number}`
-      : `edit as new take · ¶ ${part.number} · direction above --- · prose below`,
+      : `edit ¶ ${part.number} · direction above --- · prose below`,
     placeholder: humanSibling ? "write the sibling take…" : "direction\n---\nprose",
     returnMode: "NAV",
     conflict: null,

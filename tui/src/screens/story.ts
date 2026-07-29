@@ -13,7 +13,7 @@ import { buildRailModel } from "../rail.js";
 import { projectNextRequest } from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
-import type { StoryScreenState } from "../state.js";
+import type { InlineEditorSession, StoryScreenState } from "../state.js";
 import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-layout.js";
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
@@ -506,6 +506,17 @@ function renderFullscreenComposer(
   };
 }
 
+function editorFooterHints(editor: InlineEditorSession): string {
+  // Part editors offer dual save; other targets and incomplete fixtures keep
+  // the single-save footer (tests may stub a minimal session without target).
+  if (editor.target?.kind === "part") {
+    // ctrl+o is the portable same-take chord; ctrl+shift+s is an alias where
+    // the terminal reports modified keys.
+    return "shift+arrows select · ctrl+c/v · ctrl+s new take · ctrl+o same take · esc cancel";
+  }
+  return "shift+arrows select · ctrl+c/v · ctrl+s save · esc cancel";
+}
+
 function renderInlineEditor(
   state: StoryScreenState,
   view: StoryViewModel,
@@ -521,7 +532,7 @@ function renderInlineEditor(
     terminalHeight: height,
     measure: width,
     title: editor.title,
-    footerHints: "shift+arrows select · ctrl+c/v · ctrl+s save · esc cancel",
+    footerHints: editorFooterHints(editor),
     placeholder: editor.placeholder,
     footerNotice: state.toast ?? editor.conflict?.message ?? null,
     scrollTop: state.editorScrollTop,
