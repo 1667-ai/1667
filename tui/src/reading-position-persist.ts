@@ -14,9 +14,21 @@ type FocusSource = {
   demo: boolean;
 };
 
+/** Live NAV state, so HTTP listener rebind can refresh the in-app map. */
+let liveState: RuntimeState | null = null;
+
+export function bindLiveReadingPositionState(state: RuntimeState): void {
+  liveState = state;
+}
+
+export function rebindLiveReadingPositions(positions: ReadingPositions): void {
+  if (liveState !== null) liveState.readingPositions = positions;
+}
+
 /** Update in-memory reading position; durable store write is debounced. */
 export function rememberFocus(state: RuntimeState, source: FocusSource): void {
   if (source.demo || state.demo) return;
+  liveState = state;
   const next = withRememberedFocus(
     state.readingPositions,
     state.payload,

@@ -58,6 +58,7 @@ const dirty = new Map<string, string | null>();
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 /** Active vault store file; set once at process startup via configure. */
 let activeStoreFile: string = readingPositionStorePathForScope("default");
+let disposed = false;
 
 export function readingPositionRootDir(): string {
   const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
@@ -115,10 +116,22 @@ export function readingPositionScope(
 
 /** Bind all subsequent load/mark/flush calls to this vault's file. */
 export function configureReadingPositionStore(file: string): void {
+  disposed = false;
   if (persistTimer !== null && dirty.size > 0 && activeStoreFile !== file) {
     flushReadingPositionPersist({ file: activeStoreFile });
   }
   activeStoreFile = file;
+}
+
+/** Final flush without retry timers — call from process dispose. */
+export function disposeReadingPositionStore(): void {
+  disposed = true;
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  flushReadingPositionPersist();
+  disposed = true;
 }
 
 export function loadReadingPositions(
@@ -181,11 +194,11 @@ export function flushReadingPositionPersist(
     for (const [storyId, partId] of snapshot) {
       if (dirty.get(storyId) === partId) dirty.delete(storyId);
     }
-  } else if (dirty.size > 0 && persistTimer === null) {
+  } else if (!disposed && dirty.size > 0 && persistTimer === null) {
     // Lock contention or I/O failure: try again shortly while dirty remains.
     persistTimer = setTimeout(() => {
       persistTimer = null;
-      flushReadingPositionPersist(options);
+      if (!disposed) flushReadingPositionPersist(options);
     }, PERSIST_DEBOUNCE_MS);
   }
 }
@@ -293,6 +306,15 @@ function writePositionsFile(
   try {
     const file = options.file ?? activeStoreFile;
     const directory = dirname(file);
+    // Project-tier: install ignore rules before any temp artifact exists.
+    if (isProjectTierStoreFile(file)) {
+      if (!ensureProjectGitignoreIgnoresStore(directory)) {
+        const fallback = projectFallbackStoreFile(directory);
+        const moved = writePositionsFile(positions, { ...options, file: fallback });
+        if (moved && activeStoreFile === file) activeStoreFile = fallback;
+        return moved;
+      }
+    }
     mkdirSync(directory, { recursive: true });
     temporaryFile = `${file}.${process.pid}.`
       + `${randomBytes(8).toString("hex")}.tmp`;
@@ -313,25 +335,6 @@ function writePositionsFile(
       if (temporaryDescriptor !== null) closeSync(temporaryDescriptor);
     }
     options.afterTemporaryFileSync?.(temporaryFile);
-    // Project-tier stores must be ignored by Git before they become durable.
-    if (isProjectTierStoreFile(file)) {
-      if (!ensureProjectGitignoreIgnoresStore(directory)) {
-        // Fall back to a user-scoped file so the cursor still persists without
-        // leaving an unignored machine-local artifact in the project tree.
-        const fallback = projectFallbackStoreFile(directory);
-        const moved = writePositionsFile(positions, { ...options, file: fallback });
-        if (moved) {
-          try {
-            unlinkSync(temporaryFile);
-          } catch {
-            // ignore
-          }
-          temporaryFile = null;
-          if (activeStoreFile === file) activeStoreFile = fallback;
-        }
-        return moved;
-      }
-    }
     renameSync(temporaryFile, file);
     temporaryFile = null;
     syncDirectory(directory);

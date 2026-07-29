@@ -5,10 +5,12 @@ import { createConnectionMonitor } from "./connection.js";
 import { loadConfig } from "./config.js";
 import {
   configureReadingPositionStore,
+  disposeReadingPositionStore,
   flushReadingPositionPersist,
   loadReadingPositions,
   readingPositionStoreFile
 } from "./reading-position-store.js";
+import { rebindLiveReadingPositions } from "./reading-position-persist.js";
 import { resolve } from "node:path";
 import {
   BackendRestartRequiredError,
@@ -494,25 +496,43 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     }
   }
   // Late-bound so listener replacement can refresh the cursor store after
-  // the AppSource exists.
+  // the AppSource exists. Do not object-spread HttpAttach: authRecord is a
+  // live getter and must keep rotating with the listener.
   const sourceHolder: { source: AppSource | null } = { source: null };
   if (httpAttach !== null) {
-    const previousConfirm = httpAttach.confirmListenerReplacement.bind(httpAttach);
+    const attached = httpAttach;
+    const previousConfirm = attached.confirmListenerReplacement.bind(attached);
     httpAttach = {
-      ...httpAttach,
+      get origin() {
+        return attached.origin;
+      },
+      get authRecord() {
+        return attached.authRecord;
+      },
+      get fetch() {
+        return attached.fetch;
+      },
+      get mutationIntents() {
+        return attached.mutationIntents;
+      },
+      get shutdownSignal() {
+        return attached.shutdownSignal;
+      },
+      dispose: () => attached.dispose(),
       confirmListenerReplacement: async (previousInstanceId) => {
         const replaced = await previousConfirm(previousInstanceId);
         if (!replaced) return false;
         flushReadingPositionPersist();
         const nextFile = readingPositionStoreFile(null, {
-          origin: httpAttach!.origin,
-          instanceId: httpAttach!.authRecord.instanceId
+          origin: attached.origin,
+          instanceId: attached.authRecord.instanceId
         });
         configureReadingPositionStore(nextFile);
         const nextPositions = loadReadingPositions({ file: nextFile });
         if (sourceHolder.source !== null) {
           sourceHolder.source.readingPositions = nextPositions;
         }
+        rebindLiveReadingPositions(nextPositions);
         return true;
       }
     };
@@ -567,7 +587,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     return {
       source,
       dispose: async () => {
-        flushReadingPositionPersist();
+        disposeReadingPositionStore();
         connection.dispose();
         httpAttach?.dispose();
         await worker?.dispose();

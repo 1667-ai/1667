@@ -30,6 +30,7 @@ import {
 } from "./mouse-actions.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
+import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
 import { beginSettingsPasteEdit } from "./settings-overlay-model.js";
 import { createPalette } from "./palette.js";
@@ -565,7 +566,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
       source.payload,
       readingPartIdFor(source.readingPositions, source.payload.id)
     );
-  return {
+  const state: RuntimeState = {
     payload: source.payload,
     focusIndex: initialFocus,
     readingPositions: source.readingPositions,
@@ -618,6 +619,8 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     interactionVersion: 0,
     backendTask: null
   };
+  bindLiveReadingPositionState(state);
+  return state;
 }
 
 /** The render-once mockup shows the leaf mid-stream, matching the design grids. */
