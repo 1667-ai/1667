@@ -35,9 +35,15 @@ export const DEMO_GENERATED_TEXT = " The lantern flame bent toward the compass, 
 export interface DemoController {
   payload(): StoryPayload;
   switchTo(nodeId: string, options?: { stopAtNode?: boolean }): StoryPayload;
-  appendGenerated(instruction: string, text: string, append: boolean): StoryPayload;
+  appendGenerated(instruction: string, text: string, append: boolean, genId?: string): StoryPayload;
   /** New child of `parentId` (write-here sibling / regenerate take), made active. */
-  createChild(parentId: string | null, instruction: string, text: string, human?: boolean): StoryPayload;
+  createChild(
+    parentId: string | null,
+    instruction: string,
+    text: string,
+    human?: boolean,
+    genId?: string
+  ): StoryPayload;
   createEditedTake(sourceNodeId: string, instruction: string, text: string): StoryPayload;
   addSummaryTake(text: string): StoryPayload;
   editNode(nodeId: string, patch: { instruction?: string; text?: string }): StoryPayload;
@@ -106,22 +112,30 @@ export function createDemoController(dense = false): DemoController {
       switchToNode(story, nodeId, options);
       return payloadFrom(story);
     },
-    appendGenerated(instruction, text, append) {
+    appendGenerated(instruction, text, append, genId) {
       const leaf = activePath(story).at(-1) ?? null;
       if (append && leaf !== null) {
         leaf.text += text;
         leaf.updatedAt = CREATED;
+        // Append rewrites genId like the backend; updatedAt still marks impure.
+        if (genId !== undefined) leaf.genId = genId;
       } else {
         const id = `demo-generated-${story.nodes.length + 1}`;
-        const node = makeDemoNode(id, leaf?.id ?? null, instruction, text);
+        const node = makeDemoNode(
+          id,
+          leaf?.id ?? null,
+          instruction,
+          text,
+          genId === undefined ? undefined : { genId }
+        );
         story.nodes.push(node);
         if (leaf === null) story.activeRootId = id;
         else leaf.activeChildId = id;
       }
       return payloadFrom(story);
     },
-    createChild(parentId, instruction, text, human = false) {
-      createDemoTake(story, parentId, instruction, text, human);
+    createChild(parentId, instruction, text, human = false, genId) {
+      createDemoTake(story, parentId, instruction, text, human, null, genId);
       return payloadFrom(story);
     },
     createEditedTake(sourceNodeId, instruction, text) {
@@ -375,11 +389,23 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },
     switchLine: async (_storyId, nodeId, options = {}) => demo.switchTo(nodeId, options),
-    createNode: async (_storyId, body) => body.appendTo !== undefined
-      ? demo.appendGenerated(body.instruction ?? "", body.text, true)
-      : body.sourceNodeId !== undefined
-        ? demo.createEditedTake(body.sourceNodeId, body.instruction ?? "", body.text)
-        : demo.createChild(body.parentId ?? null, body.instruction ?? "", body.text, true),
+    createNode: async (_storyId, body) => {
+      if (body.appendTo !== undefined) {
+        return demo.appendGenerated(body.instruction ?? "", body.text, true, body.genId);
+      }
+      if (body.sourceNodeId !== undefined) {
+        // Edit-as-sibling: never copy or invent genId.
+        return demo.createEditedTake(body.sourceNodeId, body.instruction ?? "", body.text);
+      }
+      // Stopped provider commit carries genId; human write omits it.
+      return demo.createChild(
+        body.parentId ?? null,
+        body.instruction ?? "",
+        body.text,
+        body.genId === undefined,
+        body.genId
+      );
+    },
     editNode: async (_storyId, node, patch) => demo.editNode(node.id, patch),
     deleteNode: async (_storyId, nodeId, expectedSubtreeCount) => demo.deleteNode(nodeId, expectedSubtreeCount),
     pruneUnusedTakes: async (_storyId, expected) => demo.pruneUnusedTakes(expected),
@@ -428,7 +454,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     probeContextWindow: async () => ({ contextWindow: DEMO_SETTINGS.contextWindow }),
     importSillyTavern: async () => unavailable("SillyTavern import"),
     exportMarkdown: async () => demo.exportMarkdown(),
-    continueStory: async (_storyId, instruction, _genId, target, onDelta, signal) => {
+    continueStory: async (_storyId, instruction, genId, target, onDelta, signal) => {
       const text = target.appendTo !== undefined ? DEMO_CONTINUE_TEXT : DEMO_GENERATED_TEXT;
       let landed = "";
       for await (const delta of streamFake(text, { wpm: 700, signal })) {
@@ -436,8 +462,10 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         onDelta(delta);
       }
       if (signal.aborted) return null;
-      if (target.appendTo !== undefined) return demo.appendGenerated(instruction, landed, true);
-      return demo.createChild(target.parentId ?? null, instruction, landed, false);
+      if (target.appendTo !== undefined) {
+        return demo.appendGenerated(instruction, landed, true, genId);
+      }
+      return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
     },
     rewriteNode: async () => unavailable("Selection rewrite"),
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {

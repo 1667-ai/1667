@@ -218,8 +218,8 @@ export interface StoryScreenState extends OverlayState {
   now: number;
   model: string;
   contextWindow: number | null;
-  /** Maximum provider response size. The context meter uses this as the
-   *  honest upper bound for how much the response can grow the next prompt. */
+  /** Maximum provider response size. The context meter shows this as secondary
+   *  text only; bar growth uses a likely-response estimate from recent prose. */
   maxTokens: number;
   systemPrompt: string;
   /** Whether the configured provider accepts an assistant continuation prefill. */

@@ -105,7 +105,7 @@ function gaugeLine(
 ): FrameLine {
   if (model.window === null || forecast === null) return [contextWindowHint()];
   const column = RAIL_CONTENT_WIDTH - GAUGE_CELLS;
-  const free = freeReadout(forecast, severity);
+  const free = freeReadout(forecast, severity, model, column);
   return [
     ...bar(model.window, model.growthTokens, GAUGE_CELLS, [[1, inkRole(severity)]], growthRole),
     // The gauge keeps a fixed width so the bar does not jitter between frames;
@@ -178,7 +178,7 @@ function bar(
     (window.size - window.free + growthTokens) / window.size,
     cells
   );
-  // A positive response allowance owns at least one cell when a free cell still
+  // A positive response estimate owns at least one cell when a free cell still
   // remains for the sub-capacity remainder. Otherwise large windows can round
   // request and forecast to the same count and hide the pulse — but never paint
   // full while the forecast still has free tokens.
@@ -221,7 +221,11 @@ function forecastWindow(model: RailModel): RequestWindow | null {
 }
 
 /** An unknown window's estimate is a locale-formatted count that can run long,
- * so the hint keeps its own row rather than being clipped off the end of one. */
+ * so the hint keeps its own row rather than being clipped off the end of one.
+ *
+ * With a known window the request owns its budget first — growth over the
+ * secondary cap. Free/cap take the rest of the row only when they still fit;
+ * otherwise free keeps a second line rather than starving +~growth. */
 function totalsLines(
   model: RailModel,
   forecast: RequestWindow | null,
@@ -233,12 +237,20 @@ function totalsLines(
       [contextWindowHint()]
     ];
   }
-  const free = freeReadout(forecast, severity);
-  return [[
-    segment(requestValue(model, RAIL_CONTENT_WIDTH - visibleWidth(free.text) - 3), valueRole(severity)),
-    segment(" · ", "chrome"),
-    free
-  ]];
+  const primary = requestValue(model, RAIL_CONTENT_WIDTH);
+  const free = freeReadout(forecast, severity, model);
+  const sep = " · ";
+  if (visibleWidth(primary) + visibleWidth(sep) + visibleWidth(free.text) <= RAIL_CONTENT_WIDTH) {
+    return [[
+      segment(primary, valueRole(severity)),
+      segment(sep, "chrome"),
+      free
+    ]];
+  }
+  return [
+    [segment(primary, valueRole(severity))],
+    [free]
+  ];
 }
 
 function contextWindowHint(): FrameSegment {
@@ -250,12 +262,31 @@ function contextWindowHint(): FrameSegment {
 }
 
 /** What the window has left, or that it has almost nothing left. One statement
- * of the wording and of the band, for both meters. */
-function freeReadout(window: RequestWindow, severity: ContextSeverity): FrameSegment {
+ * of the wording and of the band, for both meters.
+ *
+ * When growth is forecast, the configured output cap rides here as secondary
+ * chrome. Cap never sizes the pulse bar and never claims width before the
+ * request line budgets +~growth (see totalsLines). */
+function freeReadout(
+  window: RequestWindow,
+  severity: ContextSeverity,
+  model: RailModel,
+  maxWidth = RAIL_CONTENT_WIDTH
+): FrameSegment {
   const role = severity === "normal" ? "chrome" : valueRole(severity);
-  return severity === "over"
-    ? segment("near full", role)
-    : segment(`${formatTokensScaled(window.free)} free`, role);
+  if (severity === "over") return segment("near full", role);
+  const free = `${formatTokensScaled(window.free)} free`;
+  if (model.growthTokens <= 0 || model.maxOutputTokens <= 0) return segment(free, role);
+  const cap = `≤${formatTokensScaled(model.maxOutputTokens)}`;
+  // Cap leads so a tight gauge column still keeps the secondary limit visible
+  // beside free — only after requestValue has already kept +~growth.
+  const candidates = [
+    `${cap} ${free}`,
+    `${cap} ${formatTokensScaled(window.free)}`,
+    free
+  ];
+  const text = candidates.find((candidate) => visibleWidth(candidate) <= maxWidth) ?? free;
+  return segment(text, role);
 }
 
 function legendRow(pair: readonly Category[], model: RailModel): FrameLine {
@@ -280,21 +311,44 @@ function rule(): FrameLine {
 }
 
 /** An estimate too long for the cells it was given falls back to the scaled
- * form rather than losing its unit to a clip. */
+ * form rather than losing its unit to a clip.
+ *
+ * Growth is the likely response size (`+~N`). The configured output cap stays
+ * secondary (`≤M`) and never sizes the pulse bar. When cells run short, the
+ * secondary cap yields first so the bar estimate stays readable. */
 function requestValue(model: RailModel, available: number): string {
   const window = model.window;
-  const growth = model.growthTokens <= 0 ? "" : ` +≤${formatTokensScaled(model.growthTokens)}`;
   if (window === null) {
-    const exact = `~${model.contextTokens.toLocaleString("en-US")}${growth} tokens`;
-    return visibleWidth(exact) <= available
-      ? exact : truncate(`${formatTokensEstimate(model.contextTokens)}${growth} tokens`, available);
+    const candidates = [
+      `~${model.contextTokens.toLocaleString("en-US")}${growthLabel(model)} tokens`,
+      `${formatTokensEstimate(model.contextTokens)}${growthLabel(model, false)} tokens`,
+      `${formatTokensEstimate(model.contextTokens)} tokens`
+    ];
+    for (const candidate of candidates) {
+      if (visibleWidth(candidate) <= available) return candidate;
+    }
+    return truncate(`${formatTokensEstimate(model.contextTokens)} tokens`, available);
   }
   const current = formatTokensEstimate(model.contextTokens);
   const size = formatTokensScaled(window.size);
-  const forecast = `${current}${growth} / ${size}`;
-  return visibleWidth(forecast) <= available
-    ? forecast
-    : truncate(`${current} / ${size}`, available);
+  const candidates = [
+    `${current}${growthLabel(model)} / ${size}`,
+    `${current}${growthLabel(model, false)} / ${size}`,
+    `${current} / ${size}`
+  ];
+  for (const candidate of candidates) {
+    if (visibleWidth(candidate) <= available) return candidate;
+  }
+  return truncate(`${current} / ${size}`, available);
+}
+
+/** Likely growth, optionally with the output cap as a tight secondary suffix. */
+function growthLabel(model: RailModel, includeCap = true): string {
+  if (model.growthTokens <= 0) return "";
+  const estimate = ` +~${formatTokensScaled(model.growthTokens)}`;
+  if (!includeCap || model.maxOutputTokens <= 0) return estimate;
+  // No space before `≤` so estimate + cap often share one rail line.
+  return `${estimate}≤${formatTokensScaled(model.maxOutputTokens)}`;
 }
 
 function inkRole(severity: ContextSeverity): DisplayRole {

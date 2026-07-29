@@ -45,8 +45,10 @@ export interface RailModel {
   facts: RailFact[];
   factCount: number;
   contextTokens: number;
-  /** Maximum response tokens that can become context after this request. */
+  /** Likely response tokens that become context after this request. */
   growthTokens: number;
+  /** Configured max output tokens; secondary label only, never bar size. */
+  maxOutputTokens: number;
   /** The configured window and this request against it, or null when the
    *  provider reports no window — the three are never known separately. */
   window: RequestWindow | null;
@@ -61,7 +63,8 @@ export function buildRailModel(
   focusedText: string,
   contextWindow: number | null = null,
   estimate: NextRequestEstimate,
-  growthTokens = 0
+  growthTokens = 0,
+  maxOutputTokens = 0
 ): RailModel {
   const focused = focusedText.toLowerCase();
   const facts = payload.facts.map((fact: StoryFact, index): RailFact => {
@@ -90,6 +93,7 @@ export function buildRailModel(
     factCount: payload.facts.length,
     contextTokens,
     growthTokens: responseGrowth,
+    maxOutputTokens: Math.max(0, maxOutputTokens),
     window: requestWindow(contextTokens, contextWindow),
     breakdown: estimate.breakdown,
     chapterNotice: biggest !== null
