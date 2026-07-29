@@ -7,6 +7,7 @@ import { copyToClipboard } from "./clipboard.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import { openMap } from "./map-actions.js";
 import { createNewStory } from "./library-actions.js";
 import { resolveRerouteTarget } from "./path-layout.js";
@@ -91,22 +92,27 @@ export async function navAction(
   else if (resolved.action === "focus-next") {
     state.focusIndex = Math.min(count - 1, state.focusIndex + 1);
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "focus-index") {
     state.focusIndex = Math.max(0, Math.min(count - 1, resolved.index ?? state.focusIndex));
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "focus-previous") {
     state.focusIndex = Math.max(0, state.focusIndex - 1);
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "top") {
     state.focusIndex = 0;
     pinStoryViewport(state, 0);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "leaf") {
     state.focusIndex = lastPartRowIndex(view);
     followStoryViewport(state);
+    rememberFocus(state, source);
   }
   else if (resolved.action === "toggle-instructions") state.showInstructions = !state.showInstructions;
   else if (resolved.action === "toggle-prompt") {
@@ -115,6 +121,7 @@ export async function navAction(
     if (part !== null) {
       state.focusIndex = index;
       followStoryViewport(state);
+      rememberFocus(state, source);
       const expanded = new Set(state.expandedPromptIds);
       if (expanded.has(part.id)) expanded.delete(part.id);
       else expanded.add(part.id);
@@ -136,8 +143,8 @@ export async function navAction(
     state.keysScrollTop = 0;
   }
   else if (resolved.action === "create-chapter") await createBreakAtFocus(state, source, context);
-  else if (resolved.action === "chapter-previous") jumpAdjacentChapter(state, -1);
-  else if (resolved.action === "chapter-next") jumpAdjacentChapter(state, 1);
+  else if (resolved.action === "chapter-previous") jumpAdjacentChapter(state, -1, source);
+  else if (resolved.action === "chapter-next") jumpAdjacentChapter(state, 1, source);
   else if (resolved.action === "typewriter") state.typewriter = !state.typewriter;
   else if (resolved.action === "copy-part") await runPartAction("copy", state, source, context);
   else if (resolved.action === "copy-line") await copyPart(state, true);
@@ -146,7 +153,8 @@ export async function navAction(
       state,
       resolved.index ?? state.focusIndex,
       resolved.selectionText ?? null,
-      resolved.selectionSpans ?? []
+      resolved.selectionSpans ?? [],
+      source
     );
   }
   else if (resolved.action === "toggle-rail") {
@@ -184,7 +192,8 @@ export function openActions(
   state: RuntimeState,
   partIndex: number,
   selectionText: string | null = null,
-  selectionSpans: readonly StorySelectionSpan[] = []
+  selectionSpans: readonly StorySelectionSpan[] = [],
+  source?: AppSource
 ): void {
   const view = createStoryViewModel(state.payload, state.stream);
   const index = Math.max(0, Math.min(view.rows.length - 1, partIndex));
@@ -198,6 +207,7 @@ export function openActions(
     ...(selectionSpans.length === 0 ? {} : { selectionSpans })
   };
   state.mode = "ACTIONS";
+  if (source !== undefined) rememberFocus(state, source);
 }
 
 /** The menu the renderer draws — one source for both, so row N on screen is
@@ -497,6 +507,7 @@ export async function rerouteFromMap(
       state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), target));
       state.mode = "NAV";
       state.map = null;
+      rememberFocus(state, source);
     }
     context.cache.invalidate();
   });
@@ -520,3 +531,5 @@ export function openTag(state: RuntimeState, targetId?: string): void {
   };
   state.mode = "TAG";
 }
+
+

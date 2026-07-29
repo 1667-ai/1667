@@ -3,6 +3,10 @@ import type { ActionContext } from "./action-context.js";
 import { applyTextKey, isPlainNavigation, type ResolvedKey } from "./keys.js";
 import { libraryRows, typedTitleMatches } from "./library-model.js";
 import { publishStories } from "./overlay-publication.js";
+import {
+  flushReadingPositionPersist,
+  forgetStoryReadingPosition
+} from "./reading-position-persist.js";
 import { adoptReconciliationSnapshot, adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";
 import type { RuntimeState, TextPrompt } from "./state.js";
 
@@ -65,7 +69,10 @@ export async function libraryAction(
   } else if (resolved.action === "open-selected" && selected !== undefined) {
     await context.backend.run("loading story", async (task) => {
       const payload = await source.api.loadStory(selected.id);
-      if (task.interactionCurrent() && state.library === overlay) adoptStory(state, payload, context);
+      if (task.interactionCurrent() && state.library === overlay) {
+        flushReadingPositionPersist();
+        adoptStory(state, payload, context);
+      }
     });
   }
   return true;
@@ -178,6 +185,7 @@ async function deleteStory(
     const deletedOpenStory = target.id === task.storyId;
     await source.api.deleteStory(target.id);
     if (!task.owns()) return;
+    forgetStoryReadingPosition(state, source, target.id);
     let stories = await source.api.listStories();
     if (!task.owns()) return;
     if (deletedOpenStory && task.storyCurrent()) {

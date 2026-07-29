@@ -10,6 +10,7 @@ import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
 import { startRecoveryOrchestration } from "../src/recovery-orchestration.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { setComposerText } from "../src/composer-model.js";
+import { applyOpeningFocus } from "../src/reading-position.js";
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
 
 function deferred<T>() {
@@ -165,7 +166,11 @@ describe("forced story replacement adoption", () => {
     await pending;
 
     expect(app.state.payload.id).toBe(fixture.fallback.id);
-    expect(app.state.focusIndex).toBe(0);
+    // Destination story opens at its stored/default reading position — not the
+    // previous story's numeric row index.
+    expect(app.state.focusIndex).toBe(
+      applyOpeningFocus(app.state.payload, app.state.readingPositions)
+    );
     expect(app.state.mode).toBe("COMPOSE");
     expect(app.state.composer.text).toBe("x");
     expect(app.state.library).toBe(null);
@@ -249,7 +254,9 @@ describe("forced story replacement adoption", () => {
     expect(app.state.payload.id).toBe(fallback.id);
     expect(app.state.mode).toBe("COMPOSE");
     expect(app.state.composer.text).toBe("draft before recovery");
-    expect(app.state.focusIndex).toBe(0);
+    expect(app.state.focusIndex).toBe(
+      applyOpeningFocus(app.state.payload, app.state.readingPositions)
+    );
     stop();
   });
 });

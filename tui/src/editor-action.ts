@@ -25,6 +25,7 @@ import type { InlineEditorSession, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 import { textHash } from "./api.js";
 import { findCreatedTake } from "./created-take.js";
+import { rememberFocus } from "./reading-position-persist.js";
 
 export {
   openChapterSummaryEditor,
@@ -244,6 +245,7 @@ async function saveInlineEditor(
       }
       if (state.editor === editor) {
         state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), landedId));
+        rememberFocus(state, source);
       }
       state.freshLandedAt = new Map(state.freshLandedAt).set(landedId, Date.now());
       if (!state.demo) {
@@ -282,6 +284,7 @@ async function saveInlineEditor(
       const landedId = landedNode?.id ?? previous?.id ?? target.node.id;
       if (state.editor === editor) {
         state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), landedId));
+        rememberFocus(state, source);
       }
       state.freshLandedAt = new Map(state.freshLandedAt).set(landedId, Date.now());
       if (!state.demo) {

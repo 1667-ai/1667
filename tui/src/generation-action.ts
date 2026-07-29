@@ -22,6 +22,7 @@ import {
 } from "./story-adoption.js";
 import type { ProseStyle, WrapCache } from "./wrap.js";
 import { followStoryViewport } from "./viewport-intent.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import {
   appendStreamText,
   emptyStreamText,
@@ -181,7 +182,10 @@ export async function generate(
       const landedId = updated.path.at(-1)?.id;
       if (landedId !== undefined) landed.set(landedId, Date.now());
       state.freshLandedAt = landed;
-      if (interactionCurrent()) state.focusIndex = lastPartRowIndex(createStoryViewModel(updated));
+      if (interactionCurrent()) {
+        state.focusIndex = lastPartRowIndex(createStoryViewModel(updated));
+        rememberFocus(state, source);
+      }
       adopted = true;
       clearPendingGenerationDraft(state, pendingDraft, stream);
     }
@@ -383,6 +387,7 @@ async function settleStoppedGeneration(
     if (substantive) clearPendingGenerationDraft(state, pendingDraft, stream);
     if (interactionCurrent() && substantive) {
       state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
+      rememberFocus(state, source);
     }
     return { adopted: true, preserveStream: false };
   } catch (error) {

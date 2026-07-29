@@ -3,8 +3,10 @@ import { createComposer } from "./composer-model.js";
 import { capturePendingDirectDraft } from "./composer-ownership.js";
 import { reconcileFactEditor } from "./editor-reconciliation.js";
 import { boundedFactSelection, factRows } from "./facts-model.js";
-import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "./model.js";
+import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
+import { applyOpeningFocus } from "./reading-position.js";
+import { flushReadingPositionPersist } from "./reading-position-persist.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
@@ -132,7 +134,6 @@ export function adoptReconciliationSnapshot(
     return;
   }
 
-  const focusIndex = state.focusIndex;
   const retakePrompt = state.retakePrompt;
   const dormantRetake = state.pendingGenerationDraft?.kind === "retake"
     ? state.pendingGenerationDraft.retakePrompt
@@ -169,7 +170,9 @@ export function adoptReconciliationSnapshot(
     : null;
 
   adoptStoryState(state, payload);
-  state.focusIndex = Math.max(0, Math.min(focusIndex, createStoryViewModel(payload).rows.length - 1));
+  // Destination story keeps its stored opening focus from adoptStoryState.
+  // Reusing the previous story's numeric row index would land on an arbitrary
+  // part of an unrelated layout.
   state.composer = composer;
   state.composerScrollTop = composerScrollTop;
   state.pendingGenerationDraft = retainedPendingText === null
@@ -284,8 +287,10 @@ function reconcileStoryBoundIntent(
 /** Replace the authoritative story and discard every interaction frozen
  * against the previous payload. Global visual preferences remain intact. */
 export function adoptStoryState(state: RuntimeState, payload: StoryPayload): void {
+  // Durably leave the previous story's position before replacing focus.
+  flushReadingPositionPersist();
   state.payload = payload;
-  state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
+  state.focusIndex = applyOpeningFocus(payload, state.readingPositions);
   state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
   state.composer = createComposer();
   state.editor = null;

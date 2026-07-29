@@ -367,14 +367,6 @@ export function starterProse(): { slug: string; text: string; keys: readonly Sta
   ]);
 }
 
-/** The story a fresh install opens on. */
+/** The story a fresh install opens on. Also the only story that opens at its
+ *  first part when no local reading position is stored yet (issue #38). */
 export const STARTER_OPENING_STORY_ID = TOUR.id;
-/** Parts on the tour's line as seeded — one per beat. A client compares this
- *  to decide whether the tour is still the tour or has become someone's
- *  story, so it has to be derived here rather than counted by hand. */
-export const STARTER_OPENING_PART_COUNT = TOUR.beats.length;
-/** Every node the tour seeds, takes included. A retake, a written take or an
- *  inline edit adds one, which is how a client tells the tour from a story
- *  someone has started working in. */
-export const STARTER_OPENING_NODE_COUNT = TOUR.beats
-  .reduce((total, beat) => total + beat.takes.length, 0);

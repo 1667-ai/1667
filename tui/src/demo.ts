@@ -513,7 +513,8 @@ export function demoAppSource(dense = false): AppSource {
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null }
-    }
+    },
+    readingPositions: {}
   };
 }
 

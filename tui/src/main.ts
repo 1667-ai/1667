@@ -3,6 +3,12 @@ import { createApi } from "./api.js";
 import { demoAppSource } from "./demo.js";
 import { createConnectionMonitor } from "./connection.js";
 import { loadConfig } from "./config.js";
+import {
+  configureReadingPositionStore,
+  disposeReadingPositionStore,
+  loadReadingPositions,
+  readingPositionStoreFile
+} from "./reading-position-store.js";
 import { resolve } from "node:path";
 import {
   BackendRestartRequiredError,
@@ -473,7 +479,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     printLogs: args.printLogs,
     onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings)
   });
-  const httpAttach = worker === null
+  let httpAttach = worker === null
     ? await attachHttpServer(await attachOrigin(args), args.authFile)
     : null;
   if (worker !== null) {
@@ -513,6 +519,12 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       }
     }
     const config = loadConfig();
+    const storeFile = readingPositionStoreFile(
+      dataDir,
+      httpAttach?.origin ?? null
+    );
+    configureReadingPositionStore(storeFile);
+    const readingPositions = loadReadingPositions({ file: storeFile });
     const startUpdateCheck = createBackgroundUpdateStarter(config);
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,
@@ -520,10 +532,12 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
-      config };
+      config,
+      readingPositions };
     return {
       source,
       dispose: async () => {
+        disposeReadingPositionStore();
         connection.dispose();
         httpAttach?.dispose();
         await worker?.dispose();

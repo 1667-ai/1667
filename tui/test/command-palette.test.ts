@@ -177,6 +177,7 @@ function renderCommands(
     abort: null,
     actions: null,
     config: source.config,
+    readingPositions: source.readingPositions,
     demo: false,
     storyFolder: source.storyFolder,
     library: null,
