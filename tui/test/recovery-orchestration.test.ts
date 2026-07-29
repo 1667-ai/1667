@@ -20,6 +20,7 @@ import { WorkerApiError, type WorkerRecoveryWarning } from "../src/worker-api.js
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../src/model.js";
 import { factRows } from "../src/facts-model.js";
+import { applyOpeningFocus } from "../src/reading-position.js";
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "../src/prune-model.js";
 import { nextRequestContext } from "../src/request-context.js";
@@ -101,7 +102,9 @@ describe("backend recovery orchestration", () => {
     expect(source.stories).toEqual([fallback]);
     expect(state.mode).toBe("COMPOSE");
     expect(state.composer.text).toBe("keep this draft");
-    expect(state.focusIndex).toBe(0);
+    expect(state.focusIndex).toBe(
+      applyOpeningFocus(state.payload, state.readingPositions)
+    );
   });
 
   test("an input-safe explicit retry surfaces a 404 and remains retryable", async () => {
