@@ -39,6 +39,7 @@ This document uses these Technical Names:
 | release plan | The strict JSON input for release preflight |
 | artifact manifest | The canonical JSON output from release preflight |
 | publication attempt ref | An immutable ref that records one npm write attempt |
+| operation lease | The exclusive GitHub workflow run for one manual npm operation |
 | SBOM | The SPDX Software Bill of Materials in each release package |
 | preflight | Local validation of release packages and their evidence |
 | Bun baseline runtime | The Bun runtime for x64 processors that support SSE4.2 |
@@ -299,16 +300,21 @@ dispatch commit.
 
 The workflow has these jobs:
 
-1. `build` builds and observes the four published native executables.
-2. `launcher` stages and packs the five release packages.
-3. `preflight` verifies the package set and retains the result.
-4. `publish` publishes the four platform packages before the launcher package.
-5. `release` verifies publication and publishes the GitHub pre-release.
+1. `authorize` verifies the dispatcher before it starts release work.
+2. `build` builds and observes the four published native executables.
+3. `launcher` stages and packs the five release packages.
+4. `preflight` verifies the package set and retains the result.
+5. `publish` publishes the four platform packages before the launcher package.
+6. `release` verifies publication and publishes the GitHub pre-release.
 
-The workflow uses one non-cancelling lock for all npm releases. A failed job can
-use the retained inputs from the same workflow run. The registry check accepts
-an existing version only when its digest and provenance are correct.
+The publication workflow and the manual operation holder use one non-cancelling
+lock. The lock serializes publication, promotion, and quarantine. A failed job
+can use the retained inputs from the same workflow run. The registry check
+accepts an existing version only when its digest and provenance are correct.
 It binds the provenance certificate to this repository, workflow, and ref.
+The `release-publication` Actions artifact supports job handoff and same-run retries.
+The immutable GitHub prerelease retains the tarballs, native observations, and artifact manifest.
+Promotion does not depend on the Actions artifact retention period.
 
 The publish job creates a publication attempt ref before each npm write. The ref
 binds the package target and tarball digest to the release commit. A retry does
@@ -319,7 +325,22 @@ replacement. The job then continues the visibility check.
 
 A `released/v<version>_quarantined` ref blocks publication for that version.
 The ref is immutable. The publish job checks this ref before it reads npm
-metadata.
+metadata. It checks the ref and active operation leases again immediately before
+each npm write.
+
+`.github/workflows/release-npm-operation.yml` holds the shared lock for a manual operation.
+The `authorize` job runs before the `hold` job.
+The `authorize` job verifies the default branch.
+It verifies the requested release.
+It requires the dispatcher to be a repository administrator.
+It builds the dependency-free holder program.
+The `hold` job enters the shared lock only with the exact authorization output.
+One maintainer then verifies the live holder.
+The maintainer then creates immutable active and claim markers.
+The tag helper verifies the exact claim and the release refs before each npm write.
+The helper creates a complete or failed marker.
+An administrator can create an abandoned marker after the stale lease recovery procedure.
+No procedure updates or deletes an operation marker.
 
 The workflow publishes with the npm `next` tag. It waits for the platform
 packages before it publishes the launcher package. It creates
@@ -336,6 +357,9 @@ The `preflight`, `publish`, and `release` jobs run the publication readiness
 check before they create signed-tag evidence. The check currently stops
 publication. The SBOM boundary is complete. The remaining prepublication
 controls must be complete before maintainers enable publication.
+
+Use [npm release operations](./npm-release-operations.md) to promote or
+quarantine a published version.
 
 ## Local gates
 
@@ -478,13 +502,5 @@ still requires the trusted inputs above.
 
 ## Retain release evidence
 
-Inspect the canonical artifact manifest. Retain the artifact manifest and its
-SHA-256 value.
-
-Retain the tag-verification evidence. Retain the native build-identity
-observations.
-
-A successful preflight is necessary package evidence. It is not publication
-authorization.
-
-A successful preflight does not authorize publication on its own.
+Retain the artifact manifest, its SHA-256 value, the tag-verification evidence,
+and the native build-identity observations.

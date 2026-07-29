@@ -1,0 +1,221 @@
+name: Hold npm operation
+run-name: >-
+  npm ${{ inputs.operation }} v${{ inputs.version }} (${{ inputs.request_id }};
+  source ${{ inputs.source_commit }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Manual npm operation to serialize.
+        required: true
+        type: choice
+        options:
+          - promotion
+          - quarantine
+      version:
+        description: Exact package version without a leading v.
+        required: true
+        type: string
+      source_commit:
+        description: Exact release source commit.
+        required: true
+        type: string
+      request_id:
+        description: Unique local request ID for run lookup.
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  NODE_VERSION: 22.22.0
+  NPM_VERSION: 11.12.1
+
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      authorization: ${{ steps.authorization.outputs.authorization }}
+      holder_gzip_base64: ${{ steps.bundle.outputs.holder_gzip_base64 }}
+      holder_sha256: ${{ steps.bundle.outputs.holder_sha256 }}
+    steps:
+      - name: Refuse a dispatch outside the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::npm operation dispatch must use refs/heads/$DEFAULT_BRANCH"
+            exit 1
+          fi
+
+      - name: Check out the dispatch commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Pin npm
+        run: |
+          set -euo pipefail
+          npm install --global "npm@$NPM_VERSION" --ignore-scripts --no-audit --no-fund
+          test "$(node --version)" = "v$NODE_VERSION"
+          test "$(npm --version)" = "$NPM_VERSION"
+
+      - name: Install script-free runtime dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Authorize the dispatch before it enters the shared queue
+        id: authorization
+        env:
+          DISPATCHER: ${{ github.triggering_actor }}
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+          node --import tsx scripts/release-npm-operation-lease-cli.ts \
+            authorize "$OPERATION" "$VERSION" "$SOURCE_COMMIT" "$DISPATCHER"
+          printf 'authorization=%s:%s:%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$DISPATCHER" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Build the dependency-free holder
+        id: bundle
+        run: |
+          set -euo pipefail
+          HOLDER_BUNDLE="$RUNNER_TEMP/npm-operation-holder.mjs"
+          test "$(npx --no-install esbuild --version)" = "0.28.1"
+          npx --no-install esbuild \
+            scripts/release-npm-operation-lease-cli.ts \
+            --bundle --format=esm --platform=node --target=node20 \
+            --log-level=error --outfile="$HOLDER_BUNDLE"
+          HOLDER_BUNDLE="$HOLDER_BUNDLE" node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { appendFileSync, readFileSync } from "node:fs";
+          import { gzipSync } from "node:zlib";
+          const source = readFileSync(process.env.HOLDER_BUNDLE);
+          if (source.byteLength === 0 || source.byteLength > 512 * 1024) {
+            throw new Error("npm operation holder bundle has an invalid size");
+          }
+          const gzip = gzipSync(source, { level: 9 });
+          const digest = createHash("sha256").update(source).digest("hex");
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `holder_gzip_base64=${gzip.toString("base64")}\n`
+              + `holder_sha256=${digest}\n`
+          );
+          NODE
+
+  hold:
+    needs: authorize
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    environment: npm-operations
+    # The publication workflow and manual npm operations use one global lock.
+    concurrency:
+      group: ${{ needs.authorize.outputs.authorization == format('{0}:{1}:{2}', github.run_id, github.run_attempt, github.triggering_actor) && 'release-npm' || format('rejected-npm-operation-{0}-{1}', github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Bind authorization and start the unclaimed lock interval
+        id: lock
+        env:
+          AUTHORIZATION: ${{ needs.authorize.outputs.authorization }}
+          DISPATCHER: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          EXPECTED="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT:$DISPATCHER"
+          test "$AUTHORIZATION" = "$EXPECTED"
+          LOCK_STARTED_AT="$EPOCHREALTIME"
+          [[ "$LOCK_STARTED_AT" =~ ^[0-9]{10}\.[0-9]{6}$ ]]
+          LOCK_STARTED_AT_MS="${LOCK_STARTED_AT/./}"
+          LOCK_STARTED_AT_MS="${LOCK_STARTED_AT_MS:0:13}"
+          printf 'lock_started_at_ms=%s\n' "$LOCK_STARTED_AT_MS" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Hold the npm operation lease
+        timeout-minutes: 360
+        env:
+          AUTHORIZATION: ${{ needs.authorize.outputs.authorization }}
+          DISPATCHER: ${{ github.triggering_actor }}
+          GH_TOKEN: ${{ github.token }}
+          HOLDER_GZIP_BASE64: ${{ needs.authorize.outputs.holder_gzip_base64 }}
+          HOLDER_SHA256: ${{ needs.authorize.outputs.holder_sha256 }}
+          LOCK_STARTED_AT_MS: ${{ steps.lock.outputs.lock_started_at_ms }}
+          NPM_OPERATION_LOCK_STARTED_AT_MS: ${{ steps.lock.outputs.lock_started_at_ms }}
+          OPERATION: ${{ inputs.operation }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$OPERATION" "$VERSION" "$SOURCE_COMMIT" <<'NODE'
+          import { createHash } from "node:crypto";
+          import { writeFileSync } from "node:fs";
+          import { pathToFileURL } from "node:url";
+          import { gunzipSync } from "node:zlib";
+          const required = (name) => {
+            const value = process.env[name];
+            if (value === undefined || value === "") {
+              throw new Error(`npm operation holder requires ${name}`);
+            }
+            return value;
+          };
+          const authorization = required("AUTHORIZATION");
+          const expected = [
+            required("GITHUB_RUN_ID"),
+            required("GITHUB_RUN_ATTEMPT"),
+            required("DISPATCHER")
+          ].join(":");
+          if (authorization !== expected) {
+            throw new Error("npm operation holder authorization is stale");
+          }
+          if (!/^v(?:20|22|24)\.\d+\.\d+$/u.test(process.version)) {
+            throw new Error("npm operation holder Node version is unsupported");
+          }
+          if (typeof AbortSignal.any !== "function") {
+            throw new Error("npm operation holder requires AbortSignal.any");
+          }
+          const startedAt = Number(required("LOCK_STARTED_AT_MS"));
+          const elapsed = Date.now() - startedAt;
+          if (!Number.isSafeInteger(startedAt) || elapsed < -5_000
+            || elapsed >= 55_000) {
+            throw new Error("npm operation holder lock interval is invalid");
+          }
+          const encoded = required("HOLDER_GZIP_BASE64");
+          if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(encoded)) {
+            throw new Error("npm operation holder encoding is invalid");
+          }
+          const compressed = Buffer.from(encoded, "base64");
+          if (compressed.toString("base64") !== encoded) {
+            throw new Error("npm operation holder encoding is not canonical");
+          }
+          const source = gunzipSync(compressed, { maxOutputLength: 512 * 1024 });
+          const digest = createHash("sha256").update(source).digest("hex");
+          const expectedDigest = required("HOLDER_SHA256");
+          if (!/^[0-9a-f]{64}$/u.test(expectedDigest)
+            || digest !== expectedDigest) {
+            throw new Error("npm operation holder digest does not match");
+          }
+          const holder = `${required("RUNNER_TEMP")}/npm-operation-holder.mjs`;
+          writeFileSync(holder, source, { flag: "wx", mode: 0o500 });
+          const args = process.argv.slice(2);
+          process.argv = [process.execPath, holder, "holder", ...args];
+          await import(pathToFileURL(holder).href);
+          NODE

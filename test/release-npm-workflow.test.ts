@@ -10,16 +10,31 @@ const WORKFLOW = readFileSync(
   path.join(ROOT, ".github", "workflows", "release-npm.yml"),
   "utf8"
 );
+const OPERATION_WORKFLOW = readFileSync(
+  path.join(ROOT, ".github", "workflows", "release-npm-operation.yml"),
+  "utf8"
+);
 const CI_HELPER = readFileSync(path.join(ROOT, "scripts", "release-npm-ci.ts"), "utf8");
-const LEDGER = readFileSync(path.join(ROOT, "scripts", "release-npm-ledger.ts"), "utf8");
 
-test("the npm workflow has the protected five-job publication shape", () => {
+test("the npm workflow authorizes one dispatcher before the publication stages", () => {
   const triggers = WORKFLOW.slice(WORKFLOW.indexOf("on:\n"), WORKFLOW.indexOf("\npermissions:\n"));
   assert.match(WORKFLOW, /^name: Release \(npm\)$/mu);
   assert.match(triggers, /^  workflow_dispatch:$/mu);
   assert.doesNotMatch(triggers, /^  (?:push|pull_request|release):$/mu);
-  assert.match(WORKFLOW, /^  group: release-npm$/mu);
+  assert.match(
+    WORKFLOW,
+    /^  group: \$\{\{ github\.triggering_actor == '10fra' && 'release-npm' \|\| format\('rejected-release-npm-\{0\}-\{1\}', github\.run_id, github\.run_attempt\) \}\}$/mu
+  );
   assert.match(WORKFLOW, /^  cancel-in-progress: false$/mu);
+  assert.match(WORKFLOW, /^  queue: max$/mu);
+  const authorize = job("authorize");
+  assert.match(authorize, /DISPATCHER: \$\{\{ github\.triggering_actor \}\}/u);
+  assert.match(authorize, /test "\$DISPATCHER" = 10fra/u);
+  assert.match(
+    authorize,
+    /collaborators\/\$DISPATCHER\/permission[\s\S]{0,80}--jq \.permission/u
+  );
+  assert.match(authorize, /test "\$permission" = admin/u);
   assert.deepEqual([...WORKFLOW.matchAll(/^  ([a-z][a-z-]*):$/gmu)].map((match) => {
     return match[1];
   }).filter((name) => ["build", "launcher", "preflight", "publish", "release"].includes(name!)), [
@@ -29,6 +44,7 @@ test("the npm workflow has the protected five-job publication shape", () => {
     "publish",
     "release"
   ]);
+  assert.match(job("build"), /^    needs: authorize$/mu);
   assert.match(job("publish"), /^    environment: publish$/mu);
   assert.match(job("publish"), /^    timeout-minutes: 180$/mu);
   assert.match(job("publish"), /^      id-token: write$/mu);
@@ -158,6 +174,15 @@ test("the retained layout and completion record support an exact rerun", () => {
   assert.equal(job("release").indexOf("- name:", record + 1), -1);
 });
 
+test("the immutable prerelease retains the durable promotion inputs", () => {
+  const release = job("release");
+  const observations = release.indexOf(
+    "cp dist/publication/observations/*.json dist/assets/"
+  );
+  const publish = release.indexOf("scripts/release-npm-github.ts");
+  assert.ok(observations !== -1 && observations < publish);
+});
+
 test("the safety interlock runs before signed source evidence is materialized", () => {
   for (const name of ["preflight", "publish", "release"] as const) {
     const body = job(name);
@@ -204,28 +229,153 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
   }
 });
 
-test("publication writes immutable attempt refs before npm writes", () => {
+test("publication grants the publish job immutable-attempt authority", () => {
   assert.match(job("publish"), /^      contents: write$/mu);
-  assert.match(LEDGER, /recordAttempt/u);
-  assert.match(LEDGER, /_attempt_/u);
-  assert.match(LEDGER, /_quarantined/u);
+  assert.match(job("publish"), /npm run release:publish -- publish/u);
+});
+
+test("authorized manual npm operations share the publication lock", () => {
+  const triggers = OPERATION_WORKFLOW.slice(
+    OPERATION_WORKFLOW.indexOf("on:\n"),
+    OPERATION_WORKFLOW.indexOf("\npermissions:\n")
+  );
+  const header = OPERATION_WORKFLOW.slice(
+    0,
+    OPERATION_WORKFLOW.indexOf("\njobs:\n")
+  );
+  const authorize = operationJob("authorize");
+  const hold = operationJob("hold");
+  assert.match(OPERATION_WORKFLOW, /^name: Hold npm operation$/mu);
+  assert.match(triggers, /^  workflow_dispatch:$/mu);
+  assert.doesNotMatch(triggers, /^  (?:push|pull_request|release):$/mu);
+  assert.match(WORKFLOW, /^  cancel-in-progress: false$/mu);
+  assert.match(WORKFLOW, /^  queue: max$/mu);
+  assert.doesNotMatch(header, /^concurrency:$/mu);
+  assert.doesNotMatch(authorize, /^    concurrency:$/mu);
+  assert.match(hold, /^    needs: authorize$/mu);
+  assert.match(hold, /^    concurrency:$/mu);
+  assert.match(
+    hold,
+    /needs\.authorize\.outputs\.authorization == format\('\{0\}:\{1\}:\{2\}', github\.run_id, github\.run_attempt, github\.triggering_actor\) && 'release-npm'/u
+  );
+  assert.match(
+    hold,
+    /format\('rejected-npm-operation-\{0\}-\{1\}', github\.run_id, github\.run_attempt\)/u
+  );
+  assert.match(hold, /^      cancel-in-progress: false$/mu);
+  assert.match(hold, /^      queue: max$/mu);
+  assert.match(OPERATION_WORKFLOW, /\$\{\{ inputs\.request_id \}\}/u);
+  assert.match(
+    OPERATION_WORKFLOW,
+    /run-name:[\s\S]{0,180}source \$\{\{ inputs\.source_commit \}\}/u
+  );
+  assert.match(hold, /^    environment: npm-operations$/mu);
+  assert.doesNotMatch(authorize, /^    environment:/mu);
+  assert.match(OPERATION_WORKFLOW, /^  actions: read$/mu);
+  assert.match(OPERATION_WORKFLOW, /^  contents: read$/mu);
+  assert.doesNotMatch(OPERATION_WORKFLOW, /contents: write/u);
+  assert.match(authorize, /GITHUB_REF.*refs\/heads\/\$DEFAULT_BRANCH/u);
+  assert.match(
+    authorize,
+    /release-npm-operation-lease-cli\.ts \\\n\s+authorize/u
+  );
+  assert.match(authorize, /DISPATCHER: \$\{\{ github\.triggering_actor \}\}/u);
+  assert.match(authorize, /REQUEST_ID: \$\{\{ inputs\.request_id \}\}/u);
+  assert.ok(authorize.includes(
+    '[[ "$REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}'
+      + '-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]'
+  ));
+  assert.match(authorize, /"\$SOURCE_COMMIT" "\$DISPATCHER"/u);
+  assert.match(hold, /process\.argv = \[process\.execPath, holder, "holder", \.\.\.args\]/u);
+  assert.match(authorize, /npm ci --ignore-scripts/u);
+  assert.doesNotMatch(hold, /(?:npm (?:ci|install)|actions\/checkout|actions\/setup-node|^[ \t]+uses:)/mu);
+  assert.doesNotMatch(OPERATION_WORKFLOW, /id-token: write/u);
+});
+
+test("targeted hold reruns cannot reuse prior authorization", () => {
+  const authorize = operationJob("authorize");
+  const hold = operationJob("hold");
+  assert.match(
+    authorize,
+    /authorization=%s:%s:%s\\n'[\s\S]+GITHUB_RUN_ID" "\$GITHUB_RUN_ATTEMPT" "\$DISPATCHER/u
+  );
+  assert.match(
+    hold,
+    /AUTHORIZATION: \$\{\{ needs\.authorize\.outputs\.authorization \}\}/u
+  );
+  assert.match(
+    hold,
+    /EXPECTED="\$GITHUB_RUN_ID:\$GITHUB_RUN_ATTEMPT:\$DISPATCHER"[\s\S]{0,80}test "\$AUTHORIZATION" = "\$EXPECTED"/u
+  );
+  assert.match(
+    hold,
+    /rejected-npm-operation-\{0\}-\{1\}[\s\S]{0,100}github\.run_id, github\.run_attempt/u
+  );
+});
+
+test("the locked holder verifies one prebuilt dependency-free bundle", () => {
+  const authorize = operationJob("authorize");
+  const hold = operationJob("hold");
+  assert.match(authorize, /test "\$\(npx --no-install esbuild --version\)" = "0\.28\.1"/u);
+  assert.match(authorize, /--bundle --format=esm --platform=node --target=node20/u);
+  assert.match(authorize, /gzipSync\(source, \{ level: 9 \}\)/u);
+  assert.match(authorize, /createHash\("sha256"\)\.update\(source\)\.digest\("hex"\)/u);
+  assert.match(hold, /compressed\.toString\("base64"\) !== encoded/u);
+  assert.match(hold, /gunzipSync\(compressed, \{ maxOutputLength: 512 \* 1024 \}\)/u);
+  assert.match(hold, /digest !== expectedDigest/u);
+  assert.match(hold, /writeFileSync\(holder, source, \{ flag: "wx", mode: 0o500 \}\)/u);
+  assert.match(hold, /^[ \t]*if \(typeof AbortSignal\.any !== "function"\)/mu);
+  assert.match(
+    hold,
+    /NPM_OPERATION_LOCK_STARTED_AT_MS: \$\{\{ steps\.lock\.outputs\.lock_started_at_ms \}\}/u
+  );
+});
+
+test("publication rechecks protected state immediately before npm writes", () => {
+  const publish = job("publish");
+  const command = publish.indexOf("npm run release:publish -- publish");
+  const completionFetch = publish.lastIndexOf(
+    "git fetch origin '+refs/tags/released/*:refs/tags/released/*'",
+    command
+  );
+  const completionGate = publish.lastIndexOf(
+    "release-completion.ts gate",
+    command
+  );
+  assert.ok(
+    completionFetch !== -1 && completionFetch < completionGate
+      && completionGate < command
+  );
 });
 
 test("third-party actions use immutable commit pins", () => {
-  const uses = [...WORKFLOW.matchAll(/^[ \t]*uses: ([^@\s]+)@([^\s]+)(?: #.*)?$/gmu)];
+  const uses = [...`${WORKFLOW}\n${OPERATION_WORKFLOW}`.matchAll(
+    /^[ \t]*uses: ([^@\s]+)@([^\s]+)(?: #.*)?$/gmu
+  )];
   assert.ok(uses.length > 0);
   for (const match of uses) {
     assert.match(match[2]!, /^[0-9a-f]{40}$/u, match[0]);
   }
 });
 
-function job(name: "build" | "launcher" | "preflight" | "publish" | "release"): string {
+function job(
+  name: "authorize" | "build" | "launcher" | "preflight" | "publish" | "release"
+): string {
   const start = WORKFLOW.indexOf(`  ${name}:\n`);
   assert.notEqual(start, -1);
   const next = WORKFLOW.slice(start + 1).search(/^  [a-z][a-z-]*:\n/mu);
   return next === -1
     ? WORKFLOW.slice(start)
     : WORKFLOW.slice(start, start + 1 + next);
+}
+
+function operationJob(name: "authorize" | "hold"): string {
+  const start = OPERATION_WORKFLOW.indexOf(`  ${name}:\n`);
+  assert.notEqual(start, -1);
+  const next = OPERATION_WORKFLOW.slice(start + 1).search(/^  [a-z][a-z-]*:\n/mu);
+  return next === -1
+    ? OPERATION_WORKFLOW.slice(start)
+    : OPERATION_WORKFLOW.slice(start, start + 1 + next);
 }
 
 function workflowStep(

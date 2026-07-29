@@ -22,6 +22,7 @@ export interface NpmPublicationRegistry {
 }
 
 export interface NpmPublicationLedger {
+  assertWritable(packageToPublish: NpmPublicationPackage): Promise<void>;
   status(packageToPublish: NpmPublicationPackage): Promise<"fresh" | "attempted">;
   recordAttempt(
     packageToPublish: NpmPublicationPackage
@@ -81,6 +82,7 @@ async function publishMissingPackage(
     }
   }
   try {
+    await ledger.assertWritable(packageToPublish);
     await registry.publish(packageToPublish);
   } catch (error) {
     if (!(error instanceof NpmPublicationAlreadyExistsError)) throw error;

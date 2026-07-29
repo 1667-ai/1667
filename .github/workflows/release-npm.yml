@@ -23,8 +23,9 @@ defaults:
 # One non-cancelling lock covers all versions. A lock that includes the ref or
 # version permits two runs to move the shared next tag at the same time.
 concurrency:
-  group: release-npm
+  group: ${{ github.triggering_actor == '10fra' && 'release-npm' || format('rejected-release-npm-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: false
+  queue: max
 
 env:
   NODE_VERSION: 22.22.0
@@ -32,7 +33,31 @@ env:
   SIGNER_WORKFLOW: 1667-ai/1667/.github/workflows/release-npm.yml
 
 jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Authorize the release dispatcher
+        env:
+          DISPATCHER: ${{ github.triggering_actor }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$DISPATCHER" = 10fra
+          gh_path="$(realpath "$(command -v gh)")"
+          if [ ! -f "$gh_path" ] || [ ! -x "$gh_path" ] || [ -L "$gh_path" ]; then
+            echo "::error::GitHub CLI is not a regular executable"
+            exit 1
+          fi
+          permission="$(
+            "$gh_path" api \
+              "repos/$GITHUB_REPOSITORY/collaborators/$DISPATCHER/permission" \
+              --jq .permission
+          )"
+          test "$permission" = admin
+
   build:
+    needs: authorize
     name: build-${{ matrix.target }}
     strategy:
       fail-fast: false
@@ -495,8 +520,11 @@ jobs:
       - name: Publish platforms, then the launcher
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          git fetch origin '+refs/tags/released/*:refs/tags/released/*'
+          node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           npm run release:publish -- publish \
             dist/plan.json \
             dist/publication/artifact-manifest.json \
@@ -597,6 +625,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist/assets
           cp dist/publication/tarballs/*.tgz dist/assets/
+          cp dist/publication/observations/*.json dist/assets/
           cp dist/publication/sboms/*.spdx.json dist/assets/
           cp dist/publication/artifact-manifest.json dist/assets/
           cp dist/publication/artifact-manifest.sha256 dist/assets/

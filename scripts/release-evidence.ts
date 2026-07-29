@@ -9,11 +9,14 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   assembleReleaseSourceEvidence,
+  assembleReleaseTagAuthorization,
   requireCanonicalTimestamp,
   requireCommitObjectName,
   requireReleaseTagName,
   type CommandOutcome,
-  type ReleaseEvidenceDocument
+  type ReleaseEvidenceDocument,
+  type ReleaseTagAuthorizationDocument,
+  type ReleaseTagAuthorizationObservations
 } from "./release-evidence-inspection.js";
 
 /**
@@ -60,12 +63,9 @@ const REPOSITORY_PATH = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}$/;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 120_000;
 
-export interface ReleaseEvidenceRequest {
+export interface ReleaseTagAuthorizationRequest {
   readonly repositoryRoot: string;
   readonly tagName: string;
-  /** Millisecond-precision UTC instant shared by every target in a release; an
-   *  input rather than something this module invents. */
-  readonly buildTimestamp: string;
   readonly signerPolicyRef?: string;
   readonly signerPolicyPath?: string;
   readonly protectedRef?: string;
@@ -77,11 +77,52 @@ export interface ReleaseEvidenceRequest {
   readonly environment?: NodeJS.ProcessEnv;
 }
 
+export interface ReleaseEvidenceRequest extends ReleaseTagAuthorizationRequest {
+  /** Millisecond-precision UTC instant shared by every target in a release; an
+   *  input rather than something this module invents. */
+  readonly buildTimestamp: string;
+}
+
 export async function collectReleaseEvidence(
   request: ReleaseEvidenceRequest
 ): Promise<ReleaseEvidenceDocument> {
-  const tagName = requireReleaseTagName(request.tagName);
   const buildTimestamp = requireCanonicalTimestamp(request.buildTimestamp);
+  return collectWithTagAuthorization(
+    request,
+    async (authorization, git, sourceCommit) => {
+      return assembleReleaseSourceEvidence({
+        ...authorization,
+        buildTimestamp,
+        // Product facts come from the released commit. Only the signer policy
+        // must be anchored outside the artifact that it admits.
+        rootManifest: await git(["show", `${sourceCommit}:package.json`]),
+        tuiManifest: await git(["show", `${sourceCommit}:tui/package.json`]),
+        rootLock: await git(["show", `${sourceCommit}:package-lock.json`])
+      });
+    }
+  );
+}
+
+export async function collectReleaseTagAuthorization(
+  request: ReleaseTagAuthorizationRequest
+): Promise<ReleaseTagAuthorizationDocument> {
+  return collectWithTagAuthorization(
+    request,
+    (observations) => assembleReleaseTagAuthorization(observations)
+  );
+}
+
+type GitRunner = (args: readonly string[]) => Promise<CommandOutcome>;
+
+async function collectWithTagAuthorization<T>(
+  request: ReleaseTagAuthorizationRequest,
+  consume: (
+    observations: ReleaseTagAuthorizationObservations,
+    git: GitRunner,
+    sourceCommit: string
+  ) => Promise<T> | T
+): Promise<T> {
+  const tagName = requireReleaseTagName(request.tagName);
   const signerPolicyRef = gitRefName(
     request.signerPolicyRef ?? DEFAULT_SIGNER_POLICY_REF,
     "Release signer policy ref"
@@ -139,9 +180,8 @@ export async function collectReleaseEvidence(
     const signersFile = path.join(signersDirectory, "allowed-signers");
     await writeFile(signersFile, signerPolicy.stdout, { mode: 0o600 });
 
-    return assembleReleaseSourceEvidence({
+    const observations: ReleaseTagAuthorizationObservations = {
       tagName,
-      buildTimestamp,
       signerPolicyRef,
       signerPolicyPath,
       protectedRef,
@@ -169,14 +209,9 @@ export async function collectReleaseEvidence(
         "verify-tag",
         "--raw",
         tagRef
-      ]),
-      // Product facts do come from the released commit, which is correct: the
-      // package versions describe the candidate rather than authorise it. Only
-      // the signer policy has to be anchored outside the artifact it admits.
-      rootManifest: await git(["show", `${sourceCommit}:package.json`]),
-      tuiManifest: await git(["show", `${sourceCommit}:tui/package.json`]),
-      rootLock: await git(["show", `${sourceCommit}:package-lock.json`])
-    });
+      ])
+    };
+    return await consume(observations, git, sourceCommit);
   } finally {
     await rm(signersDirectory, { recursive: true, force: true });
   }
