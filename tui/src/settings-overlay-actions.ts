@@ -178,9 +178,9 @@ async function settingsInlineEditAction(
       return;
     }
     if (overlay.conflict !== null) overlay.conflict.armed = false;
-    state.toast = settingsDraftChanged(overlay)
-      ? "draft updated · s saves settings"
-      : "unchanged · no-op";
+    if (settingsDraftChanged(overlay)) {
+      state.toast = "draft updated · s saves settings";
+    }
     return;
   }
   if (resolved.action === "input") {
@@ -229,7 +229,6 @@ async function saveSettingsDraft(
   const stagedRetry = overlay.view.pendingRevision !== null;
   if (overlay.saveIntent === undefined && !settingsDraftChanged(overlay) && !stagedRetry) {
     overlay.conflict = null;
-    state.toast = "unchanged · no-op";
     return;
   }
   if (overlay.conflict !== null && !overlay.conflict.armed) {
@@ -270,7 +269,6 @@ async function saveSettingsDraft(
     ) {
       overlay.draft = overlay.base;
       overlay.conflict = null;
-      state.toast = "unchanged · no-op";
       return;
     }
     intent = {

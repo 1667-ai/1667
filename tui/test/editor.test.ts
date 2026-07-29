@@ -67,6 +67,24 @@ describe("inline editor", () => {
     expect(state.toast).toBe("take updated in place");
   });
 
+  test("saving an unchanged editor closes silently without a story mutation", async () => {
+    const { source, state, press } = editorHarness();
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
+    source.api.createNode = async () => {
+      throw new Error("unchanged editor must not create a take");
+    };
+    source.api.editNode = async () => {
+      throw new Error("unchanged editor must not update a take");
+    };
+
+    await press(key("e"));
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.editor).toBe(null);
+    expect(state.toast).toBe(null);
+  });
+
   test("ctrl+s always forks even after an earlier save in the same session", async () => {
     const { source, state, press } = editorHarness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");

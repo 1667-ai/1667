@@ -203,7 +203,7 @@ async function saveInlineEditor(
 ): Promise<void> {
   const submitted = editor.composer.text;
   if (submitted === editor.initial && editor.conflict === null) {
-    return closeInlineEditor(state, editor, "unchanged · no-op");
+    return closeInlineEditor(state, editor);
   }
   if (state.connection.down) {
     disarmEditorConfirmations(editor);

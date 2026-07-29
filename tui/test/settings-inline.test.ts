@@ -226,6 +226,23 @@ describe("inline settings menu", () => {
     expect(state.toast).toBe("settings saved");
   });
 
+  test("committing an unchanged settings row is silent", async () => {
+    const { state, press } = harness();
+    await openSettings(press);
+    await selectRow(press, state, "model");
+    await press(key("return"));
+    setComposerText(
+      state.settings!.edit!.composer,
+      state.settings!.draft.generation.model
+    );
+
+    await press(key("return"));
+
+    expect(state.settings?.edit).toBe(null);
+    expect(settingsDraftChanged(state.settings!)).toBeFalse();
+    expect(state.toast).toBe(null);
+  });
+
   test("theme is a scoped selector and compose focus cycles as a closed choice", async () => {
     const { source, state, press } = harness();
     await openSettings(press);
@@ -1279,7 +1296,7 @@ describe("inline settings menu", () => {
     expect(settingsDraftChanged(state.settings!)).toBeFalse();
     await press(key("s"));
     expect(saves).toBe(0);
-    expect(state.toast).toBe("unchanged · no-op");
+    expect(state.toast).toBe(null);
   });
 
   test("unknown save outcomes retry the frozen command and keep newer row drafts", async () => {
