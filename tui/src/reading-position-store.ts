@@ -74,17 +74,17 @@ export function readingPositionStorePathForScope(scope: string): string {
  * Where the store lives for this session.
  * Project vaults: inside the data directory so a deleted/recreated project
  * cannot inherit the previous tutorial cursor (starter ids are deterministic).
- * HTTP attach: under the user config tree, keyed by origin.
+ * HTTP attach: under the user config tree, keyed by origin + server instance.
  */
 export function readingPositionStoreFile(
   projectDataDir: string | null,
-  httpOrigin: string | null
+  http: { origin: string; instanceId: string } | null
 ): string {
   if (projectDataDir !== null && projectDataDir.length > 0) {
     return join(projectDataDir, READING_POSITIONS_FILE);
   }
-  if (httpOrigin !== null && httpOrigin.length > 0) {
-    return readingPositionStorePathForScope(`http:${httpOrigin}`);
+  if (http !== null && http.origin.length > 0 && http.instanceId.length > 0) {
+    return readingPositionStorePathForScope(`http:${http.origin}:${http.instanceId}`);
   }
   return readingPositionStorePathForScope("default");
 }
@@ -297,9 +297,27 @@ function writePositionsFile(
       if (temporaryDescriptor !== null) closeSync(temporaryDescriptor);
     }
     options.afterTemporaryFileSync?.(temporaryFile);
+    // Project-tier stores must be ignored by Git before they become durable.
+    if (isProjectTierStoreFile(file)) {
+      if (!ensureProjectGitignoreIgnoresStore(directory)) {
+        // Fall back to a user-scoped file so the cursor still persists without
+        // leaving an unignored machine-local artifact in the project tree.
+        const fallback = readingPositionStorePathForScope(`project-fallback:${directory}`);
+        const moved = writePositionsFile(positions, { ...options, file: fallback });
+        if (moved) {
+          try {
+            unlinkSync(temporaryFile);
+          } catch {
+            // ignore
+          }
+          temporaryFile = null;
+          if (activeStoreFile === file) activeStoreFile = fallback;
+        }
+        return moved;
+      }
+    }
     renameSync(temporaryFile, file);
     temporaryFile = null;
-    ensureProjectGitignoreIgnoresStore(directory);
     syncDirectory(directory);
     return true;
   } catch {
@@ -328,11 +346,15 @@ function syncDirectory(directory: string): void {
   }
 }
 
+function isProjectTierStoreFile(file: string): boolean {
+  return file.endsWith(`/${READING_POSITIONS_FILE}`) || file.endsWith(`\\${READING_POSITIONS_FILE}`);
+}
+
 /**
- * Append ignore lines for existing projects. Never follows a symlink
- * `.gitignore` — a committed link must not redirect writes outside the tier.
+ * Ensure ignore lines exist. Never follows a symlink `.gitignore`.
+ * Returns true when the store is guaranteed ignored (or already was).
  */
-function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
+function ensureProjectGitignoreIgnoresStore(projectDir: string): boolean {
   const gitignore = join(projectDir, ".gitignore");
   const needed = [
     READING_POSITIONS_FILE,
@@ -340,10 +362,18 @@ function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
     `${READING_POSITIONS_FILE}.*.tmp`
   ];
   try {
-    const info = lstatSync(gitignore);
-    if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_GITIGNORE_BYTES) return;
-    const text = readBoundedRegularFileSync(gitignore, MAX_GITIGNORE_BYTES);
-    if (text === null) return;
+    let text = "";
+    try {
+      const info = lstatSync(gitignore);
+      if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_GITIGNORE_BYTES) return false;
+      const existing = readBoundedRegularFileSync(gitignore, MAX_GITIGNORE_BYTES);
+      if (existing === null) return false;
+      text = existing;
+    } catch (error) {
+      if (!isNotFoundError(error)) return false;
+      // Missing gitignore: create one with only the store rules.
+      text = "";
+    }
     const lines = new Set(text.split("\n"));
     let next = text;
     let changed = false;
@@ -352,8 +382,7 @@ function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
       next = next.endsWith("\n") || next.length === 0 ? `${next}${line}\n` : `${next}\n${line}\n`;
       changed = true;
     }
-    if (!changed) return;
-    // Atomic replace without following a symlink (open path with O_NOFOLLOW).
+    if (!changed) return true;
     const tmp = `${gitignore}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
     const fd = openSync(
       tmp,
@@ -368,9 +397,14 @@ function ensureProjectGitignoreIgnoresStore(projectDir: string): void {
       closeSync(fd);
     }
     renameSync(tmp, gitignore);
+    return true;
   } catch {
-    // No gitignore, symlink, or not writable — not fatal for the store write.
+    return false;
   }
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 /** Read a regular file without following symlinks; null on any refusal. */

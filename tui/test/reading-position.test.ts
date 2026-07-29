@@ -86,13 +86,20 @@ describe("reading position", () => {
   test("project vaults store beside the data dir; HTTP uses a user-scoped file", () => {
     const a = readingPositionStoreFile("/tmp/project-a/.1667", null);
     const b = readingPositionStoreFile("/tmp/project-b/.1667", null);
-    const http = readingPositionStoreFile(null, "http://127.0.0.1:1667");
-    expect(a.endsWith("/.1667/reading-positions.json") || a.endsWith("project-a/.1667/reading-positions.json")).toBe(true);
+    const http = readingPositionStoreFile(null, {
+      origin: "http://127.0.0.1:1667",
+      instanceId: "instance-a"
+    });
+    const httpOther = readingPositionStoreFile(null, {
+      origin: "http://127.0.0.1:1667",
+      instanceId: "instance-b"
+    });
     expect(a).toContain("project-a");
     expect(b).toContain("project-b");
     expect(a).not.toBe(b);
     expect(http).toContain("reading-positions");
     expect(http).not.toBe(a);
+    expect(http).not.toBe(httpOther);
     expect(readingPositionStorePathForScope("http:x")).toContain("reading-positions");
   });
 

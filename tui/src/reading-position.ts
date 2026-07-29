@@ -92,8 +92,9 @@ export function persistablePartId(
     return first !== undefined && payloadHasPart(payload, first.id) ? first.id : null;
   }
   if (row.kind === "chapter-summary") {
-    const first = row.chapter.parts[0];
-    return first !== undefined && payloadHasPart(payload, first.id) ? first.id : null;
+    // Summary rows sit after the chapter's prose; remember the last part.
+    const last = row.chapter.parts.at(-1);
+    return last !== undefined && payloadHasPart(payload, last.id) ? last.id : null;
   }
   return null;
 }

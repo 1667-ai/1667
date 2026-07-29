@@ -521,7 +521,12 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     const config = loadConfig();
     const storeFile = readingPositionStoreFile(
       dataDir,
-      httpAttach?.origin ?? null
+      httpAttach === null
+        ? null
+        : {
+          origin: httpAttach.origin,
+          instanceId: httpAttach.authRecord.instanceId
+        }
     );
     configureReadingPositionStore(storeFile);
     const readingPositions = loadReadingPositions({ file: storeFile });
