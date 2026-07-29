@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import {
   lstat,
+  mkdir,
   readFile,
+  readdir,
   rm,
   symlink,
+  unlink,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -24,18 +27,25 @@ import {
 import { startHttpListener } from "../server/http-listener.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
-  HTTP_CLIENT_PROTOCOL_HEADER
+  HTTP_CLIENT_PROTOCOL_HEADER,
+  HTTP_SERVER_INSTANCE_HEADER
 } from "../shared/http-protocol.js";
 import { HttpOperationClient } from "../shared/http-operation-client.js";
+import {
+  HttpListenerAuthority
+} from "../shared/http-listener-authority.js";
 import { httpRecoveryWarnings } from "../server/http-recovery-warnings.js";
 import {
   internalErrorReference,
   toPublicServiceError
 } from "../server/service-error-policy.js";
 import { internalErrorLogPath } from "../server/internal-error-log.js";
+import { StoryService } from "../server/story-service.js";
 import {
   privateTemporaryDirectory
 } from "./http-listener-fixture.js";
+
+const linuxTest = process.platform === "linux" ? test : test.skip;
 
 test("canonical loopback origins reject DNS, aliases, and ambiguous literals", () => {
   for (const accepted of [
@@ -186,7 +196,119 @@ test("HTTP auth publication rolls back a post-rename failure", async (t) => {
   await retry.removeOwnRecord();
 });
 
-test("listener publishes instance before data and guards scopes before routing", async (t) => {
+linuxTest("listener rejects project machine state before publication", async (t) => {
+  const projectRoot = await privateTemporaryDirectory(
+    t,
+    "1667-http-project-"
+  );
+  const stateRoot = path.join(projectRoot, "state");
+  await mkdir(stateRoot, { mode: 0o700 });
+
+  await assert.rejects(
+    startHttpListener({
+      dataDir: projectRoot,
+      authStore: { stateRoot }
+    }),
+    /machine tier outside the project/
+  );
+  assert.deepEqual(await readdir(stateRoot), []);
+});
+
+linuxTest("listener rejects project data outside its root before state", async (t) => {
+  const projectRoot = await privateTemporaryDirectory(
+    t,
+    "1667-http-project-"
+  );
+  const dataDir = await privateTemporaryDirectory(
+    t,
+    "1667-http-external-data-"
+  );
+  const stateRoot = await privateTemporaryDirectory(
+    t,
+    "1667-http-state-"
+  );
+
+  await assert.rejects(
+    startHttpListener({
+      project: { root: projectRoot, dataDir },
+      authStore: { stateRoot },
+      serviceFactory: async () => {
+        throw new Error("service factory must not run");
+      }
+    }),
+    /data directory must be inside its project/
+  );
+  assert.deepEqual(await readdir(stateRoot), []);
+});
+
+linuxTest("listener accepts canonical project data through a symlink", async (t) => {
+  const parent = await privateTemporaryDirectory(
+    t,
+    "1667-http-linked-project-"
+  );
+  const projectRoot = path.join(parent, "project");
+  const linkedRoot = path.join(parent, "linked-project");
+  await mkdir(projectRoot, { mode: 0o700 });
+  await symlink(projectRoot, linkedRoot, "dir");
+  const dataDir = path.join(projectRoot, "data");
+  const stateRoot = await privateTemporaryDirectory(
+    t,
+    "1667-http-state-"
+  );
+
+  const listener = await startHttpListener({
+    project: { root: linkedRoot, dataDir },
+    authStore: { stateRoot },
+    serviceFactory: async (errorReporter, machineDir, project) =>
+      new StoryService({
+        dataDir: project.dataDir,
+        errorReporter,
+        machineDir
+      })
+  });
+  t.after(() => listener.close());
+  assert.equal(listener.dataDir, dataDir);
+});
+
+linuxTest("listener retains project authority before its factory runs", async (t) => {
+  const parent = await privateTemporaryDirectory(
+    t,
+    "1667-http-retained-project-"
+  );
+  const projectRoot = path.join(parent, "project");
+  const selectedRoot = path.join(parent, "selected");
+  await mkdir(projectRoot, { mode: 0o700 });
+  await symlink(projectRoot, selectedRoot, "dir");
+  const dataDir = path.join(projectRoot, "data");
+  const stateRoot = await privateTemporaryDirectory(
+    t,
+    "1667-http-state-"
+  );
+
+  const listener = await startHttpListener({
+    project: {
+      root: selectedRoot,
+      dataDir: path.join(selectedRoot, "data")
+    },
+    authStore: { stateRoot },
+    serviceFactory: async (errorReporter, machineDir, project) => {
+      await unlink(selectedRoot);
+      await symlink(stateRoot, selectedRoot, "dir");
+      return new StoryService({
+        dataDir: project.dataDir,
+        errorReporter,
+        machineDir
+      });
+    }
+  });
+  t.after(() => listener.close());
+
+  assert.equal(listener.dataDir, dataDir);
+  assert.equal((await lstat(dataDir)).isDirectory(), true);
+  await assert.rejects(lstat(path.join(stateRoot, "data")), /ENOENT/);
+});
+
+linuxTest("listener publishes instance before data and guards scopes before routing", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(await privateTemporaryDirectory(t, "1667-http-data-parent-"), "data");
   const listener = await startHttpListener({ port: 0, dataDir, authStore: { stateRoot } });
@@ -198,26 +320,40 @@ test("listener publishes instance before data and guards scopes before routing",
     origin: listener.origin,
     instanceId: listener.authRecord.instanceId
   });
-  assert.equal((await fetch(`${listener.origin}/api/health`)).status, 200);
+  assert.equal((await fetch(`${listener.origin}/api/health`, {
+    headers: apiHeaders(listener, "story")
+  })).status, 200);
+  assert.equal((await fetch(`${listener.origin}/api/health`, {
+    headers: {
+      ...apiHeaders(listener, "story"),
+      [HTTP_CLIENT_PROTOCOL_HEADER]: "7"
+    }
+  })).status, 200);
+  assert.equal((await fetch(`${listener.origin}/api/health`, {
+    headers: {
+      [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION),
+      [HTTP_SERVER_INSTANCE_HEADER]: listener.authRecord.instanceId
+    }
+  })).status, 401);
   assert.equal((await fetch(`${listener.origin}/`)).status, 404);
 
+  const binding = { authRecord: listener.authRecord, fetch };
   const operations = new HttpOperationClient({
-    root: listener.origin,
-    authRecord: listener.authRecord,
-    fetch
+    authority: new HttpListenerAuthority({
+      root: listener.origin,
+      binding
+    })
   });
-  const storyHeaders = (await operations.reserve(
-    "GET",
-    "/api/stories",
-    listener.authRecord.instanceId,
-    undefined
-  )).headers;
-  const adminHeaders = (await operations.reserve(
-    "GET",
-    "/api/settings",
-    listener.authRecord.instanceId,
-    undefined
-  )).headers;
+  const storyHeaders = (await operations.reserve({
+    method: "GET",
+    path: "/api/stories",
+    binding
+  })).headers;
+  const adminHeaders = (await operations.reserve({
+    method: "GET",
+    path: "/api/settings",
+    binding
+  })).headers;
   assert.equal((await fetch(`${listener.origin}/api/stories`, {
     headers: storyHeaders
   })).status, 200);
@@ -252,7 +388,7 @@ test("listener publishes instance before data and guards scopes before routing",
   await assert.rejects(readFile(authPath), /ENOENT/);
 });
 
-test("listener tears down even when removing its auth record fails", async (t) => {
+linuxTest("listener tears down even when removing its auth record fails", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -279,7 +415,7 @@ test("listener tears down even when removing its auth record fails", async (t) =
   await assert.rejects(fetch(`${listener.origin}/api/health`));
 });
 
-test("development CORS is exact and production never emits wildcard credentials", async (t) => {
+linuxTest("development CORS is exact and production never emits wildcard credentials", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(await privateTemporaryDirectory(t, "1667-http-data-parent-"), "data");
   const developmentOrigin = "http://127.0.0.1:5173";
@@ -322,6 +458,7 @@ function apiHeaders(
 ): Record<string, string> {
   return {
     [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION),
+    [HTTP_SERVER_INSTANCE_HEADER]: listener.authRecord.instanceId,
     [HTTP_AUTHORIZATION_HEADER]:
       bearerAuthorization(listener.authRecord.capabilities[scope])
   };

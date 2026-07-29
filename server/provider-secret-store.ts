@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { lstat, open, rename, type FileHandle } from "node:fs/promises";
+import { lstat, rename } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, decodeCanonicalUtf8 } from "./canonical-json.js";
 import {
@@ -16,7 +15,7 @@ import {
   type PrivateFilePolicy
 } from "./private-file-publication.js";
 import { isErrorCode } from "./mutation-ledger-store-support.js";
-import { isLockContention, lockFile, type OsFileLock } from "./os-file-lock.js";
+import { withPrivateFileLock } from "./private-file-lock.js";
 import { requireSecretId } from "./settings-v2-scalars.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
 import {
@@ -141,53 +140,14 @@ async function withSecretsLock<T>(
   dataDir: string,
   work: () => Promise<T>
 ): Promise<T> {
-  const lockPath = path.join(dataDir, PROVIDER_SECRETS_LOCK_FILE);
-  let handle: FileHandle | undefined;
-  let lock: OsFileLock | undefined;
-  try {
-    handle = await open(lockPath, lockOpenFlags(), 0o600);
-    lock = await acquireWithBackoff(handle.fd, lockPath);
-    return await work();
-  } finally {
-    await lock?.unlock().catch(() => undefined);
-    await handle?.close().catch(() => undefined);
-  }
-}
-
-/**
- * The kernel primitive is non-blocking by design everywhere else in 1667, where
- * contention means "another writer owns this project" and refusing is correct.
- * Here contention means "another project is mid-publication", which resolves in
- * milliseconds, so this waits — briefly, and then refuses rather than hanging.
- */
-async function acquireWithBackoff(
-  fd: number,
-  lockPath: string
-): Promise<OsFileLock> {
-  const deadline = Date.now() + SECRETS_LOCK_TIMEOUT_MS;
-  for (let delayMs = 5; ; delayMs = Math.min(delayMs * 2, 80)) {
-    try {
-      return await lockFile(fd, lockPath);
-    } catch (error) {
-      if (!isLockContention(error) || Date.now() >= deadline) {
-        if (!isLockContention(error)) throw error;
-        throw new Error(
-          `Provider secrets file is locked by another 1667 process: ${lockPath}`
-        );
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-}
-
-
-function lockOpenFlags(): number | string {
-  if (process.platform === "win32") return "a+";
-  const closeOnExec = (constants as typeof constants & {
-    O_CLOEXEC?: number;
-  }).O_CLOEXEC ?? 0;
-  return constants.O_RDWR | constants.O_CREAT
-    | (constants.O_NOFOLLOW ?? 0) | closeOnExec;
+  return await withPrivateFileLock({
+    directory: dataDir,
+    fileName: PROVIDER_SECRETS_LOCK_FILE,
+    directoryLabel: PROVIDER_SECRETS_POLICY.label,
+    timeoutMs: SECRETS_LOCK_TIMEOUT_MS,
+    contentionMessage: (lockPath) =>
+      `Provider secrets file is locked by another 1667 process: ${lockPath}`
+  }, work);
 }
 
 export async function removeProviderSecretsScratch(

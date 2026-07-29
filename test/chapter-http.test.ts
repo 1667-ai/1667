@@ -6,7 +6,9 @@ import { sha256 } from "../server/story-format.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { json, testApp } from "./story-server-fixture.js";
 
-test("chapter break routes validate seams and round-trip CRUD", async (t) => {
+const linuxTest = process.platform === "linux" ? test : test.skip;
+
+linuxTest("chapter break routes validate seams and round-trip CRUD", async (t) => {
   const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Breaks");
   payload = await addNode(base, payload.id, null, "Root prose");
@@ -37,7 +39,7 @@ test("chapter break routes validate seams and round-trip CRUD", async (t) => {
   assert.deepEqual(payload.chapterBreaks, [{ ...chapterBreak, title: "Renamed" }]);
 });
 
-test("chapter break restore keeps canonical parse failures at 400 and state conflicts at 409", async (t) => {
+linuxTest("chapter break restore keeps canonical parse failures at 400 and state conflicts at 409", async (t) => {
   const base = await testApp(t, "1667-chapters-http-");
   const first = await removedSummaryFixture(base, "Restore validation");
   const restoreUrl = `${base}/api/stories/${first.storyId}/chapter-breaks/${first.removed.break.id}/restore`;
@@ -79,7 +81,7 @@ test("chapter break restore keeps canonical parse failures at 400 and state conf
   assert.equal((await fetchWithApiProtocol(restoreUrl, post(first.removed))).status, 409, "restoring the same break twice conflicts");
 });
 
-test("chapter summaries refresh in place, mark user edits, derive staleness, and restore with a removed break", async (t) => {
+linuxTest("chapter summaries refresh in place, mark user edits, derive staleness, and restore with a removed break", async (t) => {
   const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Summaries");
   for (const text of ["One", "Two", "Three", "Four"]) {
@@ -159,7 +161,7 @@ test("chapter summaries refresh in place, mark user edits, derive staleness, and
   assert.deepEqual(payload.chapterBreaks, [], "subtree deletion removes anchored breaks and their summaries");
 });
 
-test("facts persist a validated optional source part", async (t) => {
+linuxTest("facts persist a validated optional source part", async (t) => {
   const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Facts");
   payload = await addNode(base, payload.id, null, "Source prose");
@@ -172,7 +174,7 @@ test("facts persist a validated optional source part", async (t) => {
   }))).status, 400);
 });
 
-test("instruction-only PATCH refreshes hydrated node stub tokens", async (t) => {
+linuxTest("instruction-only PATCH refreshes hydrated node stub tokens", async (t) => {
   const base = await testApp(t, "1667-chapters-http-");
   let payload = await createStory(base, "Instruction tokens");
   payload = await addNode(base, payload.id, null, "Root");
@@ -246,4 +248,3 @@ async function removedSummaryFixture(base: string, title: string): Promise<{
   } }>(`${base}/api/stories/${payload.id}/chapter-breaks/${created.breakId}`, { method: "DELETE" });
   return { storyId: payload.id, root, removed: deleted.removed };
 }
-

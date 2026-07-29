@@ -4,6 +4,9 @@ import test from "node:test";
 import { readHttpAuthRecord } from "../server/http-auth-record.js";
 import { sha256 } from "../server/story-format.js";
 import type { GenerationSettings, StoryPayload } from "../shared/types.js";
+import {
+  HttpListenerAuthority
+} from "../shared/http-listener-authority.js";
 import { createApi } from "../tui/src/api.js";
 import {
   API_PROTOCOL_HEADERS,
@@ -205,8 +208,10 @@ providerTest("generation HTTP: Stop keeps text that already arrived", async (t) 
   const base = await testApp(t, modelSettings(model.baseUrl));
   const { record } = await readHttpAuthRecord(base);
   const api = createApi(base, undefined, {
-    authRecord: record,
-    fetch
+    authority: new HttpListenerAuthority({
+      root: base,
+      binding: { authRecord: record, fetch }
+    })
   });
   let story = await api.createStory("Stop");
   story = await api.createNode(story.id, {

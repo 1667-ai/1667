@@ -5,7 +5,9 @@ import type { StoryPayload } from "../shared/types.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { json, testApp } from "./story-server-fixture.js";
 
-test("node routes: human create, optimistic edit, subtree delete, and payload shape", async (t) => {
+const linuxTest = process.platform === "linux" ? test : test.skip;
+
+linuxTest("node routes: human create, optimistic edit, subtree delete, and payload shape", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const empty = await createStory(base, "Nodes");
   assert.deepEqual(empty.nodes, []);
@@ -47,7 +49,7 @@ test("node routes: human create, optimistic edit, subtree delete, and payload sh
   assert.deepEqual(deleted.path, []);
 });
 
-test("node routes: human instructions stay verbatim and first-node titles come from prose", async (t) => {
+linuxTest("node routes: human instructions stay verbatim and first-node titles come from prose", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const untitled = await json<StoryPayload>(`${base}/api/stories`, post({}));
   const human = await json<StoryPayload>(`${base}/api/stories/${untitled.id}/nodes`, post({
@@ -68,7 +70,7 @@ test("node routes: human instructions stay verbatim and first-node titles come f
   assert.equal(stopped.title, "Continue the story.");
 });
 
-test("node routes: committing under an inactive parent leaves the reader on the current take", async (t) => {
+linuxTest("node routes: committing under an inactive parent leaves the reader on the current take", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Commit race");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "A" }));
@@ -87,7 +89,7 @@ test("node routes: committing under an inactive parent leaves the reader on the 
   assert.equal(saved.nodes.some((node) => node.parentId === b.id && node.preview === "Late continuation under B"), true);
 });
 
-test("node routes: editing as a sibling preserves model lineage and attributes only the edit", async (t) => {
+linuxTest("node routes: editing as a sibling preserves model lineage and attributes only the edit", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Edited sibling");
   const seeded = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({
@@ -144,7 +146,7 @@ test("node routes: editing as a sibling preserves model lineage and attributes o
   assert.equal(stale.status, 409);
 });
 
-test("take-from-cut route validates the selection and creates an attributed sibling", async (t) => {
+linuxTest("take-from-cut route validates the selection and creates an attributed sibling", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Cut");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({
@@ -181,7 +183,7 @@ test("take-from-cut route validates the selection and creates an attributed sibl
   assert.equal(inactiveTarget.status, 404);
 });
 
-test("continue modes: append, default child, regenerate sibling, and genId stop-save dedup", async (t) => {
+linuxTest("continue modes: append, default child, regenerate sibling, and genId stop-save dedup", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Generation");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({
@@ -224,7 +226,7 @@ test("continue modes: append, default child, regenerate sibling, and genId stop-
   assert.equal(payload.path[0]!.genId, "regen-root");
 });
 
-test("continue append rejects stale hashes and targets that are not the active leaf", async (t) => {
+linuxTest("continue append rejects stale hashes and targets that are not the active leaf", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Append guards");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "Root" }));
@@ -244,7 +246,7 @@ test("continue append rejects stale hashes and targets that are not the active l
   assert.equal(nonLeaf.status, 409);
 });
 
-test("tag, switch, facts, and import mutations all return story payloads", async (t) => {
+linuxTest("tag, switch, facts, and import mutations all return story payloads", async (t) => {
   const base = await testApp(t, "1667-node-http-");
   const created = await createStory(base, "Payloads");
   let payload = await json<StoryPayload>(`${base}/api/stories/${created.id}/nodes`, post({ parentId: null, text: "Left." }));
@@ -287,4 +289,3 @@ async function createStory(base: string, title: string): Promise<StoryPayload> {
 async function getStory(base: string, id: string): Promise<StoryPayload> {
   return await json(`${base}/api/stories/${id}`);
 }
-

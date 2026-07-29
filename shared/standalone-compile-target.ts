@@ -13,6 +13,7 @@ export interface StandaloneBuildConfiguration {
     readonly target?: StandaloneCompileTarget;
   };
   readonly define?: Readonly<Record<string, string>>;
+  readonly external?: string[];
   readonly minify?: boolean;
 }
 

@@ -49,7 +49,10 @@ export class ApiFailureError<
 }
 
 export class ApiHttpError extends ApiFailureError<CompatibleHttpFailureEnvelope> {
-  constructor(failure: CompatibleHttpFailureEnvelope) {
+  constructor(
+    failure: CompatibleHttpFailureEnvelope,
+    readonly requestSent = true
+  ) {
     super(failure);
     this.name = "ApiHttpError";
   }

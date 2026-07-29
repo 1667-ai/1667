@@ -1,6 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import { PROVIDER_SECRET_VALUE_ENTRY_NAMES } from "./data-directory-layout.js";
+import { MACHINE_SECRET_VALUE_ENTRY_NAMES } from "./data-directory-layout.js";
 import { ServiceError } from "./errors.js";
 
 /**
@@ -13,12 +13,12 @@ export async function assertNoProjectTierSecrets(
   machineDir: string
 ): Promise<void> {
   if (await sameDirectory(projectDir, machineDir)) return;
-  for (const entry of PROVIDER_SECRET_VALUE_ENTRY_NAMES) {
+  for (const entry of MACHINE_SECRET_VALUE_ENTRY_NAMES) {
     const file = path.join(projectDir, entry);
     if (!await exists(file)) continue;
     throw new ServiceError(
       409,
-      `1667 refuses to open a project holding a provider secret file: ${file}. `
+      `1667 refuses to open a project holding a machine secret file: ${file}. `
         + `Move it into the machine tier at ${path.join(machineDir, entry)}, `
         + "then start again; the project was left untouched.",
       "data_directory_unowned"

@@ -1,8 +1,4 @@
 import { splitSseEvents } from "../../shared/sse.js";
-import { preflightHttpApi } from "../../shared/http-compatibility.js";
-import {
-  type HttpAuthRecord
-} from "../../shared/http-auth.js";
 import { httpCapabilityScopeForApiPath } from "../../shared/http-capability-scope.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import type { HttpFetch } from "./direct-loopback-http.js";
@@ -52,8 +48,12 @@ import {
 import {
   HttpOperationClient,
   HttpOperationError,
+  type HttpListenerBinding,
   type HttpOperationRunOptions
 } from "../../shared/http-operation-client.js";
+import type {
+  HttpListenerAuthority
+} from "../../shared/http-listener-authority.js";
 import {
   HTTP_OPERATION_LIFETIME_MS
 } from "../../shared/http-operation-protocol.js";
@@ -69,6 +69,7 @@ import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { HttpStoryVersions } from "./http-story-versions.js";
 import {
   MemoryHttpMutationIntentStore,
+  type HttpMutationIntentClaim,
   type HttpMutationIntentStore
 } from "./http-mutation-intents.js";
 import {
@@ -77,6 +78,7 @@ import {
   ApiRecoveryRequiredError,
   apiHttpErrorFromPayload
 } from "./api-error.js";
+import { HttpApiConnection } from "./http-api-connection.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -158,13 +160,8 @@ export interface StoryApi {
 }
 
 export interface HttpApiAccess {
-  readonly authRecord: HttpAuthRecord;
-  readonly fetch: HttpFetch;
+  readonly authority: HttpListenerAuthority;
   readonly mutationIntents?: HttpMutationIntentStore;
-  readonly shutdownSignal?: AbortSignal;
-  readonly confirmListenerReplacement?: (
-    previousInstanceId: string
-  ) => Promise<boolean>;
 }
 
 export function createApi(
@@ -173,55 +170,20 @@ export function createApi(
   access: HttpApiAccess
 ): StoryApi {
   const root = parseCanonicalLoopbackOrigin(baseUrl).origin;
-  if (access.authRecord.origin !== root) {
-    throw new Error("1667 HTTP capability origin does not match --url");
-  }
-  const transport = access.fetch;
   const mutationIntents = access.mutationIntents
     ?? new MemoryHttpMutationIntentStore();
   const url = (path: string) => `${root}${path}`;
-  let compatibility: Promise<HttpApiMetadata> | null = null;
-  let latestMetadata: HttpApiMetadata | null = null;
-  let recoveryEpoch = 0;
   const versions = new HttpStoryVersions();
-  const publishMetadata = (metadata: HttpApiMetadata): boolean => {
-    latestMetadata = metadata;
-    const changed = onMetadata?.(metadata) === true;
-    if (changed) recoveryEpoch += 1;
-    return changed;
-  };
-  const operations = new HttpOperationClient({
+  const connection = new HttpApiConnection({
     root,
-    authRecord: access.authRecord,
-    currentAuthRecord: () => access.authRecord,
-    fetch: transport,
-    shutdownSignal: access.shutdownSignal,
-    confirmListenerReplacement: access.confirmListenerReplacement,
-    onSession: (_scope, payload) => {
-      const metadata = latestMetadata;
-      if (metadata === null) return;
-      publishMetadata({
-        ...metadata,
-        recoveryWarnings: payload.recoveryWarnings
-      });
-    }
+    authority: access.authority,
+    ...(onMetadata === undefined ? {} : { onMetadata })
   });
-  const ensureCompatible = (refresh = false, signal?: AbortSignal, mutation = false): Promise<HttpApiMetadata> => {
-    if (refresh) compatibility = null;
-    if (compatibility !== null) return compatibility;
-    const attempt = preflightHttpApi(url("/api/health"), signal, transport).then((metadata) => {
-      if (metadata.serverInstanceId !== access.authRecord.instanceId) {
-        throw new Error("1667 listener changed after capability discovery");
-      }
-      if (publishMetadata(metadata) && mutation) throw new ApiRecoveryRequiredError();
-      return metadata;
-    }).catch((error: unknown) => {
-      if (compatibility === attempt) compatibility = null;
-      throw error;
-    });
-    compatibility = attempt;
-    return attempt;
-  };
+  const operations = new HttpOperationClient({
+    authority: access.authority,
+    onSession: (_scope, payload) =>
+      connection.publishRecoveryWarnings(payload.recoveryWarnings)
+  });
   const runOperation = async <T>(
     options: HttpOperationRunOptions<T>
   ): Promise<T> => {
@@ -229,28 +191,18 @@ export function createApi(
       return await operations.run(options);
     } catch (error) {
       if (error instanceof HttpOperationError) {
-        throw new ApiHttpError(error.failure);
+        throw new ApiHttpError(error.failure, false);
       }
       throw error;
     }
   };
   const compatible = async <T>(
-    work: (metadata: HttpApiMetadata) => Promise<T>,
+    work: (binding: HttpListenerBinding) => Promise<T>,
     refresh = false,
     signal?: AbortSignal,
     mutation = false
-  ): Promise<T> => {
-    const metadata = await ensureCompatible(refresh, signal, mutation);
-    try {
-      return await work(metadata);
-    } catch (error) {
-      // A transport failure may mean the process at this origin restarted.
-      // Application responses identify the already-negotiated server and keep
-      // the cache; reconnects must negotiate with the replacement process.
-      if (!(error instanceof ApiError)) compatibility = null;
-      throw error;
-    }
-  };
+  ): Promise<T> =>
+    await connection.run(work, refresh, signal, mutation);
   const request = async <T>(
     method: string,
     path: string,
@@ -271,12 +223,12 @@ export function createApi(
     const mutation = isWorkerMutationMethod(
       resolveHttpApiRoute(method, path).method
     );
-    return await compatible(async (metadata) => {
-      const entryRecoveryEpoch = recoveryEpoch;
+    return await compatible(async (binding) => {
+      const entryRecoveryEpoch = connection.recoveryEpoch;
       return await runOperation({
         method,
         path,
-        serverInstanceId: metadata.serverInstanceId,
+        binding,
         ...(mutationId === undefined ? {} : { mutationId }),
         requestedLifetimeMs: timeoutMs,
         ...(expectedAggregateVersion === undefined
@@ -284,12 +236,13 @@ export function createApi(
           : { expectedAggregateVersion }),
         callerSignal: signal,
         beforeSend: () => {
-          if (mutation && recoveryEpoch !== entryRecoveryEpoch) {
+          if (mutation
+            && connection.recoveryEpoch !== entryRecoveryEpoch) {
             throw new ApiRecoveryRequiredError();
           }
         },
         execute: async (lease) => {
-          const response = await transport(url(path), {
+          const response = await lease.fetch(url(path), {
             method,
             headers: {
               ...lease.headers,
@@ -363,23 +316,23 @@ export function createApi(
           signal
         );
         return await compatible(
-          async (metadata) => {
-            const entryRecoveryEpoch = recoveryEpoch;
+          async (binding) => {
+            const entryRecoveryEpoch = connection.recoveryEpoch;
             return await runOperation({
               method: "POST",
               path,
-              serverInstanceId: metadata.serverInstanceId,
+              binding,
               requestedLifetimeMs: HTTP_GENERATION_REQUEST_TIMEOUT_MS,
               expectedAggregateVersion,
               callerSignal: signal,
               beforeSend: () => {
-                if (recoveryEpoch !== entryRecoveryEpoch) {
+                if (connection.recoveryEpoch !== entryRecoveryEpoch) {
                   throw new ApiRecoveryRequiredError();
                 }
               },
               execute: async (lease) =>
                 await streamSse(
-                  transport,
+                  lease.fetch,
                   url(path),
                   payload,
                   onDelta,
@@ -479,8 +432,7 @@ export function createApi(
         await intent.complete();
         return versions.rememberPayload(payload);
       } catch (error) {
-        if (error instanceof ApiError) await intent.complete();
-        throw error;
+        return await settleAbsentMutationFailure(intent, error);
       }
     },
     loadStory: loadVersionedStory,
@@ -544,36 +496,39 @@ export function createApi(
       versions.forget(id);
       return result;
     },
-    exportMarkdown: async (id) => compatible(async (metadata) => {
-      const path = `/api/stories/${id}/export`;
-      const signal = AbortSignal.timeout(
-        HTTP_OPERATION_LIFETIME_MS.transfer
-      );
-      return await runOperation({
-        method: "GET",
-        path,
-        serverInstanceId: metadata.serverInstanceId,
-        requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
-        callerSignal: signal,
-        execute: async (lease) => {
-          const response = await transport(url(path), {
-            headers: lease.headers,
-            redirect: "error",
-            signal: lease.signal
-          });
-          const text = await response.text();
-          if (!response.ok) {
-            const payload = parseJson(text);
-            throw apiHttpErrorFromPayload(
-              payload,
-              `GET /api/stories/${id}/export failed (${response.status})`,
-              response.status
-            );
+    exportMarkdown: async (id) => compatible(
+      async (binding) => {
+        const path = `/api/stories/${id}/export`;
+        const signal = AbortSignal.timeout(
+          HTTP_OPERATION_LIFETIME_MS.transfer
+        );
+        return await runOperation({
+          method: "GET",
+          path,
+          binding,
+          requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
+          callerSignal: signal,
+          execute: async (lease) => {
+            const response = await lease.fetch(url(path), {
+              headers: lease.headers,
+              redirect: "error",
+              signal: lease.signal
+            });
+            const text = await response.text();
+            if (!response.ok) {
+              const payload = parseJson(text);
+              throw apiHttpErrorFromPayload(
+                payload,
+                `GET /api/stories/${id}/export failed (${response.status})`,
+                response.status
+              );
+            }
+            return text;
           }
-          return text;
-        }
-      });
-    }, true),
+        });
+      },
+      true
+    ),
     switchLine: (storyId, nodeId, options = {}) => mutateStoryPayload(
       storyId,
       "POST",
@@ -742,54 +697,58 @@ export function createApi(
         jsonl
       );
       try {
-        const payload = await compatible(async (metadata) => {
-          const path = "/api/import/sillytavern";
-          const signal = AbortSignal.timeout(
-            HTTP_OPERATION_LIFETIME_MS.transfer
-          );
-          const entryRecoveryEpoch = recoveryEpoch;
-          return await runOperation({
-            method: "POST",
-            path,
-            serverInstanceId: metadata.serverInstanceId,
-            mutationId: intent.mutationId,
-            requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
-            expectedAggregateVersion: { kind: "absent" },
-            callerSignal: signal,
-            beforeSend: () => {
-              if (recoveryEpoch !== entryRecoveryEpoch) {
-                throw new ApiRecoveryRequiredError();
-              }
-            },
-            execute: async (lease) => {
-              const response = await transport(url(path), {
-                method: "POST",
-                headers: {
-                  ...lease.headers,
-                  "content-type": "text/plain; charset=utf-8"
-                },
-                body: jsonl,
-                redirect: "error",
-                signal: lease.signal
-              });
-              const payload: unknown = await response.json().catch(() => null);
-              if (!response.ok) {
-                throw apiHttpErrorFromPayload(
-                  payload,
-                  `Import failed (${response.status})`,
-                  response.status
-                );
-              }
-              return versions.rememberPayload(decodeStoryResponse(payload));
-            },
-            shouldRetry: (error) => !(error instanceof ApiError)
-          });
-        }, true, undefined, true);
+        const payload = await compatible(
+          async (binding) => {
+            const path = "/api/import/sillytavern";
+            const signal = AbortSignal.timeout(
+              HTTP_OPERATION_LIFETIME_MS.transfer
+            );
+            const entryRecoveryEpoch = connection.recoveryEpoch;
+            return await runOperation({
+              method: "POST",
+              path,
+              binding,
+              mutationId: intent.mutationId,
+              requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
+              expectedAggregateVersion: { kind: "absent" },
+              callerSignal: signal,
+              beforeSend: () => {
+                if (connection.recoveryEpoch !== entryRecoveryEpoch) {
+                  throw new ApiRecoveryRequiredError();
+                }
+              },
+              execute: async (lease) => {
+                const response = await lease.fetch(url(path), {
+                  method: "POST",
+                  headers: {
+                    ...lease.headers,
+                    "content-type": "text/plain; charset=utf-8"
+                  },
+                  body: jsonl,
+                  redirect: "error",
+                  signal: lease.signal
+                });
+                const payload: unknown = await response.json().catch(() => null);
+                if (!response.ok) {
+                  throw apiHttpErrorFromPayload(
+                    payload,
+                    `Import failed (${response.status})`,
+                    response.status
+                  );
+                }
+                return versions.rememberPayload(decodeStoryResponse(payload));
+              },
+              shouldRetry: (error) => !(error instanceof ApiError)
+            });
+          },
+          true,
+          undefined,
+          true
+        );
         await intent.complete();
         return payload;
       } catch (error) {
-        if (error instanceof ApiError) await intent.complete();
-        throw error;
+        return await settleAbsentMutationFailure(intent, error);
       }
     },
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
@@ -827,6 +786,30 @@ export function createApi(
       return done.nodeId;
     }
   };
+}
+
+async function settleAbsentMutationFailure(
+  intent: HttpMutationIntentClaim,
+  error: unknown
+): Promise<never> {
+  try {
+    if (intent.reused
+      && (error instanceof ApiRecoveryRequiredError
+        || (error instanceof ApiHttpError && !error.requestSent))) {
+      await intent.retain();
+    } else if (error instanceof ApiError) {
+      await intent.complete();
+    } else {
+      await intent.retain();
+    }
+  } catch (settlementError) {
+    throw new AggregateError(
+      [error, settlementError],
+      "HTTP mutation failure and intent settlement both failed",
+      { cause: error }
+    );
+  }
+  throw error;
 }
 
 function summaryIsNewer(

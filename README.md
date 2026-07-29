@@ -137,6 +137,8 @@ Relative paths are valid.
 contains an opaque secret identifier. During generation, 1667 sends the
 selected secret only to the configured provider.
 
+HTTP server mode requires the machine tier outside the project.
+
 The project `.gitignore` excludes machine-local provider secret files, `lock`,
 and `run.json`.
 
@@ -253,6 +255,10 @@ policy.
 - Linux arm64
 - Linux x64
 - Windows x64
+
+Linux HTTP server mode requires Linux kernel 6.8 or newer.
+The data filesystem must support durable Linux file handles.
+Linux releases require glibc 2.17 or newer.
 
 Plain HTTP provider endpoints cannot use credentials. On Linux, a loopback
 endpoint also needs proof that the current user owns the exact socket.

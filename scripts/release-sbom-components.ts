@@ -85,6 +85,32 @@ export interface ExcludedReleasePackage {
  */
 export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] = Object.freeze([
   Object.freeze({
+    name: "koffi",
+    reason: "Source-only Node HTTP mode uses this FFI package on Linux. The "
+      + "compiled Bun executable uses Bun FFI and keeps Koffi external."
+  }),
+  ...[
+    "@koromix/koffi-darwin-arm64",
+    "@koromix/koffi-darwin-x64",
+    "@koromix/koffi-freebsd-arm64",
+    "@koromix/koffi-freebsd-ia32",
+    "@koromix/koffi-freebsd-x64",
+    "@koromix/koffi-linux-arm64",
+    "@koromix/koffi-linux-ia32",
+    "@koromix/koffi-linux-loong64",
+    "@koromix/koffi-linux-riscv64",
+    "@koromix/koffi-linux-x64",
+    "@koromix/koffi-openbsd-ia32",
+    "@koromix/koffi-openbsd-x64",
+    "@koromix/koffi-win32-arm64",
+    "@koromix/koffi-win32-ia32",
+    "@koromix/koffi-win32-x64"
+  ].map((name) => Object.freeze({
+    name,
+    reason: "Optional native payload for source-only Node HTTP mode. The "
+      + "compiled Bun executable uses Bun FFI and keeps Koffi external."
+  })),
+  Object.freeze({
     name: "nan",
     reason: "C++ headers that node-gyp consumes while installing "
       + "fs-ext-extra-prebuilt. Listing it would describe the build tree rather "

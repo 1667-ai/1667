@@ -98,6 +98,7 @@ async function buildEmbeddedWorker(
         tiktokenWasmBase64
       )
     },
+    external: ["koffi"],
     minify: true
   });
   if (!result.success || result.outputs.length !== 1) {

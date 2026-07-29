@@ -35,6 +35,8 @@ export {
 
 export interface HttpApiMetadata {
   buildIdentity: BuildIdentity;
+  dataDirectoryClaimId: string;
+  dataDirectoryId: string;
   serverInstanceId: string;
   recoveryWarnings: HttpRecoveryWarning[];
 }

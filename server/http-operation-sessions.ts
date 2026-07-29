@@ -46,6 +46,7 @@ export type HttpOperationLifecycleAuthority =
   | { readonly kind: "local" }
   | {
       readonly kind: "supervised";
+      isAdmissionOpen(): boolean;
       admit(operation: HttpSupervisedOperationDescriptor): Promise<void>;
       terminal(operation: HttpSupervisedOperationDescriptor): void;
       hardDeadline(operation: {
@@ -108,6 +109,7 @@ export class HttpOperationSessionStore {
     scope: HttpCapabilityScope,
     originatingCapability: string
   ): HttpOperationSessionResponse {
+    this.requireAdmissionOpen();
     const now = this.now();
     this.sweep(now);
     const originKey = this.authority.originKey(originatingCapability);
@@ -159,8 +161,10 @@ export class HttpOperationSessionStore {
     capability: string,
     request: HttpOperationReservationRequest
   ): Promise<HttpOperationReservationResponse> {
+    this.requireAdmissionOpen();
     const initialSession = this.requireLiveSession(capability, true);
     return await this.withGlobalReservationTurn(async () => {
+      this.requireAdmissionOpen();
       const session = this.requireLiveSessionRecord(initialSession, true);
       const resolved = resolveHttpOperationReservation(request, session.scope);
       const now = this.now();
@@ -380,6 +384,18 @@ export class HttpOperationSessionStore {
   get size(): number {
     this.sweep(this.now());
     return this.operations.size;
+  }
+
+  isAdmissionOpen(): boolean {
+    return this.lifecycle.kind === "local"
+      || this.lifecycle.isAdmissionOpen();
+  }
+
+  private requireAdmissionOpen(): void {
+    if (this.isAdmissionOpen()) return;
+    throw operationAdmissionBusy(
+      "HTTP operation admission is not ready"
+    );
   }
 
   private requireLiveSession(

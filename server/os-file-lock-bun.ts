@@ -1,8 +1,11 @@
 import { loadBunFfi, openPosixLibc, type BunFfi } from "./bun-ffi.js";
+import type { OsFileLockMode } from "./os-file-lock.js";
 
 const LOCK_EXCLUSIVE_NONBLOCKING = 6;
+const LOCK_SHARED_NONBLOCKING = 5;
 const LOCK_UN = 8;
 const WINDOWS_LOCK_EXCLUSIVE_IMMEDIATE = 3;
+const WINDOWS_LOCK_SHARED_IMMEDIATE = 1;
 const WHOLE_FILE = 0xffff_ffff;
 const FILE_READ_DATA = 0x0000_0001;
 const FILE_WRITE_DATA = 0x0000_0002;
@@ -12,15 +15,18 @@ const FILE_ATTRIBUTE_NORMAL = 0x0000_0080;
 const ERROR_LOCK_VIOLATION = 33;
 const INVALID_HANDLE_VALUE = -1n;
 
-export async function lockFile(fd: number): Promise<void> {
+export async function lockFile(
+  fd: number,
+  mode: OsFileLockMode
+): Promise<void> {
   const ffi = await loadBunFfi();
-  const acquired = lockPosix(ffi, fd, true);
+  const acquired = lockPosix(ffi, fd, mode);
   if (!acquired) throw lockError();
 }
 
 export async function unlockFile(fd: number): Promise<void> {
   const ffi = await loadBunFfi();
-  const released = lockPosix(ffi, fd, false);
+  const released = unlockPosix(ffi, fd);
   if (!released) throw new Error("Failed to release 1667 data-directory lock");
 }
 
@@ -29,7 +35,8 @@ export async function unlockFile(fd: number): Promise<void> {
  * native handle so LockFileEx and UnlockFileEx use the same OVERLAPPED value.
  */
 export async function lockWindowsFile(
-  file: string
+  file: string,
+  mode: OsFileLockMode
 ): Promise<{ unlock(): Promise<void> }> {
   const ffi = await loadBunFfi();
   const kernel = ffi.dlopen("kernel32.dll", {
@@ -67,7 +74,9 @@ export async function lockWindowsFile(
 
   const acquired = kernel.symbols.LockFileEx!(
     handle,
-    WINDOWS_LOCK_EXCLUSIVE_IMMEDIATE,
+    mode === "exclusive"
+      ? WINDOWS_LOCK_EXCLUSIVE_IMMEDIATE
+      : WINDOWS_LOCK_SHARED_IMMEDIATE,
     0,
     WHOLE_FILE,
     WHOLE_FILE,
@@ -114,10 +123,28 @@ export async function lockWindowsFile(
   };
 }
 
-function lockPosix(ffi: BunFfi, fd: number, acquire: boolean): boolean {
+function lockPosix(
+  ffi: BunFfi,
+  fd: number,
+  mode: OsFileLockMode
+): boolean {
   const library = openPosixLibc(ffi, { flock: { args: ["i32", "i32"], returns: "i32" } });
   try {
-    return library.symbols.flock!(fd, acquire ? LOCK_EXCLUSIVE_NONBLOCKING : LOCK_UN) === 0;
+    return library.symbols.flock!(
+      fd,
+      mode === "exclusive"
+        ? LOCK_EXCLUSIVE_NONBLOCKING
+        : LOCK_SHARED_NONBLOCKING
+    ) === 0;
+  } finally {
+    library.close();
+  }
+}
+
+function unlockPosix(ffi: BunFfi, fd: number): boolean {
+  const library = openPosixLibc(ffi, { flock: { args: ["i32", "i32"], returns: "i32" } });
+  try {
+    return library.symbols.flock!(fd, LOCK_UN) === 0;
   } finally {
     library.close();
   }

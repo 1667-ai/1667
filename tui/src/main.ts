@@ -78,7 +78,7 @@ Usage: 1667 [options]
        1667 export [--story <id>] [--force] [--data <path>|--global]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
-       1667 serve --legacy-v1 --data <path> [--print-logs]
+       1667 serve --legacy-v1 --data <path> [--print-logs] (Linux only)
        1667 upgrade [options]
 
 Export:
@@ -480,7 +480,9 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings)
   });
   let httpAttach = worker === null
-    ? await attachHttpServer(await attachOrigin(args), args.authFile)
+    ? await attachHttpServer(await attachOrigin(args), {
+        authFile: args.authFile
+      })
     : null;
   if (worker !== null) {
     try {

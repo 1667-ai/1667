@@ -1,7 +1,11 @@
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { decodeHttpAuthRecord } from "../../shared/http-auth.js";
 import { HttpOperationClient } from "../../shared/http-operation-client.js";
+import {
+  HttpListenerAuthority,
+  type HttpListenerBinding
+} from "../../shared/http-listener-authority.js";
 import {
   HTTP_OPERATION_CANCEL_GRACE_MS
 } from "../../shared/http-operation-protocol.js";
@@ -11,7 +15,7 @@ import { runStandalone } from "./standalone-smoke-process.js";
 
 interface SupervisedServeAccess {
   readonly origin: string;
-  readonly instanceId: string;
+  readonly binding: HttpListenerBinding;
   readonly operations: HttpOperationClient;
 }
 
@@ -21,6 +25,12 @@ export async function smokeSupervisedServe(
   directory: string,
   environment: Record<string, string>
 ): Promise<void> {
+  if (process.platform === "linux") {
+    // A Linux candidate must supervise and serve without a command from PATH.
+    const emptyPath = path.join(directory, "empty-executable-path");
+    await mkdir(emptyPath, { mode: 0o700 });
+    environment = { ...environment, PATH: emptyPath };
+  }
   const dataDir = path.join(directory, "serve-data");
   const help = await runStandalone(
     executable,
@@ -103,12 +113,12 @@ export async function smokeSupervisedServe(
       dataDir,
       origin
     );
-    await first.operations.reserve(
-      "GET",
-      "/api/stories",
-      first.instanceId,
-      30_000
-    );
+    await first.operations.reserve({
+      method: "GET",
+      path: "/api/stories",
+      binding: first.binding,
+      requestedLifetimeMs: 30_000
+    });
     const firstChildPid = await supervisedChildPid(child.pid);
     process.kill(firstChildPid, "SIGKILL");
     const recoveredOrigin = await readServeOrigin(child.stdout);
@@ -147,13 +157,13 @@ async function smokeSettledDeadline(
   supervisorPid: number,
   childPid: number
 ): Promise<void> {
-  const lease = await access.operations.reserve(
-    "GET",
-    "/api/stories",
-    access.instanceId,
-    25
-  );
-  const response = await fetch(`${access.origin}/api/stories`, {
+  const lease = await access.operations.reserve({
+    method: "GET",
+    path: "/api/stories",
+    binding: access.binding,
+    requestedLifetimeMs: 25
+  });
+  const response = await lease.fetch(`${access.origin}/api/stories`, {
     headers: lease.headers
   });
   await response.arrayBuffer();
@@ -290,22 +300,28 @@ async function supervisedServeAccess(
     );
   }
   const authRecord = matching[0]!;
+  const binding = { authRecord, fetch };
   return {
     origin,
-    instanceId: instance.instanceId,
-    operations: new HttpOperationClient({ root: origin, authRecord, fetch })
+    binding,
+    operations: new HttpOperationClient({
+      authority: new HttpListenerAuthority({
+        root: origin,
+        binding
+      })
+    })
   };
 }
 
 async function smokeSupervisedRequest(
   access: SupervisedServeAccess
 ): Promise<void> {
-  const lease = await access.operations.reserve(
-    "GET",
-    "/api/stories",
-    access.instanceId,
-    30_000
-  );
+  const lease = await access.operations.reserve({
+    method: "GET",
+    path: "/api/stories",
+    binding: access.binding,
+    requestedLifetimeMs: 30_000
+  });
   const response = await fetch(`${access.origin}/api/stories`, {
     headers: lease.headers
   });

@@ -40,6 +40,7 @@ export function buildStandaloneProduct<Result>(
           ? "undefined"
           : JSON.stringify(options.embeddedWorkerSource)
     },
+    external: ["koffi"],
     minify: true
   });
 }

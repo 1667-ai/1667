@@ -115,6 +115,7 @@ test("HTTP operation reservation timer terminalizes without later traffic", asyn
     secret: Buffer.alloc(32, 21),
     lifecycle: {
       kind: "supervised",
+      isAdmissionOpen: () => true,
       admit: async () => {},
       terminal: (operation) => terminal.push(operation.sequence),
       hardDeadline: () => {}
@@ -142,6 +143,37 @@ test("HTTP operation reservation timer terminalizes without later traffic", asyn
     operation: "listStories"
   })).sequence, "2");
   await store.closeAll();
+});
+
+test("supervised readiness gates operation sessions and reservations", async () => {
+  let admissionOpen = false;
+  const store = new HttpOperationSessionStore(INSTANCE_ID, {
+    secret: Buffer.alloc(32, 31),
+    lifecycle: {
+      kind: "supervised",
+      isAdmissionOpen: () => admissionOpen,
+      admit: async () => {},
+      terminal: () => {},
+      hardDeadline: () => {}
+    }
+  });
+  assertServiceCode(
+    () => store.createSession("story", "11".repeat(32)),
+    503,
+    "resource_busy"
+  );
+  admissionOpen = true;
+  const session = store.createSession("story", "11".repeat(32));
+  admissionOpen = false;
+  await assertServiceRejection(
+    store.reserve(session.capability, {
+      method: "GET",
+      path: "/api/stories",
+      operation: "listStories"
+    }),
+    503,
+    "resource_busy"
+  );
 });
 
 test("HTTP reservations clamp lifetimes and reject unusable provider budgets", async () => {
@@ -226,6 +258,7 @@ test("global operation capacity is atomic across concurrent sessions", async () 
     secret: Buffer.alloc(32, 15),
     lifecycle: {
       kind: "supervised",
+      isAdmissionOpen: () => true,
       admit: async () => await admission,
       terminal: () => {},
       hardDeadline: () => {}

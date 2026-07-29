@@ -64,6 +64,90 @@ jobs:
         working-directory: tui
         run: bun run build:standalone
 
+      - name: Install Btrfs tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes btrfs-progs
+
+      - name: Test packaged Btrfs identity
+        run: |
+          set -euo pipefail
+          image="${RUNNER_TEMP}/1667-btrfs-source.img"
+          clone_image="${RUNNER_TEMP}/1667-btrfs-clone.img"
+          mount_point="${RUNNER_TEMP}/1667-btrfs"
+          state="${RUNNER_TEMP}/1667-btrfs-state"
+          first="${RUNNER_TEMP}/1667-btrfs-first.json"
+          snapshot="${RUNNER_TEMP}/1667-btrfs-snapshot.json"
+          clone="${RUNNER_TEMP}/1667-btrfs-clone.json"
+          truncate --size 512M "${image}"
+          mkfs.btrfs --force --quiet "${image}"
+          mkdir --parents "${mount_point}"
+          sudo mount --options loop "${image}" "${mount_point}"
+          cleanup() {
+            sudo umount "${mount_point}" || true
+          }
+          trap cleanup EXIT
+          sudo chown "$(id --user):$(id --group)" "${mount_point}"
+          btrfs subvolume create "${mount_point}/project"
+          AI_1667_BTRFS_TEST_ROOT="${mount_point}/node-identity" \
+          AI_1667_BTRFS_TEST_MOUNT="${mount_point}" \
+            node --import tsx --test \
+              test/http-btrfs-node-integration.test.ts
+          bun tui/scripts/standalone-btrfs-identity.ts capture \
+            tui/dist/1667 "${mount_point}/project" "${state}" "${first}"
+          btrfs subvolume snapshot \
+            "${mount_point}/project" "${mount_point}/snapshot"
+          bun tui/scripts/standalone-btrfs-identity.ts capture \
+            tui/dist/1667 "${mount_point}/snapshot" "${state}" "${snapshot}"
+          sudo umount "${mount_point}"
+          cp --reflink=never "${image}" "${clone_image}"
+          sudo mount --options loop "${clone_image}" "${mount_point}"
+          bun tui/scripts/standalone-btrfs-identity.ts capture \
+            tui/dist/1667 "${mount_point}/project" "${state}" "${clone}"
+          bun tui/scripts/standalone-btrfs-identity.ts verify \
+            "${first}" "${snapshot}" "${clone}"
+
+      - name: Test non-Btrfs clone rejection
+        run: |
+          set -euo pipefail
+          source_image="${RUNNER_TEMP}/1667-ext4-source.img"
+          clone_image="${RUNNER_TEMP}/1667-ext4-clone.img"
+          mount_point="${RUNNER_TEMP}/1667-ext4"
+          machine="${RUNNER_TEMP}/1667-ext4-machine"
+          record="${RUNNER_TEMP}/1667-ext4-claim.json"
+          loop_device=""
+          cleanup() {
+            sudo umount "${mount_point}" 2>/dev/null || true
+            if [[ -n "${loop_device}" ]]; then
+              sudo losetup --detach "${loop_device}" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          truncate --size 128M "${source_image}"
+          mkfs.ext4 -F -q "${source_image}"
+          mkdir --parents "${mount_point}"
+          loop_device="$(sudo losetup --find --show "${source_image}")"
+          sudo mount "${loop_device}" "${mount_point}"
+          sudo chown "$(id --user):$(id --group)" "${mount_point}"
+          mkdir "${mount_point}/project"
+          AI_1667_NON_BTRFS_TEST_ROOT="${mount_point}/project" \
+          AI_1667_NON_BTRFS_TEST_MACHINE="${machine}" \
+          AI_1667_NON_BTRFS_TEST_RECORD="${record}" \
+          AI_1667_NON_BTRFS_TEST_MODE=capture \
+            node --import tsx --test \
+              test/http-non-btrfs-claim-integration.test.ts
+          sudo umount "${mount_point}"
+          sudo losetup --detach "${loop_device}"
+          cp --reflink=never "${source_image}" "${clone_image}"
+          sudo losetup "${loop_device}" "${clone_image}"
+          sudo mount "${loop_device}" "${mount_point}"
+          AI_1667_NON_BTRFS_TEST_ROOT="${mount_point}/project" \
+          AI_1667_NON_BTRFS_TEST_MACHINE="${machine}" \
+          AI_1667_NON_BTRFS_TEST_RECORD="${record}" \
+          AI_1667_NON_BTRFS_TEST_MODE=verify \
+            node --import tsx --test \
+              test/http-non-btrfs-claim-integration.test.ts
+
   # darwin-x64 builds on every push to main and on demand, but not on pull
   # requests, so a regression surfaces on the commit that caused it rather than
   # at release time. It is published, and it is the target most of this tool's

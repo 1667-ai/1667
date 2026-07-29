@@ -20,3 +20,13 @@ export function retainedDirectoryOpenFlags(): number {
     : 0;
   return constants.O_RDONLY | directory;
 }
+
+/** Return the traversable path for one retained directory descriptor. */
+export function retainedDirectoryAuthorityPath(
+  canonicalDirectory: string,
+  fileDescriptor: number
+): string {
+  return process.platform === "linux"
+    ? `/proc/self/fd/${fileDescriptor}`
+    : canonicalDirectory;
+}

@@ -4,9 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import {
+  MACHINE_SECRET_VALUE_ENTRY_NAMES,
   PROVIDER_SECRETS_FILE,
-  PROVIDER_SECRETS_NEXT_FILE,
-  PROVIDER_SECRETS_NEXT_SCRATCH,
   SETTINGS_STATE_V2_FILE
 } from "../server/data-directory-layout.js";
 import {
@@ -104,13 +103,9 @@ test("stored provider secrets are published in the machine tier only", async (t)
   assert.equal((await restarted.loadView()).activeRevision, 2);
 });
 
-test("a project tier holding a secret file is refused, naming the machine tier", async (t) => {
+test("a project tier holding a machine secret is refused", async (t) => {
   const machineDir = await temporaryDirectory(t, "1667-fence-machine-");
-  for (const entry of [
-    PROVIDER_SECRETS_FILE,
-    PROVIDER_SECRETS_NEXT_FILE,
-    PROVIDER_SECRETS_NEXT_SCRATCH
-  ]) {
+  for (const entry of MACHINE_SECRET_VALUE_ENTRY_NAMES) {
     const projectDir = await temporaryDirectory(t, "1667-fence-project-");
     const file = path.join(projectDir, entry);
     await writeFile(file, "{}", { mode: 0o600 });

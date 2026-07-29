@@ -17,7 +17,13 @@ import {
   MAX_CREDENTIAL_NAMES_PER_STATE,
   isCredentialEnvironmentName
 } from "../../shared/credential-slot-policy.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../../shared/machine-tier-environment.js";
 import { encodeSupervisedSecrets } from "../../shared/supervised-secret-channel.js";
+import {
+  assertHttpPlatformSupport
+} from "../../server/http-platform-support.js";
 
 interface RetainedDescriptor {
   readonly descriptor: HttpSupervisedOperationDescriptor;
@@ -49,6 +55,7 @@ export async function runServeSupervisor(argv: readonly string[]): Promise<void>
       "Supervised serve currently requires a packaged Linux 1667 executable"
     );
   }
+  assertHttpPlatformSupport();
   const supervisor = new ServeSupervisor(parsed);
   await supervisor.run();
 }
@@ -379,7 +386,8 @@ export function sanitizedSupervisorChildEnvironment(
   const names = [
     "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TERM",
     "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME",
-    "LOCALAPPDATA", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"
+    "LOCALAPPDATA", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
+    MACHINE_TIER_OVERRIDE_VARIABLE
   ];
   return Object.fromEntries(names.flatMap((name) => {
     const value = source[name];

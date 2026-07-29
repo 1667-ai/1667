@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import {
+  DATA_DIRECTORY_ID_FILE,
+  DATA_DIRECTORY_ID_SCRATCH,
+  HTTP_DATA_DIRECTORY_CLAIM_KEY_ENTRY_NAMES,
   PROVIDER_SECRETS_FILE,
   PROJECT_RUN_RECORD_FILE
 } from "../server/data-directory-layout.js";
@@ -152,9 +155,19 @@ test("every creator writes the gitignore that keeps secrets out of a commit", as
       path.join(directory, PROJECT_GITIGNORE_FILE),
       "utf8"
     )).split("\n");
-    for (const name of [PROVIDER_SECRETS_FILE, PROJECT_RUN_RECORD_FILE]) {
+    for (const name of [
+      DATA_DIRECTORY_ID_SCRATCH,
+      ...HTTP_DATA_DIRECTORY_CLAIM_KEY_ENTRY_NAMES,
+      PROVIDER_SECRETS_FILE,
+      PROJECT_RUN_RECORD_FILE
+    ]) {
       assert.equal(ignored.includes(name), true, `${directory} must ignore ${name}`);
     }
+    assert.equal(
+      ignored.includes(`!${DATA_DIRECTORY_ID_FILE}`),
+      true,
+      `${directory} must track ${DATA_DIRECTORY_ID_FILE}`
+    );
   }
 });
 

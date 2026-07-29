@@ -13,7 +13,7 @@ import type { StoryService } from "./story-service.js";
 import { streamResponse } from "./stream-response.js";
 import { optionalString, requireString, requireStringValue } from "./validation.js";
 import {
-  optionalHttpCapabilityScope,
+  requireAnyHttpCapability,
   requireHttpCapability
 } from "./http-authorization.js";
 import type { HttpOperationSessionStore } from "./http-operation-sessions.js";
@@ -48,8 +48,12 @@ import {
   isHttpServerProofNonce
 } from "../shared/http-server-proof.js";
 import type { InternalErrorReporter } from "./internal-error-reporter.js";
+import type {
+  HttpDataDirectoryIdentity
+} from "./data-directory-id.js";
 export interface HttpRouterContext {
   readonly authRecord: HttpAuthRecord;
+  readonly dataDirectoryIdentity: HttpDataDirectoryIdentity | null;
   readonly developmentOrigin: string | null;
   readonly service: StoryService | null;
   readonly errorReporter: InternalErrorReporter;
@@ -126,16 +130,24 @@ async function handleApi(
   if (rawHead === "health"
     && id === undefined
     && method === "GET") {
-    if (context.service === null) {
+    requireCurrentHttpServerInstance(request, context.authRecord.instanceId);
+    const capabilityScope = requireAnyHttpCapability(
+      request,
+      context.authRecord
+    );
+    if (context.service === null
+      || context.dataDirectoryIdentity === null
+      || !context.operationSessions.isAdmissionOpen()) {
       return sendJson(response, 503, { error: "1667 is still opening its data" });
     }
     return sendJson(response, 200, {
       ok: true,
       buildIdentity: AI_1667_BUILD_IDENTITY,
+      ...context.dataDirectoryIdentity,
       serverInstanceId: context.authRecord.instanceId,
       recoveryWarnings: httpRecoveryWarnings(
         context.service,
-        optionalHttpCapabilityScope(request, context.authRecord)
+        capabilityScope
       )
     });
   }

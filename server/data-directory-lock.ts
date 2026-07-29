@@ -24,6 +24,9 @@ import {
   migrateSettingsFormatV1ToV2UnderLock,
   type SettingsFormatMigrationV1Options
 } from "./settings-format-migration.js";
+import {
+  retainedDirectoryAuthorityPath
+} from "./retained-directory-authority.js";
 
 export { readDataDirectoryFormat } from "./data-directory-format.js";
 
@@ -87,11 +90,10 @@ export class DataDirectoryLock {
     if (this.dataDirectoryHandle === null || this.canonicalDir === null) {
       throw new Error("Data-directory authority is unavailable before acquisition");
     }
-    if (process.platform === "linux") {
-      return `/proc/self/fd/${this.dataDirectoryHandle.fd}`;
-    }
-    // Darwin fdesc nodes are files, not traversable directory authorities.
-    return this.canonicalDir;
+    return retainedDirectoryAuthorityPath(
+      this.canonicalDir,
+      this.dataDirectoryHandle.fd
+    );
   }
 
   /**

@@ -5,6 +5,33 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **HTTP retries now follow the selected project after a port change.** The
+  backend puts a data-directory ID in HTTP health metadata. The TUI keeps an
+  unfinished create or import operation for that ID. Git can track the
+  data-directory ID. A restart on a different loopback port uses the same
+  operation ID. A different project uses a different operation ID, even if it
+  uses the old port. The backend also puts a data-directory claim ID in the
+  metadata. This ID prevents a live project copy from taking over the client
+  connection. The HTTP API protocol goes from 8 to 9. A version 1 retry record
+  stays bound to its original loopback origin. A version 2 retry record can
+  follow the same data-directory ID to a different port. The backend sends the
+  two IDs only after it validates a client capability. On Linux, the legacy
+  preview keeps one machine-local identity when its listener restarts. Other
+  systems refuse the legacy preview because they cannot retain the data
+  directory authority. HTTP server mode also requires Linux for this reason.
+  The data filesystem must support durable Linux file handles. On Linux, a
+  filesystem remount stops an unfinished HTTP retry. This rule prevents a
+  cloned filesystem from taking over the retry. Linux HTTP mode requires Linux
+  kernel 6.8 or later. The backend retains the directory authority before it
+  creates or reads the data-directory ID. Supervised HTTP mode refuses a
+  machine tier inside the project. The supervisor checks the platform before
+  it creates state. Every HTTP listener checks the requested machine tier and
+  the resolved machine tier. It does this before it writes diagnostics or
+  authentication state. If recovery blocks a retry, the client keeps an
+  operation ID that an earlier request used. The client removes completed
+  retry claims from the active cohort. The legacy preview validates its data
+  directory before it creates lease files. A listener factory must use the
+  selected project data directory. Thanks @10fra for the report.
 - **Stop keeps model text that already arrived.** 1667 stops the model stream.
   It waits for the request to finish in the background. It then saves the
   arrived text with the generation ID. A full result that wins the race uses

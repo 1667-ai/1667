@@ -21,8 +21,15 @@ import {
   HTTP_SERVER_INSTANCE_HEADER
 } from "../../shared/http-protocol.js";
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
+import type { HttpAuthRecord } from "../../shared/http-auth.js";
+import {
+  HttpListenerAuthority,
+  type OperationFetch
+} from "../../shared/http-listener-authority.js";
 
 export const TEST_HTTP_INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
+export const TEST_HTTP_DATA_DIRECTORY_ID = "aa".repeat(32);
+export const TEST_HTTP_DATA_DIRECTORY_CLAIM_ID = "ca".repeat(32);
 
 interface TestProtocolRange {
   readonly apiProtocolVersion: number;
@@ -43,6 +50,8 @@ export function testHttpMetadata(
       ...AI_1667_BUILD_IDENTITY,
       ...range
     }),
+    dataDirectoryClaimId: TEST_HTTP_DATA_DIRECTORY_CLAIM_ID,
+    dataDirectoryId: TEST_HTTP_DATA_DIRECTORY_ID,
     serverInstanceId,
     recoveryWarnings: []
   };
@@ -98,17 +107,24 @@ export function testHttpAccess(
       admin: "22".repeat(32)
     }
   };
-  return {
+  const fetch = operationAwareFixtureFetch(
+    origin,
     authRecord,
-    fetch: operationAwareFixtureFetch(origin, authRecord, onReservation)
+    onReservation
+  );
+  return {
+    authority: new HttpListenerAuthority({
+      root: origin,
+      binding: { authRecord, fetch }
+    })
   };
 }
 
 function operationAwareFixtureFetch(
   origin: string,
-  authRecord: HttpApiAccess["authRecord"],
+  authRecord: HttpAuthRecord,
   onReservation?: (request: Record<string, unknown>) => unknown
-): HttpApiAccess["fetch"] {
+): OperationFetch {
   const sessions = {
     story: {
       sessionId: "aa".repeat(16),

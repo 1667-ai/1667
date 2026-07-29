@@ -1,12 +1,14 @@
 import { startHttpListener } from "./http-listener.js";
 import { runHttpListenerUntilSignal } from "./http-process-lifecycle.js";
 import { StoryService } from "./story-service.js";
+import { resolveDataDirectory } from "./data-directory.js";
 import {
   internalErrorReference,
   toPublicServiceError
 } from "./service-error-policy.js";
 
 try {
+  const dataDir = resolveDataDirectory();
   await runHttpListenerUntilSignal(
     async () => await startHttpListener({
       port: Number(process.env.AI_1667_PORT ?? 0),
@@ -14,10 +16,16 @@ try {
         ? process.env.AI_1667_DEV_ORIGIN ?? "http://127.0.0.1:5173"
         : null,
       printLogs: process.argv.includes("--print-logs"),
+      project: { root: dataDir, dataDir },
       // Only the product entry point fills a new data directory. Embedded
       // listeners keep getting an empty one. The factory receives the exact
       // machine tier already validated for auth and diagnostics.
-      serviceFactory: async (errorReporter, machineDir) => new StoryService({
+      serviceFactory: async (
+        errorReporter,
+        machineDir,
+        project
+      ) => new StoryService({
+        dataDir: project.dataDir,
         machineDir,
         errorReporter,
         starterVault: "seed-when-new"

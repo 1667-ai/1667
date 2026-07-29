@@ -28,18 +28,28 @@ import { parseSettingsStateV2Bytes } from "./settings-v2-codec.js";
 import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { startHttpListener, type HttpListener } from "./http-listener.js";
 import { StoryService } from "./story-service.js";
-import { createProjectTier, resolveProject } from "./project-discovery.js";
+import {
+  createProjectTier,
+  resolveProject,
+  type ResolvedProject
+} from "./project-discovery.js";
 import { PROJECT_DIRECTORY_NAME } from "./project-layout.js";
 import {
   PublicRuntimeError
 } from "./errors.js";
+import { assertHttpPlatformSupport } from "./http-platform-support.js";
 import { resolveDiagnosticMachineTier } from "./diagnostic-machine-tier.js";
+import { resolveMachineTierRootPath } from "./machine-tier.js";
+import {
+  assertMachineTierOutsideDirectory
+} from "./machine-tier-boundary.js";
 import {
   InternalErrorReporter,
   InternalErrorReporterLease
 } from "./internal-error-reporter.js";
 import { localStartupFailure } from "./local-startup-failure.js";
 import { failureMessageFields } from "../shared/failure-envelope.js";
+import { toPublicServiceError } from "./service-error-policy.js";
 
 interface IpcProcess extends NodeJS.Process {
   send?: (message: ChildToSupervisorMessage) => boolean;
@@ -56,14 +66,46 @@ export async function runSupervisedServeChild(
     );
   }
   const printLogs = argv.includes("--print-logs");
-  const machineDir = await resolveDiagnosticMachineTier(
-    undefined,
-    {
-      service: "supervised-child-startup",
-      operation: "machine-tier-resolution"
-    },
-    { print: printLogs }
-  );
+  let project: ResolvedProject;
+  let machineDir: string;
+  try {
+    assertHttpPlatformSupport();
+    project = await resolveSupervisedProject(argv);
+    const prospectiveMachineDir = await resolveDiagnosticMachineTier(
+      undefined,
+      {
+        service: "supervised-child-startup",
+        operation: "machine-tier-resolution"
+      },
+      {
+        print: printLogs,
+        resolve: resolveMachineTierRootPath
+      }
+    );
+    await assertSupervisedMachineTierOutsideProject(
+      project,
+      prospectiveMachineDir
+    );
+    machineDir = await resolveDiagnosticMachineTier(
+      undefined,
+      {
+        service: "supervised-child-startup",
+        operation: "machine-tier-resolution"
+      },
+      { print: printLogs }
+    );
+    // The resolved directory is the path that receives diagnostics and
+    // credentials. Recheck it against the same selected project immediately
+    // before the first persistent file is opened.
+    await assertSupervisedMachineTierOutsideProject(project, machineDir);
+  } catch (error) {
+    send({
+      type: "fatal",
+      message: toPublicServiceError(localStartupFailure(error)).message
+    });
+    process.exitCode = 1;
+    return;
+  }
   const errorReporter = await InternalErrorReporter.open(machineDir, {
     print: printLogs
   });
@@ -72,7 +114,8 @@ export async function runSupervisedServeChild(
     await runSupervisedServeChildCore(
       argv,
       machineDir,
-      errorReporterLease
+      errorReporterLease,
+      project
     );
   } catch (error) {
     const reported = await errorReporter.report(localStartupFailure(error), {
@@ -89,16 +132,24 @@ export async function runSupervisedServeChild(
   }
 }
 
-async function runSupervisedServeChildCore(
-  argv: readonly string[],
-  machineDir: string,
-  errorReporterLease: InternalErrorReporterLease
+export async function assertSupervisedMachineTierOutsideProject(
+  project: ResolvedProject,
+  machineDirectory: string
 ): Promise<void> {
+  await assertMachineTierOutsideDirectory(
+    project.root,
+    machineDirectory,
+    "Supervised serve requires the machine tier outside the project"
+  );
+}
+
+export async function resolveSupervisedProject(
+  argv: readonly string[],
+  cwd = process.cwd()
+): Promise<ResolvedProject> {
   const configuredDataDir = optionalValueAfter(argv, "--data");
-  // `--data` names a project root here exactly as it does for the TUI,
-  // so a served project and an opened project are the same lock.
   const outcome = await resolveProject({
-    cwd: process.cwd(),
+    cwd,
     ...(configuredDataDir === null ? {} : { data: configuredDataDir })
   });
   if (outcome.kind === "absent") {
@@ -107,9 +158,18 @@ async function runSupervisedServeChildCore(
         + "parent. Run '1667 init' there first, or pass --data <project-root>."
     );
   }
-  const dataDir = outcome.project.exists
-    ? outcome.project.directory
-    : await createProjectTier(outcome.project.directory);
+  return outcome.project;
+}
+
+async function runSupervisedServeChildCore(
+  argv: readonly string[],
+  machineDir: string,
+  errorReporterLease: InternalErrorReporterLease,
+  project: ResolvedProject
+): Promise<void> {
+  const dataDir = project.exists
+    ? project.directory
+    : await createProjectTier(project.directory);
   const port = Number(valueAfter(argv, "--port"));
   const secretFd = Number(valueAfter(argv, "--secret-fd"));
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
@@ -121,7 +181,7 @@ async function runSupervisedServeChildCore(
     );
   }
   const messages = new MessageInbox();
-  const dataLock = new RuntimeDataDirectoryLock(dataDir);
+  let dataLock: RuntimeDataDirectoryLock | null = null;
   let listener: HttpListener | null = null;
   let service: StoryService | null = null;
   let admissionOpen = false;
@@ -147,12 +207,24 @@ async function runSupervisedServeChildCore(
     listener = await startHttpListener({
       port,
       machineDir,
+      project: { root: project.root, dataDir },
       errorReporterLease,
       printLogs: argv.includes("--print-logs"),
-      projectAuthority: dataLock,
-      serviceFactory: async (errorReporter, machineDir) => {
-        displayDataDir = await dataLock.acquire();
-        const lockedDataDir = dataLock.authorityPath;
+      projectAuthority: {
+        announceProjectServer: async (server, signal) => {
+          await dataLock?.announceProjectServer(server, signal);
+        },
+        release: async () => {
+          await dataLock?.release();
+        }
+      },
+      serviceFactory: async (errorReporter, machineDir, listenerProject) => {
+        const acquiredDataLock = new RuntimeDataDirectoryLock(
+          listenerProject.dataDir
+        );
+        dataLock = acquiredDataLock;
+        displayDataDir = await acquiredDataLock.acquire();
+        const lockedDataDir = acquiredDataLock.authorityPath;
         await installRequestedSecrets(
           await credentialNames(lockedDataDir),
           secretFd
@@ -163,12 +235,13 @@ async function runSupervisedServeChildCore(
           dataLock: "external",
           errorReporter,
           starterVault: "seed-when-new",
-          freshDataDirectory: dataLock.initializedNewDirectory
+          freshDataDirectory: acquiredDataLock.initializedNewDirectory
         });
       },
       operationSessions: {
         lifecycle: {
           kind: "supervised",
+          isAdmissionOpen: () => admissionOpen,
           admit: async (descriptor) => {
             if (!admissionOpen) {
               throw new Error("Supervised serve admission is closed");

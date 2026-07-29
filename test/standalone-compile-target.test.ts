@@ -52,6 +52,7 @@ test("product build request receives the selected baseline target", async () => 
   });
   assert.deepEqual(calls, ["product"]);
   assert.equal(observed[0]?.compile.target, "bun-darwin-x64-baseline");
+  assert.deepEqual(observed[0]?.external, ["koffi"]);
 });
 
 test("prompt-tokenizer build request receives the selected baseline target", async () => {

@@ -32,7 +32,9 @@ import {
   rejectionOf
 } from "./http-listener-fixture.js";
 
-test("process lifecycle correlates readiness publication failures", async (t) => {
+const linuxTest = process.platform === "linux" ? test : test.skip;
+
+linuxTest("process lifecycle correlates readiness publication failures", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -140,7 +142,7 @@ test("process lifecycle closes on signal while readiness remains pending", async
   );
 });
 
-test("real listener releases authority while readiness remains pending", async (t) => {
+linuxTest("real listener releases authority while readiness remains pending", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -223,7 +225,7 @@ test("real listener releases authority while readiness remains pending", async (
   }
 });
 
-test("process lifecycle reports readiness failures arriving after a signal", async (t) => {
+linuxTest("process lifecycle reports readiness failures arriving after a signal", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -268,7 +270,7 @@ test("process lifecycle reports readiness failures arriving after a signal", asy
   assert.match(diagnostic, new RegExp(reference ?? ""));
 });
 
-test("listener correlates process and cleanup failures in one diagnostic", async (t) => {
+linuxTest("listener correlates process and cleanup failures in one diagnostic", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -301,7 +303,7 @@ test("listener correlates process and cleanup failures in one diagnostic", async
   assert.match(diagnostic, new RegExp(reference ?? ""));
 });
 
-test("supervised runtime failure retains its reference through final cleanup", async (t) => {
+linuxTest("supervised runtime failure retains its reference through final cleanup", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -312,6 +314,7 @@ test("supervised runtime failure retains its reference through final cleanup", a
   const listener = await startHttpListener({
     port: 0,
     authStore: { stateRoot },
+    project: { root: dataDir, dataDir },
     projectAuthority: {
       announceProjectServer: async (server, signal) => {
         await authority.announceProjectServer(server, signal);

@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  HttpOperationClient,
   HttpOperationError,
-  type HttpOperationClientOptions,
   type OperationFetch
 } from "../shared/http-operation-client.js";
 import {
@@ -16,9 +14,13 @@ import {
   createFailureEnvelope,
   diagnosticReferenceFromFailure
 } from "../shared/failure-envelope.js";
-
-const INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
-const SESSION_ID = "aa".repeat(16);
+import {
+  INSTANCE_ID,
+  operationClient,
+  operationFixture,
+  SESSION_ID,
+  terminalStatus
+} from "./http-operation-client-fixture.js";
 
 test("durable retry rejects inconsistent terminality and waits for completion", async () => {
   const reservations: Record<string, unknown>[] = [];
@@ -73,7 +75,7 @@ test("durable retry rejects inconsistent terminality and waits for completion", 
   assert.equal(await client.run({
     method: "POST",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     requestedLifetimeMs: 2_000,
     expectedAggregateVersion: { kind: "absent" },
     execute: async () => {
@@ -110,7 +112,7 @@ test("caller-owned mutation identity survives separate run invocations", async (
     assert.equal(await client.run({
       method: "POST",
       path: "/api/stories",
-      serverInstanceId: INSTANCE_ID,
+      binding: client.binding,
       mutationId,
       expectedAggregateVersion: { kind: "absent" },
       execute: async () => invocation
@@ -145,7 +147,7 @@ test("operation admission errors preserve HTTP status and service code", async (
   await assert.rejects(client.run({
     method: "POST",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     execute: async () => undefined
   }), (error: unknown) =>
     error instanceof HttpOperationError
@@ -179,7 +181,7 @@ test("operation admission errors use the canonical flat payload fallback", async
   await assert.rejects(client.run({
     method: "POST",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     execute: async () => undefined
   }), (error: unknown) =>
     error instanceof HttpOperationError
@@ -215,7 +217,7 @@ test("operation admission errors preserve internal diagnostic references", async
   await assert.rejects(client.run({
     method: "POST",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     execute: async () => undefined
   }), (error: unknown) =>
     error instanceof HttpOperationError
@@ -262,7 +264,7 @@ test("operation sessions preserve recovery diagnostic references", async () => {
   await client.run({
     method: "GET",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     execute: async () => undefined
   });
 
@@ -292,13 +294,13 @@ test("operation-session creation stops when its only caller cancels", async () =
       );
     });
   });
-  const pending = client.reserve(
-    "GET",
-    "/api/stories",
-    INSTANCE_ID,
-    2_000,
-    controller.signal
-  );
+  const pending = client.reserve({
+    method: "GET",
+    path: "/api/stories",
+    binding: client.binding,
+    requestedLifetimeMs: 2_000,
+    callerSignal: controller.signal
+  });
 
   await started;
   controller.abort(new Error("caller stopped"));
@@ -321,7 +323,7 @@ test("terminal settlement removes caller cancellation authority", async () => {
   await client.run({
     method: "GET",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     callerSignal: controller.signal,
     execute: async () => "done"
   });
@@ -331,277 +333,45 @@ test("terminal settlement removes caller cancellation authority", async () => {
   assert.equal(cancelCalls, 0);
 });
 
-test("user cancellation reaches control before transport cancellation", async () => {
-  const controller = new AbortController();
-  const events: string[] = [];
-  let markCancelStarted!: () => void;
-  const cancelStarted = new Promise<void>((resolve) => {
-    markCancelStarted = resolve;
-  });
-  let releaseCancel!: () => void;
-  const cancelGate = new Promise<void>((resolve) => {
-    releaseCancel = resolve;
-  });
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
-  });
-  const client = operationClient(operationFixture(async (pathname, init) => {
-    if (pathname === "/api/operations/cancel") {
-      events.push("control");
-      markCancelStarted();
-      await cancelGate;
-      return cancellationStatus(init);
-    }
-    if (pathname === "/api/operations/status") return terminalStatus(init);
-    return Response.json({ ok: true });
-  }));
-  const pending = client.run({
-    method: "POST",
-    path: "/api/stories/story/continue",
-    serverInstanceId: INSTANCE_ID,
-    callerSignal: controller.signal,
-    execute: async (lease) => {
-      markStarted();
-      await new Promise<void>((resolve) => {
-        lease.signal.addEventListener("abort", () => resolve(), {
-          once: true
-        });
-      });
-      events.push("transport");
-      return null;
-    }
-  });
-
-  await started;
-  controller.abort();
-  await cancelStarted;
-  assert.deepEqual(events, ["control"]);
-  releaseCancel();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.deepEqual(events, ["control"]);
-
-  assert.equal(await pending, null);
-  assert.deepEqual(events, ["control", "transport"]);
-});
-
-test("caller deadline also cancels server work", async () => {
-  const controller = new AbortController();
-  let cancelCalls = 0;
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
-  });
-  const client = operationClient(operationFixture(async (pathname, init) => {
-    if (pathname === "/api/operations/cancel") {
-      cancelCalls += 1;
-      return cancellationStatus(init);
-    }
-    if (pathname === "/api/operations/status") return terminalStatus(init);
-    return Response.json({ ok: true });
-  }));
-  const pending = client.run({
-    method: "POST",
-    path: "/api/stories/story/autoname",
-    serverInstanceId: INSTANCE_ID,
-    callerSignal: controller.signal,
-    execute: async (lease) => {
-      markStarted();
-      await new Promise<void>((resolve) => {
-        lease.signal.addEventListener("abort", () => resolve(), {
-          once: true
-        });
-      });
-      return null;
-    }
-  });
-
-  await started;
-  controller.abort(new DOMException("request timed out", "TimeoutError"));
-
-  assert.equal(await pending, null);
-  assert.equal(cancelCalls, 1);
-});
-
-test("terminal settlement detaches a concurrent cancellation request", async () => {
+test("terminal settlement aborts a concurrent cancellation request", async () => {
   const controller = new AbortController();
   let cancelSignal: AbortSignal | undefined;
   let signalCancelStarted!: () => void;
   const cancelStarted = new Promise<void>((resolve) => {
     signalCancelStarted = resolve;
   });
-  let releaseCancel!: () => void;
-  const cancelGate = new Promise<void>((resolve) => {
-    releaseCancel = resolve;
-  });
   const client = operationClient(operationFixture(async (pathname, init) => {
     if (pathname === "/api/operations/cancel") {
       cancelSignal = init?.signal ?? undefined;
       signalCancelStarted();
-      await cancelGate;
-      return cancellationStatus(init);
+      return await new Promise<Response>((_resolve, reject) => {
+        cancelSignal?.addEventListener(
+          "abort",
+          () => reject(cancelSignal?.reason),
+          { once: true }
+        );
+      });
     }
     if (pathname === "/api/operations/status") return terminalStatus(init);
     return Response.json({ ok: true });
   }));
-  const lease = await client.reserve(
-    "GET",
-    "/api/stories",
-    INSTANCE_ID,
-    2_000,
-    controller.signal,
-    undefined,
-    undefined
-  );
+  const lease = await client.reserve({
+    method: "GET",
+    path: "/api/stories",
+    binding: client.binding,
+    requestedLifetimeMs: 2_000,
+    callerSignal: controller.signal
+  });
 
   controller.abort();
   await cancelStarted;
-  const cancellation = lease.cancel();
-  let settlementComplete = false;
-  const settlement = lease.settle().then(() => {
-    settlementComplete = true;
-  });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await lease.settle();
 
-  assert.equal(settlementComplete, true);
   assert.equal(cancelSignal?.aborted, true);
-  releaseCancel();
-
-  await settlement;
-  await cancellation;
 });
 
-test("a supporting read abort also cancels server work", async () => {
+test("run settles concurrently with a stalled caller cancellation", async () => {
   const controller = new AbortController();
-  let cancelCalls = 0;
-  let releaseCancel!: () => void;
-  const cancelGate = new Promise<void>((resolve) => {
-    releaseCancel = resolve;
-  });
-  let markTransportCanceled!: () => void;
-  const transportCanceled = new Promise<void>((resolve) => {
-    markTransportCanceled = resolve;
-  });
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
-  });
-  const client = operationClient(operationFixture(async (pathname, init) => {
-    if (pathname === "/api/operations/cancel") {
-      cancelCalls += 1;
-      await cancelGate;
-      return cancellationStatus(init);
-    }
-    if (pathname === "/api/operations/status") return terminalStatus(init);
-    return Response.json({ ok: true });
-  }));
-  const pending = client.run({
-    method: "GET",
-    path: "/api/stories/story",
-    serverInstanceId: INSTANCE_ID,
-    callerSignal: controller.signal,
-    execute: async (lease) => {
-      markStarted();
-      await new Promise<void>((resolve) => {
-        lease.signal.addEventListener("abort", () => {
-          markTransportCanceled();
-          resolve();
-        }, { once: true });
-      });
-      throw lease.signal.reason;
-    }
-  });
-
-  await started;
-  controller.abort();
-  await transportCanceled;
-  assert.equal(cancelCalls, 1);
-  releaseCancel();
-
-  await assert.rejects(pending, (error) =>
-    error instanceof Error && error.name === "AbortError");
-});
-
-test("cancellation control loss does not fail a settled request", async () => {
-  const controller = new AbortController();
-  let releaseExecution!: () => void;
-  const executionGate = new Promise<void>((resolve) => {
-    releaseExecution = resolve;
-  });
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
-  });
-  const client = operationClient(operationFixture(async (pathname, init) => {
-    if (pathname === "/api/operations/cancel") {
-      throw new TypeError("cancellation control unavailable");
-    }
-    if (pathname === "/api/operations/status") return terminalStatus(init);
-    return Response.json({ ok: true });
-  }));
-  const pending = client.run({
-    method: "POST",
-    path: "/api/stories/story/continue",
-    serverInstanceId: INSTANCE_ID,
-    callerSignal: controller.signal,
-    execute: async () => {
-      markStarted();
-      await executionGate;
-      return "completed";
-    }
-  });
-
-  await started;
-  controller.abort();
-  releaseExecution();
-
-  assert.equal(await pending, "completed");
-});
-
-test("cancellation control loss closes generation transport", async () => {
-  const controller = new AbortController();
-  let cancelCalls = 0;
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
-  });
-  const client = operationClient(operationFixture(async (pathname, init) => {
-    if (pathname === "/api/operations/cancel") {
-      cancelCalls += 1;
-      throw new TypeError("cancellation control unavailable");
-    }
-    if (pathname === "/api/operations/status") return terminalStatus(init);
-    return Response.json({ ok: true });
-  }));
-  const pending = client.run({
-    method: "POST",
-    path: "/api/stories/story/continue",
-    serverInstanceId: INSTANCE_ID,
-    callerSignal: controller.signal,
-    execute: async (lease) => {
-      markStarted();
-      await new Promise<void>((resolve) => {
-        lease.signal.addEventListener("abort", () => resolve(), {
-          once: true
-        });
-      });
-      return null;
-    }
-  });
-
-  await started;
-  controller.abort();
-
-  assert.equal(await pending, null);
-  assert.equal(cancelCalls, 2);
-});
-
-test("stalled cancellation control has an interactive handoff bound", async () => {
-  const controller = new AbortController();
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
-  });
   const client = operationClient(operationFixture(async (pathname, init) => {
     if (pathname === "/api/operations/cancel") {
       return await new Promise<Response>((_resolve, reject) => {
@@ -614,55 +384,90 @@ test("stalled cancellation control has an interactive handoff bound", async () =
     }
     if (pathname === "/api/operations/status") return terminalStatus(init);
     return Response.json({ ok: true });
+  }, 2_000));
+  const startedAt = performance.now();
+
+  assert.equal(await client.run({
+    method: "GET",
+    path: "/api/stories",
+    binding: client.binding,
+    requestedLifetimeMs: 2_000,
+    callerSignal: controller.signal,
+    execute: async () => {
+      controller.abort();
+      return "done";
+    }
+  }), "done");
+
+  assert.ok(performance.now() - startedAt < 250);
+});
+
+test("generation cancellation reaches control before transport", async () => {
+  const controller = new AbortController();
+  const events: string[] = [];
+  let markCancelStarted!: () => void;
+  const cancelStarted = new Promise<void>((resolve) => {
+    markCancelStarted = resolve;
+  });
+  let markExecutionStarted!: () => void;
+  const executionStarted = new Promise<void>((resolve) => {
+    markExecutionStarted = resolve;
+  });
+  const client = operationClient(operationFixture(async (pathname, init) => {
+    if (pathname === "/api/operations/cancel") {
+      events.push("control");
+      markCancelStarted();
+      return cancellationStatus(init);
+    }
+    if (pathname === "/api/operations/status") return terminalStatus(init);
+    return Response.json({ ok: true });
   }));
   const pending = client.run({
     method: "POST",
     path: "/api/stories/story/continue",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     callerSignal: controller.signal,
     execute: async (lease) => {
-      markStarted();
+      markExecutionStarted();
       await new Promise<void>((resolve) => {
         lease.signal.addEventListener("abort", () => resolve(), {
           once: true
         });
       });
+      events.push("transport");
       return null;
     }
   });
 
-  await started;
-  const startedAt = performance.now();
+  await executionStarted;
   controller.abort();
+  await cancelStarted;
+  assert.deepEqual(events, ["control"]);
 
   assert.equal(await pending, null);
-  assert.ok(performance.now() - startedAt < 1_000);
+  assert.deepEqual(events, ["control", "transport"]);
 });
 
-test("generation Stop does not wait forever for terminal status", async () => {
+test("generation cancellation bounds lost control and settlement", async () => {
   const controller = new AbortController();
-  let markStarted!: () => void;
-  const started = new Promise<void>((resolve) => {
-    markStarted = resolve;
+  let markExecutionStarted!: () => void;
+  const executionStarted = new Promise<void>((resolve) => {
+    markExecutionStarted = resolve;
   });
-  let statusCalls = 0;
   const client = operationClient(operationFixture(async (pathname) => {
-    if (pathname === "/api/operations/cancel") {
-      throw new TypeError("cancellation control unavailable");
-    }
-    if (pathname === "/api/operations/status") {
-      statusCalls += 1;
-      throw new TypeError("status transport unavailable");
+    if (pathname === "/api/operations/cancel"
+      || pathname === "/api/operations/status") {
+      throw new TypeError("operation control unavailable");
     }
     return Response.json({ ok: true });
   }));
   const pending = client.run({
     method: "POST",
     path: "/api/stories/story/continue",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     callerSignal: controller.signal,
     execute: async (lease) => {
-      markStarted();
+      markExecutionStarted();
       await new Promise<void>((resolve) => {
         lease.signal.addEventListener("abort", () => resolve(), {
           once: true
@@ -672,13 +477,12 @@ test("generation Stop does not wait forever for terminal status", async () => {
     }
   });
 
-  await started;
+  await executionStarted;
   const startedAt = performance.now();
   controller.abort();
 
   assert.equal(await pending, null);
   assert.ok(performance.now() - startedAt < 1_000);
-  assert.ok(statusCalls > 0);
 });
 
 test("status polling loss cannot settle ownership without terminal proof", async () => {
@@ -702,7 +506,7 @@ test("status polling loss cannot settle ownership without terminal proof", async
   await client.run({
     method: "GET",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     execute: async () => "done"
   });
 
@@ -740,7 +544,7 @@ test("a responsive running operation stays owned beyond cancellation grace", asy
   await client.run({
     method: "GET",
     path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
+    binding: client.binding,
     execute: async () => "done"
   });
 
@@ -748,188 +552,6 @@ test("a responsive running operation stays owned beyond cancellation grace", asy
     >= HTTP_OPERATION_CANCEL_GRACE_MS + 100);
   assert.ok(statusCalls > 2);
 });
-
-test("listener replacement ends old-session settlement immediately", async () => {
-  let statusCalls = 0;
-  let responseBodyCanceled = false;
-  const client = operationClient(operationFixture(async (pathname) => {
-    if (pathname !== "/api/operations/status") {
-      return Response.json({ ok: true });
-    }
-    statusCalls += 1;
-    return new Response(
-      new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode("replaced"));
-        },
-        cancel() {
-          responseBodyCanceled = true;
-        }
-      }),
-      {
-        status: 401,
-        headers: {
-          "x-1667-server-instance":
-            "22222222-2222-4222-8222-222222222222"
-        }
-      }
-    );
-  }, 2_000));
-  const lease = await client.reserve(
-    "GET",
-    "/api/stories",
-    INSTANCE_ID,
-    2_000
-  );
-  const startedAt = performance.now();
-
-  await lease.settle();
-
-  assert.equal(statusCalls, 1);
-  assert.equal(responseBodyCanceled, true);
-  assert.ok(performance.now() - startedAt < 250);
-});
-
-test("client shutdown releases settlement polling without terminal proof", async () => {
-  const shutdown = new AbortController();
-  let statusSignal: AbortSignal | undefined;
-  let markStatusStarted!: () => void;
-  const statusStarted = new Promise<void>((resolve) => {
-    markStatusStarted = resolve;
-  });
-  const client = operationClient(operationFixture(async (pathname, init) => {
-    if (pathname !== "/api/operations/status") {
-      return Response.json({ ok: true });
-    }
-    statusSignal = init?.signal ?? undefined;
-    markStatusStarted();
-    return await new Promise<Response>((_resolve, reject) => {
-      statusSignal?.addEventListener(
-        "abort",
-        () => reject(statusSignal?.reason),
-        { once: true }
-      );
-    });
-  }), shutdown.signal);
-  const run = client.run({
-    method: "GET",
-    path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
-    execute: async () => "done"
-  });
-
-  await statusStarted;
-  shutdown.abort(new Error("TUI exited"));
-
-  assert.equal(await run, "done");
-  assert.equal(statusSignal?.aborted, true);
-  await assert.rejects(
-    client.reserve("GET", "/api/stories", INSTANCE_ID, 2_000),
-    /TUI exited/
-  );
-});
-
-test("proven listener replacement releases settlement after proof loss", async () => {
-  let statusCalls = 0;
-  let replacementChecks = 0;
-  const client = operationClient(operationFixture(async (pathname) => {
-    if (pathname !== "/api/operations/status") {
-      return Response.json({ ok: true });
-    }
-    statusCalls += 1;
-    throw new Error("old listener proof failed");
-  }), undefined, async (previousInstanceId) => {
-    replacementChecks += 1;
-    assert.equal(previousInstanceId, INSTANCE_ID);
-    return true;
-  });
-
-  assert.equal(await client.run({
-    method: "GET",
-    path: "/api/stories",
-    serverInstanceId: INSTANCE_ID,
-    execute: async () => "done"
-  }), "done");
-  assert.equal(statusCalls, 1);
-  assert.equal(replacementChecks, 1);
-});
-
-function operationClient(
-  fetch: OperationFetch,
-  shutdownSignal?: AbortSignal,
-  confirmListenerReplacement?: (previousInstanceId: string) => Promise<boolean>,
-  onSession?: HttpOperationClientOptions["onSession"]
-): HttpOperationClient {
-  return new HttpOperationClient({
-    root: "http://127.0.0.1:7373",
-    authRecord: {
-      schema: 1,
-      origin: "http://127.0.0.1:7373",
-      instanceId: INSTANCE_ID,
-      capabilities: {
-        story: "11".repeat(32),
-        admin: "22".repeat(32)
-      }
-    },
-    fetch,
-    shutdownSignal,
-    confirmListenerReplacement,
-    onSession
-  });
-}
-
-function operationFixture(
-  control: (
-    pathname: string,
-    init: RequestInit | undefined
-  ) => Promise<Response>,
-  lifetimeMs = 2_000,
-  onReservation?: (init: RequestInit | undefined) => void,
-  recoveryWarnings: unknown[] = []
-): OperationFetch {
-  let sequence = 0;
-  return async (input, init) => {
-    const pathname = new URL(String(input)).pathname;
-    if (pathname === HTTP_OPERATION_SESSION_PATH) {
-      return Response.json({
-        listenerInstanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
-        scope: "story",
-        capability: "bb".repeat(32),
-        idleTimeoutMs: 60_000,
-        recoveryWarnings
-      }, { status: 201 });
-    }
-    if (pathname === HTTP_OPERATION_RESERVATION_PATH) {
-      onReservation?.(init);
-      sequence += 1;
-      return Response.json({
-        listenerInstanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
-        sequence: String(sequence),
-        ticket: `${SESSION_ID}.${sequence}.${"cc".repeat(32)}`,
-        lifetime: "local",
-        deadlineEpochMs: Date.now() + lifetimeMs,
-        startDeadlineEpochMs: Date.now() + Math.min(1_000, lifetimeMs)
-      }, { status: 201 });
-    }
-    return await control(pathname, init);
-  };
-}
-
-function terminalStatus(init: RequestInit | undefined): Response {
-  const [sessionId, sequence] = (
-    new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
-  ).split(".");
-  return Response.json({
-    listenerInstanceId: INSTANCE_ID,
-    sessionId,
-    sequence,
-    state: "completed",
-    terminal: true,
-    cancelRequested: false
-  });
-}
 
 function cancellationStatus(init: RequestInit | undefined): Response {
   const [sessionId, sequence] = (

@@ -17,6 +17,8 @@ test("HTTP chapter transport covers create, rename, remove, restore, summarize, 
     if (url.endsWith("/api/health")) {
       return Response.json({
         buildIdentity: AI_1667_BUILD_IDENTITY,
+        dataDirectoryClaimId: "ca".repeat(32),
+        dataDirectoryId: "aa".repeat(32),
         serverInstanceId: "11111111-1111-4111-8111-111111111111",
         recoveryWarnings: []
       });

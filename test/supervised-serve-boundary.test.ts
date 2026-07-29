@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,8 @@ import {
   sanitizedSupervisorChildEnvironment
 } from "../tui/src/serve-supervisor.js";
 import {
+  assertSupervisedMachineTierOutsideProject,
+  resolveSupervisedProject,
   recoverDescriptors
 } from "../server/supervised-serve-child.js";
 import { PlatformStateRootError } from "../server/platform-state-root.js";
@@ -32,6 +35,12 @@ import { StoragePathNotDirectoryError } from "../server/story-lifecycle.js";
 import {
   diagnosticMachineTierFailure
 } from "../server/diagnostic-machine-tier.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../shared/machine-tier-environment.js";
+import {
+  linuxMountPathIsInsideDirectory
+} from "../server/machine-tier-boundary.js";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -52,10 +61,11 @@ test("serve supervisor import closure excludes application and provider modules"
   }
 });
 
-test("supervised child environment excludes secrets and runtime loaders", () => {
+test("supervised child environment keeps state root but excludes secrets", () => {
   const environment = sanitizedSupervisorChildEnvironment({
     PATH: "/bin",
     HOME: "/home/reader",
+    [MACHINE_TIER_OVERRIDE_VARIABLE]: "/tmp/1667-state",
     OPENAI_API_KEY: "secret",
     BUN_OPTIONS: "--preload hostile.ts",
     NODE_OPTIONS: "--require hostile.js",
@@ -63,8 +73,70 @@ test("supervised child environment excludes secrets and runtime loaders", () => 
   });
   assert.deepEqual(environment, {
     PATH: "/bin",
-    HOME: "/home/reader"
+    HOME: "/home/reader",
+    [MACHINE_TIER_OVERRIDE_VARIABLE]: "/tmp/1667-state"
   });
+});
+
+test("supervised serve keeps machine state outside the project", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-supervised-boundary-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const project = path.join(root, "book");
+  await mkdir(project);
+  const selected = await resolveSupervisedProject(["--data", project]);
+
+  await assert.rejects(
+    assertSupervisedMachineTierOutsideProject(
+      selected,
+      path.join(project, "state")
+    ),
+    /machine tier outside the project/
+  );
+  await assert.doesNotReject(
+    assertSupervisedMachineTierOutsideProject(
+      selected,
+      path.join(root, "state")
+    )
+  );
+
+  const real = path.join(root, "real");
+  const alias = path.join(root, "alias");
+  await mkdir(real);
+  await symlink(real, alias, "dir");
+  const future = await resolveSupervisedProject([
+    "--data",
+    path.join(alias, "future-project")
+  ]);
+  await assert.rejects(
+    assertSupervisedMachineTierOutsideProject(
+      future,
+      path.join(real, "future-project", "state")
+    ),
+    /machine tier outside the project/
+  );
+});
+
+test("machine-tier boundary rejects a bind-mounted project descendant", () => {
+  const mountInfo = [
+    "10 1 8:1 / / rw - ext4 /dev/root rw",
+    "20 10 8:1 /project/private-state /outside/state rw - ext4 /dev/root rw",
+    "30 10 8:2 / /other/state rw - ext4 /dev/other rw"
+  ].join("\n");
+
+  assert.equal(linuxMountPathIsInsideDirectory({
+    directoryPath: "/project",
+    candidatePath: "/outside/state",
+    directoryMountId: "10",
+    candidateMountId: "20",
+    mountInfo
+  }), true);
+  assert.equal(linuxMountPathIsInsideDirectory({
+    directoryPath: "/project",
+    candidatePath: "/other/state",
+    directoryMountId: "10",
+    candidateMountId: "30",
+    mountInfo
+  }), false);
 });
 
 test("serve parser rejects empty separated and inline values", () => {

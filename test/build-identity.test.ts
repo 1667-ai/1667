@@ -23,13 +23,12 @@ const packaged = createPackagedBuildIdentity(packagedInput);
 
 test("source identity is explicit and cannot masquerade as a packaged build", () => {
   // Pinned on purpose, so the advertised version and the wire shape can only
-  // move together. v8 added exact provider recovery to warnings and
-  // acknowledgement inputs. An older peer must fail at preflight instead of
-  // losing the provider target.
+  // move together. v9 added authenticated listener identity and project-scoped
+  // HTTP retry identity. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    8,
-    "exact provider recovery requires HTTP API v8"
+    9,
+    "listener and project retry identity require HTTP API v9"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

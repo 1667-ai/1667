@@ -531,5 +531,3 @@ export function openTag(state: RuntimeState, targetId?: string): void {
   };
   state.mode = "TAG";
 }
-
-

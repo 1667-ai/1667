@@ -121,6 +121,10 @@ The launcher does not start the native executable when a check fails.
 It gives an error that identifies the failed requirement.
 It also fails when it cannot verify a required host fact.
 
+Linux HTTP mode requires Linux kernel 6.8 or newer.
+The data filesystem must support durable Linux file handles.
+The HTTP server checks this requirement when it starts.
+
 ## Package contents
 
 Each of the five release packages contains these files:

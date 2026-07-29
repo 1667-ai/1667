@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  access,
   chmod,
   lstat,
   mkdir,
@@ -13,8 +14,23 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import {
   resolvePrivatePlatformStateRoot,
+  resolvePrivatePlatformStateRootPath,
   type WindowsPrivateStateRootAdapter
 } from "../server/platform-state-root.js";
+
+test("state-root path resolution does not create its result", {
+  skip: process.platform === "win32"
+}, async (t) => {
+  const home = await temporaryDirectory(t, "1667-state-home-");
+  const root = await resolvePrivatePlatformStateRootPath({
+    platform: "linux",
+    environment: {},
+    accountHomeDirectory: () => home
+  });
+
+  assert.equal(root, path.join(home, ".local", "state", "1667"));
+  await assert.rejects(access(root), { code: "ENOENT" });
+});
 
 test("Linux state root uses account home and creates a private root", {
   skip: process.platform === "win32"

@@ -11,7 +11,9 @@ import { runAuthShow } from "../tui/src/http-commands.js";
 import { HttpOperationClient } from "../shared/http-operation-client.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 
-test("TUI attach binds the private auth record to the live numeric listener", async (t) => {
+const linuxTest = process.platform === "linux" ? test : test.skip;
+
+linuxTest("TUI attach binds the private auth record to the live numeric listener", async (t) => {
   const dataDir = path.join(await temporaryDirectory(t), "data");
   const listener = await startHttpListener({ port: 0, dataDir });
   t.after(() => listener.close());
@@ -32,17 +34,19 @@ test("TUI attach binds the private auth record to the live numeric listener", as
   }
 });
 
-test("TUI attach rejects an auth-file path outside the canonical record", async (t) => {
+linuxTest("TUI attach rejects an auth-file path outside the canonical record", async (t) => {
   const dataDir = path.join(await temporaryDirectory(t), "data");
   const listener = await startHttpListener({ port: 0, dataDir });
   t.after(() => listener.close());
   await assert.rejects(
-    attachHttpServer(listener.origin, "/tmp/not-the-1667-auth-record.json"),
+    attachHttpServer(listener.origin, {
+      authFile: "/tmp/not-the-1667-auth-record.json"
+    }),
     /canonical record/
   );
 });
 
-test("TUI attach adopts proven replacement authority without restarting", async (t) => {
+linuxTest("TUI API recovers an idle client with proven replacement authority", async (t) => {
   const dataDir = path.join(await temporaryDirectory(t), "data");
   const initial = await startHttpListener({ port: 0, dataDir });
   t.after(() => initial.close());
@@ -57,19 +61,36 @@ test("TUI attach adopts proven replacement authority without restarting", async 
   const replacement = await startHttpListener({ port, dataDir });
   t.after(() => replacement.close());
 
-  assert.equal(
-    await attach.confirmListenerReplacement(oldInstanceId),
-    true
-  );
+  assert.deepEqual(await api.listStories(), []);
   assert.equal(
     attach.authRecord.instanceId,
     replacement.authRecord.instanceId
   );
   assert.notEqual(attach.authRecord.instanceId, oldInstanceId);
   assert.deepEqual(await api.listStories(), []);
+
+  await replacement.close();
+  const latest = await startHttpListener({ port, dataDir });
+  t.after(() => latest.close());
+  const latestRebound = await attach.confirmListenerReplacement(oldInstanceId);
+  assert.equal(latestRebound.kind, "rebound");
+  assert.equal(attach.authRecord.instanceId, latest.authRecord.instanceId);
+  assert.deepEqual(await api.listStories(), []);
+
+  await latest.close();
+  const other = await startHttpListener({
+    port,
+    dataDir: path.join(await temporaryDirectory(t), "other-data")
+  });
+  t.after(() => other.close());
+  assert.equal(
+    (await attach.confirmListenerReplacement(oldInstanceId)).kind,
+    "replaced"
+  );
+  assert.equal(attach.authRecord.instanceId, latest.authRecord.instanceId);
 });
 
-test("settings HTTP body cannot replace its reserved mutation identity", async (t) => {
+linuxTest("settings HTTP body cannot replace its reserved mutation identity", async (t) => {
   const dataDir = path.join(await temporaryDirectory(t), "data");
   const listener = await startHttpListener({ port: 0, dataDir });
   t.after(() => listener.close());
@@ -82,19 +103,16 @@ test("settings HTTP body cannot replace its reserved mutation identity", async (
   const reservedMutationId = createDurableMutationId();
   const commandMutationId = createDurableMutationId();
   const operations = new HttpOperationClient({
-    root: attach.origin,
-    authRecord: attach.authRecord,
-    fetch: attach.fetch,
-    shutdownSignal: attach.shutdownSignal
+    authority: attach.authority
   });
   t.after(() => operations.dispose());
 
   const response = await operations.run({
     method: "PUT",
     path: "/api/settings",
-    serverInstanceId: attach.authRecord.instanceId,
+    binding: attach.authority.snapshot(),
     mutationId: reservedMutationId,
-    execute: async (lease) => await attach.fetch(
+    execute: async (lease) => await lease.fetch(
       `${attach.origin}/api/settings`,
       {
         method: "PUT",
@@ -122,7 +140,7 @@ test("settings HTTP body cannot replace its reserved mutation identity", async (
   assert.equal((await api.getSettings()).stateGeneration, settings.stateGeneration);
 });
 
-test("auth show is TTY-only and prints the matching instance with one requested scope", async (t) => {
+linuxTest("auth show is TTY-only and prints the matching instance with one requested scope", async (t) => {
   const dataDir = path.join(await temporaryDirectory(t), "data");
   const listener = await startHttpListener({ port: 0, dataDir });
   t.after(() => listener.close());

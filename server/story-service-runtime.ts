@@ -10,9 +10,12 @@ import { createMutationCoordinator } from "./mutation-coordinator.js";
 import { MutationReceiptStore } from "./mutation-receipts.js";
 import { PromptCacheRuntime } from "./provider-cache-policy.js";
 import { readDataDirectoryFormat } from "./data-directory-format.js";
+import type { HttpDataDirectoryIdentity } from "./data-directory-id.js";
 import { resolveDataDirectory } from "./data-directory.js";
 import { GenerationAdmissionRegistry } from "./generation-admission.js";
-import type { ValidatedLegacyV1DataDirectory } from "./legacy-data-directory.js";
+import type {
+  LegacyDataDirectoryLease
+} from "./legacy-data-directory.js";
 import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { ServiceLifecycle } from "./service-lifecycle.js";
 import { SettingsStore } from "./settings.js";
@@ -70,12 +73,12 @@ type StoryServiceDiagnostics =
 export type StoryServiceUndiagnosedOptions = StoryServiceCommonOptions & (
   | {
       dataDir?: string;
-      legacyData?: never;
+      legacyDataLease?: never;
     }
   | {
       dataDir?: never;
-      /** Only the legacy validator can produce this format-1 admission. */
-      legacyData: ValidatedLegacyV1DataDirectory;
+      /** Retains validated format-1 machine-local directory authority. */
+      legacyDataLease: LegacyDataDirectoryLease;
       dataLock: "external";
     }
 );
@@ -102,7 +105,7 @@ export abstract class StoryServiceRuntime {
   private readonly dataLock: RuntimeDataDirectoryLock | null;
   private readonly externalMutationRecovery: boolean;
   private readonly settingsActivation: "activation-capable" | "recover-only";
-  private readonly legacyData: ValidatedLegacyV1DataDirectory | undefined;
+  private readonly legacyDataLease: LegacyDataDirectoryLease | undefined;
   private readonly starterVault: "seed-when-new" | undefined;
   private readonly externalFreshDataDirectory: boolean;
   private readonly machineDir: string | undefined;
@@ -118,13 +121,19 @@ export abstract class StoryServiceRuntime {
 
   constructor(options: StoryServiceOptions) {
     const dataDir = resolveDataDirectory(
-      options.legacyData?.dataDir ?? options.dataDir
+      options.legacyDataLease?.dataDir ?? options.dataDir
     );
+    const legacyDataLease = options.legacyDataLease;
+    if (legacyDataLease !== undefined
+      && legacyDataLease.dataDir !== dataDir) {
+      throw new Error("Legacy data lease does not match its data directory");
+    }
+    const storageRoot = legacyDataLease?.authorityPath ?? dataDir;
     this.dataDir = dataDir;
-    this.storageRoot = dataDir;
+    this.storageRoot = storageRoot;
     this.externalMutationRecovery = options.mutationRecovery === "external";
     this.settingsActivation = options.settingsActivation ?? "activation-capable";
-    this.legacyData = options.legacyData;
+    this.legacyDataLease = legacyDataLease;
     this.starterVault = options.starterVault;
     // Only an external-lock owner can observe directory creation on the
     // service's behalf. Accepting the flag alongside a service-owned lock and
@@ -137,7 +146,7 @@ export abstract class StoryServiceRuntime {
     this.errorReporter = options.diagnostics === "disabled"
       ? InternalErrorReporter.disabled()
       : options.errorReporter;
-    this.configureStorage(dataDir, dataDir);
+    this.configureStorage(storageRoot, dataDir);
     this.dataLock = options.dataLock === "external"
       ? null
       : new RuntimeDataDirectoryLock(dataDir);
@@ -153,6 +162,18 @@ export abstract class StoryServiceRuntime {
       : this.dataLock.initializedNewDirectory;
   }
 
+  /** Return the directory authority that all active storage components use. */
+  get dataDirectoryAuthorityPath(): string {
+    this.ensureOpen();
+    return this.storageRoot;
+  }
+
+  /** Return identity retained by an external legacy lease, when present. */
+  get retainedHttpDataDirectoryIdentity(): HttpDataDirectoryIdentity | null {
+    this.ensureOpen();
+    return this.legacyDataLease?.identity ?? null;
+  }
+
   async init(): Promise<void> {
     await this.lifecycle.init(async () => {
       try {
@@ -163,7 +184,7 @@ export abstract class StoryServiceRuntime {
           this.configureStorage(this.dataLock!.authorityPath, canonicalDir);
         }
         if (this.machineDir !== undefined) {
-          await assertNoProjectTierSecrets(this.dataDir, this.machineDir);
+          await assertNoProjectTierSecrets(this.storageRoot, this.machineDir);
         }
         if (!this.externalMutationRecovery) {
           this.archivedMutationWarnings = await assertNoPendingMutationIntents(
@@ -171,7 +192,7 @@ export abstract class StoryServiceRuntime {
           );
         }
         const dataFormat = this.dataLock === null
-          ? this.legacyData?.dataFormat
+          ? this.legacyDataLease?.dataFormat
             ?? await readDataDirectoryFormat(this.storageRoot)
           : this.dataLock.dataFormat;
         await this.settings.init(dataFormat);
@@ -200,7 +221,11 @@ export abstract class StoryServiceRuntime {
         this.generationAdmission.clear();
         this.promptCache.clear();
       } finally {
-        await this.dataLock?.release();
+        try {
+          await this.dataLock?.release();
+        } finally {
+          await this.legacyDataLease?.release();
+        }
       }
     });
   }

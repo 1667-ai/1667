@@ -2,8 +2,10 @@ export interface OsFileLock {
   unlock(): Promise<void>;
 }
 
+export type OsFileLockMode = "exclusive" | "shared";
+
 interface LockImplementation {
-  lockFile(fd: number): Promise<void>;
+  lockFile(fd: number, mode: OsFileLockMode): Promise<void>;
   unlockFile(fd: number): Promise<void>;
 }
 
@@ -12,16 +14,17 @@ interface LockImplementation {
  * primitives through Bun FFI. */
 export async function lockFile(
   fd: number,
-  file: string
+  file: string,
+  mode: OsFileLockMode = "exclusive"
 ): Promise<OsFileLock> {
   if (process.versions.bun !== undefined && process.platform === "win32") {
     const implementation = await import("./os-file-lock-bun.js");
-    return await implementation.lockWindowsFile(file);
+    return await implementation.lockWindowsFile(file, mode);
   }
   const implementation: LockImplementation = process.versions.bun === undefined
     ? await import("./os-file-lock-node.js")
     : await import("./os-file-lock-bun.js");
-  await implementation.lockFile(fd);
+  await implementation.lockFile(fd, mode);
   return { unlock: () => implementation.unlockFile(fd) };
 }
 

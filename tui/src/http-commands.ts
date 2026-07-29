@@ -7,7 +7,17 @@ import {
   startHttpListener,
   type HttpListener
 } from "../../server/http-listener.js";
-import { validateLegacyServeDataDirectory } from "../../server/legacy-data-directory.js";
+import {
+  acquireLegacyDataDirectoryLease,
+  assertLegacyDataDirectoryPlatform
+} from "../../server/legacy-data-directory.js";
+import {
+  assertMachineTierOutsideDirectory
+} from "../../server/machine-tier-boundary.js";
+import {
+  resolveDiagnosticMachineTier
+} from "../../server/diagnostic-machine-tier.js";
+import { resolveMachineTierRootPath } from "../../server/machine-tier.js";
 import { SingleMutationGate } from "../../server/single-mutation-gate.js";
 import { StoryService } from "../../server/story-service.js";
 import { runHttpListenerUntilSignal } from "../../server/http-process-lifecycle.js";
@@ -76,7 +86,9 @@ export async function runAuthShow(
   const selected = "origin" in target
     ? await readHttpAuthRecord(target.origin)
     : await readHttpAuthRecordFile(target.file);
-  const attach = await attachHttpServer(selected.record.origin, selected.paths.final);
+  const attach = await attachHttpServer(selected.record.origin, {
+    authFile: selected.paths.final
+  });
   output.write(`1667 instance: ${attach.authRecord.instanceId}\n`);
   output.write(`${scope} capability: ${attach.authRecord.capabilities[scope]}\n`);
 }
@@ -88,19 +100,59 @@ export async function startLegacyServe(
     readonly printLogs?: boolean;
   } = {}
 ): Promise<HttpListener> {
+  assertLegacyDataDirectoryPlatform();
   const dataDir = resolve(dataDirInput);
+  const machineTierContext = {
+    service: "http-server-startup",
+    operation: "machine-tier-resolution"
+  } as const;
+  const prospectiveMachineDir = await resolveDiagnosticMachineTier(
+    undefined,
+    machineTierContext,
+    {
+      print: options.printLogs === true,
+      resolve: resolveMachineTierRootPath
+    }
+  );
+  await assertMachineTierOutsideDirectory(
+    dataDir,
+    prospectiveMachineDir,
+    "Legacy serve requires the machine tier outside the legacy data directory"
+  );
+  const machineDir = await resolveDiagnosticMachineTier(
+    undefined,
+    machineTierContext,
+    { print: options.printLogs === true }
+  );
+  // The listener publishes machine credentials before it creates the service.
+  // Refuse overlap before that publication can modify the legacy directory.
+  await assertMachineTierOutsideDirectory(
+    dataDir,
+    machineDir,
+    "Legacy serve requires the machine tier outside the legacy data directory"
+  );
   return await startHttpListener({
     port: options.port ?? 0,
     printLogs: options.printLogs === true,
-    serviceFactory: async (errorReporter) => {
-      const legacyData = await validateLegacyServeDataDirectory(dataDir);
-      return new StoryService({
-        legacyData,
-        dataLock: "external",
-        mutationRecovery: "external",
-        settingsActivation: "recover-only",
-        errorReporter
-      });
+    machineDir,
+    project: { root: dataDir, dataDir },
+    serviceFactory: async (errorReporter, machineDir, project) => {
+      const legacyDataLease = await acquireLegacyDataDirectoryLease(
+        project.dataDir,
+        machineDir
+      );
+      try {
+        return new StoryService({
+          legacyDataLease,
+          dataLock: "external",
+          mutationRecovery: "external",
+          settingsActivation: "recover-only",
+          errorReporter
+        });
+      } catch (error) {
+        await legacyDataLease.release();
+        throw error;
+      }
     },
     mutationGate: new SingleMutationGate()
   });

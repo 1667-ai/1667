@@ -33,7 +33,7 @@ export function providerTest(
   name: string,
   body: (t: test.TestContext) => void | Promise<void>
 ): void {
-  if (!ownedLoopbackHttpSupported()) {
+  if (process.platform !== "linux" || !ownedLoopbackHttpSupported()) {
     test.skip(name, body);
     return;
   }

@@ -27,7 +27,9 @@ const testApp = (
   settings: GenerationSettings
 ) => providerTestApp(t, settings, "1667-generation-http-");
 
-test("HTTP API binds mutations to the preflighted server instance before dispatch", async (t) => {
+const linuxTest = process.platform === "linux" ? test : test.skip;
+
+linuxTest("HTTP API binds mutations to the preflighted server instance before dispatch", async (t) => {
   const base = await testApp(t, ABSENT_SETTINGS_V1);
   assert.equal((await fetch(`${base}/api/stories`)).status, 400);
   assert.equal((await fetch(`${base}/api/stories`, {

@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, symlink, unlink } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import {
+  DATA_DIRECTORY_ID_FILE,
+  PROVIDER_SECRETS_FILE
+} from "../server/data-directory-layout.js";
+import { PROJECT_GITIGNORE_FILE } from "../server/project-layout.js";
+import { RuntimeDataDirectoryLock } from "../server/runtime-data-directory.js";
 import { StoryService } from "../server/story-service.js";
 
 test("service storage stays bound to the canonical directory it locked", { skip: process.platform === "win32" }, async (t) => {
@@ -28,6 +43,51 @@ test("service storage stays bound to the canonical directory it locked", { skip:
   } finally {
     await service.dispose();
   }
+});
+
+test("transport-neutral service does not create HTTP identity files", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-service-identity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dataDir = path.join(root, "data");
+  const machineDir = path.join(root, "machine");
+  await mkdir(machineDir);
+  const service = StoryService.withoutDiagnostics({ dataDir, machineDir });
+  await service.init();
+  await service.dispose();
+
+  assert.equal(await exists(path.join(dataDir, DATA_DIRECTORY_ID_FILE)), false);
+  assert.equal(await exists(path.join(dataDir, PROJECT_GITIGNORE_FILE)), false);
+});
+
+test("external service checks secrets through retained directory authority", {
+  skip: process.platform !== "linux"
+}, async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-retained-fence-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const original = path.join(root, "project");
+  const moved = path.join(root, "moved-project");
+  const machineDir = path.join(root, "machine");
+  await mkdir(machineDir);
+  const authority = new RuntimeDataDirectoryLock(original);
+  await authority.acquire();
+  t.after(() => authority.release());
+  await writeFile(
+    path.join(original, PROVIDER_SECRETS_FILE),
+    "{}",
+    { mode: 0o600 }
+  );
+  await rename(original, moved);
+  await mkdir(original);
+  const service = StoryService.withoutDiagnostics({
+    dataDir: authority.authorityPath,
+    dataLock: "external",
+    machineDir
+  });
+
+  await assert.rejects(
+    service.init(),
+    /refuses to open a project holding a machine secret file/
+  );
 });
 
 async function exists(target: string): Promise<boolean> {

@@ -6,8 +6,8 @@ import {
 } from "../../shared/http-protocol.js";
 import {
   ApiHttpError,
-  createApi as createHttpApi,
-  HTTP_GENERATION_REQUEST_TIMEOUT_MS
+  HTTP_GENERATION_REQUEST_TIMEOUT_MS,
+  createApi as createHttpApi
 } from "../src/api.js";
 import { createConnectionMonitor } from "../src/connection.js";
 import {
@@ -16,6 +16,9 @@ import {
   testHttpMetadata as metadata,
   testStoryPayload as storyPayload
 } from "./http-api-fixture.js";
+import {
+  MemoryHttpMutationIntentStore
+} from "../src/http-mutation-intents.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
 import {
@@ -25,6 +28,9 @@ import {
 import {
   WORKER_PROVIDER_CHECK_TIMEOUT_MS
 } from "../../shared/worker-protocol.js";
+import {
+  HttpListenerAuthority
+} from "../../shared/http-listener-authority.js";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -37,10 +43,14 @@ test("HTTP StoryApi rejects non-loopback and credential-bearing URLs before fetc
 
 test("HTTP StoryApi preflights before every data request", async () => {
   const calls: string[] = [];
+  const healthHeaders: Headers[] = [];
   const dataHeaders: Headers[] = [];
   globalThis.fetch = (async (input, init) => {
     calls.push(String(input));
-    if (calls.length % 2 === 1) return Response.json(metadata());
+    if (calls.length % 2 === 1) {
+      healthHeaders.push(new Headers(init?.headers));
+      return Response.json(metadata());
+    }
     dataHeaders.push(new Headers(init?.headers));
     return Response.json(catalogPage());
   }) as typeof fetch;
@@ -53,6 +63,21 @@ test("HTTP StoryApi preflights before every data request", async () => {
     "http://127.0.0.1:7373/api/stories/catalog-page",
     "http://127.0.0.1:7373/api/health",
     "http://127.0.0.1:7373/api/stories/catalog-page"
+  ]);
+  expect(healthHeaders.map((headers) =>
+    headers.get(HTTP_AUTHORIZATION_HEADER))).toEqual([
+    `Bearer ${"11".repeat(32)}`,
+    `Bearer ${"11".repeat(32)}`
+  ]);
+  expect(healthHeaders.map((headers) =>
+    headers.get(HTTP_CLIENT_PROTOCOL_HEADER))).toEqual([
+    String(HTTP_API_PROTOCOL_VERSION),
+    String(HTTP_API_PROTOCOL_VERSION)
+  ]);
+  expect(healthHeaders.map((headers) =>
+    headers.get(HTTP_SERVER_INSTANCE_HEADER))).toEqual([
+    metadata().serverInstanceId,
+    metadata().serverInstanceId
   ]);
   expect(dataHeaders.map((headers) => headers.get(HTTP_CLIENT_PROTOCOL_HEADER))).toEqual([
     String(HTTP_API_PROTOCOL_VERSION),
@@ -121,6 +146,148 @@ test("HTTP StoryApi retains create identity after transport retry exhaustion", a
   ).toBe(true);
   expect((await api.createStory("retained")).id).toBe("retained");
   expect(mutationIds).toHaveLength(3);
+  expect(new Set(mutationIds).size).toBe(1);
+});
+
+test("admission refusal preserves a retained create identity", async () => {
+  const mutationIds: unknown[] = [];
+  let endpointCalls = 0;
+  let refuseAdmission = false;
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/api/health")) {
+      return Response.json(metadata());
+    }
+    endpointCalls += 1;
+    if (endpointCalls <= 2) {
+      throw new TypeError("listener disappeared after possible commit");
+    }
+    return Response.json(storyPayload("retained"));
+  }) as typeof fetch;
+  const api = createApi(
+    "http://127.0.0.1:7373",
+    undefined,
+    (reservation) => {
+      mutationIds.push(reservation.mutationId);
+      if (refuseAdmission) {
+        return Response.json(
+          { error: "Operation capacity is full", code: "resource_busy" },
+          { status: 429 }
+        );
+      }
+    }
+  );
+
+  expect(
+    await rejection(api.createStory("retained")) instanceof TypeError
+  ).toBe(true);
+  refuseAdmission = true;
+  const admission = await rejection(api.createStory("retained"));
+  expect(admission instanceof ApiHttpError).toBe(true);
+  expect((admission as ApiHttpError).requestSent).toBe(false);
+  refuseAdmission = false;
+  expect((await api.createStory("retained")).id).toBe("retained");
+  expect(endpointCalls).toBe(3);
+  expect(new Set(mutationIds).size).toBe(1);
+});
+
+test("recovery-required retry preserves a retained create identity", async () => {
+  const mutationIds: unknown[] = [];
+  let endpointCalls = 0;
+  let reportRecovered = false;
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/api/health")) {
+      return Response.json(metadata());
+    }
+    endpointCalls += 1;
+    if (endpointCalls <= 2) {
+      throw new TypeError("listener disappeared after possible commit");
+    }
+    return Response.json(storyPayload("retained"));
+  }) as typeof fetch;
+  const api = createApi(
+    "http://127.0.0.1:7373",
+    () => {
+      const recovered = reportRecovered;
+      reportRecovered = false;
+      return recovered;
+    },
+    (reservation) => mutationIds.push(reservation.mutationId)
+  );
+
+  expect(
+    await rejection(api.createStory("retained")) instanceof TypeError
+  ).toBe(true);
+  reportRecovered = true;
+  expect(
+    (await rejection(api.createStory("retained")) as Error).message
+  ).toContain("operation was not sent");
+  expect((await api.createStory("retained")).id).toBe("retained");
+  expect(endpointCalls).toBe(3);
+  expect(new Set(mutationIds).size).toBe(1);
+});
+
+test("concurrent create response loss retains the shared mutation identity", async () => {
+  const mutationIds: unknown[] = [];
+  let endpointCalls = 0;
+  let secondEndpointStarted!: () => void;
+  const secondEndpoint = new Promise<void>((resolve) => {
+    secondEndpointStarted = resolve;
+  });
+  let confirmedSettlement!: () => void;
+  const confirmed = new Promise<void>((resolve) => {
+    confirmedSettlement = resolve;
+  });
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/api/health")) {
+      return Response.json(metadata());
+    }
+    endpointCalls += 1;
+    if (endpointCalls === 1) {
+      await secondEndpoint;
+      return Response.json(storyPayload("shared"));
+    }
+    if (endpointCalls === 2) {
+      secondEndpointStarted();
+      throw new TypeError("concurrent response lost");
+    }
+    if (endpointCalls === 3) {
+      await confirmed;
+      throw new TypeError("concurrent retry response lost");
+    }
+    return Response.json(storyPayload("shared"));
+  }) as typeof fetch;
+  const memory = new MemoryHttpMutationIntentStore();
+  const baseUrl = "http://127.0.0.1:7373";
+  const api = createHttpApi(baseUrl, undefined, {
+    ...testHttpAccess(baseUrl, undefined, (reservation) => {
+      mutationIds.push(reservation.mutationId);
+    }),
+    mutationIntents: {
+      claim: async (operation, semanticInput) => {
+        const claim = await memory.claim(operation, semanticInput);
+        return {
+          mutationId: claim.mutationId,
+          reused: claim.reused,
+          complete: async () => {
+            await claim.complete();
+            confirmedSettlement();
+          },
+          retain: async () => await claim.retain()
+        };
+      }
+    }
+  });
+
+  const concurrent = await Promise.allSettled([
+    api.createStory("shared"),
+    api.createStory("shared")
+  ]);
+  expect(concurrent.map(({ status }) => status).sort()).toEqual([
+    "fulfilled",
+    "rejected"
+  ]);
+  expect((await api.createStory("shared")).id).toBe("shared");
+  expect(endpointCalls).toBe(4);
   expect(new Set(mutationIds).size).toBe(1);
 });
 
@@ -382,6 +549,7 @@ test("operation admission refusal remains an online application error", async ()
   expect(error instanceof ApiHttpError).toBeTrue();
   expect((error as ApiHttpError).status).toBe(429);
   expect((error as ApiHttpError).code).toBe("resource_busy");
+  expect((error as ApiHttpError).requestSent).toBeFalse();
   expect(monitor.state().down).toBeFalse();
   monitor.dispose();
 });
@@ -1084,27 +1252,33 @@ test("HTTP StoryApi cancels story-version preflight on the server", async () => 
     throw new Error(`Unexpected API path: ${path}`);
   }) as typeof fetch;
   const access = testHttpAccess(baseUrl);
+  const binding = access.authority.snapshot();
   let stopCalls = 0;
   const api = createHttpApi(baseUrl, undefined, {
-    ...access,
-    fetch: async (input, init) => {
-      const path = new URL(String(input), baseUrl).pathname;
-      if (path !== "/api/operations/cancel") {
-        return await access.fetch(input, init);
+    authority: new HttpListenerAuthority({
+      root: baseUrl,
+      binding: {
+        authRecord: binding.authRecord,
+        fetch: async (input, init) => {
+          const path = new URL(String(input), baseUrl).pathname;
+          if (path !== "/api/operations/cancel") {
+            return await binding.fetch(input, init);
+          }
+          stopCalls += 1;
+          const [sessionId, sequence] = (
+            new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
+          ).split(".");
+          return Response.json({
+            listenerInstanceId: metadata().serverInstanceId,
+            sessionId,
+            sequence,
+            state: "running",
+            terminal: false,
+            cancelRequested: true
+          });
+        }
       }
-      stopCalls += 1;
-      const [sessionId, sequence] = (
-        new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
-      ).split(".");
-      return Response.json({
-        listenerInstanceId: metadata().serverInstanceId,
-        sessionId,
-        sequence,
-        state: "running",
-        terminal: false,
-        cancelRequested: true
-      });
-    }
+    })
   });
 
   const pending = api.continueStory(

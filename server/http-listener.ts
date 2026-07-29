@@ -31,17 +31,44 @@ import type {
   HttpListenerResources
 } from "./http-listener-lifecycle.js";
 import { HttpReadiness } from "./http-readiness.js";
+import {
+  readHttpDataDirectoryIdentity,
+  type HttpDataDirectoryIdentity
+} from "./data-directory-id.js";
+import { resolveDataDirectory } from "./data-directory.js";
+import { assertHttpPlatformSupport } from "./http-platform-support.js";
+import { resolveMachineTierRootPath } from "./machine-tier.js";
+import {
+  assertMachineTierOutsideDirectory,
+  assertPathInsideDirectory,
+  resolveProspectiveCanonicalPath
+} from "./machine-tier-boundary.js";
+import { retainHttpProject } from "./http-project-authority.js";
 
 interface HttpRequestContext {
   readonly authRecord: HttpAuthRecord;
+  readonly dataDirectoryIdentity: HttpDataDirectoryIdentity | null;
   readonly errorReporter: InternalErrorReporter;
   readonly operationSessions: HttpOperationSessionStore;
   readonly service: StoryService | null;
 }
 
 interface HttpReadyContext extends HttpRequestContext {
+  readonly dataDirectoryIdentity: HttpDataDirectoryIdentity;
   readonly service: StoryService;
   readonly projectAuthority: ProjectAuthority;
+}
+
+interface HttpListenerAuthStoreOptions
+extends Omit<HttpAuthRecordStoreOptions, "platformState"> {
+  readonly platformState?: never;
+}
+
+export interface HttpListenerProject {
+  /** The project authority root. The factory receives a retained path. */
+  readonly root: string;
+  /** The data authority. The factory receives a retained path. */
+  readonly dataDir: string;
 }
 
 interface HttpListenerCommonOptions {
@@ -51,7 +78,7 @@ interface HttpListenerCommonOptions {
   readonly developmentOrigin?: string | null;
   /** Also emit full unexpected-error diagnostics to stderr. */
   readonly printLogs?: boolean;
-  readonly authStore?: HttpAuthRecordStoreOptions;
+  readonly authStore?: HttpListenerAuthStoreOptions;
   readonly mutationGate?: HttpMutationGate;
   readonly operationSessions?: HttpOperationSessionStoreOptions;
   /** Transfers reporter ownership when startup accepts the machine tier. */
@@ -65,13 +92,16 @@ interface HttpListenerCommonOptions {
 export type HttpListenerOptions = HttpListenerCommonOptions & (
   | {
       readonly dataDir?: string;
+      readonly project?: never;
       readonly serviceFactory?: never;
     }
   | {
       readonly dataDir?: never;
+      readonly project: HttpListenerProject;
       readonly serviceFactory: (
         errorReporter: InternalErrorReporter,
-        machineDir: string
+        machineDir: string,
+        project: HttpListenerProject
       ) => Promise<StoryService>;
     }
 );
@@ -103,6 +133,16 @@ export async function startHttpListener(
       "1667 HTTP port must be between 0 and 65535"
     );
   }
+  assertHttpPlatformSupport();
+  const selectedProject: HttpListenerProject =
+    options.serviceFactory === undefined
+      ? projectForDirectListener(options.dataDir ?? resolveDataDirectory())
+      : Object.freeze({ ...options.project });
+  await assertPathInsideDirectory(
+    selectedProject.root,
+    selectedProject.dataDir,
+    "HTTP project data directory must be inside its project"
+  );
   let developmentOrigin: string | null;
   let machineDir: string;
   try {
@@ -112,13 +152,35 @@ export async function startHttpListener(
   } catch (error) {
     throw publicStartupFailure(error);
   }
+  const machineTierContext = {
+    service: "http-server-startup",
+    operation: "machine-tier-resolution"
+  } as const;
+  const configuredMachineDir =
+    options.machineDir ?? options.authStore?.stateRoot;
+  const prospectiveMachineDir = configuredMachineDir
+    ?? await resolveDiagnosticMachineTier(
+      undefined,
+      machineTierContext,
+      {
+        print: options.printLogs === true,
+        resolve: resolveMachineTierRootPath
+      }
+    );
+  await assertMachineTierOutsideDirectory(
+    selectedProject.root,
+    prospectiveMachineDir,
+    "HTTP server mode requires the machine tier outside the project"
+  );
   machineDir = await resolveDiagnosticMachineTier(
-    options.machineDir ?? options.authStore?.stateRoot,
-    {
-      service: "http-server-startup",
-      operation: "machine-tier-resolution"
-    },
+    configuredMachineDir,
+    machineTierContext,
     { print: options.printLogs === true }
+  );
+  await assertMachineTierOutsideDirectory(
+    selectedProject.root,
+    machineDir,
+    "HTTP server mode requires the machine tier outside the project"
   );
   const requests = new RequestDrain();
   let requestContext: HttpRequestContext | null = null;
@@ -136,6 +198,7 @@ export async function startHttpListener(
       handle: async () => {
         await handleHttpRequest({
           authRecord: context.authRecord,
+          dataDirectoryIdentity: context.dataDirectoryIdentity,
           developmentOrigin,
           service: context.service,
           errorReporter: context.errorReporter,
@@ -167,6 +230,9 @@ export async function startHttpListener(
     }),
     options.shutdownGraceMs
   );
+  let startupProjectAuthority: Awaited<
+    ReturnType<typeof retainHttpProject>
+  > | null = null;
 
   try {
     try {
@@ -181,10 +247,28 @@ export async function startHttpListener(
     const origin = address.port === 80
       ? "http://127.0.0.1"
       : `http://127.0.0.1:${address.port}`;
-    const authStore = options.authStore?.stateRoot === undefined
-      && options.authStore?.platformState === undefined
-      ? { ...options.authStore, stateRoot: machineDir }
-      : options.authStore;
+    const retainedProject = await retainHttpProject(
+      selectedProject,
+      machineDir
+    );
+    startupProjectAuthority = retainedProject;
+    const service = options.serviceFactory === undefined
+      ? new StoryService({
+          machineDir,
+          errorReporter,
+          dataDir: retainedProject.authority.dataDir
+        })
+      : await options.serviceFactory(
+          errorReporter,
+          machineDir,
+          retainedProject.authority
+        );
+    resources.service = service;
+    await assertServiceProject(service, retainedProject.authority);
+    const authStore: HttpAuthRecordStoreOptions = {
+      ...options.authStore,
+      stateRoot: machineDir
+    };
     const authLease = await createHttpAuthRecord(origin, authStore);
     resources.authLease = authLease;
     const operationSessions = new HttpOperationSessionStore(
@@ -194,24 +278,26 @@ export async function startHttpListener(
     resources.operationSessions = operationSessions;
     requestContext = Object.freeze({
       authRecord: authLease.record,
+      dataDirectoryIdentity: null,
       errorReporter,
       operationSessions,
       service: null
     });
-    const service = options.serviceFactory === undefined
-      ? new StoryService({
-          machineDir,
-          errorReporter,
-          ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir })
-        })
-      : await options.serviceFactory(errorReporter, machineDir);
-    resources.service = service;
     await service.init();
+    await retainedProject.release();
+    startupProjectAuthority = null;
+    const dataDirectoryIdentity =
+      service.retainedHttpDataDirectoryIdentity
+      ?? await readHttpDataDirectoryIdentity(
+        service.dataDirectoryAuthorityPath,
+        machineDir
+      );
     const listenerProjectAuthority = options.projectAuthority
       ?? borrowedServiceAuthority(service);
     resources.projectAuthority = listenerProjectAuthority;
     const context: HttpReadyContext = Object.freeze({
       authRecord: authLease.record,
+      dataDirectoryIdentity,
       errorReporter,
       operationSessions,
       service,
@@ -220,7 +306,7 @@ export async function startHttpListener(
     requestContext = context;
     const listener: HttpListener = {
       origin,
-      dataDir: context.service.dataDir,
+      dataDir: retainedProject.canonical.dataDir,
       authRecord: context.authRecord,
       announceProjectServer: async (signal) => {
         await context.projectAuthority.announceProjectServer({
@@ -240,13 +326,43 @@ export async function startHttpListener(
     };
     return listener;
   } catch (error) {
+    let startupError = error;
+    try {
+      await startupProjectAuthority?.release();
+    } catch (releaseError) {
+      startupError = new AggregateError(
+        [error, releaseError],
+        "1667 HTTP startup and project-authority release failed",
+        { cause: error }
+      );
+    }
+    startupProjectAuthority = null;
     const result = await closer.close({
-      error,
+      error: startupError,
       operation: "startup",
       phase: "startup"
     });
     if (result.kind === "failure") throw result.error;
-    throw error;
+    throw startupError;
+  }
+}
+
+function projectForDirectListener(dataDir: string): HttpListenerProject {
+  return Object.freeze({ root: dataDir, dataDir });
+}
+
+async function assertServiceProject(
+  service: StoryService,
+  project: HttpListenerProject
+): Promise<void> {
+  const [selectedDataDir, serviceDataDir] = await Promise.all([
+    resolveProspectiveCanonicalPath(project.dataDir),
+    resolveProspectiveCanonicalPath(service.dataDir)
+  ]);
+  if (selectedDataDir !== serviceDataDir) {
+    throw new Error(
+      "HTTP service data directory does not match its selected project"
+    );
   }
 }
 

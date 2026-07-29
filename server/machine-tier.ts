@@ -7,8 +7,17 @@ import {
   inspectPrivatePosixDirectory,
   PlatformStateRootError,
   resolvePrivatePlatformStateRoot,
+  resolvePrivatePlatformStateRootPath,
+  type PlatformStateRootOptions,
   type WindowsPrivateStateRootAdapter
 } from "./platform-state-root.js";
+import {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../shared/machine-tier-environment.js";
+
+export {
+  MACHINE_TIER_OVERRIDE_VARIABLE
+} from "../shared/machine-tier-environment.js";
 
 /**
  * The machine tier: the one directory 1667 creates itself on this machine.
@@ -22,8 +31,6 @@ export interface MachineTierOptions {
   readonly windowsAdapter?: WindowsPrivateStateRootAdapter;
 }
 
-export const MACHINE_TIER_OVERRIDE_VARIABLE = "AI_1667_STATE";
-
 export async function resolveMachineTierRoot(
   options: MachineTierOptions = {}
 ): Promise<string> {
@@ -33,12 +40,7 @@ export async function resolveMachineTierRoot(
     ?? environment[MACHINE_TIER_OVERRIDE_VARIABLE];
   const root = configured === undefined || configured === ""
     ? await resolvePrivatePlatformStateRoot(
-        {
-          ...(options.platform === undefined ? {} : { platform }),
-          ...(options.windowsAdapter === undefined
-            ? {}
-            : { windowsAdapter: options.windowsAdapter })
-        }
+        platformStateRootOptions(options, platform)
       )
     : await prepareOverride(configured, platform, options.windowsAdapter);
   // Mode 0700 does not revoke an inherited macOS ACL, and this directory holds
@@ -49,17 +51,28 @@ export async function resolveMachineTierRoot(
   return root;
 }
 
+/** Resolves the machine-tier path without creating or changing the path. */
+export async function resolveMachineTierRootPath(
+  options: MachineTierOptions = {}
+): Promise<string> {
+  const platform = options.platform ?? process.platform;
+  const environment = options.environment ?? process.env;
+  const configured = options.override
+    ?? environment[MACHINE_TIER_OVERRIDE_VARIABLE];
+  if (configured !== undefined && configured !== "") {
+    return requireAbsoluteOverride(configured, platform);
+  }
+  return await resolvePrivatePlatformStateRootPath(
+    platformStateRootOptions(options, platform)
+  );
+}
+
 async function prepareOverride(
   configured: string,
   platform: NodeJS.Platform,
   windowsAdapter: WindowsPrivateStateRootAdapter | undefined
 ): Promise<string> {
-  const implementation = platform === "win32" ? path.win32 : path.posix;
-  if (!implementation.isAbsolute(configured)) {
-    throw new PlatformStateRootError(
-      `${MACHINE_TIER_OVERRIDE_VARIABLE} must be an absolute path: ${configured}`
-    );
-  }
+  requireAbsoluteOverride(configured, platform);
   if (platform === "win32") {
     const adapter = windowsAdapter
       ?? (process.platform === "win32"
@@ -89,6 +102,34 @@ async function prepareOverride(
   await chmod(canonical, 0o700);
   await inspectPrivatePosixDirectory(canonical);
   return canonical;
+}
+
+function requireAbsoluteOverride(
+  configured: string,
+  platform: NodeJS.Platform
+): string {
+  const implementation = platform === "win32" ? path.win32 : path.posix;
+  if (!implementation.isAbsolute(configured)) {
+    throw new PlatformStateRootError(
+      `${MACHINE_TIER_OVERRIDE_VARIABLE} must be an absolute path: ${configured}`
+    );
+  }
+  return configured;
+}
+
+function platformStateRootOptions(
+  options: MachineTierOptions,
+  platform: NodeJS.Platform
+): PlatformStateRootOptions {
+  return {
+    platform,
+    ...(options.environment === undefined
+      ? {}
+      : { environment: options.environment }),
+    ...(options.windowsAdapter === undefined
+      ? {}
+      : { windowsAdapter: options.windowsAdapter })
+  };
 }
 
 async function defaultWindowsPrivateStateRootAdapter(): Promise<

@@ -10,6 +10,10 @@ import {
   HttpOperationClient,
   type HttpOperationLease
 } from "../shared/http-operation-client.js";
+import {
+  HttpListenerAuthority,
+  type HttpListenerBinding
+} from "../shared/http-listener-authority.js";
 import { resolveHttpApiRoute } from "../shared/http-operation-policy.js";
 import {
   parseStoryAggregateVersion,
@@ -27,6 +31,7 @@ export const API_PROTOCOL_HEADERS: Record<string, string> = {
 const SERVER_START_BUDGET_MS = platformPerformanceBudget(10_000);
 const SERVER_STOP_BUDGET_MS = platformPerformanceBudget(1_000);
 let operationClient: HttpOperationClient | null = null;
+let operationBinding: HttpListenerBinding | null = null;
 let lastReservedMutationId: string | null = null;
 
 export function lastTestMutationId(): string | null {
@@ -47,7 +52,16 @@ export async function waitForTestServer(
       throw new Error(`server exited: ${output()}`);
     }
     try {
-      const response = await fetch(`${origin}/api/health`);
+      const { record } = await readHttpAuthRecord(origin);
+      const response = await fetch(`${origin}/api/health`, {
+        headers: {
+          [HTTP_AUTHORIZATION_HEADER]:
+            bearerAuthorization(record.capabilities.story),
+          [HTTP_CLIENT_PROTOCOL_HEADER]:
+            String(HTTP_API_PROTOCOL_VERSION),
+          [HTTP_SERVER_INSTANCE_HEADER]: record.instanceId
+        }
+      });
       if (response.ok) {
         await rememberServerInstance(await response.json(), origin);
         return;
@@ -123,10 +137,12 @@ export async function rememberServerInstance(metadata: unknown, origin: string):
   API_PROTOCOL_HEADERS[HTTP_AUTHORIZATION_HEADER] =
     bearerAuthorization(record.capabilities.story);
   operationClient?.dispose();
+  operationBinding = { authRecord: record, fetch };
   operationClient = new HttpOperationClient({
-    root: origin,
-    authRecord: record,
-    fetch
+    authority: new HttpListenerAuthority({
+      root: origin,
+      binding: operationBinding
+    })
   });
 }
 
@@ -155,7 +171,7 @@ export async function fetchWithApiProtocolAtVersion(
   const prepared = await prepareChapterRemoval(url, init);
   if (prepared instanceof Response) return prepared;
   init = prepared;
-  if (operationClient === null) {
+  if (operationClient === null || operationBinding === null) {
     throw new Error("rememberServerInstance must run before API requests");
   }
   const serverInstanceId = API_PROTOCOL_HEADERS[HTTP_SERVER_INSTANCE_HEADER];
@@ -171,15 +187,17 @@ export async function fetchWithApiProtocolAtVersion(
       path,
       init.signal ?? undefined
     );
-  const lease = await operationClient.reserve(
+  const lease = await operationClient.reserve({
     method,
     path,
-    serverInstanceId,
-    undefined,
-    init.signal ?? undefined,
-    undefined,
-    expectedAggregateVersion
-  );
+    binding: operationBinding,
+    ...(init.signal === null || init.signal === undefined
+      ? {}
+      : { callerSignal: init.signal }),
+    ...(expectedAggregateVersion === undefined
+      ? {}
+      : { expectedAggregateVersion })
+  });
   lastReservedMutationId = lease.mutationId;
   const headers = new Headers(init.headers);
   for (const [name, value] of Object.entries(lease.headers)) {

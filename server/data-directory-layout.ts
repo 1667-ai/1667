@@ -8,6 +8,13 @@ export type DataDirectoryFormat = 1 | 2;
  * it owns everything.
  */
 export const DATA_DIRECTORY_LOCK = "lock";
+export const DATA_DIRECTORY_ID_FILE = "data-id";
+export const DATA_DIRECTORY_ID_SCRATCH =
+  privatePublicationScratchPath(DATA_DIRECTORY_ID_FILE);
+export const DATA_DIRECTORY_ID_ENTRY_NAMES = Object.freeze([
+  DATA_DIRECTORY_ID_FILE,
+  DATA_DIRECTORY_ID_SCRATCH
+] as const);
 export const DATA_DIRECTORY_OWNER_MARKER = "owner.json";
 export const DATA_DIRECTORY_OWNER_MARKER_NEXT = "owner.json.next";
 /** Advisory record of the process serving this project. Never authoritative. */
@@ -38,6 +45,16 @@ export const SETTINGS_STATE_V2_NEXT_SCRATCH =
   privatePublicationScratchPath(SETTINGS_STATE_V2_NEXT_FILE);
 export const PROVIDER_SECRETS_NEXT_SCRATCH =
   privatePublicationScratchPath(PROVIDER_SECRETS_NEXT_FILE);
+export const HTTP_DATA_DIRECTORY_CLAIM_KEY_FILE =
+  "http-data-directory-claim-key";
+export const HTTP_DATA_DIRECTORY_CLAIM_KEY_SCRATCH =
+  privatePublicationScratchPath(HTTP_DATA_DIRECTORY_CLAIM_KEY_FILE);
+export const HTTP_DATA_DIRECTORY_CLAIM_KEY_LOCK_FILE =
+  "http-data-directory-claim-key.lock";
+export const HTTP_DATA_DIRECTORY_CLAIM_KEY_VALUE_ENTRY_NAMES = Object.freeze([
+  HTTP_DATA_DIRECTORY_CLAIM_KEY_FILE,
+  HTTP_DATA_DIRECTORY_CLAIM_KEY_SCRATCH
+] as const);
 export const LEGACY_PREVIEW_DATA_MARKER_TEXT =
   '{"format":"1667-lock-aware-data","version":1}\n';
 
@@ -67,8 +84,19 @@ export const PROVIDER_SECRET_ENTRY_NAMES = Object.freeze([
   PROVIDER_SECRETS_LOCK_FILE
 ] as const);
 
+export const HTTP_DATA_DIRECTORY_CLAIM_KEY_ENTRY_NAMES = Object.freeze([
+  ...HTTP_DATA_DIRECTORY_CLAIM_KEY_VALUE_ENTRY_NAMES,
+  HTTP_DATA_DIRECTORY_CLAIM_KEY_LOCK_FILE
+] as const);
+
+export const MACHINE_SECRET_VALUE_ENTRY_NAMES = Object.freeze([
+  ...PROVIDER_SECRET_VALUE_ENTRY_NAMES,
+  ...HTTP_DATA_DIRECTORY_CLAIM_KEY_VALUE_ENTRY_NAMES
+] as const);
+
 export const PROJECT_CONTROL_ENTRY_NAMES = Object.freeze([
   DATA_DIRECTORY_LOCK,
+  ...DATA_DIRECTORY_ID_ENTRY_NAMES,
   DATA_DIRECTORY_OWNER_MARKER,
   DATA_DIRECTORY_OWNER_MARKER_NEXT,
   DATA_DIRECTORY_OWNER_MARKER_NEXT_SCRATCH,
@@ -79,7 +107,8 @@ export const PROJECT_CONTROL_ENTRY_NAMES = Object.freeze([
   LEGACY_PROCESS_OWNER_LOCK,
   LEGACY_HARDENED_PROCESS_LOCK,
   LEGACY_PREVIEW_DATA_MARKER,
-  ...PROVIDER_SECRET_ENTRY_NAMES
+  ...PROVIDER_SECRET_ENTRY_NAMES,
+  ...HTTP_DATA_DIRECTORY_CLAIM_KEY_ENTRY_NAMES
 ] as const);
 
 /**

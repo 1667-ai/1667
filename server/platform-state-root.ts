@@ -39,6 +39,29 @@ export class PlatformStateRootError extends Error {
   }
 }
 
+type PrivateStateRootPlan =
+  | {
+      readonly kind: "windows";
+      readonly root: string;
+      readonly trustedBase: string;
+      readonly adapter: WindowsPrivateStateRootAdapter;
+    }
+  | {
+      readonly kind: "darwin";
+      readonly root: string;
+      readonly accountHome: string;
+    }
+  | {
+      readonly kind: "linux-xdg";
+      readonly root: string;
+      readonly trustedBase: string;
+    }
+  | {
+      readonly kind: "linux-default";
+      readonly root: string;
+      readonly accountHome: string;
+    };
+
 /**
  * Resolve and prepare the private application state root.
  *
@@ -49,19 +72,22 @@ export class PlatformStateRootError extends Error {
 export async function resolvePrivatePlatformStateRoot(
   options: PlatformStateRootOptions = {}
 ): Promise<string> {
-  const platform = options.platform ?? process.platform;
-  if (platform === "win32") return await resolveWindowsStateRoot(options);
-  if (platform !== "linux" && platform !== "darwin") {
-    throw new PlatformStateRootError(
-      `Application state is unsupported on platform ${platform}`
+  const plan = await privateStateRootPlan(options);
+  if (plan.kind === "windows") {
+    const prepared = await plan.adapter.preparePrivateStateRoot(
+      plan.root,
+      plan.trustedBase
     );
+    if (prepared !== plan.root) {
+      throw new PlatformStateRootError(
+        "Windows state adapter returned a different or non-canonical root"
+      );
+    }
+    return prepared;
   }
-
-  const getHome = options.accountHomeDirectory ?? homedir;
-  const accountHome = await canonicalAccountHome(getHome());
-  if (platform === "darwin") {
+  if (plan.kind === "darwin") {
     const applicationSupport = path.posix.join(
-      accountHome,
+      plan.accountHome,
       "Library",
       "Application Support"
     );
@@ -71,23 +97,31 @@ export async function resolvePrivatePlatformStateRoot(
     // already creates its own equivalent below, and each component still passes
     // the same canonical, non-symlink check either way.
     await ensureCanonicalDirectoryChain(
-      accountHome,
+      plan.accountHome,
       ["Library", "Application Support"]
     );
     return await preparePrivateChain(applicationSupport, ["1667", "State"]);
   }
-
-  const environment = options.environment ?? process.env;
-  const override = environment.XDG_STATE_HOME;
-  if (override !== undefined && override !== "") {
-    requireCanonicalAbsolute(override, path.posix, "XDG_STATE_HOME");
-    await inspectPrivatePosixDirectory(override, "XDG_STATE_HOME");
-    return await preparePrivateChain(override, ["1667"]);
+  if (plan.kind === "linux-xdg") {
+    return await preparePrivateChain(plan.trustedBase, ["1667"]);
   }
-
-  const defaultStateBase = path.posix.join(accountHome, ".local", "state");
-  await ensureCanonicalDirectoryChain(accountHome, [".local", "state"]);
+  const defaultStateBase = path.posix.join(
+    plan.accountHome,
+    ".local",
+    "state"
+  );
+  await ensureCanonicalDirectoryChain(
+    plan.accountHome,
+    [".local", "state"]
+  );
   return await preparePrivateChain(defaultStateBase, ["1667"]);
+}
+
+/** Resolves the state-root path without creating or changing the path. */
+export async function resolvePrivatePlatformStateRootPath(
+  options: PlatformStateRootOptions = {}
+): Promise<string> {
+  return (await privateStateRootPlan(options)).root;
 }
 
 export async function inspectPrivatePosixDirectory(
@@ -117,9 +151,52 @@ export async function inspectPrivatePosixDirectory(
   }
 }
 
-async function resolveWindowsStateRoot(
+async function privateStateRootPlan(
   options: PlatformStateRootOptions
-): Promise<string> {
+): Promise<PrivateStateRootPlan> {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") return await windowsStateRootPlan(options);
+  if (platform !== "linux" && platform !== "darwin") {
+    throw new PlatformStateRootError(
+      `Application state is unsupported on platform ${platform}`
+    );
+  }
+  const getHome = options.accountHomeDirectory ?? homedir;
+  const accountHome = await canonicalAccountHome(getHome());
+  if (platform === "darwin") {
+    return {
+      kind: "darwin",
+      accountHome,
+      root: path.posix.join(
+        accountHome,
+        "Library",
+        "Application Support",
+        "1667",
+        "State"
+      )
+    };
+  }
+  const environment = options.environment ?? process.env;
+  const override = environment.XDG_STATE_HOME;
+  if (override !== undefined && override !== "") {
+    requireCanonicalAbsolute(override, path.posix, "XDG_STATE_HOME");
+    await inspectPrivatePosixDirectory(override, "XDG_STATE_HOME");
+    return {
+      kind: "linux-xdg",
+      trustedBase: override,
+      root: path.posix.join(override, "1667")
+    };
+  }
+  return {
+    kind: "linux-default",
+    accountHome,
+    root: path.posix.join(accountHome, ".local", "state", "1667")
+  };
+}
+
+async function windowsStateRootPlan(
+  options: PlatformStateRootOptions
+): Promise<Extract<PrivateStateRootPlan, { kind: "windows" }>> {
   const adapter = options.windowsAdapter
     ?? (process.platform === "win32"
       ? await defaultWindowsPrivateStateRootAdapter()
@@ -131,14 +208,12 @@ async function resolveWindowsStateRoot(
   }
   const localAppData = await adapter.localAppDataDirectory();
   requireCanonicalAbsolute(localAppData, path.win32, "Windows LocalAppData");
-  const root = path.win32.join(localAppData, "1667", "State");
-  const prepared = await adapter.preparePrivateStateRoot(root, localAppData);
-  if (prepared !== root) {
-    throw new PlatformStateRootError(
-      "Windows state adapter returned a different or non-canonical root"
-    );
-  }
-  return root;
+  return {
+    kind: "windows",
+    adapter,
+    trustedBase: localAppData,
+    root: path.win32.join(localAppData, "1667", "State")
+  };
 }
 
 async function defaultWindowsPrivateStateRootAdapter(): Promise<

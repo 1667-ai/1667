@@ -22,13 +22,28 @@ import { StoryService } from "../server/story-service.js";
 import { StoragePathNotDirectoryError } from "../server/story-lifecycle.js";
 import { diagnosticReferenceFromFailure } from "../shared/failure-envelope.js";
 import {
+  bearerAuthorization,
+  HTTP_AUTHORIZATION_HEADER
+} from "../shared/http-auth.js";
+import {
+  HTTP_API_PROTOCOL_VERSION,
+  HTTP_CLIENT_PROTOCOL_HEADER,
+  HTTP_SERVER_INSTANCE_HEADER
+} from "../shared/http-protocol.js";
+import {
   availableLoopbackPort,
   privateTemporaryDirectory,
   rejectionOf
 } from "./http-listener-fixture.js";
 
-test("listener closes and removes authority when its service factory fails", async (t) => {
+const linuxTest = process.platform === "linux" ? test : test.skip;
+
+linuxTest("listener closes and removes authority when its service factory fails", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
+  const projectRoot = path.join(
+    await privateTemporaryDirectory(t, "1667-http-project-parent-"),
+    "project"
+  );
   const port = await availableLoopbackPort();
   const origin = `http://127.0.0.1:${port}`;
   let reference: string | null = null;
@@ -36,6 +51,7 @@ test("listener closes and removes authority when its service factory fails", asy
     startHttpListener({
       port,
       authStore: { stateRoot },
+      project: { root: projectRoot, dataDir: projectRoot },
       serviceFactory: async () => {
         throw new Error("service factory failed");
       }
@@ -62,7 +78,47 @@ test("listener closes and removes authority when its service factory fails", asy
   });
 });
 
-test("listener preserves actionable bind failures after reporting", async (t) => {
+linuxTest("listener binds factory service data before auth publication", async (t) => {
+  const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
+  const projectRoot = await privateTemporaryDirectory(
+    t,
+    "1667-http-project-"
+  );
+  const dataDir = path.join(projectRoot, "data");
+  const otherDataDir = path.join(
+    await privateTemporaryDirectory(t, "1667-http-other-parent-"),
+    "data"
+  );
+  const port = await availableLoopbackPort();
+  const origin = `http://127.0.0.1:${port}`;
+  let reference: string | null = null;
+
+  await assert.rejects(
+    startHttpListener({
+      port,
+      authStore: { stateRoot },
+      project: { root: projectRoot, dataDir },
+      serviceFactory: async (errorReporter, machineDir) =>
+        new StoryService({
+          dataDir: otherDataDir,
+          machineDir,
+          errorReporter
+        })
+    }),
+    (error: unknown) => {
+      assert.equal(toPublicServiceError(error).message, "Internal server error");
+      reference = internalErrorReference(error);
+      assert.match(reference ?? "", /^err_[0-9a-f]{24}$/);
+      return true;
+    }
+  );
+  const diagnostic = await readFile(internalErrorLogPath(stateRoot), "utf8");
+  assert.match(diagnostic, /service data directory does not match/);
+  assert.match(diagnostic, new RegExp(reference ?? ""));
+  await assert.rejects(readHttpAuthRecord(origin, { stateRoot }), /ENOENT/);
+});
+
+linuxTest("listener preserves actionable bind failures after reporting", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const occupied = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -93,7 +149,7 @@ test("listener preserves actionable bind failures after reporting", async (t) =>
   );
 });
 
-test("listener accepts explicit reporter ownership only after validation", async (t) => {
+linuxTest("listener accepts explicit reporter ownership only after validation", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -153,7 +209,7 @@ test("listener accepts explicit reporter ownership only after validation", async
   assert.match(warnings, /diagnostic was not persisted/);
 });
 
-test("listener stores auth in its explicit machine tier by default", async (t) => {
+linuxTest("listener stores auth in its explicit machine tier by default", async (t) => {
   const machineDir = await privateTemporaryDirectory(
     t,
     "1667-http-machine-"
@@ -174,7 +230,7 @@ test("listener stores auth in its explicit machine tier by default", async (t) =
   }
 });
 
-test("listener keeps pre-reporter configuration failures actionable", async () => {
+linuxTest("listener keeps pre-reporter configuration failures actionable", async () => {
   await assert.rejects(
     startHttpListener({ port: Number.NaN }),
     (error: unknown) => {
@@ -199,7 +255,7 @@ test("listener keeps pre-reporter configuration failures actionable", async () =
   );
 });
 
-test("listener preserves authenticated routing while its service opens", async (t) => {
+linuxTest("listener preserves authenticated routing while its service opens", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -218,6 +274,7 @@ test("listener preserves authenticated routing while its service opens", async (
   const starting = startHttpListener({
     port,
     authStore: { stateRoot },
+    project: { root: dataDir, dataDir },
     serviceFactory: async (errorReporter, machineDir) => new class
       extends StoryService {
         override async init(): Promise<void> {
@@ -231,7 +288,15 @@ test("listener preserves authenticated routing while its service opens", async (
 
   try {
     const authRecord = await readHttpAuthRecord(origin, { stateRoot });
-    const response = await fetch(`${origin}/api/health`);
+    const response = await fetch(`${origin}/api/health`, {
+      headers: {
+        [HTTP_AUTHORIZATION_HEADER]: bearerAuthorization(
+          authRecord.record.capabilities.story
+        ),
+        [HTTP_CLIENT_PROTOCOL_HEADER]: String(HTTP_API_PROTOCOL_VERSION),
+        [HTTP_SERVER_INSTANCE_HEADER]: authRecord.record.instanceId
+      }
+    });
     assert.equal(response.status, 503);
     assert.equal(
       response.headers.get("x-1667-server-instance"),
@@ -247,13 +312,17 @@ test("listener preserves authenticated routing while its service opens", async (
   }
 });
 
-test("listener exposes selected storage shape failures only during startup", async (t) => {
+linuxTest("listener exposes selected storage shape failures only during startup", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const selectedPath = "/selected/project/stories";
 
   await assert.rejects(
     startHttpListener({
       authStore: { stateRoot },
+      project: {
+        root: path.dirname(selectedPath),
+        dataDir: selectedPath
+      },
       serviceFactory: async () => {
         throw new StoragePathNotDirectoryError(selectedPath);
       }
@@ -270,7 +339,7 @@ test("listener exposes selected storage shape failures only during startup", asy
   assert.equal(await readFile(internalErrorLogPath(stateRoot), "utf8"), "");
 });
 
-test("listener keeps unexpected machine-tier failures private", async (t) => {
+linuxTest("listener keeps unexpected machine-tier failures private", async (t) => {
   const parent = await privateTemporaryDirectory(
     t,
     "1667-http-state-resolution-"
@@ -303,8 +372,12 @@ test("listener keeps unexpected machine-tier failures private", async (t) => {
   }
 });
 
-test("listener preserves startup and cleanup failures together", async (t) => {
+linuxTest("listener preserves startup and cleanup failures together", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
+  const dataDir = path.join(
+    await privateTemporaryDirectory(t, "1667-http-data-parent-"),
+    "data"
+  );
   const port = await availableLoopbackPort();
   const origin = `http://127.0.0.1:${port}`;
   class FailingService extends StoryService {
@@ -324,7 +397,9 @@ test("listener preserves startup and cleanup failures together", async (t) => {
     startHttpListener({
       port,
       authStore: { stateRoot },
+      project: { root: dataDir, dataDir },
       serviceFactory: async (errorReporter) => new FailingService({
+        dataDir,
         errorReporter
       })
     }),
@@ -342,7 +417,7 @@ test("listener preserves startup and cleanup failures together", async (t) => {
   assert.match(diagnostic, new RegExp(reference ?? ""));
 });
 
-test("listener reports undefined and null process failures", async (t) => {
+linuxTest("listener reports undefined and null process failures", async (t) => {
   for (const [label, failure] of [
     ["undefined", undefined],
     ["null", null]
@@ -378,7 +453,7 @@ test("listener reports undefined and null process failures", async (t) => {
   }
 });
 
-test("listener bounds a stalled diagnostic flush during shutdown", async (t) => {
+linuxTest("listener bounds a stalled diagnostic flush during shutdown", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
@@ -411,7 +486,7 @@ test("listener bounds a stalled diagnostic flush during shutdown", async (t) => 
   assert.equal(toPublicServiceError(failure).message, "Internal server error");
 });
 
-test("request drain owns diagnostic reporting and the error response", async (t) => {
+linuxTest("request drain owns diagnostic reporting and the error response", async (t) => {
   const stateRoot = await privateTemporaryDirectory(t, "1667-http-state-");
   const dataDir = path.join(
     await privateTemporaryDirectory(t, "1667-http-data-parent-"),
