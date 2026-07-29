@@ -5,6 +5,8 @@ import type { Story } from "../shared/types.js";
 import { ServiceError } from "../server/errors.js";
 import { createMutationCoordinator } from "../server/mutation-coordinator.js";
 import { MutationLedgerStore } from "../server/mutation-ledger-store.js";
+import type { ProviderMutationMethod } from "../server/mutation-ledger-types.js";
+import type { ProviderStoryRun } from "../server/story-provider-contract.js";
 import type { StoryAggregateSession } from "../server/story-aggregate-session.js";
 import { hashStoryV5ManifestBytes } from "../server/story-manifest-hash.js";
 import {
@@ -12,6 +14,7 @@ import {
   type StoryMutationStoreHooks
 } from "../server/story-mutation-store.js";
 import { StoryStore } from "../server/stories.js";
+import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
 
 export class PinObservingStoryStore extends StoryStore {
   activeProviderPins = 0;
@@ -37,6 +40,24 @@ export class PinObservingStoryStore extends StoryStore {
     }
     await super.schedulePendingCleanup(id);
   }
+}
+
+export function providerOperation<
+  Method extends ProviderMutationMethod,
+  Value
+>(
+  work: (
+    stories: ProviderStoryRuntime<Method>,
+    providerStarted: () => Promise<void>
+  ) => Promise<Value>,
+  replayValue: () => Value
+): ProviderStoryRun<Method, Value> {
+  return {
+    signal: new AbortController().signal,
+    work: async ({ stories, providerStarted }) =>
+      await work(stories, providerStarted),
+    replayValue
+  };
 }
 
 export const STORY_ID = "q-local-story";

@@ -6,6 +6,16 @@ import test from "node:test";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { ServiceLifecycle } from "../server/service-lifecycle.js";
 import { StoryService } from "../server/story-service.js";
+import { ServiceError } from "../server/errors.js";
+
+class CancellableStoryService extends StoryService {
+  async runCancellable<T>(
+    signal: AbortSignal,
+    work: (active: AbortSignal) => Promise<T>
+  ): Promise<T> {
+    return await this.cancellable(signal, work);
+  }
+}
 
 test("service lifecycle retries after an initializer throws synchronously", async () => {
   const lifecycle = new ServiceLifecycle();
@@ -77,6 +87,30 @@ test("disposal overtaking initialization leaves the service closed", async (t) =
   const nextOwner = new DataDirectoryLock(dataDir);
   await nextOwner.acquire();
   await nextOwner.release();
+});
+
+test("story service preserves uncertain aborts for receipt-free generation", async (t) => {
+  const dataDir = await temporaryDataDirectory(t, "1667-service-uncertain-generation-");
+  const service = new CancellableStoryService({
+    dataDir,
+    diagnostics: "disabled"
+  });
+  await service.init();
+  t.after(() => service.dispose());
+  const controller = new AbortController();
+  const uncertain = new ServiceError(
+    503,
+    "Provider outcome is unknown",
+    "mutation_outcome_unknown"
+  );
+
+  await assert.rejects(
+    service.runCancellable(controller.signal, async () => {
+      controller.abort(uncertain);
+      return null;
+    }),
+    (error: unknown) => error === uncertain
+  );
 });
 
 async function temporaryDataDirectory(

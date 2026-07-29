@@ -11,7 +11,10 @@ import {
   HTTP_OPERATION_START_DEADLINE_MS,
   HTTP_OPERATION_TERMINAL_RETENTION_MS
 } from "../shared/http-operation-protocol.js";
-import { ServiceError } from "../server/errors.js";
+import {
+  GenerationCancelledError,
+  ServiceError
+} from "../server/errors.js";
 import { HttpOperationSessionStore } from "../server/http-operation-sessions.js";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 
@@ -396,23 +399,68 @@ test("HTTP mutation cancellation remains nonterminal until its authoritative set
   const session = store.createSession("story", "11".repeat(32));
   const reservation = await store.reserve(session.capability, {
     method: "POST",
-    path: "/api/stories",
-    operation: "createStory",
+    path: "/api/stories/story/continue",
+    operation: "continueStory",
     mutationId: MUTATION_ID,
-    expectedAggregateVersion: { kind: "absent" }
+    expectedAggregateVersion: {
+      kind: "v6",
+      revision: "00000000000000000001"
+    }
   });
   const running = store.begin(
     session.capability,
     reservation.ticket,
     "POST",
-    "/api/stories"
+    "/api/stories/story/continue"
   );
 
-  assert.equal(store.cancel(session.capability, reservation.ticket).state, "running");
+  const cancellation = store.cancel(
+    session.capability,
+    reservation.ticket
+  );
+  assert.equal(cancellation.state, "running");
   assert.equal(running.signal.aborted, true);
+  assert.ok(running.signal.reason instanceof GenerationCancelledError);
   assert.equal(store.status(session.capability, reservation.ticket).terminal, false);
   running.finish("completed");
   assert.equal(store.status(session.capability, reservation.ticket).state, "completed");
+  assert.equal(
+    store.cancel(session.capability, reservation.ticket).state,
+    "completed"
+  );
+});
+
+test("local request cancellation uses a generic server reason", async () => {
+  const store = new HttpOperationSessionStore(INSTANCE_ID, {
+    secret: Buffer.alloc(32, 22)
+  });
+  const session = store.createSession("story", "11".repeat(32));
+  const reservation = await store.reserve(session.capability, {
+    method: "GET",
+    path: "/api/stories",
+    operation: "listStories"
+  });
+  const running = store.begin(
+    session.capability,
+    reservation.ticket,
+    "GET",
+    "/api/stories"
+  );
+
+  const cancellation = store.cancel(
+    session.capability,
+    reservation.ticket
+  );
+
+  assert.equal(cancellation.state, "running");
+  assert.equal(running.signal.aborted, true);
+  assert.ok(running.signal.reason instanceof Error);
+  assert.equal(
+    running.signal.reason instanceof GenerationCancelledError,
+    false
+  );
+  running.finish("canceled");
+  await store.closeAll();
 });
 
 test("closed and idle session capabilities authenticate only as terminal", async () => {

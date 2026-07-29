@@ -1,9 +1,12 @@
 import type { WorkerCancelReason } from "../shared/worker-protocol.js";
 import {
   DiagnosticServiceError,
+  GenerationCancelledError,
+  GenerationStoppedError,
   ProviderRecoveryRequiredError,
   ServiceError
 } from "./errors.js";
+import { classifyProviderAbort } from "./provider-abort.js";
 
 export interface WorkerCancellationFailure {
   readonly error: unknown;
@@ -14,6 +17,7 @@ export interface WorkerCancellationFailure {
 export class WorkerRequestCancellation {
   private readonly controller = new AbortController();
   private deadlineFailure: ServiceError | null = null;
+  private userCancellation: GenerationCancelledError | null = null;
 
   constructor(
     private readonly mutation: boolean,
@@ -28,13 +32,25 @@ export class WorkerRequestCancellation {
     if (reason === "deadline" && this.deadlineFailure === null) {
       this.deadlineFailure = deadlineError(this.mutation);
     }
+    if (reason === "user" && this.userCancellation === null) {
+      this.userCancellation = new GenerationCancelledError();
+    }
     this.controller.abort(
       reason === "deadline"
         ? this.deadlineFailure
         : reason === "shutdown" && this.mutation
           ? mutationInterruptedError()
-          : undefined
+          : this.userCancellation
     );
+  }
+
+  settledUserCancellation(error: unknown): boolean {
+    const abort = classifyProviderAbort(this.controller.signal);
+    return this.deadlineFailure === null
+      && this.userCancellation !== null
+      && abort.kind === "terminal"
+      && abort.userInitiated
+      && error instanceof GenerationStoppedError;
   }
 
   throwIfDeadlineExpired(): void {

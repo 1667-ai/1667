@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -45,40 +46,44 @@ test("Q a receipt-only duplicate terminalizes before another start", async (t) =
   });
   let providerStarts = 0;
 
-  const winner = fixture.mutations.runProvider(
+  const winner = fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, {
       kind: "v5",
       manifestHash: fixture.v5Hash
     }),
     "autonameStory",
-    async (stories, start) => {
-      arrive();
-      markWinnerPrepared();
-      await bothPrepared;
-      await loserTerminal;
-      await start();
-      providerStarts += 1;
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Must not commit"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        arrive();
+        markWinnerPrepared();
+        await bothPrepared;
+        await loserTerminal;
+        await start();
+        providerStarts += 1;
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Must not commit"
+        });
+      },
+      storyFixture
+    )
   );
   await winnerPrepared;
-  const loser = fixture.mutations.runProvider(
+  const loser = fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, {
       kind: "v5",
       manifestHash: fixture.v5Hash
     }),
     "autonameStory",
-    async () => {
-      arrive();
-      await bothPrepared;
-      throw new ServiceError(409, "Duplicate rejected", "conflict");
-    },
-    storyFixture
+    providerOperation(
+      async () => {
+        arrive();
+        await bothPrepared;
+        throw new ServiceError(409, "Duplicate rejected", "conflict");
+      },
+      storyFixture
+    )
   );
 
   await assert.rejects(loser, hasServiceError("conflict"));
@@ -112,31 +117,35 @@ test("Q a delayed duplicate replays a winner completed before start", async (t) 
   t.after(() => releaseDuplicate());
   let continuedAfterStart = false;
 
-  const duplicate = fixture.mutations.runProvider(
+  const duplicate = fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (_stories, start) => {
-      markDuplicateAdmitted();
-      await duplicateGate;
-      await start();
-      continuedAfterStart = true;
-      return "duplicate-work";
-    },
-    () => "replayed"
+    providerOperation(
+      async (_stories, start) => {
+        markDuplicateAdmitted();
+        await duplicateGate;
+        await start();
+        continuedAfterStart = true;
+        return "duplicate-work";
+      },
+      () => "replayed"
+    )
   );
   await duplicateAdmitted;
-  const winner = await fixture.mutations.runProvider(
+  const winner = await fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories, start) => {
-      await start();
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Winner"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Winner"
+        });
+      },
+      storyFixture
+    )
   );
   releaseDuplicate();
 
@@ -159,34 +168,38 @@ test("Q auto-start replays a winner completed after effect preparation", async (
   });
   t.after(() => releaseDuplicate());
 
-  const duplicate = fixture.mutations.runProvider(
+  const duplicate = fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories) => {
-      const draft = await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Duplicate"
-      });
-      markDuplicatePrepared();
-      await duplicateGate;
-      return draft;
-    },
-    storyFixture
+    providerOperation(
+      async (stories) => {
+        const draft = await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Duplicate"
+        });
+        markDuplicatePrepared();
+        await duplicateGate;
+        return draft;
+      },
+      storyFixture
+    )
   );
   await duplicatePrepared;
-  const winner = await fixture.mutations.runProvider(
+  const winner = await fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories, start) => {
-      await start();
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Winner"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Winner"
+        });
+      },
+      storyFixture
+    )
   );
   releaseDuplicate();
 
@@ -211,31 +224,35 @@ test("Q a pre-start failure observes a contender's durable start", async (t) => 
   });
   t.after(() => releaseWinner());
 
-  const loser = fixture.mutations.runProvider(
+  const loser = fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async () => {
-      markLoserAdmitted();
-      await winnerStarted;
-      throw new ServiceError(409, "Loser failed before start", "conflict");
-    },
-    storyFixture
+    providerOperation(
+      async () => {
+        markLoserAdmitted();
+        await winnerStarted;
+        throw new ServiceError(409, "Loser failed before start", "conflict");
+      },
+      storyFixture
+    )
   );
   await loserAdmitted;
-  const winner = fixture.mutations.runProvider(
+  const winner = fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories, start) => {
-      await start();
-      markWinnerStarted();
-      await winnerGate;
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Winner"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        markWinnerStarted();
+        await winnerGate;
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Winner"
+        });
+      },
+      storyFixture
+    )
   );
 
   await assert.rejects(
@@ -257,20 +274,22 @@ test("Q a prepared no-op provider effect still terminalizes", async (t) => {
   const existing = seeded.nodes.at(-1)!;
   const admitted = await fixture.stories.loadVersioned(STORY_ID);
 
-  const committed = await fixture.mutations.runProvider(
+  const committed = await fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, admitted.aggregateVersion!),
     "createSummaryTake",
-    async (stories) => await stories.commitProviderEffect(STORY_ID, {
-      kind: "summary-take",
-      point: { nodeId: existing.id, offset: null },
-      expected: null,
-      sourceFingerprint: "unused-for-existing-commit",
-      summary: "Must not be duplicated",
-      model: "test",
-      instruction: "Summarize",
-      commitIds: { summaryNodeId: existing.id }
-    }),
-    () => existing
+    providerOperation(
+      async (stories) => await stories.commitProviderEffect(STORY_ID, {
+        kind: "summary-take",
+        point: { nodeId: existing.id, offset: null },
+        expected: null,
+        sourceFingerprint: "unused-for-existing-commit",
+        summary: "Must not be duplicated",
+        model: "test",
+        instruction: "Summarize",
+        commitIds: { summaryNodeId: existing.id }
+      }),
+      () => existing
+    )
   );
 
   assert.equal(committed.value.id, existing.id);
@@ -305,29 +324,31 @@ test("Q freezes provider effect allocators before terminal publication", async (
   const admitted = await fixture.stories.loadVersioned(STORY_ID);
   const cancelledAfterPreparation = new AbortController();
 
-  const committed = await fixture.mutations.runProvider(
+  const committed = await fixture.mutations.runProviderOperation(
     requestFor(MUTATION_ID, FINGERPRINT, admitted.aggregateVersion!),
     "createSummaryTake",
-    async (stories) => {
-      const node = await stories.commitProviderEffect(STORY_ID, {
-        kind: "summary-take",
-        point,
-        expected: null,
-        sourceFingerprint: summarySourceFingerprint(
-          seeded.title,
-          seeded.nodes,
-          point
-        ),
-        summary: "Stable allocated result",
-        model: "test",
-        instruction: "Summarize",
-        commitIds: {},
-        cancelled: cancelledAfterPreparation.signal
-      });
-      cancelledAfterPreparation.abort();
-      return node;
-    },
-    () => source
+    providerOperation(
+      async (stories) => {
+        const node = await stories.commitProviderEffect(STORY_ID, {
+          kind: "summary-take",
+          point,
+          expected: null,
+          sourceFingerprint: summarySourceFingerprint(
+            seeded.title,
+            seeded.nodes,
+            point
+          ),
+          summary: "Stable allocated result",
+          model: "test",
+          instruction: "Summarize",
+          commitIds: {},
+          cancelled: cancelledAfterPreparation.signal
+        });
+        cancelledAfterPreparation.abort();
+        return node;
+      },
+      () => source
+    )
   );
 
   const stored = committed.story.nodes.find(
@@ -357,20 +378,22 @@ test("Q active provider terminalization observes acknowledgement", async (t) => 
   });
   t.after(() => releaseProvider());
 
-  const provider = fixture.mutations.runProvider(
+  const provider = fixture.mutations.runProviderOperation(
     request(fixture.v5Hash),
     "autonameStory",
-    async (stories, start) => {
-      await start();
-      markStarted();
-      await providerGate;
-      return await stories.commitProviderEffect(STORY_ID, {
-        kind: "autoname",
-        expectedTitle: "Original",
-        title: "Must not commit after acknowledgement"
-      });
-    },
-    storyFixture
+    providerOperation(
+      async (stories, start) => {
+        await start();
+        markStarted();
+        await providerGate;
+        return await stories.commitProviderEffect(STORY_ID, {
+          kind: "autoname",
+          expectedTitle: "Original",
+          title: "Must not commit after acknowledgement"
+        });
+      },
+      storyFixture
+    )
   );
   await started;
   const active = await fixture.stories.loadVersioned(STORY_ID);
@@ -411,19 +434,21 @@ for (const cachedKind of ["v5", "v6"] as const) {
       );
       cachedVersion = upgraded.aggregateVersion;
     }
-    const operation = () => fixture.mutations.runProvider(
+    const operation = () => fixture.mutations.runProviderOperation(
       requestFor(MUTATION_ID, FINGERPRINT, cachedVersion),
       "autonameStory",
-      async (_stories, providerStarted) => {
-        await providerStarted();
-        await fixture.mutations.runDelete(requestFor(
-          DELETE_MUTATION_ID,
-          "d".repeat(64),
-          cachedVersion
-        ));
-        throw new ProviderError("Rejected after deletion", 400);
-      },
-      storyFixture
+      providerOperation(
+        async (_stories, providerStarted) => {
+          await providerStarted();
+          await fixture.mutations.runDelete(requestFor(
+            DELETE_MUTATION_ID,
+            "d".repeat(64),
+            cachedVersion
+          ));
+          throw new ProviderError("Rejected after deletion", 400);
+        },
+        storyFixture
+      )
     );
 
     await assert.rejects(operation(), ProviderError);

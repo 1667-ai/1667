@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -70,7 +71,7 @@ test("a blocked provider request preserves its recovery target across a crash", 
   await mutations.init();
 
   await assert.rejects(
-    mutations.runProvider(
+    mutations.runProviderOperation(
       requestFor(
         providerMutationId,
         "a".repeat(64),
@@ -80,15 +81,17 @@ test("a blocked provider request preserves its recovery target across a crash", 
         }
       ),
       "autonameStory",
-      async (_runtime, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(
-          503,
-          "Provider reply was lost",
-          "internal"
-        );
-      },
-      () => null
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(
+            503,
+            "Provider reply was lost",
+            "internal"
+          );
+        },
+        () => null
+      )
     ),
     hasCode("internal")
   );
@@ -127,18 +130,20 @@ test("a blocked provider request preserves its recovery target across a crash", 
     warningMutationId,
     "rewriteNode",
     warningInput,
-    async () => await mutations.runProvider(
+    async () => await mutations.runProviderOperation(
       requestFor(
         warningMutationId,
         "b".repeat(64),
         warningVersion
       ),
       "rewriteNode",
-      async () => {
-        providerCalled = true;
-        return true;
-      },
-      () => true
+      providerOperation(
+        async () => {
+          providerCalled = true;
+          return true;
+        },
+        () => true
+      )
     ),
     MUTATION_INPUT_PROTOCOL_VERSION,
     () => undefined
@@ -191,18 +196,20 @@ test("a blocked provider request preserves its recovery target across a crash", 
     warningMutationId,
     "rewriteNode",
     warningInput,
-    async () => await restartedMutations.runProvider(
+    async () => await restartedMutations.runProviderOperation(
       requestFor(
         warningMutationId,
         "b".repeat(64),
         warningVersion
       ),
       "rewriteNode",
-      async () => {
-        providerCalled = true;
-        return true;
-      },
-      () => true
+      providerOperation(
+        async () => {
+          providerCalled = true;
+          return true;
+        },
+        () => true
+      )
     ),
     MUTATION_INPUT_PROTOCOL_VERSION,
     () => undefined
@@ -278,19 +285,21 @@ test("a blocked provider request preserves its recovery target across a crash", 
     await restartedStories.loadVersioned(STORY_ID)
   ).aggregateVersion!;
   await assert.rejects(
-    restartedMutations.runProvider(
+    restartedMutations.runProviderOperation(
       requestFor(
         retryMutationId,
         "e".repeat(64),
         currentVersion
       ),
       "autonameStory",
-      async (_runtime, providerStarted) => {
-        providerCalled = true;
-        await providerStarted();
-        throw new ProviderError("Retry reached provider", 503);
-      },
-      () => null
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          providerCalled = true;
+          await providerStarted();
+          throw new ProviderError("Retry reached provider", 503);
+        },
+        () => null
+      )
     ),
     (error: unknown) => error instanceof ProviderError
   );

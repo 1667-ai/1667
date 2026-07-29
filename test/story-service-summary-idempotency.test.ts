@@ -40,12 +40,11 @@ test("summary cancellation after effect preparation replays the committed node",
   });
   await service.init();
   const originalFetch = globalThis.fetch;
-  const originalRunProvider = service.mutationStore.runProvider.bind(
-    service.mutationStore
-  );
+  const originalRunProvider =
+    service.mutationStore.runProviderOperation.bind(service.mutationStore);
   t.after(async () => {
     globalThis.fetch = originalFetch;
-    service.mutationStore.runProvider = originalRunProvider;
+    service.mutationStore.runProviderOperation = originalRunProvider;
     await service.dispose();
   });
 
@@ -69,26 +68,21 @@ test("summary cancellation after effect preparation replays the committed node",
   });
 
   const controller = new AbortController();
-  service.mutationStore.runProvider = (async <
-    Method extends ProviderMutationMethod,
-    Value
-  >(
+  service.mutationStore.runProviderOperation = (async (
     input: unknown,
-    method: Method,
-    work: (
-      stories: ProviderStoryRuntime<Method>,
-      providerStarted: () => Promise<void>
-    ) => Promise<Value>,
-    replayValue: () => Value
+    method,
+    operation
   ) => await originalRunProvider(
     input,
     method,
-    async (stories, providerStarted) => await work(
-      abortAfterPreparedEffect(stories, controller),
-      providerStarted
-    ),
-    replayValue
-  )) as typeof service.mutationStore.runProvider;
+    {
+      ...operation,
+      work: async (context) => await operation.work({
+        ...context,
+        stories: abortAfterPreparedEffect(context.stories, controller)
+      })
+    }
+  )) as typeof service.mutationStore.runProviderOperation;
 
   let requests = 0;
   globalThis.fetch = (async (request, init) => {

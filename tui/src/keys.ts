@@ -1,5 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
+import { admitEditorPaste } from "./fact-editor-policy.js";
 import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
@@ -28,6 +29,7 @@ export type KeyAction =
   | "delete-forward" | "delete-word-left" | "delete-word-right" | "delete-line"
   | "delete-line-start" | "delete-line-end" | "select-all"
   | "copy-selection" | "cut-selection" | "paste-clipboard" | "undo-edit" | "redo-edit"
+  | "edit-tag"
   | "open-keys" | "prune" | "tag" | "delete-tag"
   | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply"
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
@@ -51,7 +53,7 @@ export interface ResolvedKey {
   extendSelection?: boolean;
   /** Absolute cursor placement (mouse clicks). */
   index?: number;
-  /** Stable story-row identity for deferred prose clicks. */
+  /** Stable row identity for deferred list and prose clicks. */
   rowId?: string;
   /** One-based sibling take selected by an explicit map affordance. */
   take?: number;
@@ -98,8 +100,21 @@ function shiftedAsciiLetter(key: KeyEvent): boolean {
     && (key.shift || /^[A-Z]$/.test(key.name) || /^[A-Z]$/.test(key.sequence));
 }
 
+/** OpenTUI delivers raw LF / Ctrl+J as name `linefeed` with sequence newline.
+ *  That must resolve as `newline`, never as single-character `input`. */
+function isLinefeedKey(key: KeyEvent): boolean {
+  const name = key.name.toLowerCase();
+  if (name === "linefeed") return true;
+  // Some terminals keep the letter name when Ctrl+J produces a linefeed.
+  if (key.ctrl && !key.meta && name === "j") return true;
+  return false;
+}
+
 function textInput(key: KeyEvent): ResolvedKey | null {
   if (!key.ctrl && !key.meta && key.sequence.length > 0 && [...key.sequence].length === 1) {
+    // Line terminators are structural, not text. Multline surfaces map them to
+    // `newline` first; single-line surfaces must not inject them either.
+    if (/[\r\n\u2028\u2029]/u.test(key.sequence)) return null;
     return { action: "input", text: key.sequence };
   }
   return null;
@@ -135,6 +150,7 @@ export function pasteInto(
     mode: AppMode;
     composer: ComposerState;
     editor?: InlineEditorSession | null;
+    toast?: string | null;
     tag: { choosingStatus: boolean; name: string } | null;
     library: { prompt: { value: string } | null } | null;
     facts: { filtering: boolean; query: string; cursor: number } | null;
@@ -158,9 +174,7 @@ export function pasteInto(
   if (clean.length === 0) return false;
   const line = clean.replace(/\n+/g, " ");
   if (state.mode === "EDITOR" && state.editor != null) {
-    if (state.editor.conflict !== null) state.editor.conflict.armed = false;
-    insertComposerText(state.editor.composer, clean);
-    return true;
+    return admitEditorPaste(state, state.editor, clean);
   }
   if (state.mode === "COMPOSE") { insertComposerText(state.composer, clean); return true; }
   if (state.mode === "TAG" && state.tag !== null && !state.tag.choosingStatus) {
@@ -214,6 +228,8 @@ export interface ResolveOptions {
   overlayTyping?: boolean;
   /** The command palette is showing its tags sub-view. */
   commandsTags?: boolean;
+  /** The full-screen editor owns a Fact tag slider above its text body. */
+  factEditor?: boolean;
   mapView?: MapView;
 }
 
@@ -241,7 +257,7 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
-    overlayTyping = false, commandsTags = false, mapView = "path" } = options;
+    overlayTyping = false, commandsTags = false, factEditor = false, mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
@@ -270,10 +286,16 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (composeChord !== null) return { action: composeChord.action };
     if (key.ctrl && key.name.toLowerCase() === "f") return { action: "toggle-compose-fullscreen" };
     if (key.name === "return") return { action: key.shift ? "newline" : "send" };
+    // LF / Ctrl+J inserts a line; it never sends the draft.
+    if (isLinefeedKey(key)) return { action: "newline" };
     return multilineInput(key);
   }
   if (mode === "EDITOR") {
     const name = key.name.toLowerCase();
+    if (factEditor && key.name === "tab") {
+      return { action: "cycle", index: key.shift ? -1 : 1 };
+    }
+    if (factEditor && key.ctrl && name === "t") return { action: "edit-tag" };
     // Plain ctrl+s forks a take. Same-take save needs a chord that classic
     // terminals can deliver: ctrl+s and ctrl+shift+s both arrive as 0x13
     // without enhanced keyboard reporting, so ctrl+o is the portable path.
@@ -300,7 +322,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
         ...(key.shift ? { extendSelection: true } : {})
       };
     }
-    if (key.name === "return") return { action: "newline" };
+    if (key.name === "return" || isLinefeedKey(key)) return { action: "newline" };
     if (key.name === "up" || key.name === "down") {
       return {
         action: key.name === "up" ? "cursor-up" : "cursor-down",
@@ -372,7 +394,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "none" };
   }
   if (mode === "LIBRARY" || mode === "FACTS" || mode === "COMMANDS") {
-    if (key.name === "return") return { action: "open-selected" };
+    if (key.name === "return") {
+      return { action: mode === "FACTS" && !overlayTyping ? "edit" : "open-selected" };
+    }
     if (key.name === "backspace") return { action: "backspace" };
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };

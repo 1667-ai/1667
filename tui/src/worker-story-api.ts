@@ -57,7 +57,9 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     work: () => Promise<T>
   ): Promise<T> => {
     try {
-      return await work();
+      const result = await work();
+      if (result === null) versions.delete(storyId);
+      return result;
     } catch (error) {
       // A terminal provider failure can advance the receipt-only story
       // revision without returning a payload that carries the new token.

@@ -51,7 +51,9 @@ round-trip ends, so concurrent cleanup cannot invalidate lazy source hydration.
 Terminal publication applies an operation-specific effect to the current story:
 manual renames beat autoname, rewrites and summaries revalidate their source,
 continuations preserve a line moved by the writer, and a Stop save wins by
-generation ID. A provider failure cannot write the local story. 1667 records
+generation ID. Stop closes the provider record. If model text arrived before
+Stop, the TUI waits for terminal settlement. It then saves that text with the
+same generation ID. A provider failure cannot write the local story. 1667 records
 the local generation as failed and accepts more work. It does not automatically
 repeat the provider request. This rule also applies when the model connection
 fails after it sends response headers.

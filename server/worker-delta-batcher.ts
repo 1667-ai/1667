@@ -20,6 +20,7 @@ export class WorkerDeltaBatcher {
   private creditWaiters = new Set<() => void>();
   private sendQueue = Promise.resolve();
   private timedFlush: Promise<void> | null = null;
+  private unsentText = "";
   private disposed = false;
 
   constructor(
@@ -35,6 +36,7 @@ export class WorkerDeltaBatcher {
       if (this.bytes > 0 && this.bytes + bytes > MAX_DELTA_BATCH_BYTES) await this.flush();
       this.chunks.push(chunk);
       this.bytes += bytes;
+      this.unsentText += chunk;
       if (this.bytes >= MAX_DELTA_BATCH_BYTES) await this.flush();
       else if (this.timer === null) {
         this.timer = setTimeout(() => {
@@ -55,6 +57,18 @@ export class WorkerDeltaBatcher {
     await this.waitForTimedFlush();
     await this.flushBuffered();
     await this.sendQueue;
+  }
+
+  /** Remove all accepted text that has not entered the main-thread queue. */
+  takeUnsent(): string {
+    if (this.disposed || this.unsentText.length === 0) return "";
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = null;
+    const text = this.unsentText;
+    this.unsentText = "";
+    this.chunks = [];
+    this.bytes = 0;
+    return text;
   }
 
   private async flushBuffered(): Promise<void> {
@@ -87,6 +101,7 @@ export class WorkerDeltaBatcher {
     this.timer = null;
     this.chunks = [];
     this.bytes = 0;
+    this.unsentText = "";
     this.unacknowledged.clear();
     this.unacknowledgedBytes = 0;
     this.releaseCreditWaiters();
@@ -95,6 +110,10 @@ export class WorkerDeltaBatcher {
   private async send(text: string, bytes: number): Promise<void> {
     await this.waitForCredit(bytes);
     if (this.disposed) return;
+    if (!this.unsentText.startsWith(text)) {
+      throw new Error("Worker delta queue lost its accepted-text prefix");
+    }
+    this.unsentText = this.unsentText.slice(text.length);
     const sequence = this.sequence++;
     this.unacknowledged.set(sequence, bytes);
     this.unacknowledgedBytes += bytes;

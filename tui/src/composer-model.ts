@@ -94,6 +94,13 @@ interface EditEntry {
   beforeCursor: number;
   beforeAnchor: number | null;
   afterCursor: number;
+  afterAnchor: number | null;
+}
+
+/** Optional final caret/selection recorded into redo history for a range replace. */
+export interface ComposerEditCaret {
+  cursor: number;
+  anchor?: number | null;
 }
 
 interface EditHistory {
@@ -290,9 +297,13 @@ export function composerPreferredX(composer: ComposerState, fallback: number): n
 }
 
 export function replaceComposerTextRange(
-  composer: ComposerState, start: number, end: number, inserted: string
+  composer: ComposerState,
+  start: number,
+  end: number,
+  inserted: string,
+  caret?: ComposerEditCaret
 ): void {
-  replaceComposerRange(composer, documentFor(composer), start, end, inserted);
+  replaceComposerRange(composer, documentFor(composer), start, end, inserted, caret);
 }
 
 export function composerPosition(composer: ComposerState): ComposerPosition {
@@ -373,7 +384,8 @@ function replaceComposerRange(
   document: ComposerDocument,
   start: number,
   end: number,
-  inserted: string
+  inserted: string,
+  caret?: ComposerEditCaret
 ): void {
   const total = totalGraphemes(document);
   const editStart = Math.max(0, Math.min(total, start));
@@ -386,7 +398,8 @@ function replaceComposerRange(
     codeUnitOffset(document, editEnd),
     inserted,
     true,
-    { start: editStart, end: editEnd }
+    { start: editStart, end: editEnd },
+    caret
   );
 }
 
@@ -397,7 +410,8 @@ function replaceComposerCodeUnits(
   endCodeUnit: number,
   inserted: string,
   recordHistory: boolean,
-  knownGraphemeRange?: { start: number; end: number }
+  knownGraphemeRange?: { start: number; end: number },
+  caret?: ComposerEditCaret
 ): void {
   const editStartCodeUnit = Math.max(0, Math.min(composer.text.length, startCodeUnit));
   const editEndCodeUnit = Math.max(
@@ -436,11 +450,14 @@ function replaceComposerCodeUnits(
     // pathological path remains linear instead of widening quadratically.
     if (seamProbes >= MAX_SEAM_PROBES) {
       rebuildComposer(composer, nextText, editStartCodeUnit + inserted.length);
+      // Match the local-splice path: clear the pre-edit selection before any
+      // caller caret, so ordinary selection replaces do not leave a stale anchor.
       composer.anchor = null;
+      applyEditCaret(composer, documentFor(composer), caret);
       if (recordHistory) {
         recordEdit(composer, {
           startCodeUnit: editStartCodeUnit, removed, inserted, beforeCursor, beforeAnchor,
-          afterCursor: composer.cursor
+          afterCursor: composer.cursor, afterAnchor: composer.anchor
         });
       }
       return;
@@ -466,12 +483,31 @@ function replaceComposerCodeUnits(
   document.preferredX = null;
   setCursor(composer, document, contextStart + cursorWithinReplacement, false);
   composer.anchor = null;
+  applyEditCaret(composer, document, caret);
   if (recordHistory) {
     recordEdit(composer, {
       startCodeUnit: editStartCodeUnit, removed, inserted, beforeCursor, beforeAnchor,
-      afterCursor: composer.cursor
+      afterCursor: composer.cursor, afterAnchor: composer.anchor
     });
   }
+}
+
+/** Apply a caller-chosen final caret after a range replace, clamped to the document. */
+function applyEditCaret(
+  composer: ComposerState,
+  document: ComposerDocument,
+  caret: ComposerEditCaret | undefined
+): void {
+  if (caret === undefined) return;
+  const total = totalGraphemes(document);
+  setCursor(composer, document, Math.max(0, Math.min(total, caret.cursor)), false);
+  if (caret.anchor === undefined) {
+    composer.anchor = null;
+    return;
+  }
+  composer.anchor = caret.anchor === null
+    ? null
+    : Math.max(0, Math.min(total, caret.anchor));
 }
 
 function prepareSelection(composer: ComposerState, selecting: boolean): void {
@@ -522,7 +558,7 @@ function restoreEdit(composer: ComposerState, entry: EditEntry, undo: boolean): 
   );
   const restored = documentFor(composer);
   setCursor(composer, restored, undo ? entry.beforeCursor : entry.afterCursor, false);
-  composer.anchor = undo ? entry.beforeAnchor : null;
+  composer.anchor = undo ? entry.beforeAnchor : entry.afterAnchor;
 }
 
 function spliceDocument(

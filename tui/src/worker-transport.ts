@@ -435,10 +435,6 @@ export class WorkerTransport {
         return this.fail(new Error("Embedded backend stream sequence mismatch"), false);
       }
       pending.expectedSequence += 1;
-      if (pending.cancelled) {
-        this.worker.postMessage({ type: "ack", id: message.id, sequence: message.sequence });
-        return;
-      }
       try {
         pending.onDelta?.(message.text);
         this.worker.postMessage({ type: "ack", id: message.id, sequence: message.sequence });

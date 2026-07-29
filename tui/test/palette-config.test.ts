@@ -228,6 +228,26 @@ describe("theme palette", () => {
     }
   });
 
+  test("keeps both response-growth pulse colors distinct from request fill", () => {
+    // Request ink is severity-keyed: normal → focus / accent, warning →
+    // context warning, over → danger. Both pulse phases must stay off that set
+    // so a phase never merges with the adjacent request segment.
+    const requestFills: readonly DisplayRole[] =
+      ["focus / accent", "context warning", "danger"];
+    for (const theme of THEME_NAMES) {
+      for (const depth of ["truecolor", "256"] as const) {
+        const growth = displayHex(theme, depth, "context growth");
+        const pulse = displayHex(theme, depth, "context growth pulse");
+        expect(growth).not.toBe(pulse);
+        for (const fill of requestFills) {
+          const request = displayHex(theme, depth, fill);
+          expect(growth).not.toBe(request);
+          expect(pulse).not.toBe(request);
+        }
+      }
+    }
+  });
+
   test("connection warning uses background ink on a contrasting danger fill", () => {
     const rendered = renderConnectionBanner([[]], {
       now: 1_000,

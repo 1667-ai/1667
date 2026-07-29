@@ -63,9 +63,8 @@ export interface VerifiedTagSignature {
   readonly keyFingerprint: string;
 }
 
-export interface ReleaseEvidenceObservations {
+export interface ReleaseTagAuthorizationObservations {
   readonly tagName: string;
-  readonly buildTimestamp: string;
   readonly signerPolicyRef: string;
   readonly signerPolicyPath: string;
   readonly protectedRef: string;
@@ -77,9 +76,27 @@ export interface ReleaseEvidenceObservations {
   readonly protectedReachability: CommandOutcome;
   readonly signerPolicy: CommandOutcome;
   readonly tagVerification: CommandOutcome;
+}
+
+export interface ReleaseEvidenceObservations
+  extends ReleaseTagAuthorizationObservations {
+  readonly buildTimestamp: string;
   readonly rootManifest: CommandOutcome;
   readonly tuiManifest: CommandOutcome;
   readonly rootLock: CommandOutcome;
+}
+
+export interface ReleaseTagAuthorizationDocument {
+  readonly schemaVersion: 1;
+  readonly tagName: string;
+  readonly sourceCommit: string;
+  readonly tagObjectType: "annotated";
+  readonly tagSignature: "verified";
+  readonly tagTargetCommit: string;
+  readonly protectedRef: string;
+  readonly signerPolicyRef: string;
+  readonly signerPolicyPath: string;
+  readonly signature: VerifiedTagSignature;
 }
 
 export interface ReleaseEvidenceDocument {
@@ -95,35 +112,11 @@ export interface ReleaseEvidenceDocument {
 export function assembleReleaseSourceEvidence(
   observations: ReleaseEvidenceObservations
 ): ReleaseEvidenceDocument {
-  const tagName = requireReleaseTagName(observations.tagName);
+  const authorization = assembleReleaseTagAuthorization(observations);
+  const tagName = authorization.tagName;
   const buildTimestamp = requireCanonicalTimestamp(observations.buildTimestamp);
-  const sourceCommit = requireCommitObjectName(observations.headCommit, "Release source commit");
-  requireCleanWorkingTree(observations.workingTreeStatus);
-  requireAnnotatedTag(observations.tagObjectType, tagName);
-  const tagTargetCommit = requireCommitObjectName(
-    observations.tagTargetCommit,
-    `Release tag ${tagName} target commit`
-  );
-  if (tagTargetCommit !== sourceCommit) {
-    throw new Error(`Release tag ${tagName} does not point at the release commit ${sourceCommit}`);
-  }
-  requireProtectedReachability(
-    observations.protectedReachability,
-    sourceCommit,
-    observations.protectedRef
-  );
-
-  const policyLabel = `Release signer policy ${observations.signerPolicyRef}:${observations.signerPolicyPath}`;
-  if (observations.signerPolicy.exitCode !== 0) {
-    throw new Error(`${policyLabel} could not be read: ${commandDetail(observations.signerPolicy)}`);
-  }
-  // Parsed for the diagnosis, not for the verdict. `ssh-keygen` was handed this
-  // exact file and has already ruled on it; parsing it here turns "signature is
-  // not from an allowed signer" into "policy names no supported key type" when
-  // the policy path points at something that is not a policy at all.
-  parseAllowedSigners(observations.signerPolicy.stdout, policyLabel);
-  requireSignedTagObject(observations.tagObject, tagName);
-  const signature = interpretTagSignature(observations.tagVerification, tagName);
+  const sourceCommit = authorization.sourceCommit;
+  const tagTargetCommit = authorization.tagTargetCommit;
 
   const packageVersions = parseReleasePackageVersions({
     rootManifest: successfulOutput(observations.rootManifest, "Release root package manifest"),
@@ -148,7 +141,58 @@ export function assembleReleaseSourceEvidence(
     buildTimestamp,
     packageVersions
   });
-  return Object.freeze({ evidence: identities.evidence, signature });
+  return Object.freeze({
+    evidence: identities.evidence,
+    signature: authorization.signature
+  });
+}
+
+export function assembleReleaseTagAuthorization(
+  observations: ReleaseTagAuthorizationObservations
+): ReleaseTagAuthorizationDocument {
+  const tagName = requireReleaseTagName(observations.tagName);
+  const sourceCommit = requireCommitObjectName(
+    observations.headCommit,
+    "Release source commit"
+  );
+  requireCleanWorkingTree(observations.workingTreeStatus);
+  requireAnnotatedTag(observations.tagObjectType, tagName);
+  const tagTargetCommit = requireCommitObjectName(
+    observations.tagTargetCommit,
+    `Release tag ${tagName} target commit`
+  );
+  if (tagTargetCommit !== sourceCommit) {
+    throw new Error(
+      `Release tag ${tagName} does not point at the release commit ${sourceCommit}`
+    );
+  }
+  requireProtectedReachability(
+    observations.protectedReachability,
+    sourceCommit,
+    observations.protectedRef
+  );
+  const policyLabel =
+    `Release signer policy ${observations.signerPolicyRef}:${observations.signerPolicyPath}`;
+  if (observations.signerPolicy.exitCode !== 0) {
+    throw new Error(
+      `${policyLabel} could not be read: ${commandDetail(observations.signerPolicy)}`
+    );
+  }
+  parseAllowedSigners(observations.signerPolicy.stdout, policyLabel);
+  requireSignedTagObject(observations.tagObject, tagName);
+  const signature = interpretTagSignature(observations.tagVerification, tagName);
+  return Object.freeze({
+    schemaVersion: 1,
+    tagName,
+    sourceCommit,
+    tagObjectType: "annotated",
+    tagSignature: "verified",
+    tagTargetCommit,
+    protectedRef: observations.protectedRef,
+    signerPolicyRef: observations.signerPolicyRef,
+    signerPolicyPath: observations.signerPolicyPath,
+    signature
+  });
 }
 
 /**

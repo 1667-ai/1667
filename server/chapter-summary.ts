@@ -2,10 +2,10 @@ import { SUMMARY_TARGET_TOKENS } from "../shared/chapters.js";
 import type { Story } from "../shared/types.js";
 import {
   GenerationResultError,
+  GenerationStoppedError,
   ServiceError
 } from "./errors.js";
 import type { BindGenerationIntent } from "./generation-http.js";
-import { throwIfUncertainAbort } from "./generation-stream.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import {
@@ -50,8 +50,7 @@ export async function summarizeChapter(
     )
   });
   if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    throw new GenerationResultError(409, "Chapter summarization was cancelled");
+    throw new GenerationStoppedError("Chapter summarization was cancelled");
   }
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   try {

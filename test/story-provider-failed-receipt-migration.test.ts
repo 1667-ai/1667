@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -55,7 +56,7 @@ for (const alreadyArchived of [false, true]) {
       );
       await mutations.init();
       await assert.rejects(
-        mutations.runProvider(
+        mutations.runProviderOperation(
           requestFor(
             providerMutationId,
             "a".repeat(64),
@@ -65,11 +66,13 @@ for (const alreadyArchived of [false, true]) {
             }
           ),
           "autonameStory",
-          async (_runtime, providerStarted) => {
-            await providerStarted();
-            throw new ServiceError(503, "Lost provider reply", "internal");
-          },
-          () => null
+          providerOperation(
+            async (_runtime, providerStarted) => {
+              await providerStarted();
+              throw new ServiceError(503, "Lost provider reply", "internal");
+            },
+            () => null
+          )
         ),
         hasCode("internal")
       );
@@ -163,18 +166,20 @@ for (const alreadyArchived of [false, true]) {
         warningMutationId,
         "rewriteNode",
         warningInput,
-        async () => await mutations.runProvider(
+        async () => await mutations.runProviderOperation(
           requestFor(
             warningMutationId,
             "b".repeat(64),
             warningVersion
           ),
           "rewriteNode",
-          async () => {
-            providerCalled = true;
-            return true;
-          },
-          () => true
+          providerOperation(
+            async () => {
+              providerCalled = true;
+              return true;
+            },
+            () => true
+          )
         ),
         PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
         () => undefined

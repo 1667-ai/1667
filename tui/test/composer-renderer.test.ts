@@ -369,6 +369,16 @@ describe("composer renderer", () => {
     ]];
     expect(applyComposeMode(gauge, true)[0]!.map((part) => part.role))
       .toEqual(["chrome", "dimmed page"]);
+
+    // Both growth pulse phases collapse to the same chrome role under focus
+    // dim — story rendering must suppress the pulse deadline when this path is
+    // active so the dim does not schedule invisible 1.2s repaints.
+    const growth: FrameLine[] = [[
+      segment("▮", "context growth"),
+      segment("▮", "context growth pulse")
+    ]];
+    expect(applyComposeMode(growth, true)[0]!.map((part) => part.role))
+      .toEqual(["chrome", "chrome"]);
   });
 
   test("inserts and renders a very large paste without argument-limit or quadratic cursor work", () => {
@@ -428,6 +438,28 @@ describe("composer renderer", () => {
     expect(composer.text).toBe("👩💻");
     expect(redoComposerEdit(composer)).toBeTrue();
     expect(composer.text).toBe("👩‍💻");
+  });
+
+  test("replaceComposerTextRange records a caller-chosen caret in redo history", () => {
+    const composer = createComposer("tag: people\n\nBody stays whole.");
+    moveComposerTo(composer, composer.text.length);
+    const bodyCaret = composer.cursor;
+    replaceComposerTextRange(composer, 0, "tag: people".length, "tag: places", {
+      cursor: bodyCaret + ("tag: places".length - "tag: people".length)
+    });
+    expect(composer.text).toBe("tag: places\n\nBody stays whole.");
+    expect(composer.cursor).toBe(composer.text.length);
+
+    expect(undoComposerEdit(composer)).toBeTrue();
+    expect(composer.text).toBe("tag: people\n\nBody stays whole.");
+    expect(composer.cursor).toBe(bodyCaret);
+
+    expect(redoComposerEdit(composer)).toBeTrue();
+    expect(composer.text).toBe("tag: places\n\nBody stays whole.");
+    expect(composer.cursor).toBe(composer.text.length);
+
+    insertComposerText(composer, "!");
+    expect(composer.text).toBe("tag: places\n\nBody stays whole.!");
   });
 
   test("soft-wraps a multi-megabyte uniform line without materializing every row", () => {
@@ -531,6 +563,47 @@ describe("composer renderer", () => {
     expect(composer).toMatchObject({ cursor: 1 });
     assertWithinBudget(CONSOLE_REPORT, "flag insertion at 50k clusters", BUDGETS.flagInsertion, timing);
   }, budgetTimeout([BUDGETS.flagInsertion]));
+
+  test("full seam rebuild clears selection on ordinary replace for typing and undo/redo", () => {
+    // Long enough that local seam probes hit MAX_SEAM_PROBES and fall back to a
+    // full document rebuild instead of a bounded splice.
+    const flags = "🇦🇧".repeat(200);
+    const composer = createComposer(flags);
+    moveComposerTo(composer, 0);
+    moveComposerTo(composer, 3, true);
+    expect(composerSelection(composer)).toEqual({ start: 0, end: 3 });
+    expect(selectedComposerText(composer)).toBe("🇦🇧".repeat(3));
+
+    insertComposerText(composer, "🇨");
+    expect(composer.anchor).toBe(null);
+    expect(composerSelection(composer)).toBe(null);
+    const afterReplace = composer.text;
+    const cursorAfterReplace = composer.cursor;
+
+    insertComposerText(composer, "x");
+    expect(composer.anchor).toBe(null);
+    expect(composerSelection(composer)).toBe(null);
+    // Length +1 and a single "x" prove typing inserted at the caret only — a
+    // stale selection would overwrite later Regional-Indicator graphemes.
+    expect(composer.text.length).toBe(afterReplace.length + 1);
+    expect(composer.cursor).toBe(cursorAfterReplace + 1);
+    expect(composer.text.replace("x", "")).toBe(afterReplace);
+
+    expect(undoComposerEdit(composer)).toBeTrue();
+    expect(composer.text).toBe(afterReplace);
+    expect(composer.anchor).toBe(null);
+    expect(composerSelection(composer)).toBe(null);
+
+    expect(undoComposerEdit(composer)).toBeTrue();
+    expect(composer.text).toBe(flags);
+    expect(composerSelection(composer)).toEqual({ start: 0, end: 3 });
+    expect(selectedComposerText(composer)).toBe("🇦🇧".repeat(3));
+
+    expect(redoComposerEdit(composer)).toBeTrue();
+    expect(composer.text).toBe(afterReplace);
+    expect(composer.anchor).toBe(null);
+    expect(composerSelection(composer)).toBe(null);
+  });
 
   test("vertical movement preserves terminal-cell x across mixed-width lines", () => {
     const composer = createComposer("界界\nabcd\n🙂x");

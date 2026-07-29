@@ -5,6 +5,26 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Stop keeps model text that already arrived.** 1667 stops the model stream.
+  It waits for the request to finish in the background. It then saves the
+  arrived text with the generation ID. A full result that wins the race uses
+  the same generation ID. 1667 does not show a cancellation message for a Stop
+  that the writer requested.
+- **Enter now cycles Compose Focus in Settings.** `Enter` advances the Compose
+  Focus row like the other closed-choice Settings rows. Paste does not open an
+  editor for those rows. Thanks @10fra for the report.
+- **The context meter now previews likely response growth.** A slow two-color
+  pulse shows an estimate from recent provider prose, not the full output cap.
+  The meter uses a small recent median. It excludes human nodes and summary
+  nodes. With no usable history, it uses a conservative cold start near 512
+  tokens. The estimate clamps to the configured max output tokens and to free
+  context capacity for the projected request. The max output cap stays visible
+  as secondary text. The pulse bar never uses the cap for size. Thanks @10fra
+  for the report and the design.
+- **Fact editing now opens directly from the Facts panel.** Press `Enter` or
+  double-click a Fact to open its editor. The editor includes the `people`,
+  `places`, `rules`, and `items` Fact tags from StoryTavern. A saved custom Fact
+  tag becomes available for other Facts. Thanks @10fra for the design.
 - **Local story changes commit with one atomic write.** A take switch, a text
   edit, a tag change, a fact change, or a chapter-break change now commits
   through one atomic publish of the story manifest. Before, each of these

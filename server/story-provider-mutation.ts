@@ -3,6 +3,10 @@ import {
   GenerationResultError,
   ServiceError
 } from "./errors.js";
+import {
+  classifyProviderAbort,
+  providerAbortForError
+} from "./provider-abort.js";
 import type {
   MutationCoordinator,
   MutationCoordinatorRequest,
@@ -27,7 +31,9 @@ import {
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import type { ActiveProviderStarts } from "./story-provider-active-starts.js";
 import type {
-  ProviderStoryAdmission, ProviderStoryMutationCommit, ProviderStoryWork
+  ProviderStoryAdmission,
+  ProviderStoryMutationCommit,
+  ProviderStoryRun
 } from "./story-provider-contract.js";
 import { applyProviderStoryEffect } from "./story-provider-effect.js";
 import {
@@ -86,8 +92,7 @@ export class StoryProviderMutationStore {
   async run<Method extends ProviderMutationMethod, Value>(
     input: unknown,
     method: Method,
-    work: ProviderStoryWork<Method, Value>,
-    replayValue: () => Value
+    operation: ProviderStoryRun<Method, Value>
   ): Promise<ProviderStoryMutationCommit<Value>> {
     const admitted = await this.coordinator.runStory(input, async (request) => {
       const storyId = storyIdFromScope(request.scope);
@@ -98,7 +103,13 @@ export class StoryProviderMutationStore {
       requireFreshStoryMutation(receipt, request.mutationId, this.now);
       requireUnacknowledgedProviderReceipt(receipt, request, method);
 
-      const opened = await this.open(storyId, request, method, receipt, replayValue);
+      const opened = await this.open(
+        storyId,
+        request,
+        method,
+        receipt,
+        operation.replayValue
+      );
       return { request, storyId, opened };
     });
     if (admitted.opened.kind === "replayed") {
@@ -119,11 +130,7 @@ export class StoryProviderMutationStore {
           );
           started = await startedPromise;
         };
-
-        let value: Value;
-        try {
-          value = await work(runtime, startProvider);
-        } catch (error) {
+        const failProvider = async (error: unknown): Promise<never> => {
           await this.races.recordFailure(
             storyId,
             request,
@@ -139,6 +146,20 @@ export class StoryProviderMutationStore {
             )
           );
           throw error;
+        };
+
+        let value: Value;
+        try {
+          value = await operation.work({
+            stories: runtime,
+            providerStarted: startProvider,
+            signal: operation.signal
+          });
+        } catch (error) {
+          const abort = providerAbortForError(operation.signal, error);
+          return await failProvider(
+            abort.kind === "none" ? error : abort.error
+          );
         }
         if (started === null && runtime.effect !== null) await startProvider();
         if (started === null) {
@@ -152,6 +173,10 @@ export class StoryProviderMutationStore {
           );
         }
         if (runtime.effect === null) {
+          const cancellation = providerAbortFailure(operation);
+          if (cancellation !== null) {
+            return await failProvider(cancellation);
+          }
           throw providerOutcomeUnknown(request.mutationId);
         }
 
@@ -180,7 +205,7 @@ export class StoryProviderMutationStore {
             storyId,
             request,
             method,
-            replayValue
+            operation.replayValue
           );
         }
         throw error;
@@ -489,4 +514,13 @@ export class StoryProviderMutationStore {
     });
     return storyResult(manifest);
   }
+}
+
+/** A provider receipt owns cancellation provenance. Lower generation modules
+ * only report their local result. */
+function providerAbortFailure(
+  operation: ProviderStoryRun<ProviderMutationMethod, unknown>
+): ServiceError | null {
+  const abort = classifyProviderAbort(operation.signal);
+  return abort.kind === "none" ? null : abort.error;
 }

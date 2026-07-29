@@ -5,7 +5,11 @@ import { Readable } from "node:stream";
 import test from "node:test";
 import { autonameStory, continueStory, rewriteNode } from "../server/generation-http.js";
 import { summarizeChapter } from "../server/chapter-summary.js";
-import { ServiceError } from "../server/errors.js";
+import {
+  GenerationCancelledError,
+  GenerationResultError,
+  ServiceError
+} from "../server/errors.js";
 import { InternalErrorReporter } from "../server/internal-error-reporter.js";
 import { internalErrorLogPath } from "../server/internal-error-log.js";
 import { GenerationAdmissionRegistry } from "../server/generation-admission.js";
@@ -210,6 +214,73 @@ test("HTTP stream adapter aborts generation before and after SSE opens", async (
     assert.equal(response.writes, phase === "streaming" ? 1 : 0);
     assert.equal(response.ends, 1);
   });
+});
+
+test("a supervised generation disconnect is terminal", async () => {
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  const operation = new AbortController();
+  let started!: () => void;
+  const didStart = new Promise<void>((resolve) => { started = resolve; });
+  let observedSignal: AbortSignal | null = null;
+  let observedReason: unknown;
+  const running = streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async (_onDelta, signal) => {
+      observedSignal = signal;
+      started();
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      observedReason = signal.reason;
+      throw signal.reason;
+    },
+    (value) => value,
+    operation.signal
+  );
+
+  await didStart;
+  response.closed = true;
+  response.emit("close");
+  await running;
+
+  assert.equal(
+    observedReason instanceof GenerationResultError,
+    true
+  );
+  assert.equal(observedReason instanceof GenerationCancelledError, false);
+  assert.equal(operation.signal.aborted, false);
+  assert.equal(response.ends, 1);
+});
+
+test("confirmed operation cancellation wins before response close", async () => {
+  const request = Readable.from([]) as unknown as IncomingMessage;
+  const response = new FakeResponse();
+  const operation = new AbortController();
+  const cancellation = new GenerationCancelledError();
+  let observedReason: unknown;
+  const running = streamResponse(
+    request,
+    response as unknown as ServerResponse,
+    async (_onDelta, signal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      observedReason = signal.reason;
+      throw signal.reason;
+    },
+    (value) => value,
+    operation.signal
+  );
+
+  operation.abort(cancellation);
+  response.closed = true;
+  response.emit("close");
+  await running;
+
+  assert.equal(observedReason, cancellation);
+  assert.equal(response.ends, 1);
 });
 
 test("HTTP stream adapter waits for response drain before reading more model output", async () => {

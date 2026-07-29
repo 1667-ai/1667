@@ -46,7 +46,6 @@ export async function handleOverlayAction(
     if (resolved.index !== undefined) {
       const cursor = Math.max(0, Math.min(state.payload.facts.length - 1, resolved.index));
       state.facts.cursor = cursor;
-      state.facts.expandedId = state.payload.facts[cursor]?.id ?? null;
     }
     state.mode = "FACTS";
     return true;
@@ -120,7 +119,7 @@ function scrollKeysReference(
 }
 
 function initialFacts() {
-  return { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, expandedId: null, deleteArmedId: null };
+  return { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
 }
 
 async function factsAction(
@@ -133,7 +132,10 @@ async function factsAction(
   Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
   const tags = factTags(state.payload.facts);
   const rows = factRows(state.payload.facts, overlay.selectedTag, overlay.query);
-  const selected = rows[overlay.cursor];
+  const selectedIndex = resolved.action === "edit" && resolved.index !== undefined
+    ? boundedFactCursor(resolved.index, rows.length)
+    : overlay.cursor;
+  const selected = rows[selectedIndex];
   if (resolved.action === "cancel") {
     if (overlay.deleteArmedId !== null) overlay.deleteArmedId = null;
     else if (overlay.filtering) overlay.filtering = false;
@@ -154,7 +156,6 @@ async function factsAction(
     Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
   }
   else if (resolved.action === "open-selected" && overlay.filtering) overlay.filtering = false;
-  else if (resolved.action === "open-selected" && selected !== undefined) overlay.expandedId = overlay.expandedId === selected.id ? null : selected.id;
   else if (resolved.action === "delete-item" && selected !== undefined) {
     if (overlay.deleteArmedId !== selected.id) { overlay.deleteArmedId = selected.id; state.toast = "delete this fact? · d confirms · esc keeps"; }
     else {
@@ -170,6 +171,7 @@ async function factsAction(
       });
     }
   } else if ((resolved.action === "edit" && selected !== undefined) || resolved.action === "new-item") {
+    if (resolved.action === "edit") overlay.cursor = selectedIndex;
     openFactEditor(state, resolved.action === "new-item" ? null : selected!);
     if (state.facts === overlay) {
       Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));

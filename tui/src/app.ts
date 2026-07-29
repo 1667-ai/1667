@@ -23,11 +23,8 @@ import {
   sanitizePastedText,
   type ResolvedKey
 } from "./keys.js";
-import {
-  captureMouseActionState,
-  createSelectionSafeMouseGate,
-  mouseToAction
-} from "./mouse-actions.js";
+import { captureMouseActionState } from "./mouse-actions.js";
+import { createInteractiveInputAdmission } from "./interactive-input-admission.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
@@ -39,8 +36,6 @@ import {
   observeInputAdmission
 } from "./presented-input-queue.js";
 import {
-  canCapturePresentedMouseAction,
-  freezeMouseEvent,
   reconcilePresentedMouseAction,
   type PresentedInteraction
 } from "./presented-mouse-action.js";
@@ -189,7 +184,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   const wrapCache = createWrapCache<ProseStyle>();
   const state = initialState(source, false);
   const surface = createStorySurface(renderer, palette);
-  const gateMouseAction = createSelectionSafeMouseGate();
+  const inputAdmission = createInteractiveInputAdmission();
   let builtInteraction: InteractivePresentedInteraction | null = null;
   let presentedInteraction: InteractivePresentedInteraction | null = null;
   let onPresented: () => void = () => undefined;
@@ -209,7 +204,9 @@ export async function runInteractive(source: AppSource): Promise<void> {
     palette: () => palette,
     wrapCache,
     onBuilt(version, interactive, frameToken) {
-      if (!interactive) gateMouseAction.reset();
+      if (!interactive) {
+        inputAdmission.reset();
+      }
       builtInteraction = {
         version,
         frameToken,
@@ -227,7 +224,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
         && (previous.storyId !== builtInteraction.storyId
           || previous.state.mode !== builtInteraction.state.mode);
       if (!builtInteraction.interactive || ownerChanged) {
-        gateMouseAction.reset();
+        inputAdmission.reset();
       }
       presentedInteraction = builtInteraction;
       queueMicrotask(onPresented);
@@ -236,7 +233,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
       queueMicrotask(onPresentationFailure);
     },
     onError(error) {
-      gateMouseAction.reset();
+      inputAdmission.reset();
       const message = `frame failed · ${error instanceof Error ? error.message : String(error)}`;
       state.toast = message;
       console.error(message);
@@ -338,7 +335,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
       return requestQuit();
     }
     const queuedKey = { ...key } as KeyEvent;
-    inputs.enqueue(() => {
+    // Keyboard admission clears pending mouse click gestures at one site.
+    inputAdmission.enqueueText(inputs, () => {
       const selection = reconcilePresentedSelection(queuedSelection, frames.version, state);
       if (selection.kind === "stale") {
         retirePresentedSelection(renderer, queuedSelection);
@@ -380,7 +378,8 @@ export async function runInteractive(source: AppSource): Promise<void> {
   renderer.keyInput.on("paste", (event) => {
     const text = new TextDecoder().decode(event.bytes);
     const queuedSelection = captureQueuedSelection();
-    inputs.enqueue(() => {
+    // Paste admission clears pending mouse click gestures at the same site.
+    inputAdmission.enqueueText(inputs, () => {
       const selection = reconcilePresentedSelection(queuedSelection, frames.version, state);
       if (selection.kind === "stale") {
         retirePresentedSelection(renderer, queuedSelection);
@@ -402,44 +401,40 @@ export async function runInteractive(source: AppSource): Promise<void> {
   surface.onMouse((event) => {
     // Coordinates belong to the frame visible when OpenTUI emitted them.
     // A queued repaint does not supersede that frame until it is presented.
-    const interaction = presentedInteraction;
-    if (!canCapturePresentedMouseAction(interaction, frames.failed)) {
-      gateMouseAction.reset();
-      // Partial pixels cannot own coordinates, but the discarded gesture may
-      // still claim the one bounded repaint recovery.
-      frames.requestInputRecovery();
-      return;
-    }
-    // Mouse-up re-resolves the down target against the currently visible
-    // frame. Animated repaints survive; semantic row changes cancel the click.
-    let resolved = gateMouseAction.resolve(
-      event, mouseToAction(event, interaction.state, event.type === "up")
-    );
-    resolved = selectionAwarePartMenuAction(
-      event, resolved, renderer, interaction.storySelectionProjection
-    );
-    if (resolved === null) return;
-    if (interaction !== presentedInteraction) return;
-    const queuedEvent = freezeMouseEvent(event);
-    inputs.enqueue(() => {
-      const reconciled = reconcilePresentedMouseAction({
-        action: resolved, event: queuedEvent, captured: interaction,
-        presented: presentedInteraction, state
-      });
-      if (reconciled === null) return;
-      return observeInputAdmission((admit) => dispatch(
-        reconciled,
-        state,
-        source,
-        wrapCache,
-        () => { repaint(); admit(); },
-        () => { admit(); return cancelStream(); },
-        requestQuit,
+    // Capture against the visible frame, then keep FIFO order. Keyboard/paste
+    // interrupt incomplete multi-event gates at enqueue time; already-queued
+    // mouse actions still run before later keys (select-then-Enter, etc.).
+    inputAdmission.enqueueMouse(inputs, event, {
+      presented: presentedInteraction,
+      frameFailed: frames.failed,
+      requestInputRecovery: () => frames.requestInputRecovery(),
+      stillPresented: (captured) => captured === presentedInteraction,
+      decorate: (resolved, gesture, presented) => selectionAwarePartMenuAction(
+        gesture as never,
+        resolved,
         renderer,
-        applyTheme,
-        previewTheme,
-        withActionAdmission(backend, admit)
-      ), (work) => backend.observe(work));
+        (presented as InteractivePresentedInteraction).storySelectionProjection
+      ),
+      run: (action, queuedEvent, captured) => {
+        const reconciled = reconcilePresentedMouseAction({
+          action, event: queuedEvent, captured,
+          presented: presentedInteraction, state
+        });
+        if (reconciled === null) return;
+        return observeInputAdmission((admit) => dispatch(
+          reconciled,
+          state,
+          source,
+          wrapCache,
+          () => { repaint(); admit(); },
+          () => { admit(); return cancelStream(); },
+          requestQuit,
+          renderer,
+          applyTheme,
+          previewTheme,
+          withActionAdmission(backend, admit)
+        ), (work) => backend.observe(work));
+      }
     });
   });
   renderer.on(CliRenderEvents.RESIZE, () => {
@@ -492,6 +487,7 @@ export async function handleKey(
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
     commandsTags: state.commands?.view === "tags",
+    factEditor: state.editor?.target.kind === "fact",
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,

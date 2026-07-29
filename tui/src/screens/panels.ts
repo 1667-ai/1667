@@ -40,7 +40,6 @@ import {
   panelRowWindow,
   type LibraryColumns
 } from "./panel-table-layout.js";
-import { wrapText } from "../wrap.js";
 import { truncate, truncateTail, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { renderSettingsPanel } from "./settings-panel.js";
 
@@ -62,7 +61,7 @@ export const LIBRARY_FOOTER_ACTIONS = [
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const FACTS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-  { token: "tab", action: "cycle" }, { token: "↵", action: "open-selected" },
+  { token: "tab", action: "cycle" }, { token: "↵", action: "edit" },
   { token: "/ filter", action: "filter" }, { token: "e edit", action: "edit" },
   { token: "n new", action: "new-item" }, { token: "d", action: "delete-item" },
   { token: "esc", action: "cancel" }
@@ -352,41 +351,30 @@ function renderFacts(base: FrameLine[], state: OverlayState & { payload: StoryPa
     raisedSegment(cellPad("note", columns.note), "chrome")
   ]);
   const targets: Array<HitTarget | null> = content.map(() => null);
-  const logicalRows: FrameLine[][] = [];
-  for (const [index, fact] of rows.entries()) {
-    const expanded = overlay.expandedId === fact.id;
-    const body = factBody(fact);
-    const lines: FrameLine[] = [[
-      raisedSegment(cellPad(index === rowCursor ? "  ▸ " : "", columns.lead), index === rowCursor ? "focus / accent" : "chrome"),
-      raisedSegment(cellPad(truncate(factName(fact), Math.max(0, columns.name - 1)), columns.name), index === rowCursor ? "prose" : "prose · dim"),
-      raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag), "accent · deep"),
-      raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome")
-    ]];
-    if (expanded) for (const line of wrapText(fact.text, [], Math.max(20, contentWidth - 6))) {
-      lines.push([raisedSegment("      "), raisedSegment(line.text, "prose")]);
-    }
-    logicalRows.push(lines);
-  }
   const window = panelRowWindow(
-    logicalRows.map((lines) => lines.length),
+    rows.map(() => 1),
     rowCursor,
     panelContentRows(height) - content.length
   );
   for (let index = window.start; index < window.end; index += 1) {
-    const lines = logicalRows[index]!;
-    content.push(...lines);
-    // Detail lines belong to the fact above them, so every click keeps the
-    // same logical selection.
-    targets.push(...lines.map((): HitTarget => ({ kind: "list", index })));
+    const fact = rows[index]!;
+    const body = factBody(fact);
+    content.push([
+      raisedSegment(cellPad(index === rowCursor ? "  ▸ " : "", columns.lead), index === rowCursor ? "focus / accent" : "chrome"),
+      raisedSegment(cellPad(truncate(factName(fact), Math.max(0, columns.name - 1)), columns.name), index === rowCursor ? "prose" : "prose · dim"),
+      raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag), "accent · deep"),
+      raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome")
+    ]);
+    targets.push({ kind: "list", index });
   }
   if (rows.length === 0) { content.push([raisedSegment("  no matching facts", "prose · dim")]); targets.push(null); }
   const footer = overlay.filtering
     ? "↵ done · esc done"
     : overlay.deleteArmedId === null
-    ? "↑↓ · tab tags · ↵ view · / filter · e edit · n new · d delete · esc"
+    ? "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
     : width < 100
       ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-      : "↑↓ · tab tags · ↵ view · / filter · e edit · n new · d confirms · esc keeps";
+      : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
   return placePanel(base, `facts · ${state.payload.facts.length} notes${panelRange(rows.length, window)}`, boundedContent(content, contentWidth),
     footer, width, height, 106,
     { rows: state.hitRows, targets, overrides: chipOverridesByLine,

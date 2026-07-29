@@ -45,6 +45,10 @@ export interface RailModel {
   facts: RailFact[];
   factCount: number;
   contextTokens: number;
+  /** Likely response tokens that become context after this request. */
+  growthTokens: number;
+  /** Configured max output tokens; secondary label only, never bar size. */
+  maxOutputTokens: number;
   /** The configured window and this request against it, or null when the
    *  provider reports no window — the three are never known separately. */
   window: RequestWindow | null;
@@ -58,7 +62,9 @@ export function buildRailModel(
   payload: StoryPayload,
   focusedText: string,
   contextWindow: number | null = null,
-  estimate: NextRequestEstimate
+  estimate: NextRequestEstimate,
+  growthTokens = 0,
+  maxOutputTokens = 0
 ): RailModel {
   const focused = focusedText.toLowerCase();
   const facts = payload.facts.map((fact: StoryFact, index): RailFact => {
@@ -75,7 +81,9 @@ export function buildRailModel(
   // Mirror what generation actually sends: the assembler drops everything
   // before the latest summary, and directions travel with their parts.
   const contextTokens = estimate.tokens;
-  const over = contextWindow !== null && contextWindow > 0 && contextTokens > contextWindow;
+  const responseGrowth = Math.max(0, growthTokens);
+  const over = contextWindow !== null && contextWindow > 0
+    && contextTokens + responseGrowth > contextWindow;
   const biggest = over ? estimate.chapters
     .filter((chapter) => chapter.included && chapter.closed && !chapter.summarized && chapter.savings > 0)
     .sort((left, right) => right.savings - left.savings)[0] ?? null : null;
@@ -84,6 +92,8 @@ export function buildRailModel(
     facts,
     factCount: payload.facts.length,
     contextTokens,
+    growthTokens: responseGrowth,
+    maxOutputTokens: Math.max(0, maxOutputTokens),
     window: requestWindow(contextTokens, contextWindow),
     breakdown: estimate.breakdown,
     chapterNotice: biggest !== null

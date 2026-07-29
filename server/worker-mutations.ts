@@ -579,7 +579,11 @@ const MUTATIONS: MutationRegistry = {
       }
       return await service.rewriteNode(
         input.storyId, input.nodeId, input.body, context.onDelta, context.signal,
-        generationHooks(plan, { rewriteId }, context.storyMutationRequest)
+        generationHooks(
+          plan,
+          { rewriteId },
+          context.storyMutationRequest
+        )
       );
     }
   }),

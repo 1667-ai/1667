@@ -9,19 +9,31 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
   });
   assert.deepEqual(
     httpOperationPolicy("POST", "/api/stories/story/continue"),
-    { method: "continueStory", lifetime: "generation" }
+    {
+      method: "continueStory",
+      lifetime: "generation"
+    }
   );
   assert.deepEqual(
     httpOperationPolicy("POST", "/api/settings/check-server"),
-    { method: "checkModelServer", lifetime: "provider-check" }
+    {
+      method: "checkModelServer",
+      lifetime: "provider-check"
+    }
   );
   assert.deepEqual(
     httpOperationPolicy("POST", "/api/settings/discover-models"),
-    { method: "discoverModels", lifetime: "provider-check" }
+    {
+      method: "discoverModels",
+      lifetime: "provider-check"
+    }
   );
   assert.deepEqual(
     httpOperationPolicy("GET", "/api/stories/story/export"),
-    { method: "exportMarkdown", lifetime: "transfer" }
+    {
+      method: "exportMarkdown",
+      lifetime: "transfer"
+    }
   );
   for (const [method, path] of [
     ["PUT", "/api/stories/story/tags/node/extra"],

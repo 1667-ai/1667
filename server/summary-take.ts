@@ -4,11 +4,15 @@ import { renderPromptPlan, type PromptPlan } from "../shared/prompt-plan.js";
 import { contextSlice, pathTo } from "../shared/story-tree.js";
 import { estimateTokens } from "../shared/tokens.js";
 import type { GenerationSettings, Story, StoryNode } from "../shared/types.js";
-import { GenerationResultError, ServiceError as HttpError } from "./errors.js";
+import {
+  GenerationResultError,
+  GenerationStoppedError,
+  ServiceError as HttpError
+} from "./errors.js";
 import { streamCompletion, type StreamOutcome } from "./providers.js";
 import { countWords } from "./story-codec.js";
 import { sha256 } from "./story-format.js";
-import { throwIfUncertainAbort, type DeltaConsumer } from "./generation-stream.js";
+import type { DeltaConsumer } from "./generation-stream.js";
 import type { BindGenerationIntent } from "./generation-http.js";
 import { clipAttribution } from "./story-nodes.js";
 import type { SettingsStore } from "./settings.js";
@@ -43,7 +47,10 @@ export interface SummaryCommitIds {
 }
 
 export function requireSummaryActive(signal?: AbortSignal): void {
-  if (signal?.aborted === true) throw new HttpError(409, "The summary was cancelled before it could be saved.");
+  if (signal?.aborted !== true) return;
+  throw new GenerationStoppedError(
+    "The summary was cancelled before it could be saved."
+  );
 }
 
 export async function createSummaryTake(
@@ -97,16 +104,10 @@ export async function createSummaryTake(
       await onDelta(delta);
     }
   } catch (error) {
-    if (signal.aborted) {
-      throwIfUncertainAbort(signal);
-      return null;
-    }
+    if (signal.aborted) return null;
     throw error;
   }
-  if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    return null;
-  }
+  if (signal.aborted) return null;
   const summary = extractConfirmedSummary(raw, marker);
   if (summary === null) {
     throw new GenerationResultError(502, incompleteSummaryMessage(outcome, plan.windowBound));
@@ -129,8 +130,8 @@ export async function createSummaryTake(
       commitIds
     });
   } catch (error) {
-    throwIfUncertainAbort(signal);
     if (error instanceof HttpError && error.code === "story_manifest_requires_successor") throw error;
+    if (error instanceof GenerationResultError) throw error;
     if (error instanceof HttpError) throw new GenerationResultError(error.status, error.message);
     throw error;
   }
@@ -190,12 +191,10 @@ export async function generateSummaryText(
     }
   } catch (error) {
     if (!signal.aborted) throw error;
-    throwIfUncertainAbort(signal);
-    throw new GenerationResultError(409, "The summary was cancelled; nothing was saved.");
+    throw new GenerationStoppedError("The summary was cancelled; nothing was saved.");
   }
   if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    throw new GenerationResultError(409, "The summary was cancelled; nothing was saved.");
+    throw new GenerationStoppedError("The summary was cancelled; nothing was saved.");
   }
   const summary = extractConfirmedSummary(raw, marker);
   if (summary === null) throw new GenerationResultError(502, incompleteSummaryMessage(outcome, plan.windowBound));

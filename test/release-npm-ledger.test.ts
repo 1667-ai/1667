@@ -30,6 +30,7 @@ test("an attempted package is not republished while its registry wait succeeds",
   const present = new Set<string>();
   const published: string[] = [];
   const ledger: NpmPublicationLedger = {
+    async assertWritable() {},
     async status(entry) {
       return entry.name === attempted.name ? "attempted" : "fresh";
     },
@@ -63,6 +64,9 @@ test("the publisher records fresh package bytes before the npm write", async () 
   const present = new Set(packages.slice(2).map((entry) => entry.name));
   present.add(packages[0]!.name);
   const ledger: NpmPublicationLedger = {
+    async assertWritable() {
+      events.push("writable");
+    },
     async status() {
       return "fresh";
     },
@@ -84,8 +88,40 @@ test("the publisher records fresh package bytes before the npm write", async () 
   await publishNpmRelease(packages, registry, ledger);
   assert.deepEqual(events, [
     `record:${packages[1]!.name}`,
+    "writable",
     `publish:${packages[1]!.name}`
   ]);
+});
+
+test("an active operation lease stops immediately before an npm write", async () => {
+  const packages = publicationMatrix();
+  const missing = packages[1]!;
+  const published: string[] = [];
+  const ledger: NpmPublicationLedger = {
+    async assertWritable() {
+      throw new Error("npm operation lease is active");
+    },
+    async status() {
+      return "fresh";
+    },
+    async recordAttempt() {
+      return "created";
+    }
+  };
+  const registry: NpmPublicationRegistry = {
+    async inspect(entry) {
+      return entry.name === missing.name ? "missing" : "present";
+    },
+    async publish(entry) {
+      published.push(entry.name);
+    },
+    async waitUntilVerified() {}
+  };
+  await assert.rejects(
+    publishNpmRelease(packages, registry, ledger),
+    /operation lease is active/u
+  );
+  assert.deepEqual(published, []);
 });
 
 test("a retry recovers when the process stopped after recording an attempt", async () => {
@@ -97,6 +133,7 @@ test("a retry recovers when the process stopped after recording an attempt", asy
   const events: string[] = [];
   let waits = 0;
   const ledger: NpmPublicationLedger = {
+    async assertWritable() {},
     async status(entry) {
       return entry.name === recovering.name ? "attempted" : "fresh";
     },
@@ -186,7 +223,71 @@ test("the GitHub ledger refuses a different created attempt ref", async () => {
       return jsonResponse([], 200);
     }
   });
-  await assert.rejects(ledger.recordAttempt(expected), /created the wrong ref/u);
+  await assert.rejects(
+    ledger.recordAttempt(expected),
+    /created the wrong publication attempt/u
+  );
+});
+
+test("the GitHub write gate rejects an active manual operation", async () => {
+  const expected = publicationMatrix()[0]!;
+  const ledger = new GitHubNpmPublicationLedger({
+    repository: "1667-ai/1667",
+    sourceCommit: COMMIT,
+    token: "test-token",
+    fetch: async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname.includes("/tags/npm-operations-open/")) {
+        return jsonResponse([{
+          ref: "refs/tags/npm-operations-open/"
+            + "run-1-attempt-1/promotion/v1.2.3",
+          object: { type: "commit", sha: COMMIT }
+        }], 200);
+      }
+      return jsonResponse([], 200);
+    }
+  });
+  await assert.rejects(ledger.assertWritable(expected), /is active/u);
+});
+
+test("the workflow write gate does not require repository administration", async () => {
+  const expected = publicationMatrix()[0]!;
+  const requested: string[] = [];
+  const ledger = new GitHubNpmPublicationLedger({
+    repository: "1667-ai/1667",
+    sourceCommit: COMMIT,
+    token: "workflow-token",
+    fetch: async (input) => {
+      const url = String(input);
+      requested.push(url);
+      if (new URL(url).pathname.includes("/rulesets")) {
+        return jsonResponse({ message: "forbidden" }, 403);
+      }
+      return jsonResponse([], 200);
+    }
+  });
+
+  await ledger.assertWritable(expected);
+  assert.equal(requested.some((url) => url.includes("/rulesets")), false);
+});
+
+test("the GitHub write gate freshly rejects a quarantine marker", async () => {
+  const expected = publicationMatrix()[0]!;
+  const ledger = new GitHubNpmPublicationLedger({
+    repository: "1667-ai/1667",
+    sourceCommit: COMMIT,
+    token: "test-token",
+    fetch: async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      return jsonResponse(pathname.includes("/tags/released/")
+        ? [{
+          ref: `refs/tags/released/v${VERSION}_quarantined`,
+          object: { type: "commit", sha: COMMIT }
+        }]
+        : [], 200);
+    }
+  });
+  await assert.rejects(ledger.assertWritable(expected), /quarantined/u);
 });
 
 test("a conflicting publication attempt cannot authorize different bytes", () => {

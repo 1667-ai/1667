@@ -161,20 +161,31 @@ describe("embedded backend worker", () => {
 
       const cancel = new AbortController();
       let deltasAfterCancel = 0;
+      const stoppedText: string[] = [];
       const cancelled = await api.continueStory(
         story.id,
         "This must be cancelled.",
         "worker-cancel",
         { parentId: story.path.at(-1)!.id },
-        () => {
+        (text) => {
           if (cancel.signal.aborted) deltasAfterCancel += 1;
-          else cancel.abort();
+          else {
+            stoppedText.push(text);
+            cancel.abort();
+          }
         },
         cancel.signal
       );
       expect(cancelled).toBe(null);
       expect(deltasAfterCancel).toBe(0);
-      expect((await api.loadStory(story.id)).path.some(({ genId }) => genId === "worker-cancel")).toBeFalse();
+      story = await api.createNode(story.id, {
+        parentId: story.path.at(-1)!.id,
+        instruction: "This must be cancelled.",
+        text: stoppedText.join(""),
+        genId: "worker-cancel"
+      });
+      expect(story.path.at(-1)?.genId).toBe("worker-cancel");
+      expect(story.path.at(-1)?.text).toBe(stoppedText.join("").trim());
 
       const named = await api.autonameStory(story.id);
       expect(named.title).toBe("The Quiet After Rain");
@@ -1296,7 +1307,7 @@ describe("embedded backend worker", () => {
     await expectRestartRequiredDisposal(backend);
   });
 
-  test("suppresses deltas queued after local cancellation", async () => {
+  test("keeps every delta received before cancellation settles", async () => {
     const worker = new FakeWorker(true);
     const backend = await createWorkerStoryApi({ worker, readyTimeoutMs: 100 });
     const cancel = new AbortController();
@@ -1311,10 +1322,15 @@ describe("embedded backend worker", () => {
     worker.message({ type: "delta", id: request.id, sequence: 0, text: "kept" });
     cancel.abort();
     worker.message({ type: "delta", id: request.id, sequence: 1, text: "late" });
-    worker.message({ type: "complete", id: request.id, value: null });
+    worker.message({
+      type: "complete",
+      id: request.id,
+      value: null,
+      stoppedText: " buffered"
+    });
 
     expect(await pending).toBe(null);
-    expect(deltas).toEqual(["kept"]);
+    expect(deltas).toEqual(["kept", "late", " buffered"]);
     await backend.dispose();
   });
 

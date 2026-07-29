@@ -183,6 +183,26 @@ test("provider cancellation after admission returns a terminal null result", asy
   }
 });
 
+test("cancellation during the final filtered delta returns no result", async () => {
+  const controller = new AbortController();
+  const output = {
+    push: () => "",
+    finish: () => "filtered tail"
+  };
+
+  const result = await streamModel(
+    settings("dry-run"),
+    prompt("title"),
+    controller.signal,
+    () => {
+      controller.abort();
+      throw new Error("The response transport closed.");
+    },
+    output
+  );
+  assert.equal(result, null);
+});
+
 test("an empty completed provider stream is a terminal generation result", async () => {
   const originalFetch = globalThis.fetch;
   let admissions = 0;

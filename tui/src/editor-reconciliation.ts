@@ -13,7 +13,7 @@ export function reconcileFactEditor(state: RuntimeState): void {
   if (current === undefined) {
     editor.target.factId = null;
     editor.target.base = null;
-    editor.title = "new fact · recovered deleted draft · optional tag: first line";
+    editor.title = "new fact · recovered deleted draft";
     editor.conflict = {
       message: "fact deleted during recovery · draft kept as a new fact",
       resolution: "create",

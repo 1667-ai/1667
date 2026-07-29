@@ -1,4 +1,4 @@
-import { GenerationResultError, ServiceError } from "./errors.js";
+import { GenerationResultError } from "./errors.js";
 import { streamCompletion, type PromptPlan } from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
@@ -37,29 +37,12 @@ export async function streamModel(
     )) {
       await emit(output?.push(delta) ?? delta);
     }
+    if (output !== undefined) await emit(output.finish());
   } catch (error) {
-    if (signal.aborted) {
-      throwIfUncertainAbort(signal);
-      return null;
-    }
+    if (signal.aborted) return null;
     throw error;
   }
-  if (output !== undefined) await emit(output.finish());
-  if (signal.aborted) {
-    throwIfUncertainAbort(signal);
-    return null;
-  }
+  if (signal.aborted) return null;
   if (text.trim().length === 0) throw new GenerationResultError(502, "The model returned no text.");
   return text;
-}
-
-/** Worker deadlines/shutdowns are not user-confirmed cancellation. Preserve
- * their durable ambiguity instead of converting them into completed nulls. */
-export function throwIfUncertainAbort(signal: AbortSignal): void {
-  if (!signal.aborted) return;
-  const reason = signal.reason;
-  if (reason instanceof ServiceError
-    && (reason.code === "mutation_outcome_unknown" || reason.code === "generation_outcome_unknown")) {
-    throw reason;
-  }
 }

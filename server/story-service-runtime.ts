@@ -28,6 +28,10 @@ import { StoryServiceLocal } from "./story-service-local.js";
 import { StoryStore } from "./stories.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
 import {
+  classifyProviderAbort,
+  providerAbortForError
+} from "./provider-abort.js";
+import {
   isProviderMutationMethod
 } from "./mutation-ledger-types.js";
 import { MUTATION_ID_PATTERN } from "./mutation-ledger-scalars.js";
@@ -254,7 +258,13 @@ export abstract class StoryServiceRuntime {
     const operation = Promise.resolve().then(() => work(controller.signal));
     this.activeOperations.add(operation);
     try {
-      return await operation;
+      const value = await operation;
+      const abort = classifyProviderAbort(controller.signal);
+      if (abort.kind === "uncertain") throw abort.error;
+      return value;
+    } catch (error) {
+      const abort = providerAbortForError(controller.signal, error);
+      throw abort.kind === "uncertain" ? abort.error : error;
     } finally {
       signal.removeEventListener("abort", abort);
       this.active.delete(controller);

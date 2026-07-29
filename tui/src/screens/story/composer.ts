@@ -499,7 +499,8 @@ export function applyComposePageMode(
  *  mutes those cells to chrome instead: nothing stays lit against the
  *  composer, and the meter keeps the boundary it exists to draw. */
 const GAUGE_ROLES: ReadonlySet<DisplayRole> = new Set([
-  "context voice", "context facts", "context recent", "context summary"
+  "context voice", "context facts", "context recent", "context summary",
+  "context growth", "context growth pulse"
 ]);
 
 function composeRole(role: DisplayRole | undefined, focusDim: boolean): DisplayRole | undefined {

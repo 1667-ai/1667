@@ -4,14 +4,16 @@ import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
 import { makeDemoNode } from "./demo-fixture.js";
 
 /** Mutate the in-memory demo with the same sibling and endpoint-tag
- * behavior as the backend. Source metadata is copied only for edit-as-sibling. */
+ * behavior as the backend. Source metadata is copied only for edit-as-sibling.
+ * Provider commits may pass `genId`; human and edit-as-sibling takes omit it. */
 export function createDemoTake(
   story: Story,
   parentId: string | null,
   instruction: string,
   text: string,
   human: boolean,
-  source: StoryNode | null = null
+  source: StoryNode | null = null,
+  genId?: string
 ): void {
   if (parentId !== null && !story.nodes.some((node) => node.id === parentId)) {
     throw new Error(`Unknown demo node: ${parentId}`);
@@ -30,6 +32,7 @@ export function createDemoTake(
       : attributionAfterHumanEdit(source.attribution, source.text, text)
   });
   if (human) node.human = true;
+  if (genId !== undefined) node.genId = genId;
   story.nodes.push(node);
   if (endpointTag !== undefined) endpointTag.nodeId = id;
   switchToNode(story, id, { stopAtNode: true });

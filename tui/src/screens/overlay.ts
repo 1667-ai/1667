@@ -20,8 +20,8 @@ export function dimPage(lines: FrameLine[]): FrameLine[] {
   })));
 }
 
-/** Click targets for a panel: one entry per content line, so rows that grow
- *  (expanded facts, wrapped legends) stay aligned with what was drawn. */
+/** Click targets for a panel: one entry per content line, so multi-line rows
+ *  (wrapped legends and similar) stay aligned with what was drawn. */
 export interface PanelHits {
   rows: HitRows;
   /** Parallel to `content`; null for headers, spacers and wrapped detail. */

@@ -1,19 +1,21 @@
-import { canonicalJson } from "../server/canonical-json.js";
 import { isSemVer } from "../shared/semver.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS
 } from "../shared/release-targets.js";
-import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
   type NpmPublicationLedger,
   type NpmPublicationPackage
 } from "./release-npm-publisher.js";
+import {
+  GitHubRefAlreadyExistsError,
+  GitHubRefStore,
+  type GitHubRef
+} from "./release-github-ref-store.js";
+import { GitHubNpmOperationLease } from "./release-npm-operation-lease.js";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
 const DIGEST = /^[0-9a-f]{64}$/u;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
-const API_TIMEOUT_MS = 30_000;
-const MAX_API_BYTES = 1024 * 1024;
 const TARGETS = new Set(["launcher", ...PUBLISHED_ARTIFACT_TARGETS]);
 
 export interface GitHubNpmPublicationLedgerOptions {
@@ -24,13 +26,7 @@ export interface GitHubNpmPublicationLedgerOptions {
   readonly fetch?: typeof fetch;
 }
 
-export interface GitReference {
-  readonly ref: string;
-  readonly object: {
-    readonly type: string;
-    readonly sha: string;
-  };
-}
+export type GitReference = GitHubRef;
 
 /**
  * Immutable release refs record an attempted npm write before the write starts.
@@ -40,9 +36,8 @@ export interface GitReference {
 export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
   readonly #repository: string;
   readonly #sourceCommit: string;
-  readonly #token: string;
-  readonly #apiUrl: string;
-  readonly #fetch: typeof fetch;
+  readonly #store: GitHubRefStore;
+  readonly #operationLease: GitHubNpmOperationLease;
 
   constructor(options: GitHubNpmPublicationLedgerOptions) {
     if (!REPOSITORY.test(options.repository)) {
@@ -54,9 +49,20 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
     if (options.token === "") throw new Error("Publication ledger token is required");
     this.#repository = options.repository;
     this.#sourceCommit = options.sourceCommit;
-    this.#token = options.token;
-    this.#apiUrl = githubApiUrl(options.apiUrl ?? "https://api.github.com/");
-    this.#fetch = options.fetch ?? fetch;
+    this.#store = new GitHubRefStore(options);
+    this.#operationLease = new GitHubNpmOperationLease({
+      repository: this.#repository,
+      token: options.token,
+      apiUrl: options.apiUrl,
+      fetch: options.fetch
+    });
+  }
+
+  async assertWritable(packageToPublish: NpmPublicationPackage): Promise<void> {
+    await Promise.all([
+      this.#operationLease.assertNoUnterminatedActive(),
+      this.status(packageToPublish)
+    ]);
   }
 
   async status(
@@ -71,64 +77,24 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
   ): Promise<"created" | "attempted"> {
     if (await this.status(packageToPublish) === "attempted") return "attempted";
     const ref = attemptRef(packageToPublish);
-    const response = await this.#request(
-      `repos/${this.#repository}/git/refs`,
-      {
-        body: canonicalJson({ ref, sha: this.#sourceCommit }),
-        method: "POST"
-      }
-    );
-    if (response.status === 422) {
+    try {
+      await this.#store.createRef(
+        ref,
+        this.#sourceCommit,
+        "commit",
+        `publication attempt for ${packageToPublish.name}`
+      );
+    } catch (error) {
+      if (!(error instanceof GitHubRefAlreadyExistsError)) throw error;
       if (await this.status(packageToPublish) === "attempted") return "attempted";
       throw new Error(`Publication ledger refused attempt ref for ${packageToPublish.name}`);
-    }
-    if (response.status !== 201) {
-      throw new Error(
-        `Publication ledger returned ${response.status} while recording`
-        + ` ${packageToPublish.name}`
-      );
-    }
-    const created = gitReference(
-      await boundedJsonResponse(response, "Publication attempt ref")
-    );
-    if (created.ref !== ref || created.object.type !== "commit"
-      || created.object.sha !== this.#sourceCommit) {
-      throw new Error(`Publication ledger created the wrong ref for ${packageToPublish.name}`);
     }
     return "created";
   }
 
   async #refs(version: string): Promise<readonly GitReference[]> {
     requirePackageVersion(version);
-    const response = await this.#request(
-      `repos/${this.#repository}/git/matching-refs/tags/released/v${version}`,
-      { method: "GET" }
-    );
-    if (response.status !== 200) {
-      throw new Error(`Publication ledger returned ${response.status} while reading release refs`);
-    }
-    const value = await boundedJsonResponse(response, "Publication ledger refs");
-    if (!Array.isArray(value)) throw new Error("Publication ledger refs must be an array");
-    return Object.freeze(value.map(gitReference));
-  }
-
-  async #request(pathname: string, init: RequestInit): Promise<Response> {
-    try {
-      return await this.#fetch(new URL(pathname, this.#apiUrl), {
-        ...init,
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${this.#token}`,
-          "content-type": "application/json",
-          "user-agent": "1667-release-npm",
-          "x-github-api-version": "2022-11-28"
-        },
-        redirect: "error",
-        signal: AbortSignal.timeout(API_TIMEOUT_MS)
-      });
-    } catch (error) {
-      throw new Error("Publication ledger request did not settle", { cause: error });
-    }
+    return this.#store.matchingRefs(`tags/released/v${version}`);
   }
 }
 
@@ -182,56 +148,4 @@ function attemptRef(packageToPublish: NpmPublicationPackage): string {
 
 function requirePackageVersion(version: string): void {
   if (!isSemVer(version)) throw new Error("Publication ledger version is not SemVer");
-}
-
-function gitReference(value: unknown): GitReference {
-  const record = object(value, "Publication ledger ref");
-  const target = object(record.object, "Publication ledger target");
-  if (typeof record.ref !== "string" || typeof target.type !== "string"
-    || typeof target.sha !== "string") {
-    throw new Error("Publication ledger returned a malformed ref");
-  }
-  return Object.freeze({
-    ref: record.ref,
-    object: Object.freeze({ type: target.type, sha: target.sha })
-  });
-}
-
-function githubApiUrl(value: string): string {
-  const parsed = new URL(value);
-  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== ""
-    || parsed.search !== "" || parsed.hash !== "") {
-    throw new Error("GitHub API must use a plain HTTPS URL");
-  }
-  return parsed.href.endsWith("/") ? parsed.href : `${parsed.href}/`;
-}
-
-async function boundedJsonResponse(response: Response, label: string): Promise<unknown> {
-  const declared = response.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/u.test(declared)
-    || Number(declared) > MAX_API_BYTES)) {
-    throw new Error(`${label} exceeds the response bound`);
-  }
-  if (response.body === null) throw new Error(`${label} has no response body`);
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  for await (const chunk of response.body) {
-    bytes += chunk.byteLength;
-    if (bytes > MAX_API_BYTES) throw new Error(`${label} exceeds the response bound`);
-    chunks.push(chunk);
-  }
-  try {
-    return parseJsonRejectingDuplicateKeys(
-      new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, bytes))
-    );
-  } catch (error) {
-    throw new Error(`${label} has invalid JSON`, { cause: error });
-  }
-}
-
-function object(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  return value as Record<string, unknown>;
 }

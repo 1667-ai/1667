@@ -1,3 +1,4 @@
+import { providerOperation } from "../../test/story-mutation-fixtures.js";
 import { expect, test } from "bun:test";
 import {
   mkdir,
@@ -54,7 +55,7 @@ test("startup upgrades an active legacy warning before publication", async () =>
       }
     );
     await mutations.init();
-    expect(await rejection(mutations.runProvider(
+    expect(await rejection(mutations.runProviderOperation(
       requestFor(
         providerMutationId,
         "a".repeat(64),
@@ -64,15 +65,17 @@ test("startup upgrades an active legacy warning before publication", async () =>
         }
       ),
       "autonameStory",
-      async (_runtime, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(
-          503,
-          "Provider reply was lost",
-          "internal"
-        );
-      },
-      () => null
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(
+            503,
+            "Provider reply was lost",
+            "internal"
+          );
+        },
+        () => null
+      )
     ))).toMatchObject({ code: "internal" });
 
     const warningVersion = (

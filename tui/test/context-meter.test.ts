@@ -7,6 +7,7 @@ import {
   contextSeverity,
   gaugeFill,
   formatTokensEstimate,
+  formatTokensScaled,
   requestWindow,
   type RailModel
 } from "../src/rail.js";
@@ -26,6 +27,8 @@ import { continuationPlan, DEFAULT_INSTRUCTION } from "../../shared/continuation
 import { renderPromptPlan } from "../../shared/prompt-plan.js";
 import { assertPromptReadyStoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../src/continuation-intent.js";
+import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
+import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
 
 function request(
   systemPrompt: string,
@@ -259,6 +262,232 @@ describe("honest next-request context meter", () => {
     expect(gaugeFill(0.5, 0)).toBe(0);
   });
 
+  test("previews likely response growth with a slow two-tone pulse", () => {
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = buildRailModel(payload, "", 10_000, estimate, 400, 2_000);
+    const firstDeadlines = createFrameDeadlineCollector(0);
+    const first = contextMeterLines(model, false, 3, 0, firstDeadlines);
+    const second = contextMeterLines(model, false, 3, 1_200);
+    const firstGrowth = first.flat().find((part) => part.role === "context growth");
+    const secondGrowth = second.flat().find((part) => part.role === "context growth pulse");
+
+    expect(frameText(first)).toContain("+~400≤2k / 10k");
+    expect(firstGrowth?.text.length).toBeGreaterThan(0);
+    expect(secondGrowth?.text).toBe(firstGrowth?.text);
+    expect(firstDeadlines.next()).toBe(1_200);
+  });
+
+  test("schedules the growth pulse only when a growth segment is rendered", () => {
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = buildRailModel(payload, "", 10_000, estimate, 400, 2_000);
+    const requestOnly = createFrameDeadlineCollector(0);
+    const withGauge = createFrameDeadlineCollector(0);
+
+    const slim = contextMeterLines(model, false, 1, 0, requestOnly);
+    const full = contextMeterLines(model, false, 3, 0, withGauge);
+
+    expect(slim.flat().some((part) => part.role?.startsWith("context growth"))).toBeFalse();
+    expect(requestOnly.next()).toBe(null);
+    expect(full.flat().some((part) => part.role?.startsWith("context growth"))).toBeTrue();
+    expect(withGauge.next()).toBe(1_200);
+  });
+
+  test("skips pulse deadlines when growth pulse is suppressed", () => {
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = buildRailModel(payload, "", 10_000, estimate, 400, 2_000);
+    const deadlines = createFrameDeadlineCollector(0);
+    const lines = contextMeterLines(model, false, 3, 1_200, deadlines, false);
+
+    expect(lines.flat().find((part) => part.role === "context growth")?.text.length)
+      .toBeGreaterThan(0);
+    expect(lines.flat().some((part) => part.role === "context growth pulse")).toBeFalse();
+    expect(deadlines.next()).toBe(null);
+  });
+
+  test("keeps sub-cell response growth visible in a large context window", () => {
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = {
+      ...buildRailModel(payload, "", 200_000, estimate, 400, 4_000),
+      window: requestWindow(10_000, 200_000)
+    };
+    const first = contextMeterLines(model, false, 3, 0);
+    const second = contextMeterLines(model, false, 3, 1_200);
+
+    expect(first.flat().find((part) => part.role === "context growth")?.text).toBe("▮");
+    expect(second.flat().find((part) => part.role === "context growth pulse")?.text).toBe("▮");
+  });
+
+  test("near-full request keeps a free cell for sub-capacity growth forecasts", () => {
+    // 9500 request + 1 growth in 10000 already owns cells-1; forcing used+1
+    // would paint full while the readout still says free tokens remain.
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = {
+      ...buildRailModel(payload, "", 10_000, estimate, 1, 2_000),
+      contextTokens: 9_500,
+      window: requestWindow(9_500, 10_000)
+    };
+    const lines = contextMeterLines(model, false, 3, 0);
+    const text = frameText(lines);
+    const freeTrack = lines.flat().find((part) =>
+      part.role === "dimmed page" && part.text.includes("▮")
+    );
+    const growth = lines.flat().find((part) =>
+      part.role === "context growth" || part.role === "context growth pulse"
+    );
+
+    expect(text).toContain("499 free");
+    expect(text).toContain("+~1≤2k");
+    expect(freeTrack?.text.length).toBeGreaterThan(0);
+    // No room for a forced pulse without consuming the last free cell.
+    expect(growth).toBe(undefined);
+  });
+
+  test("uses forecast growth for severity and remaining capacity", () => {
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = {
+      ...buildRailModel(payload, "", 1_000, estimate, 400, 2_000),
+      contextTokens: 700,
+      window: requestWindow(700, 1_000)
+    };
+    const lines = contextMeterLines(model, false, 3);
+    const value = lines.flat().find((part) => part.text.includes("+~400≤2k"));
+
+    expect(frameText(lines)).toContain("near full");
+    expect(frameText(lines)).not.toContain("300 free");
+    expect(value?.role).toBe("danger text");
+  });
+
+  test("uses forecast overflow to recommend a chapter summary", () => {
+    const payload = createDemoController().payload();
+    const base = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const eligible = {
+      number: 3,
+      included: true,
+      tokens: 500,
+      closed: true,
+      summarized: false,
+      stale: false,
+      savings: 400
+    };
+    const estimate = { ...base, chapters: [eligible] };
+    const model = buildRailModel(payload, "", estimate.tokens + 1, estimate, 2, 2_000);
+
+    expect(model.chapterNotice).toBe(
+      `ch ${eligible.number} · summarize frees ${formatTokensEstimate(eligible.savings)}`
+    );
+  });
+
+  test("expanded totals keep +~growth ahead of the secondary output cap", () => {
+    // freeReadout used to take the full rail width first and lock in ≤cap + free,
+    // leaving requestValue too little room for +~growth. Cap must yield first.
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    const model = {
+      ...buildRailModel(payload, "", 32_768, estimate, 512, 4_000),
+      contextTokens: 10_000,
+      window: requestWindow(10_000, 32_768)
+    };
+    const tall = contextMeterLines(model, true, 12, 0);
+    const tallText = frameText(tall);
+    expect(tallText).toContain("+~512");
+    expect(tallText).toContain("~10k");
+    expect(tallText).toContain("32.8k");
+    expect(tallText).toContain("≤4k");
+    expect(tallText).toContain("free");
+    expect(tallText).not.toContain("+~4k");
+    // Growth and request/window stay on the primary totals ownership; free may
+    // share the row or take the next when cap+free no longer fit beside them.
+    const growthLine = tall.find((line) => plainLine(line).includes("+~512"));
+    expect(growthLine).toBeDefined();
+    expect(plainLine(growthLine!)).toContain("~10k");
+    expect(plainLine(growthLine!)).toContain("32.8k");
+
+    // Height fallback still sheds expanded decoration before meaning: short
+    // rows keep collapsed request growth rather than a cap-only free readout.
+    const short = contextMeterLines(model, true, 3, 0);
+    const shortText = frameText(short);
+    expect(shortText).toContain("+~512");
+    expect(shortText).toContain("next request");
+    expect(shortText).not.toContain("context · request + response");
+  });
+
+  test("separates likely growth from the output cap and sizes the bar by estimate", () => {
+    const payload = createDemoController().payload();
+    const estimate = nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id));
+    // Cap is half the window; estimate is a small slice — the bar must not fill half.
+    const growthTokens = 200;
+    const maxOutputTokens = 5_000;
+    const model = {
+      ...buildRailModel(payload, "", 10_000, estimate, growthTokens, maxOutputTokens),
+      contextTokens: 1_000,
+      window: requestWindow(1_000, 10_000)
+    };
+    const lines = contextMeterLines(model, false, 3, 0);
+    const text = frameText(lines);
+    const growth = lines.flat().find((part) => part.role === "context growth");
+    const requestFill = lines.flat().find((part) =>
+      part.text.includes("▮") && part.role === "focus / accent"
+    );
+    const capAsGrowth = {
+      ...model,
+      growthTokens: maxOutputTokens
+    };
+    const capBar = contextMeterLines(capAsGrowth, false, 3, 0);
+    const capGrowth = capBar.flat().find((part) => part.role === "context growth");
+
+    expect(text).toContain("+~200");
+    expect(text).toContain("≤5k");
+    expect(text).not.toContain("+~5k");
+    expect(growth?.text.length).toBeGreaterThan(0);
+    expect(growth!.text.length).toBeLessThan(capGrowth!.text.length);
+    // Request fill stays the solid request role; growth is a separate pulse role.
+    expect(requestFill?.role).toBe("focus / accent");
+    expect(growth?.role).toBe("context growth");
+  });
+
+  test("render uses history estimate rather than the configured output cap", () => {
+    const source = demoAppSource();
+    // renderMode false: demo otherwise opens a leaf stream and withholds growth.
+    const state = initialState(source, false);
+    state.contextWindow = 32_768;
+    // Cap wide enough to be honest, short enough that `≤Nk` still fits the rail.
+    state.maxTokens = 4_000;
+    const estimate = nextRequestEstimate(state.payload, nextRequestContext(state));
+    const expectedGrowth = estimateResponseGrowthTokens({
+      payload: state.payload,
+      maxOutputTokens: state.maxTokens,
+      requestTokens: estimate.tokens,
+      contextWindow: state.contextWindow
+    });
+    const text = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+
+    expect(expectedGrowth).toBeLessThan(state.maxTokens);
+    expect(expectedGrowth).toBeGreaterThan(0);
+    // Likely growth sizes the pulse; the output cap is secondary (free readout).
+    expect(text).toContain(`+~${formatTokensScaled(expectedGrowth)}`);
+    expect(text).toContain(`≤${formatTokensScaled(state.maxTokens)}`);
+    expect(text).not.toContain(`+~${formatTokensScaled(state.maxTokens)}`);
+
+    // A huge cap still leaves the bar estimate; the bar never takes the cap.
+    state.maxTokens = 64_000;
+    const hugeCap = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+    const growthUnderHugeCap = estimateResponseGrowthTokens({
+      payload: state.payload,
+      maxOutputTokens: state.maxTokens,
+      requestTokens: estimate.tokens,
+      contextWindow: state.contextWindow
+    });
+    expect(growthUnderHugeCap).toBe(expectedGrowth);
+    expect(hugeCap).toContain(`+~${formatTokensScaled(expectedGrowth)}`);
+    expect(hugeCap).not.toContain(`+~${formatTokensScaled(state.maxTokens)}`);
+  });
+
   test("wide rail exposes a clickable expanded breakdown without adding other cards", () => {
     const source = demoAppSource();
     const state = initialState(source, true);
@@ -268,7 +497,7 @@ describe("honest next-request context meter", () => {
 
     // The breakdown replaces the collapsed three lines rather than stacking
     // under them: one meter, two states, one place in the rail.
-    expect(text).toContain("context · next request");
+    expect(text).toContain("context · request + response");
     expect(text).not.toContain("next request  ~");
     for (const category of ["voice", "facts", "recent", "summary"]) expect(text).toContain(`▮ ${category}`);
     expect(frame.derived.hitRows.some((row) => row?.overrides?.some((hit) =>
@@ -280,7 +509,7 @@ describe("honest next-request context meter", () => {
       && line.some((part) => part.text.includes("▮") && part.role !== "dimmed page"))!;
     expect(gauge).toBeDefined();
     expect(frameText(renderStoryScreen(initialState(demoAppSource(), true), { width: 140, height: 36 }).lines))
-      .not.toContain("context · next request");
+      .not.toContain("context · request + response");
   });
 
   test("right-edge breathing space stays visually blank and inert", () => {
@@ -365,7 +594,7 @@ describe("honest next-request context meter", () => {
           .flatMap((target) => target.kind === "fact" ? [target.index] : [])).size,
         meter: rail.filter((line) => /free|next request|─{12}/.test(plainLine(line))).length,
         header: text.includes("facts · 5"),
-        expanded: text.includes("context · next request"),
+        expanded: text.includes("context · request + response"),
         request: text.includes("next request  ~953 / 8k") || text.includes("~953 / 8k · 7k free")
       };
     };
@@ -582,9 +811,10 @@ describe("honest next-request context meter", () => {
 
     expect(railRoles()).toContain("compose accent");
     expect(railRoles()).not.toContain("focus / accent");
-    state.contextWindow = 1_000;
+    // Request alone already exceeds this window; growth clamp cannot hide overflow.
+    state.contextWindow = 500;
     state.contextMeterExpanded = true;
-    expect(railRoles()).toContain("context warning");
+    expect(railRoles()).toContain("danger text");
     expect(railRoles()).toContain("compose accent");
     expect(railRoles()).not.toContain("accent · deep");
     // The demo request has no separate voice slice; every nonzero category

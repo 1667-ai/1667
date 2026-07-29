@@ -78,9 +78,17 @@ export async function executeWorkerRequest(
       stream
       && (cancellation.signal.aborted || value === null || value === false)
     ) {
+      const stoppedText = cancellation.signal.aborted
+        ? deltas?.takeUnsent() ?? ""
+        : "";
       deltas?.dispose();
       publishTerminal(
-        { type: "complete", id: message.id, value: null },
+        {
+          type: "complete",
+          id: message.id,
+          value: null,
+          ...(stoppedText.length === 0 ? {} : { stoppedText })
+        },
         cancellation.signal.aborted ? "canceled" : "completed"
       );
       return;
@@ -94,6 +102,20 @@ export async function executeWorkerRequest(
       "completed"
     );
   } catch (error) {
+    if (stream && cancellation.settledUserCancellation(error)) {
+      const stoppedText = deltas?.takeUnsent() ?? "";
+      deltas?.dispose();
+      publishTerminal(
+        {
+          type: "complete",
+          id: message.id,
+          value: null,
+          ...(stoppedText.length === 0 ? {} : { stoppedText })
+        },
+        "canceled"
+      );
+      return;
+    }
     const failure = cancellation.failure(error);
     const outcome = isWorkerMutationMethod(message.method)
       ? mutationOutcome(failure.error)

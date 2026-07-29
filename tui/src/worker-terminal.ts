@@ -146,6 +146,11 @@ async function settleOwnedWorkerTerminal(
     pending.reject(workerError(message));
     return;
   }
+  if (message.type === "complete"
+    && pending.cancelled
+    && message.stoppedText !== undefined) {
+    pending.onDelta?.(message.stoppedText);
+  }
   pending.resolve(message.value);
 }
 

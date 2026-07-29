@@ -14,6 +14,7 @@ import {
   NpmRegistryPendingError,
   validateNpmAuditProvenance
 } from "./release-npm-provenance.js";
+import { NpmPublicClient } from "./release-npm-public-client.js";
 import {
   NpmPublicationAlreadyExistsError,
   NpmPublicationPendingTimeoutError,
@@ -22,10 +23,7 @@ import {
 } from "./release-npm-publisher.js";
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
-const MAX_REGISTRY_BYTES = 1024 * 1024;
 const MAX_NPM_OUTPUT_BYTES = 8 * 1024 * 1024;
-const REGISTRY_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_VISIBILITY_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -58,10 +56,9 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
   readonly #sourceRef: string;
   readonly #workflowPath: string;
   readonly #repositoryUrl: string;
-  readonly #registry: string;
+  readonly #metadata: NpmPublicClient;
   readonly #visibilityTimeoutMs: number;
   readonly #pollIntervalMs: number;
-  readonly #fetch: typeof fetch;
   readonly #sleep: (milliseconds: number) => Promise<void>;
 
   constructor(options: NpmReleaseRegistryOptions) {
@@ -76,7 +73,10 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
     this.#sourceRef = options.sourceRef;
     this.#workflowPath = options.workflowPath ?? ".github/workflows/release-npm.yml";
     this.#repositoryUrl = options.repositoryUrl ?? "https://github.com/1667-ai/1667";
-    this.#registry = registryUrl(options.registry ?? DEFAULT_REGISTRY);
+    this.#metadata = new NpmPublicClient({
+      registry: options.registry,
+      fetch: options.fetch
+    });
     this.#visibilityTimeoutMs = positiveDuration(
       options.visibilityTimeoutMs ?? DEFAULT_VISIBILITY_TIMEOUT_MS,
       "npm visibility timeout"
@@ -85,7 +85,6 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
       options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
       "npm visibility poll interval"
     );
-    this.#fetch = options.fetch ?? fetch;
     this.#sleep = options.sleep ?? ((milliseconds) => {
       return new Promise((resolve) => setTimeout(resolve, milliseconds));
     });
@@ -94,19 +93,13 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
 
   async inspect(packageToPublish: NpmPublicationPackage): Promise<"missing" | "present"> {
     const label = `${packageToPublish.name}@${packageToPublish.version}`;
-    const response = await this.#metadataResponse(
-      exactVersionUrl(
-        this.#registry,
-        packageToPublish.name,
-        packageToPublish.version
-      ),
+    const metadata = await this.#metadata.read(
+      packageToPublish.name,
+      packageToPublish.version,
       label
     );
-    if (response.status === 404) return "missing";
-    validateRegistryVersion(
-      await boundedJsonResponse(response, label),
-      packageToPublish
-    );
+    if (metadata === null) return "missing";
+    validateRegistryVersion(metadata, packageToPublish);
     return "present";
   }
 
@@ -162,42 +155,15 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
 
   async #verifyNextTag(packageToVerify: NpmPublicationPackage): Promise<void> {
     const label = `${packageToVerify.name} package metadata`;
-    const response = await this.#metadataResponse(
-      packageUrl(this.#registry, packageToVerify.name),
+    const metadata = await this.#metadata.read(
+      packageToVerify.name,
+      null,
       label
     );
-    if (response.status === 404) {
+    if (metadata === null) {
       throw new NpmRegistryPendingError(`${packageToVerify.name} is not visible`);
     }
-    validateRegistryNextTag(
-      await boundedJsonResponse(response, label),
-      packageToVerify
-    );
-  }
-
-  async #metadataResponse(url: string, label: string): Promise<Response> {
-    let response: Response;
-    try {
-      response = await this.#fetch(url, {
-        headers: { accept: "application/json" },
-        method: "GET",
-        redirect: "error",
-        signal: AbortSignal.timeout(REGISTRY_REQUEST_TIMEOUT_MS)
-      });
-    } catch (error) {
-      throw new NpmRegistryPendingError(
-        `npm registry request did not settle for ${label}`,
-        { cause: error }
-      );
-    }
-    if (response.status === 200 || response.status === 404) return response;
-    if (response.status === 408 || response.status === 425 || response.status === 429
-      || response.status >= 500) {
-      throw new NpmRegistryPendingError(
-        `npm registry returned ${response.status} for ${label}`
-      );
-    }
-    throw new Error(`npm registry returned ${response.status} for ${label}`);
+    validateRegistryNextTag(metadata, packageToVerify);
   }
 
   async #verifyProvenance(packages: readonly NpmPublicationPackage[]): Promise<void> {
@@ -292,14 +258,18 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
       const userConfig = path.join(directory, "user.npmrc");
       const globalConfig = path.join(directory, "global.npmrc");
       await Promise.all([
-        writeFile(userConfig, `registry=${this.#registry}\n`, { encoding: "utf8", mode: 0o600 }),
+        writeFile(
+          userConfig,
+          `registry=${this.#metadata.registry}\n`,
+          { encoding: "utf8", mode: 0o600 }
+        ),
         writeFile(globalConfig, "", { encoding: "utf8", mode: 0o600 })
       ]);
       return await operation({
         cwd: directory,
         environment: npmEnvironment(directory, userConfig, globalConfig),
         commonArguments: Object.freeze([
-          `--registry=${this.#registry}`,
+          `--registry=${this.#metadata.registry}`,
           `--userconfig=${userConfig}`,
           `--globalconfig=${globalConfig}`
         ])
@@ -448,48 +418,6 @@ function assertNoNpmCredentialEnvironment(environment: NodeJS.ProcessEnv): void 
   });
   if (variable !== undefined) {
     throw new Error(`npm publication refuses credential variable ${variable}`);
-  }
-}
-
-function exactVersionUrl(registry: string, name: string, version: string): string {
-  return new URL(`${encodeURIComponent(name)}/${encodeURIComponent(version)}`, registry).href;
-}
-
-function packageUrl(registry: string, name: string): string {
-  return new URL(encodeURIComponent(name), registry).href;
-}
-
-function registryUrl(value: string): string {
-  const parsed = new URL(value);
-  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== ""
-    || parsed.search !== "" || parsed.hash !== "") {
-    throw new Error("npm registry must be a plain HTTPS origin");
-  }
-  return parsed.href.endsWith("/") ? parsed.href : `${parsed.href}/`;
-}
-
-async function boundedJsonResponse(response: Response, label: string): Promise<unknown> {
-  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
-  if (contentType !== "application/json") throw new Error(`${label} is not JSON`);
-  const declared = response.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_REGISTRY_BYTES)) {
-    throw new Error(`${label} exceeds the response bound`);
-  }
-  if (response.body === null) throw new Error(`${label} has no response body`);
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  for await (const chunk of response.body) {
-    bytes += chunk.byteLength;
-    if (bytes > MAX_REGISTRY_BYTES) throw new Error(`${label} exceeds the response bound`);
-    chunks.push(chunk);
-  }
-  const body = Buffer.concat(chunks, bytes);
-  try {
-    return parseJsonRejectingDuplicateKeys(
-      new TextDecoder("utf-8", { fatal: true }).decode(body)
-    );
-  } catch (error) {
-    throw new Error(`${label} has invalid JSON`, { cause: error });
   }
 }
 

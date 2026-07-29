@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
   collectReleaseEvidence,
+  collectReleaseTagAuthorization,
   type ReleaseEvidenceRequest
 } from "../scripts/release-evidence.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
@@ -238,6 +239,13 @@ function collect(
   });
 }
 
+function collectAuthorization(fixture: Fixture) {
+  return collectReleaseTagAuthorization({
+    repositoryRoot: fixture.repository,
+    tagName: TAG
+  });
+}
+
 /**
  * Writes a program that answers `ssh-keygen -Y` without verifying anything: it
  * echoes back the principal Git asked about and exits zero. Git believes it, and
@@ -304,6 +312,29 @@ test("evidence from a signed tag on a protected branch satisfies the release val
     JSON.parse(canonicalJson(document.evidence)) as unknown
   );
   assert.deepEqual(identities.evidence, document.evidence);
+});
+
+test("tag authorization verifies the protected signer without build facts", FIXTURE_ONLY, async (t) => {
+  const fixture = await createFixture(t);
+  const document = await collectAuthorization(fixture);
+  assert.equal(document.tagName, TAG);
+  assert.equal(document.tagSignature, "verified");
+  assert.equal(document.tagObjectType, "annotated");
+  assert.equal(document.tagTargetCommit, document.sourceCommit);
+  assert.equal("buildTimestamp" in document, false);
+  assert.equal(document.signature.principal, "release@1667.test");
+});
+
+test("tag authorization refuses a signer absent from the protected policy", FIXTURE_ONLY, async (t) => {
+  const fixture = await createFixture(t, {
+    tag: "attacker-key",
+    policySigners: ["release"],
+    workingTreeSigners: ["release", "attacker"]
+  });
+  await assert.rejects(
+    collectAuthorization(fixture),
+    /is not from an allowed signer/
+  );
 });
 
 test("evidence refuses a tag signed by a key the protected ref never authorised", FIXTURE_ONLY, async (t) => {

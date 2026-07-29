@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -13,6 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import {
   directoryAssetDigests,
@@ -31,6 +34,10 @@ const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
 const SOURCE_REF = "refs/heads/main";
+const execFileAsync = promisify(execFile);
+const GITHUB_RELEASE_CLI = fileURLToPath(
+  new URL("../scripts/release-npm-github.ts", import.meta.url)
+);
 
 test("CI attestation verification checks the exact retained file set", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-npm-ci-"));
@@ -97,6 +104,21 @@ test("GitHub release publication verifies exact assets before and after upload",
   const gh = path.join(root, "gh");
   await mkdir(assets);
   await writeReleaseAssetFixture(assets);
+  await execFileAsync(process.execPath, [
+    "--import",
+    "tsx",
+    GITHUB_RELEASE_CLI,
+    "verify-assets",
+    assets
+  ]);
+  const observation = path.join(assets, `${PUBLISHED_ARTIFACT_TARGETS[0]}.json`);
+  const observationBytes = await readFile(observation);
+  await rm(observation);
+  assert.throws(
+    () => verifyNpmReleaseAssetDirectory(assets),
+    /unexpected asset set/u
+  );
+  await writeFile(observation, observationBytes);
   await writeFile(notes, "# Release\n");
   await writeFile(gh, fakeReleaseGh({ remote, state, log }));
   await chmod(gh, 0o755);
@@ -157,6 +179,7 @@ async function writeReleaseAssetFixture(directory: string): Promise<void> {
     ...["launcher", ...PUBLISHED_ARTIFACT_TARGETS].map((target) => {
       return `${target}.spdx.json`;
     }),
+    ...PUBLISHED_ARTIFACT_TARGETS.map((target) => `${target}.json`),
     ...["launcher", ...PUBLISHED_ARTIFACT_TARGETS].map((target) => {
       return `1667-${target}.tgz`;
     })

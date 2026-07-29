@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import {
   access,
@@ -350,18 +351,20 @@ test("Q blocks a different provider mutation before creating phantom ambiguity",
   const current = await fixture.stories.loadVersioned(STORY_ID);
   let called = false;
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         OTHER_MUTATION_ID,
         OTHER_FINGERPRINT,
         current.aggregateVersion!
       ),
       "rewriteNode",
-      async () => {
-        called = true;
-        return true;
-      },
-      () => true
+      providerOperation(
+        async () => {
+          called = true;
+          return true;
+        },
+        () => true
+      )
     ),
     hasServiceError("generation_outcome_unknown")
   );
@@ -401,11 +404,13 @@ test("Q acknowledgement clears an unknown provider outcome and terminalizes both
   assert.notEqual(acknowledgement.completed, null);
 
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       request(fixture.v5Hash),
       "autonameStory",
-      async () => assert.fail("acknowledged provider work must not repeat"),
-      () => null
+      providerOperation(
+        async () => assert.fail("acknowledged provider work must not repeat"),
+        () => null
+      )
     ),
     hasServiceError("generation_outcome_unknown_acknowledged")
   );
@@ -421,27 +426,31 @@ for (const status of [null, 408, 500] as const) {
   test(`Q terminalizes local state after ${status ?? "transport"} provider failure`, async (t) => {
     const fixture = await setup(t, `1667-q-provider-terminal-${status ?? "transport"}-`);
     await assert.rejects(
-      fixture.mutations.runProvider(
+      fixture.mutations.runProviderOperation(
         request(fixture.v5Hash),
         "autonameStory",
-        async (_stories, providerStarted) => {
-          await providerStarted();
-          throw new ProviderError("Provider reply was not definitive", status);
-        },
-        () => null
+        providerOperation(
+          async (_stories, providerStarted) => {
+            await providerStarted();
+            throw new ProviderError("Provider reply was not definitive", status);
+          },
+          () => null
+        )
       ),
       (error: unknown) => error instanceof ProviderError
     );
     let retried = false;
     await assert.rejects(
-      fixture.mutations.runProvider(
+      fixture.mutations.runProviderOperation(
         request(fixture.v5Hash),
         "autonameStory",
-        async () => {
-          retried = true;
-          return null;
-        },
-        () => null
+        providerOperation(
+          async () => {
+            retried = true;
+            return null;
+          },
+          () => null
+        )
       ),
       hasServiceError("provider_failure")
     );
@@ -496,14 +505,16 @@ test("Q status retains a warning while provider terminal publication is incomple
     }
   );
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       request(fixture.v5Hash),
       "autonameStory",
-      async (_stories, providerStarted) => {
-        await providerStarted();
-        throw new ProviderError("Rejected", 400);
-      },
-      () => null
+      providerOperation(
+        async (_stories, providerStarted) => {
+          await providerStarted();
+          throw new ProviderError("Rejected", 400);
+        },
+        () => null
+      )
     ),
     (error: unknown) => error instanceof InjectedStoryMutationCrash
   );
@@ -527,14 +538,16 @@ for (const failure of [
   test(`Q terminalizes definitive provider failure: ${failure.name}`, async (t) => {
     const fixture = await setup(t, `1667-q-provider-terminal-${failure.name}-`);
     await assert.rejects(
-      fixture.mutations.runProvider(
+      fixture.mutations.runProviderOperation(
         request(fixture.v5Hash),
         "autonameStory",
-        async (_stories, providerStarted) => {
-          await providerStarted();
-          throw failure;
-        },
-        () => null
+        providerOperation(
+          async (_stories, providerStarted) => {
+            await providerStarted();
+            throw failure;
+          },
+          () => null
+        )
       )
     );
     const stored = await fixture.ledger.loadStoryReceipt(
@@ -551,11 +564,13 @@ for (const failure of [
     if (persisted.kind !== "v6-live") assert.fail("Expected live V6");
     assert.equal(persisted.manifest.unresolvedProvider, null);
     await assert.rejects(
-      fixture.mutations.runProvider(
+      fixture.mutations.runProviderOperation(
         request(fixture.v5Hash),
         "autonameStory",
-        async () => assert.fail("terminal provider failure must not repeat"),
-        () => null
+        providerOperation(
+          async () => assert.fail("terminal provider failure must not repeat"),
+          () => null
+        )
       ),
       hasServiceError("provider_failure")
     );
@@ -717,14 +732,16 @@ async function makeProviderOutcomeUnknown(
   fixture: Awaited<ReturnType<typeof setup>>
 ): Promise<void> {
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       request(fixture.v5Hash),
       "autonameStory",
-      async (_stories, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(503, "Provider reply was lost", "internal");
-      },
-      () => null
+      providerOperation(
+        async (_stories, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(503, "Provider reply was lost", "internal");
+        },
+        () => null
+      )
     ),
     hasServiceError("internal")
   );

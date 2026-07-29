@@ -5,6 +5,9 @@ import type { HttpCapabilityScope } from "./http-auth.js";
 import type { HttpOperationLifetime } from "./http-operation-protocol.js";
 
 export type ProtectedHttpApiHead = "import" | "settings" | "stories";
+export type HttpCallerCancellationStrategy =
+  | "transport-first"
+  | "operation-first";
 
 export interface HttpOperationPolicy {
   readonly head: ProtectedHttpApiHead;
@@ -81,6 +84,14 @@ export function httpOperationPolicy(
 ): Pick<HttpOperationPolicy, "method" | "lifetime"> {
   const { method, lifetime } = resolveHttpApiRoute(httpMethodInput, path);
   return { method, lifetime };
+}
+
+export function callerCancellationForLifetime(
+  lifetime: HttpOperationLifetime
+): HttpCallerCancellationStrategy {
+  return lifetime === "generation"
+    ? "operation-first"
+    : "transport-first";
 }
 
 export function protectedHttpApiScopeForHead(

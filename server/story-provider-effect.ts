@@ -1,7 +1,11 @@
 import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, nodeById } from "../shared/story-tree.js";
 import type { Story, StoryNode } from "../shared/types.js";
-import { GenerationResultError, ServiceError } from "./errors.js";
+import {
+  GenerationResultError,
+  GenerationStoppedError,
+  ServiceError
+} from "./errors.js";
 import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { setNodeRewriteId } from "./story-node-text.js";
@@ -457,6 +461,6 @@ function requireNotCancelled(
   message: string
 ): void {
   if (signal?.aborted === true) {
-    throw new GenerationResultError(409, message);
+    throw new GenerationStoppedError(message);
   }
 }

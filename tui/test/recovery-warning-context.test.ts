@@ -43,8 +43,7 @@ test("generation recovery carries its provider context", async () => {
   const settled = deferred<void>();
   const repaint = () => {
     if (state.backendTask === null
-      && state.toast
-        === "model request stopped · you can try again") {
+      && receivedContext !== undefined) {
       settled.resolve();
     }
   };
@@ -60,6 +59,9 @@ test("generation recovery carries its provider context", async () => {
   await settled.promise;
 
   expect(receivedContext).toEqual(warning.providerRecovery);
+  expect(state.toast).toBe(
+    "something interrupted the model · you can try again"
+  );
   stop();
 });
 

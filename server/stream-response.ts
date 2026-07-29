@@ -6,6 +6,7 @@ import {
   createFailureEnvelope,
   failureWireFields
 } from "../shared/failure-envelope.js";
+import { GenerationStoppedError } from "./errors.js";
 
 export async function streamResponse<T>(
   request: IncomingMessage,
@@ -19,10 +20,16 @@ export async function streamResponse<T>(
   errorReporter?: InternalErrorReporter,
   operation?: string
 ): Promise<void> {
-  const abort = abortOnDisconnect(request, response);
+  const abort = abortOnDisconnect(
+    request,
+    response,
+    operationSignal === undefined
+      ? undefined
+      : new GenerationStoppedError()
+  );
   const signal = operationSignal === undefined
     ? abort.signal
-    : AbortSignal.any([abort.signal, operationSignal]);
+    : AbortSignal.any([operationSignal, abort.signal]);
   let session: ReturnType<typeof openSse> | null = null;
   const open = () => session ??= openSse(response, abort);
   try {

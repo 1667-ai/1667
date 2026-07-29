@@ -504,7 +504,7 @@ describe("responsive input lanes", () => {
     expect(app.state.toast).not.toBe("stopping · waiting for backend settlement");
   });
 
-  test("a committed generation that beats cancellation clears its stopping notice", async () => {
+  test("a committed generation that beats cancellation stays silent", async () => {
     const source = demoAppSource();
     const entered = deferred<void>();
     const gate = deferred<void>();
@@ -524,7 +524,7 @@ describe("responsive input lanes", () => {
 
     expect(state.backendTask).toBe(null);
     expect(state.abort).toBe(null);
-    expect(state.toast).toBe("stopped · landed text kept");
+    expect(state.toast).toBe(null);
   });
 
   test("a refused backend send keeps the compose draft intact", async () => {

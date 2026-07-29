@@ -33,6 +33,9 @@ const SBOM_ASSETS = Object.freeze([
   "launcher",
   ...PUBLISHED_ARTIFACT_TARGETS
 ].map((target) => `${target}.spdx.json`));
+const OBSERVATION_ASSETS = Object.freeze(
+  PUBLISHED_ARTIFACT_TARGETS.map((target) => `${target}.json`)
+);
 
 export interface GitHubReleaseEnvironment {
   readonly GITHUB_REPOSITORY?: string;
@@ -120,7 +123,12 @@ export function verifyNpmReleaseAssetDirectory(directory: string): readonly stri
   const names = entries.map((entry) => entry.name).sort();
   const tarballs = names.filter((name) => name.endsWith(".tgz"));
   if (tarballs.length !== 5) throw new Error("GitHub release must contain five npm tarballs");
-  const expected = [...FIXED_ASSETS, ...SBOM_ASSETS, ...tarballs].sort();
+  const expected = [
+    ...FIXED_ASSETS,
+    ...OBSERVATION_ASSETS,
+    ...SBOM_ASSETS,
+    ...tarballs
+  ].sort();
   if (names.length !== expected.length
     || names.some((name, index) => name !== expected[index])) {
     throw new Error("GitHub release contains an unexpected asset set");
@@ -291,17 +299,24 @@ function isMainModule(): boolean {
 
 if (isMainModule()) {
   try {
-    const [version, assetsDirectory, notesFile] = process.argv.slice(2);
-    if (process.argv.length !== 5 || version === undefined
-      || assetsDirectory === undefined || notesFile === undefined) {
-      throw new Error("usage: release-npm-github.ts <version> <assets> <notes>");
+    const [command, assetsDirectory, notesFile] = process.argv.slice(2);
+    if (command === "verify-assets" && process.argv.length === 4
+      && assetsDirectory !== undefined) {
+      verifyNpmReleaseAssetDirectory(assetsDirectory);
+    } else if (process.argv.length === 5 && command !== undefined
+      && assetsDirectory !== undefined && notesFile !== undefined) {
+      await publishOrVerifyGitHubRelease({
+        version: command,
+        assetsDirectory,
+        notesFile,
+        environment: process.env
+      });
+    } else {
+      throw new Error(
+        "usage: release-npm-github.ts verify-assets <assets>"
+        + " | release-npm-github.ts <version> <assets> <notes>"
+      );
     }
-    await publishOrVerifyGitHubRelease({
-      version,
-      assetsDirectory,
-      notesFile,
-      environment: process.env
-    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`release-npm-github: ${message}\n`);

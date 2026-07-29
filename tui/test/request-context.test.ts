@@ -5,7 +5,8 @@ import { createDemoController, demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "../src/model.js";
 import { nextRequestContext, projectNextRequest } from "../src/request-context.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
-import { formatTokensEstimate } from "../src/rail.js";
+import { formatTokensEstimate, formatTokensScaled } from "../src/rail.js";
+import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import type { RuntimeState, StreamView } from "../src/state.js";
@@ -33,7 +34,22 @@ function landedEstimate(state: RuntimeState, payload: StoryPayload) {
 
 function expectRenderedEstimate(state: RuntimeState, tokens: number): void {
   const text = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
-  expect(text).toContain(`next request  ${formatTokensEstimate(tokens)} /`);
+  const value = `next request  ${formatTokensEstimate(tokens)}`;
+  if (state.stream === null) {
+    const growth = estimateResponseGrowthTokens({
+      payload: state.payload,
+      maxOutputTokens: state.maxTokens,
+      requestTokens: tokens,
+      contextWindow: state.contextWindow
+    });
+    // Request line always carries likely growth; the output cap is secondary and
+    // may sit on the free readout when the request line is full.
+    expect(text).toContain(`${value} +~${formatTokensScaled(growth)}`);
+    expect(text).toContain(`≤${formatTokensScaled(state.maxTokens)}`);
+  } else {
+    expect(text).toContain(`${value} /`);
+    expect(text).not.toContain("+~");
+  }
 }
 
 describe("stream-aware next-request projection", () => {

@@ -1,3 +1,4 @@
+import { providerOperation } from "./story-mutation-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -45,18 +46,20 @@ test("recovery follows the provider fence after a newer request is blocked", asy
   };
   let providerCalled = false;
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         BLOCKED_WARNING_ID,
         OTHER_FINGERPRINT,
         warningAggregateVersion
       ),
       "rewriteNode",
-      async () => {
-        providerCalled = true;
-        return true;
-      },
-      () => true
+      providerOperation(
+        async () => {
+          providerCalled = true;
+          return true;
+        },
+        () => true
+      )
     ),
     hasServiceError("generation_outcome_unknown")
   );
@@ -110,19 +113,21 @@ test("recovery follows the provider fence after a newer request is blocked", asy
 
   current = await fixture.stories.loadVersioned(STORY_ID);
   await assert.rejects(
-    recovering.runProvider(
+    recovering.runProviderOperation(
       requestFor(
         THIRD_MUTATION_ID,
         "d".repeat(64),
         current.aggregateVersion!
       ),
       "rewriteNode",
-      async (_runtime, providerStarted) => {
-        providerCalled = true;
-        await providerStarted();
-        throw new ProviderError("Retry reached the provider", 503);
-      },
-      () => true
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          providerCalled = true;
+          await providerStarted();
+          throw new ProviderError("Retry reached the provider", 503);
+        },
+        () => true
+      )
     ),
     (error: unknown) => error instanceof ProviderError
   );
@@ -142,15 +147,17 @@ test("a stale warning cannot acknowledge a newer provider fence", async (t) => {
     providerMutationId: MUTATION_ID
   };
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         BLOCKED_WARNING_ID,
         OTHER_FINGERPRINT,
         warningAggregateVersion
       ),
       "rewriteNode",
-      async () => assert.fail("Blocked request reached the provider"),
-      () => true
+      providerOperation(
+        async () => assert.fail("Blocked request reached the provider"),
+        () => true
+      )
     ),
     hasServiceError("generation_outcome_unknown")
   );
@@ -174,22 +181,24 @@ test("a stale warning cannot acknowledge a newer provider fence", async (t) => {
 
   current = await fixture.stories.loadVersioned(STORY_ID);
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         newerProviderMutationId,
         "d".repeat(64),
         current.aggregateVersion!
       ),
       "rewriteNode",
-      async (_runtime, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(
-          503,
-          "Newer provider reply was lost",
-          "internal"
-        );
-      },
-      () => true
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(
+            503,
+            "Newer provider reply was lost",
+            "internal"
+          );
+        },
+        () => true
+      )
     ),
     hasServiceError("internal")
   );
@@ -296,15 +305,17 @@ test("legacy archive recovery selects only its matching provider fence", async (
     assert.fail("Expected legacy provider recovery context");
   }
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         BLOCKED_WARNING_ID,
         OTHER_FINGERPRINT,
         warningAggregateVersion
       ),
       "rewriteNode",
-      async () => assert.fail("Blocked request reached the provider"),
-      () => true
+      providerOperation(
+        async () => assert.fail("Blocked request reached the provider"),
+        () => true
+      )
     ),
     hasServiceError("generation_outcome_unknown")
   );
@@ -333,22 +344,24 @@ test("legacy archive recovery selects only its matching provider fence", async (
 
   current = await fixture.stories.loadVersioned(STORY_ID);
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         newerProviderMutationId,
         "d".repeat(64),
         current.aggregateVersion!
       ),
       "rewriteNode",
-      async (_runtime, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(
-          503,
-          "Newer provider reply was lost",
-          "internal"
-        );
-      },
-      () => true
+      providerOperation(
+        async (_runtime, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(
+            503,
+            "Newer provider reply was lost",
+            "internal"
+          );
+        },
+        () => true
+      )
     ),
     hasServiceError("internal")
   );
@@ -402,15 +415,17 @@ test("a provider target survives a pointer-preserving deletion", async (t) => {
     providerMutationId: MUTATION_ID
   };
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       requestFor(
         BLOCKED_WARNING_ID,
         OTHER_FINGERPRINT,
         warningAggregateVersion
       ),
       "rewriteNode",
-      async () => assert.fail("Blocked request reached the provider"),
-      () => true
+      providerOperation(
+        async () => assert.fail("Blocked request reached the provider"),
+        () => true
+      )
     ),
     hasServiceError("generation_outcome_unknown")
   );
@@ -444,18 +459,20 @@ async function makeProviderOutcomeUnknown(
   fixture: Awaited<ReturnType<typeof setup>>
 ): Promise<void> {
   await assert.rejects(
-    fixture.mutations.runProvider(
+    fixture.mutations.runProviderOperation(
       request(fixture.v5Hash),
       "autonameStory",
-      async (_stories, providerStarted) => {
-        await providerStarted();
-        throw new ServiceError(
-          503,
-          "Provider reply was lost",
-          "internal"
-        );
-      },
-      () => null
+      providerOperation(
+        async (_stories, providerStarted) => {
+          await providerStarted();
+          throw new ServiceError(
+            503,
+            "Provider reply was lost",
+            "internal"
+          );
+        },
+        () => null
+      )
     ),
     hasServiceError("internal")
   );

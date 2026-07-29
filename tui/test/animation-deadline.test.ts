@@ -81,6 +81,24 @@ describe("animation deadlines", () => {
     expect(deadlines.next()).toBe(1_330);
   });
 
+  test("compose focus suppresses the growth pulse when phases collapse to chrome", () => {
+    const state = initialState(demoAppSource(false), false);
+    state.mode = "COMPOSE";
+    state.contextWindow = 10_000;
+    state.maxTokens = 2_000;
+    state.now = 0;
+    state.freshLandedAt = new Map();
+
+    const live = createFrameDeadlineCollector(0);
+    renderStoryScreen(state, { width: 140, height: 36, deadlines: live });
+    expect(live.next()).toBe(1_200);
+
+    state.config = { ...state.config, composeFocus: "on" };
+    const dimmed = createFrameDeadlineCollector(0);
+    renderStoryScreen(state, { width: 140, height: 36, deadlines: dimmed });
+    expect(dimmed.next()).toBe(null);
+  });
+
   test("retry copy registers the next displayed-second boundary", () => {
     const deadlines = createFrameDeadlineCollector(1_000);
     renderConnectionBanner([[]], {

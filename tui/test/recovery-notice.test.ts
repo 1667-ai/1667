@@ -7,7 +7,7 @@ import {
   type FailureCode
 } from "../../shared/failure-envelope.js";
 
-test("recovery notice describes a stopped model request in product terms", () => {
+test("unexpected generation recovery gives a friendly retry notice", () => {
   const warning: WorkerRecoveryWarning = {
     mutationId: "m1-example",
     method: "continueStory",
@@ -21,7 +21,7 @@ test("recovery notice describes a stopped model request in product terms", () =>
   };
 
   expect(recoveryNotice([warning])).toBe(
-    "model request stopped · you can try again"
+    "something interrupted the model · you can try again"
   );
 });
 

@@ -99,12 +99,18 @@ export interface SseSession {
   abort: AbortController;
 }
 
-export function abortOnDisconnect(request: IncomingMessage, response: ServerResponse): AbortController {
+export function abortOnDisconnect(
+  request: IncomingMessage,
+  response: ServerResponse,
+  reason?: unknown
+): AbortController {
   const abort = new AbortController();
-  const cancel = () => abort.abort();
+  const cancel = () => abort.abort(reason);
   request.once("aborted", cancel);
   response.once("close", cancel);
-  if (request.aborted || response.destroyed || response.closed) abort.abort();
+  if (request.aborted || response.destroyed || response.closed) {
+    abort.abort(reason);
+  }
   return abort;
 }
 

@@ -6,18 +6,21 @@ import {
 } from "../../shared/http-protocol.js";
 import {
   ApiHttpError,
+  createApi as createHttpApi,
   HTTP_GENERATION_REQUEST_TIMEOUT_MS
 } from "../src/api.js";
 import { createConnectionMonitor } from "../src/connection.js";
 import {
   createTestApi as createApi,
+  testHttpAccess,
   testHttpMetadata as metadata,
   testStoryPayload as storyPayload
 } from "./http-api-fixture.js";
 import { DEMO_SETTINGS_DOCUMENT, DEMO_SETTINGS_VIEW } from "../src/demo.js";
 import { HTTP_AUTHORIZATION_HEADER } from "../../shared/http-auth.js";
 import {
-  HTTP_OPERATION_LIFETIME_MS
+  HTTP_OPERATION_LIFETIME_MS,
+  HTTP_OPERATION_TICKET_HEADER
 } from "../../shared/http-operation-protocol.js";
 import {
   WORKER_PROVIDER_CHECK_TIMEOUT_MS
@@ -709,6 +712,77 @@ test("HTTP provider failure invalidates the held story revision", async () => {
   ]);
 });
 
+test("HTTP generation cancellation invalidates the held story revision", async () => {
+  const cancel = new AbortController();
+  let generationCanceled = false;
+  let storyLoads = 0;
+  const mutationVersions: unknown[] = [];
+  const payload = (revision: string) => ({
+    ...storyPayload("story"),
+    aggregateVersion: {
+      kind: "v6",
+      revision
+    }
+  });
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path === "/api/stories/story"
+      && (init?.method ?? "GET") === "GET") {
+      storyLoads += 1;
+      return Response.json(payload(generationCanceled
+        ? "00000000000000000002"
+        : "00000000000000000001"));
+    }
+    if (path === "/api/stories/story/continue") {
+      generationCanceled = true;
+      cancel.abort();
+      return new Response(
+        'data: {"type":"delta","text":"kept"}\n\n',
+        { headers: { "content-type": "text/event-stream" } }
+      );
+    }
+    if (path === "/api/stories/story" && init?.method === "PATCH") {
+      return Response.json(payload("00000000000000000003"));
+    }
+    throw new Error(`Unexpected API path: ${path}`);
+  }) as typeof fetch;
+  const api = createApi(
+    "http://127.0.0.1:7373",
+    undefined,
+    (reservation) => {
+      if (reservation.path === "/api/stories/story/continue"
+        || (reservation.path === "/api/stories/story"
+          && reservation.method === "PATCH")) {
+        mutationVersions.push(reservation.expectedAggregateVersion);
+      }
+    }
+  );
+
+  await api.loadStory("story");
+  expect(await api.continueStory(
+    "story",
+    "",
+    "cancelled-generation",
+    {},
+    () => {},
+    cancel.signal
+  )).toBe(null);
+  await api.renameStory("story", "Renamed");
+
+  expect(storyLoads).toBe(2);
+  expect(mutationVersions).toEqual([
+    {
+      kind: "v6",
+      revision: "00000000000000000001"
+    },
+    {
+      kind: "v6",
+      revision: "00000000000000000002"
+    }
+  ]);
+});
+
 test("HTTP generation lease expiry is an error, not user cancellation", async () => {
   const baseUrl = "http://127.0.0.1:7373";
   globalThis.fetch = (async (input, init) => {
@@ -985,6 +1059,67 @@ test("HTTP StoryApi stream cancellation covers compatibility preflight", async (
   const result = await api.continueStory("story", "", "gen", {}, () => {}, cancel.signal);
   expect(result).toBe(null);
   expect(calls).toBe(1);
+});
+
+test("HTTP StoryApi cancels story-version preflight on the server", async () => {
+  const baseUrl = "http://127.0.0.1:7373";
+  const cancel = new AbortController();
+  let markVersionStarted!: () => void;
+  const versionStarted = new Promise<void>((resolve) => {
+    markVersionStarted = resolve;
+  });
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path === "/api/stories/story") {
+      markVersionStarted();
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true }
+        );
+      });
+    }
+    throw new Error(`Unexpected API path: ${path}`);
+  }) as typeof fetch;
+  const access = testHttpAccess(baseUrl);
+  let stopCalls = 0;
+  const api = createHttpApi(baseUrl, undefined, {
+    ...access,
+    fetch: async (input, init) => {
+      const path = new URL(String(input), baseUrl).pathname;
+      if (path !== "/api/operations/cancel") {
+        return await access.fetch(input, init);
+      }
+      stopCalls += 1;
+      const [sessionId, sequence] = (
+        new Headers(init?.headers).get(HTTP_OPERATION_TICKET_HEADER) ?? ""
+      ).split(".");
+      return Response.json({
+        listenerInstanceId: metadata().serverInstanceId,
+        sessionId,
+        sequence,
+        state: "running",
+        terminal: false,
+        cancelRequested: true
+      });
+    }
+  });
+
+  const pending = api.continueStory(
+    "story",
+    "",
+    "gen",
+    {},
+    () => {},
+    cancel.signal
+  );
+  await versionStarted;
+  cancel.abort();
+
+  expect(await pending).toBe(null);
+  expect(stopCalls).toBe(1);
 });
 
 function catalogPage(

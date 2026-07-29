@@ -10,8 +10,10 @@ import {
   type StoryViewModel
 } from "../model.js";
 import { buildRailModel } from "../rail.js";
+import { factEditorChrome } from "../fact-editor-policy.js";
 import { projectNextRequest } from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
+import { estimateResponseGrowthTokens } from "../response-growth-estimate.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
 import type { InlineEditorSession, StoryScreenState } from "../state.js";
 import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-layout.js";
@@ -189,9 +191,28 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   });
   if (rail) {
     const focusedText = rowPart(view, state.focusIndex)?.node.text ?? "";
+    // Once output starts, remaining generation size is unknown. Keep the
+    // projected request live, but withhold a growth forecast until idle.
+    // Retake projection already excludes the replaced target, so growth is the
+    // likely generation size — never that size minus a target already dropped.
+    const growthTokens = state.stream === null
+      ? estimateResponseGrowthTokens({
+        payload: state.payload,
+        maxOutputTokens: state.maxTokens,
+        requestTokens: estimate.tokens,
+        contextWindow: state.contextWindow
+      })
+      : 0;
+    // Compose focus maps both growth pulse roles to chrome, so a pulse
+    // deadline would only force invisible repaints. Own the skip here where
+    // the dim is decided; the meter still owns deadline registration.
+    const growthPulse = !(state.mode === "COMPOSE" && state.config.composeFocus === "on");
     lines = renderFactsRail(lines,
-      buildRailModel(state.payload, focusedText, state.contextWindow, estimate),
-      hitRows, surfaceRows, frameLayout, state.contextMeterExpanded);
+      buildRailModel(
+        state.payload, focusedText, state.contextWindow, estimate, growthTokens, state.maxTokens
+      ),
+      hitRows, surfaceRows, frameLayout, state.contextMeterExpanded, state.now, options.deadlines,
+      growthPulse);
   }
   if (state.mode === "COMPOSE") {
     lines = applyComposePageMode(
@@ -526,13 +547,16 @@ function renderInlineEditor(
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
   const editor = state.editor!;
+  const factChrome = editor.target?.kind === "fact"
+    ? factEditorChrome(editor.title, editor.composer.text)
+    : null;
   const layout = renderComposerLayout({
     composer: editor.composer,
     terminalWidth: width,
     terminalHeight: height,
     measure: width,
-    title: editor.title,
-    footerHints: editorFooterHints(editor),
+    title: factChrome?.title ?? editor.title,
+    footerHints: factChrome?.footerHints ?? editorFooterHints(editor),
     placeholder: editor.placeholder,
     footerNotice: state.toast ?? editor.conflict?.message ?? null,
     scrollTop: state.editorScrollTop,

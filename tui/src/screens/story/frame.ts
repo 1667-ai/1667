@@ -4,7 +4,8 @@ import { cellWidth, graphemeCells } from "../../cell-width.js";
 import type { HitTarget } from "../../hit.js";
 
 export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "danger text" | "context warning"
-  | "context voice" | "context facts" | "context recent" | "context summary" | "fresh 1" | "fresh 2";
+  | "context voice" | "context facts" | "context recent" | "context summary"
+  | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2";
 
 /** Every display role that is not a palette role in its own right. */
 type DisplayAlias = Exclude<DisplayRole, PaletteRole>;
@@ -327,6 +328,11 @@ const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   "context facts": (palette) => palette.color("tag · alt"),
   "context recent": (palette) => palette.color("focus / accent"),
   "context summary": (palette) => palette.color("summary"),
+  // Forecast cells must stay off the request-fill palette (focus / accent,
+  // context warning, danger). Brass and draft cool keep both pulse phases
+  // distinct from every severity's request ink without reading as an alert.
+  "context growth": (palette) => palette.brassDim,
+  "context growth pulse": (palette) => palette.color("tag · draft"),
   "fresh 1": (palette) => palette.freshIntermediate[0],
   "fresh 2": (palette) => palette.freshIntermediate[1]
 };
