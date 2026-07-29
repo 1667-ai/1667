@@ -16,6 +16,7 @@ import type { RuntimeState } from "./state.js";
 import { nextRequestContext } from "./request-context.js";
 import { nextRequestEstimate } from "./request-projection.js";
 import type { ActionContext, BackendActionContext } from "./action-context.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
@@ -73,7 +74,9 @@ export async function chaptersAction(
   if (resolved.action === "focus-next") overlay.cursor = Math.min(model.rows.length - 1, overlay.cursor + 1);
   else if (resolved.action === "focus-previous") overlay.cursor = Math.max(0, overlay.cursor - 1);
   else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(model.rows.length - 1, resolved.index ?? overlay.cursor));
-  else if (resolved.action === "open-selected" && selected !== null) jumpToChapter(state, selected);
+  else if (resolved.action === "open-selected" && selected !== null) {
+    jumpToChapter(state, selected, source);
+  }
   else if (resolved.action === "summarize-chapter" && selected?.closedBy !== null && selected !== null) {
     await summarizeChapter(state, source, selected, context);
   } else if (resolved.action === "rename-item" && selected !== null) {
@@ -192,25 +195,32 @@ async function dividerRowAction(
   return false;
 }
 
-export function jumpAdjacentChapter(state: RuntimeState, direction: -1 | 1): void {
+export function jumpAdjacentChapter(
+  state: RuntimeState,
+  direction: -1 | 1,
+  source?: AppSource
+): void {
   const view = createStoryViewModel(state.payload, state.stream);
   const current = chapterForRow(view, state.focusIndex)?.number ?? 1;
   const target = Math.max(1, Math.min(view.chapters.length, current + direction));
   const chapter = view.chapters.find((candidate) => candidate.number === target);
-  if (chapter !== undefined) jumpToChapter(state, chapter);
+  if (chapter !== undefined) jumpToChapter(state, chapter, source);
 }
 
-function jumpToChapter(state: RuntimeState, chapter: StoryChapter): void {
+function jumpToChapter(
+  state: RuntimeState,
+  chapter: StoryChapter,
+  source?: AppSource
+): void {
   const view = createStoryViewModel(state.payload, state.stream);
   const target = chapter.openingBreakId === null
     ? view.rows.findIndex((row) => row.kind === "part" && row.chapterNumber === chapter.number)
     : view.rows.findIndex((row) => row.kind === "chapter-divider" && row.break.id === chapter.openingBreakId);
-  if (target >= 0) {
-    state.focusIndex = target;
-  }
+  if (target >= 0) state.focusIndex = target;
   followStoryViewport(state);
   state.chapters = null;
   state.mode = "NAV";
+  if (source !== undefined) rememberFocus(state, source);
 }
 
 function beginRename(state: RuntimeState, chapter: StoryChapter): void {

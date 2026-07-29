@@ -13,6 +13,7 @@ import {
 import {
   flushReadingPositionPersist,
   loadReadingPositions,
+  markReadingPositionDirty,
   saveReadingPositions
 } from "../src/reading-position-store.js";
 import { rememberFocus } from "../src/reading-position-persist.js";
@@ -42,20 +43,28 @@ describe("reading position", () => {
     const view = createStoryViewModel(source.payload);
     const part = source.payload.path[0]!;
     const focus = rowIndexForNode(view, part.id);
-    const once = putReadingPosition({}, source.payload.id, view, focus);
+    const once = putReadingPosition({}, source.payload.id, view, focus, source.payload);
     expect(once[source.payload.id]).toBe(part.id);
-    expect(putReadingPosition(once, source.payload.id, view, focus)).toBe(once);
+    expect(putReadingPosition(once, source.payload.id, view, focus, source.payload)).toBe(once);
     const cleared = forgetReadingPosition(once, source.payload.id);
     expect(cleared[source.payload.id]).toBe(undefined);
     expect(forgetReadingPosition(cleared, source.payload.id)).toBe(cleared);
   });
 
-  test("store file round-trips independently of user config", () => {
+  test("store merge-write keeps peer keys for other stories", () => {
     const directory = mkdtempSync(join(tmpdir(), "1667-reading-"));
     const file = join(directory, "reading-positions.json");
-    saveReadingPositions({ "story-a": "part-1" }, { file });
-    expect(loadReadingPositions({ file })).toEqual({ "story-a": "part-1" });
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "story-a": "part-1" });
+    saveReadingPositions({ "story-a": "part-1", "story-b": "part-2" }, { file });
+    markReadingPositionDirty("story-a", "part-1b", { file });
+    flushReadingPositionPersist({ file });
+    expect(loadReadingPositions({ file })).toEqual({
+      "story-a": "part-1b",
+      "story-b": "part-2"
+    });
+    markReadingPositionDirty("story-b", null, { file });
+    flushReadingPositionPersist({ file });
+    expect(loadReadingPositions({ file })).toEqual({ "story-a": "part-1b" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "story-a": "part-1b" });
   });
 
   test("rememberFocus is a no-op in demo mode so navigation stays light", () => {

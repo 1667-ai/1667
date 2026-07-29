@@ -57,15 +57,19 @@ export function applyOpeningFocus(
   return openingFocusIndex(payload, readingPartIdFor(positions, payload.id));
 }
 
-/** Pure: set the focused part for a story. No-op when focus is not a part. */
+/** Pure: set the focused part for a story. No-op when focus is not an
+ * authoritative payload part (stream virtual rows are skipped). */
 export function putReadingPosition(
   positions: ReadingPositions,
   storyId: string,
   view: StoryViewModel,
-  focusIndex: number
+  focusIndex: number,
+  payload: StoryPayload
 ): ReadingPositions {
   const part = rowPart(view, focusIndex);
   if (part === null) return positions;
+  // Never store stream placeholders — only ids the payload still carries.
+  if (!payloadHasPart(payload, part.id)) return positions;
   if (positions[storyId] === part.id) return positions;
   return trimReadingPositions({ ...positions, [storyId]: part.id }, storyId);
 }
@@ -86,8 +90,15 @@ export function withRememberedFocus(
   focusIndex: number,
   stream: StreamView | null = null
 ): ReadingPositions {
+  // View may include a stream row for display, but putReadingPosition rejects
+  // ids that are not on the authoritative payload.
   const view = createStoryViewModel(payload, stream);
-  return putReadingPosition(positions, payload.id, view, focusIndex);
+  return putReadingPosition(positions, payload.id, view, focusIndex, payload);
+}
+
+function payloadHasPart(payload: StoryPayload, partId: string): boolean {
+  return payload.path.some(({ id }) => id === partId)
+    || payload.nodes.some(({ id }) => id === partId);
 }
 
 function firstPartRowIndex(view: StoryViewModel): number {

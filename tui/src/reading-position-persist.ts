@@ -5,7 +5,7 @@ import {
 } from "./reading-position.js";
 import {
   flushReadingPositionPersist as flushStore,
-  queueReadingPositionPersist
+  markReadingPositionDirty
 } from "./reading-position-store.js";
 import type { RuntimeState } from "./state.js";
 
@@ -26,7 +26,9 @@ export function rememberFocus(state: RuntimeState, source: FocusSource): void {
   if (next === state.readingPositions) return;
   state.readingPositions = next;
   source.readingPositions = next;
-  queueReadingPositionPersist(next);
+  const partId = next[state.payload.id];
+  if (partId === undefined) return;
+  markReadingPositionDirty(state.payload.id, partId);
 }
 
 /** Drop a deleted story from the store and flush. */
@@ -37,11 +39,15 @@ export function forgetStoryReadingPosition(
 ): void {
   flushStore();
   const next = forgetReadingPosition(state.readingPositions, storyId);
-  if (next === state.readingPositions) return;
+  if (next === state.readingPositions) {
+    // Still mark delete so concurrent peers cannot resurrect a stale key on merge.
+    markReadingPositionDirty(storyId, null);
+    flushStore();
+    return;
+  }
   state.readingPositions = next;
   source.readingPositions = next;
-  // Immediate write: delete should not wait on the debounce window.
-  queueReadingPositionPersist(next);
+  markReadingPositionDirty(storyId, null);
   flushStore();
 }
 
