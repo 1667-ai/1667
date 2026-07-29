@@ -11,8 +11,7 @@
  * re-reads the map, applies only dirty story keys, then rewrites. Concurrent
  * clients updating different stories do not erase each other.
  */
-import { createHash } from "node:crypto";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   closeSync,
   constants,
@@ -21,6 +20,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -38,8 +38,10 @@ export interface ReadingPositionStoreOptions {
 }
 
 const PERSIST_DEBOUNCE_MS = 400;
-const LOCK_WAIT_MS = 1_000;
+const LOCK_WAIT_MS = 200;
 const LOCK_SPIN_MS = 10;
+/** Locks older than this are treated as abandoned after a crash. */
+const STALE_LOCK_MS = 2_000;
 
 /** Dirty keys for the next flush. `null` means delete that story entry. */
 const dirty = new Map<string, string | null>();
@@ -75,7 +77,6 @@ export function readingPositionScope(
 /** Bind all subsequent load/mark/flush calls to this vault's file. */
 export function configureReadingPositionStore(file: string): void {
   if (persistTimer !== null && dirty.size > 0 && activeStoreFile !== file) {
-    // Leaving a vault: flush the previous file before switching.
     flushReadingPositionPersist({ file: activeStoreFile });
   }
   activeStoreFile = file;
@@ -128,22 +129,25 @@ export function flushReadingPositionPersist(
   const file = options.file ?? activeStoreFile;
   const opts = { ...options, file };
   const snapshot = new Map(dirty);
-  dirty.clear();
-  withStoreLock(file, () => {
+  // Keep dirty until a successful write so ENOSPC / EACCES can retry later.
+  const wrote = withStoreLock(file, () => {
     const onDisk = loadReadingPositions(opts);
     const merged = mergeReadingPositionDirty(onDisk, snapshot);
-    writePositionsFile(merged, opts);
+    return writePositionsFile(merged, opts);
   });
+  if (wrote) {
+    for (const [storyId, partId] of snapshot) {
+      if (dirty.get(storyId) === partId) dirty.delete(storyId);
+    }
+  }
 }
 
-function withStoreLock(storeFile: string, work: () => void): void {
+function withStoreLock(storeFile: string, work: () => boolean): boolean {
   const lockPath = `${storeFile}.lock`;
   try {
     mkdirSync(dirname(storeFile), { recursive: true });
   } catch {
-    // Read-only home or non-directory path: still attempt unguarded write.
-    work();
-    return;
+    return work();
   }
   const deadline = Date.now() + LOCK_WAIT_MS;
   let lockFd: number | null = null;
@@ -154,22 +158,24 @@ function withStoreLock(storeFile: string, work: () => void): void {
         constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
         0o600
       );
-    } catch (error) {
-      if (!isExistError(error)) {
-        // Locking unavailable — still try the work once without exclusion.
-        work();
-        return;
+      try {
+        writeFileSync(lockFd, `${process.pid}\n${Date.now()}\n`, "utf8");
+      } catch {
+        // Ownership record is best-effort.
       }
+    } catch (error) {
+      if (!isExistError(error)) return work();
+      if (recoverStaleLock(lockPath)) continue;
       spin(LOCK_SPIN_MS);
     }
   }
   if (lockFd === null) {
-    // Timed out waiting; best-effort unguarded write beats dropping the update.
-    work();
-    return;
+    // Still locked by a live peer: keep dirty for a later flush; do not
+    // unlock-and-race. A short wait already elapsed.
+    return false;
   }
   try {
-    work();
+    return work();
   } finally {
     try {
       closeSync(lockFd);
@@ -184,6 +190,17 @@ function withStoreLock(storeFile: string, work: () => void): void {
   }
 }
 
+function recoverStaleLock(lockPath: string): boolean {
+  try {
+    const ageMs = Date.now() - statSync(lockPath).mtimeMs;
+    if (ageMs < STALE_LOCK_MS) return false;
+    unlinkSync(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isExistError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
@@ -195,10 +212,11 @@ function spin(ms: number): void {
   }
 }
 
+/** Returns true when the replacement landed. */
 function writePositionsFile(
   positions: ReadingPositions,
   options: ReadingPositionStoreOptions
-): void {
+): boolean {
   let temporaryFile: string | null = null;
   try {
     const file = options.file ?? activeStoreFile;
@@ -226,8 +244,9 @@ function writePositionsFile(
     renameSync(temporaryFile, file);
     temporaryFile = null;
     syncDirectory(directory);
+    return true;
   } catch {
-    // A read-only home must not break the app or truncate the last store.
+    return false;
   } finally {
     if (temporaryFile !== null) {
       try {

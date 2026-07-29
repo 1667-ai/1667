@@ -137,7 +137,6 @@ export function adoptReconciliationSnapshot(
     return;
   }
 
-  const focusIndex = state.focusIndex;
   const retakePrompt = state.retakePrompt;
   const dormantRetake = state.pendingGenerationDraft?.kind === "retake"
     ? state.pendingGenerationDraft.retakePrompt
@@ -174,7 +173,9 @@ export function adoptReconciliationSnapshot(
     : null;
 
   adoptStoryState(state, payload);
-  state.focusIndex = Math.max(0, Math.min(focusIndex, createStoryViewModel(payload).rows.length - 1));
+  // Destination story keeps its stored opening focus from adoptStoryState.
+  // Reusing the previous story's numeric row index would land on an arbitrary
+  // part of an unrelated layout.
   state.composer = composer;
   state.composerScrollTop = composerScrollTop;
   state.pendingGenerationDraft = retainedPendingText === null

@@ -15,6 +15,7 @@ import { openDirectComposer } from "./composer-ownership.js";
 import { createUnusedTakesPrunePlan } from "./prune-model.js";
 import { chaptersAction, createBreakAtFocus, openChapters } from "./chapter-actions.js";
 import { createStoryViewModel, lastPartRowIndex } from "./model.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
@@ -271,6 +272,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "chapters") openChapters(state);
   else if (command.id === "chapter") {
     state.focusIndex = lastPartRowIndex(createStoryViewModel(state.payload));
+    rememberFocus(state, source);
     await createBreakAtFocus(state, source, context);
   }
   else if (command.id === "autoname") {
