@@ -14,6 +14,7 @@ import {
 } from "../src/reading-position.js";
 import {
   configureReadingPositionStore,
+  disposeReadingPositionStore,
   flushReadingPositionPersist,
   loadReadingPositions,
   markReadingPositionDirty,
@@ -86,19 +87,38 @@ describe("reading position", () => {
   test("each vault scope hashes to its own user-local store file", () => {
     const a = readingPositionStoreFile("/tmp/project-a/.1667", null);
     const b = readingPositionStoreFile("/tmp/project-b/.1667", null);
-    const http = readingPositionStoreFile(null, {
-      origin: "http://127.0.0.1:1667",
-      instanceId: "instance-a"
-    });
-    const httpOther = readingPositionStoreFile(null, {
-      origin: "http://127.0.0.1:1667",
-      instanceId: "instance-b"
-    });
+    const http = readingPositionStoreFile(null, "http://127.0.0.1:1667");
+    const httpSame = readingPositionStoreFile(null, "http://127.0.0.1:1667");
     expect(a).toContain("reading-positions");
     expect(a).not.toBe(b);
     expect(http).not.toBe(a);
-    expect(http).not.toBe(httpOther);
+    expect(http).toBe(httpSame);
     expect(readingPositionStorePathForScope("http:x")).toContain("reading-positions");
+  });
+
+  test("integration: navigate, dispose, reload reopens the stored part", () => {
+    const directory = mkdtempSync(join(tmpdir(), "1667-reading-int-"));
+    const file = join(directory, "store.json");
+    configureReadingPositionStore(file);
+    const source = demoAppSource();
+    // Non-demo so rememberFocus persists.
+    source.demo = false;
+    source.readingPositions = {};
+    const mid = source.payload.path[Math.floor(source.payload.path.length / 2)]!;
+    const state = initialState(source, false);
+    state.demo = false;
+    const view = createStoryViewModel(state.payload);
+    state.focusIndex = rowIndexForNode(view, mid.id);
+    rememberFocus(state, source);
+    disposeReadingPositionStore();
+    configureReadingPositionStore(file);
+    const reopened = {
+      ...source,
+      demo: false,
+      readingPositions: loadReadingPositions({ file })
+    };
+    const next = initialState(reopened, false);
+    expect(next.focusIndex).toBe(rowIndexForNode(createStoryViewModel(reopened.payload), mid.id));
   });
 
   test("mkdir failure on a read-only parent does not throw during flush", () => {

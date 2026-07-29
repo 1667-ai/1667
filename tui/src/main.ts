@@ -6,11 +6,9 @@ import { loadConfig } from "./config.js";
 import {
   configureReadingPositionStore,
   disposeReadingPositionStore,
-  flushReadingPositionPersist,
   loadReadingPositions,
   readingPositionStoreFile
 } from "./reading-position-store.js";
-import { rebindLiveReadingPositions } from "./reading-position-persist.js";
 import { resolve } from "node:path";
 import {
   BackendRestartRequiredError,
@@ -495,48 +493,6 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       throw error;
     }
   }
-  // Late-bound so listener replacement can refresh the cursor store after
-  // the AppSource exists. Do not object-spread HttpAttach: authRecord is a
-  // live getter and must keep rotating with the listener.
-  const sourceHolder: { source: AppSource | null } = { source: null };
-  if (httpAttach !== null) {
-    const attached = httpAttach;
-    const previousConfirm = attached.confirmListenerReplacement.bind(attached);
-    httpAttach = {
-      get origin() {
-        return attached.origin;
-      },
-      get authRecord() {
-        return attached.authRecord;
-      },
-      get fetch() {
-        return attached.fetch;
-      },
-      get mutationIntents() {
-        return attached.mutationIntents;
-      },
-      get shutdownSignal() {
-        return attached.shutdownSignal;
-      },
-      dispose: () => attached.dispose(),
-      confirmListenerReplacement: async (previousInstanceId) => {
-        const replaced = await previousConfirm(previousInstanceId);
-        if (!replaced) return false;
-        flushReadingPositionPersist();
-        const nextFile = readingPositionStoreFile(null, {
-          origin: attached.origin,
-          instanceId: attached.authRecord.instanceId
-        });
-        configureReadingPositionStore(nextFile);
-        const nextPositions = loadReadingPositions({ file: nextFile });
-        if (sourceHolder.source !== null) {
-          sourceHolder.source.readingPositions = nextPositions;
-        }
-        rebindLiveReadingPositions(nextPositions);
-        return true;
-      }
-    };
-  }
   const backendApi = worker === null
     ? createApi(httpAttach!.origin, (metadata) => {
       return backendRecovery.publish(metadata.recoveryWarnings.map(httpRecoveryWarning));
@@ -565,12 +521,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     const config = loadConfig();
     const storeFile = readingPositionStoreFile(
       dataDir,
-      httpAttach === null
-        ? null
-        : {
-          origin: httpAttach.origin,
-          instanceId: httpAttach.authRecord.instanceId
-        }
+      httpAttach?.origin ?? null
     );
     configureReadingPositionStore(storeFile);
     const readingPositions = loadReadingPositions({ file: storeFile });
@@ -583,7 +534,6 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
       config,
       readingPositions };
-    sourceHolder.source = source;
     return {
       source,
       dispose: async () => {

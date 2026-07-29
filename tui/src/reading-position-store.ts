@@ -63,16 +63,17 @@ export function readingPositionStorePathForScope(scope: string): string {
  * User-scoped path for this vault. Project data never receives this file
  * (no Git exposure). Same absolute project path shares a store; a wiped and
  * recreated project at that path may inherit cursors — rare and acceptable.
+ * HTTP uses the loopback origin only so a server restart keeps positions.
  */
 export function readingPositionStoreFile(
   projectDataDir: string | null,
-  http: { origin: string; instanceId: string } | null
+  httpOrigin: string | null
 ): string {
   if (projectDataDir !== null && projectDataDir.length > 0) {
     return readingPositionStorePathForScope(`project:${resolve(projectDataDir)}`);
   }
-  if (http !== null && http.origin.length > 0 && http.instanceId.length > 0) {
-    return readingPositionStorePathForScope(`http:${http.origin}:${http.instanceId}`);
+  if (httpOrigin !== null && httpOrigin.length > 0) {
+    return readingPositionStorePathForScope(`http:${httpOrigin}`);
   }
   return readingPositionStorePathForScope("default");
 }
