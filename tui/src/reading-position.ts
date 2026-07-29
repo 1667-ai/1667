@@ -9,14 +9,8 @@ import {
 } from "./model.js";
 import type { StreamView } from "./state.js";
 
-/** Bounded map of story id → last focused part id. Local UI state only: not
- * manuscript content, not synced across machines. See issue #38. */
+/** Story id → last focused part id. Local changing store, not settings. */
 export type ReadingPositions = Readonly<Record<string, string>>;
-
-/** Minimal config shape so this module does not import `config.ts` (cycle). */
-export interface ReadingPositionCarrier {
-  readingPositions: ReadingPositions;
-}
 
 const MAX_READING_POSITIONS = 256;
 
@@ -30,6 +24,13 @@ export function normalizeReadingPositions(value: unknown): ReadingPositions {
     if (Object.keys(next).length >= MAX_READING_POSITIONS) break;
   }
   return next;
+}
+
+export function readingPartIdFor(
+  positions: ReadingPositions,
+  storyId: string
+): string | null {
+  return positions[storyId] ?? null;
 }
 
 /** Resolve where a story should open. A stored part wins when it still has a
@@ -49,59 +50,44 @@ export function openingFocusIndex(
   return lastPartRowIndex(view);
 }
 
-export function readingPartIdFor(
-  config: ReadingPositionCarrier,
-  storyId: string
-): string | null {
-  return config.readingPositions?.[storyId] ?? null;
+export function applyOpeningFocus(
+  payload: StoryPayload,
+  positions: ReadingPositions
+): number {
+  return openingFocusIndex(payload, readingPartIdFor(positions, payload.id));
 }
 
-/** Remember the focused part for this story. Pure: caller persists config. */
-export function rememberReadingPosition<T extends ReadingPositionCarrier>(
-  config: T,
+/** Pure: set the focused part for a story. No-op when focus is not a part. */
+export function putReadingPosition(
+  positions: ReadingPositions,
   storyId: string,
   view: StoryViewModel,
   focusIndex: number
-): T {
+): ReadingPositions {
   const part = rowPart(view, focusIndex);
-  if (part === null) return config;
-  const previous = config.readingPositions?.[storyId];
-  if (previous === part.id) return config;
-  const readingPositions = trimReadingPositions({
-    ...(config.readingPositions ?? {}),
-    [storyId]: part.id
-  }, storyId);
-  return { ...config, readingPositions };
+  if (part === null) return positions;
+  if (positions[storyId] === part.id) return positions;
+  return trimReadingPositions({ ...positions, [storyId]: part.id }, storyId);
 }
 
-/** Drop a story's position when the story is deleted. Pure: caller persists. */
-export function forgetReadingPosition<T extends ReadingPositionCarrier>(
-  config: T,
+export function forgetReadingPosition(
+  positions: ReadingPositions,
   storyId: string
-): T {
-  if (config.readingPositions?.[storyId] === undefined) return config;
-  const readingPositions = { ...(config.readingPositions ?? {}) };
-  delete readingPositions[storyId];
-  return { ...config, readingPositions };
+): ReadingPositions {
+  if (positions[storyId] === undefined) return positions;
+  const next = { ...positions };
+  delete next[storyId];
+  return next;
 }
 
-/** Apply open focus from the carrier's map (or tour / leaf defaults). */
-export function applyOpeningFocus(
-  payload: StoryPayload,
-  config: ReadingPositionCarrier
-): number {
-  return openingFocusIndex(payload, readingPartIdFor(config, payload.id));
-}
-
-/** After NAV focus moves onto a part, update the carrier map if it changed. */
-export function withRememberedFocus<T extends ReadingPositionCarrier>(
-  config: T,
+export function withRememberedFocus(
+  positions: ReadingPositions,
   payload: StoryPayload,
   focusIndex: number,
   stream: StreamView | null = null
-): T {
+): ReadingPositions {
   const view = createStoryViewModel(payload, stream);
-  return rememberReadingPosition(config, payload.id, view, focusIndex);
+  return putReadingPosition(positions, payload.id, view, focusIndex);
 }
 
 function firstPartRowIndex(view: StoryViewModel): number {
@@ -111,14 +97,12 @@ function firstPartRowIndex(view: StoryViewModel): number {
   return 0;
 }
 
-/** Keep the just-written entry and drop oldest map keys when over the cap. */
 function trimReadingPositions(
   positions: Record<string, string>,
   keepStoryId: string
 ): ReadingPositions {
   const kept = new Map(Object.entries(positions));
   if (kept.size <= MAX_READING_POSITIONS) return positions;
-  // String-key insertion order: drop from the front; never drop the update.
   for (const key of [...kept.keys()]) {
     if (kept.size <= MAX_READING_POSITIONS) break;
     if (key === keepStoryId) continue;

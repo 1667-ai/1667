@@ -3,6 +3,10 @@ import { createApi } from "./api.js";
 import { demoAppSource } from "./demo.js";
 import { createConnectionMonitor } from "./connection.js";
 import { loadConfig } from "./config.js";
+import {
+  flushReadingPositionPersist,
+  loadReadingPositions
+} from "./reading-position-store.js";
 import { resolve } from "node:path";
 import {
   BackendRestartRequiredError,
@@ -513,6 +517,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       }
     }
     const config = loadConfig();
+    const readingPositions = loadReadingPositions();
     const startUpdateCheck = createBackgroundUpdateStarter(config);
     const source = { payload, api, demo: false,
       stories, settingsView, settings: settingsView.effective,
@@ -520,10 +525,12 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       ...(worker === null ? {} : { backendFailure: worker.failure }),
       backendRecovery,
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
-      config };
+      config,
+      readingPositions };
     return {
       source,
       dispose: async () => {
+        flushReadingPositionPersist();
         connection.dispose();
         httpAttach?.dispose();
         await worker?.dispose();

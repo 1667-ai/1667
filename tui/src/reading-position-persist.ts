@@ -1,50 +1,50 @@
-import { saveConfig, type UserConfig } from "./config.js";
-import { withRememberedFocus } from "./reading-position.js";
+import {
+  forgetReadingPosition,
+  withRememberedFocus,
+  type ReadingPositions
+} from "./reading-position.js";
+import {
+  flushReadingPositionPersist as flushStore,
+  queueReadingPositionPersist
+} from "./reading-position-store.js";
 import type { RuntimeState } from "./state.js";
 
-const PERSIST_DEBOUNCE_MS = 400;
-
 type FocusSource = {
-  config: UserConfig;
+  readingPositions: ReadingPositions;
   demo: boolean;
 };
 
-let pendingConfig: UserConfig | null = null;
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** Update in-memory reading position; durable write is debounced. */
+/** Update in-memory reading position; durable store write is debounced. */
 export function rememberFocus(state: RuntimeState, source: FocusSource): void {
   if (source.demo || state.demo) return;
   const next = withRememberedFocus(
-    state.config,
+    state.readingPositions,
     state.payload,
     state.focusIndex,
     state.stream
   );
-  if (next === state.config) return;
-  state.config = next;
-  source.config = next;
-  queuePersist(next);
+  if (next === state.readingPositions) return;
+  state.readingPositions = next;
+  source.readingPositions = next;
+  queueReadingPositionPersist(next);
 }
 
-/** Flush a pending durable write (story switch, delete, shutdown). */
+/** Drop a deleted story from the store and flush. */
+export function forgetStoryReadingPosition(
+  state: RuntimeState,
+  source: FocusSource,
+  storyId: string
+): void {
+  flushStore();
+  const next = forgetReadingPosition(state.readingPositions, storyId);
+  if (next === state.readingPositions) return;
+  state.readingPositions = next;
+  source.readingPositions = next;
+  // Immediate write: delete should not wait on the debounce window.
+  queueReadingPositionPersist(next);
+  flushStore();
+}
+
 export function flushReadingPositionPersist(): void {
-  if (persistTimer !== null) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
-  }
-  if (pendingConfig === null) return;
-  saveConfig(pendingConfig);
-  pendingConfig = null;
-}
-
-function queuePersist(config: UserConfig): void {
-  pendingConfig = config;
-  if (persistTimer !== null) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    if (pendingConfig === null) return;
-    saveConfig(pendingConfig);
-    pendingConfig = null;
-  }, PERSIST_DEBOUNCE_MS);
+  flushStore();
 }

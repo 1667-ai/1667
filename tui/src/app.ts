@@ -29,7 +29,7 @@ import {
   mouseToAction
 } from "./mouse-actions.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
-import { openingFocusIndex, readingPartIdFor } from "./reading-position.js";
+import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { handleOverlayAction } from "./overlay-actions.js";
 import { beginSettingsPasteEdit } from "./settings-overlay-model.js";
 import { createPalette } from "./palette.js";
@@ -98,6 +98,8 @@ export interface AppSource {
   backendFailure?: Promise<Error>;
   startUpdateCheck?: BackgroundUpdateStarter;
   config: UserConfig;
+  /** Local changing store: last focused part per story. Not settings. */
+  readingPositions: ReadingPositions;
 }
 
 type InteractivePresentedInteraction = PresentedInteraction & {
@@ -561,11 +563,12 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     ? Math.max(0, rowIndexForPathIndex(view, demoPathIndex))
     : openingFocusIndex(
       source.payload,
-      readingPartIdFor(source.config, source.payload.id)
+      readingPartIdFor(source.readingPositions, source.payload.id)
     );
   return {
     payload: source.payload,
     focusIndex: initialFocus,
+    readingPositions: source.readingPositions,
     mode: source.payload.path.length === 0 ? "COMPOSE" : "NAV",
     showInstructions: true,
     expandedPromptIds: new Set(),

@@ -8,6 +8,7 @@ import type {
 import type { ConnectionState } from "./connection.js";
 import type { HitRows } from "./hit.js";
 import type { UserConfig } from "./config.js";
+import type { ReadingPositions } from "./reading-position.js";
 import type { AppMode } from "./keys.js";
 import type { UndoEntry } from "./model.js";
 import type { PrunePlan } from "./prune-model.js";
@@ -188,6 +189,8 @@ export interface OverlayState {
   /** Row→target map from the last render; mouse handling reads it. */
   hitRows: HitRows;
   config: UserConfig;
+  /** Local changing store: last focused part per story. Not settings. */
+  readingPositions: ReadingPositions;
   demo: boolean;
   storyFolder: string;
   library: LibraryOverlayState | null;

@@ -261,8 +261,7 @@ describe("user config normalization", () => {
       composeFocus: "off",
       composeMaxHeight: null,
       quota: { date: "2026-07-21", words: 42 },
-      updates: { mode: "off", channel: "stable", skippedVersion: null },
-      readingPositions: {}
+      updates: { mode: "off", channel: "stable", skippedVersion: null }
     });
   });
 
@@ -316,24 +315,8 @@ describe("user config normalization", () => {
       composeFocus: "off",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
-      updates: { mode: "off", channel: "stable", skippedVersion: null },
-      readingPositions: {}
+      updates: { mode: "off", channel: "stable", skippedVersion: null }
     });
     expect(normalizeUserConfig(null)).toEqual(normalizeUserConfig([]));
-  });
-
-  test("keeps valid reading positions and drops junk map entries", () => {
-    expect(normalizeUserConfig({
-      reading_positions: {
-        "story-a": "part-1",
-        "": "gone",
-        "story-b": "",
-        "story-c": 3,
-        "story-d": "part-2"
-      }
-    }).readingPositions).toEqual({
-      "story-a": "part-1",
-      "story-d": "part-2"
-    });
   });
 });

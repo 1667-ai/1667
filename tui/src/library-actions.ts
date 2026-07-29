@@ -2,10 +2,11 @@ import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { applyTextKey, isPlainNavigation, type ResolvedKey } from "./keys.js";
 import { libraryRows, typedTitleMatches } from "./library-model.js";
-import { saveConfig } from "./config.js";
 import { publishStories } from "./overlay-publication.js";
-import { forgetReadingPosition } from "./reading-position.js";
-import { flushReadingPositionPersist } from "./reading-position-persist.js";
+import {
+  flushReadingPositionPersist,
+  forgetStoryReadingPosition
+} from "./reading-position-persist.js";
 import { adoptReconciliationSnapshot, adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";
 import type { RuntimeState, TextPrompt } from "./state.js";
 
@@ -184,13 +185,7 @@ async function deleteStory(
     const deletedOpenStory = target.id === task.storyId;
     await source.api.deleteStory(target.id);
     if (!task.owns()) return;
-    flushReadingPositionPersist();
-    const withoutPosition = forgetReadingPosition(state.config, target.id);
-    if (withoutPosition !== state.config) {
-      saveConfig(withoutPosition);
-      state.config = withoutPosition;
-      source.config = withoutPosition;
-    }
+    forgetStoryReadingPosition(state, source, target.id);
     let stories = await source.api.listStories();
     if (!task.owns()) return;
     if (deletedOpenStory && task.storyCurrent()) {

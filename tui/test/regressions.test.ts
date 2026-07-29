@@ -752,12 +752,9 @@ describe("where a story opens", () => {
       ...source,
       demo: false,
       payload: { ...source.payload, id },
-      config: {
-        ...source.config,
-        readingPositions: readingPartId === undefined
-          ? {}
-          : { [id]: readingPartId }
-      }
+      readingPositions: readingPartId === undefined
+        ? {}
+        : { [id]: readingPartId }
     };
   };
 

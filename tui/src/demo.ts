@@ -479,14 +479,14 @@ export function demoAppSource(dense = false): AppSource {
     exportDirectory: process.cwd(),
     connection: null,
     config: {
-      readingPositions: {},
       theme: "lantern",
       factsRail: "auto",
       composeFocus: "off",
       composeMaxHeight: null,
       quota: { date: "", words: 0 },
       updates: { mode: "notify", channel: "stable", skippedVersion: null }
-    }
+    },
+    readingPositions: {}
   };
 }
 

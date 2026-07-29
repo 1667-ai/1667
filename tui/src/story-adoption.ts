@@ -292,7 +292,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   // Durably leave the previous story's position before replacing focus.
   flushReadingPositionPersist();
   state.payload = payload;
-  state.focusIndex = applyOpeningFocus(payload, state.config);
+  state.focusIndex = applyOpeningFocus(payload, state.readingPositions);
   state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
   state.composer = createComposer();
   state.editor = null;
