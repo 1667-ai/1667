@@ -288,7 +288,13 @@ describe("embedded backend worker", () => {
     await chmod(outboxDir, 0o500);
     let backend: Awaited<ReturnType<typeof createWorkerStoryApi>> | null = null;
     try {
-      backend = await createWorkerStoryApi({ dataDir, startupTimeoutMs: 1_000 });
+      // Real worker startup on macos-15-intel can exceed 1s under runner
+      // contention; match the sibling real-worker recovery budget.
+      backend = await createWorkerStoryApi({
+        dataDir,
+        readyTimeoutMs: 1_000,
+        startupTimeoutMs: 5_000
+      });
       const error = await Promise.race([
         rejection(backend.recovery),
         new Promise<never>((_, reject) =>
