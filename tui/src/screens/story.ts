@@ -507,7 +507,9 @@ function renderFullscreenComposer(
 }
 
 function editorFooterHints(editor: InlineEditorSession): string {
-  if (editor.target.kind === "part") {
+  // Part editors offer dual save; other targets and incomplete fixtures keep
+  // the single-save footer (tests may stub a minimal session without target).
+  if (editor.target?.kind === "part") {
     // ctrl+o is the portable same-take chord; ctrl+shift+s is an alias where
     // the terminal reports modified keys.
     return "shift+arrows select · ctrl+c/v · ctrl+s new take · ctrl+o same take · esc cancel";
