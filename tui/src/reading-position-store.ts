@@ -1,12 +1,15 @@
 /**
  * Local changing store for per-story reading positions.
  *
- * Not user settings: this map updates as the reader moves. It lives under the
- * user config tree (never in the project tier), keyed by vault scope:
- *   - embedded project: hash of absolute data directory
- *   - HTTP attach: origin + server instance id
+ * Not settings: updates as the reader moves. Lives under the user config tree
+ * (never the project tier), one file per vault scope:
+ *   - embedded: hash of absolute project data directory
+ *   - HTTP attach: loopback origin only (survives restart). 1667 loopback
+ *     serves one data dir per origin; multi-vault reuse of one port is out of
+ *     scope for this soft UI store.
  *
- * Durability is merge-on-write under an exclusive lock file.
+ * Writes are merge-on-write with atomic rename. Concurrent multi-process TUI
+ * use is best-effort (last successful rename wins).
  */
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -20,7 +23,6 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
-  writeSync,
   fstatSync
 } from "node:fs";
 import { homedir } from "node:os";
@@ -37,13 +39,9 @@ export interface ReadingPositionStoreOptions {
 }
 
 const PERSIST_DEBOUNCE_MS = 400;
-const LOCK_WAIT_MS = 200;
-const LOCK_SPIN_MS = 10;
 const MAX_STORE_BYTES = 256 * 1024;
-const INVALID_LOCK_GRACE_MS = 2_000;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
-/** Dirty keys for the next flush. `null` means delete that story entry. */
 const dirty = new Map<string, string | null>();
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let activeStoreFile: string = readingPositionStorePathForScope("default");
@@ -59,12 +57,6 @@ export function readingPositionStorePathForScope(scope: string): string {
   return join(readingPositionRootDir(), `${digest}.json`);
 }
 
-/**
- * User-scoped path for this vault. Project data never receives this file
- * (no Git exposure). Same absolute project path shares a store; a wiped and
- * recreated project at that path may inherit cursors — rare and acceptable.
- * HTTP uses the loopback origin only so a server restart keeps positions.
- */
 export function readingPositionStoreFile(
   projectDataDir: string | null,
   httpOrigin: string | null
@@ -81,7 +73,6 @@ export function readingPositionStoreFile(
 export function configureReadingPositionStore(file: string): void {
   disposed = false;
   if (file !== activeStoreFile) {
-    // Never migrate dirty keys across vaults.
     dirty.clear();
     if (persistTimer !== null) {
       clearTimeout(persistTimer);
@@ -149,12 +140,9 @@ export function flushReadingPositionPersist(
   const file = options.file ?? activeStoreFile;
   const opts = { ...options, file };
   const snapshot = new Map(dirty);
-  const wrote = withStoreLock(file, () => {
-    const onDisk = loadReadingPositions(opts);
-    const merged = mergeReadingPositionDirty(onDisk, snapshot);
-    return writePositionsFile(merged, opts);
-  });
-  if (wrote) {
+  const onDisk = loadReadingPositions(opts);
+  const merged = mergeReadingPositionDirty(onDisk, snapshot);
+  if (writePositionsFile(merged, opts)) {
     for (const [storyId, partId] of snapshot) {
       if (dirty.get(storyId) === partId) dirty.delete(storyId);
     }
@@ -163,91 +151,6 @@ export function flushReadingPositionPersist(
       persistTimer = null;
       if (!disposed) flushReadingPositionPersist(options);
     }, PERSIST_DEBOUNCE_MS);
-  }
-}
-
-function withStoreLock(storeFile: string, work: () => boolean): boolean {
-  const lockPath = `${storeFile}.lock`;
-  try {
-    mkdirSync(dirname(storeFile), { recursive: true });
-  } catch {
-    return work();
-  }
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  let lockFd: number | null = null;
-  while (lockFd === null && Date.now() < deadline) {
-    try {
-      lockFd = openSync(
-        lockPath,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW,
-        0o600
-      );
-      try {
-        const record = Buffer.from(`${process.pid}\n${Date.now()}\n`, "utf8");
-        writeSync(lockFd, record, 0, record.length, 0);
-        fsyncSync(lockFd);
-      } catch {
-        // best-effort ownership record
-      }
-    } catch (error) {
-      if (!isExistError(error)) return work();
-      if (recoverStaleLock(lockPath)) continue;
-      spin(LOCK_SPIN_MS);
-    }
-  }
-  if (lockFd === null) return false;
-  try {
-    return work();
-  } finally {
-    try {
-      closeSync(lockFd);
-    } catch {
-      // ignore
-    }
-    try {
-      unlinkSync(lockPath);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-function recoverStaleLock(lockPath: string): boolean {
-  try {
-    const info = lstatSync(lockPath);
-    if (!info.isFile() || info.isSymbolicLink()) {
-      unlinkSync(lockPath);
-      return true;
-    }
-    const text = readBoundedRegularFileSync(lockPath, 256) ?? "";
-    const pid = Number(text.split("\n")[0]);
-    if (Number.isInteger(pid) && pid > 0) {
-      try {
-        process.kill(pid, 0);
-        return false;
-      } catch {
-        unlinkSync(lockPath);
-        return true;
-      }
-    }
-    if (Date.now() - info.mtimeMs >= INVALID_LOCK_GRACE_MS) {
-      unlinkSync(lockPath);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-function isExistError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "EEXIST";
-}
-
-function spin(ms: number): void {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    // short busy-wait
   }
 }
 
@@ -297,7 +200,6 @@ function writePositionsFile(
 }
 
 function syncDirectory(directory: string): void {
-  // Soft UI store: Windows needs a writable handle; skip if it fails.
   let descriptor: number | null = null;
   try {
     if (process.platform === "win32") {
@@ -310,7 +212,7 @@ function syncDirectory(directory: string): void {
     }
     fsyncSync(descriptor);
   } catch {
-    // rename already succeeded; directory sync is best-effort.
+    // rename already landed; directory sync is best-effort for this soft store.
   } finally {
     if (descriptor !== null) {
       try {
