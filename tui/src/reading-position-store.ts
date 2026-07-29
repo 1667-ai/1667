@@ -81,12 +81,22 @@ export function readingPositionStoreFile(
   http: { origin: string; instanceId: string } | null
 ): string {
   if (projectDataDir !== null && projectDataDir.length > 0) {
-    return join(projectDataDir, READING_POSITIONS_FILE);
+    const projectFile = join(projectDataDir, READING_POSITIONS_FILE);
+    const fallback = projectFallbackStoreFile(projectDataDir);
+    // Prefer an existing fallback written when .gitignore could not be patched.
+    if (boundedFileExists(fallback) && !boundedFileExists(projectFile)) {
+      return fallback;
+    }
+    return projectFile;
   }
   if (http !== null && http.origin.length > 0 && http.instanceId.length > 0) {
     return readingPositionStorePathForScope(`http:${http.origin}:${http.instanceId}`);
   }
   return readingPositionStorePathForScope("default");
+}
+
+export function projectFallbackStoreFile(projectDataDir: string): string {
+  return readingPositionStorePathForScope(`project-fallback:${projectDataDir}`);
 }
 
 /** @deprecated Prefer readingPositionStoreFile; kept for tests of path hashing. */
@@ -171,6 +181,12 @@ export function flushReadingPositionPersist(
     for (const [storyId, partId] of snapshot) {
       if (dirty.get(storyId) === partId) dirty.delete(storyId);
     }
+  } else if (dirty.size > 0 && persistTimer === null) {
+    // Lock contention or I/O failure: try again shortly while dirty remains.
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      flushReadingPositionPersist(options);
+    }, PERSIST_DEBOUNCE_MS);
   }
 }
 
@@ -302,7 +318,7 @@ function writePositionsFile(
       if (!ensureProjectGitignoreIgnoresStore(directory)) {
         // Fall back to a user-scoped file so the cursor still persists without
         // leaving an unignored machine-local artifact in the project tree.
-        const fallback = readingPositionStorePathForScope(`project-fallback:${directory}`);
+        const fallback = projectFallbackStoreFile(directory);
         const moved = writePositionsFile(positions, { ...options, file: fallback });
         if (moved) {
           try {
@@ -405,6 +421,18 @@ function ensureProjectGitignoreIgnoresStore(projectDir: string): boolean {
 
 function isNotFoundError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function boundedFileExists(file: string): boolean {
+  return readBoundedRegularFileSync(file, MAX_STORE_BYTES) !== null
+    || (() => {
+      try {
+        const info = lstatSync(file);
+        return info.isFile() && !info.isSymbolicLink();
+      } catch {
+        return false;
+      }
+    })();
 }
 
 /** Read a regular file without following symlinks; null on any refusal. */

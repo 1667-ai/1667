@@ -479,7 +479,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
     printLogs: args.printLogs,
     onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings)
   });
-  const httpAttach = worker === null
+  let httpAttach = worker === null
     ? await attachHttpServer(await attachOrigin(args), args.authFile)
     : null;
   if (worker !== null) {
@@ -492,6 +492,30 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       await worker.dispose();
       throw error;
     }
+  }
+  // Late-bound so listener replacement can refresh the cursor store after
+  // the AppSource exists.
+  const sourceHolder: { source: AppSource | null } = { source: null };
+  if (httpAttach !== null) {
+    const previousConfirm = httpAttach.confirmListenerReplacement.bind(httpAttach);
+    httpAttach = {
+      ...httpAttach,
+      confirmListenerReplacement: async (previousInstanceId) => {
+        const replaced = await previousConfirm(previousInstanceId);
+        if (!replaced) return false;
+        flushReadingPositionPersist();
+        const nextFile = readingPositionStoreFile(null, {
+          origin: httpAttach!.origin,
+          instanceId: httpAttach!.authRecord.instanceId
+        });
+        configureReadingPositionStore(nextFile);
+        const nextPositions = loadReadingPositions({ file: nextFile });
+        if (sourceHolder.source !== null) {
+          sourceHolder.source.readingPositions = nextPositions;
+        }
+        return true;
+      }
+    };
   }
   const backendApi = worker === null
     ? createApi(httpAttach!.origin, (metadata) => {
@@ -539,6 +563,7 @@ async function loadSource(args: Arguments): Promise<LoadedSource | null> {
       ...(startUpdateCheck === null ? {} : { startUpdateCheck }),
       config,
       readingPositions };
+    sourceHolder.source = source;
     return {
       source,
       dispose: async () => {
