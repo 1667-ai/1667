@@ -7,6 +7,10 @@ import {
   openingFocusIndex,
   rememberReadingPosition
 } from "../src/reading-position.js";
+import {
+  flushReadingPositionPersist,
+  rememberFocus
+} from "../src/reading-position-persist.js";
 
 describe("reading position", () => {
   test("tour without a store opens at the first part", () => {
@@ -38,5 +42,21 @@ describe("reading position", () => {
     const cleared = forgetReadingPosition(once, source.payload.id);
     expect(cleared.readingPositions[source.payload.id]).toBeUndefined();
     expect(forgetReadingPosition(cleared, source.payload.id)).toBe(cleared);
+  });
+
+  test("rememberFocus is a no-op in demo mode so navigation stays light", () => {
+    const source = demoAppSource();
+    const state = {
+      ...source,
+      config: { ...source.config, readingPositions: {} },
+      focusIndex: 0,
+      stream: null,
+      demo: true,
+      payload: source.payload
+    } as never;
+    const before = state.config;
+    rememberFocus(state, source);
+    expect(state.config).toBe(before);
+    flushReadingPositionPersist();
   });
 });

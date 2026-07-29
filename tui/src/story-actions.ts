@@ -7,7 +7,7 @@ import { copyToClipboard } from "./clipboard.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
-import { withRememberedFocus } from "./reading-position.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import { openMap } from "./map-actions.js";
 import { createNewStory } from "./library-actions.js";
 import { resolveRerouteTarget } from "./path-layout.js";
@@ -503,6 +503,7 @@ export async function rerouteFromMap(
       state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), target));
       state.mode = "NAV";
       state.map = null;
+      rememberFocus(state, source);
     }
     context.cache.invalidate();
   });
@@ -527,17 +528,4 @@ export function openTag(state: RuntimeState, targetId?: string): void {
   state.mode = "TAG";
 }
 
-/** Persist the focused part as this story's local reading position. */
-function rememberFocus(state: RuntimeState, source: AppSource): void {
-  if (source.demo || state.demo) return;
-  const next = withRememberedFocus(
-    state.config,
-    state.payload,
-    state.focusIndex,
-    state.stream
-  );
-  if (next === state.config) return;
-  saveConfig(next);
-  state.config = next;
-  source.config = next;
-}
+

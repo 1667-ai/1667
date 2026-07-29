@@ -205,7 +205,9 @@ function jumpToChapter(state: RuntimeState, chapter: StoryChapter): void {
   const target = chapter.openingBreakId === null
     ? view.rows.findIndex((row) => row.kind === "part" && row.chapterNumber === chapter.number)
     : view.rows.findIndex((row) => row.kind === "chapter-divider" && row.break.id === chapter.openingBreakId);
-  if (target >= 0) state.focusIndex = target;
+  if (target >= 0) {
+    state.focusIndex = target;
+  }
   followStoryViewport(state);
   state.chapters = null;
   state.mode = "NAV";

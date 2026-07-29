@@ -13,6 +13,7 @@ import {
   rowPart,
   type StoryPart
 } from "./model.js";
+import { rememberFocus } from "./reading-position-persist.js";
 import type { RuntimeState } from "./state.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { followStoryViewport } from "./viewport-intent.js";
@@ -59,6 +60,7 @@ async function switchTakeWith(
     if (task.interactionCurrent()) {
       state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), target.id));
       followStoryViewport(state);
+      rememberFocus(state, source);
       const partsBelow = payload.path.length - part.pathIndex - 1;
       // No undo hint: [←] and [→] walk the row, which is the whole of it.
       state.toast = `▸ take ${target.index}/${target.count} · ${partsBelow} parts below re-rendered`;

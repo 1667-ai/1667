@@ -6,6 +6,7 @@ import { boundedFactSelection, factRows } from "./facts-model.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
 import { applyOpeningFocus } from "./reading-position.js";
+import { flushReadingPositionPersist } from "./reading-position-persist.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
@@ -288,6 +289,8 @@ function reconcileStoryBoundIntent(
 /** Replace the authoritative story and discard every interaction frozen
  * against the previous payload. Global visual preferences remain intact. */
 export function adoptStoryState(state: RuntimeState, payload: StoryPayload): void {
+  // Durably leave the previous story's position before replacing focus.
+  flushReadingPositionPersist();
   state.payload = payload;
   state.focusIndex = applyOpeningFocus(payload, state.config);
   state.mode = payload.path.length === 0 ? "COMPOSE" : "NAV";
