@@ -100,6 +100,7 @@ export async function undoChapterBreakChange(
         state.toast = "chapter break restored";
       }
       followStoryViewport(state);
+      rememberFocus(state, source);
     }
     context.cache.invalidate();
   });

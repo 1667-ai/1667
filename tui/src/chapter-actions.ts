@@ -248,6 +248,7 @@ async function removeBreak(
     if (task.interactionCurrent()) {
       state.focusIndex = Math.min(state.focusIndex, Math.max(0, createStoryViewModel(result.payload).rows.length - 1));
       followStoryViewport(state);
+      rememberFocus(state, source);
       if (state.chapters !== null) {
         const estimate = nextRequestEstimate(result.payload, nextRequestContext(state));
         state.chapters.cursor = Math.min(

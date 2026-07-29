@@ -4,26 +4,26 @@
  * Not settings: updates as the reader moves. Lives under the user config tree
  * (never the project tier), one file per vault scope:
  *   - embedded: hash of absolute project data directory
- *   - HTTP attach: loopback origin only (survives restart). 1667 loopback
- *     serves one data dir per origin; multi-vault reuse of one port is out of
- *     scope for this soft UI store.
+ *   - HTTP attach: loopback origin (survives restart; one vault per origin is
+ *     the supported loopback layout)
  *
- * Writes are merge-on-write under a short exclusive lock, then atomic rename.
+ * Writes are merge-on-write then atomic rename. Concurrent multi-process TUI
+ * on the same vault is best-effort (soft UI store; single interactive client
+ * is the supported layout).
  */
 import { createHash, randomBytes } from "node:crypto";
 import {
   closeSync,
   constants,
   fsyncSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
   readSync,
   renameSync,
   unlinkSync,
-  writeFileSync,
-  writeSync,
-  fstatSync
+  writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -39,10 +39,6 @@ export interface ReadingPositionStoreOptions {
 }
 
 const PERSIST_DEBOUNCE_MS = 400;
-const LOCK_WAIT_MS = 250;
-const LOCK_SPIN_MS = 10;
-/** Empty lock (O_EXCL before pid write) stays held this long. */
-const EMPTY_LOCK_GRACE_MS = 1_000;
 const MAX_STORE_BYTES = 256 * 1024;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
@@ -149,12 +145,9 @@ export function flushReadingPositionPersist(
   const file = options.file ?? activeStoreFile;
   const opts = { ...options, file };
   const snapshot = new Map(dirty);
-  const wrote = withStoreLock(file, () => {
-    const onDisk = loadReadingPositions(opts);
-    const merged = mergeReadingPositionDirty(onDisk, snapshot);
-    return writePositionsFile(merged, opts);
-  });
-  if (wrote) {
+  const onDisk = loadReadingPositions(opts);
+  const merged = mergeReadingPositionDirty(onDisk, snapshot);
+  if (writePositionsFile(merged, opts)) {
     for (const [storyId, partId] of snapshot) {
       if (dirty.get(storyId) === partId) dirty.delete(storyId);
     }
@@ -164,95 +157,6 @@ export function flushReadingPositionPersist(
       if (!disposed) flushReadingPositionPersist(options);
     }, PERSIST_DEBOUNCE_MS);
   }
-}
-
-function withStoreLock(storeFile: string, work: () => boolean): boolean {
-  const lockPath = `${storeFile}.lock`;
-  try {
-    mkdirSync(dirname(storeFile), { recursive: true });
-  } catch {
-    return work();
-  }
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  let lockFd: number | null = null;
-  while (lockFd === null && Date.now() < deadline) {
-    try {
-      lockFd = openSync(
-        lockPath,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW,
-        0o600
-      );
-      const record = Buffer.from(`${process.pid}\n`, "utf8");
-      writeSync(lockFd, record, 0, record.length, 0);
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
-        return work();
-      }
-      if (reclaimDeadOwnerLock(lockPath)) continue;
-      const end = Date.now() + LOCK_SPIN_MS;
-      while (Date.now() < end) {
-        // short wait
-      }
-    }
-  }
-  if (lockFd === null) return false;
-  try {
-    return work();
-  } finally {
-    try {
-      closeSync(lockFd);
-    } catch {
-      // ignore
-    }
-    try {
-      unlinkSync(lockPath);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-/**
- * Reclaim only when the recorded pid is dead (or empty past grace).
- * Uses rename-to-claim so two reclaimers cannot both steal a live peer's lock.
- */
-function reclaimDeadOwnerLock(lockPath: string): boolean {
-  try {
-    const info = lstatSync(lockPath);
-    if (!info.isFile() || info.isSymbolicLink()) {
-      return claimLockByRename(lockPath);
-    }
-    const text = readBoundedRegularFileSync(lockPath, 64) ?? "";
-    const pid = Number(text.split("\n")[0]);
-    if (!Number.isInteger(pid) || pid <= 0) {
-      if (Date.now() - info.mtimeMs < EMPTY_LOCK_GRACE_MS) return false;
-      return claimLockByRename(lockPath);
-    }
-    try {
-      process.kill(pid, 0);
-      return false;
-    } catch {
-      return claimLockByRename(lockPath);
-    }
-  } catch {
-    return false;
-  }
-}
-
-/** Atomically take ownership of a stale lock path by renaming it away. */
-function claimLockByRename(lockPath: string): boolean {
-  const claimed = `${lockPath}.reclaimed.${process.pid}.${randomBytes(4).toString("hex")}`;
-  try {
-    renameSync(lockPath, claimed);
-  } catch {
-    return false;
-  }
-  try {
-    unlinkSync(claimed);
-  } catch {
-    // ignore
-  }
-  return true;
 }
 
 function writePositionsFile(
@@ -313,7 +217,7 @@ function syncDirectory(directory: string): void {
     }
     fsyncSync(descriptor);
   } catch {
-    // rename already landed; directory sync is best-effort for this soft store.
+    // rename already landed
   } finally {
     if (descriptor !== null) {
       try {
