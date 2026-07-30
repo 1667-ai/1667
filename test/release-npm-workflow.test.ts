@@ -10,6 +10,10 @@ const WORKFLOW = readFileSync(
   path.join(ROOT, ".github", "workflows", "release-npm.yml"),
   "utf8"
 );
+const GITHUB_RELEASE_WORKFLOW = readFileSync(
+  path.join(ROOT, ".github", "workflows", "release-github.yml"),
+  "utf8"
+);
 const OPERATION_WORKFLOW = readFileSync(
   path.join(ROOT, ".github", "workflows", "release-npm-operation.yml"),
   "utf8"
@@ -155,6 +159,13 @@ test("JSON-producing workflow commands suppress npm lifecycle output", () => {
     launcher,
     /npm run --silent release:pack[\s\S]{0,120}\\\n[ \t]+> dist\/pack\.json/u
   );
+});
+
+test("inline TypeScript workflow programs run as ES modules", () => {
+  for (const workflow of [WORKFLOW, GITHUB_RELEASE_WORKFLOW]) {
+    assert.match(workflow, /\bnode --import tsx --input-type=module -e '/u);
+    assert.doesNotMatch(workflow, /\bnode --import tsx -e '/u);
+  }
 });
 
 test("archive producers force canonical ustar and disable macOS metadata copies", () => {

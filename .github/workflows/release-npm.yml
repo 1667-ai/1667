@@ -312,7 +312,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist/installers
           digests="$(
-            node --import tsx -e '
+            node --import tsx --input-type=module -e '
               import { createHash } from "node:crypto";
               import { readdirSync, readFileSync } from "node:fs";
               const dir = "dist/archives";
@@ -418,7 +418,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          count="$(node --import tsx -e '
+          count="$(node --import tsx --input-type=module -e '
             import { expectedLauncherPackageFileCount } from "./scripts/release-publication-assets.ts";
             process.stdout.write(String(expectedLauncherPackageFileCount(process.env.VERSION)));
           ')"
@@ -564,7 +564,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          count="$(node --import tsx -e '
+          count="$(node --import tsx --input-type=module -e '
             import { expectedPublicationFileCount } from "./scripts/release-publication-assets.ts";
             process.stdout.write(String(expectedPublicationFileCount(process.env.VERSION)));
           ')"
@@ -677,7 +677,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          count="$(node --import tsx -e '
+          count="$(node --import tsx --input-type=module -e '
             import { expectedPublicationFileCount } from "./scripts/release-publication-assets.ts";
             process.stdout.write(String(expectedPublicationFileCount(process.env.VERSION)));
           ')"
