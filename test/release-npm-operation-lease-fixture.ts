@@ -53,6 +53,7 @@ export class FakeGitHub {
   readonly #afterRefCreate = new Map<string, () => void>();
   readonly #beforeRefDelete = new Map<string, () => void>();
   readonly #afterRefDelete = new Map<string, () => void>();
+  readonly #refVisibilityDelays = new Map<string, number>();
   #serverTime = () => Date.parse("2020-01-01T00:00:00.000Z");
   #concurrencyAcquiredAt = () => this.#serverTime();
   #concurrencyGroup = "release-npm";
@@ -177,7 +178,13 @@ export class FakeGitHub {
         url.pathname.slice(url.pathname.indexOf(matching) + matching.length)
       );
       const values = [...this.#refs.values()].filter((ref) => {
-        return ref.ref.startsWith(`refs/${prefix}`);
+        if (!ref.ref.startsWith(`refs/${prefix}`)) return false;
+        const delay = this.#refVisibilityDelays.get(ref.ref);
+        if (delay !== undefined && delay > 0) {
+          this.#refVisibilityDelays.set(ref.ref, delay - 1);
+          return false;
+        }
+        return true;
       });
       return jsonResponse(values, 200);
     }
@@ -246,6 +253,10 @@ export class FakeGitHub {
     afterCreate?.();
     return jsonResponse(ref, 201);
   };
+
+  delayRefVisibility(ref: string, count = 1): void {
+    this.#refVisibilityDelays.set(ref, count);
+  }
 
   changeWorkflow(change: Partial<GitHubWorkflowRun>): void {
     this.#workflow = Object.freeze({ ...this.#workflow, ...change });

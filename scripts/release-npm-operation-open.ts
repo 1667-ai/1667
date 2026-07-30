@@ -6,6 +6,7 @@ import {
 } from "./release-npm-operation-lease-proof.js";
 import {
   npmOperationOpenRef,
+  NpmOperationRefNotYetVisibleError,
   type NpmOperationLeaseRequest
 } from "./release-npm-operation-lease-state.js";
 import {
@@ -33,7 +34,10 @@ export class GitHubNpmOperationOpen {
     this.#verifyControls = verifyControls;
   }
 
-  async acquire(request: NpmOperationLeaseRequest): Promise<void> {
+  async acquire(
+    request: NpmOperationLeaseRequest,
+    signal?: AbortSignal
+  ): Promise<void> {
     await this.#verifyControls();
     if (await this.#proof.openRef(request) !== null) return;
     await createOrVerifyNpmOperationRef(
@@ -44,9 +48,12 @@ export class GitHubNpmOperationOpen {
       "npm operation open marker",
       async () => {
         if (await this.#proof.openRef(request) === null) {
-          throw new Error("npm operation open marker is absent");
+          throw new NpmOperationRefNotYetVisibleError(
+            "npm operation open marker is absent"
+          );
         }
-      }
+      },
+      { signal }
     );
   }
 

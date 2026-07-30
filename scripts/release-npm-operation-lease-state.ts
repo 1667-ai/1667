@@ -20,6 +20,8 @@ const MARKER_REF =
   /^refs\/tags\/npm-operations\/run-([1-9]\d{0,15})-attempt-([1-9]\d{0,15})\/(promotion|quarantine)\/v([^/]+)\/(active|claimed|writer|writer-terminal|revoking|revoked|terminal)$/u;
 const OPEN_REF =
   /^refs\/tags\/npm-operations-open\/run-([1-9]\d{0,15})-attempt-([1-9]\d{0,15})\/(promotion|quarantine)\/v([^/]+)$/u;
+export class NpmOperationRefNotYetVisibleError extends Error {}
+
 export type NpmOperationLeaseOperation = NpmOperationIdentity["operation"];
 export type NpmOperationLeaseTerminal = "complete" | "failed" | "abandoned";
 export type NpmOperationWriterOutcome = "success" | "failed";

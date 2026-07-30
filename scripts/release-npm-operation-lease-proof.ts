@@ -13,6 +13,7 @@ import {
   parseNpmOperationWriterTerminalMessage,
   requireNpmOperationMarkerTag,
   requireNpmOperationSecret,
+  NpmOperationRefNotYetVisibleError,
   type NpmOperationLeaseRequest,
   type NpmOperationRevocation,
   type NpmOperationLeaseSnapshot,
@@ -66,14 +67,21 @@ export class GitHubNpmOperationLeaseProof {
   ): Promise<NpmOperationLeaseSnapshot> {
     const snapshots = await this.snapshots(request);
     const state = findSnapshot(snapshots, request);
-    if (state === undefined || state.refs.has("terminal")) {
-      throw new Error("npm operation lease is terminal or does not exist");
+    if (state === undefined) {
+      throw new NpmOperationRefNotYetVisibleError(
+        "npm operation lease active marker is absent"
+      );
+    }
+    if (state.refs.has("terminal")) {
+      throw new Error("npm operation lease is terminal");
     }
     if (state.request.sourceCommit !== request.sourceCommit) {
       throw new Error("npm operation lease targets a different source commit");
     }
     if (await this.openRef(request) === null) {
-      throw new Error("npm operation lease is not the sole active lease");
+      throw new NpmOperationRefNotYetVisibleError(
+        "npm operation open marker is absent"
+      );
     }
     return state;
   }
@@ -387,6 +395,10 @@ function requiredRef(
   marker: NpmOperationStoredMarker
 ): GitHubRef {
   const ref = state.refs.get(marker);
-  if (ref === undefined) throw new Error(`npm operation lease has no ${marker} ref`);
+  if (ref === undefined) {
+    throw new NpmOperationRefNotYetVisibleError(
+      `npm operation lease has no ${marker} ref`
+    );
+  }
   return ref;
 }

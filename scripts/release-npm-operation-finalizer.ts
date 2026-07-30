@@ -6,6 +6,7 @@ import {
   npmOperationLeaseRef,
   npmOperationTagName,
   npmOperationTerminalMessage,
+  NpmOperationRefNotYetVisibleError,
   type NpmOperationLeaseRequest,
   type NpmOperationLeaseTerminal
 } from "./release-npm-operation-lease-state.js";
@@ -149,7 +150,13 @@ export class GitHubNpmOperationFinalizer {
       "tag",
       "npm operation lease terminal",
       async () => {
-        if (await this.#proof.terminalOutcomeForRequest(request) !== outcome) {
+        const actual = await this.#proof.terminalOutcomeForRequest(request);
+        if (actual === null) {
+          throw new NpmOperationRefNotYetVisibleError(
+            "npm operation lease terminal marker is absent"
+          );
+        }
+        if (actual !== outcome) {
           throw new Error("npm operation lease terminal outcome changed");
         }
       }

@@ -6,7 +6,8 @@ import {
 } from "../scripts/release-npm-operation-lease.js";
 import {
   npmOperationLeaseRef,
-  npmOperationOpenRef
+  npmOperationOpenRef,
+  NpmOperationRefNotYetVisibleError
 } from "../scripts/release-npm-operation-lease-state.js";
 import { FakeGitHub } from "./release-npm-operation-lease-fixture.js";
 
@@ -101,6 +102,99 @@ test("claim converges when the active-marker response is lost", async () => {
 
   await client(api).claim(REQUEST, CLAIM);
   await client(api).verifyClaim(REQUEST, CLAIM);
+});
+
+test("claim converges when the claimed ref has delayed visibility", async () => {
+  const api = new FakeGitHub(REQUEST);
+  api.addReleaseAuthorization(REQUEST);
+  const claimedRef = npmOperationLeaseRef(REQUEST, "claimed");
+  api.delayRefVisibility(claimedRef, 1);
+
+  await client(api).claim(REQUEST, CLAIM);
+  await client(api).verifyClaim(REQUEST, CLAIM);
+});
+
+test("claim fails when the claimed ref has permanent absence", async () => {
+  const api = new FakeGitHub(REQUEST);
+  api.addReleaseAuthorization(REQUEST);
+  const claimedRef = npmOperationLeaseRef(REQUEST, "claimed");
+  api.delayRefVisibility(claimedRef, 100);
+
+  await assert.rejects(
+    client(api).claim(REQUEST, CLAIM),
+    (error: unknown) => {
+      assert.ok(error instanceof NpmOperationRefNotYetVisibleError);
+      assert.match(error.message, /npm operation lease has no claimed ref/u);
+      return true;
+    }
+  );
+});
+
+test("claim fails immediately without retry on conflicting claimed ref", async () => {
+  const api = new FakeGitHub(REQUEST);
+  api.addReleaseAuthorization(REQUEST);
+  const OTHER_CLAIM = "f".repeat(64);
+  const claimedRef = npmOperationLeaseRef(REQUEST, "claimed");
+  let verificationStart = 0;
+
+  api.beforeRefCreate(claimedRef, () => {
+    verificationStart = api.urls.length;
+    api.addClaim(REQUEST, OTHER_CLAIM);
+  });
+
+  await assert.rejects(
+    client(api).claim(REQUEST, CLAIM),
+    /npm operation lease claim secret does not match/u
+  );
+  assert.equal(
+    api.urls.slice(verificationStart)
+      .filter((url) => new URL(url).pathname.includes("/git/tags/")).length,
+    1
+  );
+});
+
+test("claim retry wait stops at the unclaimed deadline", async () => {
+  const api = new FakeGitHub(REQUEST);
+  api.addReleaseAuthorization(REQUEST);
+  const claimedRef = npmOperationLeaseRef(REQUEST, "claimed");
+  api.delayRefVisibility(claimedRef, 100);
+  let verifyCallCount = 0;
+  let claimedCreated = false;
+  const originalFetch = api.fetch.bind(api);
+  const customFetch: typeof fetch = async (input, init) => {
+    const url = new URL(
+      typeof input === "string" || input instanceof URL ? input : input.url
+    );
+    const method = init?.method ?? "GET";
+    const response = await originalFetch(input, init);
+    if (claimedCreated
+      && url.pathname.includes("/git/matching-refs/tags/npm-operations/")) {
+      verifyCallCount += 1;
+    }
+    if (method === "POST"
+      && url.pathname.endsWith("/git/refs")
+      && JSON.parse(String(init?.body)).ref === claimedRef) {
+      claimedCreated = true;
+    }
+    return response;
+  };
+
+  const lease = new GitHubNpmOperationLease({
+    repository: REPOSITORY,
+    token: "test-token",
+    fetch: customFetch,
+    unclaimedTimeoutMs: 5_000,
+    pollIntervalMs: 1,
+    maxPolls: 3,
+    verifyControls: async () => {}
+  });
+
+  await assert.rejects(
+    lease.claim(REQUEST, CLAIM),
+    /npm operation lease was not claimed before its deadline/u
+  );
+  assert.ok(verifyCallCount > 1);
+  assert.ok(verifyCallCount < 21);
 });
 
 test("a repeated claim with the same secret is idempotent", async () => {

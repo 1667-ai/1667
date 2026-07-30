@@ -21,6 +21,7 @@ import {
   npmOperationWriterTerminalMessage,
   requireNpmOperationLeaseRequest,
   requireNpmOperationSecret,
+  NpmOperationRefNotYetVisibleError,
   type NpmOperationLeaseRequest,
   type NpmOperationOpenState,
   type NpmOperationLeaseTerminal,
@@ -193,7 +194,7 @@ export class GitHubNpmOperationLease {
         throw new Error("npm operation lease cannot be claimed");
       }
       deadline.requireTime();
-      await this.#open.acquire(validated);
+      await this.#open.acquire(validated, deadline.signal);
       deadline.requireTime();
       await authorizeNpmOperationHolder(this.#store, this.#workflow, validated);
       deadline.requireTime();
@@ -206,7 +207,8 @@ export class GitHubNpmOperationLease {
           "npm operation lease active",
           async () => {
             await this.#proof.soleActive(validated);
-          }
+          },
+          { signal: deadline.signal }
         );
         snapshots = await this.#proof.snapshots(validated);
         own = findSnapshot(snapshots, validated);
@@ -241,7 +243,8 @@ export class GitHubNpmOperationLease {
         tag.sha,
         "tag",
         "npm operation lease claim",
-        () => this.verifyClaim(validated, secret)
+        () => this.verifyClaim(validated, secret),
+        { signal: deadline.signal }
       );
     } catch (error) {
       if (deadline.signal.aborted) deadline.requireTime();
@@ -342,7 +345,13 @@ export class GitHubNpmOperationLease {
       "tag",
       "npm operation lease writer terminal",
       async () => {
-        if (await this.#proof.readWriterOutcome(validated) !== outcome) {
+        const actual = await this.#proof.readWriterOutcome(validated);
+        if (actual === null) {
+          throw new NpmOperationRefNotYetVisibleError(
+            "npm operation lease writer terminal marker is absent"
+          );
+        }
+        if (actual !== outcome) {
           throw new Error("npm operation lease writer acknowledgment changed");
         }
       }

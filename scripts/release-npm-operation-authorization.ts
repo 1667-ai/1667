@@ -1,7 +1,9 @@
 import { isSemVer } from "../shared/semver.js";
 import { GitHubRefStore } from "./release-github-ref-store.js";
-import type { NpmOperationLeaseRequest } from
-  "./release-npm-operation-lease-state.js";
+import {
+  NpmOperationRefNotYetVisibleError,
+  type NpmOperationLeaseRequest
+} from "./release-npm-operation-lease-state.js";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
 const ATTEMPT =
@@ -49,7 +51,9 @@ export function requireNpmOperationReleaseAuthorization(
   if (request.operation === "promotion") {
     requirePromotionAuthorization(request.version, state);
   } else if (!state.quarantined) {
-    throw new Error(`Release ${request.version} has no quarantine marker`);
+    throw new NpmOperationRefNotYetVisibleError(
+      `Release ${request.version} has no quarantine marker`
+    );
   }
 }
 
