@@ -294,6 +294,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     discardPendingSettings: (command) => transport.call("discardPendingSettings", { command }),
     checkModelServer: (settings) => transport.call("checkModelServer", { settings }),
     probeContextWindow: (settings) => transport.call("probeContextWindow", { settings }),
+    discoverModels: (settings, signal) => transport.call(
+      "discoverModels",
+      { settings },
+      { signal }
+    ),
     importSillyTavern: async (jsonl) => rememberPayload(await transport.call(
       "importSillyTavern",
       { jsonl },

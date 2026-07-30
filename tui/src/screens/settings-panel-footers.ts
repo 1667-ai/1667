@@ -100,6 +100,46 @@ export const SETTINGS_CHOICE_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ choose · ↵ custom · s save · c check · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ choose", action: "take-next" },
+      { token: "↵ custom", action: "open-selected" },
+      { token: "s save", action: "save-edit" },
+      { token: "c check", action: "check" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ←→ choose · ↵ custom · s · c · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ choose", action: "take-next" },
+      { token: "↵ custom", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "c", action: "check" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ ↵ esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
 export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
     text: "↑↓ move · ↵ edit · s save · c check · esc close",

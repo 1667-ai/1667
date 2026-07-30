@@ -34,11 +34,13 @@ import type {
 } from "../../shared/types.js";
 import type {
   DiscardPendingSettingsCommand,
+  ModelDiscoveryResultV2,
   ProviderProbeTarget,
   SaveSettingsCommand,
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { decodeModelDiscoveryResult } from "../../shared/settings-response-decoder.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -135,6 +137,10 @@ export interface StoryApi {
   discardPendingSettings(command: DiscardPendingSettingsCommand): Promise<SettingsMutationResult>;
   checkModelServer(settings: ProviderProbeTarget): Promise<ModelServerCheckResult>;
   probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
+  discoverModels(
+    settings: ProviderProbeTarget,
+    signal?: AbortSignal
+  ): Promise<ModelDiscoveryResultV2>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   continueStory(
     storyId: string,
@@ -690,6 +696,15 @@ export function createApi(
       decodeContextWindowResponse,
       settings,
       WORKER_PROVIDER_CHECK_TIMEOUT_MS
+    ),
+    discoverModels: (settings, signal) => request(
+      "POST",
+      "/api/settings/discover-models",
+      decodeModelDiscoveryResult,
+      settings,
+      WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+      undefined,
+      signal
     ),
     importSillyTavern: async (jsonl) => {
       const intent = await mutationIntents.claim(

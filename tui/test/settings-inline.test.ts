@@ -259,30 +259,26 @@ describe("inline settings menu", () => {
     expect(state.toast).toBe("legacy settings are read-only");
   });
 
-  test("provider is a closed selector and invalid complete drafts never reach the backend", async () => {
+  test("provider is a closed selector with an OpenAI preset", async () => {
     const { source, state, press } = harness();
-    let saves = 0;
-    source.api.saveSettings = async () => {
-      saves += 1;
-      throw new Error("must not reach backend");
-    };
     await openSettings(press);
 
     await selectRow(press, state, "provider");
     await press(key("return"));
     expect(state.settings?.edit).toBe(null);
     expect(state.settings?.draft.generation.provider).toBe("openai-compatible");
+    expect(state.settings?.draft.generation).toMatchObject({
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5.2",
+      apiKeyEnv: "OPENAI_API_KEY",
+      contextWindow: null
+    });
+    expect(settingsProviderChoice(state.settings!.draft.generation).id).toBe("openai");
+    await press(key("s"));
+    expect(source.settings.model).toBe("gpt-5.2");
     await press(key("left"));
     expect(state.settings?.draft.generation.provider).toBe("dry-run");
     expect(state.settings?.draft.generation.contextWindow).toBe(32_768);
-
-    await selectRow(press, state, "cache-policy");
-    await press(key("right"));
-    await press(key("right"));
-    expect(state.settings?.draft.cachePolicy).toBe("long");
-    await press(key("s"));
-    expect(saves).toBe(0);
-    expect(state.toast).toContain("Dry run never calls a model provider");
   });
 
   test("local provider choices apply safe localhost defaults", async () => {
@@ -323,6 +319,7 @@ describe("inline settings menu", () => {
     await openSettings(press);
     await selectRow(press, state, "provider");
 
+    await press(key("right"));
     await press(key("right"));
     await press(key("right"));
     if (!localProviderPresetsSupported()) {
@@ -568,6 +565,7 @@ describe("inline settings menu", () => {
     await openSettings(press);
     await selectRow(press, state, "provider");
     await press(key("right"));
+    await press(key("right"));
     await draftRow(press, state, "base-url", "http://gpu-box.local:11434/v1");
     await draftRow(press, state, "model", "lan-model");
     await selectRow(press, state, "allow-insecure-http");
@@ -638,6 +636,7 @@ describe("inline settings menu", () => {
     };
     await openSettings(press);
     await selectRow(press, state, "provider");
+    await press(key("right"));
     await press(key("right"));
     await draftRow(press, state, "base-url", "http://gpu-box.local:11434/v1");
     await draftRow(press, state, "model", "lan-model");

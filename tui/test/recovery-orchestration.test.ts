@@ -444,6 +444,12 @@ describe("backend recovery orchestration", () => {
       effective: recoveredSettings
     };
     let settingsLoads = 0;
+    const discoveryEntered = deferred<void>();
+    const discoverModels = source.api.discoverModels;
+    source.api.discoverModels = async (target, signal) => {
+      discoveryEntered.resolve();
+      return discoverModels(target, signal);
+    };
     source.api.loadStory = async () => recoveredPayload;
     source.api.getSettings = async () => {
       settingsLoads += 1;
@@ -467,6 +473,8 @@ describe("backend recovery orchestration", () => {
 
     connection.publish(connectionSucceeded());
     await settled.promise;
+    await discoveryEntered.promise;
+    await backend.whenIdle();
 
     expect(settingsLoads).toBe(1);
     expect(source.settings).toBe(recoveredSettings);

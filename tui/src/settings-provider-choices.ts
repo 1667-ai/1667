@@ -3,9 +3,11 @@ import type {
   Provider
 } from "../../shared/types.js";
 import { ownedLoopbackHttpSupportedOn } from "../../shared/provider-transport-capability.js";
+import { isOfficialOpenAiBaseUrl } from "../../shared/settings-provider-defaults.js";
 
 export type SettingsProviderChoiceId =
   | Provider
+  | "openai"
   | "lm-studio"
   | "ollama"
   | "llama-cpp"
@@ -34,6 +36,17 @@ export const SETTINGS_PROVIDER_CHOICES: readonly SettingsProviderChoice[] = [
       model: "",
       apiKeyEnv: null,
       contextWindow: 32_768
+    }
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    provider: "openai-compatible",
+    defaults: {
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5.2",
+      apiKeyEnv: "OPENAI_API_KEY",
+      contextWindow: null
     }
   },
   {
@@ -134,6 +147,9 @@ export function settingsProviderChoice(
     return SETTINGS_PROVIDER_CHOICES.find(
       (choice) => choice.id === settings.provider
     )!;
+  }
+  if (isOfficialOpenAiBaseUrl(settings.baseUrl)) {
+    return SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === "openai")!;
   }
   const port = loopbackPort(settings.baseUrl);
   const localId = port === "1234" ? "lm-studio"

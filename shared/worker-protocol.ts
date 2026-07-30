@@ -158,7 +158,7 @@ export interface WorkerMethodContract {
   };
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
-  discoverModels: { input: { settings: GenerationSettings }; output: ModelDiscoveryResultV2 };
+  discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   continueStory: {
     input: { storyId: string; instruction: string; genId: string; target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string } };

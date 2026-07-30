@@ -6,17 +6,12 @@ import {
   settingsActivationFailureText,
   settingsEditDisplayComposer,
   settingsDraftChanged,
-  settingsRowCycles,
+  settingsRowHasArrows,
   settingsRows,
   SETTINGS_ROW_IDS,
   type SettingsRowPresentation
 } from "../settings-overlay-model.js";
-import {
-  promptCacheSummaryParts,
-  type PromptCacheSummaryParts
-} from "../settings-cache-summary.js";
 import type { OverlayState } from "../state.js";
-import { wrapText } from "../wrap.js";
 import {
   dimPage,
   panelContentRows,
@@ -30,6 +25,7 @@ import {
   SETTINGS_CHOICE_FOOTERS,
   SETTINGS_CONTEXT_FOOTERS,
   SETTINGS_EDIT_FOOTERS,
+  SETTINGS_MODEL_FOOTERS,
   SETTINGS_PENDING_FOOTERS,
   SETTINGS_TEXT_FOOTERS
 } from "./settings-panel-footers.js";
@@ -70,19 +66,13 @@ export function renderSettingsPanel(
   height: number
 ): FrameComposition {
   const overlay = state.settings!;
-  const cacheSummary = promptCacheSummaryParts(overlay.view, overlay.draft);
-  const rows = settingsRows(overlay, state.config, cacheSummary);
+  const rows = settingsRows(overlay, state.config);
   const horizontal = panelHorizontalGeometry(width, 76);
   const contentCapacity = panelContentRows(height);
-  const cacheNotice = cachePolicyNotice(
-    overlay,
-    horizontal.contentWidth,
-    cacheSummary,
-    contentCapacity
-  );
   const status = settingsStatusLines(overlay);
-  const resultVisible = overlay.checking || overlay.probing || overlay.result !== null;
-  const fixedRows = 3 + cacheNotice.length + status.top.length
+  const resultVisible = overlay.checking || overlay.probing
+    || overlay.discoveringModels || overlay.result !== null;
+  const fixedRows = 3 + status.top.length
     + status.bottom.length + (resultVisible ? 1 : 0);
   const editableRows = rows.slice(2);
   const painted = rows.map((row, index) =>
@@ -93,6 +83,8 @@ export function renderSettingsPanel(
     ? [raisedSegment("  ⟳ checking model server…", "focus / accent")]
     : overlay.probing
       ? [raisedSegment("  ⟳ detecting context window…", "focus / accent")]
+      : overlay.discoveringModels
+        ? [raisedSegment("  ⟳ reading model list…", "focus / accent")]
       : overlay.result === null
         ? null
         : [
@@ -107,7 +99,6 @@ export function renderSettingsPanel(
   let targets: Array<HitTarget | null>;
   if (contentCapacity < fixedRows + 1) {
     const noticeBlocks = [
-      cacheNotice,
       ...(resultLine === null ? [] : [[resultLine]]),
       status.top.filter((line) => line.length > 0),
       status.bottom.filter((line) => line.length > 0)
@@ -145,7 +136,6 @@ export function renderSettingsPanel(
       renderedRows[0]!,
       renderedRows[1]!,
       [],
-      ...cacheNotice,
       ...status.top,
       ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
       ...status.bottom,
@@ -155,7 +145,6 @@ export function renderSettingsPanel(
       listTarget(0),
       listTarget(1),
       null,
-      ...cacheNotice.map(() => null),
       ...status.top.map(() => null),
       ...editableRows
         .slice(rowWindow.start, rowWindow.end)
@@ -192,17 +181,20 @@ export function renderSettingsPanel(
 
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
   const editing = overlay.edit !== null;
-  const choosing = !editing && settingsRowCycles(SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!);
+  const selectedRow = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const choosing = !editing && settingsRowHasArrows(overlay, selectedRow);
   const detecting = !editing && rows[overlay.cursor]?.id === "context-window";
   const footerVariants = editing
     ? SETTINGS_EDIT_FOOTERS
     : pending
       ? SETTINGS_PENDING_FOOTERS
-      : choosing
-        ? SETTINGS_CHOICE_FOOTERS
-        : detecting
-          ? SETTINGS_CONTEXT_FOOTERS
-          : SETTINGS_TEXT_FOOTERS;
+      : choosing && selectedRow === "model"
+        ? SETTINGS_MODEL_FOOTERS
+        : choosing
+          ? SETTINGS_CHOICE_FOOTERS
+          : detecting
+            ? SETTINGS_CONTEXT_FOOTERS
+            : SETTINGS_TEXT_FOOTERS;
   const footer = fittingFooter(footerVariants, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
@@ -308,31 +300,6 @@ function settingsStatusLines(
   };
 }
 
-function cachePolicyNotice(
-  overlay: NonNullable<OverlayState["settings"]>,
-  width: number,
-  summary: PromptCacheSummaryParts,
-  maxRows: number
-): FrameLine[] {
-  if (SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)] !== "cache-policy") {
-    return [];
-  }
-  if (summary.kind === "available") return [];
-  if (maxRows === 0) return [];
-  // The selected row already says "cache policy" and "unavailable". Keep the
-  // notice for the reason so short panels do not spend a row repeating them.
-  const wrapReason = (reason: string) =>
-    wrapText(`▲ ${reason}`, [], Math.max(1, width - 2)).map((line) => [
-      raisedSegment(`  ${line.text}`, "danger text")
-    ]);
-  const full = wrapReason(summary.reason);
-  if (full.length <= maxRows) {
-    return full;
-  }
-  const compact = wrapReason(summary.compactReason);
-  return compact;
-}
-
 /** The tallest `bottom` variant: a separating blank, then the pending pair. */
 const BOTTOM_STATUS_ROWS = 3;
 
@@ -385,7 +352,7 @@ function settingsRow(
         prefix,
         raisedSegment(drawn, selected ? "focus / accent" : "prose")
       ],
-      arrows: settingsRowCycles(row.id)
+      arrows: settingsRowHasArrows(overlay, row.id)
         ? bracketArrows(drawn, valueLeft)
         : null
     };

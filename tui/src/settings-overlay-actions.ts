@@ -1,5 +1,8 @@
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
+import {
+  applyBasicModelDiscovery,
+  applyBasicSettingsDraft
+} from "../../shared/settings-basic-draft.js";
 import {
   applyPromptCachePolicy,
   promptCacheContextForDocument,
@@ -15,7 +18,6 @@ import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { readFromClipboard } from "./clipboard.js";
-import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
@@ -23,6 +25,9 @@ import {
   checkSettings,
   detectSettingsContext
 } from "./settings-context-detection.js";
+import {
+  settingsModelDiscoveryIdentity
+} from "./settings-model-discovery.js";
 import {
   openSettingsPasteTarget,
   openSystemPromptEditor
@@ -33,19 +38,22 @@ import {
   applyStoredApiKeyIntent,
   beginSettingsRowEdit,
   boundedSettingsCursor,
-  cycleAllowInsecureHttp,
-  cyclePromptCachePolicy,
-  cycleSettingsProvider,
   disarmSettingsConflict,
   initialSettingsOverlay,
   sameSettingsDraft,
   SETTINGS_ROW_IDS,
   settingsActivationFailureText,
   settingsDraftChanged,
+  settingsRowHasArrows,
   settingsRowCycles,
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
+import {
+  applySettingsComposeFocus,
+  applySettingsTheme,
+  cycleSettingsRow
+} from "./settings-selector-actions.js";
 
 import type {
   RuntimeState,
@@ -61,8 +69,9 @@ export async function openSettingsOverlay(
   row?: SettingsRowId
 ): Promise<void> {
   state.settings = initialSettingsOverlay(source.settingsView, state.config);
+  const overlay = state.settings;
   if (row !== undefined) {
-    state.settings.cursor = SETTINGS_ROW_IDS.indexOf(row);
+    overlay.cursor = SETTINGS_ROW_IDS.indexOf(row);
   }
   state.mode = "SETTINGS";
   context.repaint();
@@ -118,11 +127,12 @@ export async function settingsOverlayAction(
     overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor);
   } else if (resolved.action === "open-selected" || resolved.action === "edit") {
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-    // Enter advances every closed choice; the same set owns paste refusal.
-    if (settingsRowCycles(row)) {
-      cycleSettingsRow(row, 1, state, source, context, overlay);
-    } else if (settingsRowUsesServer(row) && !overlay.view.editable) {
+    if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
+    } else if (row === "model") {
+      beginSettingsRowEdit(overlay, state.config);
+    } else if (settingsRowCycles(row)) {
+      await cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (row === "system-prompt") {
       openSystemPromptEditor(state);
     } else {
@@ -136,8 +146,8 @@ export async function settingsOverlayAction(
     }
     const step = resolved.action === "take-next" ? 1 : -1;
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-    if (settingsRowCycles(row)) {
-      cycleSettingsRow(row, step, state, source, context, overlay);
+    if (settingsRowHasArrows(overlay, row)) {
+      await cycleSettingsRow(row, step, state, source, context, overlay);
     }
   } else if (resolved.action === "discard-pending") {
     await discardPendingSettings(state, source, context, overlay);
@@ -187,11 +197,11 @@ async function settingsInlineEditAction(
       return;
     }
     if (applied.kind === "theme") {
-      applyTheme(state, context, applied.value);
+      applySettingsTheme(state, context, applied.value);
       return;
     }
     if (applied.kind === "compose-focus") {
-      applyComposeFocus(state, source, applied.value);
+      applySettingsComposeFocus(state, source, applied.value);
       return;
     }
     disarmSettingsConflict(overlay);
@@ -258,9 +268,21 @@ async function saveSettingsDraft(
     const connectionSecrets = { ...overlay.connectionSecrets };
     let document: SettingsDocumentV2;
     try {
+      const basicDocument = applyBasicSettingsDraft(
+        overlay.view.document,
+        draft.generation
+      );
+      const discovery = overlay.modelDiscoveryIdentity
+          === settingsModelDiscoveryIdentity(draft.generation)
+        ? overlay.modelDiscovery
+        : null;
       document = applyStoredApiKeyIntent(
         applyPromptCachePolicy(
-          applyBasicSettingsDraft(overlay.view.document, draft.generation),
+          applyBasicModelDiscovery(
+            basicDocument,
+            discovery,
+            draft.generation.contextWindow
+          ),
           draft.cachePolicy
         ),
         connectionSecrets
@@ -385,88 +407,4 @@ async function discardPendingSettings(
     publishSettingsView(state, source, view);
     state.toast = "pending settings discarded";
   });
-}
-
-/** Single action dispatcher for closed-choice settings rows. Callers gate on
- * `settingsRowCycles` first; this applies the step (Enter always +1) and keeps
- * legacy read-only toasts for server-backed selectors. */
-function cycleSettingsRow(
-  row: SettingsRowId,
-  step: -1 | 1,
-  state: RuntimeState,
-  source: AppSource,
-  context: ActionContext,
-  overlay: SettingsOverlayState
-): void {
-  if (settingsRowUsesServer(row) && !overlay.view.editable) {
-    state.toast = "legacy settings are read-only";
-    return;
-  }
-  if (row === "theme") {
-    const index = THEME_NAMES.indexOf(state.config.theme);
-    const theme = THEME_NAMES[
-      (index + step + THEME_NAMES.length) % THEME_NAMES.length
-    ]!;
-    applyTheme(state, context, theme);
-  } else if (row === "compose-focus") {
-    // `d` used to toggle this, which collided with delete everywhere else.
-    // It cycles with the other closed-choice rows instead.
-    applyComposeFocus(
-      state,
-      source,
-      state.config.composeFocus === "on" ? "off" : "on"
-    );
-  } else if (row === "provider") {
-    applyProviderChoice(overlay, state, step);
-  } else if (row === "allow-insecure-http") {
-    applyAllowInsecureHttp(overlay, state);
-  } else if (row === "cache-policy") {
-    applyPromptCachePolicyChoice(overlay, state, step);
-  }
-}
-
-function applyTheme(
-  state: RuntimeState,
-  context: ActionContext,
-  theme: ThemeName
-): void {
-  context.applyTheme(theme);
-  state.toast = `theme · ${theme}`;
-}
-
-function applyProviderChoice(
-  overlay: SettingsOverlayState,
-  state: RuntimeState,
-  step: -1 | 1
-): void {
-  const choice = cycleSettingsProvider(overlay, step);
-  state.toast = `provider · ${choice.label} · s saves settings`;
-}
-
-function applyComposeFocus(
-  state: RuntimeState,
-  source: AppSource,
-  composeFocus: "on" | "off"
-): void {
-  state.config = { ...state.config, composeFocus };
-  source.config = state.config;
-  if (!state.demo) saveConfig(state.config);
-  state.toast = `compose focus · ${composeFocus}`;
-}
-
-function applyPromptCachePolicyChoice(
-  overlay: SettingsOverlayState,
-  state: RuntimeState,
-  step: -1 | 1
-): void {
-  const policy = cyclePromptCachePolicy(overlay, step);
-  state.toast = `cache policy · ${policy} · s saves settings`;
-}
-
-function applyAllowInsecureHttp(
-  overlay: SettingsOverlayState,
-  state: RuntimeState
-): void {
-  const enabled = cycleAllowInsecureHttp(overlay);
-  state.toast = `insecure HTTP (LAN) · ${enabled ? "on" : "off"} · s saves settings`;
 }

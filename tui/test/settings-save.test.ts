@@ -22,6 +22,59 @@ import {
 } from "./settings-test-harness.js";
 
 describe("Settings save lifecycle", () => {
+  test("discard refreshes the model list for the restored provider", async () => {
+    const { source, state, press } = settingsHarness();
+    if (!source.settingsView.editable) {
+      throw new Error("demo settings must be editable");
+    }
+    const active = source.settingsView;
+    const candidate = {
+      ...source.settings,
+      provider: "openai-compatible" as const,
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5.2",
+      apiKeyEnv: "OPENAI_API_KEY"
+    };
+    const staged: SettingsView = {
+      ...active,
+      stateGeneration: active.stateGeneration + 1,
+      pendingRevision: active.activeRevision + 1,
+      document: applyBasicSettingsDraft(active.document, candidate)
+    };
+    source.settingsView = staged;
+    source.api.getSettings = async () => source.settingsView;
+    source.api.discoverModels = async () => ({
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: [{
+        remoteId: "gpt-5.2",
+        name: "GPT-5.2",
+        contextWindow: null,
+        maxOutputTokens: null,
+        source: "openai-models"
+      }]
+    });
+    source.api.discardPendingSettings = async () => {
+      source.settingsView = {
+        ...active,
+        stateGeneration: staged.stateGeneration + 1
+      };
+      return {
+        kind: "settings",
+        settingsStateGeneration: source.settingsView.stateGeneration,
+        activeSettingsRevision: source.settingsView.activeRevision,
+        pendingSettingsRevision: null,
+        activationOutcome: null
+      };
+    };
+
+    await openSettings(press);
+    expect(state.settings?.modelDiscovery?.models).toHaveLength(1);
+    await press(key("x"));
+
+    expect(state.settings?.view.pendingRevision).toBe(null);
+    expect(state.settings?.modelDiscovery).toBe(null);
+  });
+
   test("keeps a staged view editable for retry, check, and discard", async () => {
     const { source, state, press } = settingsHarness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");

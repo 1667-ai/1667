@@ -746,7 +746,11 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       activationOutcome: null
     }, () => api.saveSettings(command), "settings mutation result.settingsStateGeneration"],
     [{ state: "maybe", message: "No" }, () => api.checkModelServer(settings), "model-server check response.state"],
-    [{ contextWindow: "large" }, () => api.probeContextWindow(settings), "context-window probe response.contextWindow"]
+    [{ contextWindow: "large" }, () => api.probeContextWindow(settings), "context-window probe response.contextWindow"],
+    [{
+      observedAt: "not-a-date",
+      models: []
+    }, () => api.discoverModels(settings), "model discovery result"]
   ];
   for (const [payload, request, expected] of malformed) {
     response = payload;
@@ -1009,6 +1013,12 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     if (path === "/api/settings/probe-context") {
       return Response.json({ contextWindow: 32_768 });
     }
+    if (path === "/api/settings/discover-models") {
+      return Response.json({
+        observedAt: "2026-01-01T00:00:00.000Z",
+        models: []
+      });
+    }
     if (path.endsWith("/export")) return new Response("# Story\n");
     if (path === "/api/import/sillytavern") {
       return Response.json(storyPayload("imported"));
@@ -1025,12 +1035,14 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
 
   await api.summarizeChapter("story", "chapter");
   await api.probeContextWindow(DEMO_SETTINGS_VIEW.effective);
+  await api.discoverModels(DEMO_SETTINGS_VIEW.effective);
   await api.exportMarkdown("story");
   await api.importSillyTavern("{}");
 
   expect(reservations.map((reservation) =>
     reservation.requestedLifetimeMs)).toEqual([
     HTTP_OPERATION_LIFETIME_MS.generation,
+    WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer

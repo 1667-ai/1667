@@ -17,6 +17,7 @@ import type { MapState } from "./map-state.js";
 import type { CommandSelectionId } from "./command-model.js";
 import type {
   DiscardPendingSettingsCommand,
+  ModelDiscoveryResultV2,
   SaveSettingsCommand,
   SettingsView
 } from "../../shared/settings-v2-types.js";
@@ -127,7 +128,6 @@ export type SettingsRowId =
   | "temperature"
   | "max-tokens"
   | "context-window"
-  | "cache-policy"
   | "system-prompt";
 
 export interface SettingsEditBufferState {
@@ -161,6 +161,12 @@ export interface SettingsOverlayState {
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;
   probing: boolean;
+  discoveringModels: boolean;
+  modelDiscovery: ModelDiscoveryResultV2 | null;
+  modelDiscoveryIdentity: string | null;
+  modelDiscoveryGeneration: number;
+  modelDiscoveryAbortController: AbortController | null;
+  modelDiscoveryTargetIdentity: string | null;
   result: ModelServerCheckResult | null;
   discardIntent?: Omit<DiscardPendingSettingsCommand, "transportOperationId">;
 }

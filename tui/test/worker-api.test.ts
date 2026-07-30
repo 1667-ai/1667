@@ -68,6 +68,7 @@ describe("embedded backend worker", () => {
       expect(saved.effective.maxTokens).toBe(768);
       expect((await api.checkModelServer(saved.effective)).state).toBe("ready");
       expect((await api.probeContextWindow(saved.effective)).contextWindow).toBe(null);
+      expect((await api.discoverModels(saved.effective)).models).toEqual([]);
 
       let story = await api.createStory("Worker contract");
       expect((await api.listStories()).map(({ id }) => id)).toContain(story.id);

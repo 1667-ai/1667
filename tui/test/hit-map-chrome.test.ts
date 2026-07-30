@@ -13,6 +13,7 @@ import {
   initialSettingsOverlay,
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
+import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
 import {
   ACTIONS_FOOTER_ACTIONS, TAGS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS,
   COMMANDS_FOOTER_ACTIONS, FACTS_FOOTER_ACTIONS, LIBRARY_FOOTER_ACTIONS,
@@ -100,6 +101,30 @@ const footerCases: FooterCase[] = [
       state.settings = initialSettingsOverlay(source.settingsView, state.config);
     } }
 ];
+
+function installModelChoices(state: State, remoteIds: readonly string[]): void {
+  const overlay = state.settings!;
+  overlay.draft = {
+    ...overlay.draft,
+    generation: {
+      ...overlay.draft.generation,
+      model: remoteIds[0] ?? ""
+    }
+  };
+  overlay.modelDiscovery = {
+    observedAt: "2026-01-01T00:00:00.000Z",
+    models: remoteIds.map((remoteId) => ({
+      remoteId,
+      name: remoteId,
+      contextWindow: null,
+      maxOutputTokens: null,
+      source: "openai-models" as const
+    }))
+  };
+  overlay.modelDiscoveryIdentity = settingsModelDiscoveryIdentity(
+    overlay.draft.generation
+  );
+}
 
 function clickText(frame: ReturnType<typeof render>, state: ReturnType<typeof initialState>, text: string) {
   const row = frame.findIndex((line) => plainLine(line).includes(text));
@@ -671,17 +696,18 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // theme, compose focus, provider, insecure HTTP, cache policy
-    expect(opens.size).toBe(5);
+    // theme, compose focus, provider, and insecure HTTP
+    expect(opens.size).toBe(4);
     expect(new Set(opens.values()).size).toBe(1);
   });
 
-  test("cache policy arrows sit on its brackets while the cost detail follows", async () => {
+  test("model discovery adds exact slider arrows and mouse selection", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.stream = null;
-    const index = SETTINGS_ROW_IDS.indexOf("cache-policy");
+    const index = SETTINGS_ROW_IDS.indexOf("model");
     footerCases.at(-1)!.setup(state, source);
+    installModelChoices(state, ["qwen3-32b", "novelist-b"]);
     state.settings!.cursor = index;
     const frame = render(state, 120, 30);
 
@@ -693,12 +719,10 @@ describe("hit map clickable chrome", () => {
     const line = plainLine(frame[selectorRow]!);
     expect([...line][arrows[0]!.left]).toBe("‹");
     expect([...line][arrows[1]!.left]).toBe("›");
-    // The arrows are not the ends of the value — the cost keeps rendering.
-    expect(line.slice(line.indexOf("›") + 1)).toContain("TTL none");
 
     const clicked = mouseToAction(click(arrows[1]!.left, selectorRow), state)!;
     await dispatch(clicked, state, source, createWrapCache(), () => {}, async () => {}, () => {});
-    expect(state.settings?.draft.cachePolicy).toBe("auto");
+    expect(state.settings?.draft.generation.model).toBe("novelist-b");
   });
 
   test("a truncated selector value leaves no arrow behind at any panel width", () => {
@@ -708,7 +732,8 @@ describe("hit map clickable chrome", () => {
       const state = initialState(source, false);
       state.stream = null;
       footerCases.at(-1)!.setup(state, source);
-      state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("cache-policy");
+      installModelChoices(state, ["a-model-name-that-does-not-fit-in-a-narrow-panel"]);
+      state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("model");
       const frame = render(state, width, 30);
       let arrows = 0;
       for (const [rowIndex, row] of state.hitRows.entries()) {

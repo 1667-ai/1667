@@ -8,6 +8,7 @@ import type { BackendTaskKind, RuntimeState } from "./state.js";
 import { adoptReconciliationSnapshot } from "./story-adoption.js";
 import type { WorkerRecoveryWarning } from "./worker-api.js";
 import { publishSettingsView, publishStories } from "./overlay-publication.js";
+import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 
 interface RecoverySource {
   api: StoryApi;
@@ -86,6 +87,13 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
   let reconnectIntent = 0;
   let settledReconnectIntent = 0;
   let explicitProbe: ExplicitProbe | null = null;
+  const settingsPublished = (): void => {
+    backend.observe(synchronizeSettingsModelDiscovery(
+      state,
+      source,
+      { backend, repaint }
+    ));
+  };
 
   const leaseFor = (task: ActionTask, origin: ReconciliationOrigin): ReconciliationLease => {
     const epoch = connectionEpoch;
@@ -116,7 +124,12 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
       const lease = leaseFor(task, origin);
       try {
         const result = await reconcileCurrentBackendState(
-          state, source, task, lease, invalidateCache
+          state,
+          source,
+          task,
+          lease,
+          invalidateCache,
+          settingsPublished
         );
         // The snapshot publication and this continuation are separated by an
         // async return. Recheck the lease here so an already-queued transition
@@ -349,7 +362,8 @@ async function reconcileCurrentBackendState(
   source: Pick<RecoverySource, "api" | "demo" | "stories" | "settingsView" | "settings" | "backendRecovery">,
   task: ActionTask,
   lease: ReconciliationLease,
-  invalidateCache: () => void
+  invalidateCache: () => void,
+  settingsPublished: () => void
 ): Promise<ReconciliationResult | null> {
   if (!lease.current()) return null;
   const [stories, settingsView] = await Promise.all([
@@ -368,6 +382,7 @@ async function reconcileCurrentBackendState(
   publishSettingsView(state, source, snapshot.settingsView);
   adoptReconciliationSnapshot(state, snapshot.payload);
   invalidateCache();
+  settingsPublished();
   return { changedStory, interactionStable, storyId: snapshot.payload.id };
 }
 

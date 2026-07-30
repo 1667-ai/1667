@@ -68,8 +68,10 @@ describe("backend action ownership", () => {
       task = owned;
       await gate.promise;
     });
+    const idle = runtime.whenIdle();
 
     runtime.dispose();
+    expect(await idle).toBeFalse();
     expect(task.owns()).toBeFalse();
     expect(task.storyCurrent()).toBeFalse();
     expect(state.backendTask).toBe(null);

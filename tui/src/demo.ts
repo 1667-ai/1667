@@ -6,6 +6,7 @@ import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js"
 import { activePath, computeRollups, isChapterSummary, pathTo, subtreeIds, switchToNode, unusedTakePruneSelection } from "../../shared/story-tree.js";
 import type { TagStatus, FactInput, GenerationSettings, NodeStub, PruneUnusedTakesRequest, Story, StoryPayload, StorySummary } from "../../shared/types.js";
 import type {
+  ModelDiscoveryResultV2,
   SettingsDocumentV2,
   SettingsMutationResult,
   SettingsView
@@ -452,6 +453,25 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     checkModelServer: async () => ({ state: "ready", message: "dry-run model server is ready" }),
     probeContextWindow: async () => ({ contextWindow: DEMO_SETTINGS.contextWindow }),
+    discoverModels: async (): Promise<ModelDiscoveryResultV2> => ({
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: [
+        {
+          remoteId: "gpt-5.4",
+          name: "GPT-5.4",
+          contextWindow: 1_000_000,
+          maxOutputTokens: 128_000,
+          source: "openai-models"
+        },
+        {
+          remoteId: "gpt-5-mini",
+          name: "GPT-5 mini",
+          contextWindow: 400_000,
+          maxOutputTokens: 128_000,
+          source: "openai-models"
+        }
+      ]
+    }),
     importSillyTavern: async () => unavailable("SillyTavern import"),
     exportMarkdown: async () => demo.exportMarkdown(),
     continueStory: async (_storyId, instruction, genId, target, onDelta, signal) => {

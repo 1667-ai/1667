@@ -19,7 +19,6 @@ the Fact, 1667 adds the custom Fact tag to the choice row.
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
 
-Settings shows the complete reason when a cache policy is not available.
 Select the system prompt row to open the full-screen editor.
 
 The context meter shows the estimated next request. Its pulsing segment shows
@@ -45,6 +44,14 @@ Settings contains presets for these providers and local servers:
 - Custom endpoint
 
 Dry-run mode tests the interface without a provider request.
+
+Settings reads the model list from the selected provider. Use `Left Arrow` or
+`Right Arrow` to select a model. Press `Enter` to type a custom model name.
+Settings reads the list again after you change the provider or the base URL.
+Save a new credential target before you use it to read a model list.
+
+The cache policy is not available in Settings. New profiles use the `off`
+cache policy.
 
 ## Credentials and deadlines
 

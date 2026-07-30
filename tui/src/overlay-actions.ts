@@ -25,6 +25,7 @@ import {
   openSettingsOverlay,
   settingsOverlayAction
 } from "./settings-overlay-actions.js";
+import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
 
 import type { AppSource } from "./app.js";
@@ -61,6 +62,7 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-settings") {
     await openSettingsOverlay(state, source, context, resolved.settingsRow);
+    await synchronizeSettingsModelDiscovery(state, source, context);
     return true;
   }
   if (resolved.action === "open-chapters") { openChapters(state); return true; }
@@ -77,7 +79,14 @@ export async function handleOverlayAction(
   if (state.mode === "FACTS" && state.facts !== null) return await factsAction(resolved, state, source, context);
   if (state.mode === "COMMANDS" && state.commands !== null) return await commandsAction(resolved, state, source, context);
   if (state.mode === "SETTINGS" && state.settings !== null) {
-    return await settingsOverlayAction(resolved, state, source, context);
+    const handled = await settingsOverlayAction(
+      resolved,
+      state,
+      source,
+      context
+    );
+    await synchronizeSettingsModelDiscovery(state, source, context);
+    return handled;
   }
   if (state.mode === "CHAPTERS" && state.chapters !== null) {
     await chaptersAction(resolved, state, source, context);

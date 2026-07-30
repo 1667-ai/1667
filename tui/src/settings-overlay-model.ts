@@ -1,6 +1,4 @@
 import {
-  PROMPT_CACHE_POLICY_V2_VALUES,
-  type PromptCachePolicyV2,
   type SettingsActivationErrorCodeV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
@@ -14,15 +12,13 @@ import {
 } from "./composer-model.js";
 import { graphemeCells } from "./cell-width.js";
 import {
-  promptCacheSummaryParts,
-  type PromptCacheSummaryParts
-} from "./settings-cache-summary.js";
-import {
   localProviderPresetsSupported,
   nextSettingsProviderChoice,
   settingsProviderChoice,
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
+import { settingsModelChoices } from "./settings-model-discovery.js";
+import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import {
   parseSettings,
   settingsTextDraftForView,
@@ -56,7 +52,6 @@ export const SETTINGS_ROW_IDS = [
   "temperature",
   "max-tokens",
   "context-window",
-  "cache-policy",
   "system-prompt"
 ] as const satisfies readonly SettingsRowId[];
 
@@ -74,7 +69,6 @@ const SETTINGS_FIELD_KEYS = {
   temperature: "temperature",
   "max-tokens": "maxTokens",
   "context-window": "contextWindow",
-  "cache-policy": "cachePolicy",
   "system-prompt": "systemPrompt"
 } as const satisfies Record<
   Exclude<
@@ -99,17 +93,19 @@ export function initialSettingsOverlay(
     conflict: null,
     checking: false,
     probing: false,
+    discoveringModels: false,
+    modelDiscovery: null,
+    modelDiscoveryIdentity: null,
+    modelDiscoveryGeneration: 0,
+    modelDiscoveryAbortController: null,
+    modelDiscoveryTargetIdentity: null,
     result: null
   };
 }
 
 export function settingsRows(
   overlay: SettingsOverlayState,
-  config: UserConfig,
-  cacheSummary: PromptCacheSummaryParts = promptCacheSummaryParts(
-    overlay.view,
-    overlay.draft
-  )
+  config: UserConfig
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
   const providerChoice = settingsProviderChoice(settings);
@@ -133,7 +129,7 @@ export function settingsRows(
       label: "insecure HTTP (LAN)",
       value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
     },
-    { id: "model", label: "model", value: settings.model || "—" },
+    { id: "model", label: "model", value: modelRowValue(overlay) },
     { id: "api-key", label: "API key", value: storedApiKeyPresentation(overlay) },
     { id: "api-key-env", label: "API key env", value: settings.apiKeyEnv ?? "—" },
     {
@@ -150,11 +146,6 @@ export function settingsRows(
       id: "context-window",
       label: "context window",
       value: settings.contextWindow?.toLocaleString("en-US") ?? "unknown"
-    },
-    {
-      id: "cache-policy",
-      label: "cache policy",
-      value: `‹ ${cacheSummary.policy} › · ${cacheSummary.detail}`
     },
     {
       id: "system-prompt",
@@ -261,7 +252,6 @@ export function applySettingsRowEdit(
     const result = applyStoredApiKeyEdit(overlay, rawValue);
     if (result !== null) return { kind: "error", message: result };
     overlay.edit = null;
-    overlay.result = null;
     if (!settingsDraftChanged(overlay)) overlay.conflict = null;
     return { kind: "draft" };
   }
@@ -347,19 +337,21 @@ export function boundedSettingsCursor(value: number): number {
 /** Rows whose value is a closed choice: `←→` cycles them in place and their
  * value's brackets are click targets. Everything else is free text the row
  * editor owns. One spelling of the set, read by the panel and the key handler.
- *
- * A cycling value may keep read-only detail after its closing bracket — the
- * cache policy states what the choice costs — so the panel finds the arrows by
- * bracket, not by the ends of the value.
- *
  * Deliberately not the inverse of `settingsRowUsesServer`: provider cycles and
  * is server-backed, while theme and compose focus cycle and are local. */
 export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
     || row === "compose-focus"
     || row === "provider"
-    || row === "allow-insecure-http"
-    || row === "cache-policy";
+    || row === "allow-insecure-http";
+}
+
+export function settingsRowHasArrows(
+  overlay: SettingsOverlayState,
+  row: SettingsRowId
+): boolean {
+  return settingsRowCycles(row)
+    || row === "model" && settingsModelChoices(overlay).length > 0;
 }
 
 /** Local-only rows live in the user config; every other row edits a
@@ -388,6 +380,36 @@ export function cycleSettingsProvider(
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
   return choice;
+}
+
+export function cycleSettingsModel(
+  overlay: SettingsOverlayState,
+  step: -1 | 1
+): string | null {
+  const choices = settingsModelChoices(overlay);
+  if (choices.length === 0) return null;
+  const current = choices.findIndex(
+    (choice) => choice.remoteId === overlay.draft.generation.model
+  );
+  const index = current < 0
+    ? step === 1 ? 0 : choices.length - 1
+    : (current + step + choices.length) % choices.length;
+  const choice = choices[index]!;
+  if (choice.remoteId === overlay.draft.generation.model) {
+    return choice.remoteId;
+  }
+  overlay.draft = {
+    ...overlay.draft,
+    generation: {
+      ...overlay.draft.generation,
+      model: choice.remoteId,
+      contextWindow: choice.contextWindow
+    }
+  };
+  overlay.result = null;
+  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
+  else disarmSettingsConflict(overlay);
+  return choice.remoteId;
 }
 
 /** Rebase a clean menu refresh; preserve dirty row drafts and require an
@@ -501,7 +523,6 @@ function draftRowEditValue(
   if (row === "temperature") return settings.temperature?.toString() ?? "";
   if (row === "max-tokens") return settings.maxTokens.toString();
   if (row === "context-window") return settings.contextWindow?.toString() ?? "";
-  if (row === "cache-policy") return draft.cachePolicy;
   return settings.systemPrompt;
 }
 
@@ -541,23 +562,6 @@ function settingsDraftTextRow(
   return row !== "theme"
     && row !== "compose-focus"
     && row !== "allow-insecure-http";
-}
-
-/** Every policy stays reachable, including one this exact model cannot honour.
- * The row summary then reads `unavailable`, and the choice becomes live again
- * when the model changes. A skipped choice would vanish without a reason. */
-export function cyclePromptCachePolicy(
-  overlay: SettingsOverlayState,
-  step: -1 | 1
-): PromptCachePolicyV2 {
-  const values = PROMPT_CACHE_POLICY_V2_VALUES;
-  const index = values.indexOf(overlay.draft.cachePolicy);
-  const cachePolicy = values[(index + step + values.length) % values.length]!;
-  overlay.draft = { ...overlay.draft, cachePolicy };
-  overlay.result = null;
-  if (!settingsDraftChanged(overlay)) overlay.conflict = null;
-  else disarmSettingsConflict(overlay);
-  return cachePolicy;
 }
 
 export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
@@ -601,4 +605,21 @@ function maskSecretText(value: string): string {
   return graphemeCells(value)
     .map((cell) => /[\r\n]/u.test(cell.text) ? cell.text : "•")
     .join("");
+}
+
+function modelRowValue(overlay: SettingsOverlayState): string {
+  const model = overlay.draft.generation.model;
+  const choices = settingsModelChoices(overlay);
+  if (choices.length === 0) return model || "—";
+  const selected = choices.find((choice) => choice.remoteId === model);
+  const label = selected === undefined
+    ? model.length === 0 ? "choose model" : `${settingsModelDisplayText(model)} · custom`
+    : selected.name === selected.remoteId
+      ? settingsModelDisplayText(selected.remoteId)
+      : `${settingsModelDisplayText(selected.name)} · ${settingsModelDisplayText(selected.remoteId)}`;
+  return `‹ ${label} ›`;
+}
+
+export function settingsModelDisplayText(value: string): string {
+  return value.replace(/\s+/gu, " ");
 }

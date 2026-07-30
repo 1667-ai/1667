@@ -17,6 +17,7 @@ export interface ActionRunOptions {
 
 export interface ActionRunner {
   run(label: string, work: ActionWork, options?: ActionRunOptions): Promise<boolean>;
+  whenIdle(): Promise<boolean>;
   observe(work: Promise<unknown>): void;
 }
 
@@ -33,6 +34,7 @@ let nextTaskId = 1;
 export class ActionRuntime implements ActionRunner {
   private ownedId: number | null = null;
   private disposed = false;
+  private readonly idleWaiters = new Set<(available: boolean) => void>();
 
   constructor(
     private readonly state: RuntimeState,
@@ -74,9 +76,16 @@ export class ActionRuntime implements ActionRunner {
     } finally {
       if (this.ownedId === id) this.ownedId = null;
       if (this.state.backendTask?.id === id) this.state.backendTask = null;
+      if (this.state.backendTask === null) this.resolveIdleWaiters(true);
       if (this.state.toast === `busy · ${label} still running`) this.state.toast = null;
       if (!this.disposed) this.repaint();
     }
+  }
+
+  whenIdle(): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    if (this.state.backendTask === null) return Promise.resolve(true);
+    return new Promise((resolve) => this.idleWaiters.add(resolve));
   }
 
   observe(work: Promise<unknown>): void {
@@ -92,6 +101,13 @@ export class ActionRuntime implements ActionRunner {
     const ownedId = this.ownedId;
     this.ownedId = null;
     if (ownedId !== null && this.state.backendTask?.id === ownedId) this.state.backendTask = null;
+    this.resolveIdleWaiters(false);
+  }
+
+  private resolveIdleWaiters(available: boolean): void {
+    const waiters = [...this.idleWaiters];
+    this.idleWaiters.clear();
+    waiters.forEach((resolve) => resolve(available));
   }
 }
 
@@ -106,6 +122,7 @@ export function withActionAdmission(
       admit();
       return backend.run(label, work, options);
     },
+    whenIdle: () => backend.whenIdle(),
     observe: (work) => backend.observe(work)
   };
 }

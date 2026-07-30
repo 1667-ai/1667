@@ -9,8 +9,10 @@ This file records notable changes to 1667. Product terms use the definitions in
   `Shift+Tab` to select a Fact tag. Press `Ctrl+T` to type a custom Fact tag.
 - **Library now filters stories while you type.** Press `Enter` to close the
   filter.
-- **Settings now shows the complete cache-policy error.** The message wraps
-  inside the Settings panel.
+- **Settings now reads the model list from the selected provider.** Use
+  `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a
+  custom model name. Settings includes an OpenAI preset. The cache policy is
+  not available in Settings. New profiles use the `off` cache policy.
 - **The system prompt now uses the full-screen editor.** The editor keeps
   multiline text and exact spacing.
 - **Composer errors now wrap inside the footer.** A model timeout no longer
