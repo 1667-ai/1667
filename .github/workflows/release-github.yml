@@ -287,6 +287,31 @@ jobs:
             exit 1
           fi
 
+      # Render install-beta.sh from the same archive digests. This path always
+      # publishes a prerelease SemVer, so install-stable.sh is not produced.
+      - name: Render the beta Shell Installer
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          digests="$(
+            node --import tsx -e '
+              import { createHash } from "node:crypto";
+              import { readdirSync, readFileSync } from "node:fs";
+              const dir = "dist/assets";
+              const out = {};
+              for (const name of readdirSync(dir)) {
+                if (!name.endsWith(".tar.gz")) continue;
+                out[name] = createHash("sha256").update(readFileSync(dir + "/" + name)).digest("hex");
+              }
+              process.stdout.write(JSON.stringify(out));
+            '
+          )"
+          node --import tsx scripts/release-install-script.ts render \
+            "$VERSION" "$GITHUB_REPOSITORY" "$digests" dist/assets
+          test -f dist/assets/install-beta.sh
+          test ! -e dist/assets/install-stable.sh
+
       # The redirection creates checksums.txt before the command reads the
       # directory, which is why the command never lists a file by that name.
       - name: Write checksums.txt
@@ -301,6 +326,7 @@ jobs:
         with:
           subject-path: |
             dist/assets/*.tar.gz
+            dist/assets/install-beta.sh
             dist/assets/checksums.txt
 
       - name: Publish the pre-release
@@ -318,4 +344,5 @@ jobs:
             --title "1667 v$VERSION" \
             --notes-file dist/release-notes.md \
             dist/assets/*.tar.gz \
+            dist/assets/install-beta.sh \
             dist/assets/checksums.txt

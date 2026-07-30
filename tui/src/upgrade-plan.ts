@@ -1,21 +1,20 @@
 import { compareSemVer, isSemVer } from "../../shared/semver.js";
 import {
   NpmUpgradeRegistry,
+  type NpmVersionMetadata,
   type PlatformPackage
 } from "./npm-upgrade-registry.js";
+import type {
+  UpgradeApplyCommand,
+  UpgradeCheckCommand,
+  UpgradePlanCommand
+} from "./upgrade-command.js";
 import {
   UpgradeFailure,
-  upgradeEnvelope,
-  type UpgradeChannel,
-  type UpgradeSuccessEnvelope
+  type UpgradeChannel
 } from "./upgrade-contract.js";
 
-export interface UpgradeRequest {
-  readonly check: boolean;
-  readonly version: string | null;
-  readonly channel: UpgradeChannel;
-}
-
+/** Local install facts for planning. Install method is not part of observation. */
 export interface UpgradeObservation {
   readonly currentVersion: string;
   readonly platformPackage: PlatformPackage;
@@ -23,62 +22,134 @@ export interface UpgradeObservation {
 
 export interface UpgradeRegistry {
   channelHead(channel: UpgradeChannel, signal: AbortSignal): Promise<string>;
-  launcher(version: string, signal: AbortSignal): Promise<unknown>;
-  platform(packageName: PlatformPackage, version: string, signal: AbortSignal): Promise<unknown>;
+  launcher(version: string, signal: AbortSignal): Promise<NpmVersionMetadata>;
+  platform(
+    packageName: PlatformPackage,
+    version: string,
+    signal: AbortSignal
+  ): Promise<NpmVersionMetadata>;
 }
 
+/** Neutral plan: current product is current for the selected channel. */
+export interface UpgradeUpToDatePlan {
+  readonly status: "up-to-date";
+  readonly current: string;
+  readonly latest: string;
+  readonly target: null;
+  readonly channel: UpgradeChannel;
+}
+
+/** Neutral plan: a newer channel head is available. Check has no metadata. */
+export interface UpgradeCheckTargetPlan {
+  readonly status: "target-available";
+  readonly current: string;
+  readonly latest: string;
+  readonly target: string;
+  readonly channel: UpgradeChannel;
+}
+
+/**
+ * Neutral plan: a newer channel head is available and platform metadata was
+ * verified once. Apply reuses this metadata and does not fetch again.
+ */
+export interface UpgradeApplyTargetPlan {
+  readonly status: "target-available";
+  readonly current: string;
+  readonly latest: string;
+  readonly target: string;
+  readonly channel: UpgradeChannel;
+  readonly platformMetadata: NpmVersionMetadata;
+}
+
+export type UpgradeCheckPlan = UpgradeUpToDatePlan | UpgradeCheckTargetPlan;
+export type UpgradeApplyPlan = UpgradeUpToDatePlan | UpgradeApplyTargetPlan;
+export type UpgradeCorePlan = UpgradeCheckPlan | UpgradeApplyPlan;
+
 export async function planUpgrade(
-  request: UpgradeRequest,
+  command: UpgradeCheckCommand,
+  observation: UpgradeObservation,
+  registry?: UpgradeRegistry,
+  signal?: AbortSignal
+): Promise<UpgradeCheckPlan>;
+export async function planUpgrade(
+  command: UpgradeApplyCommand,
+  observation: UpgradeObservation,
+  registry?: UpgradeRegistry,
+  signal?: AbortSignal
+): Promise<UpgradeApplyPlan>;
+export async function planUpgrade(
+  command: UpgradePlanCommand,
   observation: UpgradeObservation,
   registry: UpgradeRegistry = new NpmUpgradeRegistry(),
   signal: AbortSignal = new AbortController().signal
-): Promise<UpgradeSuccessEnvelope> {
+): Promise<UpgradeCorePlan> {
   if (signal.aborted) throw new UpgradeFailure("interrupted", "The update check was interrupted.");
   if (!isSemVer(observation.currentVersion)) {
     throw new UpgradeFailure("verification_failed", "The current product version is invalid.");
   }
-  const latest = await registry.channelHead(request.channel, signal);
+  const version = command.kind === "apply" ? command.version : null;
+  const latest = await registry.channelHead(command.channel, signal);
   if (signal.aborted) throw new UpgradeFailure("interrupted", "The update check was interrupted.");
-  if (request.version !== null && request.version !== latest) {
+  if (version !== null && version !== latest) {
     throw new UpgradeFailure(
       "unsupported_target",
       "The requested version is no longer the selected channel head."
     );
   }
+  // Exact SemVer string equality is the only up-to-date identity. Same precedence
+  // with different build metadata stays an available, applicable target.
+  if (latest === observation.currentVersion) {
+    return upToDatePlan(observation.currentVersion, latest, command.channel);
+  }
   const comparison = compareSemVer(latest, observation.currentVersion);
-  const envelope = comparison > 0
-    ? upgradeEnvelope({
-        status: "manual",
-        current: observation.currentVersion,
-        latest,
-        target: latest,
-        channel: request.channel
-      })
-    : upgradeEnvelope({
-        status: "up-to-date",
-        current: observation.currentVersion,
-        latest,
-        target: null,
-        channel: request.channel
-      });
-  if (request.check) return envelope;
   if (comparison < 0) {
-    if (request.version !== null) {
+    if (version !== null) {
       throw new UpgradeFailure("unsupported_target", "Downgrades are not supported.");
     }
-    return envelope;
+    return upToDatePlan(observation.currentVersion, latest, command.channel);
+  }
+  if (command.kind === "check") {
+    return Object.freeze({
+      status: "target-available",
+      current: observation.currentVersion,
+      latest,
+      target: latest,
+      channel: command.channel
+    });
   }
   const exactController = new AbortController();
   const exactSignal = AbortSignal.any([signal, exactController.signal]);
+  let platformMetadata: NpmVersionMetadata;
   try {
-    await Promise.all([
+    const [, platform] = await Promise.all([
       registry.launcher(latest, exactSignal),
       registry.platform(observation.platformPackage, latest, exactSignal)
     ]);
+    platformMetadata = platform;
   } finally {
-    // A failed request must not leave its sibling keeping the CLI alive.
     exactController.abort();
   }
   if (signal.aborted) throw new UpgradeFailure("interrupted", "The update check was interrupted.");
-  return envelope;
+  return Object.freeze({
+    status: "target-available",
+    current: observation.currentVersion,
+    latest,
+    target: latest,
+    channel: command.channel,
+    platformMetadata
+  });
+}
+
+function upToDatePlan(
+  current: string,
+  latest: string,
+  channel: UpgradeChannel
+): UpgradeUpToDatePlan {
+  return Object.freeze({
+    status: "up-to-date",
+    current,
+    latest,
+    target: null,
+    channel
+  });
 }

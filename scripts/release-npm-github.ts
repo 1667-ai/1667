@@ -15,27 +15,22 @@ import { promisify } from "node:util";
 import { isSemVer } from "../shared/semver.js";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
+import { releaseArchiveFileName } from "./release-archive.js";
 import {
   directoryAssetDigests,
   formatReleaseChecksums
 } from "./release-github-assets.js";
+import { renderInstallScriptsForVersion } from "./release-install-script.js";
+import {
+  expectedGitHubReleaseAssetNames,
+  expectedInstallerNames,
+  isPrereleaseVersion
+} from "./release-publication-assets.js";
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const MAX_GH_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_NOTES_BYTES = 64 * 1024;
-const FIXED_ASSETS = Object.freeze([
-  "artifact-manifest.json",
-  "artifact-manifest.sha256",
-  "checksums.txt"
-]);
-const SBOM_ASSETS = Object.freeze([
-  "launcher",
-  ...PUBLISHED_ARTIFACT_TARGETS
-].map((target) => `${target}.spdx.json`));
-const OBSERVATION_ASSETS = Object.freeze(
-  PUBLISHED_ARTIFACT_TARGETS.map((target) => `${target}.json`)
-);
 
 export interface GitHubReleaseEnvironment {
   readonly GITHUB_REPOSITORY?: string;
@@ -71,7 +66,11 @@ export async function publishOrVerifyGitHubRelease(
     options.ghExecutable
       ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
   );
-  const assets = verifyNpmReleaseAssetDirectory(options.assetsDirectory);
+  const assets = verifyNpmReleaseAssetDirectory(
+    options.assetsDirectory,
+    options.version,
+    repository
+  );
   const notes = boundedFile(options.notesFile, "GitHub release notes", MAX_NOTES_BYTES);
   const tag = `v${options.version}`;
   let state = await releaseState(gh, tag, repository, options.environment);
@@ -114,27 +113,72 @@ export async function publishOrVerifyGitHubRelease(
   if (published.isDraft) throw new Error("Published GitHub release is still a draft");
 }
 
-export function verifyNpmReleaseAssetDirectory(directory: string): readonly string[] {
+export function verifyNpmReleaseAssetDirectory(
+  directory: string,
+  version: string,
+  repository: string
+): readonly string[] {
+  if (!isSemVer(version)) throw new Error("GitHub release version is not SemVer");
+  if (!REPOSITORY.test(repository)) {
+    throw new Error("GitHub release repository is invalid");
+  }
   const root = realpathSync(directory);
   const entries = readdirSync(root, { withFileTypes: true });
   if (entries.some((entry) => !entry.isFile() || entry.isSymbolicLink())) {
     throw new Error("GitHub release assets must be regular files");
   }
   const names = entries.map((entry) => entry.name).sort();
-  const tarballs = names.filter((name) => name.endsWith(".tgz"));
-  if (tarballs.length !== 5) throw new Error("GitHub release must contain five npm tarballs");
-  const expected = [
-    ...FIXED_ASSETS,
-    ...OBSERVATION_ASSETS,
-    ...SBOM_ASSETS,
-    ...tarballs
-  ].sort();
+  const expected = [...expectedGitHubReleaseAssetNames(version)];
   if (names.length !== expected.length
     || names.some((name, index) => name !== expected[index])) {
     throw new Error("GitHub release contains an unexpected asset set");
   }
+  if (isPrereleaseVersion(version) && names.includes("install-stable.sh")) {
+    throw new Error("Prerelease GitHub release must not contain install-stable.sh");
+  }
+  // Keep the explicit installer helper exercised for callers and tests.
+  for (const installer of expectedInstallerNames(version)) {
+    if (!names.includes(installer)) {
+      throw new Error(`GitHub release is missing ${installer}`);
+    }
+  }
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
+    const archive = releaseArchiveFileName(version, target);
+    if (!names.includes(archive)) {
+      throw new Error(`GitHub release is missing native archive ${archive}`);
+    }
+  }
+  const assetDigests = directoryAssetDigests(root);
+  const digestByName = new Map(assetDigests.map((entry) => [entry.name, entry.sha256]));
+  // Bind each installer to digests of the exact native .tar.gz assets only.
+  const archiveDigests: Record<string, string> = {};
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
+    const archive = releaseArchiveFileName(version, target);
+    const sha256 = digestByName.get(archive);
+    if (sha256 === undefined) {
+      throw new Error(`GitHub release is missing native archive ${archive}`);
+    }
+    archiveDigests[archive] = sha256;
+  }
+  const expectedInstallers = renderInstallScriptsForVersion({
+    version,
+    repository,
+    digests: archiveDigests
+  });
+  for (const installer of expectedInstallerNames(version)) {
+    const expectedBody = expectedInstallers[installer];
+    if (expectedBody === undefined) {
+      throw new Error(`GitHub release is missing deterministic installer ${installer}`);
+    }
+    const actual = readFileSync(path.join(root, installer));
+    if (!actual.equals(Buffer.from(expectedBody, "utf8"))) {
+      throw new Error(
+        `GitHub release installer ${installer} does not match deterministic channel contents`
+      );
+    }
+  }
   const checksums = readFileSync(path.join(root, "checksums.txt"), "utf8");
-  const regenerated = formatReleaseChecksums(directoryAssetDigests(root));
+  const regenerated = formatReleaseChecksums(assetDigests);
   if (checksums !== regenerated) throw new Error("GitHub release checksums do not match assets");
   return Object.freeze(names.map((name) => path.join(root, name)));
 }
@@ -153,7 +197,11 @@ async function verifyDownloadedRelease(
       ["release", "download", tag, "--repo", repository, "--dir", scratch],
       environment
     );
-    const downloaded = verifyNpmReleaseAssetDirectory(scratch);
+    const downloaded = verifyNpmReleaseAssetDirectory(
+      scratch,
+      path.basename(tag).replace(/^v/, ""),
+      repository
+    );
     if (downloaded.length !== expectedAssets.length) {
       throw new Error("Downloaded GitHub release has the wrong asset count");
     }
@@ -300,9 +348,16 @@ function isMainModule(): boolean {
 if (isMainModule()) {
   try {
     const [command, assetsDirectory, notesFile] = process.argv.slice(2);
-    if (command === "verify-assets" && process.argv.length === 4
-      && assetsDirectory !== undefined) {
-      verifyNpmReleaseAssetDirectory(assetsDirectory);
+    if (command === "verify-assets" && process.argv.length === 6) {
+      const version = process.argv[3];
+      const repository = process.argv[4];
+      const directory = process.argv[5];
+      if (version === undefined || repository === undefined || directory === undefined) {
+        throw new Error(
+          "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
+        );
+      }
+      verifyNpmReleaseAssetDirectory(directory, version, repository);
     } else if (process.argv.length === 5 && command !== undefined
       && assetsDirectory !== undefined && notesFile !== undefined) {
       await publishOrVerifyGitHubRelease({
@@ -313,7 +368,7 @@ if (isMainModule()) {
       });
     } else {
       throw new Error(
-        "usage: release-npm-github.ts verify-assets <assets>"
+        "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
         + " | release-npm-github.ts <version> <assets> <notes>"
       );
     }

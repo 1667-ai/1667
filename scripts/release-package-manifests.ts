@@ -7,33 +7,17 @@ import {
   type ReleasePlatformPackage
 } from "../shared/release-targets.js";
 
-export const RELEASE_PACKAGE_REPOSITORY = Object.freeze({
-  type: "git" as const,
-  url: "git+https://github.com/1667-ai/1667.git" as const
-});
-
-export const RELEASE_LICENSE = "Apache-2.0" as const;
-
-/** Repository-root basenames staged verbatim into every release package root. */
-export const RELEASE_LICENSE_FILES = Object.freeze(["LICENSE", "NOTICE"] as const);
-
-/**
- * Pinned so a uniform staging mistake cannot pass. Comparing the five packages
- * with each other only proves they agree, which a truncated or wrong-directory
- * copy applied to all five satisfies; these digests are what the release is
- * actually authorised to ship. A guard test keeps them honest against the
- * repository-root files.
- */
-export const RELEASE_LICENSE_FILE_DIGESTS = Object.freeze({
-  LICENSE: Object.freeze({
-    sha256: "08385ddcf8c5a400d0ace792e968a466e2eadc62d91c4b19a4af71d91f815ef0",
-    bytes: 11327
-  }),
-  NOTICE: Object.freeze({
-    sha256: "ef2779740dd724bc6b83cf89485ac684c4e7fe6622752ffd0b65933fef68b6bd",
-    bytes: 82
-  })
-});
+export {
+  RELEASE_PACKAGE_REPOSITORY,
+  RELEASE_LICENSE,
+  RELEASE_LICENSE_FILES,
+  RELEASE_LICENSE_FILE_DIGESTS
+} from "../shared/release-package-layout.js";
+import {
+  RELEASE_PACKAGE_REPOSITORY,
+  RELEASE_LICENSE,
+  RELEASE_LICENSE_FILES
+} from "../shared/release-package-layout.js";
 
 export interface ReleaseLauncherManifest {
   kind: "launcher";

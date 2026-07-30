@@ -9,6 +9,8 @@ export type UpgradeErrorCode =
   | "verification_failed"
   | "internal_error";
 
+export type UpgradeMethod = "manual" | "shell";
+
 export interface UpgradeError {
   code: UpgradeErrorCode;
   message: string;
@@ -17,8 +19,8 @@ export interface UpgradeError {
 }
 
 interface UpgradeEnvelopeBase {
-  method: "manual";
-  restartRequired: false;
+  method: UpgradeMethod;
+  restartRequired: boolean;
   command: null;
 }
 
@@ -32,16 +34,35 @@ interface UpgradeSuccessEnvelopeBase extends UpgradeEnvelopeBase {
 export interface UpgradeUpToDateEnvelope extends UpgradeSuccessEnvelopeBase {
   status: "up-to-date";
   target: null;
+  restartRequired: false;
 }
 
 export interface UpgradeManualEnvelope extends UpgradeSuccessEnvelopeBase {
   status: "manual";
+  method: "manual";
   target: string;
+  restartRequired: false;
+}
+
+export interface UpgradeAvailableEnvelope extends UpgradeSuccessEnvelopeBase {
+  status: "available";
+  method: "shell";
+  target: string;
+  restartRequired: false;
+}
+
+export interface UpgradeAppliedEnvelope extends UpgradeSuccessEnvelopeBase {
+  status: "applied";
+  method: "shell";
+  target: string;
+  restartRequired: true;
 }
 
 export type UpgradeSuccessEnvelope =
   | UpgradeUpToDateEnvelope
-  | UpgradeManualEnvelope;
+  | UpgradeManualEnvelope
+  | UpgradeAvailableEnvelope
+  | UpgradeAppliedEnvelope;
 
 export interface UpgradeErrorEnvelope extends UpgradeEnvelopeBase {
   status: "error";
@@ -67,12 +88,82 @@ export class UpgradeFailure extends Error {
 
 export function upgradeEnvelope(
   values:
-    | Pick<UpgradeUpToDateEnvelope, "status" | "current" | "latest" | "target" | "channel">
-    | Pick<UpgradeManualEnvelope, "status" | "current" | "latest" | "target" | "channel">
+    | {
+        status: "up-to-date";
+        current: string;
+        latest: string;
+        target: null;
+        channel: UpgradeChannel;
+        method: UpgradeMethod;
+      }
+    | {
+        status: "manual";
+        current: string;
+        latest: string;
+        target: string;
+        channel: UpgradeChannel;
+      }
+    | {
+        status: "available";
+        current: string;
+        latest: string;
+        target: string;
+        channel: UpgradeChannel;
+      }
+    | {
+        status: "applied";
+        current: string;
+        latest: string;
+        target: string;
+        channel: UpgradeChannel;
+      }
 ): UpgradeSuccessEnvelope {
+  if (values.status === "applied") {
+    return {
+      status: "applied",
+      current: values.current,
+      latest: values.latest,
+      target: values.target,
+      channel: values.channel,
+      method: "shell",
+      restartRequired: true,
+      command: null,
+      error: null
+    };
+  }
+  if (values.status === "available") {
+    return {
+      status: "available",
+      current: values.current,
+      latest: values.latest,
+      target: values.target,
+      channel: values.channel,
+      method: "shell",
+      restartRequired: false,
+      command: null,
+      error: null
+    };
+  }
+  if (values.status === "manual") {
+    return {
+      status: "manual",
+      current: values.current,
+      latest: values.latest,
+      target: values.target,
+      channel: values.channel,
+      method: "manual",
+      restartRequired: false,
+      command: null,
+      error: null
+    };
+  }
   return {
-    ...values,
-    method: "manual",
+    status: "up-to-date",
+    current: values.current,
+    latest: values.latest,
+    target: null,
+    channel: values.channel,
+    method: values.method,
     restartRequired: false,
     command: null,
     error: null
@@ -85,6 +176,7 @@ export function upgradeErrorEnvelope(
     current: string | null;
     latest?: string | null;
     channel: UpgradeChannel | null;
+    method?: UpgradeMethod;
   }
 ): UpgradeErrorEnvelope {
   return {
@@ -93,7 +185,7 @@ export function upgradeErrorEnvelope(
     latest: context.latest ?? null,
     target: null,
     channel: context.channel,
-    method: "manual",
+    method: context.method ?? "manual",
     restartRequired: false,
     command: null,
     error: {

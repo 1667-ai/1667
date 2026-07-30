@@ -91,6 +91,15 @@ test("promotion runbook verifies durable assets before tag writes", () => {
     immutable !== -1 && immutable < download && download < assets
       && assets < verify && verify < promote
   );
+  // Exact CLI arity/order: version, repository, then assets directory.
+  assert.match(
+    section,
+    /verify-assets "\$VERSION" "1667-ai\/1667" "\$ASSETS_DIR"/
+  );
+  assert.doesNotMatch(
+    section,
+    /verify-assets "\$ASSETS_DIR"(?!\s+"\$)/
+  );
 });
 
 test("quarantine stops active work before it takes the lease", () => {

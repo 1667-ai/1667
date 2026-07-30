@@ -45,8 +45,9 @@ export function createBackgroundUpdateStarter(
   // poll the registry for something that is not there. Stay quiet instead.
   if (releaseTarget === null || releaseTarget.heldFromPublication !== null) return null;
 
-  // 1667 does not infer or persist installer ownership. Every launch is
-  // manual; the immutable build identity still keys notification hints.
+  // Background work stays notify-only. The cache key is a build-identity
+  // fingerprint (installIdentity); this path never resolves Ownership or
+  // installs a Candidate.
   const observation = {
     currentVersion: AI_1667_PRODUCT_VERSION,
     platformPackage: releaseTarget.packageName

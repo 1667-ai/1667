@@ -94,7 +94,7 @@ Download and verify its exact asset set:
 gh release download "v$VERSION" --repo 1667-ai/1667 \
   --dir "$ASSETS_DIR"
 node --import tsx scripts/release-npm-github.ts \
-  verify-assets "$ASSETS_DIR"
+  verify-assets "$VERSION" "1667-ai/1667" "$ASSETS_DIR"
 ```
 
 Create the verifier layout:

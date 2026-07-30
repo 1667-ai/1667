@@ -24,9 +24,9 @@ This public repository contains pre-release source.
 | --- | --- |
 | Source repository | GitHub provides public access. |
 | Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
-| Installer | The repository does not contain an `install.sh` script. |
+| Installer | Release workflows generate `install-beta.sh`. They generate `install-stable.sh` for a release version. The homepage hides these scripts until the Managed Installation release gate passes. |
 | npm packages | The release workflow targets `@1667-ai/cli` and four platform packages. Check npm for published versions. |
-| GitHub release | A maintainer dispatches `Release (GitHub)`. It publishes one archive per published target as a pre-release, with a build-provenance attestation on every file. `windows-x64` is held from publication. |
+| GitHub release | `Release (npm)` is the canonical path. It retains npm packages and native Release Archives. It also retains Shell Installers, checksums, and attestations. `Release (GitHub)` is a prerelease archive path. It includes `install-beta.sh`. `windows-x64` is held from publication. |
 
 Build and run 1667 from source. You can also build a local standalone
 executable.

@@ -32,6 +32,14 @@ read_when:
 | release target | One supported operating system and processor architecture |
 | data-directory ID | A random identifier in project state that Git can track |
 | data-directory claim ID | A machine-local identifier for one live copy of a project data directory |
+| Shell Installer | A channel-specific release script that installs one native executable |
+| Managed Installation | An installation that the Shell Installer creates and registers |
+| Ownership Record | The durable file that gives 1667 authority to replace one executable |
+| Install Root | The directory that holds the managed executable and the Ownership Record |
+| Release Archive | The target-specific native archive in an immutable GitHub release |
+| Platform Package | The target-specific npm package that holds one native executable |
+| Candidate | An executable that an install or upgrade operation has not made active |
+| Transaction Record | The durable file that records an incomplete install, upgrade, or rollback |
 
 Add a term to this table before you use it in another document.
 

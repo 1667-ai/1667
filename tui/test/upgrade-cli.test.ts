@@ -7,10 +7,11 @@ import {
 import {
   currentPlatformPackage,
   executeUpgradeCli,
-  parseUpgradeArguments
+  parseUpgradeArguments,
+  runProcessUpgrade
 } from "../src/upgrade-cli.js";
 import { UpgradeFailure, type UpgradeChannel } from "../src/upgrade-contract.js";
-import type { PlatformPackage } from "../src/npm-upgrade-registry.js";
+import type { PlatformPackage, RegistryFetch } from "../src/npm-upgrade-registry.js";
 import type { UpgradeObservation, UpgradeRegistry } from "../src/upgrade-plan.js";
 
 const observation: UpgradeObservation = {
@@ -38,20 +39,50 @@ test("upgrade argument parser preserves global version semantics and rejects amb
   expect(parseUpgradeArguments([
     "--version", "2.0.0-beta.1", "--channel=beta", "--json"
   ])).toEqual({
-    check: false,
-    version: "2.0.0-beta.1",
-    channel: "beta"
+    command: { kind: "apply", version: "2.0.0-beta.1", channel: "beta" },
+    json: true
+  });
+  expect(parseUpgradeArguments(["--check"])).toEqual({
+    command: { kind: "check", channel: "stable" },
+    json: false
+  });
+  expect(parseUpgradeArguments(["--rollback", "--json"])).toEqual({
+    command: { kind: "rollback" },
+    json: true
   });
   expect(() => parseUpgradeArguments(["--check", "--version", "2.0.0"])).toThrow();
   expect(() => parseUpgradeArguments(["--version", "v2.0.0"])).toThrow();
   expect(() => parseUpgradeArguments(["--channel", "nightly"])).toThrow();
   expect(() => parseUpgradeArguments(["--json", "--json"])).toThrow();
+  expect(() => parseUpgradeArguments(["--rollback", "--check"])).toThrow();
+  expect(() => parseUpgradeArguments(["--rollback", "--channel", "beta"])).toThrow();
 });
 
 test("persisted channel is the default and an explicit flag wins", () => {
-  expect(parseUpgradeArguments(["--check"], "beta")?.channel).toBe("beta");
-  expect(parseUpgradeArguments(["--check", "--channel", "stable"], "beta")?.channel)
-    .toBe("stable");
+  expect(parseUpgradeArguments(["--check"], "beta")?.command).toEqual({
+    kind: "check",
+    channel: "beta"
+  });
+  expect(parseUpgradeArguments(["--check", "--channel", "stable"], "beta")?.command)
+    .toEqual({ kind: "check", channel: "stable" });
+});
+
+test("parser never emits impossible command combinations", () => {
+  const apply = parseUpgradeArguments(["--version", "1.0.0"]);
+  expect(apply?.command).toEqual({
+    kind: "apply",
+    version: "1.0.0",
+    channel: "stable"
+  });
+  expect(Object.keys(apply!.command).sort()).toEqual(["channel", "kind", "version"]);
+
+  const check = parseUpgradeArguments(["--check"]);
+  expect(check?.command).toEqual({ kind: "check", channel: "stable" });
+  expect(Object.keys(check!.command).sort()).toEqual(["channel", "kind"]);
+
+  const rollback = parseUpgradeArguments(["--rollback"]);
+  expect(rollback?.command).toEqual({ kind: "rollback" });
+  expect(Object.keys(rollback!.command)).toEqual(["kind"]);
 });
 
 test("JSON success emits exactly one stable envelope and command stays null", async () => {
@@ -155,12 +186,66 @@ test("help is local and performs no registry I/O", async () => {
   const registry = fakeRegistry("2.0.0");
   const result = await executeUpgradeCli(["--help"], { observation, registry });
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("Phase one is read-only");
+  expect(result.stdout).toContain("Managed Installations apply a verified Candidate");
+  expect(result.stdout).toContain("--rollback");
   expect(registry.calls).toEqual([]);
+});
+
+test("runProcessUpgrade lifecycle maps SIGINT to 130 and SIGTERM to 143", async () => {
+  async function withSignal(
+    signal: "SIGINT" | "SIGTERM",
+    expectedExit: 130 | 143
+  ): Promise<void> {
+    const previous = new Set(process.listeners(signal));
+    const previousExit = process.exitCode;
+    const writes: string[] = [];
+    const originalStdout = process.stdout.write.bind(process.stdout);
+    const originalStderr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const fetcher: RegistryFetch = (_input, init) => new Promise((_resolve, reject) => {
+        const abortSignal = init.signal as AbortSignal | undefined;
+        const onAbort = () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        };
+        if (abortSignal?.aborted) {
+          onAbort();
+          return;
+        }
+        abortSignal?.addEventListener("abort", onAbort, { once: true });
+      });
+      const running = runProcessUpgrade(["--check", "--json"], fetcher);
+      // Allow once() handlers to register.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const handler = process.listeners(signal).find((candidate) => !previous.has(candidate));
+      expect(handler).toBeDefined();
+      handler!(signal);
+      await running;
+      expect(process.exitCode).toBe(expectedExit);
+      expect(process.listeners(signal).filter((candidate) => !previous.has(candidate))).toEqual([]);
+      const payload = writes.join("");
+      expect(payload).toContain("\"code\":\"interrupted\"");
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+      // Bun treats a leftover non-zero process.exitCode as the suite exit status.
+      process.exitCode = previousExit ?? 0;
+    }
+  }
+  await withSignal("SIGINT", 130);
+  await withSignal("SIGTERM", 143);
 });
 
 function fakeRegistry(head: string): UpgradeRegistry & { calls: string[] } {
   const calls: string[] = [];
+  const integrity = `sha512-${"A".repeat(86)}==`;
   return {
     calls,
     async channelHead(channel: UpgradeChannel) {
@@ -169,9 +254,21 @@ function fakeRegistry(head: string): UpgradeRegistry & { calls: string[] } {
     },
     async launcher(version: string) {
       calls.push(`launcher:${version}`);
+      return {
+        name: "@1667-ai/cli",
+        version,
+        integrity,
+        tarball: `https://registry.npmjs.org/@1667-ai/cli/-/cli-${version}.tgz`
+      };
     },
     async platform(packageName: PlatformPackage, version: string) {
       calls.push(`platform:${packageName}:${version}`);
+      return {
+        name: packageName,
+        version,
+        integrity,
+        tarball: `https://registry.npmjs.org/${packageName}/-/${packageName.split("/").pop()}-${version}.tgz`
+      };
     }
   };
 }

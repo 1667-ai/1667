@@ -2,6 +2,10 @@ import {
   sameBuildIdentity
 } from "../shared/build-identity.js";
 import {
+  MAX_RELEASE_ARTIFACT_ENTRIES,
+  MAX_RELEASE_EXECUTABLE_BYTES
+} from "../shared/release-artifact-bounds.js";
+import {
   PUBLISHED_ARTIFACT_TARGETS,
   PUBLISHED_PACKAGE_COUNT,
   RELEASE_LAUNCHER_PACKAGE,
@@ -36,8 +40,9 @@ export type {
   ReleasePackageManifest,
   ReleasePlatformManifest
 } from "./release-package-manifests.js";
-export const MAX_RELEASE_TARBALL_ENTRIES = 16;
-export const MAX_RELEASE_TARBALL_FILE_BYTES = 272 * 1024 * 1024;
+
+export const MAX_RELEASE_TARBALL_ENTRIES = MAX_RELEASE_ARTIFACT_ENTRIES;
+export const MAX_RELEASE_TARBALL_FILE_BYTES = MAX_RELEASE_EXECUTABLE_BYTES + 16 * 1024 * 1024;
 
 /**
  * The bound on a staged `sbom.spdx.json`. The generator refuses to emit a
@@ -306,7 +311,7 @@ function assertEntryPolicy(
   if (entry.mode !== expectedMode) throw new Error(`${entry.path} has an unsafe mode`);
   if (entry.size === 0) throw new Error(`${entry.path} must not be empty`);
   const maximum = entry.path === executable
-    ? (manifest.kind === "launcher" ? 128 * 1024 : 256 * 1024 * 1024)
+    ? (manifest.kind === "launcher" ? 128 * 1024 : MAX_RELEASE_EXECUTABLE_BYTES)
     : entry.path.endsWith("/sbom.spdx.json")
       ? MAX_RELEASE_SBOM_BYTES
       : 1024 * 1024;

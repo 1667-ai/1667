@@ -23,7 +23,10 @@ test("near-limit upgrade metadata parsing and SemVer selection stay inexpensive"
   const body = JSON.stringify({
     name: RELEASE_LAUNCHER_PACKAGE,
     version: "2.0.0",
-    dist: { integrity: INTEGRITY },
+    dist: {
+      integrity: INTEGRITY,
+      tarball: `https://registry.npmjs.org/${RELEASE_LAUNCHER_PACKAGE}/-/cli-2.0.0.tgz`
+    },
     optionalDependencies: graph,
     ignored: "x".repeat(60 * 1024)
   });

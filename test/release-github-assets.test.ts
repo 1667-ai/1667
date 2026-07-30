@@ -587,10 +587,11 @@ test("the release notes claim the attestation and nothing it does not have", () 
   assert.match(notes, /`0\.1\.0-rc\.1`, a preview of `0\.1\.0`/u);
   assert.match(notes, /npm cannot replace a version once it is published/u);
   assert.doesNotMatch(releaseNotesMarkdown("1.2.3"), /a preview of/u);
-  // No install script, in any form: not a script, not a one-liner, not a
-  // pipeline into a shell.
+  // The notes may name the pinned install-beta.sh asset. They must not ship a
+  // curl|sh one-liner or a latest-resolving installer URL.
   assert.doesNotMatch(notes, /\|\s*(?:sh|bash|zsh)\b/u);
-  assert.doesNotMatch(notes, /install\.sh|get\.1667|curl\s+-|wget\s/u);
+  assert.doesNotMatch(notes, /get\.1667|curl\s+-|wget\s/u);
+  assert.match(notes, /install-beta\.sh/u);
   // Attestations, not a verified signed tag.
   assert.doesNotMatch(notes, /verified tag|tag signature|signed tag is|signature-verified/iu);
   assert.match(notes, /There is no signed tag/u);

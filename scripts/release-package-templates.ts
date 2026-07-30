@@ -2,6 +2,11 @@ import {
   type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import {
+  createPackageBuildManifest,
+  type PackageBuildEvidence,
+  type PackageBuildManifest
+} from "../shared/package-build-manifest.js";
+import {
   PUBLISHED_ARTIFACT_TARGETS,
   RELEASE_LAUNCHER_PACKAGE
 } from "../shared/release-targets.js";
@@ -18,23 +23,11 @@ import {
   type ReleasePlatformPackageJson
 } from "./release-package-manifests.js";
 
-export interface ReleasePackageBuildManifest<
+export type ReleasePackageBuildManifest<
   ArtifactTarget extends "launcher" | BuiltArtifactTarget
-> {
-  schemaVersion: 1;
-  product: "1667";
-  productVersion: string;
-  sourceCommit: string;
-  buildTimestamp: string;
-  packageName: string;
-  artifactTarget: ArtifactTarget;
-}
+> = PackageBuildManifest<ArtifactTarget>;
 
-export interface ReleasePackageBuildEvidence {
-  productVersion: string;
-  sourceCommit: string;
-  buildTimestamp: string;
-}
+export type ReleasePackageBuildEvidence = PackageBuildEvidence;
 
 export interface ReleaseLauncherPackageTemplate {
   kind: "launcher";
@@ -117,13 +110,5 @@ export function createReleasePackageBuildManifest<
   packageName: string,
   artifactTarget: ArtifactTarget
 ): ReleasePackageBuildManifest<ArtifactTarget> {
-  return Object.freeze({
-    schemaVersion: 1 as const,
-    product: "1667" as const,
-    productVersion: evidence.productVersion,
-    sourceCommit: evidence.sourceCommit,
-    buildTimestamp: evidence.buildTimestamp,
-    packageName,
-    artifactTarget
-  });
+  return createPackageBuildManifest(evidence, packageName, artifactTarget);
 }

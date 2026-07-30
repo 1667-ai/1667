@@ -68,20 +68,19 @@ export function startBackgroundUpdateCheck(
         return;
       }
 
-      const envelope = await planUpgrade({
-        check: true,
-        version: null,
+      const plan = await planUpgrade({
+        kind: "check",
         channel: dependencies.preferences.channel
       }, dependencies.observation, dependencies.registry, controller.signal);
       if (disposed) return;
       const entry = createUpdateCacheEntry(
         dependencies.cacheKey,
-        envelope.latest,
+        plan.latest,
         now()
       );
       await dependencies.writeCache(entry);
       if (disposed) return;
-      publishNotice(envelope.latest, dependencies);
+      publishNotice(plan.latest, dependencies);
     } catch (error) {
       if (disposed) return;
       dependencies.onDebug?.(
@@ -110,7 +109,13 @@ export function updateNotice(
   latest: string,
   observation: UpgradeObservation
 ): string | null {
-  if (compareSemVer(latest, observation.currentVersion) <= 0) return null;
+  // Exact version string equality is the only current identity. SemVer
+  // precedence ignores build metadata, so equal precedence with different
+  // build metadata is still a notifyable target (same rule as planUpgrade).
+  if (latest === observation.currentVersion) return null;
+  const comparison = compareSemVer(latest, observation.currentVersion);
+  if (comparison < 0) return null;
+  // comparison > 0: newer precedence. comparison === 0: build-metadata-only change.
   return `1667 ${latest} available · see npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}`;
 }
 

@@ -1,7 +1,7 @@
 import packageManifest from "../package.json" with { type: "json" };
 import { isSemVer } from "./semver.js";
 import {
-  BUILT_ARTIFACT_TARGETS,
+  isBuiltArtifactTarget,
   type BuiltArtifactTarget
 } from "./release-targets.js";
 
@@ -224,11 +224,6 @@ function protocolVersion(value: unknown): number {
     throw new Error("Build identity has an invalid API protocol version");
   }
   return value;
-}
-
-function isBuiltArtifactTarget(value: unknown): value is BuiltArtifactTarget {
-  return typeof value === "string"
-    && (BUILT_ARTIFACT_TARGETS as readonly string[]).includes(value);
 }
 
 /** Millisecond-precision UTC instant, and a real one: the shape test alone

@@ -7,30 +7,52 @@ import {
 } from "../../shared/release-targets.js";
 import { loadConfig } from "./config.js";
 import {
+  resolveInstallationAuthority,
+  type InstallationAuthority
+} from "./install-ownership.js";
+import {
   NpmUpgradeRegistry,
   type PlatformPackage,
   type RegistryFetch
 } from "./npm-upgrade-registry.js";
+import { applyRollback, applyUpgrade } from "./upgrade-apply.js";
 import {
-  UPGRADE_CHANNELS,
+  parseUpgradeArguments,
+  upgradeCommandChannel,
+  type ParsedUpgradeArguments,
+  type UpgradeCommand
+} from "./upgrade-command.js";
+import {
   UpgradeFailure,
   upgradeErrorEnvelope,
+  upgradeEnvelope,
   type UpgradeChannel,
   type UpgradeEnvelope,
+  type UpgradeMethod,
   type UpgradeSuccessEnvelope
 } from "./upgrade-contract.js";
 import {
   planUpgrade,
+  type UpgradeCorePlan,
   type UpgradeObservation,
-  type UpgradeRegistry,
-  type UpgradeRequest
+  type UpgradeRegistry
 } from "./upgrade-plan.js";
+
+export { parseUpgradeArguments } from "./upgrade-command.js";
+export type {
+  ParsedUpgradeArguments,
+  UpgradeApplyCommand,
+  UpgradeCheckCommand,
+  UpgradeCommand,
+  UpgradeRollbackCommand
+} from "./upgrade-command.js";
 
 export const UPGRADE_HELP = `Usage:
   1667 upgrade --check [--channel <stable|beta>] [--json]
   1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json]
+  1667 upgrade --rollback [--json]
 
-Phase one is read-only. It never installs software or emits an upgrade command.`;
+Managed Installations apply a verified Candidate. External installations stay read-only.`;
 
 const INSTRUCTIONS_ORIGIN =
   `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v`;
@@ -38,12 +60,14 @@ const INSTRUCTIONS_ORIGIN =
 export interface UpgradeCliDependencies {
   readonly observation?: UpgradeObservation;
   readonly registry?: UpgradeRegistry;
+  readonly authority?: InstallationAuthority;
+  readonly fetcher?: RegistryFetch;
   readonly signal?: AbortSignal;
   readonly defaultChannel?: UpgradeChannel;
 }
 
 export interface UpgradeCliOutput {
-  readonly exitCode: 0 | 1 | 2 | 130;
+  readonly exitCode: 0 | 1 | 2 | 130 | 143;
   readonly stdout: string;
   readonly stderr: string;
   readonly envelope: UpgradeEnvelope | null;
@@ -53,18 +77,29 @@ export async function executeUpgradeCli(
   argv: readonly string[],
   dependencies: UpgradeCliDependencies = {}
 ): Promise<UpgradeCliOutput> {
-  const wantsJson = argv.includes("--json");
-  const defaultChannel = dependencies.defaultChannel ?? "stable";
-  let parsed: UpgradeRequest | null;
+  // Resolve authority before channel defaults so shell installs use the Ownership
+  // Record channel and manual installs use config.
+  let authority: InstallationAuthority;
+  try {
+    authority = dependencies.authority ?? resolveInstallationAuthority();
+  } catch {
+    authority = { kind: "manual" };
+  }
+  const configChannel = dependencies.defaultChannel ?? "stable";
+  const defaultChannel: UpgradeChannel = authority.kind === "shell"
+    ? authority.record.channel
+    : configChannel;
+  let parsed: ParsedUpgradeArguments | null;
   try {
     parsed = parseUpgradeArguments(argv, defaultChannel);
   } catch (error) {
     const failure = normalizeFailure(error);
     return failedOutput(
       failure,
-      wantsJson,
+      argv.includes("--json"),
       { currentVersion: AI_1667_PRODUCT_VERSION },
       partialChannel(argv, defaultChannel),
+      authority.kind === "shell" ? "shell" : "manual",
       failure.code === "invalid_arguments" ? 2 : failure.code === "interrupted" ? 130 : 1
     );
   }
@@ -78,30 +113,133 @@ export async function executeUpgradeCli(
     const failure = normalizeFailure(error);
     return failedOutput(
       failure,
-      wantsJson,
+      parsed.json,
       { currentVersion: AI_1667_PRODUCT_VERSION },
-      parsed.channel,
+      upgradeCommandChannel(parsed.command, defaultChannel),
+      authority.kind === "shell" ? "shell" : "manual",
       1
     );
   }
+  const method: UpgradeMethod = authority.kind === "shell" ? "shell" : "manual";
+  const registry = dependencies.registry ?? new NpmUpgradeRegistry(dependencies.fetcher);
   try {
-    const envelope = await planUpgrade(
-      parsed,
+    const envelope = await dispatchUpgradeCommand(
+      parsed.command,
+      authority,
       observation,
-      dependencies.registry ?? new NpmUpgradeRegistry(),
-      dependencies.signal
+      method,
+      registry,
+      dependencies
     );
     return {
       exitCode: 0,
-      stdout: wantsJson ? `${JSON.stringify(envelope)}\n` : renderUpgrade(envelope, parsed.check),
+      stdout: parsed.json
+        ? `${JSON.stringify(envelope)}\n`
+        : renderUpgrade(envelope, parsed.command),
       stderr: "",
       envelope
     };
   } catch (error) {
     const failure = normalizeFailure(error);
     const exitCode = failure.code === "interrupted" ? 130 : 1;
-    return failedOutput(failure, wantsJson, observation, parsed.channel, exitCode);
+    return failedOutput(
+      failure,
+      parsed.json,
+      observation,
+      upgradeCommandChannel(parsed.command, defaultChannel),
+      method,
+      exitCode
+    );
   }
+}
+
+async function dispatchUpgradeCommand(
+  command: UpgradeCommand,
+  authority: InstallationAuthority,
+  observation: UpgradeObservation,
+  method: UpgradeMethod,
+  registry: UpgradeRegistry,
+  dependencies: UpgradeCliDependencies
+): Promise<UpgradeSuccessEnvelope> {
+  switch (command.kind) {
+    case "rollback": {
+      if (authority.kind !== "shell") {
+        throw new UpgradeFailure(
+          "unsupported_target",
+          "Rollback requires a Managed Installation created by the Shell Installer."
+        );
+      }
+      return await applyRollback({
+        authority,
+        observation,
+        signal: dependencies.signal
+      });
+    }
+    case "check": {
+      const plan = await planUpgrade(
+        command,
+        observation,
+        registry,
+        dependencies.signal
+      );
+      return publicEnvelopeFromPlan(plan, method);
+    }
+    case "apply": {
+      if (authority.kind === "shell") {
+        return await applyUpgrade(command, {
+          authority,
+          observation,
+          registry,
+          fetcher: dependencies.fetcher,
+          signal: dependencies.signal
+        });
+      }
+      // External installs stay read-only: verify metadata, emit manual envelope.
+      const plan = await planUpgrade(
+        command,
+        observation,
+        registry,
+        dependencies.signal
+      );
+      return publicEnvelopeFromPlan(plan, "manual");
+    }
+  }
+}
+
+/**
+ * Map a neutral plan to the public envelope. InstallationAuthority alone
+ * decides method and whether a target is available or manual.
+ */
+export function publicEnvelopeFromPlan(
+  plan: UpgradeCorePlan,
+  method: UpgradeMethod
+): UpgradeSuccessEnvelope {
+  if (plan.status === "up-to-date") {
+    return upgradeEnvelope({
+      status: "up-to-date",
+      current: plan.current,
+      latest: plan.latest,
+      target: null,
+      channel: plan.channel,
+      method
+    });
+  }
+  if (method === "shell") {
+    return upgradeEnvelope({
+      status: "available",
+      current: plan.current,
+      latest: plan.latest,
+      target: plan.target,
+      channel: plan.channel
+    });
+  }
+  return upgradeEnvelope({
+    status: "manual",
+    current: plan.current,
+    latest: plan.latest,
+    target: plan.target,
+    channel: plan.channel
+  });
 }
 
 export async function runProcessUpgrade(
@@ -109,98 +247,70 @@ export async function runProcessUpgrade(
   fetcher?: RegistryFetch
 ): Promise<void> {
   const controller = new AbortController();
-  const interrupt = () => controller.abort();
-  process.once("SIGINT", interrupt);
+  /** Conventional exit after signal: 128 + signo (INT=2 → 130, TERM=15 → 143). */
+  let signalExit: 130 | 143 | null = null;
+  const onSigInt = () => {
+    signalExit = 130;
+    controller.abort();
+  };
+  const onSigTerm = () => {
+    signalExit = 143;
+    controller.abort();
+  };
+  process.once("SIGINT", onSigInt);
+  process.once("SIGTERM", onSigTerm);
   try {
     const output = await executeUpgradeCli(argv, {
       signal: controller.signal,
       registry: new NpmUpgradeRegistry(fetcher),
+      fetcher,
       defaultChannel: loadConfig().updates.channel
     });
     if (output.stdout.length > 0) process.stdout.write(output.stdout);
     if (output.stderr.length > 0) process.stderr.write(output.stderr);
-    process.exitCode = output.exitCode;
+    // Probe/download cleanup and lock release finished inside executeUpgradeCli.
+    // Signal-specific status wins over the generic interrupted exit 130.
+    process.exitCode = signalExit ?? output.exitCode;
   } finally {
-    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGINT", onSigInt);
+    process.removeListener("SIGTERM", onSigTerm);
   }
 }
 
-export function parseUpgradeArguments(
-  argv: readonly string[],
-  defaultChannel: UpgradeChannel = "stable"
-): UpgradeRequest | null {
-  let check = false;
-  let checkSeen = false;
-  let jsonSeen = false;
-  let version: string | null = null;
-  let channel = defaultChannel;
-  let channelSeen = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index]!;
-    if (argument === "-h" || argument === "--help") {
-      if (argv.length !== 1) throw invalidArguments("--help cannot be combined with other options.");
-      return null;
-    }
-    if (argument === "--check") {
-      if (checkSeen) throw invalidArguments("--check may be specified only once.");
-      check = true;
-      checkSeen = true;
-    } else if (argument === "--json") {
-      if (jsonSeen) throw invalidArguments("--json may be specified only once.");
-      jsonSeen = true;
-    } else if (argument === "--version" || argument.startsWith("--version=")) {
-      if (version !== null) throw invalidArguments("--version may be specified only once.");
-      version = optionValue(argument, "--version", () => argv[++index]);
-      if (version.length > 128 || !isSemVer(version)) {
-        throw invalidArguments("--version requires a strict semantic version.");
-      }
-    } else if (argument === "--channel" || argument.startsWith("--channel=")) {
-      if (channelSeen) throw invalidArguments("--channel may be specified only once.");
-      const value = optionValue(argument, "--channel", () => argv[++index]);
-      if (!(UPGRADE_CHANNELS as readonly string[]).includes(value)) {
-        throw invalidArguments("--channel must be stable or beta.");
-      }
-      channel = value as UpgradeChannel;
-      channelSeen = true;
-    } else {
-      throw invalidArguments(`Unknown upgrade option: ${argument}`);
-    }
-  }
-  if (check && version !== null) {
-    throw invalidArguments("--check and --version cannot be used together.");
-  }
-  return { check, version, channel };
-}
-
-function optionValue(
-  argument: string,
-  option: string,
-  next: () => string | undefined
+function renderUpgrade(
+  envelope: UpgradeSuccessEnvelope,
+  command: UpgradeCommand
 ): string {
-  if (argument.startsWith(`${option}=`)) {
-    const value = argument.slice(option.length + 1);
-    if (value.length === 0) throw invalidArguments(`${option} requires a value.`);
-    return value;
-  }
-  const value = next();
-  if (value === undefined || value.startsWith("--")) {
-    throw invalidArguments(`${option} requires a value.`);
-  }
-  return value;
-}
-
-function renderUpgrade(envelope: UpgradeSuccessEnvelope, checkOnly: boolean): string {
   const lines: string[] = [];
-  if (envelope.status === "up-to-date") {
-    lines.push(`1667 ${envelope.current} is up to date on ${envelope.channel}.`);
-  } else {
-    lines.push(`1667 ${envelope.target} is available on ${envelope.channel}.`);
+  switch (envelope.status) {
+    case "up-to-date":
+      lines.push(`1667 ${envelope.current} is up to date on ${envelope.channel}.`);
+      break;
+    case "applied":
+      lines.push(
+        command.kind === "rollback"
+          ? `Rolled back 1667 from ${envelope.current} to ${envelope.target}.`
+          : `Upgraded 1667 from ${envelope.current} to ${envelope.target}.`
+      );
+      break;
+    case "available":
+    case "manual":
+      lines.push(`1667 ${envelope.target} is available on ${envelope.channel}.`);
+      break;
   }
   lines.push(`Install method: ${envelope.method}.`);
-  if (checkOnly) {
+  if (envelope.restartRequired) {
+    lines.push("Restart 1667 to run the new executable.");
+  }
+  if (command.kind === "check") {
     if (envelope.status === "manual") {
       lines.push("Run '1667 upgrade' for a fresh, exact read-only plan.");
+    } else if (envelope.status === "available") {
+      lines.push("Run '1667 upgrade' to apply the Candidate.");
     }
+    return `${lines.join("\n")}\n`;
+  }
+  if (envelope.status === "applied") {
     return `${lines.join("\n")}\n`;
   }
   lines.push("Verified metadata source: canonical npm registry.");
@@ -222,11 +332,13 @@ function failedOutput(
   json: boolean,
   observation: { currentVersion: string | null },
   channel: UpgradeChannel | null,
-  exitCode: 1 | 2 | 130
+  method: UpgradeMethod,
+  exitCode: 1 | 2 | 130 | 143
 ): UpgradeCliOutput {
   const envelope = upgradeErrorEnvelope(failure, {
     current: isSemVer(observation.currentVersion) ? observation.currentVersion : null,
-    channel
+    channel,
+    method
   });
   return {
     exitCode,
@@ -241,13 +353,9 @@ function defaultObservation(): UpgradeObservation {
   if (target === null) {
     throw new UpgradeFailure("unsupported_target", "This platform is not supported for releases.");
   }
-  // A held target is supported and built; only its package is withheld. Saying
-  // "not supported" would send the reader looking for the wrong thing.
   if (target.heldFromPublication !== null) {
     throw new UpgradeFailure("unsupported_target", heldTargetRefusal(target));
   }
-  // Installer ownership and managed application require a separate decision.
-  // This command is deliberately manual and read-only for every launch.
   return {
     currentVersion: AI_1667_PRODUCT_VERSION,
     platformPackage: target.packageName
@@ -273,10 +381,6 @@ function partialChannel(
   const candidate = inline?.slice("--channel=".length) ?? (index >= 0 ? argv[index + 1] : undefined);
   if (candidate === undefined) return defaultChannel;
   return candidate === "stable" || candidate === "beta" ? candidate : null;
-}
-
-function invalidArguments(message: string): UpgradeFailure {
-  return new UpgradeFailure("invalid_arguments", message);
 }
 
 function normalizeFailure(error: unknown): UpgradeFailure {

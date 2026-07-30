@@ -34,6 +34,10 @@ This document uses these Technical Names:
 | launcher package | The JavaScript package named `@1667-ai/cli` |
 | platform package | A package that contains one native executable |
 | candidate | A possible release package that has not received publication approval |
+| Shell Installer | A channel-specific release script that installs one native executable |
+| Managed Installation | An installation that the Shell Installer creates and registers |
+| Ownership Record | The durable file that grants 1667 authority to replace one executable |
+| Release Archive | The target-specific native archive in an immutable GitHub release |
 | build identity | Version, source, time, protocol, and target data in a native executable |
 | source evidence | Trusted source, tag, version, and time data |
 | release plan | The strict JSON input for release preflight |
@@ -428,6 +432,63 @@ tarballs against release package policy, and installs them. Because
 target by naming the hold, and executes the installed executable directly.
 Clearing the hold restores the launcher run without another change to the
 smoke.
+
+## Managed installation and upgrades
+
+The Shell Installer and `1667 upgrade` follow ADR 010.
+
+The release produces channel-specific install scripts:
+
+- `install-beta.sh` for every valid release version
+- `install-stable.sh` only for a non-prerelease SemVer
+
+Each script embeds these values:
+
+- one exact version;
+- one exact channel;
+- one GitHub repository;
+- one immutable release tag URL base;
+- each published archive name;
+- each archive SHA-256 digest.
+
+The script never resolves the latest GitHub release. The script never reads npm
+tags.
+
+`scripts/release-install-script.ts` renders the scripts from those digests.
+Both release workflows call that generator. They do not keep a second target
+list or a second script template.
+
+The canonical hosted path is `.github/workflows/release-npm.yml`:
+
+1. The matrix build jobs build and observe each native executable.
+2. The launcher job stages Release Archives from those same executable bytes.
+3. The launcher job renders the install scripts from the archive digests.
+4. The release job retains npm packages, archives, install scripts, checksums,
+   and attestations in the immutable GitHub release.
+
+The launcher job does not rebuild native executables. The release job does not
+rebuild them either.
+
+`.github/workflows/release-github.yml` reuses the same generator and archive
+policy. That path always publishes a prerelease SemVer, so it includes
+`install-beta.sh` only.
+
+A Managed Installation writes `.1667-install.json` next to the executable. Only
+a valid Ownership Record grants replacement authority. npm, source, and copied
+installations stay read-only to `1667 upgrade`.
+
+`1667 upgrade` downloads the Platform Package from the canonical npm registry.
+It verifies the SHA-512 integrity value. It extracts the Candidate. It probes
+the build identity. It uses a recoverable transaction to replace the
+executable. The transaction stays in the Install Root.
+
+`1667 upgrade --rollback` works offline.
+
+Background update checks stay notify-only. They never install a Candidate.
+
+Do not advertise the homepage one-line install command until the end-to-end
+release gate in ADR 010 passes. The homepage must serve bytes that match one
+attested channel install script for the promoted release.
 
 ## GitHub pre-release of native archives
 

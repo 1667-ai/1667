@@ -148,6 +148,82 @@ describe("background update checking", () => {
     expect(updateNotice("0.0.9", observation)).toBe(null);
   });
 
+  test("build-metadata-only targets notify from a fresh registry head", async () => {
+    const fake = scheduler();
+    const notices: string[] = [];
+    const written: string[] = [];
+    const buildCurrent = {
+      ...observation,
+      currentVersion: "0.1.0+build.1"
+    };
+    startBackgroundUpdateCheck({
+      preferences: { mode: "notify", channel: "stable", skippedVersion: null },
+      observation: buildCurrent,
+      cacheKey: { ...cacheKey, currentVersion: "0.1.0+build.1" },
+      registry: registry({ channelHead: async () => "0.1.0+build.2" }),
+      readCache: async () => null,
+      writeCache: async (entry) => { written.push(entry.latest); },
+      onNotice: (message) => notices.push(message),
+      schedule: fake.schedule,
+      cancel: fake.cancel
+    });
+
+    await fake.runNext();
+    await Promise.resolve();
+    expect(written).toEqual(["0.1.0+build.2"]);
+    expect(notices).toEqual([
+      "1667 0.1.0+build.2 available · see npmjs.com/package/@1667-ai/cli"
+    ]);
+  });
+
+  test("build-metadata-only targets notify from a keyed cache hit", async () => {
+    const fake = scheduler();
+    const notices: string[] = [];
+    let registryCalls = 0;
+    const buildCurrent = {
+      ...observation,
+      currentVersion: "0.1.0+build.1"
+    };
+    startBackgroundUpdateCheck({
+      preferences: { mode: "notify", channel: "stable", skippedVersion: null },
+      observation: buildCurrent,
+      cacheKey: { ...cacheKey, currentVersion: "0.1.0+build.1" },
+      registry: registry({
+        channelHead: async () => {
+          registryCalls += 1;
+          return "0.1.0+build.2";
+        }
+      }),
+      readCache: async () => createUpdateCacheEntry(
+        { ...cacheKey, currentVersion: "0.1.0+build.1" },
+        "0.1.0+build.2",
+        1
+      ),
+      writeCache: async () => undefined,
+      onNotice: (message) => notices.push(message),
+      schedule: fake.schedule,
+      cancel: fake.cancel
+    });
+
+    await fake.runNext();
+    expect(registryCalls).toBe(0);
+    expect(notices).toEqual([
+      "1667 0.1.0+build.2 available · see npmjs.com/package/@1667-ai/cli"
+    ]);
+  });
+
+  test("exact version string equality suppresses notice including equal build metadata", () => {
+    expect(updateNotice("0.1.0+build.1", {
+      ...observation,
+      currentVersion: "0.1.0+build.1"
+    })).toBe(null);
+    expect(updateNotice("0.1.0", observation)).toBe(null);
+    expect(updateNotice("0.1.0+build.2", {
+      ...observation,
+      currentVersion: "0.1.0+build.1"
+    })).toBe("1667 0.1.0+build.2 available · see npmjs.com/package/@1667-ai/cli");
+  });
+
   test("stopping aborts an in-flight registry request without scheduling retry", async () => {
     const fake = scheduler();
     const request = { signal: null as AbortSignal | null };
@@ -186,10 +262,21 @@ describe("background update checking", () => {
 function registry(
   methods: Partial<UpgradeRegistry>
 ): UpgradeRegistry {
+  const integrity = `sha512-${"A".repeat(86)}==`;
   return {
     channelHead: methods.channelHead ?? (async () => "0.2.0"),
-    launcher: methods.launcher ?? (async () => undefined),
-    platform: methods.platform ?? (async () => undefined)
+    launcher: methods.launcher ?? (async (version) => ({
+      name: "@1667-ai/cli",
+      version,
+      integrity,
+      tarball: `https://registry.npmjs.org/@1667-ai/cli/-/cli-${version}.tgz`
+    })),
+    platform: methods.platform ?? (async (packageName, version) => ({
+      name: packageName,
+      version,
+      integrity,
+      tarball: `https://registry.npmjs.org/${packageName}/-/${packageName.split("/").pop()}-${version}.tgz`
+    }))
   };
 }
 

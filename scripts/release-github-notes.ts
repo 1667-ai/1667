@@ -31,11 +31,11 @@ const PLATFORM_LABELS: Readonly<Record<CanonicalReleaseTarget["platform"], strin
  * for the tenth dispatch as well as the first, or be derived from a fact this
  * repository checks.
  *
- * Two claims are deliberately absent. There is no signed-tag provenance: the
+ * Two claims stay carefully bounded. There is no signed-tag provenance: the
  * evidence this release offers is the build-provenance attestation, and the
- * notes say only that. There is no install script and no one-line shell
- * command that fetches one, because a script cannot establish its own
- * authenticity to a reader who has not yet verified anything.
+ * notes say only that. The Shell Installer is a pinned release asset. The
+ * one-line homepage command trusts 1667.ai; attestation of the script is the
+ * stronger optional path.
  */
 export function releaseNotesMarkdown(version: string): string {
   if (!isSemVer(version)) throw new Error(`Release notes need a SemVer version, not ${version}`);
@@ -59,17 +59,23 @@ export function releaseNotesMarkdown(version: string): string {
       return `| ${targetLabel(target)} | \`${releaseArchiveFileName(version, target)}\` |`;
     }),
     "",
-    "`checksums.txt` holds the SHA-256 of every archive above.",
+    "`checksums.txt` holds the SHA-256 digest of each archive and install script above.",
     "",
     "Each archive extracts into one directory holding the executable, `LICENSE`,",
     "`NOTICE`, `build-manifest.json`, and `sbom.spdx.json`. The executable needs",
     "neither Bun nor Node.js at run time.",
     "",
+    "This release also includes `install-beta.sh`. The script embeds this version,",
+    "the beta channel, each archive name, and each archive SHA-256 digest. It never",
+    "resolves GitHub latest and never reads npm tags.",
+    "",
     "## Verify what you downloaded, then run it",
     "",
-    "Every archive and `checksums.txt` carries a GitHub build-provenance attestation:",
-    "a signed, publicly logged statement that this repository's release workflow",
-    "produced those exact bytes from this commit. Check it before you run anything.",
+    "Every archive, install script, and `checksums.txt` has a GitHub",
+    "build-provenance attestation. The attestation is signed and publicly logged.",
+    "It states that this repository's release workflow produced the exact bytes",
+    "from this commit.",
+    "Check it before you run anything.",
     "",
     "```sh",
     `gh attestation verify ${sample} --repo ${RELEASE_REPOSITORY_SLUG}`,
@@ -77,15 +83,15 @@ export function releaseNotesMarkdown(version: string): string {
     `./${sampleStem}/1667 --version`,
     "```",
     "",
+    "Optional stronger install path:",
+    "",
+    "```sh",
+    `gh attestation verify install-beta.sh --repo ${RELEASE_REPOSITORY_SLUG}`,
+    "sh ./install-beta.sh",
+    "```",
+    "",
     "That attestation is the evidence this release offers. There is no signed tag",
     "here, and nothing above asks you to check one.",
-    "",
-    "## No install script",
-    "",
-    "There is no install script, and no one-line shell command that downloads and",
-    "runs one. Such a command cannot establish its own authenticity: you would run",
-    "it before you had verified anything, which is the step that matters. Download",
-    "an archive, verify its attestation, then run the executable.",
     "",
     ...reservedVersionNote(version),
     ...heldTargetSection(),

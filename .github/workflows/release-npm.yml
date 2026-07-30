@@ -285,6 +285,45 @@ jobs:
               cp "$directory/sbom.spdx.json" "dist/sboms/$target.spdx.json"
             done
 
+      # Native archives use the same executable bytes already built and uploaded
+      # by the matrix jobs. This job never rebuilds an executable.
+      - name: Stage and pack native Release Archives
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/archives dist/archive-stage
+          targets="$(node --import tsx scripts/release-github-assets.ts targets)"
+          printf '%s\n' "$targets" | jq -r '.[]' | while read -r target; do
+            stem="$(node --import tsx scripts/release-github-assets.ts stage \
+              "$VERSION" "$GITHUB_SHA" "$RELEASE_TIMESTAMP" "$target" \
+              "dist/native/builds/$target" dist/archive-stage)"
+            tar -czf "dist/archives/$stem.tar.gz" -C dist/archive-stage "$stem"
+            tar -tzf "dist/archives/$stem.tar.gz"
+          done
+
+      - name: Render channel-specific Shell Installers
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/installers
+          digests="$(
+            node --import tsx -e '
+              import { createHash } from "node:crypto";
+              import { readdirSync, readFileSync } from "node:fs";
+              const dir = "dist/archives";
+              const out = {};
+              for (const name of readdirSync(dir)) {
+                if (!name.endsWith(".tar.gz")) continue;
+                out[name] = createHash("sha256").update(readFileSync(dir + "/" + name)).digest("hex");
+              }
+              process.stdout.write(JSON.stringify(out));
+            '
+          )"
+          node --import tsx scripts/release-install-script.ts render \
+            "$VERSION" "$GITHUB_REPOSITORY" "$digests" dist/installers
+
       - name: Attest the release packages
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
@@ -292,6 +331,8 @@ jobs:
             dist/tarballs/*.tgz
             dist/observations/*.json
             dist/sboms/*.spdx.json
+            dist/archives/*.tar.gz
+            dist/installers/*.sh
 
       - name: Upload the release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -301,6 +342,8 @@ jobs:
             dist/tarballs/*.tgz
             dist/observations/*.json
             dist/sboms/*.spdx.json
+            dist/archives/*.tar.gz
+            dist/installers/*.sh
           if-no-files-found: error
           retention-days: 90
 
@@ -369,9 +412,21 @@ jobs:
       - name: Verify every package attestation before preflight
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          node --import tsx scripts/release-npm-ci.ts
-          verify-attestations dist/packages 14
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          count="$(node --import tsx -e '
+            import { expectedLauncherPackageFileCount } from "./scripts/release-publication-assets.ts";
+            process.stdout.write(String(expectedLauncherPackageFileCount(process.env.VERSION)));
+          ')"
+          found="$(find dist/packages -type f | wc -l | tr -d ' ')"
+          if [ "$found" != "$count" ]; then
+            echo "::error::Expected $count launcher package files, found $found"
+            find dist/packages -type f | sort
+            exit 1
+          fi
+          node --import tsx scripts/release-npm-ci.ts \
+            verify-attestations dist/packages "$count"
 
       - name: Run preflight
         run: |
@@ -396,6 +451,8 @@ jobs:
           cp -R dist/packages/tarballs dist/publication/tarballs
           cp -R dist/packages/observations dist/publication/observations
           cp -R dist/packages/sboms dist/publication/sboms
+          cp -R dist/packages/archives dist/publication/archives
+          cp -R dist/packages/installers dist/publication/installers
 
       - name: Attest the preflight result
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
@@ -406,6 +463,8 @@ jobs:
             dist/publication/tarballs/*.tgz
             dist/publication/observations/*.json
             dist/publication/sboms/*.spdx.json
+            dist/publication/archives/*.tar.gz
+            dist/publication/installers/*.sh
 
       - name: Upload the retained publication inputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -499,10 +558,21 @@ jobs:
       - name: Verify every retained input before publication
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          count="$(node --import tsx -e '
+            import { expectedPublicationFileCount } from "./scripts/release-publication-assets.ts";
+            process.stdout.write(String(expectedPublicationFileCount(process.env.VERSION)));
+          ')"
+          found="$(find dist/publication -type f | wc -l | tr -d ' ')"
+          if [ "$found" != "$count" ]; then
+            echo "::error::Expected $count publication files, found $found"
+            find dist/publication -type f | sort
+            exit 1
+          fi
           node --import tsx scripts/release-npm-ci.ts \
-            verify-attestations dist/publication 16
+            verify-attestations dist/publication "$count"
           (
             cd dist/publication
             sha256sum -c artifact-manifest.sha256
@@ -601,9 +671,21 @@ jobs:
       - name: Verify every retained input
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          node --import tsx scripts/release-npm-ci.ts
-          verify-attestations dist/publication 16
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          count="$(node --import tsx -e '
+            import { expectedPublicationFileCount } from "./scripts/release-publication-assets.ts";
+            process.stdout.write(String(expectedPublicationFileCount(process.env.VERSION)));
+          ')"
+          found="$(find dist/publication -type f | wc -l | tr -d ' ')"
+          if [ "$found" != "$count" ]; then
+            echo "::error::Expected $count publication files, found $found"
+            find dist/publication -type f | sort
+            exit 1
+          fi
+          node --import tsx scripts/release-npm-ci.ts \
+            verify-attestations dist/publication "$count"
 
       - name: Rebuild preflight and verify the published matrix
         run: |
@@ -627,14 +709,18 @@ jobs:
           cp dist/publication/tarballs/*.tgz dist/assets/
           cp dist/publication/observations/*.json dist/assets/
           cp dist/publication/sboms/*.spdx.json dist/assets/
+          cp dist/publication/archives/*.tar.gz dist/assets/
+          cp dist/publication/installers/*.sh dist/assets/
           cp dist/publication/artifact-manifest.json dist/assets/
           cp dist/publication/artifact-manifest.sha256 dist/assets/
           node --import tsx scripts/release-github-assets.ts checksums dist/assets \
             > dist/assets/checksums.txt
           {
             printf '# 1667 v%s\n\n' "$VERSION"
-            printf 'This prerelease contains the five npm release packages.\n\n'
+            printf 'This release retains the five npm packages, native Release Archives,\n'
+            printf 'and channel-specific Shell Installers.\n\n'
             printf 'npm publication uses the `next` tag. Promotion is a separate maintainer action.\n'
+            printf 'The homepage serves one selected install script after a separate promotion gate.\n'
           } > dist/release-notes.md
 
       - name: Publish or verify the immutable GitHub release

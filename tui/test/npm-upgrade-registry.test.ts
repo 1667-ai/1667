@@ -18,6 +18,16 @@ const INTEGRITY = `sha512-${"A".repeat(86)}==`;
 const PLATFORM_PACKAGE = releaseTargetForArtifact("linux-x64").packageName;
 const DARWIN_PACKAGE = releaseTargetForArtifact("darwin-arm64").packageName;
 
+function tarballUrl(packageName: string, version: string): string {
+  const base = packageName.includes("/")
+    ? packageName.slice(packageName.lastIndexOf("/") + 1)
+    : packageName;
+  // Real npm serves the scoped slash in the path, not percent-encoding.
+  return `https://registry.npmjs.org/${packageName}/-/${base}-${version}.tgz`;
+}
+
+const TARBALL = tarballUrl(LAUNCHER_PACKAGE, "2.0.0");
+
 test("npm dist tags select strict stable and beta channel heads", () => {
   const body = JSON.stringify({
     stable: "2.0.0",
@@ -54,7 +64,7 @@ test("exact npm metadata validates identity, integrity, and the complete platfor
   const metadata = parseNpmExactVersionMetadata(JSON.stringify({
     name: LAUNCHER_PACKAGE,
     version: "2.0.0",
-    dist: { integrity: INTEGRITY, tarball: "https://untrusted.invalid/archive.tgz" },
+    dist: { integrity: INTEGRITY, tarball: TARBALL },
     optionalDependencies,
     unknown: "ignored"
   }), {
@@ -65,7 +75,8 @@ test("exact npm metadata validates identity, integrity, and the complete platfor
   expect(metadata).toEqual({
     name: LAUNCHER_PACKAGE,
     version: "2.0.0",
-    integrity: INTEGRITY
+    integrity: INTEGRITY,
+    tarball: TARBALL
   });
   expect(Object.isFrozen(metadata)).toBeTrue();
 });
@@ -81,7 +92,7 @@ test("the launcher graph a client expects never names a held target's package", 
     expect(() => parseNpmExactVersionMetadata(JSON.stringify({
       name: LAUNCHER_PACKAGE,
       version: "2.0.0",
-      dist: { integrity: INTEGRITY },
+      dist: { integrity: INTEGRITY, tarball: TARBALL },
       optionalDependencies: { ...graph, [descriptor.packageName]: "2.0.0" }
     }), {
       name: LAUNCHER_PACKAGE,
@@ -96,7 +107,7 @@ test("exact npm metadata rejects deprecated targets and graph or identity drift"
   const valid = {
     name: LAUNCHER_PACKAGE,
     version: "2.0.0",
-    dist: { integrity: INTEGRITY },
+    dist: { integrity: INTEGRITY, tarball: TARBALL },
     optionalDependencies: graph
   };
   const expected = {
@@ -116,7 +127,7 @@ test("exact npm metadata rejects deprecated targets and graph or identity drift"
     expect(() => parseNpmExactVersionMetadata(JSON.stringify(value), expected)).toThrow();
   }
   expect(() => parseNpmExactVersionMetadata(
-    `{"name":"${LAUNCHER_PACKAGE}","name":"other","version":"2.0.0","dist":{"integrity":"${INTEGRITY}"},"optionalDependencies":${JSON.stringify(graph)}}`,
+    `{"name":"${LAUNCHER_PACKAGE}","name":"other","version":"2.0.0","dist":{"integrity":"${INTEGRITY}","tarball":"${TARBALL}"},"optionalDependencies":${JSON.stringify(graph)}}`,
     expected
   )).toThrow();
 });
@@ -172,7 +183,7 @@ test("registry client derives exact launcher and platform endpoints locally", as
     return Response.json({
       name: packageName,
       version: "2.0.0+build.1",
-      dist: { integrity: INTEGRITY },
+      dist: { integrity: INTEGRITY, tarball: tarballUrl(packageName, "2.0.0+build.1") },
       ...(packageName === LAUNCHER_PACKAGE
         ? { optionalDependencies: graph }
         : { os: ["linux"], cpu: ["x64"], libc: ["glibc"] })
@@ -197,7 +208,7 @@ test("registry client rejects incomplete or drifting platform identity", async (
     const registry = new NpmUpgradeRegistry(async () => Response.json({
       name: PLATFORM_PACKAGE,
       version: "2.0.0",
-      dist: { integrity: INTEGRITY },
+      dist: { integrity: INTEGRITY, tarball: tarballUrl(PLATFORM_PACKAGE, "2.0.0") },
       ...identity
     }));
     const error = await rejection(
@@ -249,7 +260,7 @@ test("registry client rejects libc metadata on the launcher package", async () =
   const registry = new NpmUpgradeRegistry(async () => Response.json({
     name: LAUNCHER_PACKAGE,
     version: "2.0.0",
-    dist: { integrity: INTEGRITY },
+    dist: { integrity: INTEGRITY, tarball: TARBALL },
     optionalDependencies: graph,
     libc: ["glibc"]
   }));
@@ -322,7 +333,7 @@ function platformRegistry(
   return new NpmUpgradeRegistry(async () => Response.json({
     name: packageName,
     version: "2.0.0",
-    dist: { integrity: INTEGRITY },
+    dist: { integrity: INTEGRITY, tarball: tarballUrl(packageName, "2.0.0") },
     ...identity
   }));
 }

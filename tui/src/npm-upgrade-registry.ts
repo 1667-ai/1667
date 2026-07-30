@@ -1,3 +1,8 @@
+import { NPM_METADATA_MAX_BYTES as SHARED_NPM_METADATA_MAX_BYTES } from "../../shared/release-artifact-bounds.js";
+import {
+  assertCanonicalNpmTarballUrl,
+  NPM_REGISTRY_ORIGIN as SHARED_NPM_REGISTRY_ORIGIN
+} from "../../shared/npm-tarball-url.js";
 import { isSemVer, parseSemVer } from "../../shared/semver.js";
 import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
@@ -13,8 +18,8 @@ import {
   type UpgradeChannel
 } from "./upgrade-contract.js";
 
-export const NPM_REGISTRY_ORIGIN = "https://registry.npmjs.org";
-export const NPM_METADATA_MAX_BYTES = 64 * 1024;
+export const NPM_REGISTRY_ORIGIN = SHARED_NPM_REGISTRY_ORIGIN;
+export const NPM_METADATA_MAX_BYTES = SHARED_NPM_METADATA_MAX_BYTES;
 export const LAUNCHER_PACKAGE = RELEASE_LAUNCHER_PACKAGE;
 // The registry only answers for packages that were published, so a held
 // target's package is not something this client may look up or expect.
@@ -38,6 +43,7 @@ export interface NpmVersionMetadata {
   readonly name: string;
   readonly version: string;
   readonly integrity: string;
+  readonly tarball: string;
 }
 
 export class NpmUpgradeRegistry {
@@ -197,6 +203,12 @@ export function parseNpmExactVersionMetadata(
   if (!/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity)) {
     throw new UpgradeFailure("verification_failed", "Registry integrity metadata is missing or invalid.");
   }
+  const tarball = boundedString(value.dist.tarball, 2048);
+  try {
+    assertCanonicalNpmTarballUrl(tarball, name, version);
+  } catch {
+    throw new UpgradeFailure("verification_failed", "Registry tarball URL is invalid.");
+  }
   verifyDependencyGraph(value, expected.optionalDependencies ?? {});
   if (expected.platform !== undefined) {
     verifyPlatformIdentity(
@@ -208,7 +220,7 @@ export function parseNpmExactVersionMetadata(
   } else if (Object.hasOwn(value, "libc")) {
     throw platformIdentityFailure();
   }
-  return Object.freeze({ name, version, integrity });
+  return Object.freeze({ name, version, integrity, tarball });
 }
 
 function verifyDependencyGraph(

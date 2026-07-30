@@ -75,18 +75,22 @@ test("every retained release input is attested and verified before use", () => {
   assert.match(job("preflight"), /Attest the preflight result/u);
   assert.match(job("publish"), /Verify every retained input before publication/u);
   assert.match(job("release"), /Verify every retained input/u);
-  const expectedCounts = {
-    launcher: 8,
-    preflight: 14,
-    publish: 16,
-    release: 16
-  } as const;
-  for (const [name, count] of Object.entries(expectedCounts)) {
+  // Native matrix results stay a fixed 8-file handoff. Later jobs derive the
+  // exact retained count from the version and canonical release policy.
+  assert.match(job("launcher"), /verify-attestations dist\/native 8/u);
+  for (const name of ["preflight", "publish", "release"] as const) {
+    assert.match(job(name), /expected(?:LauncherPackage|Publication)FileCount/u);
     assert.match(
-      job(name as keyof typeof expectedCounts),
-      new RegExp(`verify-attestations [^\\n]+ ${count}`, "u")
+      job(name),
+      /verify-attestations dist\/(?:packages|publication) "\$count"/u
     );
+    assert.match(job(name), /Expected \$count .* found \$found/u);
   }
+  assert.match(job("launcher"), /release-install-script\.ts render/u);
+  assert.match(job("launcher"), /dist\/archives\/\*\.tar\.gz/u);
+  assert.match(job("launcher"), /dist\/installers\/\*\.sh/u);
+  assert.match(job("release"), /dist\/publication\/archives\/\*\.tar\.gz/u);
+  assert.match(job("release"), /dist\/publication\/installers\/\*\.sh/u);
   assert.match(CI_HELPER, /"--signer-workflow"/u);
   assert.match(CI_HELPER, /"--source-digest"/u);
   assert.match(CI_HELPER, /"--deny-self-hosted-runners"/u);
@@ -223,7 +227,8 @@ test("GitHub API and attestation reads have explicit authority", () => {
   for (const name of ["launcher", "preflight", "publish", "release"] as const) {
     const body = job(name);
     for (const match of body.matchAll(/verify-attestations/gmu)) {
-      const prefix = body.slice(Math.max(0, match.index - 180), match.index);
+      // Multiline steps keep GH_TOKEN in the step env block above the run body.
+      const prefix = body.slice(Math.max(0, match.index - 1600), match.index);
       assert.match(prefix, /GH_TOKEN: \$\{\{ github\.token \}\}/u, `${name} omitted GH_TOKEN`);
     }
   }

@@ -131,6 +131,15 @@ export const PUBLISHED_RELEASE_TARGETS: readonly PublishedReleaseTarget[] = Obje
 export const BUILT_ARTIFACT_TARGETS = Object.freeze(
   RELEASE_TARGETS.map((descriptor) => descriptor.artifactTarget)
 ) as readonly [BuiltArtifactTarget, ...BuiltArtifactTarget[]];
+
+/** String Set membership boundary for BuiltArtifactTarget (no array cast). */
+const BUILT_ARTIFACT_TARGET_SET: ReadonlySet<string> = new Set(BUILT_ARTIFACT_TARGETS);
+
+/** Type guard for a BuiltArtifactTarget via Set membership. */
+export function isBuiltArtifactTarget(value: unknown): value is BuiltArtifactTarget {
+  return typeof value === "string" && BUILT_ARTIFACT_TARGET_SET.has(value);
+}
+
 /** The subset of those targets whose package is published. */
 export const PUBLISHED_ARTIFACT_TARGETS: readonly PublishedArtifactTarget[] = Object.freeze(
   PUBLISHED_RELEASE_TARGETS.map((descriptor) => descriptor.artifactTarget)
