@@ -135,7 +135,7 @@ function isNpmOperationHolderRun(
     && run.run_attempt === Number(request.runAttempt)
     && run.repository.full_name === request.repository
     && (run.path === workflowPath || run.path === `${workflowPath}@main`)
-    && run.name === "Hold npm operation"
+    && run.name === run.display_title
     && run.event === "workflow_dispatch"
     && run.head_branch === "main"
     && SHA.test(run.head_sha)

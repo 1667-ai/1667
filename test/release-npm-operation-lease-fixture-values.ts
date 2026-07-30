@@ -12,14 +12,15 @@ export const HOLDER_COMMIT = "e".repeat(40);
 export function workflowRun(
   request: NpmOperationLeaseRequest
 ): GitHubWorkflowRun {
+  const title = `npm ${request.operation} v${request.version}`
+    + " (123e4567-e89b-42d3-a456-426614174000;"
+    + ` source ${request.sourceCommit})`;
   return Object.freeze({
     id: Number(request.runId),
     run_attempt: Number(request.runAttempt),
-    name: "Hold npm operation",
+    name: title,
     path: ".github/workflows/release-npm-operation.yml",
-    display_title: `npm ${request.operation} v${request.version}`
-      + " (123e4567-e89b-42d3-a456-426614174000;"
-      + ` source ${request.sourceCommit})`,
+    display_title: title,
     event: "workflow_dispatch",
     status: "in_progress",
     conclusion: null,

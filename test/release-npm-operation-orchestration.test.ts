@@ -300,7 +300,7 @@ class FakeWorkflows implements NpmOperationWorkflowClient {
     return {
       id: Number(runId),
       run_attempt: 1,
-      name: "Hold npm operation",
+      name: TITLE,
       path: ".github/workflows/release-npm-operation.yml",
       display_title: TITLE,
       event: "workflow_dispatch",

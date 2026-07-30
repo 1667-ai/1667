@@ -78,6 +78,7 @@ test("claim rejects wrong holder status, source, path, and title", async () => {
     { head_sha: "f".repeat(40) },
     { head_branch: "release" },
     { path: ".github/workflows/other.yml" },
+    { name: "Hold npm operation" },
     { display_title: "npm quarantine v9.9.9 (wrong)" },
     {
       display_title: `npm ${REQUEST.operation} v${REQUEST.version}`
