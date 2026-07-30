@@ -2,6 +2,7 @@ import type { StoryPayload } from "../../shared/types.js";
 import { createComposer } from "./composer-model.js";
 import { capturePendingDirectDraft } from "./composer-ownership.js";
 import { reconcileFactEditor } from "./editor-reconciliation.js";
+import { globalEditor } from "./editor-scope.js";
 import { boundedFactSelection, factRows } from "./facts-model.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
@@ -164,7 +165,11 @@ export function adoptReconciliationSnapshot(
     && state.library !== options.discardedLibrary
     ? state.library
     : null;
-  const settings = mode === "SETTINGS" ? state.settings : null;
+  const retainedGlobalEditor = globalEditor(state);
+  const retainedSettings = mode === "SETTINGS" || retainedGlobalEditor !== null
+    ? state.settings
+    : null;
+  const editorScrollTop = state.editorScrollTop;
   const commands = mode === "COMMANDS" && state.commands?.view === "commands"
     ? state.commands
     : null;
@@ -185,15 +190,24 @@ export function adoptReconciliationSnapshot(
   state.quitArmed = quitArmed;
 
   if (mode === "COMPOSE") state.mode = "COMPOSE";
+  else if (retainedGlobalEditor !== null && retainedSettings !== null) {
+    state.settings = retainedSettings;
+    state.editor = retainedGlobalEditor;
+    state.editorScrollTop = editorScrollTop;
+    state.mode = "EDITOR";
+  }
   else if (library !== null) {
-    if (library.prompt?.targetId !== undefined
-      && !library.stories.some((story) => story.id === library.prompt?.targetId)) {
+    const targetId = library.prompt?.kind === "filter"
+      ? undefined
+      : library.prompt?.targetId;
+    if (targetId !== undefined
+      && !library.stories.some((story) => story.id === targetId)) {
       library.prompt = null;
     }
     state.library = library;
     state.mode = "LIBRARY";
-  } else if (settings !== null) {
-    state.settings = settings;
+  } else if (retainedSettings !== null) {
+    state.settings = retainedSettings;
     state.mode = "SETTINGS";
   } else if (commands !== null) {
     state.commands = commands;
@@ -265,10 +279,14 @@ function reconcileStoryBoundIntent(
   const editor = state.editor;
   if (editor !== null) {
     const target = editor.target;
-    const targetExists = (target.kind === "fact" && (target.factId === null
+    const targetExists = (target.kind === "settings-prompt"
+        && state.settings === target.owner)
+      || (target.kind === "fact" && (target.factId === null
         || state.payload.facts.some(({ id }) => id === target.factId)))
-      || (target.kind === "part" && state.payload.nodes.some(({ id }) => id === target.node.id))
-      || (target.kind === "human-take" && state.payload.nodes.some(({ id }) =>
+      || (target.kind === "part"
+        && state.payload.nodes.some(({ id }) => id === target.node.id))
+      || (target.kind === "human-take"
+        && state.payload.nodes.some(({ id }) =>
         id === (target.savedNode ?? target.node).id))
       || (target.kind === "chapter-summary"
         && state.payload.nodes.some(({ id }) => id === target.summaryId));

@@ -4,6 +4,8 @@ import type { FrameLine } from "./screens/story/frame.js";
 interface SelectionCell {
   start: number;
   end: number;
+  sourceId?: string;
+  editable?: false;
 }
 
 /** Sparse page-buffer cell map. OpenTUI TextBufferView selections use display
@@ -30,6 +32,11 @@ export interface ProjectedStorySelection {
   spans: StorySelectionSpan[];
 }
 
+export type ProjectedComposerSelection =
+  | (SelectionCell & { kind: "range" })
+  | { kind: "uneditable"; sourceId?: string }
+  | { kind: "mixed" };
+
 export function buildComposerSelectionProjection(
   lines: readonly FrameLine[],
   width: number
@@ -43,13 +50,23 @@ export function buildComposerSelectionProjection(
     let column = 0;
     for (const part of line) {
       let composerOffset = part.composerStart;
+      const uneditable = composerOffset === undefined
+        && part.composerSource?.editable === false;
       if (isPrintableAscii(part.text)) {
         const length = Math.min(part.text.length, width - column);
-        if (composerOffset !== undefined) {
+        if (composerOffset !== undefined || uneditable) {
           for (let offset = 0; offset < length; offset += 1) {
-            cells[row * stride + column + offset] = {
-              start: composerOffset + offset,
-              end: composerOffset + offset + 1
+            cells[row * stride + column + offset] = uneditable ? {
+              start: 0,
+              end: 0,
+              sourceId: part.composerSource?.id,
+              editable: false
+            } : {
+              start: composerOffset! + offset,
+              end: composerOffset! + offset + 1,
+              ...(part.composerSource === undefined
+                ? {}
+                : { sourceId: part.composerSource.id })
             };
           }
           mapped ||= length > 0;
@@ -59,13 +76,24 @@ export function buildComposerSelectionProjection(
         continue;
       }
       for (const cell of graphemeCells(part.text)) {
-        if (composerOffset !== undefined) {
-          const range = { start: composerOffset, end: composerOffset + 1 };
+        if (composerOffset !== undefined || uneditable) {
+          const range: SelectionCell = uneditable ? {
+            start: 0,
+            end: 0,
+            sourceId: part.composerSource?.id,
+            editable: false
+          } : {
+            start: composerOffset!,
+            end: composerOffset! + 1,
+            ...(part.composerSource === undefined
+              ? {}
+              : { sourceId: part.composerSource.id })
+          };
           for (let inside = 0; inside < cell.width && column + inside < width; inside += 1) {
             cells[row * stride + column + inside] = range;
             mapped = true;
           }
-          composerOffset += 1;
+          if (composerOffset !== undefined) composerOffset += 1;
         }
         column += cell.width;
         if (column >= width) break;
@@ -129,18 +157,41 @@ export function composerRangeFromProjection(
   projection: ComposerSelectionProjection,
   displayStart: number,
   displayEnd: number
-): SelectionCell | null {
+): ProjectedComposerSelection | null {
   let start = Number.POSITIVE_INFINITY;
   let end = Number.NEGATIVE_INFINITY;
+  let sourceId: SelectionCell["sourceId"];
+  let hasSource = false;
+  let uneditable = false;
   const from = Math.max(0, Math.min(projection.length, displayStart));
   const to = Math.max(from, Math.min(projection.length, displayEnd));
   for (let index = from; index < to; index += 1) {
     const cell = projection[index];
     if (cell === null || cell === undefined) continue;
+    if (!hasSource) {
+      sourceId = cell.sourceId;
+      hasSource = true;
+    } else if (cell.sourceId !== sourceId) {
+      return { kind: "mixed" };
+    }
+    uneditable ||= cell.editable === false;
     start = Math.min(start, cell.start);
     end = Math.max(end, cell.end);
   }
-  return Number.isFinite(start) && Number.isFinite(end) ? { start, end } : null;
+  if (hasSource && uneditable) {
+    return {
+      kind: "uneditable",
+      ...(sourceId === undefined ? {} : { sourceId })
+    };
+  }
+  return Number.isFinite(start) && Number.isFinite(end)
+    ? {
+        kind: "range",
+        start,
+        end,
+        ...(sourceId === undefined ? {} : { sourceId })
+      }
+    : null;
 }
 
 /** Recover raw prose/instruction text from painted cells. Layout gutter,

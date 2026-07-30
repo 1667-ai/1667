@@ -97,6 +97,10 @@ interface EditEntry {
   afterAnchor: number | null;
 }
 
+interface OwnedEditEntry extends EditEntry {
+  owner: ComposerState;
+}
+
 /** Optional final caret/selection recorded into redo history for a range replace. */
 export interface ComposerEditCaret {
   cursor: number;
@@ -104,8 +108,8 @@ export interface ComposerEditCaret {
 }
 
 interface EditHistory {
-  undo: EditEntry[];
-  redo: EditEntry[];
+  undo: OwnedEditEntry[];
+  redo: OwnedEditEntry[];
   retainedCodeUnits: number;
 }
 
@@ -124,7 +128,7 @@ export function setComposerText(composer: ComposerState, text: string): void {
   const document = rebuildDocument(text, previous);
   DOCUMENTS.set(composer, document);
   setCursor(composer, document, totalGraphemes(document), false);
-  EDIT_HISTORIES.delete(composer);
+  resetComposerEditHistory(composer);
 }
 
 export function insertComposerText(composer: ComposerState, text: string): void {
@@ -221,21 +225,53 @@ export function selectedComposerText(composer: ComposerState): string | null {
 }
 
 export function undoComposerEdit(composer: ComposerState): boolean {
+  return undoComposerEditOwner(composer) !== null;
+}
+
+export function undoComposerEditOwner(
+  composer: ComposerState
+): ComposerState | null {
   const history = editHistory(composer);
   const entry = history.undo.pop();
-  if (entry === undefined) return false;
+  if (entry === undefined) return null;
   history.redo.push(entry);
-  restoreEdit(composer, entry, true);
-  return true;
+  restoreEdit(entry.owner, entry, true);
+  return entry.owner;
 }
 
 export function redoComposerEdit(composer: ComposerState): boolean {
+  return redoComposerEditOwner(composer) !== null;
+}
+
+export function redoComposerEditOwner(
+  composer: ComposerState
+): ComposerState | null {
   const history = editHistory(composer);
   const entry = history.redo.pop();
-  if (entry === undefined) return false;
+  if (entry === undefined) return null;
   history.undo.push(entry);
-  restoreEdit(composer, entry, false);
-  return true;
+  restoreEdit(entry.owner, entry, false);
+  return entry.owner;
+}
+
+/** Give multiple buffers one bounded delta journal and cross-buffer order. */
+export function shareComposerEditHistory(
+  composers: readonly ComposerState[]
+): void {
+  const history: EditHistory = {
+    undo: [],
+    redo: [],
+    retainedCodeUnits: 0
+  };
+  for (const composer of composers) EDIT_HISTORIES.set(composer, history);
+}
+
+/** Discard all local undo state after an authoritative or composite edit. */
+export function resetComposerEditHistory(composer: ComposerState): void {
+  const history = editHistory(composer);
+  history.undo = [];
+  history.redo = [];
+  history.retainedCodeUnits = 0;
 }
 
 /** Low-level grapheme document primitives used by the editor command layer. */
@@ -524,13 +560,16 @@ function editHistory(composer: ComposerState): EditHistory {
   return history;
 }
 
-function recordEdit(composer: ComposerState, entry: EditEntry): void {
+function recordEdit(
+  composer: ComposerState,
+  entry: EditEntry
+): void {
   const history = editHistory(composer);
   history.retainedCodeUnits -= history.redo.reduce(
     (sum, candidate) => sum + retainedCodeUnits(candidate), 0
   );
   history.redo = [];
-  history.undo.push(entry);
+  history.undo.push({ ...entry, owner: composer });
   history.retainedCodeUnits += retainedCodeUnits(entry);
   while (history.undo.length > MAX_HISTORY_ENTRIES
     || history.retainedCodeUnits > MAX_HISTORY_CODE_UNITS) {

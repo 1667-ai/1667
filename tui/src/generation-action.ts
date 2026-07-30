@@ -44,7 +44,10 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
   const restoredDraft = stream !== null
     && !streamHasSubstantiveText(stream)
     && restoreStoppedGenerationDraft(state, stream, true);
-  active?.controller.abort();
+  if (active !== null) {
+    active.stopInteractionVersion = state.interactionVersion;
+    active.controller.abort();
+  }
   state.stream = null;
   restoreStoryFocus(state, focus);
   if (restoredDraft && state.mode === "COMPOSE" && state.retakePrompt !== null) {
@@ -68,7 +71,11 @@ export async function generate(
 ): Promise<void> {
   if (state.abort !== null) return;
   const controller = new AbortController();
-  const active = { kind: "generation" as const, controller };
+  const active = {
+    kind: "generation" as const,
+    controller,
+    stopInteractionVersion: null as number | null
+  };
   state.abort = active;
   const signal = controller.signal;
   const storyId = task.storyId;
@@ -76,13 +83,9 @@ export async function generate(
   const owns = task.owns;
   const storyCurrent = task.storyCurrent;
   const interactionCurrent = task.interactionCurrent;
-  let stopInteractionVersion: number | null = null;
-  signal.addEventListener("abort", () => {
-    stopInteractionVersion = state.interactionVersion;
-  }, { once: true });
-  const restorationMayOwnFocus = () => interactionCurrent()
-    || (stopInteractionVersion !== null
-      && state.interactionVersion === stopInteractionVersion);
+  const settlementMayOwnFocus = () => interactionCurrent()
+    || (active.stopInteractionVersion !== null
+      && state.interactionVersion === active.stopInteractionVersion);
   const focusPart = rowPart(createStoryViewModel(state.payload), state.focusIndex);
   const intent = continuationIntent(state.payload, focusPart?.id ?? null, instruction, regenerateNode);
   const path = state.payload.path;
@@ -103,13 +106,13 @@ export async function generate(
       restorePendingGenerationDraft(
         state,
         pendingDraft,
-        restorationMayOwnFocus()
+        settlementMayOwnFocus()
       );
     } else if (owns() && storyCurrent()) {
       restorePendingGenerationDraft(
         state,
         pendingDraft,
-        restorationMayOwnFocus()
+        settlementMayOwnFocus()
       );
       state.toast = error instanceof Error ? error.message : String(error);
     }
@@ -121,7 +124,7 @@ export async function generate(
       restorePendingGenerationDraft(
         state,
         pendingDraft,
-        restorationMayOwnFocus()
+        settlementMayOwnFocus()
       );
     }
     return repaint();
@@ -182,10 +185,7 @@ export async function generate(
       const landedId = updated.path.at(-1)?.id;
       if (landedId !== undefined) landed.set(landedId, Date.now());
       state.freshLandedAt = landed;
-      if (interactionCurrent()) {
-        state.focusIndex = lastPartRowIndex(createStoryViewModel(updated));
-        rememberFocus(state, source);
-      }
+      focusLandedGeneration(state, source, updated, settlementMayOwnFocus());
       adopted = true;
       clearPendingGenerationDraft(state, pendingDraft, stream);
     }
@@ -194,7 +194,7 @@ export async function generate(
       restorePendingGenerationDraft(
         state,
         pendingDraft,
-        restorationMayOwnFocus()
+        settlementMayOwnFocus()
       );
       state.toast = error instanceof Error ? error.message : String(error);
     }
@@ -210,8 +210,7 @@ export async function generate(
         pendingDraft,
         storyId,
         storyCurrent,
-        interactionCurrent,
-        restorationMayOwnFocus
+        settlementMayOwnFocus
       );
       adopted = settlement.adopted;
       preserveStoppedStream = settlement.preserveStream;
@@ -219,7 +218,7 @@ export async function generate(
       restorePendingGenerationDraft(
         state,
         pendingDraft,
-        restorationMayOwnFocus()
+        settlementMayOwnFocus()
       );
     }
     if (state.abort === active) state.abort = null;
@@ -339,8 +338,7 @@ async function settleStoppedGeneration(
   pendingDraft: PendingGenerationDraft | null,
   storyId: string,
   storyCurrent: () => boolean,
-  interactionCurrent: () => boolean,
-  restorationMayOwnFocus: () => boolean
+  settlementMayOwnFocus: () => boolean
 ): Promise<{
   readonly adopted: boolean;
   readonly preserveStream: boolean;
@@ -381,13 +379,12 @@ async function settleStoppedGeneration(
       restoreStoppedGenerationDraft(
         state,
         stream,
-        restorationMayOwnFocus()
+        settlementMayOwnFocus()
       );
     }
     if (substantive) clearPendingGenerationDraft(state, pendingDraft, stream);
-    if (interactionCurrent() && substantive) {
-      state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
-      rememberFocus(state, source);
+    if (substantive) {
+      focusLandedGeneration(state, source, payload, settlementMayOwnFocus());
     }
     return { adopted: true, preserveStream: false };
   } catch (error) {
@@ -403,13 +400,26 @@ async function settleStoppedGeneration(
     restorePendingGenerationDraft(
       state,
       pendingDraft,
-      restorationMayOwnFocus()
+      settlementMayOwnFocus()
     );
-    if (restorationMayOwnFocus() && storyCurrent()) {
+    if (settlementMayOwnFocus() && storyCurrent()) {
       state.toast = error instanceof Error ? error.message : String(error);
     }
     return { adopted, preserveStream: substantive };
   }
+}
+
+/** Focus a landed generation only while the request or its Stop action is
+ * still the latest writer interaction. */
+function focusLandedGeneration(
+  state: RuntimeState,
+  source: AppSource,
+  payload: StoryPayload,
+  mayOwnFocus: boolean
+): void {
+  if (!mayOwnFocus) return;
+  state.focusIndex = lastPartRowIndex(createStoryViewModel(payload));
+  rememberFocus(state, source);
 }
 
 function clearPendingGenerationDraft(

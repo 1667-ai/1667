@@ -72,12 +72,27 @@ export interface TagPrompt {
   returnMode: "NAV" | "MAP";
 }
 
-export interface TextPrompt {
-  kind: "filter" | "rename" | "delete";
-  value: string;
-  /** Frozen at prompt-open so later cursor moves can't retarget the action. */
-  targetId?: string;
-}
+export type TextPrompt =
+  | {
+      kind: "filter";
+      initial: {
+        query: string;
+        cursor: number;
+        storyId: string | null;
+      };
+    }
+  | {
+      kind: "rename";
+      value: string;
+      /** Frozen at prompt-open so later movement or refresh cannot retarget it. */
+      targetId: string;
+    }
+  | {
+      kind: "delete";
+      value: string;
+      /** Frozen at prompt-open so later movement or refresh cannot retarget it. */
+      targetId: string;
+    };
 export interface LibraryOverlayState { stories: StorySummary[]; cursor: number; query: string; prompt: TextPrompt | null }
 export interface FactsOverlayState {
   cursor: number;
@@ -114,12 +129,18 @@ export type SettingsRowId =
   | "context-window"
   | "cache-policy"
   | "system-prompt";
-export interface SettingsInlineEditState {
-  row: SettingsRowId;
-  mode: "text" | "secret";
+
+export interface SettingsEditBufferState {
   composer: ComposerState;
   initial: string;
 }
+
+export interface SettingsInlineEditState extends SettingsEditBufferState {
+  kind: "inline";
+  row: Exclude<SettingsRowId, "system-prompt">;
+  mode: "text" | "secret";
+}
+
 export interface SettingsOverlaySaveIntent {
   readonly command: Omit<SaveSettingsCommand, "transportOperationId">;
   readonly draft: SettingsTextDraft;
@@ -134,6 +155,7 @@ export interface SettingsOverlayState {
   /** Write-only key material; never projected into GenerationSettings/document. */
   connectionSecrets: Record<string, string | null>;
   cursor: number;
+  /** Settings-menu row editor. Full-screen prompts use `RuntimeState.editor`. */
   edit: SettingsInlineEditState | null;
   conflict: { message: string; armed: boolean } | null;
   saveIntent?: SettingsOverlaySaveIntent;
@@ -153,25 +175,49 @@ export interface SummaryOverlayState {
 export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
-  | { kind: "fact"; factId: string | null; base: StoryFact | null }
-  | { kind: "chapter-summary"; summaryId: string; expected: string };
+  | { kind: "chapter-summary"; summaryId: string; expected: string }
+  | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
 
-/** One in-TUI multiline editor shared by all document-editing workflows. */
-export interface InlineEditorSession {
-  target: InlineEditorTarget;
+export interface FactEditorTarget {
+  kind: "fact";
+  factId: string | null;
+  base: StoryFact | null;
+}
+
+interface EditorSessionBase {
   composer: ComposerState;
-  initial: string;
   title: string;
   placeholder: string;
-  returnMode: "NAV" | "FACTS";
+  /** Explicit second-press consent when OSC 52 cannot confirm a destructive cut. */
+  cutConfirmation: { start: number; end: number; text: string } | null;
+}
+
+export interface InlineEditorSession extends EditorSessionBase {
+  kind: "document";
+  initial: string;
+  target: InlineEditorTarget;
+  returnMode: "NAV" | "FACTS" | "SETTINGS";
   conflict: {
     message: string;
     resolution: "overwrite" | "create";
     armed: boolean;
   } | null;
-  /** Explicit second-press consent when OSC 52 cannot confirm a destructive cut. */
-  cutConfirmation: { start: number; end: number; text: string } | null;
 }
+
+export interface FactEditorSession extends EditorSessionBase {
+  kind: "fact";
+  target: FactEditorTarget;
+  returnMode: "NAV" | "FACTS";
+  conflict: InlineEditorSession["conflict"];
+  tag: ComposerState;
+  focus: "tag" | "body";
+  initialFact: { tag: string | null; text: string };
+  tagCutConfirmation: EditorSessionBase["cutConfirmation"];
+}
+
+export type DocumentEditorSession =
+  | InlineEditorSession
+  | FactEditorSession;
 
 export interface PartActionsOverlay {
   cursor: number;
@@ -210,13 +256,21 @@ export interface StoryScreenState extends OverlayState {
   /** Prompt rows expanded inline for reading and terminal text selection. */
   expandedPromptIds: Set<string>;
   composer: ComposerState;
-  editor: InlineEditorSession | null;
+  editor: DocumentEditorSession | null;
   /** Atomic edited-prompt owner; null means the persistent Direct composer. */
   retakePrompt: RetakePromptSession | null;
   toast: string | null;
   stream: StreamView | null;
   /** The cancellable operation whose backend owner is still settling. */
-  abort: { kind: "generation" | "summary"; controller: AbortController } | null;
+  abort:
+    | {
+        kind: "generation";
+        controller: AbortController;
+        /** Latest Stop interaction that can focus the settled take. */
+        stopInteractionVersion: number | null;
+      }
+    | { kind: "summary"; controller: AbortController }
+    | null;
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;
   model: string;

@@ -13,7 +13,10 @@ import {
   type ComposerState
 } from "./composer-model.js";
 import { graphemeCells } from "./cell-width.js";
-import { promptCacheSummaryParts } from "./settings-cache-summary.js";
+import {
+  promptCacheSummaryParts,
+  type PromptCacheSummaryParts
+} from "./settings-cache-summary.js";
 import {
   localProviderPresetsSupported,
   nextSettingsProviderChoice,
@@ -26,9 +29,11 @@ import {
   type SettingsTextDraft
 } from "./settings-text.js";
 import type {
+  SettingsInlineEditState,
   SettingsOverlayState,
   SettingsRowId
 } from "./state.js";
+import type { ActiveSettingsEdit } from "./settings-edit-state.js";
 import {
   applyStoredApiKeyEdit,
   hasStoredApiKey,
@@ -100,7 +105,11 @@ export function initialSettingsOverlay(
 
 export function settingsRows(
   overlay: SettingsOverlayState,
-  config: UserConfig
+  config: UserConfig,
+  cacheSummary: PromptCacheSummaryParts = promptCacheSummaryParts(
+    overlay.view,
+    overlay.draft
+  )
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
   const providerChoice = settingsProviderChoice(settings);
@@ -145,7 +154,7 @@ export function settingsRows(
     {
       id: "cache-policy",
       label: "cache policy",
-      value: promptCacheRowValue(overlay.view, overlay.draft)
+      value: `‹ ${cacheSummary.policy} › · ${cacheSummary.detail}`
     },
     {
       id: "system-prompt",
@@ -173,11 +182,13 @@ export function beginSettingsRowEdit(
   config: UserConfig
 ): void {
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  if (row === "system-prompt") return;
   if (settingsRowUsesServer(row)) overlay.result = null;
   const initial = settingsRowEditValue(overlay, config, row);
   const composer = createComposer(initial);
   if (initial.length > 0) composer.anchor = 0;
   overlay.edit = {
+    kind: "inline",
     row,
     mode: row === "api-key" ? "secret" : "text",
     composer,
@@ -185,10 +196,15 @@ export function beginSettingsRowEdit(
   };
 }
 
+/** Any Settings draft change invalidates prior overwrite consent. */
+export function disarmSettingsConflict(overlay: SettingsOverlayState): void {
+  if (overlay.conflict !== null) overlay.conflict.armed = false;
+}
+
 /** Same grapheme offsets as the write-only buffer; no secret code units cross
  * into rendered text, terminal selection, or clipboard projection. */
 export function settingsEditDisplayComposer(
-  edit: NonNullable<SettingsOverlayState["edit"]>
+  edit: SettingsInlineEditState
 ): ComposerState {
   if (edit.mode === "text") return edit.composer;
   const projection = createComposer(maskSecretText(edit.composer.text));
@@ -204,6 +220,7 @@ export function beginSettingsPasteEdit(
 ): boolean {
   if (overlay.edit !== null) return true;
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  if (row === "system-prompt") return false;
   // Closed choices cycle in place; paste must not open their row editor.
   if (settingsRowCycles(row)) return false;
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
@@ -221,7 +238,9 @@ export function applySettingsRowEdit(
   | { kind: "draft" }
   | { kind: "error"; message: string } {
   const edit = overlay.edit;
-  if (edit === null) return { kind: "error", message: "no settings row is being edited" };
+  if (edit?.kind !== "inline") {
+    return { kind: "error", message: "no settings row is being edited" };
+  }
   const rawValue = edit.composer.text;
   const value = rawValue.trim();
   if (edit.row === "theme") {
@@ -249,20 +268,6 @@ export function applySettingsRowEdit(
   if (edit.row === "allow-insecure-http") {
     return { kind: "error", message: "insecure HTTP is a selector" };
   }
-  if (edit.row === "system-prompt") {
-    const systemPrompt = parseInlineSystemPrompt(edit.composer.text);
-    if (typeof systemPrompt !== "string") return systemPrompt;
-    const parsed = {
-      ...overlay.draft,
-      generation: { ...overlay.draft.generation, systemPrompt }
-    };
-    overlay.draft = parsed;
-    if (sameSettingsDraft(parsed, overlay.base)) overlay.conflict = null;
-    overlay.edit = null;
-    overlay.result = null;
-    return { kind: "draft" };
-  }
-
   const parsed = parseSettings(
     `${SETTINGS_FIELD_KEYS[edit.row]}: ${value}`,
     overlay.draft
@@ -287,6 +292,22 @@ export function applySettingsRowEdit(
   overlay.edit = null;
   overlay.result = null;
   return { kind: "draft" };
+}
+
+export function applySystemPromptDraft(
+  overlay: SettingsOverlayState,
+  systemPrompt: string
+): void {
+  disarmSettingsConflict(overlay);
+  overlay.draft = {
+    ...overlay.draft,
+    generation: {
+      ...overlay.draft.generation,
+      systemPrompt
+    }
+  };
+  if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
+  overlay.result = null;
 }
 
 /** One spelling for every surface that reports why an activation failed. */
@@ -365,7 +386,7 @@ export function cycleSettingsProvider(
   rekeyPendingStoredSecret(overlay);
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
-  else if (overlay.conflict !== null) overlay.conflict.armed = false;
+  else disarmSettingsConflict(overlay);
   return choice;
 }
 
@@ -373,7 +394,8 @@ export function cycleSettingsProvider(
  * explicit overwrite when the authoritative document changed underneath it. */
 export function reconcileSettingsOverlay(
   overlay: SettingsOverlayState,
-  view: SettingsView
+  view: SettingsView,
+  edit: ActiveSettingsEdit | null
 ): string | null {
   const nextBase = settingsTextDraftForView(view);
   const baseChanged = !sameSettingsDraft(overlay.base, nextBase);
@@ -383,13 +405,15 @@ export function reconcileSettingsOverlay(
   }
 
   const draftWasClean = !settingsDraftChanged(overlay);
-  const edit = overlay.edit;
+  const editRow = edit?.row ?? null;
   const editAffectsServer = edit !== null
-    && edit.row !== "theme"
-    && edit.row !== "compose-focus";
-  const editWasClean = !editAffectsServer || edit.composer.text === edit.initial;
+    && editRow !== "theme"
+    && editRow !== "compose-focus";
+  const editWasClean = !editAffectsServer
+    || edit.composer.text === edit.initialText();
+  const activeEditBase = draftWasClean ? nextBase : overlay.draft;
   const activeDraft = editAffectsServer && !editWasClean
-    ? draftWithActiveEdit(overlay)
+    ? draftWithActiveEdit(activeEditBase, edit)
     : overlay.draft;
   const converged = activeDraft !== null && sameSettingsDraft(activeDraft, nextBase);
   if (draftWasClean || converged) {
@@ -398,17 +422,18 @@ export function reconcileSettingsOverlay(
   overlay.base = nextBase;
 
   if (edit !== null && (draftWasClean || converged) && editWasClean
-    && edit.row !== "theme"
-    && edit.row !== "compose-focus"
-    && edit.row !== "allow-insecure-http") {
-    const refreshed = draftRowEditValue(overlay.draft, edit.row);
+    && editRow !== null
+    && settingsDraftTextRow(editRow)) {
+    const refreshed = draftRowEditValue(overlay.draft, editRow);
     setComposerText(edit.composer, refreshed);
     if (refreshed.length > 0) edit.composer.anchor = 0;
-    edit.initial = refreshed;
+    edit.setInitialText(refreshed);
   }
 
   if (converged) {
-    if (editAffectsServer && !editWasClean) edit.initial = edit.composer.text;
+    if (editAffectsServer && !editWasClean) {
+      edit.setInitialText(edit.composer.text);
+    }
     overlay.conflict = null;
     return "settings changed during refresh · draft now current";
   }
@@ -426,6 +451,7 @@ export function reconcileSettingsOverlay(
 export function settleSettingsOverlaySave(
   overlay: SettingsOverlayState,
   acknowledged: SettingsTextDraft,
+  edit: ActiveSettingsEdit | null,
   acknowledgedSecrets: Readonly<Record<string, string | null>> = {}
 ): boolean {
   const newerDraft = !sameSettingsDraft(overlay.draft, acknowledged)
@@ -440,7 +466,7 @@ export function settleSettingsOverlaySave(
   }
   overlay.conflict = null;
   return newerDraft || (
-    overlay.edit !== null && overlay.edit.composer.text !== overlay.edit.initial
+    edit !== null && edit.composer.text !== edit.initialText()
   );
 }
 
@@ -476,33 +502,45 @@ function draftRowEditValue(
   if (row === "max-tokens") return settings.maxTokens.toString();
   if (row === "context-window") return settings.contextWindow?.toString() ?? "";
   if (row === "cache-policy") return draft.cachePolicy;
-  return JSON.stringify(settings.systemPrompt);
+  return settings.systemPrompt;
 }
 
 function draftWithActiveEdit(
-  overlay: SettingsOverlayState
+  draft: SettingsTextDraft,
+  edit: ActiveSettingsEdit
 ): SettingsTextDraft | null {
-  const edit = overlay.edit;
-  if (edit === null || edit.row === "theme" || edit.row === "compose-focus") {
-    return overlay.draft;
+  const row = edit.row;
+  if (row === "theme" || row === "compose-focus") {
+    return draft;
   }
-  if (edit.row === "api-key" || edit.row === "allow-insecure-http") {
-    return edit.composer.text === edit.initial ? overlay.draft : null;
+  if (row === "api-key" || row === "allow-insecure-http") {
+    return edit.composer.text === edit.initialText() ? draft : null;
   }
-  if (edit.row === "system-prompt") {
-    const systemPrompt = parseInlineSystemPrompt(edit.composer.text);
-    return typeof systemPrompt === "string"
-      ? {
-          ...overlay.draft,
-          generation: { ...overlay.draft.generation, systemPrompt }
-        }
-      : null;
+  if (row === "system-prompt") {
+    return {
+      ...draft,
+      generation: {
+        ...draft.generation,
+        systemPrompt: edit.composer.text
+      }
+    };
   }
   const parsed = parseSettings(
-    `${SETTINGS_FIELD_KEYS[edit.row]}: ${edit.composer.text}`,
-    overlay.draft
+    `${SETTINGS_FIELD_KEYS[row]}: ${edit.composer.text}`,
+    draft
   );
   return "error" in parsed ? null : parsed;
+}
+
+function settingsDraftTextRow(
+  row: SettingsRowId
+): row is Exclude<
+  SettingsRowId,
+  "theme" | "compose-focus" | "allow-insecure-http"
+> {
+  return row !== "theme"
+    && row !== "compose-focus"
+    && row !== "allow-insecure-http";
 }
 
 /** Every policy stays reachable, including one this exact model cannot honour.
@@ -518,7 +556,7 @@ export function cyclePromptCachePolicy(
   overlay.draft = { ...overlay.draft, cachePolicy };
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
-  else if (overlay.conflict !== null) overlay.conflict.armed = false;
+  else disarmSettingsConflict(overlay);
   return cachePolicy;
 }
 
@@ -533,27 +571,8 @@ export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
   };
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
-  else if (overlay.conflict !== null) overlay.conflict.armed = false;
+  else disarmSettingsConflict(overlay);
   return allowInsecureHttp;
-}
-
-/** Existing prompts enter as a JSON string so one-line editing has a
- * reversible projection for newlines, tabs, quotes, and repeated spaces.
- * Replacing the selected seed with ordinary text remains the simple path. */
-function parseInlineSystemPrompt(value: string): string | { kind: "error"; message: string } {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("\"")) return trimmed;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    return typeof parsed === "string"
-      ? parsed
-      : { kind: "error", message: "system prompt must be a JSON string or plain text" };
-  } catch {
-    return {
-      kind: "error",
-      message: "system prompt has invalid JSON string escapes or quotes"
-    };
-  }
 }
 
 /** The cycled policy in brackets, then what the choice costs. The panel puts
@@ -563,7 +582,11 @@ export function promptCacheRowValue(
   draft?: SettingsTextDraft
 ): string {
   const parts = promptCacheSummaryParts(view, draft);
-  return `‹ ${parts.policy} › · ${parts.detail}`;
+  return `‹ ${parts.policy} › · ${
+    parts.kind === "available"
+      ? parts.detail
+      : `unavailable · ${parts.reason}`
+  }`;
 }
 
 function isPlainHttp(value: string): boolean {

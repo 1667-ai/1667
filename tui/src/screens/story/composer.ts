@@ -9,29 +9,35 @@ import {
   composerPosition,
   type ComposerState
 } from "../../composer-model.js";
-import { wrappedComposerLayout, type WrappedComposerRow } from "../../composer-wrapping.js";
-import type { KeyAction } from "../../keys.js";
+import {
+  wrappedComposerLayout,
+  type WrappedComposerRow
+} from "../../composer-wrapping.js";
 import {
   renderComposerLineBreak,
   renderComposerRange
 } from "./composer-selection-render.js";
 import {
+  composerFieldLine,
+  composerTitle,
+  renderComposerFooter,
+  renderComposerTop
+} from "./composer-chrome.js";
+import {
   fitLine,
-  hintItem,
-  joinHints,
   segment,
   splitFrame,
   visibleWidth,
   type DisplayRole,
-  type FrameLine,
-  type FrameSegment,
-  type HintItem
+  type FrameLine
 } from "./frame.js";
 
 export type ComposerCaret = "focused" | "unfocused" | "streaming";
 
 export interface ComposerLayoutOptions {
   composer: ComposerState;
+  /** Select full-screen geometry for a surface that owns the whole viewport. */
+  fullscreen?: boolean;
   terminalWidth: number;
   terminalHeight: number;
   /** Width of the inline story measure, excluding `indent`. */
@@ -90,7 +96,7 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
   const { composer } = options;
   const terminalHeight = Math.max(4, Math.floor(options.terminalHeight));
   const terminalWidth = Math.max(8, Math.floor(options.terminalWidth));
-  const fullscreen = composer.fullscreen;
+  const fullscreen = options.fullscreen ?? composer.fullscreen;
   const indent = fullscreen ? "" : options.indent ?? "";
   const availableWidth = Math.max(8, terminalWidth - visibleWidth(indent));
   const fieldWidth = fullscreen
@@ -100,18 +106,33 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
   const lineCount = composerLineCount(composer);
   const cursor = composerPosition(composer);
   const inputWidth = Math.max(1, fieldWidth - visibleWidth("┃ ") - visibleWidth("› "));
-  const wrapped = options.softWrap === true ? wrappedComposerLayout(composer, inputWidth) : null;
+  const wrapped = options.softWrap === true
+    ? wrappedComposerLayout(composer, inputWidth)
+    : null;
   const rowCount = wrapped?.rowCount ?? lineCount;
   const cursorRow = wrapped?.cursorRow ?? cursor.line;
+  const footerCapacity = Math.max(
+    1,
+    fullscreen ? terminalHeight - 3 : terminalHeight - 4
+  );
+  const footer = renderComposerFooter(
+    indent,
+    fieldWidth,
+    fullscreen,
+    options.narrow === true,
+    options.footerNotice ?? null,
+    options.footerHints,
+    options.retaking === true
+  ).slice(0, footerCapacity);
   // Inline always leaves one row of story visible plus the status row.
   const bodyCapacity = fullscreen
-    ? Math.max(1, terminalHeight - 3)
-    : Math.max(1, Math.min(cap, terminalHeight - 4));
+    ? Math.max(1, terminalHeight - 2 - footer.length)
+    : Math.max(1, Math.min(cap, terminalHeight - 3 - footer.length));
   const bodyRows = fullscreen ? bodyCapacity : Math.min(rowCount, bodyCapacity);
   const scrollTop = retainedScrollTop(rowCount, bodyRows, cursorRow, options.scrollTop);
   const title = options.title ?? composerTitle(fullscreen, options.directingPart);
   const counter = !fullscreen && lineCount > 1 ? `${lineCount} / ${cap} lines` : "";
-  const top = renderTop(indent, fieldWidth, title, counter);
+  const top = renderComposerTop(indent, fieldWidth, title, counter);
   const body: FrameLine[] = [];
   for (let viewportRow = 0; viewportRow < bodyRows; viewportRow += 1) {
     const sourceIndex = scrollTop + viewportRow;
@@ -123,23 +144,22 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
       indent,
       fieldWidth
     };
-    const wrappedRow = wrapped?.rowAt(sourceIndex);
-    body.push(wrappedRow === undefined
-      ? renderBodyRow({
+    const projectedRow = wrapped?.rowAt(sourceIndex);
+    const sourceLine = projectedRow?.sourceIndex ?? (wrapped === null ? sourceIndex : lineCount);
+    body.push(projectedRow === undefined
+        ? renderBodyRow({
         ...common,
         sourceIndex: wrapped === null ? sourceIndex : lineCount,
         cursorColumn: wrapped === null && sourceIndex === cursor.line ? cursor.column : null
       })
-      : renderWrappedBodyRow({
-        ...common,
-        row: wrappedRow,
-        cursorColumn: sourceIndex === cursorRow ? cursor.column : null
-      }));
+        : renderWrappedBodyRow({
+          ...common,
+          row: projectedRow,
+          cursorColumn: sourceIndex === cursorRow ? cursor.column : null
+        }));
   }
-  const footer = renderFooter(indent, fieldWidth, fullscreen, options.narrow === true,
-    options.footerNotice ?? null, options.footerHints, options.retaking === true);
   return {
-    lines: [top, ...body, footer],
+    lines: [top, ...body, ...footer],
     lineCount,
     cap,
     bodyRows,
@@ -196,7 +216,7 @@ function renderWrappedBodyRow(options: WrappedBodyRowOptions): FrameLine {
         options.composer, options.row.sourceIndex, options.row.start, options.row.end
       )
       : renderWrappedInput(options, options.cursorColumn);
-  return fieldLine(options.indent, options.fieldWidth, [...prefix, ...input]);
+  return composerFieldLine(options.indent, options.fieldWidth, [...prefix, ...input]);
 }
 
 function cellsBetween(composer: ComposerState, line: number, start: number, end: number): number {
@@ -269,7 +289,7 @@ function renderBodyRow(options: BodyRowOptions): FrameLine {
     ? renderPlainInput(options.composer, options.sourceIndex, inputWidth)
     : renderComposerInput(options.composer, options.sourceIndex, options.cursorColumn, inputWidth,
       options.caret, options.emptyDraft, options.placeholder);
-  return fieldLine(options.indent, options.fieldWidth, [...prefix, ...input]);
+  return composerFieldLine(options.indent, options.fieldWidth, [...prefix, ...input]);
 }
 
 export function renderComposerInput(
@@ -406,63 +426,6 @@ function retainedScrollTop(
   if (cursorLine < top) top = cursorLine;
   else if (cursorLine >= top + bodyRows) top = cursorLine - bodyRows + 1;
   return Math.max(0, Math.min(maximum, top));
-}
-
-function renderTop(indent: string, width: number, title: string, counter: string): FrameLine {
-  const prefix = `┏━ ${title} `;
-  const suffix = counter.length > 0 ? ` ${counter}` : "";
-  const rule = "━".repeat(Math.max(1, width - visibleWidth(prefix) - visibleWidth(suffix)));
-  return fieldLine(indent, width, [
-    segment(prefix, "compose accent"),
-    segment(rule, "compose accent"),
-    ...(suffix.length > 0 ? [segment(suffix, "chrome")] : [])
-  ]);
-}
-
-/** The composer's own footer keys, each a click target — the field's chrome
- * advertises them exactly as a panel footer does, so it answers the same way.
- * Retaking relabels the same four keys rather than swapping in a plain string:
- * a footer that names a key has to answer a click on it in every state. */
-function composerFooterKeys(fullscreen: boolean, narrow: boolean, retaking: boolean): HintItem[] {
-  const key = (token: string, action: KeyAction, rank = 0): HintItem =>
-    hintItem([segment(token, "chrome", { kind: "action", action })], rank);
-  const send = retaking ? "enter retakes with this prompt" : "enter send";
-  const escape = fullscreen ? "esc inline" : retaking ? "esc cancels" : "esc nav";
-  const exit = fullscreen ? "⌃f exit" : narrow ? "⌃f full" : "⌃f fullscreen";
-  // Fullscreen yields its cells before newline does: newline is a core editing
-  // gesture, fullscreen a convenience the writer can live without seeing.
-  return [
-    key(send, "send"),
-    key("⇧enter newline", "newline", 1),
-    ...(retaking && !fullscreen ? [] : [key(exit, "toggle-compose-fullscreen", 2)]),
-    key(escape, "cancel")
-  ];
-}
-
-function renderFooter(indent: string, width: number, fullscreen: boolean, narrow: boolean,
-  notice: string | null, override?: string, retaking = false): FrameLine {
-  const lead = segment("┗━ ", "compose accent");
-  const budget = Math.max(0, width - visibleWidth("┗━ "));
-  // A notice is prose the writer must read, not a keymap — toasts and editor
-  // conflicts land here and advertise nothing to click.
-  if (notice !== null) return fieldLine(indent, width, [lead, segment(notice, "compose accent")]);
-  if (override !== undefined) return fieldLine(indent, width, [lead, segment(override, "chrome")]);
-  return fieldLine(indent, width,
-    [lead, ...joinHints(composerFooterKeys(fullscreen, narrow, retaking), budget)]);
-}
-
-function composerTitle(fullscreen: boolean, part: number | null | undefined): string {
-  const mode = fullscreen ? "compose · fullscreen" : "compose";
-  return part === null || part === undefined ? mode : `${mode} · ¶ ${part}`;
-}
-
-function fieldLine(indent: string, width: number, contents: FrameLine): FrameLine {
-  const field = fitLine(contents, width).map((part): FrameSegment => ({
-    ...part,
-    role: part.role === "background" && part.background === undefined ? "raised" : part.role,
-    background: part.background ?? "raised"
-  }));
-  return indent.length === 0 ? field : [segment(indent, "background"), ...field];
 }
 
 /**

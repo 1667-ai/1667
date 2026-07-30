@@ -32,6 +32,7 @@ describe("span-aware wrapping", () => {
 
   test("keeps control grapheme semantics outside the printable-ASCII fast path", () => {
     expect(cellWidth("\r\n")).toBe(1);
+    expect(cellWidth("\t")).toBe(2);
   });
 
   test("aligns raw style seams during synchronous and resumable segmentation", () => {

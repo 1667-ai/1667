@@ -8,7 +8,11 @@ import {
   retainCommandSelection
 } from "../command-model.js";
 import { boundedFactSelection, factBody, factName, factRows, factTags } from "../facts-model.js";
-import { libraryAge, libraryRows, libraryTotals } from "../library-model.js";
+import {
+  libraryAge,
+  libraryRows,
+  libraryTotals
+} from "../library-model.js";
 import { type HitRegion, type HitRows, type HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
 import type { OverlayState, StoryScreenState, StreamView } from "../state.js";
@@ -239,14 +243,21 @@ function renderLibrary(
   deadlines?: FrameDeadlineCollector
 ): FrameComposition {
   const overlay = state.library!;
-  const rows = libraryRows(overlay.stories, overlay.query);
+  const query = overlay.query;
+  const rows = libraryRows(overlay.stories, query);
   const totals = libraryTotals(overlay.stories);
   const contentWidth = panelHorizontalGeometry(width).contentWidth;
   const columns = libraryColumns(contentWidth);
   const folder = state.storyFolder.length === 0 ? "" : ` · ${state.storyFolder}`;
   const content: FrameLine[] = [];
-  if (overlay.prompt !== null) content.push(promptLine(overlay.prompt.kind, overlay.prompt.value, contentWidth));
-  else if (overlay.query.length > 0) content.push(promptLine("filter", overlay.query, contentWidth));
+  if (overlay.prompt !== null) {
+    content.push(promptLine(
+      overlay.prompt.kind,
+      overlay.prompt.kind === "filter" ? overlay.query : overlay.prompt.value,
+      contentWidth
+    ));
+  }
+  else if (query.length > 0) content.push(promptLine("filter", query, contentWidth));
   content.push([
     raisedSegment(cellPad("", columns.lead), "chrome"),
     raisedSegment(cellPad("title", columns.title), "chrome"),

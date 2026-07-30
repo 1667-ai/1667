@@ -520,7 +520,11 @@ describe("demo action runtime and input", () => {
     expect(state.undo.length).toBe(1);
 
     // Enter the window the fix is about: claimed, but no stream yet.
-    state.abort = { kind: "generation", controller: new AbortController() };
+    state.abort = {
+      kind: "generation",
+      controller: new AbortController(),
+      stopInteractionVersion: null
+    };
     state.stream = null;
 
     await press("right");
@@ -570,7 +574,11 @@ describe("demo action runtime and input", () => {
     const { source, state, press } = harness();
     state.stream = { targetId: "p13", parentId: "p12", append: true,
       startedAt: STREAM_STARTED_AT, instruction: "", text: "" };
-    state.abort = { kind: "generation", controller: new AbortController() };
+    state.abort = {
+      kind: "generation",
+      controller: new AbortController(),
+      stopInteractionVersion: null
+    };
     const active = commandMatches(
       "", state.demo, commandContext(state.payload, state.connection.down, true)
     );
@@ -593,7 +601,11 @@ describe("demo action runtime and input", () => {
     const payload = state.payload;
     const stream = { targetId: "p13", parentId: "p12", append: true,
       startedAt: STREAM_STARTED_AT, instruction: "", text: "" };
-    const abort = { kind: "generation" as const, controller: new AbortController() };
+    const abort = {
+      kind: "generation" as const,
+      controller: new AbortController(),
+      stopInteractionVersion: null
+    };
     state.stream = stream;
     state.abort = abort;
     state.mode = "LIBRARY";

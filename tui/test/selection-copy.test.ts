@@ -25,6 +25,10 @@ import {
 } from "../src/selection-projection.js";
 import { deriveStoryFrameLayout } from "../src/story-frame-layout.js";
 import { initialSettingsOverlay } from "../src/settings-overlay-model.js";
+import {
+  FACT_BODY_COMPOSER_SOURCE,
+  FACT_TAG_COMPOSER_SOURCE
+} from "../src/fact-editor-policy.js";
 
 describe("active selection copy", () => {
   test("inline Settings owns empty Ctrl+C and copies its selected draft", async () => {
@@ -34,7 +38,9 @@ describe("active selection copy", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     const composer = createComposer("draft-model");
     composer.anchor = 0;
-    state.settings.edit = { row: "model", mode: "text", composer, initial: "" };
+    state.settings.edit = {
+      kind: "inline", row: "model", mode: "text", composer, initial: ""
+    };
     let quit = false;
 
     expect(handleMainCopyShortcut(
@@ -62,6 +68,7 @@ describe("active selection copy", () => {
     const composer = createComposer("sk-visible-nowhere");
     composer.anchor = 0;
     state.settings.edit = {
+      kind: "inline",
       row: "api-key",
       mode: "secret",
       composer,
@@ -84,7 +91,9 @@ describe("active selection copy", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.cursor = 4;
     const composer = createComposer("draft-model");
-    state.settings.edit = { row: "model", mode: "text", composer, initial: "" };
+    state.settings.edit = {
+      kind: "inline", row: "model", mode: "text", composer, initial: ""
+    };
     const frame = renderStoryScreen(state, { width: 80, height: 24 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
     const projection = state.composerSelectionProjection!;
@@ -113,7 +122,9 @@ describe("active selection copy", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.cursor = 4;
     const composer = createComposer("draft-model");
-    state.settings.edit = { row: "model", mode: "text", composer, initial: "" };
+    state.settings.edit = {
+      kind: "inline", row: "model", mode: "text", composer, initial: ""
+    };
     const width = 160;
     const layout = deriveStoryFrameLayout(width, state.config);
     expect(layout.railStart).not.toBe(null);
@@ -262,7 +273,7 @@ describe("active selection copy", () => {
       getSelection: () => nativeSelection("alpha", 0, 5)
     } as never)!;
 
-    expect(syncMouseComposerSelection(captured, state, projection)).toBeTrue();
+    expect(syncMouseComposerSelection(captured, state, projection)).toBe("applied");
     insertComposerText(state.composer, "X");
 
     expect(state.composer.text).toBe("X beta");
@@ -383,14 +394,18 @@ describe("active selection copy", () => {
     const composer = createComposer("abcdefghijklmnopqrstuvwxyz");
     state.mode = "EDITOR";
     state.editor = {
+      kind: "fact",
       target: { kind: "fact", factId: null, base: null },
       composer,
-      initial: composer.text,
+      tag: createComposer(""),
+      focus: "tag",
+      initialFact: { tag: null, text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
-      cutConfirmation: null
+      cutConfirmation: null,
+      tagCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 20, height: 12 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
@@ -416,6 +431,293 @@ describe("active selection copy", () => {
     expect(selectedComposerText(composer)).toBe("efghijklmnopqrstu");
     insertComposerText(composer, "X");
     expect(composer.text).toBe("abcdXvwxyz");
+  });
+
+  test("mouse selection copies the active typed Fact tag", () => {
+    const state = initialState(demoAppSource(), false);
+    const composer = createComposer("Body stays whole.");
+    const tag = createComposer("people");
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "fact",
+      target: { kind: "fact", factId: null, base: null },
+      composer,
+      tag,
+      focus: "tag",
+      initialFact: { tag: "people", text: composer.text },
+      title: "edit fact",
+      placeholder: "fact text…",
+      returnMode: "FACTS",
+      conflict: null,
+      cutConfirmation: null,
+      tagCutConfirmation: null
+    };
+    const frame = renderStoryScreen(state, { width: 40, height: 12 });
+    const projection = frame.derived.composerSelectionProjection!;
+    const displayStart = projection.findIndex((cell) => cell?.start === 0);
+    const displayLast = projection.findIndex((cell) => cell?.start === 5);
+    expect(displayStart).toBeGreaterThan(-1);
+    expect(displayLast).toBeGreaterThan(displayStart);
+    const renderer = {
+      getSelection: () => ({
+        getSelectedText: () => "people",
+        selectedRenderables: [{
+          getSelection: () => ({ start: displayStart, end: displayLast + 1 })
+        }]
+      })
+    } as never;
+
+    const result = copyActiveSelection(renderer, state, async () => "command", {
+      composer: projection,
+      story: null
+    });
+
+    expect(result?.text).toBe("people");
+    expect(selectedComposerText(tag)).toBe("people");
+  });
+
+  test("mouse selection copies an inactive exact Fact tag", () => {
+    const state = initialState(demoAppSource(), false);
+    const composer = createComposer("Body stays whole.");
+    const tag = createComposer("people");
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "fact",
+      target: { kind: "fact", factId: null, base: null },
+      composer,
+      tag,
+      focus: "body",
+      initialFact: { tag: "people", text: composer.text },
+      title: "edit fact",
+      placeholder: "fact text…",
+      returnMode: "FACTS",
+      conflict: null,
+      cutConfirmation: null,
+      tagCutConfirmation: null
+    };
+    const frame = renderStoryScreen(state, { width: 40, height: 12 });
+    const projection = frame.derived.composerSelectionProjection!;
+    const displayStart = projection.findIndex((cell) =>
+      cell?.sourceId === FACT_TAG_COMPOSER_SOURCE && cell.start === 0);
+    const displayLast = projection.findIndex((cell) =>
+      cell?.sourceId === FACT_TAG_COMPOSER_SOURCE && cell.start === 5);
+    const renderer = {
+      getSelection: () => ({
+        getSelectedText: () => "people",
+        selectedRenderables: [{
+          getSelection: () => ({ start: displayStart, end: displayLast + 1 })
+        }]
+      })
+    } as never;
+
+    const result = copyActiveSelection(renderer, state, async () => "command", {
+      composer: projection,
+      story: null
+    });
+
+    expect(result?.text).toBe("people");
+    expect(state.editor.focus).toBe("tag");
+    expect(selectedComposerText(tag)).toBe("people");
+  });
+
+  test("mouse selection switches a typed Fact from its tag to its body", () => {
+    const state = initialState(demoAppSource(), false);
+    const composer = createComposer("Body stays whole.");
+    const tag = createComposer("people");
+    tag.anchor = 0;
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "fact",
+      target: { kind: "fact", factId: null, base: null },
+      composer,
+      tag,
+      focus: "tag",
+      initialFact: { tag: "people", text: composer.text },
+      title: "edit fact",
+      placeholder: "fact text…",
+      returnMode: "FACTS",
+      conflict: null,
+      cutConfirmation: null,
+      tagCutConfirmation: null
+    };
+    const frame = renderStoryScreen(state, { width: 40, height: 12 });
+    const projection = frame.derived.composerSelectionProjection!;
+    const displayStart = projection.findIndex((cell) =>
+      cell?.sourceId === FACT_BODY_COMPOSER_SOURCE && cell.start === 0);
+    const displayLast = projection.findIndex((cell) =>
+      cell?.sourceId === FACT_BODY_COMPOSER_SOURCE && cell.start === 3);
+    const renderer = {
+      getSelection: () => ({
+        getSelectedText: () => "Body",
+        selectedRenderables: [{
+          getSelection: () => ({ start: displayStart, end: displayLast + 1 })
+        }]
+      })
+    } as never;
+
+    const result = copyActiveSelection(renderer, state, async () => "command", {
+      composer: projection,
+      story: null
+    });
+
+    expect(result?.text).toBe("Body");
+    expect(state.editor.focus).toBe("body");
+    expect(selectedComposerText(composer)).toBe("Body");
+    insertComposerText(composer, "X");
+    expect(composer.text).toBe("X stays whole.");
+    expect(tag.text).toBe("people");
+  });
+
+  test("a mouse selection across both Fact fields refuses copy without retargeting", () => {
+    const state = initialState(demoAppSource(), false);
+    const composer = createComposer("Body stays whole.");
+    composer.anchor = 0;
+    composer.cursor = 4;
+    const tag = createComposer("people");
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "fact",
+      target: { kind: "fact", factId: null, base: null },
+      composer,
+      tag,
+      focus: "body",
+      initialFact: { tag: "people", text: composer.text },
+      title: "edit fact",
+      placeholder: "fact text…",
+      returnMode: "FACTS",
+      conflict: null,
+      cutConfirmation: null,
+      tagCutConfirmation: null
+    };
+    const frame = renderStoryScreen(state, { width: 40, height: 12 });
+    const projection = frame.derived.composerSelectionProjection!;
+    const displayStart = projection.findIndex((cell) =>
+      cell?.sourceId === FACT_TAG_COMPOSER_SOURCE && cell.start === 0);
+    const displayLast = projection.findIndex((cell) =>
+      cell?.sourceId === FACT_BODY_COMPOSER_SOURCE && cell.start === 3);
+    const renderer = {
+      getSelection: () => ({
+        getSelectedText: () => "people…Body",
+        selectedRenderables: [{
+          getSelection: () => ({ start: displayStart, end: displayLast + 1 })
+        }]
+      })
+    } as never;
+
+    const result = copyActiveSelection(renderer, state, async () => "command", {
+      composer: projection,
+      story: null
+    });
+
+    expect(result).toBe(null);
+    expect(state.toast).toBe("select either the Fact tag or its text");
+    expect(state.editor.focus).toBe("body");
+    expect(selectedComposerText(composer)).toBe("Body");
+    expect(selectedComposerText(tag)).toBe(null);
+  });
+
+  test("Ctrl+C copies a decoded display-only Fact tag", async () => {
+    const state = initialState(demoAppSource(), false);
+    const composer = createComposer("Body stays whole.");
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "fact",
+      target: { kind: "fact", factId: null, base: null },
+      composer,
+      tag: createComposer("weather\nurgent"),
+      focus: "body",
+      initialFact: { tag: "weather\nurgent", text: composer.text },
+      title: "edit fact",
+      placeholder: "fact text…",
+      returnMode: "FACTS",
+      conflict: null,
+      cutConfirmation: null,
+      tagCutConfirmation: null
+    };
+    const width = 50;
+    const frame = renderStoryScreen(state, { width, height: 12 });
+    const row = frame.lines.findIndex((line) => plainLine(line).includes("weather↵urgent"));
+    const column = plainLine(frame.lines[row]!).indexOf("weather↵urgent");
+    const stride = width + 1;
+    const cells = frame.derived.composerSelectionProjection!.slice(
+      row * stride + column,
+      row * stride + column + "weather↵urgent".length
+    );
+
+    expect(row).toBeGreaterThan(-1);
+    expect(column).toBeGreaterThan(-1);
+    expect(cells.every((cell) =>
+      cell?.sourceId === FACT_TAG_COMPOSER_SOURCE
+        && cell.editable === false)).toBeTrue();
+    const renderer = {
+      getSelection: () => ({
+        getSelectedText: () => "weather↵urgent",
+        selectedRenderables: [{
+          getSelection: () => ({
+            start: row * stride + column,
+            end: row * stride + column + "weather↵urgent".length
+          })
+        }]
+      })
+    } as never;
+    const copied: string[] = [];
+    expect(handleMainCopyShortcut(
+      renderer,
+      state,
+      () => undefined,
+      () => { throw new Error("copy must not quit"); },
+      {
+        composer: frame.derived.composerSelectionProjection,
+        story: null
+      },
+      async (text) => {
+        copied.push(text);
+        return "command";
+      }
+    )).toBeTrue();
+    await Promise.resolve();
+    expect(copied).toEqual(["weather↵urgent"]);
+    expect(copyActiveSelection(renderer, state, async () => "command", {
+      composer: frame.derived.composerSelectionProjection,
+      story: null
+    })?.text).toBe("weather↵urgent");
+    expect(state.editor.focus).toBe("body");
+  });
+
+  test("the synthetic empty Fact tag label has a display-only field projection", () => {
+    const state = initialState(demoAppSource(), false);
+    const composer = createComposer("Body stays whole.");
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "fact",
+      target: { kind: "fact", factId: null, base: null },
+      composer,
+      tag: createComposer(""),
+      focus: "body",
+      initialFact: { tag: null, text: composer.text },
+      title: "edit fact",
+      placeholder: "fact text…",
+      returnMode: "FACTS",
+      conflict: null,
+      cutConfirmation: null,
+      tagCutConfirmation: null
+    };
+    const width = 40;
+    const frame = renderStoryScreen(state, { width, height: 12 });
+    const row = frame.lines.findIndex((line) => plainLine(line).includes("‹ none ›"));
+    const column = plainLine(frame.lines[row]!).indexOf("none");
+    const stride = width + 1;
+    const cells = frame.derived.composerSelectionProjection!.slice(
+      row * stride + column,
+      row * stride + column + "none".length
+    );
+
+    expect(row).toBeGreaterThan(-1);
+    expect(column).toBeGreaterThan(-1);
+    expect(cells.every((cell) =>
+      cell?.sourceId === FACT_TAG_COMPOSER_SOURCE
+        && cell.editable === false)).toBeTrue();
+    expect(composer.text).toBe("Body stays whole.");
   });
 
   test("a backward mouse drag keeps its active edge for Shift+Arrow", () => {

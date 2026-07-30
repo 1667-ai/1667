@@ -192,20 +192,18 @@ describe("run C overlay frames", () => {
     expect(frame).toContain("SETTINGS");
   });
 
-  test("settings keep document state with the footer, not between the fields", async () => {
-    // The revision line describes the whole document, and it grows by a line
-    // when a restart is pending. Between the fields it read as a heading for
-    // whichever row followed it, and its second line shifted the field list out
-    // from under the cursor.
-    const lines = (await renderOnce(demoAppSource(), 120, 36, ",")).split("\n");
-    const at = (text: string): number => {
-      const index = lines.findIndex((line) => line.includes(text));
-      expect(index).toBeGreaterThan(-1);
-      return index;
-    };
+  test("settings show only actionable draft state", async () => {
+    const clean = await renderOnce(demoAppSource(), 120, 36, ",");
+    expect(clean).not.toContain("revision");
 
-    expect(at("revision 1 active")).toBeGreaterThan(at("system prompt"));
-    expect(at("revision 1 active")).toBeLessThan(at("↑↓ move"));
+    const dirty = await renderWithKeys(demoAppSource(), 120, 36, [
+      key(","),
+      key("down"),
+      key("down"),
+      key("right")
+    ]);
+    expect(dirty).toContain("● unsaved draft · s saves");
+    expect(dirty).not.toContain("revision");
   });
 
   test("a pending restart moves no settings row", async () => {
@@ -270,9 +268,10 @@ describe("run C overlay frames", () => {
     source.api.getSettings = async () => source.settingsView;
 
     const frame = await renderOnce(source, 120, 36, ",");
-    expect(frame).toContain("revision 2 did not activate");
+    expect(frame).toContain("saved settings did not activate");
     expect(frame).toContain("rolled back after an interruption");
-    expect(frame).toContain("revision 1 still active");
+    expect(frame).toContain("previous settings still active");
+    expect(frame).not.toContain("revision");
   });
 
   test("facts rail frames context honestly as the next request; F folds it", async () => {

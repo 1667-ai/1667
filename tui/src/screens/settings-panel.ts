@@ -11,7 +11,12 @@ import {
   SETTINGS_ROW_IDS,
   type SettingsRowPresentation
 } from "../settings-overlay-model.js";
+import {
+  promptCacheSummaryParts,
+  type PromptCacheSummaryParts
+} from "../settings-cache-summary.js";
 import type { OverlayState } from "../state.js";
+import { wrapText } from "../wrap.js";
 import {
   dimPage,
   panelContentRows,
@@ -65,11 +70,20 @@ export function renderSettingsPanel(
   height: number
 ): FrameComposition {
   const overlay = state.settings!;
-  const rows = settingsRows(overlay, state.config);
-  const status = settingsStatusLines(overlay);
+  const cacheSummary = promptCacheSummaryParts(overlay.view, overlay.draft);
+  const rows = settingsRows(overlay, state.config, cacheSummary);
   const horizontal = panelHorizontalGeometry(width, 76);
+  const contentCapacity = panelContentRows(height);
+  const cacheNotice = cachePolicyNotice(
+    overlay,
+    horizontal.contentWidth,
+    cacheSummary,
+    contentCapacity
+  );
+  const status = settingsStatusLines(overlay);
   const resultVisible = overlay.checking || overlay.probing || overlay.result !== null;
-  const fixedRows = 3 + status.top.length + status.bottom.length + (resultVisible ? 1 : 0);
+  const fixedRows = 3 + cacheNotice.length + status.top.length
+    + status.bottom.length + (resultVisible ? 1 : 0);
   const editableRows = rows.slice(2);
   const painted = rows.map((row, index) =>
     settingsRow(row, index, overlay, horizontal.contentWidth)
@@ -89,27 +103,34 @@ export function renderSettingsPanel(
           ];
   // At short heights, notices become compact chrome and the cursor-centered
   // row window wins whatever the panel can actually paint.
-  const contentCapacity = panelContentRows(height);
   let content: FrameLine[];
   let targets: Array<HitTarget | null>;
   if (contentCapacity < fixedRows + 1) {
-    const notices = [
-      ...(resultLine === null ? [] : [resultLine]),
-      ...[...status.top, ...status.bottom].filter((line) => line.length > 0)
+    const noticeBlocks = [
+      cacheNotice,
+      ...(resultLine === null ? [] : [[resultLine]]),
+      status.top.filter((line) => line.length > 0),
+      status.bottom.filter((line) => line.length > 0)
     ];
-    const noticeCount = Math.min(notices.length, Math.max(0, contentCapacity - 1));
-    const rowCapacity = Math.max(1, contentCapacity - noticeCount);
-    const rowWindow = panelRowWindow(
-      rows.map(() => 1),
-      overlay.cursor,
-      rowCapacity
-    );
+    const notices: FrameLine[] = [];
+    const noticeCapacity = contentCapacity;
+    for (const block of noticeBlocks) {
+      if (block.length === 0) continue;
+      if (notices.length + block.length > noticeCapacity) break;
+      notices.push(...block);
+    }
+    // Complete notices outrank fields in a short panel. A selected row can
+    // disappear temporarily; an error must not lose its final wrapped rows.
+    const rowCapacity = Math.max(0, contentCapacity - notices.length);
+    const rowWindow = rowCapacity === 0
+      ? { start: 0, end: 0 }
+      : panelRowWindow(rows.map(() => 1), overlay.cursor, rowCapacity);
     content = [
-      ...notices.slice(0, noticeCount),
+      ...notices,
       ...renderedRows.slice(rowWindow.start, rowWindow.end)
     ];
     targets = [
-      ...Array<HitTarget | null>(noticeCount).fill(null),
+      ...notices.map(() => null),
       ...rows
         .slice(rowWindow.start, rowWindow.end)
         .map((_, index) => listTarget(rowWindow.start + index))
@@ -124,6 +145,7 @@ export function renderSettingsPanel(
       renderedRows[0]!,
       renderedRows[1]!,
       [],
+      ...cacheNotice,
       ...status.top,
       ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
       ...status.bottom,
@@ -133,6 +155,7 @@ export function renderSettingsPanel(
       listTarget(0),
       listTarget(1),
       null,
+      ...cacheNotice.map(() => null),
       ...status.top.map(() => null),
       ...editableRows
         .slice(rowWindow.start, rowWindow.end)
@@ -225,8 +248,8 @@ function settingsStatusLines(
     };
   }
   if (view.pendingRevision !== null) {
-    // The server nulls any outcome whose candidate was replaced or
-    // discarded, so a staged view's outcome always describes this candidate.
+    // The server removes an outcome when its saved candidate is replaced or
+    // discarded. Thus, this outcome always describes the pending save.
     const outcome = view.lastActivationOutcome;
     const failure = outcome !== null && outcome.result !== "committed"
       ? settingsActivationFailureText(outcome.errorCode)
@@ -237,8 +260,8 @@ function settingsStatusLines(
         [
           raisedSegment(
             failure === null
-              ? `  ⟳ revision ${view.pendingRevision} saved · not active yet · revision ${view.activeRevision} still running`
-              : `  ▲ revision ${view.pendingRevision} saved, not active · ${failure}`,
+              ? "  ⟳ settings saved · not active yet"
+              : `  ▲ settings saved, not active · ${failure}`,
             failure === null ? "focus / accent" : "danger text"
           )
         ],
@@ -246,9 +269,8 @@ function settingsStatusLines(
       ])
     };
   }
-  // A clean view with a failure outcome is a startup rollback: the candidate
-  // is gone, and staying silent about it is the exact failure class this
-  // surface exists to prevent.
+  // A clean view with a failure outcome is a startup rollback. The failed
+  // candidate is gone, but the Settings panel must report the failure.
   const rolledBack = view.lastActivationOutcome !== null
     && view.lastActivationOutcome.result !== "committed"
     ? view.lastActivationOutcome
@@ -259,11 +281,11 @@ function settingsStatusLines(
       bottom: bottomStatus([
         [
           raisedSegment(
-            `  ▲ revision ${rolledBack.candidateRevision} did not activate · ${settingsActivationFailureText(rolledBack.errorCode)}`,
+            `  ▲ saved settings did not activate · ${settingsActivationFailureText(rolledBack.errorCode)}`,
             "danger text"
           )
         ],
-        [raisedSegment(`  revision ${view.activeRevision} still active · edit & s saves a new attempt`, "chrome")]
+        [raisedSegment("  previous settings still active · edit & s saves a new attempt", "chrome")]
       ])
     };
   }
@@ -273,7 +295,7 @@ function settingsStatusLines(
       bottom: bottomStatus([
         [
           raisedSegment(
-            `  ● unsaved draft · revision ${view.activeRevision} active · s saves`,
+            "  ● unsaved draft · s saves",
             "focus / accent"
           )
         ]
@@ -282,8 +304,33 @@ function settingsStatusLines(
   }
   return {
     top: [],
-    bottom: bottomStatus([[raisedSegment(`  ✓ revision ${view.activeRevision} active`, "chrome")]])
+    bottom: bottomStatus([])
   };
+}
+
+function cachePolicyNotice(
+  overlay: NonNullable<OverlayState["settings"]>,
+  width: number,
+  summary: PromptCacheSummaryParts,
+  maxRows: number
+): FrameLine[] {
+  if (SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)] !== "cache-policy") {
+    return [];
+  }
+  if (summary.kind === "available") return [];
+  if (maxRows === 0) return [];
+  // The selected row already says "cache policy" and "unavailable". Keep the
+  // notice for the reason so short panels do not spend a row repeating them.
+  const wrapReason = (reason: string) =>
+    wrapText(`▲ ${reason}`, [], Math.max(1, width - 2)).map((line) => [
+      raisedSegment(`  ${line.text}`, "danger text")
+    ]);
+  const full = wrapReason(summary.reason);
+  if (full.length <= maxRows) {
+    return full;
+  }
+  const compact = wrapReason(summary.compactReason);
+  return compact;
 }
 
 /** The tallest `bottom` variant: a separating blank, then the pending pair. */
@@ -321,7 +368,9 @@ function settingsRow(
   contentWidth: number
 ): PaintedSettingsRow {
   const selected = index === overlay.cursor;
-  const edit = selected ? overlay.edit : null;
+  const edit = selected && overlay.edit?.kind === "inline"
+    ? overlay.edit
+    : null;
   const valueLeft = settingsValueLeft(row.label);
   const valueWidth = Math.max(1, contentWidth - valueLeft);
   const lead = `${selected ? "  ▸ " : "    "}${row.label}`;

@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { initialState } from "../src/app.js";
 import { createComposer, insertComposerText } from "../src/composer-model.js";
-import { syncMouseComposerSelection } from "../src/copy-actions.js";
+import {
+  clearNativeSelectionIfMatches,
+  handleMainCopyShortcut,
+  syncMouseComposerSelection
+} from "../src/copy-actions.js";
 import { demoAppSource } from "../src/demo.js";
 import {
   capturePresentedInputSelection,
@@ -246,6 +250,66 @@ test("queued typeahead consumes one shared native selection only once", () => {
   expect(reconcilePresentedSelection(second, 8, state).kind).toBe("none");
   insertComposerText(state.composer, "Y");
   expect(state.composer.text).toBe("XY beta");
+});
+
+test("copying an uneditable selection clears before the next key capture", () => {
+  const state = initialState(demoAppSource(), false);
+  state.mode = "EDITOR";
+  const body = createComposer("Body");
+  state.editor = {
+    kind: "fact",
+    target: { kind: "fact", factId: null, base: null },
+    composer: body,
+    tag: createComposer("weather"),
+    focus: "body",
+    initialFact: { tag: "weather", text: body.text },
+    title: "edit fact",
+    placeholder: "fact text…",
+    returnMode: "FACTS",
+    conflict: null,
+    cutConfirmation: null,
+    tagCutConfirmation: null
+  };
+  const selected = nativeSelection("weather", 0, 7);
+  let current: typeof selected | null = selected;
+  const renderer = {
+    getSelection: () => current,
+    clearSelection: () => { current = null; }
+  } as never;
+  const projection = buildComposerSelectionProjection([fitLine([{
+    text: "weather",
+    composerSource: { id: "fact-tag", editable: false }
+  }], 20)], 20)!;
+  const frame = {
+    version: 7,
+    storyId: state.payload.id,
+    interactive: true,
+    state: { mode: "EDITOR" as const },
+    composerSelectionProjection: projection,
+    storySelectionProjection: null
+  };
+  const captured = capturePresentedSelection(renderer, frame);
+  const reconciled = reconcilePresentedSelection(captured, 7, state);
+  if (reconciled.kind !== "captured") throw new Error("expected captured selection");
+
+  expect(handleMainCopyShortcut(
+    reconciled.native,
+    state,
+    () => undefined,
+    () => { throw new Error("copy must not quit"); },
+    reconciled,
+    async () => "command"
+  )).toBeTrue();
+  expect(syncMouseComposerSelection(
+    reconciled.native,
+    state,
+    reconciled.composer
+  )).toBe("uneditable");
+  expect(clearNativeSelectionIfMatches(renderer, reconciled.native)).toBeTrue();
+  consumePresentedSelection(captured);
+
+  const next = capturePresentedSelection(renderer, frame, captured);
+  expect(reconcilePresentedSelection(next, 7, state).kind).toBe("none");
 });
 
 test("an empty selection remains drain-time input even after its frame changes", () => {

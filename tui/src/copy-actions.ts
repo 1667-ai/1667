@@ -14,6 +14,10 @@ import {
 } from "./selection-projection.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import type { RuntimeState } from "./state.js";
+import {
+  factEditorComposerForSource,
+  factEditorSelectionMessage
+} from "./fact-editor-policy.js";
 import { settingsEditDisplayComposer } from "./settings-overlay-model.js";
 
 export interface SelectionCopyResult {
@@ -41,6 +45,11 @@ export interface SelectionProjections {
 }
 
 type SelectionSource = SelectionRenderer | NativeSelectionSnapshot;
+export type MouseComposerSelectionSync =
+  | "applied"
+  | "uneditable"
+  | "mixed"
+  | "none";
 
 export const EMPTY_NATIVE_SELECTION: NativeSelectionSnapshot = {
   identity: null,
@@ -76,6 +85,16 @@ export function nativeSelectionMatches(
     && sameRange(current.range, expected.range);
 }
 
+/** Clear only the native range that the current input captured. */
+export function clearNativeSelectionIfMatches(
+  renderer: Pick<CliRenderer, "getSelection" | "clearSelection">,
+  expected: NativeSelectionSnapshot
+): boolean {
+  if (!nativeSelectionMatches(renderer, expected)) return false;
+  renderer.clearSelection();
+  return true;
+}
+
 /** Ctrl+C outside the inline editor means copy when a selection exists,
  * otherwise quit. COMPOSE consumes an empty selection so a draft cannot close
  * the process accidentally. */
@@ -84,10 +103,18 @@ export function handleMainCopyShortcut(
   state: RuntimeState,
   repaint: () => void,
   requestQuit: () => void,
-  projections?: SelectionProjections
+  projections?: SelectionProjections,
+  copy: (text: string) => Promise<CopyOutcome> = copyToClipboard
 ): boolean {
-  if (state.mode === "EDITOR") return false;
-  const copied = copyActiveSelection(selection, state, undefined, projections);
+  if (state.mode === "EDITOR"
+    && syncMouseComposerSelection(
+      selection,
+      state,
+      projections?.composer ?? state.composerSelectionProjection
+    ) !== "uneditable") {
+    return false;
+  }
+  const copied = copyActiveSelection(selection, state, copy, projections);
   if (copied !== null) {
     const interactionVersion = state.interactionVersion;
     void copied.outcome.then((outcome) => {
@@ -119,16 +146,21 @@ export function syncMouseComposerSelection(
   selection: SelectionSource,
   state: RuntimeState,
   projection = state.composerSelectionProjection
-): boolean {
-  const composer = activeComposer(state);
-  if (composer === null || projection === null) return false;
+): MouseComposerSelectionSync {
+  if (projection === null) return "none";
   const native = readNativeSelection(selection);
-  if (native === null || native.text.length === 0 || native.range === null) return false;
+  if (native === null || native.text.length === 0 || native.range === null) {
+    return "none";
+  }
   const range = composerRangeFromProjection(projection, native.range.start, native.range.end);
-  if (range === null) return false;
+  if (range === null) return "none";
+  if (range.kind === "mixed") return "mixed";
+  if (range.kind === "uneditable") return "uneditable";
+  const composer = activeComposer(state, range.sourceId);
+  if (composer === null) return "none";
   moveComposerTo(composer, native.backward ? range.end : range.start);
   moveComposerTo(composer, native.backward ? range.start : range.end, true);
-  return true;
+  return "applied";
 }
 
 /** One copy path for mouse and Shift+Arrow selections. A mouse range wins only
@@ -144,13 +176,24 @@ export function copyActiveSelection(
 ): SelectionCopyResult | null {
   const native = readNativeSelection(selection);
   const rendered = native?.text ?? "";
-  const composer = activeComposer(state);
+  let composer = activeComposer(state);
   if (composer !== null && rendered.length > 0 && native !== null) {
-    syncMouseComposerSelection(native, state, projections.composer);
+    const synced = syncMouseComposerSelection(native, state, projections.composer);
+    if (synced === "mixed") {
+      state.toast = mouseComposerSelectionMessage(state, synced);
+      return null;
+    }
+    if (synced === "uneditable") {
+      return { text: rendered, outcome: copy(rendered) };
+    }
+    composer = activeComposer(state);
   }
-  const displayComposer = state.mode === "SETTINGS" && state.settings?.edit !== null
-    && state.settings?.edit !== undefined
-    ? settingsEditDisplayComposer(state.settings.edit)
+  const settingsEdit = state.mode === "SETTINGS"
+    && state.settings?.edit?.kind === "inline"
+    ? state.settings.edit
+    : null;
+  const displayComposer = settingsEdit !== null
+    ? settingsEditDisplayComposer(settingsEdit)
     : composer;
   const draft = displayComposer === null
     ? null
@@ -207,14 +250,34 @@ function sameRange(
     && left.start === right.start && left.end === right.end;
 }
 
-function activeComposer(state: RuntimeState) {
-  return state.mode === "EDITOR"
-    ? state.editor?.composer ?? null
+function activeComposer(
+  state: RuntimeState,
+  sourceId?: string
+) {
+  const editor = state.mode === "EDITOR" ? state.editor : null;
+  if (editor?.kind === "fact") {
+    return factEditorComposerForSource(editor, sourceId);
+  }
+  return editor !== null
+    ? sourceId === undefined ? editor.composer : null
     : state.mode === "COMPOSE"
-      ? state.composer
+      ? sourceId === undefined ? state.composer : null
       : state.mode === "SETTINGS"
-        ? state.settings?.edit?.composer ?? null
+        ? sourceId === undefined ? state.settings?.edit?.composer ?? null : null
         : null;
+}
+
+/** Translate generic multi-buffer selection outcomes at the editor boundary. */
+export function mouseComposerSelectionMessage(
+  state: RuntimeState,
+  kind: Extract<MouseComposerSelectionSync, "mixed" | "uneditable">
+): string {
+  const editor = state.mode === "EDITOR" ? state.editor : null;
+  return editor?.kind === "fact"
+    ? factEditorSelectionMessage(kind)
+    : kind === "mixed"
+      ? "selection spans multiple editor fields"
+      : "selected text is not directly editable";
 }
 
 /** Clipboard path for story prose, independent of terminal selection behavior. */

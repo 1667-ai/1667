@@ -189,6 +189,7 @@ describe("review regressions", () => {
       mode: "EDITOR",
       viewScrollDelta: 6,
       editor: {
+        kind: "document",
         target: {
           kind: "part",
           node: leaf,

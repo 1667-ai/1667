@@ -11,15 +11,18 @@ import {
   type StoryViewModel
 } from "../model.js";
 import { buildRailModel } from "../rail.js";
-import { factEditorChrome } from "../fact-editor-policy.js";
 import { projectNextRequest } from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
 import { estimateResponseGrowthTokens } from "../response-growth-estimate.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
-import type { InlineEditorSession, StoryScreenState } from "../state.js";
+import type {
+  DocumentEditorSession,
+  StoryScreenState
+} from "../state.js";
 import { deriveStoryFrameLayout, type StoryFrameLayout } from "../story-frame-layout.js";
 import { createWrapCache, type ProseStyle, type WrapCache } from "../wrap.js";
 import { renderFactsRail } from "./story/facts-rail.js";
+import { renderFactEditorLayout } from "./story/fact-editor-layout.js";
 import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./overlay.js";
 import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
@@ -44,7 +47,11 @@ import { addInlineHits } from "./story/hits.js";
 import { layoutStoryRow, renderChapterOneHeading, STORY_GUTTER } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
 import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
-import { applyComposePageMode, renderComposerLayout } from "./story/composer.js";
+import {
+  applyComposePageMode,
+  renderComposerLayout,
+  type ComposerLayout
+} from "./story/composer.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
 import {
@@ -93,8 +100,17 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
-  if (state.mode === "EDITOR" && state.editor !== null) {
-    return renderInlineEditor(state, view, options.width, height, estimate, options.deadlines);
+  const editor = state.mode === "EDITOR" ? state.editor : null;
+  if (editor !== null) {
+    return renderInlineEditor(
+      state,
+      view,
+      editor,
+      options.width,
+      height,
+      estimate,
+      options.deadlines
+    );
   }
   if (fullscreen) {
     return renderFullscreenComposer(state, view, options.width, height, estimate, options.deadlines);
@@ -532,10 +548,14 @@ function renderFullscreenComposer(
   };
 }
 
-function editorFooterHints(editor: InlineEditorSession): string {
+function editorFooterHints(editor: DocumentEditorSession): string {
+  if (editor.kind === "document"
+    && editor.target.kind === "settings-prompt") {
+    return "shift+arrows select · ctrl+c/v · ctrl+s keep draft · esc cancel";
+  }
   // Part editors offer dual save; other targets and incomplete fixtures keep
   // the single-save footer (tests may stub a minimal session without target).
-  if (editor.target?.kind === "part") {
+  if (editor.kind === "document" && editor.target.kind === "part") {
     // ctrl+o is the portable same-take chord; ctrl+shift+s is an alias where
     // the terminal reports modified keys.
     return "shift+arrows select · ctrl+c/v · ctrl+s new take · ctrl+o same take · esc cancel";
@@ -546,28 +566,51 @@ function editorFooterHints(editor: InlineEditorSession): string {
 function renderInlineEditor(
   state: StoryScreenState,
   view: StoryViewModel,
+  host: DocumentEditorSession,
   width: number,
   height: number,
   estimate: NextRequestEstimate,
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
-  const editor = state.editor!;
-  const factChrome = editor.target?.kind === "fact"
-    ? factEditorChrome(editor.title, editor.composer.text)
-    : null;
-  const layout = renderComposerLayout({
-    composer: editor.composer,
-    terminalWidth: width,
-    terminalHeight: height,
-    measure: width,
-    title: factChrome?.title ?? editor.title,
-    footerHints: factChrome?.footerHints ?? editorFooterHints(editor),
-    placeholder: editor.placeholder,
-    footerNotice: state.toast ?? editor.conflict?.message ?? null,
-    scrollTop: state.editorScrollTop,
-    narrow: width < 100,
-    softWrap: true
-  });
+  const editorConflict = host.kind === "document"
+    && host.target.kind === "settings-prompt"
+    ? host.target.owner.conflict?.message
+    : host.conflict?.message;
+  const footerNotice = state.toast ?? editorConflict ?? null;
+  const layout = host.kind === "fact"
+    ? renderFactEditorLayout(host, {
+        width,
+        height,
+        footerNotice,
+        scrollTop: state.editorScrollTop,
+        narrow: width < 100
+      })
+    : renderComposerLayout({
+        composer: host.composer,
+        fullscreen: true,
+        terminalWidth: width,
+        terminalHeight: height,
+        measure: width,
+        title: host.title,
+        footerHints: editorFooterHints(host),
+        placeholder: host.placeholder,
+        footerNotice,
+        scrollTop: state.editorScrollTop,
+        narrow: width < 100,
+        softWrap: true
+      });
+  return renderEditorLayoutFrame(state, view, width, height, estimate, layout, deadlines);
+}
+
+function renderEditorLayoutFrame(
+  state: StoryScreenState,
+  view: StoryViewModel,
+  width: number,
+  height: number,
+  estimate: NextRequestEstimate,
+  layout: ComposerLayout,
+  deadlines?: FrameDeadlineCollector
+): StoryScreenFrame {
   const base = [...layout.lines, renderStoryStatus(state, view, width, width < 100, estimate)]
     .slice(0, height)
     .map((line) => fitLine(line, width));

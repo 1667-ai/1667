@@ -5,6 +5,7 @@ import { pasteInto } from "../src/keys.js";
 test("paste inserts at the composer cursor and flattens single-line prompts", () => {
   const base = {
     composer: createComposer("ab"), tag: null, library: null, facts: null, commands: null,
+    editor: null, settings: null,
     prune: null, chapterDeleteArmedId: null, actions: null, retakePrompt: null,
     composerScrollTop: 0, history: [] as string[], historyIndex: 0, historyDraft: null,
     pendingGenerationDraft: null, composerClaimEpoch: 0
@@ -29,12 +30,46 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
   };
   expect(pasteInto(facts, "storm\ncanon")).toBeTrue();
   expect(facts.facts).toEqual({ filtering: true, query: "storm canon", cursor: 0 });
+  const library = {
+    ...base,
+    composer: createComposer(),
+    mode: "LIBRARY" as const,
+    library: {
+      stories: [],
+      cursor: 6,
+      query: "",
+      prompt: {
+        kind: "filter" as const,
+        initial: { query: "", cursor: 6, storyId: null }
+      }
+    }
+  };
+  expect(pasteInto(library, "winter\norchard")).toBeTrue();
+  expect(library.library).toEqual({
+    stories: [],
+    cursor: 0,
+    query: "winter orchard",
+    prompt: {
+      kind: "filter",
+      initial: { query: "", cursor: 6, storyId: null }
+    }
+  });
   const settingsComposer = createComposer("ab");
   settingsComposer.cursor = 1;
   const settings = {
     ...base,
     mode: "SETTINGS" as const,
-    settings: { edit: { composer: settingsComposer } }
+    settings: {
+      edit: {
+        kind: "inline" as const,
+        row: "model" as const,
+        mode: "text" as const,
+        composer: settingsComposer,
+        initial: "ab",
+        cutConfirmation: null
+      },
+      conflict: null
+    }
   };
   expect(pasteInto(settings, "line one\r\nline two")).toBeTrue();
   expect(settingsComposer.text).toBe("aline one line twob");
@@ -45,14 +80,18 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
     mode: "EDITOR" as const,
     composer: createComposer(),
     editor: {
+      kind: "fact" as const,
       target: { kind: "fact" as const, factId: null, base: null },
       composer: editorComposer,
-      initial: "ab",
+      tag: createComposer(""),
+      focus: "body" as const,
+      initialFact: { tag: null, text: "ab" },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS" as const,
       conflict: { message: "changed", resolution: "overwrite" as const, armed: true },
-      cutConfirmation: null
+      cutConfirmation: null,
+      tagCutConfirmation: null
     }
   };
   expect(pasteInto(editor, "line one\r\nline two")).toBeTrue();

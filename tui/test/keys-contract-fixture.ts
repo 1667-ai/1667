@@ -100,20 +100,25 @@ export async function composerChangedThroughSurface(
   } else if (surface === "EDITOR") {
     state.mode = "EDITOR";
     state.editor = {
+      kind: "fact",
       target: { kind: "fact", factId: null, base: null },
       composer,
-      initial: composer.text,
+      tag: createComposer(""),
+      focus: "body",
+      initialFact: { tag: null, text: composer.text },
       title: "Edit fact",
       placeholder: "Fact text",
       returnMode: "FACTS",
       conflict: null,
-      cutConfirmation: null
+      cutConfirmation: null,
+      tagCutConfirmation: null
     };
     await inlineEditorAction(resolved, state, source, context);
   } else {
     state.mode = "SETTINGS";
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.edit = {
+      kind: "inline",
       row: "model",
       mode: "text",
       composer,

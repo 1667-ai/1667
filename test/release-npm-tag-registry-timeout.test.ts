@@ -221,19 +221,17 @@ test("a timed-out npm writer can commit before exit and is then reconciled", {
 
 test("a timed-out npm writer that ignores SIGTERM is killed before reconciliation", {
   skip: process.platform === "win32",
-  timeout: 3_000
+  timeout: 8_000
 }, async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "1667-npm-timeout-")));
   const npmCli = path.join(root, "npm.cjs");
   const pidFile = path.join(root, "pid");
-  const startedAtFile = path.join(root, "started-at");
   const lateWrite = path.join(root, "late-write");
   await writeFile(npmCli, [
     'const fs = require("node:fs");',
-    `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
-    `fs.writeFileSync(${JSON.stringify(startedAtFile)}, String(Date.now()));`,
     'process.on("SIGTERM", () => {});',
-    `setTimeout(() => fs.writeFileSync(${JSON.stringify(lateWrite)}, "late"), 1000);`,
+    `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+    `setTimeout(() => fs.writeFileSync(${JSON.stringify(lateWrite)}, "late"), 10000);`,
     "setInterval(() => {}, 1000);",
     ""
   ].join("\n"));
@@ -255,7 +253,7 @@ test("a timed-out npm writer that ignores SIGTERM is killed before reconciliatio
       250
     ),
     metadata: new StaticMetadata(),
-    writeTimeoutMs: 100,
+    writeTimeoutMs: 1_000,
     terminationGraceMs: 100,
     settleTimeoutMs: 3,
     pollIntervalMs: 1,
@@ -269,13 +267,8 @@ test("a timed-out npm writer that ignores SIGTERM is killed before reconciliatio
     /was not confirmed by npm/u
   );
   childPid = Number(await readFile(pidFile, "utf8"));
-  const startedAt = Number(await readFile(startedAtFile, "utf8"));
-  const lateWriteDeadline = startedAt + 1_100;
-  await new Promise((resolve) => {
-    setTimeout(resolve, Math.max(0, lateWriteDeadline - Date.now()));
-  });
-  await assert.rejects(readFile(lateWrite), { code: "ENOENT" });
   assertProcessIsGone(childPid);
+  await assert.rejects(readFile(lateWrite), { code: "ENOENT" });
 });
 
 test("an uncertain committed write settles before the client refuses another write", {

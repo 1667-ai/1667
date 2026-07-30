@@ -10,6 +10,11 @@ import {
 } from "../src/story-wrap-build.js";
 import { createWrapCache, wrapText, type ProseStyle } from "../src/wrap.js";
 import { syntheticStoryPayload as payload } from "./fixtures/story.js";
+import {
+  initialSettingsOverlay,
+  SETTINGS_ROW_IDS
+} from "../src/settings-overlay-model.js";
+import { openSystemPromptEditor } from "../src/editor-open.js";
 
 function stateFor(story: StoryPayload) {
   const source = demoAppSource(false);
@@ -370,7 +375,12 @@ describe("sliced story wrap build", () => {
     expect(ready).toBe(1);
   });
 
-  for (const surface of ["map", "editor", "fullscreen compose"] as const) {
+  for (const surface of [
+    "map",
+    "editor",
+    "system prompt",
+    "fullscreen compose"
+  ] as const) {
     test(`${surface} renders immediately without replacing the underlying prose owner`, () => {
       const state = stateFor(payload(100, 150));
       const cache = createWrapCache<ProseStyle>();
@@ -397,6 +407,7 @@ describe("sliced story wrap build", () => {
         } else if (surface === "editor") {
           state.mode = "EDITOR";
           state.editor = {
+            kind: "document",
             target: {
               kind: "part",
               node: leaf,
@@ -411,6 +422,14 @@ describe("sliced story wrap build", () => {
             conflict: null,
             cutConfirmation: null
           };
+        } else if (surface === "system prompt") {
+          state.mode = "EDITOR";
+          state.settings = initialSettingsOverlay(
+            demoAppSource(false).settingsView,
+            state.config
+          );
+          state.settings.cursor = SETTINGS_ROW_IDS.indexOf("system-prompt");
+          openSystemPromptEditor(state);
         } else {
           state.mode = "COMPOSE";
           state.composer.fullscreen = true;
@@ -418,6 +437,7 @@ describe("sliced story wrap build", () => {
       };
       const showProse = () => {
         state.mode = "NAV";
+        state.settings = null;
         state.composer.fullscreen = false;
       };
 

@@ -1,7 +1,12 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
-import { sameSettingsDraft } from "./settings-overlay-model.js";
+import {
+  sameGenerationSettings,
+  sameSettingsDraft,
+  settingsRowUsesServer
+} from "./settings-overlay-model.js";
 import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
+import { activeSettingsEdit } from "./settings-edit-state.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
 /** Probe the selected draft without letting a late response overwrite newer
@@ -31,8 +36,9 @@ export async function detectSettingsContext(
       const current = currentlyEditable
         ? overlay.draft.generation
         : overlay.view.effective;
+      const edit = activeSettingsEdit(state, overlay);
       if (!task.owns() || state.settings !== overlay
-        || overlay.edit !== null
+        || edit !== null
         || currentlyEditable !== editable
         || !sameProbeIdentity(probed, current)
         || current.contextWindow !== probed.contextWindow) {
@@ -61,7 +67,45 @@ export async function detectSettingsContext(
         message: `context window · ${contextWindow.toLocaleString("en-US")} tokens${suffix}`
       };
     } finally {
-      if (task.owns() && state.settings === overlay) overlay.probing = false;
+      if (task.owns() && state.settings === overlay) {
+        overlay.probing = false;
+      }
+    }
+  });
+}
+
+export async function checkSettings(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  overlay: SettingsOverlayState
+): Promise<void> {
+  await context.backend.run("checking model server", async (task) => {
+    if (state.settings !== overlay) return;
+    overlay.checking = true;
+    overlay.result = null;
+    context.repaint();
+    try {
+      const checked = overlay.view.editable
+        ? overlay.draft.generation
+        : overlay.view.effective;
+      const result = await source.api.checkModelServer(
+        settingsProviderProbeTarget(overlay.view, checked)
+      );
+      const current = overlay.view.editable
+        ? overlay.draft.generation
+        : overlay.view.effective;
+      const edit = activeSettingsEdit(state, overlay);
+      if (task.owns() && state.settings === overlay
+        && (edit === null
+          || !settingsRowUsesServer(edit.row))
+        && sameGenerationSettings(checked, current)) {
+        overlay.result = result;
+      }
+    } finally {
+      if (task.owns() && state.settings === overlay) {
+        overlay.checking = false;
+      }
     }
   });
 }

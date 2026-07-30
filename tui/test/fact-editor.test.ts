@@ -1,222 +1,266 @@
 import { describe, expect, test } from "bun:test";
-import { setComposerText } from "../src/composer-model.js";
+import {
+  composerPosition,
+  insertComposerText,
+  setComposerText
+} from "../src/composer-model.js";
 import { openFactEditor } from "../src/editor-action.js";
-import { parseFactEditor } from "../src/facts-model.js";
+import { resetFactEditorHistory } from "../src/fact-editor-policy.js";
 import { pasteInto } from "../src/keys.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
+import type { FactEditorSession, RuntimeState } from "../src/state.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { editorHarness, key } from "./editor-harness.js";
 
+function activeFactEditor(state: RuntimeState): FactEditorSession {
+  const editor = state.editor;
+  if (editor?.kind !== "fact") throw new Error("expected an active Fact editor");
+  return editor;
+}
+
+function setFactDraft(
+  state: RuntimeState,
+  tag: string | null,
+  text: string
+): FactEditorSession {
+  const editor = activeFactEditor(state);
+  setComposerText(editor.tag, tag ?? "");
+  setComposerText(editor.composer, text);
+  return editor;
+}
+
 describe("Fact editor", () => {
-  test("facts create and edit inline, returning to the facts panel", async () => {
+  test("creates and edits a Fact, then returns to the Facts panel", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("n"));
-    expect(state.editor?.target).toEqual({ kind: "fact", factId: null, base: null });
-    setComposerText(state.editor!.composer, "tag: Place\nLantern room\nAlways warm.");
+    expect(activeFactEditor(state).target).toEqual({
+      kind: "fact",
+      factId: null,
+      base: null
+    });
+    setFactDraft(state, "Place", "Lantern room\nAlways warm.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(state.mode).toBe("FACTS");
-    const created = state.payload.facts.find(({ text }) => text.startsWith("Lantern room"));
-    expect(created).toMatchObject({ tag: "Place", text: "Lantern room\nAlways warm." });
+    const created = state.payload.facts.find(({ text }) =>
+      text.startsWith("Lantern room"));
+    expect(created).toMatchObject({
+      tag: "Place",
+      text: "Lantern room\nAlways warm."
+    });
 
     state.facts!.selectedTag = "Place";
     state.facts!.cursor = 0;
     await press(key("e"));
-    expect(state.editor?.target).toEqual({ kind: "fact", factId: created!.id, base: created });
-    setComposerText(state.editor!.composer, "tag: Place\nLantern room\nCold now.");
+    expect(activeFactEditor(state).target).toMatchObject({
+      kind: "fact",
+      factId: created!.id
+    });
+    setFactDraft(state, "Place", "Lantern room\nCold now.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
-    expect(state.payload.facts.find(({ id }) => id === created!.id)?.text).toBe("Lantern room\nCold now.");
+
+    expect(state.payload.facts.find(({ id }) => id === created!.id)?.text)
+      .toBe("Lantern room\nCold now.");
   });
 
-  test("Fact Enter edits and the tag slider reuses a saved custom tag", async () => {
+  test("cycles preset tags and reuses a saved custom tag", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
-
-    expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.target.kind).toBe("fact");
-    expect(state.editor?.composer.text.startsWith("tag: people")).toBeTrue();
+    let editor = activeFactEditor(state);
+    expect(editor.tag.text).toBe("people");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
 
     await press(key("tab"));
-    expect(state.editor?.composer.text.startsWith("tag: places")).toBeTrue();
-    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
-      .toContain("tag ‹ places ›");
+    expect(editor.tag.text).toBe("places");
+    let frame = frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines);
+    expect(frame).toContain("tag               ‹ places ›");
 
     await press(key("t", { sequence: "\u0014", ctrl: true }));
     for (const character of "omens") await press(key(character));
-    expect(state.editor?.composer.text.startsWith("tag: omens")).toBeTrue();
+    expect(editor.tag.text).toBe("omens");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
+    await press(key("down"));
+    frame = frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines);
+    expect(frame).toContain("tag               ‹ omens ›");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect(state.payload.facts[0]?.tag).toBe("omens");
 
     state.facts!.cursor = 1;
     await press(key("return"));
+    editor = activeFactEditor(state);
     for (let index = 0; index < 4; index += 1) await press(key("tab"));
-    expect(state.editor?.composer.text.startsWith("tag: omens")).toBeTrue();
+    expect(editor.tag.text).toBe("omens");
   });
 
-  test("cycling a multi-code-point Fact tag preserves its body", async () => {
-    const { state, press } = editorHarness();
-    const first = state.payload.facts[0]!;
-    state.payload = {
-      ...state.payload,
-      facts: [{ ...first, tag: "👨‍👩‍👧‍👦", text: "Body stays whole." }, ...state.payload.facts.slice(1)]
-    };
-
-    await press(key("f"));
-    await press(key("return"));
-    await press(key("tab"));
-
-    expect(state.editor?.composer.text).toBe("tag: \n\nBody stays whole.");
-  });
-
-  test("cycling a Fact tag keeps subsequent typing in the body", async () => {
+  test("renders a long inactive tag on one truncated choice row", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
-    await press(key("tab"));
-    await press(key("!"));
+    const editor = setFactDraft(
+      state,
+      "weather".repeat(30),
+      "Body marker"
+    );
 
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "places",
-      text: "Maren\nKeeps the lantern-house and distrusts old coin.!"
-    });
+    const frame = frameText(renderStoryScreen(state, { width: 60, height: 24 }).lines);
+    expect(frame).toContain("tag               ‹");
+    expect(frame).toContain("Body marker");
+    expect(frame).not.toContain(editor.tag.text);
   });
 
-  test("Fact tag cycle redo restores the body caret for typing", async () => {
+  test("moves from the body first row into the typed tag field", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
-    await press(key("tab"));
-    await press(key("z", { ctrl: true }));
-    await press(key("z", { ctrl: true, shift: true }));
-    await press(key("!"));
+    const editor = activeFactEditor(state);
+    editor.composer.anchor = null;
+    editor.composer.cursor = 2;
 
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "places",
-      text: "Maren\nKeeps the lantern-house and distrusts old coin.!"
-    });
-    expect(state.editor!.composer.text.endsWith("!")).toBeTrue();
+    await press(key("up"));
+
+    expect(editor.focus).toBe("tag");
+    expect(composerPosition(editor.tag).column).toBe(2);
+    await press(key("X"));
+    expect(editor.tag.text).toBe("peXople");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
   });
 
-  test("Tab after deleting header records undo and keeps typing in the body", async () => {
-    const { state, press } = editorHarness();
-    await press(key("f"));
-    await press(key("return"));
-    const body = parseFactEditor(state.editor!.composer.text)!.text;
-    // Header removed; a body edit after that must remain undoable across Tab.
-    setComposerText(state.editor!.composer, body);
-    await press(key("!"));
-    const headerless = state.editor!.composer.text;
-    expect(headerless.startsWith("tag:")).toBeFalse();
-    expect(headerless.endsWith("!")).toBeTrue();
-
-    await press(key("tab"));
-    expect(state.editor!.composer.text.startsWith("tag: ")).toBeTrue();
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "people",
-      text: headerless
-    });
-
-    // Undo restores the headerless document (and the prior body edit).
-    await press(key("z", { ctrl: true }));
-    expect(state.editor!.composer.text).toBe(headerless);
-    expect(state.editor!.composer.text.startsWith("tag:")).toBeFalse();
-
-    // Redo restores the Tab command state.
-    await press(key("z", { ctrl: true, shift: true }));
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "people",
-      text: headerless
-    });
-
-    // Typing lands in the body, not the tag field.
-    await press(key("?"));
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "people",
-      text: `${headerless}?`
-    });
-  });
-
-  test("Ctrl+T after deleting header records undo and types into the tag", async () => {
-    const { state, press } = editorHarness();
-    await press(key("f"));
-    await press(key("return"));
-    const body = parseFactEditor(state.editor!.composer.text)!.text;
-    setComposerText(state.editor!.composer, body);
-    await press(key("!"));
-    const headerless = state.editor!.composer.text;
-    expect(headerless.startsWith("tag:")).toBeFalse();
-
-    await press(key("t", { sequence: "\u0014", ctrl: true }));
-    expect(state.editor!.composer.text.startsWith("tag: ")).toBeTrue();
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: null,
-      text: headerless
-    });
-
-    await press(key("z", { ctrl: true }));
-    expect(state.editor!.composer.text).toBe(headerless);
-
-    await press(key("z", { ctrl: true, shift: true }));
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: null,
-      text: headerless
-    });
-
-    // Redo leaves the tag field selected; typing fills the custom tag.
-    for (const character of "omens") await press(key(character));
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "omens",
-      text: headerless
-    });
-    expect(state.editor!.composer.text.startsWith("tag: omens")).toBeTrue();
-    expect(state.editor!.composer.text.endsWith("omens")).toBeFalse();
-  });
-
-  test("Ctrl+T on tag-json redo leaves typing in the custom tag field", async () => {
+  test("cycling a multi-code-point tag preserves the Fact body", async () => {
     const { state, press } = editorHarness();
     const first = state.payload.facts[0]!;
     state.payload = {
       ...state.payload,
       facts: [{
         ...first,
-        tag: "weather\nurgent",
-        text: "Maren\nKeeps the lantern-house and distrusts old coin."
+        tag: "👨‍👩‍👧‍👦",
+        text: "Body stays whole."
       }, ...state.payload.facts.slice(1)]
     };
 
     await press(key("f"));
     await press(key("return"));
-    expect(state.editor?.composer.text)
-      .toBe('tag-json: "weather\\nurgent"\n\nMaren\nKeeps the lantern-house and distrusts old coin.');
+    await press(key("tab"));
 
-    await press(key("t", { sequence: "\u0014", ctrl: true }));
-    expect(state.editor?.composer.text.startsWith("tag: ")).toBeTrue();
-
-    await press(key("z", { ctrl: true }));
-    expect(state.editor?.composer.text.startsWith("tag-json:")).toBeTrue();
-
-    await press(key("z", { ctrl: true, shift: true }));
-    // Redo must restore tag-field selection, not the body caret.
-    for (const character of "omens") await press(key(character));
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "omens",
-      text: "Maren\nKeeps the lantern-house and distrusts old coin."
-    });
-    expect(state.editor!.composer.text.startsWith("tag: omens")).toBeTrue();
-    expect(state.editor!.composer.text.endsWith("omens")).toBeFalse();
+    const editor = activeFactEditor(state);
+    expect(editor.tag.text).toBe("");
+    expect(editor.composer.text).toBe("Body stays whole.");
   });
 
-  test("saving a multi-paragraph Fact body without the header blank keeps both paragraphs", async () => {
+  test("cycling a tag leaves subsequent typing in the body", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
-    setComposerText(
-      state.editor!.composer,
-      "tag: people\nFirst paragraph.\n\nSecond paragraph."
-    );
+    const editor = activeFactEditor(state);
+
+    await press(key("tab"));
+    await press(key("!"));
+
+    expect(editor.tag.text).toBe("places");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.!");
+  });
+
+  test("undo follows edit order across tag cycling and body input", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+    editor.composer.anchor = null;
+    editor.composer.cursor = editor.composer.text.length;
+
+    await press(key("tab"));
+    await press(key("!"));
+    await press(key("z", { ctrl: true }));
+
+    expect(editor.focus).toBe("body");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
+    expect(editor.tag.text).toBe("places");
+
+    await press(key("z", { ctrl: true }));
+    expect(editor.focus).toBe("tag");
+    expect(editor.tag.text).toBe("people");
+
+    await press(key("z", { ctrl: true, shift: true }));
+    await press(key("z", { ctrl: true, shift: true }));
+    expect(editor.focus).toBe("body");
+    expect(editor.tag.text).toBe("places");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.!");
+  });
+
+  test("native tag paste invalidates redo from the Fact body", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+
+    await press(key("!"));
+    await press(key("z", { ctrl: true }));
+    await press(key("t", { sequence: "\u0014", ctrl: true }));
+    expect(pasteInto(state, "weather")).toBeTrue();
+    await press(key("z", { ctrl: true }));
+    await press(key("z", { ctrl: true, shift: true }));
+    await press(key("z", { ctrl: true, shift: true }));
+
+    expect(editor.tag.text).toBe("weather");
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
+    expect(state.toast).toBe("nothing to redo");
+  });
+
+  test("undo retains a paste that lands after an authoritative reset", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+    const original = editor.composer.text;
+
+    await press(key("!"));
+    await press(key("z", { ctrl: true }));
+
+    let resume: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { resume = resolve; });
+    const paste = (async () => {
+      await gate;
+      insertComposerText(editor.composer, " pasted");
+    })();
+    setComposerText(editor.composer, original);
+    resetFactEditorHistory(editor);
+    resume();
+    await paste;
+
+    expect(editor.composer.text).toBe(`${original} pasted`);
+    await press(key("z", { ctrl: true }));
+    expect(editor.composer.text).toBe(original);
+  });
+
+  test("an empty Fact uses one body placeholder below its tag row", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("n"));
+
+    const frame = frameText(renderStoryScreen(
+      state,
+      { width: 80, height: 24 }
+    ).lines);
+
+    expect(frame).toContain("tag               ‹ none ›");
+    expect(frame).toContain("fact text…");
+    expect(frame).not.toContain("tag: optional");
+  });
+
+  test("saves a multi-paragraph body without changing its blank lines", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    setFactDraft(state, "people", "First paragraph.\n\nSecond paragraph.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(state.payload.facts[0]).toMatchObject({
@@ -225,60 +269,45 @@ describe("Fact editor", () => {
     });
   });
 
-  test("cycling a persisted multiline Fact tag preserves its body", async () => {
+  test("shows a persisted multiline tag safely and preserves its body", async () => {
     const { state, press } = editorHarness();
     const first = state.payload.facts[0]!;
     state.payload = {
       ...state.payload,
-      facts: [{ ...first, tag: "weather\nurgent", text: "Body stays whole." }, ...state.payload.facts.slice(1)]
+      facts: [{
+        ...first,
+        tag: "weather\nurgent",
+        text: "Body stays whole."
+      }, ...state.payload.facts.slice(1)]
     };
 
     await press(key("f"));
     await press(key("return"));
-    expect(state.editor?.composer.text)
-      .toBe('tag-json: "weather\\nurgent"\n\nBody stays whole.');
+    const editor = activeFactEditor(state);
+    const frame = frameText(renderStoryScreen(state, { width: 80, height: 24 }).lines);
+
+    expect(frame).toContain("‹ weather↵urgent ›");
+    expect(editor.tag.text).toBe("weather\nurgent");
+    expect(editor.composer.text).toBe("Body stays whole.");
+    await press(key("t", { sequence: "\u0014", ctrl: true }));
+    await press(key("right"));
+    await press(key("X"));
+    const editing = frameText(
+      renderStoryScreen(state, { width: 80, height: 24 }).lines
+    );
+    expect(editing).toContain("[ urgentX");
+    expect(editing).not.toContain("[ weather");
+    expect(editor.tag.text).toBe("weather\nurgentX");
     await press(key("tab"));
-
-    expect(state.editor?.composer.text).toBe("tag: people\n\nBody stays whole.");
+    expect(editor.tag.text).toBe("people");
+    expect(editor.composer.text).toBe("Body stays whole.");
   });
 
-  test("malformed tag-json rejects save and keeps the persisted Fact tag", async () => {
-    const { source, state, press } = editorHarness();
-    const first = state.payload.facts[0]!;
-    const multilineTag = "weather\nurgent";
-    state.payload = {
-      ...state.payload,
-      facts: [{ ...first, tag: multilineTag, text: "Body stays whole." }, ...state.payload.facts.slice(1)]
-    };
-
-    await press(key("f"));
-    await press(key("return"));
-    expect(state.editor?.composer.text)
-      .toBe('tag-json: "weather\\nurgent"\n\nBody stays whole.');
-
-    setComposerText(state.editor!.composer, 'tag-json: "weather\\nurgent\n\nBody stays whole.');
-    let patches = 0;
-    const patchFact = source.api.patchFact;
-    source.api.patchFact = async (...args) => { patches += 1; return patchFact(...args); };
-
-    await press(key("s", { sequence: "\u0013", ctrl: true }));
-
-    expect(patches).toBe(0);
-    expect(state.editor).not.toBe(null);
-    expect(state.toast).toContain("invalid tag-json");
-    expect(state.payload.facts[0]).toMatchObject({
-      tag: multilineTag,
-      text: "Body stays whole."
-    });
-  });
-
-  test("blank tag: header still clears a persisted Fact tag", async () => {
+  test("a blank tag clears the persisted Fact tag", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
-    expect(state.payload.facts[0]?.tag).toBe("people");
-
-    setComposerText(state.editor!.composer, "tag: \n\nBody stays whole.");
+    setFactDraft(state, null, "Body stays whole.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(state.payload.facts[0]).toMatchObject({
@@ -287,188 +316,155 @@ describe("Fact editor", () => {
     });
   });
 
-  test("custom Fact tag paste keeps separators out of the Fact body", async () => {
+  test("an untouched imported tag stays exact when the body changes", async () => {
+    for (const importedTag of [" people ", ""]) {
+      const { source, state, press } = editorHarness();
+      const original = state.payload.facts[0]!;
+      const imported = { ...original, tag: importedTag };
+      state.payload = {
+        ...state.payload,
+        facts: [imported, ...state.payload.facts.slice(1)]
+      };
+      const patches: Array<{ tag?: string | null; text?: string }> = [];
+      source.api.patchFact = async (_storyId, factId, body) => {
+        patches.push(body);
+        return {
+          ...state.payload,
+          facts: state.payload.facts.map((fact) =>
+            fact.id === factId
+              ? { ...fact, tag: body.tag ?? null, text: body.text ?? fact.text }
+              : fact)
+        };
+      };
+
+      openFactEditor(state, imported);
+      await press(key("s", { sequence: "\u0013", ctrl: true }));
+      expect(patches).toHaveLength(0);
+
+      openFactEditor(state, imported);
+      await press(key("!"));
+      await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+      expect(patches).toHaveLength(1);
+      expect(patches[0]?.tag).toBe(importedTag);
+    }
+  });
+
+  test("custom tag paste flattens line separators without changing the body", async () => {
     for (const separator of ["\n", "\r", "\u2028", "\u2029"]) {
       const { state, press } = editorHarness();
       await press(key("f"));
       await press(key("return"));
       await press(key("t", { sequence: "\u0014", ctrl: true }));
 
-      for (const character of "weather") await press(key(character));
-      expect(pasteInto(state, `${separator}urgent`)).toBeTrue();
-      await press(key("s", { sequence: "\u0013", ctrl: true }));
-
-      expect(state.payload.facts[0]?.tag).toBe("weather urgent");
-      expect(state.payload.facts[0]?.text).toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
+      expect(pasteInto(state, `weather${separator}urgent`)).toBeTrue();
+      const editor = activeFactEditor(state);
+      expect(editor.tag.text).toBe("weather urgent");
+      expect(editor.composer.text)
+        .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
     }
   });
 
-  test("native newline-only paste into a selected Fact tag matches Ctrl+V toast", async () => {
-    for (const separator of ["\n", "\r", "\u2028", "\u2029", "\n\n", "\r\n"]) {
-      const { state, press } = editorHarness();
-      await press(key("f"));
-      await press(key("return"));
-      await press(key("t", { sequence: "\u0014", ctrl: true }));
-      const before = state.editor!.composer.text;
-
-      expect(pasteInto(state, separator)).toBeTrue();
-      expect(state.editor!.composer.text).toBe(before);
-      expect(state.toast).toBe("fact tags stay on one line");
-    }
-  });
-
-  test("Enter inside a Fact tag keeps the tag on one line and saves cleanly", async () => {
-    const body = "Maren\nKeeps the lantern-house and distrusts old coin.";
+  test("newline input cannot split a custom tag", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
     await press(key("t", { sequence: "\u0014", ctrl: true }));
     for (const character of "weather") await press(key(character));
+    const editor = activeFactEditor(state);
 
-    // Caret inside the tag (after "wea") must not open a header break.
-    for (let index = 0; index < 4; index += 1) await press(key("left"));
-    const beforeCaret = state.editor!.composer.text;
     await press(key("return", { sequence: "\r" }));
-    expect(state.editor!.composer.text).toBe(beforeCaret);
-    expect(state.editor!.composer.text).not.toContain("wea\n");
+
+    expect(editor.tag.text).toBe("weather");
     expect(state.toast).toBe("fact tags stay on one line");
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({ tag: "weather", text: body });
-
-    // Full tag selection (Ctrl+T) must not replace the tag with a newline either.
-    await press(key("t", { sequence: "\u0014", ctrl: true }));
-    const beforeSelection = state.editor!.composer.text;
-    await press(key("return", { sequence: "\r" }));
-    expect(state.editor!.composer.text).toBe(beforeSelection);
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({ tag: "weather", text: body });
-
-    // Body Enter still starts a new body line.
-    await press(key("end", { ctrl: true }));
-    await press(key("return", { sequence: "\r" }));
-    expect(state.editor!.composer.text.endsWith(`${body}\n`)).toBeTrue();
-    expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-      tag: "weather",
-      text: `${body}\n`
-    });
-
-    await press(key("s", { sequence: "\u0013", ctrl: true }));
-    expect(state.payload.facts[0]).toMatchObject({ tag: "weather", text: `${body}\n` });
+    expect(editor.composer.text)
+      .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
   });
 
-  test("linefeed and Ctrl+J inside a Fact tag stay on one line; body linefeed inserts", async () => {
-    const body = "Maren\nKeeps the lantern-house and distrusts old coin.";
-    // OpenTUI raw LF and Ctrl+J both arrive as name linefeed + sequence newline.
-    const linefeedDeliveries = [
-      key("linefeed", { sequence: "\n" }),
-      key("j", { sequence: "\n", ctrl: true })
-    ] as const;
-
-    for (const delivery of linefeedDeliveries) {
-      const { state, press } = editorHarness();
-      await press(key("f"));
-      await press(key("return"));
-      await press(key("t", { sequence: "\u0014", ctrl: true }));
-      for (const character of "weather") await press(key(character));
-
-      // Caret inside the tag (after "wea") must not open a header break.
-      for (let index = 0; index < 4; index += 1) await press(key("left"));
-      const beforeCaret = state.editor!.composer.text;
-      await press(delivery);
-      expect(state.editor!.composer.text).toBe(beforeCaret);
-      expect(state.editor!.composer.text).not.toContain("wea\n");
-      expect(state.toast).toBe("fact tags stay on one line");
-      expect(parseFactEditor(state.editor!.composer.text)).toEqual({ tag: "weather", text: body });
-
-      // Full tag selection must not replace the tag with a linefeed either.
-      await press(key("t", { sequence: "\u0014", ctrl: true }));
-      const beforeSelection = state.editor!.composer.text;
-      await press(delivery);
-      expect(state.editor!.composer.text).toBe(beforeSelection);
-      expect(parseFactEditor(state.editor!.composer.text)).toEqual({ tag: "weather", text: body });
-
-      // Body linefeed still starts a new body line.
-      await press(key("end", { ctrl: true }));
-      await press(delivery);
-      expect(state.editor!.composer.text.endsWith(`${body}\n`)).toBeTrue();
-      expect(parseFactEditor(state.editor!.composer.text)).toEqual({
-        tag: "weather",
-        text: `${body}\n`
-      });
-
-      await press(key("s", { sequence: "\u0013", ctrl: true }));
-      expect(state.payload.facts[0]).toMatchObject({ tag: "weather", text: `${body}\n` });
-    }
-  });
-
-  test("same-story recovery keeps a dirty fact draft and requires overwrite confirmation", async () => {
+  test("same-story recovery keeps a dirty draft and requires confirmation", async () => {
     const { source, state, press } = editorHarness();
     const fact = state.payload.facts[0]!;
     openFactEditor(state, fact);
-    setComposerText(state.editor!.composer, "tag: Local\nlocal draft");
+    setFactDraft(state, "Local", "local draft");
     const recovered = { ...fact, tag: "Remote", text: "recovered fact" };
     adoptSameStoryPayload(state, {
       ...state.payload,
-      facts: state.payload.facts.map((candidate) => candidate.id === fact.id ? recovered : candidate)
+      facts: state.payload.facts.map((candidate) =>
+        candidate.id === fact.id ? recovered : candidate)
     });
 
-    expect(state.editor?.composer.text).toBe("tag: Local\nlocal draft");
-    expect(state.editor?.conflict?.armed).toBeFalse();
-    expect(state.editor?.target).toMatchObject({ kind: "fact", base: recovered });
+    const editor = activeFactEditor(state);
+    expect(editor.tag.text).toBe("Local");
+    expect(editor.composer.text).toBe("local draft");
+    expect(editor.target.base).toEqual(recovered);
     let saves = 0;
     const patchFact = source.api.patchFact;
-    source.api.patchFact = async (...args) => { saves += 1; return patchFact(...args); };
+    source.api.patchFact = async (...args) => {
+      saves += 1;
+      return patchFact(...args);
+    };
 
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(saves).toBe(0);
-    expect(state.editor?.conflict?.armed).toBeTrue();
-    expect(state.payload.facts.find(({ id }) => id === fact.id)).toEqual(recovered);
+    expect(editor.conflict?.armed).toBeTrue();
     expect(state.toast).toContain("ctrl+s again overwrites");
   });
 
-  test("a conflicted fact can overwrite the recovery with its original text", async () => {
+  test("a conflicted draft overwrites recovery on the second save", async () => {
     const { source, state, press } = editorHarness();
     const fact = state.payload.facts[0]!;
     openFactEditor(state, fact);
-    setComposerText(state.editor!.composer, "tag: Local\nlocal draft");
+    setFactDraft(state, "Local", "local draft");
     const recovered = { ...fact, tag: "Remote", text: "recovered fact" };
     adoptSameStoryPayload(state, {
       ...state.payload,
-      facts: state.payload.facts.map((candidate) => candidate.id === fact.id ? recovered : candidate)
+      facts: state.payload.facts.map((candidate) =>
+        candidate.id === fact.id ? recovered : candidate)
     });
-    setComposerText(state.editor!.composer, state.editor!.initial);
     let saves = 0;
     const patchFact = source.api.patchFact;
-    source.api.patchFact = async (...args) => { saves += 1; return patchFact(...args); };
+    source.api.patchFact = async (...args) => {
+      saves += 1;
+      return patchFact(...args);
+    };
 
     await press(key("s", { sequence: "\u0013", ctrl: true }));
-    expect(saves).toBe(0);
-    expect(state.editor?.conflict?.armed).toBeTrue();
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(saves).toBe(1);
     expect(state.payload.facts.find(({ id }) => id === fact.id)).toMatchObject({
-      tag: fact.tag,
-      text: fact.text
+      tag: "Local",
+      text: "local draft"
     });
   });
 
-  test("a fact deleted during recovery keeps its draft and saves only as new", async () => {
+  test("a Fact deleted during recovery keeps its draft and saves as new", async () => {
     const { source, state, press } = editorHarness();
     const fact = state.payload.facts[0]!;
     openFactEditor(state, fact);
-    const localDraft = "tag: Recovered\nkeep this deleted-fact draft";
-    setComposerText(state.editor!.composer, localDraft);
+    setFactDraft(state, "Recovered", "keep this deleted-Fact draft");
     adoptSameStoryPayload(state, {
       ...state.payload,
       facts: state.payload.facts.filter(({ id }) => id !== fact.id)
     });
 
-    expect(state.editor?.composer.text).toBe(localDraft);
-    expect(state.editor?.target).toMatchObject({ kind: "fact", factId: null, base: null });
-    expect(state.editor?.conflict).toMatchObject({ resolution: "create", armed: false });
+    const editor = activeFactEditor(state);
+    expect(editor.target).toMatchObject({
+      kind: "fact",
+      factId: null,
+      base: null
+    });
+    expect(editor.conflict).toMatchObject({
+      resolution: "create",
+      armed: false
+    });
     let creates = 0;
     const createFact = source.api.createFact;
-    source.api.createFact = async (...args) => { creates += 1; return createFact(...args); };
+    source.api.createFact = async (...args) => {
+      creates += 1;
+      return createFact(...args);
+    };
 
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect(creates).toBe(0);
@@ -477,6 +473,80 @@ describe("Fact editor", () => {
 
     expect(creates).toBe(1);
     expect(state.payload.facts.some(({ tag, text }) =>
-      tag === "Recovered" && text === "keep this deleted-fact draft")).toBeTrue();
+      tag === "Recovered" && text === "keep this deleted-Fact draft")).toBeTrue();
+  });
+
+  test("replacing selection with identical text invalidates sibling redo across keyboard and native paste", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+
+    // Make an edit in body, then undo it to leave redo pending in body
+    await press(key("!"));
+    expect(editor.composer.text).toContain("!");
+    await press(key("z", { ctrl: true }));
+    expect(editor.composer.text).not.toContain("!");
+
+    // Move to tag field and select its full text ("people")
+    await press(key("t", { sequence: "\u0014", ctrl: true }));
+    editor.tag.anchor = 0;
+    editor.tag.cursor = editor.tag.text.length;
+
+    // Replace selection with identical text "people" via native paste
+    expect(pasteInto(state, "people")).toBeTrue();
+    expect(editor.tag.text).toBe("people");
+
+    // Redo should be invalidated
+    await press(key("z", { ctrl: true, shift: true }));
+    expect(state.toast).toBe("nothing to redo");
+    expect(editor.composer.text).not.toContain("!");
+
+    // Repeat for keyboard edit path: make edit in body, undo to leave redo pending
+    await press(key("down"));
+    await press(key("!"));
+    await press(key("z", { ctrl: true }));
+
+    // Move to tag and select "people"
+    await press(key("t", { sequence: "\u0014", ctrl: true }));
+    editor.tag.anchor = 0;
+    editor.tag.cursor = editor.tag.text.length;
+
+    // Replace selection with identical text "people" by backspacing selection
+    await press(key("backspace"));
+    expect(editor.tag.text).toBe("");
+    // Redo should be invalidated
+    await press(key("z", { ctrl: true, shift: true }));
+    expect(state.toast).toBe("nothing to redo");
+  });
+
+  test("focus transitions clear sibling selection anchors and cut confirmations", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("return"));
+    const editor = activeFactEditor(state);
+
+    // Start in tag field with selection and cut confirmation
+    await press(key("t", { sequence: "\u0014", ctrl: true }));
+    editor.tag.anchor = 0;
+    editor.tag.cursor = 3;
+    editor.tagCutConfirmation = { start: 0, end: 3, text: "peo" };
+
+    // Move focus down to body
+    await press(key("down"));
+    expect(editor.focus).toBe("body");
+    expect(editor.tag.anchor).toBe(null);
+    expect(editor.tagCutConfirmation).toBe(null);
+
+    // In body field, set selection and cut confirmation
+    editor.composer.anchor = 0;
+    editor.composer.cursor = 5;
+    editor.cutConfirmation = { start: 0, end: 5, text: "Maren" };
+
+    // Move focus up to tag
+    await press(key("up"));
+    expect(editor.focus).toBe("tag");
+    expect(editor.composer.anchor).toBe(null);
+    expect(editor.cutConfirmation).toBe(null);
   });
 });

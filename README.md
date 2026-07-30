@@ -183,9 +183,15 @@ follows or opens the selected story line. Press `?` for the complete key list.
 
 Press `Enter` to edit the selected Fact. Double-click a Fact to edit it.
 
-In the Fact editor, press `Tab` or `Shift+Tab` to select a Fact tag. Press
-`Ctrl+T` to type a custom Fact tag. When you save the Fact, 1667 adds its
-custom Fact tag to the selector.
+The Fact editor shows the Fact tag in a choice row. Press `Tab` or `Shift+Tab`
+to select a Fact tag. Press `Ctrl+T` to type a custom Fact tag. When you save
+the Fact, 1667 adds its custom Fact tag to the choice row.
+
+In Library or Facts, press `/` to start a filter. The list changes when you
+type. Press `Enter` to close the filter.
+
+Settings shows the complete reason when a cache policy is not available.
+Select the system prompt row to open the full-screen editor.
 
 The context meter shows the estimated next request. Its pulsing segment shows
 the maximum response growth. The segment changes between two visible colors.
@@ -218,6 +224,13 @@ only the opaque secret identifier.
 
 Local servers such as Ollama can use a connection without a credential. 1667
 enables prompt cache controls only for exact official provider hosts.
+
+The project settings document at `.1667/settings.v2.state.json` stores the
+deadlines for each model connection. New network connections use 120 seconds
+for response headers, first content, and idle content. They use 30 minutes for
+the complete request. Set `connections.<id>.timeouts.responseHeaderMs`,
+`firstTokenMs`, `idleMs`, and `totalMs` to change these deadlines. The Settings
+panel does not edit these advanced values.
 
 ## Privacy
 

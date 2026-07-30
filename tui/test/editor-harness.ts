@@ -16,12 +16,25 @@ export function key(
   } as KeyEvent;
 }
 
-export function editorHarness() {
+export function editorHarness(rendererWidth?: number) {
   const source = demoAppSource();
   const state = initialState(source, false);
   const cache = createWrapCache<ProseStyle>();
   const press = (event: KeyEvent) => handleKey(
-    event, state, source, cache, () => undefined, async () => undefined, () => undefined
+    event,
+    state,
+    source,
+    cache,
+    () => undefined,
+    async () => undefined,
+    () => undefined,
+    rendererWidth === undefined
+      ? null
+      : {
+          width: rendererWidth,
+          height: 24,
+          clearSelection: () => undefined
+        } as never
   );
   return { source, state, cache, press };
 }

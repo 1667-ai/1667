@@ -17,6 +17,79 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function stoppedTakeRace(
+  outcome: "partial-error" | "partial-null" | "complete",
+  gateSave = false
+) {
+  const source = demoAppSource();
+  const state = initialState(source, false);
+  const cache = createWrapCache<ProseStyle>();
+  const backend = new ActionRuntime(state, () => undefined);
+  const generationEntered = deferred<void>();
+  const generationGate = deferred<void>();
+  const saveEntered = deferred<void>();
+  const saveGate = deferred<void>();
+  const createNode = source.api.createNode;
+  let genId = "";
+
+  state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
+  source.api.continueStory = async (
+    storyId,
+    instruction,
+    requestGenId,
+    target,
+    onDelta
+  ) => {
+    genId = requestGenId;
+    onDelta(outcome === "complete" ? "arrived before Stop" : "arrived partial take");
+    generationEntered.resolve();
+    await generationGate.promise;
+    if (outcome === "partial-error") {
+      throw new Error("cancellation control failed");
+    }
+    if (outcome === "partial-null") return null;
+    if (target.appendTo !== undefined) throw new Error("expected a new take");
+    return createNode(storyId, {
+      parentId: target.parentId ?? null,
+      instruction,
+      text: "complete take won the Stop race",
+      genId: requestGenId
+    });
+  };
+  if (gateSave) {
+    source.api.createNode = async (...args) => {
+      saveEntered.resolve();
+      await saveGate.promise;
+      return createNode(...args);
+    };
+  }
+
+  const pending = backend.run("generating prose", (task) =>
+    generate(
+      state,
+      source,
+      cache,
+      () => undefined,
+      "take another route",
+      null,
+      null,
+      task
+    ));
+  return {
+    state,
+    generationEntered: generationEntered.promise,
+    saveEntered: saveEntered.promise,
+    finishGeneration: () => generationGate.resolve(),
+    finishSave: () => saveGate.resolve(),
+    stop: () => {
+      beginInteraction(state);
+      requestGenerationStop(state, () => undefined);
+    },
+    pending,
+    created: () => state.payload.path.find((node) => node.genId === genId)
+  };
+}
+
 describe("generation errors", () => {
   test("a backend failure remains visible after later local navigation", async () => {
     const source = demoAppSource();
@@ -113,6 +186,67 @@ describe("generation errors", () => {
 
     expect(saves).toBe(1);
     expect(state.toast).toBe(null);
+  });
+
+  test("Stop focuses the new take after its arrived text is saved", async () => {
+    const race = stoppedTakeRace("partial-error");
+    await race.generationEntered;
+    race.stop();
+    race.finishGeneration();
+    await race.pending;
+
+    const created = race.created();
+    expect(created).toBeDefined();
+    expect(race.state.payload.path.at(-1)?.id).toBe(created?.id);
+    expect(
+      createStoryViewModel(race.state.payload).rows[race.state.focusIndex]?.id
+    ).toBe(created?.id);
+  });
+
+  test("repeated Stop keeps focus ownership while the partial take saves", async () => {
+    const race = stoppedTakeRace("partial-null", true);
+    await race.generationEntered;
+    race.stop();
+    race.finishGeneration();
+    await race.saveEntered;
+    race.stop();
+    race.finishSave();
+    await race.pending;
+
+    const created = race.created();
+    expect(created).toBeDefined();
+    expect(
+      createStoryViewModel(race.state.payload).rows[race.state.focusIndex]?.id
+    ).toBe(created?.id);
+  });
+
+  test("Stop focuses the completed take when the full response wins the race", async () => {
+    const race = stoppedTakeRace("complete");
+    await race.generationEntered;
+    race.stop();
+    race.finishGeneration();
+    await race.pending;
+
+    const created = race.created();
+    expect(created?.text).toBe("complete take won the Stop race");
+    expect(
+      createStoryViewModel(race.state.payload).rows[race.state.focusIndex]?.id
+    ).toBe(created?.id);
+  });
+
+  test("a stopped take save does not steal focus after later navigation", async () => {
+    const race = stoppedTakeRace("partial-null", true);
+    await race.generationEntered;
+    race.stop();
+    race.finishGeneration();
+    await race.saveEntered;
+    beginInteraction(race.state);
+    race.state.focusIndex = 0;
+    race.finishSave();
+    await race.pending;
+
+    expect(race.created()).toBeDefined();
+    expect(race.state.focusIndex).toBe(0);
   });
 
   test("a stopped-text save failure stays visible", async () => {

@@ -1,0 +1,96 @@
+import { expect } from "bun:test";
+import type { KeyEvent } from "@opentui/core";
+import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
+import type { ProviderProbeTarget } from "../../shared/settings-v2-types.js";
+import { ActionRuntime } from "../src/action-runtime.js";
+import { handleKey, initialState } from "../src/app.js";
+import { setComposerText } from "../src/composer-model.js";
+import { demoAppSource } from "../src/demo.js";
+import { SETTINGS_ROW_IDS } from "../src/settings-overlay-model.js";
+import type { SettingsRowId } from "../src/state.js";
+import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+
+export function key(
+  name: string,
+  options: { sequence?: string; ctrl?: boolean; shift?: boolean; meta?: boolean } = {}
+): KeyEvent {
+  return {
+    name,
+    sequence: options.sequence ?? name,
+    shift: options.shift ?? false,
+    ctrl: options.ctrl ?? false,
+    meta: options.meta ?? false
+  } as KeyEvent;
+}
+
+export function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+export function generationFromProbeTarget(target: ProviderProbeTarget) {
+  return "kind" in target
+    ? basicSettingsFromDocument(target.document)
+    : target;
+}
+
+export function settingsHarness() {
+  const source = demoAppSource();
+  const state = initialState(source, false);
+  const cache = createWrapCache<ProseStyle>();
+  const backend = new ActionRuntime(state, () => undefined);
+  const press = (event: KeyEvent) => handleKey(
+    event,
+    state,
+    source,
+    cache,
+    () => undefined,
+    async () => undefined,
+    () => undefined,
+    null,
+    (theme) => {
+      state.config = { ...state.config, theme };
+      source.config = state.config;
+    },
+    () => undefined,
+    backend
+  );
+  return { source, state, cache, backend, press };
+}
+
+export async function openSettings(
+  press: (event: KeyEvent) => Promise<void>
+): Promise<void> {
+  await press(key(",", { sequence: "," }));
+}
+
+export async function selectRow(
+  press: (event: KeyEvent) => Promise<void>,
+  state: ReturnType<typeof settingsHarness>["state"],
+  row: SettingsRowId
+): Promise<void> {
+  const target = SETTINGS_ROW_IDS.indexOf(row);
+  while (state.settings!.cursor < target) await press(key("down"));
+  while (state.settings!.cursor > target) await press(key("up"));
+}
+
+export async function draftRow(
+  press: (event: KeyEvent) => Promise<void>,
+  state: ReturnType<typeof settingsHarness>["state"],
+  row: SettingsRowId,
+  value: string
+): Promise<void> {
+  await selectRow(press, state, row);
+  await press(key("return"));
+  expect(state.mode).toBe("SETTINGS");
+  expect(state.settings?.edit?.kind).toBe("inline");
+  const edit = state.settings?.edit;
+  if (edit?.kind !== "inline") throw new Error("settings row did not open");
+  expect(edit.row).toBe(row);
+  setComposerText(edit.composer, value);
+  await press(key("return"));
+  expect(state.settings?.edit).toBe(null);
+}

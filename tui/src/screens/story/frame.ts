@@ -1,6 +1,6 @@
 import { StyledText, bg, fg, type ColorInput, type TextChunk } from "@opentui/core";
 import type { Palette, PaletteRole } from "../../palette.js";
-import { cellWidth, graphemeCells } from "../../cell-width.js";
+import { cellWidth, graphemeCells, isPrintableAscii } from "../../cell-width.js";
 import type { HitTarget } from "../../hit.js";
 
 export type LogoDisplayRole =
@@ -23,6 +23,11 @@ export interface FrameSegment {
   hit?: HitTarget;
   /** Raw composer grapheme at the first cell of this rendered text. */
   composerStart?: number;
+  /** Multi-buffer source identity and whether painted text maps to an edit. */
+  composerSource?: {
+    id: string;
+    editable: boolean;
+  };
   /** Raw story field at the first grapheme of this rendered text. */
   storySource?: {
     key: string;
@@ -126,7 +131,7 @@ function splitLine(line: FrameLine, at: number): [FrameLine, FrameLine, Omit<Fra
   for (const part of line) {
     let leftText = "";
     let rightText = "";
-    if (/^[\x00-\x7F]*$/.test(part.text)) {
+    if (isPrintableAscii(part.text)) {
       const end = position + part.text.length;
       if (end <= at) leftText = part.text;
       else if (position >= at) rightText = part.text;
@@ -306,7 +311,12 @@ export function fitLine(line: FrameLine, width: number): FrameLine {
     if (clippedSource) {
       const visible = text.slice(0, -1);
       if (visible.length > 0) result.push({ ...part, text: visible });
-      const { storySource: _storySource, composerStart: _composerStart, ...decoration } = part;
+      const {
+        storySource: _storySource,
+        composerStart: _composerStart,
+        composerSource: _composerSource,
+        ...decoration
+      } = part;
       result.push({ ...decoration, text: "…" });
     } else {
       result.push({ ...part, text });

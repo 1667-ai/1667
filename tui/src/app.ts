@@ -15,8 +15,8 @@ import { saveConfig, type ThemeName, type UserConfig } from "./config.js";
 import { createInteractiveFrameRuntime } from "./interactive-frame-runtime.js";
 import type { TuiFrameProfileReport } from "./frame-profile.js";
 import {
+  actionConflictsWithGeneration,
   isPlainNavigation,
-  MUTATING_ACTIONS,
   overlayTextInputActive,
   pasteInto,
   resolveKey,
@@ -29,7 +29,7 @@ import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
-import { beginSettingsPasteEdit } from "./settings-overlay-model.js";
+import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
   createPresentedInputQueue,
@@ -60,9 +60,10 @@ import { emptyStreamText } from "./stream-text.js";
 import { selectionAwarePartMenuAction } from "./selection-menu.js";
 import {
   EMPTY_NATIVE_SELECTION,
+  clearNativeSelectionIfMatches,
   consumesEmptyCopyShortcut,
   handleMainCopyShortcut,
-  nativeSelectionMatches,
+  mouseComposerSelectionMessage,
   syncMouseComposerSelection
 } from "./copy-actions.js";
 import {
@@ -345,16 +346,52 @@ export async function runInteractive(source: AppSource): Promise<void> {
       const native = selection.kind === "captured"
         ? selection.native ?? EMPTY_NATIVE_SELECTION
         : EMPTY_NATIVE_SELECTION;
-      if (controlCopy && handleMainCopyShortcut(
-        native,
-        state,
-        repaint,
-        requestQuit,
-        selection.kind === "captured" ? selection : undefined
-      )) return;
+      if (controlCopy) {
+        const copied = handleMainCopyShortcut(
+          native,
+          state,
+          repaint,
+          requestQuit,
+          selection.kind === "captured" ? selection : undefined
+        );
+        if (copied) {
+          if (selection.kind === "captured"
+            && selection.native !== null
+            && syncMouseComposerSelection(
+              selection.native,
+              state,
+              selection.composer
+            ) === "uneditable") {
+            clearNativeSelectionIfMatches(renderer, selection.native);
+            consumePresentedSelection(queuedSelection);
+          }
+          return;
+        }
+      }
       if (selection.kind === "captured" && selection.native !== null) {
-        syncMouseComposerSelection(selection.native, state, selection.composer);
-        if (nativeSelectionMatches(renderer, selection.native)) renderer.clearSelection();
+        const synced = syncMouseComposerSelection(
+          selection.native,
+          state,
+          selection.composer
+        );
+        if ((synced === "mixed" || synced === "uneditable")) {
+          clearNativeSelectionIfMatches(renderer, selection.native);
+        }
+        if (synced === "mixed" && queuedKey.name.toLowerCase() !== "escape") {
+          consumePresentedSelection(queuedSelection);
+          state.toast = mouseComposerSelectionMessage(state, synced);
+          repaint();
+          return;
+        }
+        if (synced === "uneditable" && queuedKey.name.toLowerCase() !== "escape") {
+          consumePresentedSelection(queuedSelection);
+          state.toast = mouseComposerSelectionMessage(state, synced);
+          repaint();
+          return;
+        }
+        if (synced !== "mixed" && synced !== "uneditable") {
+          clearNativeSelectionIfMatches(renderer, selection.native);
+        }
       }
       consumePresentedSelection(queuedSelection);
       return observeInputAdmission((admit) => handleKey(
@@ -386,14 +423,33 @@ export async function runInteractive(source: AppSource): Promise<void> {
         return;
       }
       if (selection.kind === "captured" && selection.native !== null) {
-        syncMouseComposerSelection(selection.native, state, selection.composer);
-        if (nativeSelectionMatches(renderer, selection.native)) renderer.clearSelection();
+        const synced = syncMouseComposerSelection(
+          selection.native,
+          state,
+          selection.composer
+        );
+        if (synced === "mixed" || synced === "uneditable") {
+          clearNativeSelectionIfMatches(renderer, selection.native);
+        }
+        if (synced === "mixed") {
+          consumePresentedSelection(queuedSelection);
+          state.toast = mouseComposerSelectionMessage(state, synced);
+          repaint();
+          return;
+        }
+        if (synced === "uneditable") {
+          consumePresentedSelection(queuedSelection);
+          state.toast = mouseComposerSelectionMessage(state, synced);
+          repaint();
+          return;
+        }
+        clearNativeSelectionIfMatches(renderer, selection.native);
       }
       consumePresentedSelection(queuedSelection);
       if (sanitizePastedText(text).length > 0
         && state.mode === "SETTINGS"
         && state.settings !== null) {
-        beginSettingsPasteEdit(state.settings, state.config);
+        openSettingsPasteTarget(state);
       }
       if (pasteInto(state, text)) { beginInteraction(state); repaint(); }
     }, () => retirePresentedSelection(renderer, queuedSelection));
@@ -480,14 +536,17 @@ export async function handleKey(
     && consumesEmptyCopyShortcut(state)) {
     return;
   }
-  if (key.ctrl && key.name === "c" && state.mode !== "EDITOR") return requestQuit();
+  if (key.ctrl && key.name === "c"
+    && state.mode !== "EDITOR") {
+    return requestQuit();
+  }
   const resolved = resolveKey(key, state.mode, {
     confirmingPrune: state.prune !== null,
     tagChoosingStatus: state.tag?.choosingStatus ?? false,
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
     commandsTags: state.commands?.view === "tags",
-    factEditor: state.editor?.target.kind === "fact",
+    factEditor: state.editor?.kind === "fact",
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,
@@ -515,7 +574,8 @@ export async function dispatch(
   state.quitArmed = false;
   // The part menu carries its own per-action guard (Copy stays legal during a
   // stream), so the blanket one would wrongly refuse it here.
-  if (generationBusy(state) && state.actions === null && MUTATING_ACTIONS.has(resolved.action)) {
+  if (generationBusy(state) && state.actions === null
+    && actionConflictsWithGeneration(resolved.action, state)) {
     state.toast = "stream running · esc stops it first";
     return repaint();
   }
@@ -545,8 +605,10 @@ export async function dispatch(
   else await navAction(resolved, state, source, context, requestQuit);
   // Native buffer offsets must not leak between the story, Direct, and the
   // full-screen editor when their rendered document changes.
-  const previousTextSurface = previousMode === "COMPOSE" || previousMode === "EDITOR";
-  const currentTextSurface = state.mode === "COMPOSE" || state.mode === "EDITOR";
+  const previousTextSurface = previousMode === "COMPOSE"
+    || previousMode === "EDITOR";
+  const currentTextSurface = state.mode === "COMPOSE"
+    || state.mode === "EDITOR";
   if (state.mode !== previousMode && (previousTextSurface || currentTextSurface)) {
     renderer?.clearSelection();
   }

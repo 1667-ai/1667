@@ -298,14 +298,23 @@ describe("hit map clickable chrome", () => {
     const state = initialState(source, false);
     state.stream = null;
     state.mode = "EDITOR";
+    const node = state.payload.path.at(-1)!;
     state.editor = {
-      nodeId: state.payload.path.at(-1)!.id,
+      kind: "document",
+      target: {
+        kind: "part",
+        node,
+        pathIndex: state.payload.path.length - 1,
+        savedNode: null
+      },
       title: "edit ¶ 13",
       placeholder: "",
       composer: createComposer("prose"),
+      initial: "prose",
+      returnMode: "NAV",
       conflict: null,
-      baseText: "prose"
-    } as never;
+      cutConfirmation: null
+    };
     const frame = render(state, 120, 30);
     const row = frame.findIndex((line) => plainLine(line).includes(state.model));
     expect(row).toBeGreaterThan(-1);

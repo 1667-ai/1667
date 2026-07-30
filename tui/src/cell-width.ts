@@ -53,6 +53,9 @@ export function isPrintableAscii(text: string): boolean {
 
 function graphemeWidth(grapheme: string): number {
   if (grapheme.length === 0 || COMBINING.test(grapheme)) return 0;
+  // OpenTUI's TextBuffer renders each tab as two cells. Keep wrapping,
+  // caret placement, and native selection projections on that same metric.
+  if (grapheme === "\t") return 2;
   // Extended_Pictographic includes symbols whose default presentation is
   // text (notably ⚑/⚐). Only default-emoji graphemes, explicit emoji
   // variation, flags, and keycaps consume two terminal cells.

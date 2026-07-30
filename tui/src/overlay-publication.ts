@@ -3,6 +3,7 @@ import type { SettingsView } from "../../shared/settings-v2-types.js";
 import { libraryRows } from "./library-model.js";
 import type { RuntimeState } from "./state.js";
 import { applyGenerationSettings } from "./runtime-settings.js";
+import { activeSettingsEdit } from "./settings-edit-state.js";
 import { reconcileSettingsOverlay } from "./settings-overlay-model.js";
 
 interface StoryCatalogSource { stories: StorySummary[] }
@@ -22,13 +23,16 @@ export function publishStories(
   source.stories = stories;
   const overlay = state.library;
   if (overlay === null) return;
-  const selectedId = libraryRows(overlay.stories, overlay.query)[overlay.cursor]?.id ?? null;
+  const query = overlay.query;
+  const selectedId = libraryRows(overlay.stories, query)[overlay.cursor]?.id ?? null;
   overlay.stories = stories;
-  const promptTargetId = overlay.prompt?.targetId;
+  const promptTargetId = overlay.prompt?.kind === "filter"
+    ? undefined
+    : overlay.prompt?.targetId;
   if (promptTargetId !== undefined && !stories.some(({ id }) => id === promptTargetId)) {
     overlay.prompt = null;
   }
-  const rows = libraryRows(stories, overlay.query);
+  const rows = libraryRows(stories, query);
   const preservedIndex = selectedId === null ? -1 : rows.findIndex((story) => story.id === selectedId);
   overlay.cursor = preservedIndex >= 0
     ? preservedIndex
@@ -44,13 +48,18 @@ export function publishSettingsView(
 ): void {
   source.settingsView = view;
   applyGenerationSettings(state, source, view.effective);
-  if (state.settings !== null) {
-    const message = reconcileSettingsOverlay(state.settings, view);
-    state.settings.view = view;
-    state.settings.result = null;
+  const overlay = state.settings;
+  if (overlay !== null) {
+    const message = reconcileSettingsOverlay(
+      overlay,
+      view,
+      activeSettingsEdit(state, overlay)
+    );
+    overlay.view = view;
+    overlay.result = null;
     if (message !== null) state.toast = message;
   }
-  if (state.settings !== null && !view.editable) {
+  if (overlay !== null && !view.editable) {
     state.toast = "legacy settings are read-only · draft kept";
   }
 }

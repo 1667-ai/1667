@@ -221,7 +221,10 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
   if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
   if (state.actions !== null) return currentPartActions(state)[index]?.id ?? null;
   if (state.library !== null) {
-    return libraryRows(state.library.stories, state.library.query)[index]?.id ?? null;
+    return libraryRows(
+      state.library.stories,
+      state.library.query
+    )[index]?.id ?? null;
   }
   if (state.commands !== null) {
     if (state.commands.view === "tags") {
@@ -282,7 +285,10 @@ function selectedListIdentity(state: MouseActionState): string | null {
     return entry === undefined ? null : `actions:${state.actions.partId}:${entry.id}`;
   }
   if (state.library !== null) {
-    const story = libraryRows(state.library.stories, state.library.query)[state.library.cursor];
+    const story = libraryRows(
+      state.library.stories,
+      state.library.query
+    )[state.library.cursor];
     return story === undefined ? null : `library:${story.id}`;
   }
   if (state.commands !== null) {

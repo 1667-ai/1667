@@ -8,49 +8,73 @@ import type {
   PromptCachePolicyV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
-import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
+import { applyBasicSettingsProbeDraft } from "../../shared/settings-basic-draft.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 
 /** The policy is the part the row cycles; the detail is what that choice
  * costs. The row keeps them apart so the arrows can sit on the policy alone
  * and the detail can follow the closing bracket. */
-export interface PromptCacheSummaryParts {
+interface PromptCacheSummaryAvailable {
+  readonly kind: "available";
   readonly policy: PromptCachePolicyV2;
   readonly detail: string;
 }
+
+interface PromptCacheSummaryUnavailable {
+  readonly kind: "unavailable";
+  readonly policy: PromptCachePolicyV2;
+  readonly detail: "unavailable";
+  readonly reason: string;
+  readonly compactReason: string;
+}
+
+export type PromptCacheSummaryParts =
+  | PromptCacheSummaryAvailable
+  | PromptCacheSummaryUnavailable;
 
 export function promptCacheSummaryParts(
   view: SettingsView,
   draft?: SettingsTextDraft
 ): PromptCacheSummaryParts {
   if (!view.editable) {
-    return { policy: "off", detail: "no opt-in controls · format 1" };
+    return {
+      kind: "available",
+      policy: "off",
+      detail: "no opt-in controls · format 1"
+    };
   }
   let document = view.document;
   if (draft !== undefined) {
     try {
       document = applyPromptCachePolicy(
-        applyBasicSettingsDraft(document, draft.generation),
+        applyBasicSettingsProbeDraft(document, draft.generation),
         draft.cachePolicy
       );
     } catch (error) {
       return {
+        kind: "unavailable",
         policy: draft.cachePolicy,
-        detail: `unavailable · ${error instanceof Error ? error.message : String(error)}`
+        detail: "unavailable",
+        reason: error instanceof Error ? error.message : String(error),
+        compactReason: "Fix invalid cache settings."
       };
     }
   }
   const context = promptCacheContextForDocument(document);
-  const presentation = promptCachePolicyPresentation(context, context.policy);
   const resolution = resolvePromptCacheCapability(context);
+  const presentation = promptCachePolicyPresentation(context, context.policy);
   if (!presentation.available) {
     return {
+      kind: "unavailable",
       policy: context.policy,
-      detail: `unavailable · ${presentation.unavailableReason ?? presentation.behavior}`
+      detail: "unavailable",
+      reason: presentation.unavailableReason,
+      compactReason: presentation.unavailableReasonCompact
     };
   }
   if (context.policy === "off") {
     return {
+      kind: "available",
       policy: "off",
       detail: resolution.kind === "available"
         && resolution.capability.kind === "openai-explicit"
@@ -60,11 +84,8 @@ export function promptCacheSummaryParts(
           : "no controls · TTL none"
     };
   }
-  if (resolution.kind === "unavailable") {
-    return {
-      policy: context.policy,
-      detail: `unavailable · ${presentation.behavior}`
-    };
+  if (resolution.kind !== "available") {
+    throw new Error("Available cache policy has no capability");
   }
   const behavior = resolution.capability.kind === "anthropic-explicit"
     ? "stable block"
@@ -79,6 +100,7 @@ export function promptCacheSummaryParts(
     ? "no premium"
     : `${writeMultiplier}× writes`;
   return {
+    kind: "available",
     policy: context.policy,
     detail: `${behavior} · ${presentation.compactTtl} · ${writeCost}`
   };

@@ -9,12 +9,9 @@ import { commandMatches } from "../src/command-model.js";
 import { connectionFailed, connectionSucceeded, createConnectionMonitor, retrySeconds } from "../src/connection.js";
 import {
   boundedFactSelection,
-  factEditorTagRange,
   factRows,
   factTagPresets,
-  factTags,
-  parseFactEditor,
-  serializeFactEditor
+  factTags
 } from "../src/facts-model.js";
 import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.js";
 import { libraryRows, libraryTotals, typedTitleMatches } from "../src/library-model.js";
@@ -81,61 +78,13 @@ describe("facts model", () => {
     expect(boundedFactSelection(facts.filter((fact) => fact.tag !== "Item"), selected, ""))
       .toEqual({ chip: 0, cursor: 0, selectedTag: null });
   });
-  test("fact editor round-trips tag header and strips guidance", () => {
-    expect(parseFactEditor("≻ guidance\ntag: Item\nBrass compass")).toEqual({ tag: "Item", text: "Brass compass" });
-    expect(parseFactEditor("just a note")).toEqual({ tag: null, text: "just a note" });
-    expect(parseFactEditor("tag: \nafter blank tag")).toEqual({ tag: null, text: "after blank tag" });
-  });
-
-  test("Fact body paragraph breaks never promote into the tag", () => {
-    // Writer deleted the blank after the header; a later body blank must stay body.
-    expect(parseFactEditor("tag: people\nFirst paragraph.\n\nSecond paragraph.")).toEqual({
-      tag: "people",
-      text: "First paragraph.\n\nSecond paragraph."
-    });
-    // Canonical separator immediately after the header still isolates the body.
-    expect(parseFactEditor("tag: people\n\nFirst paragraph.\n\nSecond paragraph.")).toEqual({
-      tag: "people",
-      text: "First paragraph.\n\nSecond paragraph."
-    });
-    // Legacy one-line documents keep the whole remainder as body.
-    expect(parseFactEditor("tag: Item\nBrass compass")).toEqual({
-      tag: "Item",
-      text: "Brass compass"
-    });
-  });
-
-  test("Fact tag ranges use composer grapheme offsets", () => {
-    expect(factEditorTagRange("tag: 👨‍👩‍👧‍👦\n\nBody stays whole."))
-      .toEqual({ start: 5, end: 6 });
-    expect(factEditorTagRange("tag: e\u0301\n\nBody stays whole."))
-      .toEqual({ start: 5, end: 6 });
-    // A distant body blank must not widen the editable tag range into the body.
-    expect(factEditorTagRange("tag: people\nFirst.\n\nSecond.")).toEqual({ start: 5, end: 11 });
-  });
-
-  test("multiline persisted Fact tags round-trip outside the reusable slider", () => {
+  test("multiline persisted Fact tags stay outside the reusable slider", () => {
     for (const separator of ["\n", "\r", "\u2028", "\u2029"]) {
       const tag = `weather${separator}urgent`;
       const fact = { id: "multiline", tag, text: "Body stays whole.", ...stamp };
-      const encoded = serializeFactEditor(fact);
 
-      expect(encoded.startsWith("tag-json: ")).toBeTrue();
-      expect(parseFactEditor(encoded)).toEqual({ tag, text: "Body stays whole." });
       expect(factTagPresets([fact])).not.toContain(tag);
     }
-  });
-
-  test("malformed tag-json is a parse error, not a blank tag", () => {
-    expect(parseFactEditor('tag-json: "weather\\nurgent\n\nBody stays whole.')).toBe(null);
-    expect(parseFactEditor("tag-json: {not-json}\n\nBody stays whole.")).toBe(null);
-    expect(parseFactEditor("tag-json: 42\n\nBody stays whole.")).toBe(null);
-    expect(parseFactEditor("tag-json: null\n\nBody stays whole.")).toBe(null);
-    // Empty JSON string still means intentional no-tag, not a parse error.
-    expect(parseFactEditor('tag-json: ""\n\nBody stays whole.')).toEqual({
-      tag: null,
-      text: "Body stays whole."
-    });
   });
 });
 

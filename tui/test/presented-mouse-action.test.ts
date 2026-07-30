@@ -411,6 +411,25 @@ describe("presented mouse reconciliation", () => {
       .toBe(null);
   });
 
+  test("freezes the live Library query with its presented frame", () => {
+    const state = initialState(demoAppSource(), false);
+    state.mode = "LIBRARY";
+    state.library = {
+      stories: demoAppSource().stories,
+      cursor: 0,
+      query: "the",
+      prompt: {
+        kind: "filter",
+        initial: { query: "", cursor: 0, storyId: state.payload.id }
+      }
+    };
+    const captured = captureMouseActionState(state);
+
+    state.library!.query = "winter";
+
+    expect(captured.library?.query).toBe("the");
+  });
+
   test("rebases a Fact double-click by Fact identity", () => {
     const state = initialState(demoAppSource(), false);
     state.mode = "FACTS";

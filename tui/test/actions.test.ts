@@ -441,7 +441,7 @@ describe("demo action pipeline", () => {
       stories: [{ id: open, title: state.payload.title, updatedAt: "", partCount: 1, words: 1, forked: false, lineCount: 1 }],
       cursor: 0,
       query: "",
-      prompt: { kind: "delete", value: state.payload.title }
+      prompt: { kind: "delete", value: state.payload.title, targetId: open }
     };
     await handleKey(key("return", "\r"), state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(created).toBeTrue();
@@ -850,9 +850,12 @@ describe("demo action pipeline", () => {
     await press("return", "\r");
 
     expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.target).toEqual({ kind: "fact", factId: null, base: null });
-    expect(state.editor?.composer.text).toBe("tag: \n\nThe lantern remembers.");
-    expect(state.editor?.returnMode).toBe("NAV");
+    expect(state.editor?.kind).toBe("fact");
+    if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
+    expect(state.editor.target).toEqual({ kind: "fact", factId: null, base: null });
+    expect(state.editor.tag.text).toBe("");
+    expect(state.editor.composer.text).toBe("The lantern remembers.");
+    expect(state.editor.returnMode).toBe("NAV");
     await pressKey(modifiedKey("s", { sequence: "\u0013", ctrl: true }));
     expect(state.payload.facts.some(({ text }) => text === "The lantern remembers.")).toBeTrue();
     expect(state.toast).toBe("fact created");

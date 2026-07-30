@@ -5,7 +5,14 @@ import { parsePartFile, serializePart } from "../src/editor.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
+import type { InlineEditorSession, RuntimeState } from "../src/state.js";
 import { editorHarness, key } from "./editor-harness.js";
+
+function documentEditor(state: RuntimeState): InlineEditorSession {
+  const editor = state.editor;
+  if (editor?.kind !== "document") throw new Error("expected a document editor");
+  return editor;
+}
 
 describe("inline editor", () => {
   test("round-trips instruction and multiline prose through the edit contract", () => {
@@ -30,7 +37,7 @@ describe("inline editor", () => {
 
     await press(key("e"));
     expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.target.kind).toBe("part");
+    expect(documentEditor(state).target.kind).toBe("part");
     expect(state.editor?.composer.text).toContain("\n---\n");
     setComposerText(state.editor!.composer, "new direction\n---\nnew prose");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
@@ -171,7 +178,7 @@ describe("inline editor", () => {
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");
 
     await press(key("w"));
-    expect(state.editor?.target.kind).toBe("human-take");
+    expect(documentEditor(state).target.kind).toBe("human-take");
     setComposerText(state.editor!.composer, "A human-written turn.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
@@ -188,7 +195,7 @@ describe("inline editor", () => {
     expect(summary?.kind).toBe("chapter-summary");
 
     await press(key("e"));
-    expect(state.editor?.target.kind).toBe("chapter-summary");
+    expect(documentEditor(state).target.kind).toBe("chapter-summary");
     setComposerText(state.editor!.composer, "A tighter human summary.");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect(state.mode).toBe("NAV");
@@ -227,7 +234,9 @@ describe("inline editor", () => {
     expect(frame).toContain("ctrl+o same take");
     expect(frame).not.toContain("n continues");
 
-    const original = state.editor!.initial;
+    const editor = state.editor;
+    if (editor?.kind !== "document") throw new Error("expected a document editor");
+    const original = editor.initial;
     await press(key("return", { sequence: "\r" }));
     expect(state.editor!.composer.text).toBe(`${original}\n`);
     await press(key("escape", { sequence: "\u001b" }));
@@ -288,7 +297,9 @@ describe("inline editor", () => {
     await saving;
 
     expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.initial).toBe(submitted);
+    expect(state.editor?.kind).toBe("document");
+    expect(state.editor?.kind === "document" ? state.editor.initial : null)
+      .toBe(submitted);
     expect(state.editor?.composer.text).toBe(`${submitted}x`);
     expect(state.toast).toBe("take updated in place · newer edits kept");
     await press(key("o", { sequence: "\u000f", ctrl: true }));
@@ -323,7 +334,7 @@ describe("inline editor", () => {
 
     expect(editedId).toBe("p12");
     expect(state.payload.path.at(-1)?.id).toBe("p5-alt");
-    expect(state.editor?.target).toMatchObject({
+    expect(documentEditor(state).target).toMatchObject({
       kind: "part",
       node: { id: "p12", text: savedProse }
     });
@@ -362,7 +373,7 @@ describe("inline editor", () => {
     release();
     await saving;
 
-    expect(state.editor?.target).toMatchObject({ kind: "human-take" });
+    expect(documentEditor(state).target).toMatchObject({ kind: "human-take" });
     expect(state.editor?.composer.text).toBe("first savex");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect({ creates, edits }).toEqual({ creates: 1, edits: 1 });

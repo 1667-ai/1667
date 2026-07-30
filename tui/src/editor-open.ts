@@ -1,9 +1,18 @@
 import type { StoryFact } from "../../shared/types.js";
 import { createComposer } from "./composer-model.js";
+import { initializeFactEditorHistory } from "./fact-editor-policy.js";
 import { serializePart, stripGuidance } from "./editor.js";
-import { serializeFactEditor } from "./facts-model.js";
 import { createStoryViewModel, rowPart } from "./model.js";
-import type { InlineEditorSession, RuntimeState } from "./state.js";
+import type {
+  FactEditorSession,
+  InlineEditorSession,
+  RuntimeState
+} from "./state.js";
+
+export {
+  openSettingsPasteTarget,
+  openSystemPromptEditor
+} from "./settings-prompt-editor.js";
 
 export function openPartEditor(state: RuntimeState, humanSibling: boolean): void {
   const part = rowPart(createStoryViewModel(state.payload), state.focusIndex);
@@ -28,32 +37,44 @@ export function openPartEditor(state: RuntimeState, humanSibling: boolean): void
 }
 
 export function openFactEditor(state: RuntimeState, fact: StoryFact | null): void {
-  const initial = serializeFactEditor(fact);
-  openInlineEditor(state, {
+  const text = fact?.text ?? "";
+  const composer = createComposer(text);
+  const editor: Omit<FactEditorSession, "kind"> = {
     target: { kind: "fact", factId: fact?.id ?? null, base: fact },
-    composer: createComposer(initial),
-    initial,
+    composer,
+    tag: createComposer(fact?.tag ?? ""),
+    focus: "body",
+    initialFact: { tag: fact?.tag ?? null, text },
     title: `${fact === null ? "new" : "edit"} fact`,
-    placeholder: "tag: optional\n\nfact text…",
+    placeholder: "fact text…",
     returnMode: "FACTS",
     conflict: null,
-    cutConfirmation: null
-  });
+    cutConfirmation: null,
+    tagCutConfirmation: null
+  };
+  initializeFactEditorHistory(editor);
+  openFactSession(state, editor);
 }
 
 export function openFactFromSelection(state: RuntimeState, text: string): void {
-  const initial = `tag: \n\n${text}`;
-  openInlineEditor(state, {
+  const composer = createComposer(text);
+  if (text.length > 0) composer.anchor = 0;
+  const editor: Omit<FactEditorSession, "kind"> = {
     target: { kind: "fact", factId: null, base: null },
-    composer: createComposer(initial),
+    composer,
+    tag: createComposer(""),
+    focus: "body",
     // This prefill is an unsaved draft, so Ctrl+S must create it unchanged.
-    initial: serializeFactEditor(null),
+    initialFact: { tag: null, text: "" },
     title: "new fact from selection",
-    placeholder: "tag: optional\n\nfact text…",
+    placeholder: "fact text…",
     returnMode: "NAV",
     conflict: null,
-    cutConfirmation: null
-  });
+    cutConfirmation: null,
+    tagCutConfirmation: null
+  };
+  initializeFactEditorHistory(editor);
+  openFactSession(state, editor);
 }
 
 export function openChapterSummaryEditor(
@@ -74,9 +95,20 @@ export function openChapterSummaryEditor(
   });
 }
 
-function openInlineEditor(state: RuntimeState, editor: InlineEditorSession): void {
-  editor.composer.fullscreen = true;
-  state.editor = editor;
+function openInlineEditor(
+  state: RuntimeState,
+  editor: Omit<InlineEditorSession, "kind">
+): void {
+  state.editor = { kind: "document", ...editor };
+  state.editorScrollTop = 0;
+  state.mode = "EDITOR";
+}
+
+function openFactSession(
+  state: RuntimeState,
+  editor: Omit<FactEditorSession, "kind">
+): void {
+  state.editor = { kind: "fact", ...editor };
   state.editorScrollTop = 0;
   state.mode = "EDITOR";
 }

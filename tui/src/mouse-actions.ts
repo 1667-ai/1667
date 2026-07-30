@@ -193,7 +193,17 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
       openedColdFolds: new Set(state.map.openedColdFolds)
     },
     actions: state.actions === null ? null : { ...state.actions },
-    library: state.library === null ? null : { ...state.library },
+    library: state.library === null ? null : {
+      ...state.library,
+      prompt: state.library.prompt === null
+        ? null
+        : state.library.prompt.kind === "filter"
+          ? {
+              ...state.library.prompt,
+              initial: { ...state.library.prompt.initial }
+            }
+          : { ...state.library.prompt }
+    },
     facts: state.facts === null ? null : { ...state.facts },
     commands: state.commands === null ? null : { ...state.commands },
     chapters: state.chapters === null ? null : { ...state.chapters },

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
 import { parseSettingsDocumentV2 } from "../../server/settings-v2-codec.js";
 import { effectiveGenerationRuntime } from "../../server/settings-v2-conversion.js";
 import {
@@ -12,14 +11,10 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
-import { createFailureEnvelope } from "../../shared/failure-envelope.js";
-import { ActionRuntime } from "../src/action-runtime.js";
-import { handleKey, initialState } from "../src/app.js";
 import {
   selectedComposerText,
   setComposerText
 } from "../src/composer-model.js";
-import { demoAppSource } from "../src/demo.js";
 import { pasteInto } from "../src/keys.js";
 import {
   beginSettingsPasteEdit,
@@ -27,7 +22,6 @@ import {
   settingsDraftChanged,
   settingsRowCycles
 } from "../src/settings-overlay-model.js";
-import { publishSettingsView } from "../src/overlay-publication.js";
 import {
   localProviderPresetsSupported,
   selectableSettingsProviderChoices,
@@ -37,91 +31,15 @@ import {
 } from "../src/settings-provider-choices.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
-import type { SettingsRowId } from "../src/state.js";
-import { WorkerApiError } from "../src/worker-api.js";
-import { createWrapCache, type ProseStyle } from "../src/wrap.js";
-
-function key(
-  name: string,
-  options: { sequence?: string; ctrl?: boolean; shift?: boolean; meta?: boolean } = {}
-): KeyEvent {
-  return {
-    name,
-    sequence: options.sequence ?? name,
-    shift: options.shift ?? false,
-    ctrl: options.ctrl ?? false,
-    meta: options.meta ?? false
-  } as KeyEvent;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
-
-function generationFromProbeTarget(target: ProviderProbeTarget) {
-  return "kind" in target
-    ? basicSettingsFromDocument(target.document)
-    : target;
-}
-
-function harness() {
-  const source = demoAppSource();
-  const state = initialState(source, false);
-  const cache = createWrapCache<ProseStyle>();
-  const backend = new ActionRuntime(state, () => undefined);
-  const press = (event: KeyEvent) => handleKey(
-    event,
-    state,
-    source,
-    cache,
-    () => undefined,
-    async () => undefined,
-    () => undefined,
-    null,
-    (theme) => {
-      state.config = { ...state.config, theme };
-      source.config = state.config;
-    },
-    () => undefined,
-    backend
-  );
-  return { source, state, cache, backend, press };
-}
-
-async function openSettings(
-  press: (event: KeyEvent) => Promise<void>
-): Promise<void> {
-  await press(key(",", { sequence: "," }));
-}
-
-async function selectRow(
-  press: (event: KeyEvent) => Promise<void>,
-  state: ReturnType<typeof harness>["state"],
-  row: SettingsRowId
-): Promise<void> {
-  const target = SETTINGS_ROW_IDS.indexOf(row);
-  while (state.settings!.cursor < target) await press(key("down"));
-  while (state.settings!.cursor > target) await press(key("up"));
-}
-
-async function draftRow(
-  press: (event: KeyEvent) => Promise<void>,
-  state: ReturnType<typeof harness>["state"],
-  row: SettingsRowId,
-  value: string
-): Promise<void> {
-  await selectRow(press, state, row);
-  await press(key("return"));
-  expect(state.mode).toBe("SETTINGS");
-  expect(state.settings?.edit?.row).toBe(row);
-  setComposerText(state.settings!.edit!.composer, value);
-  await press(key("return"));
-  expect(state.settings?.edit).toBe(null);
-}
+import {
+  deferred,
+  draftRow,
+  generationFromProbeTarget,
+  key,
+  openSettings,
+  selectRow,
+  settingsHarness as harness
+} from "./settings-test-harness.js";
 
 describe("inline settings menu", () => {
   test("up/down selects every row; Enter edits text and advances closed choices", async () => {
@@ -131,12 +49,24 @@ describe("inline settings menu", () => {
     for (const [index, row] of SETTINGS_ROW_IDS.entries()) {
       expect(state.settings?.cursor).toBe(index);
       await press(key("return"));
-      expect(state.mode).toBe("SETTINGS");
-      expect(state.editor).toBe(null);
-      if (settingsRowCycles(row)) {
+      if (row === "system-prompt") {
+        expect(state.mode).toBe("EDITOR");
+        expect(state.editor?.kind).toBe("document");
+        expect(state.settings?.edit).toBe(null);
+        expect(state.settings).not.toBe(null);
+        await press(key("escape"));
+        expect(state.mode).toBe("SETTINGS");
+      } else if (settingsRowCycles(row)) {
+        expect(state.mode).toBe("SETTINGS");
+        expect(state.editor).toBe(null);
         expect(state.settings?.edit).toBe(null);
       } else {
-        expect(state.settings?.edit?.row).toBe(row);
+        expect(state.mode).toBe("SETTINGS");
+        expect(state.editor).toBe(null);
+        expect(state.settings?.edit?.kind).toBe("inline");
+        if (state.settings?.edit?.kind === "inline") {
+          expect(state.settings.edit.row).toBe(row);
+        }
         await press(key("escape"));
         expect(state.mode).toBe("SETTINGS");
       }
@@ -297,7 +227,10 @@ describe("inline settings menu", () => {
 
     await selectRow(press, state, "model");
     expect(beginSettingsPasteEdit(state.settings!, state.config)).toBeTrue();
-    expect(state.settings?.edit?.row).toBe("model");
+    expect(state.settings?.edit?.kind).toBe("inline");
+    if (state.settings?.edit?.kind === "inline") {
+      expect(state.settings.edit.row).toBe("model");
+    }
   });
 
   test("legacy settings keep local rows editable while server rows remain read-only", async () => {
@@ -324,35 +257,6 @@ describe("inline settings menu", () => {
     await press(key("return"));
     expect(state.settings?.edit).toBe(null);
     expect(state.toast).toBe("legacy settings are read-only");
-  });
-
-  test("system-prompt edits preserve unrelated stored whitespace", async () => {
-    const { source, state, press } = harness();
-    const prompt = "Keep  this\tspacing\nand indentation.";
-    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
-    source.settingsView = {
-      ...source.settingsView,
-      document: applyBasicSettingsDraft(source.settingsView.document, {
-        ...source.settings,
-        systemPrompt: prompt
-      }),
-      effective: { ...source.settings, systemPrompt: prompt }
-    };
-    source.api.getSettings = async () => source.settingsView;
-    await openSettings(press);
-
-    await selectRow(press, state, "system-prompt");
-    await press(key("return"));
-    expect(state.settings?.edit?.composer.text).toBe(JSON.stringify(prompt));
-    setComposerText(
-      state.settings!.edit!.composer,
-      state.settings!.edit!.composer.text.replace("indentation", "structure")
-    );
-    await press(key("return"));
-
-    expect(state.settings?.draft.generation.systemPrompt)
-      .toBe("Keep  this\tspacing\nand structure.");
-    expect(settingsDraftChanged(state.settings!)).toBeTrue();
   });
 
   test("provider is a closed selector and invalid complete drafts never reach the backend", async () => {
@@ -530,7 +434,10 @@ describe("inline settings menu", () => {
 
     expect(beginSettingsPasteEdit(state.settings!, state.config)).toBeTrue();
     expect(pasteInto(state, "sk-pasted-secret")).toBeTrue();
-    expect(state.settings?.edit?.mode).toBe("secret");
+    expect(state.settings?.edit?.kind).toBe("inline");
+    if (state.settings?.edit?.kind === "inline") {
+      expect(state.settings.edit.mode).toBe("secret");
+    }
     const editingFrame = renderStoryScreen(
       state,
       { width: 80, height: 24, wrapCache: cache }
@@ -679,51 +586,6 @@ describe("inline settings menu", () => {
     expect(state.settings?.draft.generation.allowInsecureHttp).toBe(undefined);
   });
 
-  test("cache policy is a selector that keeps every policy reachable", async () => {
-    const { state, cache, press } = harness();
-    await openSettings(press);
-    await selectRow(press, state, "cache-policy");
-    expect(state.settings?.draft.cachePolicy).toBe("off");
-
-    await press(key("return"));
-    expect(state.settings?.edit).toBe(null);
-    expect(state.settings?.draft.cachePolicy).toBe("auto");
-    await press(key("right"));
-    expect(state.settings?.draft.cachePolicy).toBe("long");
-    await press(key("right"));
-    expect(state.settings?.draft.cachePolicy).toBe("off");
-    await press(key("left"));
-    expect(state.settings?.draft.cachePolicy).toBe("long");
-
-    // The demo route cannot honour a policy, and the row says so rather than
-    // hiding the choice behind a skipped step.
-    const rendered = frameText(renderStoryScreen(
-      state,
-      { width: 80, height: 24, wrapCache: cache }
-    ).lines);
-    expect(rendered).toContain("▸ cache policy");
-    expect(rendered).toContain("‹ long ›");
-    expect(rendered).toContain("↑↓ move · ←→ choose · ↵ next · s save");
-  });
-
-  test("cache policy states its cost beside the chosen policy", async () => {
-    const { state, cache, press } = harness();
-    await openSettings(press);
-    await selectRow(press, state, "provider");
-    while (state.settings?.draft.generation.provider !== "anthropic") {
-      await press(key("right"));
-    }
-    await draftRow(press, state, "model", "claude-sonnet-5");
-    await selectRow(press, state, "cache-policy");
-    await press(key("right"));
-
-    const rendered = frameText(renderStoryScreen(
-      state,
-      { width: 100, height: 30, wrapCache: cache }
-    ).lines);
-    expect(rendered).toContain("‹ auto › · stable block · 5m · 1.25× writes");
-  });
-
   test("the selected row and inline field render inside Settings", async () => {
     const { state, cache, press } = harness();
     await openSettings(press);
@@ -746,32 +608,6 @@ describe("inline settings menu", () => {
     expect(rendered).toContain("←→ cursor · ↵ keep row · esc cancel");
   });
 
-  test("short narrow panels keep the selected wide-character field and caret visible", async () => {
-    const { state, cache, press } = harness();
-    await openSettings(press);
-    await selectRow(press, state, "system-prompt");
-    await press(key("return"));
-    setComposerText(state.settings!.edit!.composer, `${"界".repeat(40)}END`);
-
-    let rendered = frameText(renderStoryScreen(
-      state,
-      { width: 60, height: 20, wrapCache: cache }
-    ).lines);
-
-    expect(rendered).toContain("▸ system prompt");
-    expect(rendered).toContain("END▏]");
-    expect(rendered).not.toContain("▸ provider");
-
-    for (let height = 10; height <= 14; height += 1) {
-      rendered = frameText(renderStoryScreen(
-        state,
-        { width: 60, height, wrapCache: cache }
-      ).lines);
-      expect(rendered).toContain("▸ system prompt");
-      expect(rendered).toContain("END▏]");
-    }
-  });
-
   test("server checks use the unsaved inline draft", async () => {
     const { source, state, press } = harness();
     let checkedModel: string | null = null;
@@ -786,7 +622,10 @@ describe("inline settings menu", () => {
     expect(checkedModel).toBe("draft-model");
     expect(state.settings?.result?.message).toBe("draft ready");
     await press(key("return"));
-    expect(state.settings?.edit?.row).toBe("model");
+    expect(state.settings?.edit?.kind).toBe("inline");
+    if (state.settings?.edit?.kind === "inline") {
+      expect(state.settings.edit.row).toBe("model");
+    }
     expect(state.settings?.result).toBe(null);
   });
 
@@ -1039,7 +878,10 @@ describe("inline settings menu", () => {
     // Editing stays available for the retry.
     await selectRow(press, state, "model");
     await press(key("return"));
-    expect(state.settings?.edit?.row).toBe("model");
+    expect(state.settings?.edit?.kind).toBe("inline");
+    if (state.settings?.edit?.kind === "inline") {
+      expect(state.settings.edit.row).toBe("model");
+    }
   });
 
   test("a save whose activation commits reports active credentials without a restart", async () => {
@@ -1087,264 +929,4 @@ describe("inline settings menu", () => {
     expect(state.settings?.view.effective.model).toBe("gpt-5.6");
   });
 
-  test("a staged view stays fully editable and can retry, check, or discard", async () => {
-    const { source, state, press } = harness();
-    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
-    const active = source.settingsView;
-    const candidateSettings = { ...source.settings, model: "candidate-model" };
-    const staged = {
-      ...active,
-      stateGeneration: active.stateGeneration + 3,
-      pendingRevision: active.activeRevision + 1,
-      document: applyBasicSettingsDraft(active.document, candidateSettings),
-      lastActivationOutcome: {
-        transactionId: "m1.0000000000000.00000000000000000000000000000000",
-        candidateRevision: active.activeRevision + 1,
-        result: "validation-failed" as const,
-        errorCode: "candidate_invalid" as const,
-        atStateGeneration: active.stateGeneration + 3
-      }
-    };
-    source.settingsView = staged;
-    source.api.getSettings = async () => source.settingsView;
-    const probes: ProviderProbeTarget[] = [];
-    source.api.checkModelServer = async (target) => {
-      probes.push(target);
-      return { state: "ready", message: "staged candidate is reachable" };
-    };
-    let expectedGeneration: number | null = null;
-    source.api.discardPendingSettings = async (command) => {
-      expectedGeneration = command.expectedStateGeneration;
-      source.settingsView = {
-        ...active,
-        stateGeneration: staged.stateGeneration + 1,
-        pendingRevision: null
-      };
-      return {
-        kind: "settings",
-        settingsStateGeneration: source.settingsView.stateGeneration,
-        activeSettingsRevision: source.settingsView.activeRevision,
-        pendingSettingsRevision: null,
-        activationOutcome: null
-      };
-    };
-
-    await openSettings(press);
-    // The overlay edits the staged candidate document, not the active one.
-    expect(state.settings?.draft.generation.model).toBe("candidate-model");
-    await draftRow(press, state, "model", "fixed-model");
-    expect(state.settings?.draft.generation.model).toBe("fixed-model");
-    expect(settingsDraftChanged(state.settings!)).toBeTrue();
-
-    // check server probes the edited draft over the staged document.
-    await press(key("c"));
-    expect(probes).toHaveLength(1);
-    expect(generationFromProbeTarget(probes[0]!).model).toBe("fixed-model");
-
-    await press(key("x"));
-    expect(expectedGeneration).toBe(staged.stateGeneration);
-    expect(state.settings?.view.pendingRevision).toBe(null);
-  });
-
-  test("s retries a staged activation without requiring an edit first", async () => {
-    const { source, state, press } = harness();
-    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
-    const active = source.settingsView;
-    const candidateSettings = { ...source.settings, model: "candidate-model" };
-    const staged = {
-      ...active,
-      stateGeneration: active.stateGeneration + 3,
-      pendingRevision: active.activeRevision + 1,
-      document: applyBasicSettingsDraft(active.document, candidateSettings),
-      lastActivationOutcome: {
-        transactionId: "m1.0000000000000.00000000000000000000000000000000",
-        candidateRevision: active.activeRevision + 1,
-        result: "validation-failed" as const,
-        errorCode: "candidate_invalid" as const,
-        atStateGeneration: active.stateGeneration + 3
-      }
-    };
-    source.settingsView = staged;
-    source.api.getSettings = async () => source.settingsView;
-    const commands: SaveSettingsCommand[] = [];
-    source.api.saveSettings = async (command) => {
-      commands.push(command);
-      const candidateRevision = staged.pendingRevision + 1;
-      const outcome = {
-        transactionId: command.mutationId,
-        candidateRevision,
-        result: "committed" as const,
-        errorCode: null,
-        atStateGeneration: staged.stateGeneration + 6
-      };
-      source.settingsView = {
-        ...active,
-        stateGeneration: staged.stateGeneration + 6,
-        activeRevision: candidateRevision,
-        pendingRevision: null,
-        document: command.document,
-        effective: basicSettingsFromDocument(command.document),
-        lastActivationOutcome: outcome
-      };
-      return {
-        kind: "settings",
-        settingsStateGeneration: staged.stateGeneration + 1,
-        activeSettingsRevision: staged.activeRevision,
-        pendingSettingsRevision: candidateRevision,
-        activationOutcome: outcome
-      };
-    };
-
-    await openSettings(press);
-    expect(settingsDraftChanged(state.settings!)).toBeFalse();
-    await press(key("s"));
-
-    expect(commands).toHaveLength(1);
-    expect(basicSettingsFromDocument(commands[0]!.document).model)
-      .toBe("candidate-model");
-    expect(commands[0]!.expectedStateGeneration).toBe(staged.stateGeneration);
-    expect(state.toast).toBe("settings saved · credentials active");
-    expect(state.settings?.view.pendingRevision).toBe(null);
-  });
-
-  test("revision conflicts refresh the base while retaining the inline draft", async () => {
-    const { source, state, press } = harness();
-    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
-    const original = source.settingsView;
-    const refreshedSettings = { ...original.effective, maxTokens: 4_096 };
-    const refreshed = {
-      ...original,
-      stateGeneration: original.stateGeneration + 1,
-      activeRevision: original.activeRevision + 1,
-      document: applyBasicSettingsDraft(original.document, refreshedSettings),
-      effective: refreshedSettings
-    };
-    const commands: SaveSettingsCommand[] = [];
-    let current: SettingsView = original;
-    source.api.saveSettings = async (command) => {
-      commands.push(command);
-      if (commands.length === 1) {
-        current = refreshed;
-        throw new WorkerApiError(createFailureEnvelope({
-          code: "revision_conflict",
-          message: "Settings changed since this edit began.",
-          status: 409
-        }));
-      }
-      if (!current.editable) throw new Error("refreshed settings must be editable");
-      const effective = basicSettingsFromDocument(command.document);
-      current = {
-        ...current,
-        stateGeneration: current.stateGeneration + 1,
-        activeRevision: current.activeRevision + 1,
-        document: command.document,
-        effective
-      };
-      return {
-        kind: "settings",
-        settingsStateGeneration: current.stateGeneration,
-        activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null,
-        activationOutcome: null
-      };
-    };
-    source.api.getSettings = async () => current;
-    await openSettings(press);
-    await draftRow(press, state, "max-tokens", "1024");
-
-    await press(key("s"));
-    expect(commands).toHaveLength(1);
-    expect(state.settings?.draft.generation.maxTokens).toBe(1_024);
-    expect(state.settings?.base.generation.maxTokens).toBe(4_096);
-    expect(state.settings?.conflict?.armed).toBeFalse();
-
-    await press(key("s"));
-    expect(commands).toHaveLength(1);
-    expect(state.settings?.conflict?.armed).toBeTrue();
-    await press(key("s"));
-    expect(commands).toHaveLength(2);
-    expect(commands[1]!.mutationId).not.toBe(commands[0]!.mutationId);
-    expect(state.settings?.draft.generation.maxTokens).toBe(1_024);
-  });
-
-  test("an authoritative refresh matching the draft clears conflict state", async () => {
-    const { source, state, press } = harness();
-    let saves = 0;
-    source.api.saveSettings = async () => {
-      saves += 1;
-      throw new Error("matching drafts must not save");
-    };
-    await openSettings(press);
-    await draftRow(press, state, "max-tokens", "1024");
-    const current = source.settingsView;
-    if (!current.editable) throw new Error("demo settings must be editable");
-    const document = applyBasicSettingsDraft(current.document, {
-      ...state.settings!.draft.generation,
-      maxTokens: 1_024
-    });
-    const converged: SettingsView = {
-      ...current,
-      stateGeneration: current.stateGeneration + 1,
-      activeRevision: current.activeRevision + 1,
-      document,
-      effective: basicSettingsFromDocument(document)
-    };
-
-    publishSettingsView(state, source, converged);
-
-    expect(state.settings?.conflict).toBe(null);
-    expect(settingsDraftChanged(state.settings!)).toBeFalse();
-    await press(key("s"));
-    expect(saves).toBe(0);
-    expect(state.toast).toBe(null);
-  });
-
-  test("unknown save outcomes retry the frozen command and keep newer row drafts", async () => {
-    const { source, state, press } = harness();
-    let current = source.settingsView;
-    const commands: SaveSettingsCommand[] = [];
-    source.api.saveSettings = async (command) => {
-      commands.push(command);
-      if (commands.length === 1) throw new Error("lost reply");
-      if (!current.editable) throw new Error("demo settings must be editable");
-      const effective = basicSettingsFromDocument(command.document);
-      current = {
-        ...current,
-        stateGeneration: current.stateGeneration + 1,
-        activeRevision: current.activeRevision + 1,
-        document: command.document,
-        effective
-      };
-      return {
-        kind: "settings",
-        settingsStateGeneration: current.stateGeneration,
-        activeSettingsRevision: current.activeRevision,
-        pendingSettingsRevision: null,
-        activationOutcome: null
-      };
-    };
-    source.api.getSettings = async () => current;
-    await openSettings(press);
-    await draftRow(press, state, "max-tokens", "1024");
-    try {
-      await press(key("s"));
-    } catch (error) {
-      expect((error as Error).message).toBe("lost reply");
-    }
-    await draftRow(press, state, "max-tokens", "512");
-    await press(key("s"));
-
-    expect(commands).toHaveLength(2);
-    const { transportOperationId: firstTransport, ...firstDurable } = commands[0]!;
-    const { transportOperationId: secondTransport, ...secondDurable } = commands[1]!;
-    expect(secondDurable).toEqual(firstDurable);
-    expect(secondTransport).not.toBe(firstTransport);
-    expect(state.settings?.draft.generation.maxTokens).toBe(512);
-    expect(state.toast).toBe("settings saved · newer edits kept");
-
-    await press(key("s"));
-    expect(commands).toHaveLength(3);
-    expect(commands[2]!.mutationId).not.toBe(commands[1]!.mutationId);
-    expect(state.settings?.draft.generation.maxTokens).toBe(512);
-  });
 });

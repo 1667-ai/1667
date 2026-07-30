@@ -17,20 +17,27 @@ import { applyComposerEdit } from "./composer-editing.js";
 import { readFromClipboard } from "./clipboard.js";
 import { saveConfig, THEME_NAMES, type ThemeName } from "./config.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
+import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
-import { detectSettingsContext } from "./settings-context-detection.js";
-import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
+import {
+  checkSettings,
+  detectSettingsContext
+} from "./settings-context-detection.js";
+import {
+  openSettingsPasteTarget,
+  openSystemPromptEditor
+} from "./settings-prompt-editor.js";
+import { activeSettingsEdit } from "./settings-edit-state.js";
 import {
   applySettingsRowEdit,
   applyStoredApiKeyIntent,
-  beginSettingsPasteEdit,
   beginSettingsRowEdit,
   boundedSettingsCursor,
   cycleAllowInsecureHttp,
   cyclePromptCachePolicy,
   cycleSettingsProvider,
+  disarmSettingsConflict,
   initialSettingsOverlay,
-  sameGenerationSettings,
   sameSettingsDraft,
   SETTINGS_ROW_IDS,
   settingsActivationFailureText,
@@ -39,6 +46,7 @@ import {
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
+
 import type {
   RuntimeState,
   SettingsOverlayState,
@@ -84,10 +92,16 @@ export async function settingsOverlayAction(
       state.mode = "NAV";
     }
   } else if (resolved.action === "paste-clipboard") {
-    if (beginSettingsPasteEdit(overlay, state.config)) {
+    const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+    const target = openSettingsPasteTarget(state);
+    if (target === "editor") {
+      const editor = state.editor;
+      if (editor !== null) {
+        await inlineEditorAction(resolved, state, source, context);
+      }
+    } else if (target === "inline") {
       await settingsInlineEditAction(resolved, state, source, context, overlay);
     } else {
-      const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
       if (settingsRowCycles(row)) {
         state.toast = "this row is a selector · use ←→";
       } else if (!overlay.view.editable) {
@@ -109,6 +123,8 @@ export async function settingsOverlayAction(
       cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
+    } else if (row === "system-prompt") {
+      openSystemPromptEditor(state);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -140,7 +156,8 @@ async function settingsInlineEditAction(
   context: ActionContext,
   overlay: SettingsOverlayState
 ): Promise<void> {
-  const edit = overlay.edit!;
+  const edit = overlay.edit;
+  if (edit?.kind !== "inline") return;
   if (resolved.action === "paste-clipboard") {
     const inputClaim = {
       interactionVersion: state.interactionVersion,
@@ -177,14 +194,14 @@ async function settingsInlineEditAction(
       applyComposeFocus(state, source, applied.value);
       return;
     }
-    if (overlay.conflict !== null) overlay.conflict.armed = false;
+    disarmSettingsConflict(overlay);
     if (settingsDraftChanged(overlay)) {
       state.toast = "draft updated · s saves settings";
     }
     return;
   }
   if (resolved.action === "input") {
-    if (overlay.conflict !== null) overlay.conflict.armed = false;
+    disarmSettingsConflict(overlay);
     insertComposerText(edit.composer, resolved.text ?? "");
     return;
   }
@@ -194,9 +211,7 @@ async function settingsInlineEditAction(
     resolved.extendSelection
   );
   if (kind !== null) {
-    if (kind === "delete" && overlay.conflict !== null) {
-      overlay.conflict.armed = false;
-    }
+    if (kind === "delete") disarmSettingsConflict(overlay);
     return;
   }
 }
@@ -206,10 +221,10 @@ function pasteSettingsInlineEdit(
   raw: string
 ): boolean {
   const edit = overlay.edit;
-  if (edit === null) return false;
+  if (edit?.kind !== "inline") return false;
   const clean = sanitizePastedText(raw);
   if (clean.length === 0) return false;
-  if (overlay.conflict !== null) overlay.conflict.armed = false;
+  disarmSettingsConflict(overlay);
   insertComposerText(edit.composer, clean.replace(/\n+/g, " "));
   return true;
 }
@@ -255,7 +270,6 @@ async function saveSettingsDraft(
       if (!presentation.available) {
         throw new Error(
           presentation.unavailableReason
-            ?? "The selected prompt-cache policy is unavailable."
         );
       }
     } catch (error) {
@@ -301,7 +315,7 @@ async function saveSettingsDraft(
       const refreshed = await source.api.getSettings();
       if (!task.owns()) return;
       publishSettingsView(state, source, refreshed);
-      state.toast = "settings changed elsewhere · latest revision loaded, draft kept";
+      state.toast = "settings changed elsewhere · latest settings loaded, draft kept";
       return;
     }
     const saved = await source.api.getSettings();
@@ -312,6 +326,7 @@ async function saveSettingsDraft(
     const newerEdits = settleSettingsOverlaySave(
       overlay,
       intent.draft,
+      activeSettingsEdit(state, overlay),
       intent.connectionSecrets
     );
     const message = settingsSaveMessage(result);
@@ -361,7 +376,7 @@ async function discardPendingSettings(
       const view = await source.api.getSettings();
       if (!task.owns()) return;
       publishSettingsView(state, source, view);
-      state.toast = "settings changed elsewhere · refreshed latest revision";
+      state.toast = "settings changed elsewhere · refreshed latest settings";
       return;
     }
     const view = await source.api.getSettings();
@@ -369,38 +384,6 @@ async function discardPendingSettings(
     delete overlay.discardIntent;
     publishSettingsView(state, source, view);
     state.toast = "pending settings discarded";
-  });
-}
-
-async function checkSettings(
-  state: RuntimeState,
-  source: AppSource,
-  context: ActionContext,
-  overlay: SettingsOverlayState
-): Promise<void> {
-  await context.backend.run("checking model server", async (task) => {
-    if (state.settings !== overlay) return;
-    overlay.checking = true;
-    overlay.result = null;
-    context.repaint();
-    try {
-      const checked = overlay.view.editable
-        ? overlay.draft.generation
-        : overlay.view.effective;
-      const result = await source.api.checkModelServer(
-        settingsProviderProbeTarget(overlay.view, checked)
-      );
-      const current = overlay.view.editable
-        ? overlay.draft.generation
-        : overlay.view.effective;
-      if (task.owns() && state.settings === overlay
-        && (overlay.edit === null || !settingsRowUsesServer(overlay.edit.row))
-        && sameGenerationSettings(checked, current)) {
-        overlay.result = result;
-      }
-    } finally {
-      if (task.owns() && state.settings === overlay) overlay.checking = false;
-    }
   });
 }
 

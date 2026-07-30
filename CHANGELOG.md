@@ -5,6 +5,19 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The Fact editor now shows the Fact tag in a choice row.** Press `Tab` or
+  `Shift+Tab` to select a Fact tag. Press `Ctrl+T` to type a custom Fact tag.
+- **Library now filters stories while you type.** Press `Enter` to close the
+  filter.
+- **Settings now shows the complete cache-policy error.** The message wraps
+  inside the Settings panel.
+- **The system prompt now uses the full-screen editor.** The editor keeps
+  multiline text and exact spacing.
+- **Composer errors now wrap inside the footer.** A model timeout no longer
+  ends at the terminal edge.
+- **Settings now shows only useful save state.** A clean panel has no save
+  message. A changed panel shows `unsaved draft · s saves`. Thanks @10fra for
+  the reports.
 - **Release workflows now run inline TypeScript programs as ES modules.** This
   change prevents Node from treating these programs as CommonJS. Thanks @10fra
   for the report.
@@ -40,9 +53,9 @@ This file records notable changes to 1667. Product terms use the definitions in
   selected project data directory. Thanks @10fra for the report.
 - **Stop keeps model text that already arrived.** 1667 stops the model stream.
   It waits for the request to finish in the background. It then saves the
-  arrived text with the generation ID. A full result that wins the race uses
-  the same generation ID. 1667 does not show a cancellation message for a Stop
-  that the writer requested.
+  arrived text with the generation ID. The saved take becomes the focused take.
+  A full result that wins the race uses the same generation ID. 1667 does not
+  show a cancellation message for a Stop that the writer requested.
 - **Enter now cycles Compose Focus in Settings.** `Enter` advances the Compose
   Focus row like the other closed-choice Settings rows. Paste does not open an
   editor for those rows. Thanks @10fra for the report.
@@ -97,12 +110,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   The facts overlay no longer opens empty at the point where the tour tells you
   to look in it. The starter vault writes the facts in the same change that
   writes the prose, so a first run does not pay a second write for each story.
-- **Settings status text now sits above the footer.** The revision line, the
-  unsaved-draft notice, and the pending-restart notice moved below the fields,
-  beside the check result. The read-only migration banner stays above the
-  fields, because it changes what each field below it means. The notice area
-  keeps a constant height, so a pending restart no longer moves the fields or
-  the rows above them. Thanks @10fra for the placement review.
+- **Settings status text now sits above the footer.** The unsaved-draft notice
+  and the pending-save notice moved below the fields, beside the check result.
+  The read-only migration banner stays above the fields, because it changes
+  what each field below it means. The notice area keeps a constant height, so a
+  pending save no longer moves the fields or the rows above them. Thanks
+  @10fra for the placement review.
 - **A toast now always uses the footer line.** Before, a toast printed under the
   focused story part while the view followed focus, and in the footer after you
   scrolled away. A message about the application no longer enters the

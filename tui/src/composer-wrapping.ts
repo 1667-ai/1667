@@ -1,21 +1,13 @@
 import {
-  composerLineBounds,
   composerLineChunks,
   composerLineIdentity,
   composerLineLength,
   composerLineSnapshot,
   composerLineUniformWidth,
   composerPosition,
-  composerPreferredX,
-  moveComposerVerticallyTo,
   type ComposerLineChunk,
   type ComposerState
 } from "./composer-model.js";
-import {
-  composerCellsBetween,
-  composerColumnAtCells,
-  moveComposerToVisualBoundary
-} from "./composer-vertical-movement.js";
 
 export interface WrappedComposerRow {
   sourceIndex: number;
@@ -93,47 +85,6 @@ export function wrappedComposerLayout(
     cursorRow,
     rowAt: (index) => wrappedRowAt(structure.blocks, structure.rowCount, index)
   };
-}
-
-export function moveComposerVisualVertical(
-  composer: ComposerState,
-  direction: -1 | 1,
-  width: number,
-  selecting = false
-): boolean {
-  const wrapped = wrappedComposerLayout(composer, width);
-  const nextRow = Math.max(0, Math.min(wrapped.rowCount - 1, wrapped.cursorRow + direction));
-  if (nextRow === wrapped.cursorRow) {
-    const current = wrapped.rowAt(wrapped.cursorRow)!;
-    return moveComposerToVisualBoundary(
-      composer,
-      current.sourceIndex,
-      current.start,
-      current.end,
-      direction,
-      selecting
-    );
-  }
-  const cursor = composerPosition(composer);
-  const current = wrapped.rowAt(wrapped.cursorRow)!;
-  const target = wrapped.rowAt(nextRow)!;
-  const wanted = composerPreferredX(
-    composer,
-    composerCellsBetween(composer, current.sourceIndex, current.start, cursor.column)
-  );
-  const column = composerColumnAtCells(
-    composer,
-    target.sourceIndex,
-    target.start,
-    target.end,
-    wanted
-  );
-  moveComposerVerticallyTo(
-    composer,
-    composerLineBounds(composer, target.sourceIndex).start + column,
-    selecting
-  );
-  return true;
 }
 
 function wrapStructure(composer: ComposerState, width: number): CachedWrapStructure {

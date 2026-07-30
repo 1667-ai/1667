@@ -150,7 +150,11 @@ describe("hit map from rendered frames", () => {
     const state = initialState(source, false);
     state.stream = { targetId: "p13", parentId: "p12", append: true,
       startedAt: STREAM_STARTED_AT, instruction: "", text: "" };
-    state.abort = { kind: "generation", controller: new AbortController() };
+    state.abort = {
+      kind: "generation",
+      controller: new AbortController(),
+      stopInteractionVersion: null
+    };
     const active = commandMatches("", state.demo, commandContext(state.payload, false, true));
     const staleCursor = active.findIndex(({ command }) => command.id === "switch-story");
     state.mode = "COMMANDS";
@@ -631,7 +635,9 @@ describe("hit map from rendered frames", () => {
     await dispatch(edit!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
 
     expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.target).toMatchObject({ kind: "fact", factId: source.payload.facts[0]!.id });
+    expect(state.editor?.kind).toBe("fact");
+    if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
+    expect(state.editor.target).toMatchObject({ kind: "fact", factId: source.payload.facts[0]!.id });
   });
 
   test("clicking the selected map row reroutes rather than re-selecting", () => {
@@ -724,7 +730,9 @@ describe("hit map from rendered frames", () => {
       { action: "edit" }, state, source, createWrapCache(),
       () => {}, async () => {}, () => {}
     );
-    setComposerText(state.editor!.composer, "new instruction\n---\nnew prose\n");
+    if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
+    setComposerText(state.editor.tag, "");
+    setComposerText(state.editor.composer, "new prose\n");
     await dispatch(
       { action: "save-edit" }, state, source, createWrapCache(),
       () => {}, async () => {}, () => {}

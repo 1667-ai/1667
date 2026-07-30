@@ -1,7 +1,13 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
+import { globalEditor } from "./editor-scope.js";
 import { applyTextKey, isPlainNavigation, type ResolvedKey } from "./keys.js";
-import { libraryRows, typedTitleMatches } from "./library-model.js";
+import {
+  boundedLibraryCursor,
+  libraryRows,
+  setLibraryQuery,
+  typedTitleMatches
+} from "./library-model.js";
 import { publishStories } from "./overlay-publication.js";
 import {
   flushReadingPositionPersist,
@@ -52,20 +58,55 @@ export async function libraryAction(
   const rows = libraryRows(overlay.stories, overlay.query);
   const selected = rows[Math.min(overlay.cursor, Math.max(0, rows.length - 1))];
   if (resolved.action === "cancel") {
-    if (overlay.prompt !== null) overlay.prompt = null;
+    if (overlay.prompt?.kind === "filter") {
+      const initial = overlay.prompt.initial;
+      overlay.query = initial.query;
+      const restoredRows = libraryRows(overlay.stories, overlay.query);
+      const restoredIndex = initial.storyId === null
+        ? -1
+        : restoredRows.findIndex((story) => story.id === initial.storyId);
+      overlay.cursor = restoredIndex >= 0
+        ? restoredIndex
+        : boundedLibraryCursor(
+            initial.cursor,
+            restoredRows.length
+          );
+      overlay.prompt = null;
+    } else if (overlay.prompt !== null) overlay.prompt = null;
     else { state.library = null; state.mode = "NAV"; }
-  } else if (resolved.action === "focus-next") overlay.cursor = Math.min(rows.length - 1, overlay.cursor + 1);
-  else if (resolved.action === "focus-index") overlay.cursor = Math.max(0, Math.min(rows.length - 1, resolved.index ?? overlay.cursor));
+  } else if (resolved.action === "focus-next") {
+    overlay.cursor = boundedLibraryCursor(overlay.cursor + 1, rows.length);
+  }
+  else if (resolved.action === "focus-index") {
+    overlay.cursor = boundedLibraryCursor(resolved.index ?? overlay.cursor, rows.length);
+  }
   else if (resolved.action === "focus-previous") overlay.cursor = Math.max(0, overlay.cursor - 1);
-  else if (resolved.action === "filter") overlay.prompt = { kind: "filter", value: overlay.query };
+  else if (resolved.action === "filter") {
+    overlay.prompt = {
+      kind: "filter",
+      initial: {
+        query: overlay.query,
+        cursor: overlay.cursor,
+        storyId: selected?.id ?? null
+      }
+    };
+  }
   else if (resolved.action === "rename-item" && selected !== undefined) overlay.prompt = { kind: "rename", value: selected.title, targetId: selected.id };
   else if (resolved.action === "delete-item" && selected !== undefined) overlay.prompt = { kind: "delete", value: "", targetId: selected.id };
   else if ((resolved.action === "backspace" || resolved.action === "input") && overlay.prompt !== null) {
-    overlay.prompt.value = applyTextKey(overlay.prompt.value, resolved) ?? overlay.prompt.value;
+    if (overlay.prompt.kind === "filter") {
+      setLibraryQuery(
+        overlay,
+        applyTextKey(overlay.query, resolved) ?? overlay.query
+      );
+    } else {
+      overlay.prompt.value = applyTextKey(overlay.prompt.value, resolved)
+        ?? overlay.prompt.value;
+    }
   }
   else if (resolved.action === "new-item") await createNewStory(state, source, context, overlay);
   else if (resolved.action === "open-selected" && overlay.prompt !== null) {
-    await submitPrompt(state, source, context, overlay, selected);
+    await submitPrompt(state, source, context, overlay);
   } else if (resolved.action === "open-selected" && selected !== undefined) {
     await context.backend.run("loading story", async (task) => {
       const payload = await source.api.loadStory(selected.id);
@@ -119,6 +160,7 @@ function canCarryInteractionToNewStory(state: RuntimeState): boolean {
   return state.mode === "COMPOSE"
     || state.mode === "LIBRARY"
     || state.mode === "SETTINGS"
+    || globalEditor(state) !== null
     || state.mode === "COMMANDS"
     || state.mode === "KEYS";
 }
@@ -127,20 +169,26 @@ async function submitPrompt(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  overlay: LibraryOverlay,
-  selected: AppSource["stories"][number] | undefined
+  overlay: LibraryOverlay
 ): Promise<void> {
   const prompt = overlay.prompt!;
-  const target = prompt.targetId === undefined
-    ? selected
-    : overlay.stories.find((story) => story.id === prompt.targetId);
   if (prompt.kind === "filter") {
-    overlay.query = prompt.value;
-    overlay.cursor = 0;
+    overlay.cursor = boundedLibraryCursor(
+      overlay.cursor,
+      libraryRows(overlay.stories, overlay.query).length
+    );
     overlay.prompt = null;
-  } else if (prompt.kind === "rename" && target !== undefined) {
+    return;
+  }
+  const target = overlay.stories.find((story) => story.id === prompt.targetId);
+  if (target === undefined) {
+    if (overlay.prompt === prompt) overlay.prompt = null;
+    state.toast = "story changed · action cancelled";
+    return;
+  }
+  if (prompt.kind === "rename") {
     await renameStory(state, source, context, overlay, prompt, target);
-  } else if (target !== undefined) {
+  } else {
     await deleteStory(state, source, context, overlay, prompt, target);
   }
 }
@@ -150,7 +198,7 @@ async function renameStory(
   source: AppSource,
   context: ActionContext,
   overlay: LibraryOverlay,
-  prompt: NonNullable<LibraryOverlay["prompt"]>,
+  prompt: Extract<NonNullable<LibraryOverlay["prompt"]>, { kind: "rename" }>,
   target: AppSource["stories"][number]
 ): Promise<void> {
   const title = prompt.value.trim();
@@ -177,7 +225,7 @@ async function deleteStory(
   source: AppSource,
   context: ActionContext,
   overlay: LibraryOverlay,
-  prompt: NonNullable<LibraryOverlay["prompt"]>,
+  prompt: Extract<NonNullable<LibraryOverlay["prompt"]>, { kind: "delete" }>,
   target: AppSource["stories"][number]
 ): Promise<void> {
   if (!typedTitleMatches(target.title, prompt.value)) return void (state.toast = "title does not match · story kept");

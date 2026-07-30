@@ -1,18 +1,28 @@
 import type { KeyEvent } from "@opentui/core";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
-import { admitEditorPaste } from "./fact-editor-policy.js";
+import {
+  editorInsertionPolicy,
+  insertEditorText
+} from "./editor-text-insertion.js";
+import { globalEditor } from "./editor-scope.js";
+import {
+  factEditorBuffer
+} from "./fact-editor-policy.js";
 import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
 import { resolveReferenceBinding } from "./reference-bindings.js";
 import type { StorySelectionSpan } from "./selection-projection.js";
 import type {
-  InlineEditorSession,
+  DocumentEditorSession,
   PendingGenerationDraft,
   RetakePromptSession,
   RuntimeState,
+  SettingsInlineEditState,
   SettingsRowId
 } from "./state.js";
+import { setLibraryQuery } from "./library-model.js";
+import type { StorySummary } from "../../shared/types.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -87,6 +97,18 @@ export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "create-chapter", "summarize-chapter", "save-edit", "save-edit-inplace"
 ]);
 
+/** Global-scope editor saves update local application state, not the story. */
+export function actionConflictsWithGeneration(
+  action: KeyAction,
+  state: Pick<RuntimeState, "mode" | "editor">
+): boolean {
+  if ((action === "save-edit" || action === "save-edit-inplace")
+    && globalEditor(state) !== null) {
+    return false;
+  }
+  return MUTATING_ACTIONS.has(action);
+}
+
 /** Terminals disagree on how shifted letters arrive; accept all three forms. */
 function shiftedLetter(key: KeyEvent, letter: string): boolean {
   const upper = letter.toUpperCase();
@@ -149,14 +171,25 @@ export function pasteInto(
   state: {
     mode: AppMode;
     composer: ComposerState;
-    editor?: InlineEditorSession | null;
+    editor: DocumentEditorSession | null;
     toast?: string | null;
     tag: { choosingStatus: boolean; name: string } | null;
-    library: { prompt: { value: string } | null } | null;
+    library: {
+      stories: StorySummary[];
+      cursor: number;
+      query: string;
+      prompt:
+        | { kind: "filter" }
+        | { kind: "rename" | "delete"; value: string }
+        | null;
+    } | null;
     facts: { filtering: boolean; query: string; cursor: number } | null;
     commands: { view: string; query: string } | null;
     chapters?: { rename: { value: string } | null } | null;
-    settings?: { edit: { composer: ComposerState } | null } | null;
+    settings: {
+      edit: SettingsInlineEditState | null;
+      conflict: { armed: boolean } | null;
+    } | null;
     prune: unknown | null;
     chapterDeleteArmedId: string | null;
     actions: unknown | null;
@@ -173,8 +206,18 @@ export function pasteInto(
   const clean = sanitizePastedText(raw);
   if (clean.length === 0) return false;
   const line = clean.replace(/\n+/g, " ");
-  if (state.mode === "EDITOR" && state.editor != null) {
-    return admitEditorPaste(state, state.editor, clean);
+  if (state.mode === "EDITOR") {
+    const editor = state.editor;
+    if (editor === null) return false;
+    const buffer = editor.kind === "fact" ? factEditorBuffer(editor) : editor;
+    insertEditorText(
+      state,
+      buffer,
+      editorInsertionPolicy(editor),
+      clean,
+      "paste"
+    );
+    return true;
   }
   if (state.mode === "COMPOSE") { insertComposerText(state.composer, clean); return true; }
   if (state.mode === "TAG" && state.tag !== null && !state.tag.choosingStatus) {
@@ -182,7 +225,11 @@ export function pasteInto(
     return true;
   }
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
-    state.library.prompt.value += line;
+    if (state.library.prompt.kind === "filter") {
+      setLibraryQuery(state.library, state.library.query + line);
+    } else {
+      state.library.prompt.value += line;
+    }
     return true;
   }
   if (state.mode === "FACTS" && state.facts?.filtering === true) {
@@ -202,7 +249,8 @@ export function pasteInto(
     return true;
   }
   const settingsEdit = state.mode === "SETTINGS" ? state.settings?.edit : null;
-  if (settingsEdit != null) {
+  if (settingsEdit?.kind === "inline") {
+    if (state.settings?.conflict != null) state.settings.conflict.armed = false;
     insertComposerText(settingsEdit.composer, line);
     return true;
   }
@@ -257,7 +305,8 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
-    overlayTyping = false, commandsTags = false, factEditor = false, mapView = "path" } = options;
+    overlayTyping = false, commandsTags = false, factEditor = false,
+    mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };

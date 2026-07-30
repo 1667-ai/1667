@@ -1,13 +1,21 @@
 import type { StoryFact } from "../../shared/types.js";
 import { setComposerText } from "./composer-model.js";
-import { serializeFactEditor } from "./facts-model.js";
-import type { InlineEditorSession, RuntimeState } from "./state.js";
+import {
+  factEditorChanged,
+  factEditorPersistedTag,
+  resetFactEditorHistory
+} from "./fact-editor-policy.js";
+import type {
+  FactEditorSession,
+  InlineEditorSession,
+  RuntimeState
+} from "./state.js";
 
 /** Reconcile an authoritative fact refresh against the active draft. Pristine
  * drafts rebase; dirty drafts stay intact and require an explicit overwrite. */
 export function reconcileFactEditor(state: RuntimeState): void {
   const editor = state.editor;
-  if (editor?.target.kind !== "fact" || editor.target.factId === null) return;
+  if (editor?.kind !== "fact" || editor.target.factId === null) return;
   const factId = editor.target.factId;
   const current = state.payload.facts.find(({ id }) => id === factId);
   if (current === undefined) {
@@ -24,7 +32,37 @@ export function reconcileFactEditor(state: RuntimeState): void {
   }
   if (sameEditableFact(editor.target.base, current)) return;
   editor.target.base = current;
-  reconcileEditorDocument(state, editor, serializeFactEditor(current), "fact changed during recovery");
+  reconcileFactDocument(state, editor, current, "fact changed during recovery");
+}
+
+function reconcileFactDocument(
+  state: RuntimeState,
+  editor: FactEditorSession,
+  current: StoryFact,
+  message: string
+): void {
+  const draftMatches = factEditorPersistedTag(editor) === current.tag
+    && editor.composer.text === current.text;
+  if (draftMatches) {
+    editor.initialFact = { tag: current.tag, text: current.text };
+    editor.conflict = null;
+    return;
+  }
+  if (!factEditorChanged(editor)) {
+    setComposerText(editor.tag, current.tag ?? "");
+    setComposerText(editor.composer, current.text);
+    resetFactEditorHistory(editor);
+    editor.initialFact = { tag: current.tag, text: current.text };
+    editor.conflict = null;
+    state.toast = `${message} · editor refreshed`;
+    return;
+  }
+  editor.conflict = {
+    message: `${message} · draft kept`,
+    resolution: "overwrite",
+    armed: false
+  };
+  state.toast = editor.conflict.message;
 }
 
 function reconcileEditorDocument(

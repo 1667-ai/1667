@@ -12,6 +12,7 @@ import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { setComposerText } from "../src/composer-model.js";
 import { applyOpeningFocus } from "../src/reading-position.js";
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
+import { SETTINGS_ROW_IDS } from "../src/settings-overlay-model.js";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -57,6 +58,7 @@ async function launchDelete(app: ReturnType<typeof harness>, fixture: ReturnType
   await app.press(key("d"));
   const overlay = app.state.library!;
   const prompt = overlay.prompt!;
+  if (prompt.kind === "filter") throw new Error("expected delete prompt");
   prompt.value = fixture.current.title;
   const pending = app.press(key("return", "\r"));
   await fixture.entered.promise;
@@ -72,7 +74,11 @@ describe("forced story replacement adoption", () => {
     const app = harness(source);
     app.state.library = { stories: source.stories, cursor: 0, query: "", prompt: null };
 
-    const filterPrompt = { kind: "filter" as const, value: "surv" };
+    const filterPrompt = {
+      kind: "filter" as const,
+      initial: { query: "", cursor: 0, storyId: current.id }
+    };
+    app.state.library.query = "surv";
     app.state.library.prompt = filterPrompt;
     publishStories(app.state, source, [survivor]);
     expect(app.state.library.prompt).toBe(filterPrompt);
@@ -109,6 +115,73 @@ describe("forced story replacement adoption", () => {
     expect(app.state.settings?.cursor).toBe(5);
   });
 
+  test("different-story adoption preserves the full-screen system prompt", async () => {
+    const source = demoAppSource();
+    const app = harness(source);
+    await app.press(key(","));
+    const row = SETTINGS_ROW_IDS.indexOf("system-prompt");
+    for (let index = 0; index < row; index += 1) await app.press(key("down"));
+    await app.press(key("return"));
+    const session = app.state.editor;
+    if (app.state.mode !== "EDITOR"
+      || session?.kind !== "document"
+      || session.target.kind !== "settings-prompt") {
+      throw new Error("Settings editor did not open");
+    }
+    const settings = app.state.settings;
+    setComposerText(session.composer, "Unsaved global prompt");
+
+    adoptReconciliationSnapshot(app.state, {
+      ...app.state.payload,
+      id: "replacement-story",
+      title: "replacement story"
+    });
+
+    expect(app.state.mode).toBe("EDITOR");
+    expect(app.state.editor).toBe(session);
+    expect(app.state.settings).toBe(settings);
+    expect(app.state.settings?.edit).toBe(null);
+    expect(app.state.editor?.composer.text).toBe("Unsaved global prompt");
+  });
+
+  test("new-story completion preserves the full-screen system prompt", async () => {
+    const source = demoAppSource();
+    const app = harness(source);
+    const entered = deferred<void>();
+    const gate = deferred<StoryPayload>();
+    source.api.createStory = async () => {
+      entered.resolve();
+      return gate.promise;
+    };
+
+    const pending = app.press(key("n"));
+    await entered.promise;
+    await app.press(key(","));
+    app.state.settings!.cursor = SETTINGS_ROW_IDS.indexOf("system-prompt");
+    await app.press(key("return", "\r"));
+    expect(app.state.mode).toBe("EDITOR");
+    const session = app.state.editor;
+    if (session?.kind !== "document"
+      || session.target.kind !== "settings-prompt") {
+      throw new Error("Settings editor did not open");
+    }
+    const settings = app.state.settings;
+
+    const created = {
+      ...source.payload,
+      id: "created-while-editing-settings",
+      title: "Created While Editing Settings"
+    };
+    gate.resolve(created);
+    await pending;
+
+    expect(app.state.payload.id).toBe(created.id);
+    expect(app.state.mode).toBe("EDITOR");
+    expect(app.state.settings).toBe(settings);
+    expect(app.state.editor).toBe(session);
+    expect(app.state.settings?.edit).toBe(null);
+  });
+
   test("a newer prompt for a story removed by a slow delete is reconciled away", async () => {
     const source = demoAppSource();
     const current = source.stories.find((story) => story.id === source.payload.id)!;
@@ -134,6 +207,7 @@ describe("forced story replacement adoption", () => {
     overlay.cursor = 1;
     await app.press(key("d"));
     const submittedPrompt = overlay.prompt!;
+    if (submittedPrompt.kind === "filter") throw new Error("expected delete prompt");
     submittedPrompt.value = doomed.title;
     const pending = app.press(key("return", "\r"));
     await listEntered.promise;
@@ -193,7 +267,8 @@ describe("forced story replacement adoption", () => {
     expect(app.state.mode).toBe("LIBRARY");
     expect(app.state.library).toBe(overlay);
     expect(app.state.library?.prompt).toBe(filterPrompt);
-    expect(app.state.library?.prompt).toMatchObject({ kind: "filter", value: "x" });
+    expect(app.state.library?.prompt).toMatchObject({ kind: "filter" });
+    expect(app.state.library?.query).toBe("x");
   });
 
   test("different-story recovery keeps a Library opened during fallback loading", async () => {

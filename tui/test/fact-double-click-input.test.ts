@@ -122,7 +122,9 @@ describe("Fact double-click through interactive input admission", () => {
     await drainMicrotasks();
 
     expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.target).toMatchObject({ kind: "fact", factId });
+    expect(state.editor?.kind).toBe("fact");
+    if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
+    expect(state.editor.target).toMatchObject({ kind: "fact", factId });
   });
 
   test("first click + queued keyboard + second click does not edit", async () => {
@@ -182,7 +184,9 @@ describe("Fact double-click through interactive input admission", () => {
 
     expect(order).toEqual(["mouse", "key"]);
     expect(state.mode).toBe("EDITOR");
-    expect(state.editor?.target).toMatchObject({ kind: "fact", factId: otherId });
+    expect(state.editor?.kind).toBe("fact");
+    if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
+    expect(state.editor.target).toMatchObject({ kind: "fact", factId: otherId });
   });
 });
 

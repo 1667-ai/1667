@@ -274,8 +274,9 @@ export function storyFrameWrapPlans(
 function storyFrameShowsProse(state: StoryScreenState): boolean {
   const mapVisible = state.map !== null && (state.mode === "MAP"
     || state.mode === "TAG" && state.tag?.returnMode === "MAP");
+  const editorVisible = state.mode === "EDITOR" && state.editor !== null;
   return !(mapVisible
-    || state.mode === "EDITOR" && state.editor !== null
+    || editorVisible
     || state.mode === "COMPOSE" && state.composer.fullscreen);
 }
 

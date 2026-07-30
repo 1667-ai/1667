@@ -30,14 +30,20 @@ import {
   moveComposerBufferBoundary,
   moveComposerWord
 } from "../src/composer-editing.js";
-import { moveComposerVisualVertical, wrappedComposerLayout } from "../src/composer-wrapping.js";
+import { moveComposerVisualVertical } from "../src/composer-visual-movement.js";
+import { wrappedComposerLayout } from "../src/composer-wrapping.js";
 import {
   applyComposeMode,
   composerHeightCap,
   renderComposerLayout
 } from "../src/screens/story/composer.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { frameText, segment, type FrameLine } from "../src/screens/story/frame.js";
+import {
+  frameText,
+  lineWidth,
+  segment,
+  type FrameLine
+} from "../src/screens/story/frame.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -344,6 +350,22 @@ describe("composer renderer", () => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({ role: "compose accent", background: "raised" });
     expect(frameText(frame.lines)).not.toContain("enter send");
+  });
+
+  test("wraps a model timeout across composer footer rows", () => {
+    const state = initialState(demoAppSource(), true);
+    state.mode = "COMPOSE";
+    state.composer.fullscreen = true;
+    state.toast =
+      "Model server did not produce a content delta before the configured deadline.";
+
+    const frame = renderStoryScreen(state, { width: 48, height: 12 });
+    const text = frameText(frame.lines);
+
+    expect(text).toContain("Model server did not produce a content delta");
+    expect(text).toContain("before the configured deadline.");
+    expect(text).not.toContain("configured deadlin…");
+    expect(frame.lines.every((line) => lineWidth(line) <= 48)).toBeTrue();
   });
 
   test("recolors only accent chrome unless opt-in focus dim is enabled", () => {

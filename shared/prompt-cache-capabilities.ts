@@ -69,16 +69,25 @@ export type PromptCacheCapabilityResolution =
   | Readonly<{ kind: "available"; capability: PromptCacheCapability }>
   | Readonly<{ kind: "unavailable"; reason: PromptCacheCapabilityReason }>;
 
-export interface PromptCachePolicyPresentation {
+interface PromptCachePolicyPresentationBase {
   readonly policy: PromptCachePolicyV2;
-  readonly available: boolean;
   readonly behavior: string;
   readonly ttl: string;
   readonly compactTtl: string;
-  readonly writeMultiplier: PromptCacheWriteMultiplier | null;
   readonly writeCost: string;
-  readonly unavailableReason: string | null;
 }
+
+export type PromptCachePolicyPresentation =
+  | Readonly<PromptCachePolicyPresentationBase & {
+      available: true;
+      writeMultiplier: PromptCacheWriteMultiplier | null;
+    }>
+  | Readonly<PromptCachePolicyPresentationBase & {
+      available: false;
+      writeMultiplier: null;
+      unavailableReason: string;
+      unavailableReasonCompact: string;
+    }>;
 
 const OPENAI_EXPLICIT_MODELS = new Set([
   "gpt-5.6",
@@ -255,8 +264,7 @@ export function promptCachePolicyPresentation(
         ttl: "1 hour",
         compactTtl: "1h",
         writeMultiplier: capability.writeMultiplier.long,
-        writeCost: writeCost(capability.writeMultiplier.long),
-        unavailableReason: null
+        writeCost: writeCost(capability.writeMultiplier.long)
       };
     }
     if (capability.kind === "openai-automatic" && capability.longRetention === "24h") {
@@ -270,8 +278,7 @@ export function promptCachePolicyPresentation(
         ttl: "Up to 24 hours",
         compactTtl: "≤24h",
         writeMultiplier: capability.writeMultiplier.long,
-        writeCost: writeCost(capability.writeMultiplier.long),
-        unavailableReason: null
+        writeCost: writeCost(capability.writeMultiplier.long)
       };
     }
     return {
@@ -282,7 +289,8 @@ export function promptCachePolicyPresentation(
       compactTtl: "n/a",
       writeMultiplier: null,
       writeCost: "No request will be sent with a downgraded TTL.",
-      unavailableReason: "Long retention is not supported for this exact model."
+      unavailableReason: "Long retention is not supported for this exact model.",
+      unavailableReasonCompact: "No long cache."
     };
   }
   switch (capability.kind) {
@@ -297,8 +305,7 @@ export function promptCachePolicyPresentation(
         ttl: "5 minutes",
         compactTtl: "5m",
         writeMultiplier: capability.writeMultiplier.auto,
-        writeCost: writeCost(capability.writeMultiplier.auto),
-        unavailableReason: null
+        writeCost: writeCost(capability.writeMultiplier.auto)
       };
     case "openai-automatic":
       return {
@@ -311,8 +318,7 @@ export function promptCachePolicyPresentation(
         ttl: "Provider-managed",
         compactTtl: "provider",
         writeMultiplier: capability.writeMultiplier.auto,
-        writeCost: writeCost(capability.writeMultiplier.auto),
-        unavailableReason: null
+        writeCost: writeCost(capability.writeMultiplier.auto)
       };
     case "openai-explicit": {
       const ttl = openAiExplicitTtl(capability.autoTtl);
@@ -326,8 +332,7 @@ export function promptCachePolicyPresentation(
         ttl: ttl.label,
         compactTtl: ttl.compact,
         writeMultiplier: capability.writeMultiplier.auto,
-        writeCost: writeCost(capability.writeMultiplier.auto),
-        unavailableReason: null
+        writeCost: writeCost(capability.writeMultiplier.auto)
       };
     }
   }
@@ -349,8 +354,7 @@ function offPresentation(
       ttl: "None",
       compactTtl: "none",
       writeMultiplier: null,
-      writeCost: "No 1667 cache writes.",
-      unavailableReason: null
+      writeCost: "No 1667 cache writes."
     };
   }
   const providerManaged = context.adapter === "openai-official" || context.adapter === "compatible";
@@ -363,8 +367,7 @@ function offPresentation(
     ttl: providerManaged ? "Provider-managed" : "None",
     compactTtl: providerManaged ? "provider" : "none",
     writeMultiplier: null,
-    writeCost: "No 1667 cache-write opt-in.",
-    unavailableReason: null
+    writeCost: "No 1667 cache-write opt-in."
   };
 }
 
@@ -379,6 +382,13 @@ function unavailablePresentation(
     "compatible-endpoint": "Only exact official provider presets receive cache fields.",
     "unknown-model": "No exact prompt-cache contract is declared for this model ID."
   };
+  const compactExplanation: Record<PromptCacheCapabilityReason, string> = {
+    "legacy-v1": "Use format 2.",
+    "dry-run": "No dry-run cache.",
+    "unsupported": "Cache disabled.",
+    "compatible-endpoint": "Official API only.",
+    "unknown-model": "Set model ID."
+  };
   return {
     policy,
     available: false,
@@ -387,7 +397,8 @@ function unavailablePresentation(
     compactTtl: "n/a",
     writeMultiplier: null,
     writeCost: "No cache controls will be sent.",
-    unavailableReason: explanation[reason]
+    unavailableReason: explanation[reason],
+    unavailableReasonCompact: compactExplanation[reason]
   };
 }
 
