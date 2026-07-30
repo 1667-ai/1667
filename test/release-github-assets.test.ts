@@ -59,7 +59,7 @@ function heldFromPublication(target: BuiltArtifactTarget): boolean {
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // The version this release ships under.
-const VERSION = "0.1.2-beta.1";
+const VERSION = "0.1.2-beta.2";
 const STABLE_VERSION = "0.1.2";
 const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -243,10 +243,10 @@ test("an npm layout reuses the file set and only moves the executable", () => {
 
 test("the archive name and its inner directory are the same stem", () => {
   const stem = releaseArchiveStem(VERSION, "linux-x64");
-  assert.equal(stem, "1667_0.1.2-beta.1_linux-x64");
+  assert.equal(stem, "1667_0.1.2-beta.2_linux-x64");
   assert.equal(
     releaseArchiveFileName(VERSION, "linux-x64"),
-    "1667_0.1.2-beta.1_linux-x64.tar.gz"
+    "1667_0.1.2-beta.2_linux-x64.tar.gz"
   );
   assert.equal(releaseArchiveFileName("1.2.3", "darwin-arm64"), "1667_1.2.3_darwin-arm64.tar.gz");
   assert.throws(() => releaseArchiveStem("0.1", "linux-x64"), /SemVer/);
@@ -377,7 +377,7 @@ test("staging writes the whole file set and nothing else", (t) => {
   });
 
   assert.equal(sourceCommitReads, 1);
-  assert.equal(staged.stem, "1667_0.1.2-beta.1_linux-x64");
+  assert.equal(staged.stem, "1667_0.1.2-beta.2_linux-x64");
   assert.equal(path.basename(staged.directory), staged.stem);
   assert.deepEqual(staged.files.map((file) => file.path).sort(), [
     "1667",
