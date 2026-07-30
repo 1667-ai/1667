@@ -21,7 +21,7 @@ import {
 } from "../scripts/release-source-facts.js";
 
 const FACTS = Object.freeze({
-  version: "0.1.2-beta.3",
+  version: "0.1.2",
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-28T10:20:30.000Z"
 });

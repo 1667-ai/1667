@@ -49,7 +49,7 @@ import {
   tarModificationTimes
 } from "./release-producer-fixture.js";
 
-const VERSION = "0.1.2-beta.3";
+const VERSION = "0.1.2";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
 const execFileAsync = promisify(execFile);
