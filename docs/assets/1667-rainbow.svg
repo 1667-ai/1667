@@ -13,13 +13,14 @@
     </linearGradient>
   </defs>
   <text
-    x="240"
+    x="88"
     y="25"
     fill="url(#rainbow)"
     font-family="'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace"
     font-size="24"
     font-weight="700"
-    text-anchor="middle"
+    font-variant-ligatures="none"
+    text-anchor="start"
     xml:space="preserve"
-  ><tspan x="240" dy="0">_  __    __ _____</tspan><tspan x="240" dy="25">/ |/ /_  / /|___  |</tspan><tspan x="240" dy="25">| | '_ \| '_ \ / /</tspan><tspan x="240" dy="25">| | (_) | (_) / /</tspan><tspan x="240" dy="25">|_|\___/ \___/_/</tspan></text>
+  ><tspan x="88" dy="0">   _  __    __ _____</tspan><tspan x="88" dy="25">  / |/ /_  / /|___  |</tspan><tspan x="88" dy="25">  | | '_ \| '_ \ / /</tspan><tspan x="88" dy="25">  | | (_) | (_) / /</tspan><tspan x="88" dy="25">  |_|\___/ \___/_/</tspan></text>
 </svg>

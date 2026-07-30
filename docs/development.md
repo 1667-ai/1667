@@ -1,0 +1,117 @@
+---
+summary: Diagnostics, development gates, repository layout, and stable names
+read_when:
+  - troubleshooting an internal error
+  - running development or CI gates
+  - changing repository structure or a stable name
+---
+
+# Development reference
+
+## Troubleshoot internal errors
+
+1667 gives unexpected embedded and HTTP backend errors a safe public message.
+After 1667 saves a diagnostic, the public error includes an `err_…` reference.
+Use that reference to find the entry in the private machine-tier log:
+
+- macOS: `~/Library/Application Support/1667/State/log/1667.log`
+- Linux: `$XDG_STATE_HOME/1667/log/1667.log`, or
+  `~/.local/state/1667/log/1667.log` when unset
+- Windows: `%LOCALAPPDATA%\1667\State\log\1667.log`
+
+If 1667 cannot write the log, it omits the reference. It also prints a safe
+warning to stderr.
+
+Add `--print-logs` to print new diagnostics to stderr:
+
+```sh
+1667 --print-logs
+```
+
+1667 omits provider request and response bodies from the log. The log can
+contain local paths and exception messages. 1667 resets the active log before
+it exceeds 5 MiB. Inspect the log before you share it.
+
+## Development gates
+
+Run the backend gates from the repository root:
+
+```sh
+npm run typecheck      # Check JSON Schema and TypeScript
+npm test               # Run backend runtime tests
+npm run schema:write   # Regenerate schema files
+```
+
+Run the TUI gates from `tui/`:
+
+```sh
+bun run typecheck
+bun test
+```
+
+Run the frame performance gate separately:
+
+```sh
+bun bench/perf.ts
+```
+
+GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
+standalone build on Linux x64. CI also runs the root tests, TUI tests, and
+standalone build on macOS arm64 and Linux arm64. CI does not run the frame
+performance gate.
+
+Routine CI does not test macOS x64 or Windows x64. Test these targets before
+their release work resumes.
+
+On native macOS arm64, the local CI script runs the root build, root tests, TUI
+type check, TUI tests, and standalone build. The script runs the root tests and
+TUI tests in Docker for Linux arm64 and Linux x64. The local script does not
+build Linux standalone candidates. It does not test macOS x64 or Windows x64.
+
+```sh
+scripts/ci-local.sh
+scripts/ci-local.sh --status
+```
+
+`--status` also publishes a commit status. A complete successful run records a
+pass for the exact commit.
+
+The Linux tests use Docker. These tests include the Linux-only loopback
+ownership tests.
+
+Use the optional pre-push hook only after a complete local run:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+See [the CI workflow](../.github/workflows/ci.yml).
+
+Set `AI_1667_TUI_PROFILE=1` to collect frame diagnostics. After terminal
+restoration, 1667 writes one JSON report to standard error.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `tui/` | Terminal client, Bun workspace, and standalone build scripts |
+| `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
+| `shared/` | Types and policies shared by the TUI and backend |
+| `schema/` | Generated JSON Schema files |
+| `scripts/` | CI, release, and schema tools |
+| `test/` | Node.js tests for the backend runtime |
+| `docs/` | Release instructions and technical design notes |
+| `release/npm/` | Launcher source for the npm packages |
+
+## Stable names
+
+The names in this table are public contracts. Do not change a name without a
+compatible migration.
+
+| Name | Purpose |
+| --- | --- |
+| `AI_1667_DATA` | Select an explicit project root for embedded mode |
+| `AI_1667_STATE` | Select an absolute machine-tier directory |
+| `AI_1667_URL` | Select the base URL of a loopback 1667 HTTP backend |
+| `AI_1667_NO_UPDATE_CHECK` | Set to `1` to disable background update checks |
+| `AI_1667_TUI_PROFILE` | Set to `1` to write a frame profile at exit |
