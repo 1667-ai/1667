@@ -5,7 +5,6 @@
 **A full-screen terminal environment for fiction writing with language models.**
 
 [![npm pre-release](https://img.shields.io/npm/v/%401667-ai%2Fcli/next?label=npm%20next)](https://www.npmjs.com/package/@1667-ai/cli)
-[![GitHub release](https://img.shields.io/github/v/release/1667-ai/1667?include_prereleases&sort=semver&label=GitHub%20release)](https://github.com/1667-ai/1667/releases)
 [![CI and standalone builds](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/1667-ai/1667/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
