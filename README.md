@@ -2,8 +2,6 @@
 
 <img src="docs/assets/1667-rainbow.svg" alt="1667" width="420">
 
-# 1667
-
 **A full-screen terminal environment for fiction writing with language models.**
 
 [![npm pre-release](https://img.shields.io/npm/v/%401667-ai%2Fcli/next?label=npm%20next)](https://www.npmjs.com/package/@1667-ai/cli)
@@ -33,6 +31,24 @@ executable.
 - Use the embedded backend worker without a network port.
 - Cancel a generation. 1667 does not change committed story data.
 - Connect to OpenAI-compatible endpoints or Anthropic Messages endpoints.
+
+## Install
+
+1667 is a pre-release. The Shell Installer is not available yet. The homepage
+publishes `install.sh` only after a release passes the Managed Installation
+gate.
+
+Install the npm pre-release globally:
+
+```sh
+npm install --global @1667-ai/cli@next
+```
+
+Or run the npm pre-release without a global installation:
+
+```sh
+npx --yes @1667-ai/cli@next
+```
 
 ## Source requirements
 
