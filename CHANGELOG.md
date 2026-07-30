@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Release workflows now run inline TypeScript programs as ES modules.** This
+  change prevents Node from treating these programs as CommonJS. Thanks @10fra
+  for the report.
 - **The starter tour now starts with a rainbow 1667 mark.** The mark is part of
   the first story part. It scrolls with the story. The TUI does not add a new
   screen or an editor for the mark.
