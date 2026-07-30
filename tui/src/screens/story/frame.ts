@@ -3,9 +3,14 @@ import type { Palette, PaletteRole } from "../../palette.js";
 import { cellWidth, graphemeCells } from "../../cell-width.js";
 import type { HitTarget } from "../../hit.js";
 
+export type LogoDisplayRole =
+  | "logo red" | "logo orange" | "logo yellow" | "logo green"
+  | "logo cyan" | "logo blue" | "logo violet";
+
 export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "danger text" | "context warning"
   | "context voice" | "context facts" | "context recent" | "context summary"
-  | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2";
+  | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2"
+  | LogoDisplayRole;
 
 /** Every display role that is not a palette role in its own right. */
 type DisplayAlias = Exclude<DisplayRole, PaletteRole>;
@@ -45,6 +50,10 @@ export function segment(text: string, role?: DisplayRole, hit?: HitTarget): Fram
   if (role !== undefined) result.role = role;
   if (hit !== undefined) result.hit = hit;
   return result;
+}
+
+export function isLogoDisplayRole(role: DisplayRole | undefined): role is LogoDisplayRole {
+  return role?.startsWith("logo ") === true;
 }
 
 export function plainLine(line: FrameLine): string {
@@ -334,7 +343,14 @@ const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   "context growth": (palette) => palette.brassDim,
   "context growth pulse": (palette) => palette.color("tag · draft"),
   "fresh 1": (palette) => palette.freshIntermediate[0],
-  "fresh 2": (palette) => palette.freshIntermediate[1]
+  "fresh 2": (palette) => palette.freshIntermediate[1],
+  "logo red": (palette) => palette.color("danger"),
+  "logo orange": (palette) => palette.logoOrange,
+  "logo yellow": (palette) => palette.color("tag · canon"),
+  "logo green": (palette) => palette.logoGreen,
+  "logo cyan": (palette) => palette.logoCyan,
+  "logo blue": (palette) => palette.logoBlue,
+  "logo violet": (palette) => palette.color("tag · alt")
 };
 
 function isAlias(role: DisplayRole): role is DisplayAlias {

@@ -1,3 +1,4 @@
+import { STARTER_LOGO_TEXT } from "../../../shared/starter-vault.js";
 import { TAG_STATUSES } from "../../../shared/types.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { tagStatusChoice } from "../tag-presentation.js";
@@ -140,13 +141,17 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   // navigation owns the same semantic focus, so rendering needs no second
   // auto-follow flag that can drift from the reducer state.
   const focusId = options.viewportAnchorId ?? rows[state.focusIndex]?.id ?? rows[0]?.id ?? null;
+  const focusAtStarterIntro = options.viewportAnchorId === undefined
+    && state.focusIndex === 0
+    && rowPart(view, state.focusIndex)?.node.text.startsWith(`${STARTER_LOGO_TEXT}\n\n`) === true;
   const viewport = viewportLines(
     blocks,
     focusId,
     contentHeight,
     state.typewriter,
     state.viewScroll,
-    state.viewScrollDelta
+    state.viewScrollDelta,
+    focusAtStarterIntro
   );
   const visibleBody = stickFocusedGutter(
     viewport.lines,

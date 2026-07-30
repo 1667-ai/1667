@@ -52,6 +52,22 @@ export interface StarterStory {
   readonly facts: readonly StarterFact[];
 }
 
+/** A small story-native version of the 1667 mark. The TUI gives these five
+ * exact lines the rainbow treatment. Every other surface gets plain text. */
+const logoLine = (indent: number, mark: string): string =>
+  // U+2800 occupies one terminal cell and survives normal story trim rules.
+  "\u2800".repeat(indent) + mark;
+
+export const STARTER_LOGO_LINES = [
+  logoLine(3, "_  __    __ _____"),
+  logoLine(2, "/ |/ /_  / /|___  |"),
+  logoLine(2, "| | '_ \\| '_ \\ / /"),
+  logoLine(2, "| | (_) | (_) / /"),
+  logoLine(2, "|_|\\___/ \\___/_/")
+] as const;
+
+export const STARTER_LOGO_TEXT = STARTER_LOGO_LINES.join("\n");
+
 const TOUR: StarterStory = {
   id: "1a9c7e64-5f3b-4d2a-9c81-0e6b4f7a2d13",
   title: "Start Here",
@@ -62,7 +78,8 @@ const TOUR: StarterStory = {
           slug: "open-1",
           instruction: "Open the tour. Teach take flipping by making the reader do it.",
           keys: ["takeNext", "takePrevious"],
-          text: "Welcome to 1667. This story is also the manual, which means you can "
+          text: STARTER_LOGO_TEXT + "\n\n"
+            + "Welcome to 1667. This story is also the manual, which means you can "
             + "ruin it freely, and you can delete both starter "
             + "stories the moment they stop earning their place.\n\n"
             + "Start with the thing that makes this editor different. This paragraph exists in "

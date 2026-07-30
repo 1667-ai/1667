@@ -3,6 +3,7 @@ import { addHit, fillRows, type HitRegion, type HitRows, type HitTarget } from "
 import type { KeyAction } from "../keys.js";
 import {
   fitLine,
+  isLogoDisplayRole,
   segment,
   truncate,
   visibleWidth,
@@ -321,6 +322,7 @@ function sliceCells(value: string, start: number, width = Number.POSITIVE_INFINI
 
 function dimRole(role: DisplayRole | undefined): DisplayRole | undefined {
   if (role === "prose" || role === "prose · dim" || role === "streaming" || role === "fresh 1" || role === "fresh 2"
-    || role === "human edit" || role === "human edit dim" || role === "summary") return "dimmed page";
+    || role === "human edit" || role === "human edit dim" || role === "summary"
+    || isLogoDisplayRole(role)) return "dimmed page";
   return role;
 }

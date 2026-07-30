@@ -23,7 +23,8 @@ export function viewportLines(
   height: number,
   centered: boolean,
   requestedScroll: number | null,
-  relativeScroll = 0
+  relativeScroll = 0,
+  focusAtStart = false
 ): Viewport {
   const bodyHeight = blocks.reduce((sum, block) => sum + block.height, 0);
   let viewScroll = requestedScroll;
@@ -34,16 +35,22 @@ export function viewportLines(
     start = Math.max(0, Math.min(bodyHeight - height, viewScroll));
     viewScroll = start;
   } else {
+    let focusStart = 0;
     let focusEnd = height;
     let offset = 0;
     for (const block of blocks) {
+      const blockStart = offset;
       offset += block.height;
       if (block.partId === focusId) {
+        focusStart = blockStart;
         focusEnd = offset;
         break;
       }
     }
-    start = Math.max(0, Math.min(bodyHeight - height, focusEnd - (centered ? Math.ceil(height / 2) : height)));
+    const focusAnchor = focusAtStart
+      ? focusStart
+      : focusEnd - (centered ? Math.ceil(height / 2) : height);
+    start = Math.max(0, Math.min(bodyHeight - height, focusAnchor));
     if (relativeScroll !== 0) {
       start = Math.max(0, Math.min(bodyHeight - height, start + relativeScroll));
       viewScroll = start;

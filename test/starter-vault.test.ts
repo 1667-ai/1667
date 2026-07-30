@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { starterKeyToken } from "../shared/starter-keys.js";
 import {
+  STARTER_LOGO_TEXT,
   STARTER_OPENING_STORY_ID,
   STARTER_STORIES,
   starterProse
@@ -55,8 +56,10 @@ test("the tour keeps its takes, tags, and chapter on the written line", async ()
     // The line runs through the first take of each beat, not the last one
     // written, so the reader lands on take 1 of 3.
     const roots = payload.nodes.filter((node) => node.parentId === null);
-    const opening = roots.find((node) => node.preview.startsWith("Welcome to 1667"));
-    assert.ok(opening, "the opening take should be a root");
+    const opening = payload.path[0];
+    assert.ok(opening, "the opening take should be on the active path");
+    assert.ok(opening.text.startsWith(`${STARTER_LOGO_TEXT}\n\nWelcome to 1667.`));
+    assert.ok(roots.some((node) => node.id === opening.id), "the opening take should be a root");
     assert.equal(payload.activeRootId, opening.id);
 
     assert.deepEqual(

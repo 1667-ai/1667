@@ -86,6 +86,21 @@ function contrast(a: string, b: string): number {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
+function hue(color: string): number {
+  const [red, green, blue] = color.slice(1).match(/../g)!
+    .map((channel) => Number.parseInt(channel, 16) / 255);
+  const maximum = Math.max(red!, green!, blue!);
+  const minimum = Math.min(red!, green!, blue!);
+  const range = maximum - minimum;
+  if (range === 0) throw new TypeError(`logo color has no hue: ${color}`);
+  const sector = maximum === red
+    ? ((green! - blue!) / range) % 6
+    : maximum === green
+      ? (blue! - red!) / range + 2
+      : (red! - green!) / range + 4;
+  return (sector * 60 + 360) % 360;
+}
+
 function xtermHex(index: number): string {
   if (index < 16) {
     const system = [
@@ -114,6 +129,11 @@ function xtermHex(index: number): string {
  * shipped assignment rather than restating it. */
 const BREAKDOWN_ROLES: readonly DisplayRole[] =
   ["context voice", "context facts", "context recent", "context summary"];
+
+const LOGO_ROLES: readonly DisplayRole[] = [
+  "logo red", "logo orange", "logo yellow", "logo green",
+  "logo cyan", "logo blue", "logo violet"
+];
 
 /** A display role's shipped color at either depth, as hex. */
 function displayHex(theme: ThemeName, depth: ColorDepth, role: DisplayRole): string {
@@ -224,6 +244,21 @@ describe("theme palette", () => {
 
         expect(new Set(colors).size).toBe(4);
         for (const color of colors) expect(contrast(background, color)).toBeGreaterThan(2.999);
+      }
+    }
+  });
+
+  test("keeps all seven starter logo bands distinct and visible", () => {
+    for (const theme of THEME_NAMES) {
+      for (const depth of ["truecolor", "256"] as const) {
+        const background = depth === "truecolor"
+          ? hex(theme, "background") : xtermHex(theme256Index(theme, "background"));
+        const colors = LOGO_ROLES.map((role) => displayHex(theme, depth, role));
+        const hues = colors.map(hue);
+
+        expect(new Set(colors).size).toBe(7);
+        for (const color of colors) expect(contrast(background, color)).toBeGreaterThan(2.999);
+        expect(hues.every((value, index) => index === 0 || hues[index - 1]! < value)).toBeTrue();
       }
     }
   });

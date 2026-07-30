@@ -13,6 +13,10 @@ import {
   type StoryNode,
   type TextRange
 } from "../../../../shared/types.js";
+import {
+  STARTER_LOGO_LINES,
+  STARTER_LOGO_TEXT
+} from "../../../../shared/starter-vault.js";
 import { takeStrip } from "./density.js";
 import {
   fitLine,
@@ -45,6 +49,8 @@ export interface StoryPartWrapPlan {
   width: number;
   text: string;
   runs: readonly StyleRun<ProseStyle>[];
+  sourceStart: number;
+  compactLogo: boolean;
   identity: WrapContentIdentity;
   stream: StreamView | null;
   appending: boolean;
@@ -89,6 +95,10 @@ export function layoutStoryRow(
 
   const prefixMask = (narrow ? 1 : 0) | (state.showInstructions ? 2 : 0) | (row.isSummary ? 4 : 0);
   const wrapWidth = measure - (row.isSummary ? 2 : 0);
+  const sourceStart = row.isSummary
+    ? 0
+    : starterLogoSourceStart(row.node.text, row.humanSpans, wrapWidth);
+  const wrappedTextInput = sourceStart === 0 ? row.node.text : row.node.text.slice(sourceStart);
   const stream = streamForPart(state.stream, row.id);
   const identityContext = wrapIdentityContext(row, state);
   const identity = storyPartWrapIdentity(
@@ -104,10 +114,12 @@ export function layoutStoryRow(
     stream,
     measure,
     cache,
-    identityContext
+    identityContext,
+    sourceStart
   );
-  const wrapped = cache.lineCount(row.id, wrapWidth, row.node.text, identity)
+  const wrappedBody = cache.lineCount(row.id, wrapWidth, wrappedTextInput, identity)
     ?? prepare().wrapped.length;
+  const wrapped = wrappedBody + (sourceStart === 0 ? 0 : 1);
   const streaming = stream !== null;
   const gutterRows = streaming && !narrow ? 2
     : focused && !narrow && !row.isSummary
@@ -282,15 +294,26 @@ function renderPartBody(
   gutterRows: number,
   deadlines?: FrameDeadlineCollector
 ): FrameLine[] {
-  const { stream, appending, wrapped } = prepared;
+  const { stream, appending, wrapped, sourceStart, compactLogo } = prepared;
   if (part.isSummary) {
     return wrapped.map((line) => prefixLine(narrow, [], [segment("  ", "summary"),
       ...styledWrapped(line, "summary", "summary", state, part, false, deadlines)]));
   }
   const streaming = stream !== null;
-  const lines = wrapped.map((line, lineIndex) => prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex),
-    styledWrapped(line, focused ? "prose" : "prose · dim", focused ? "human edit" : "human edit dim",
-      state, part, streaming && !appending, deadlines)));
+  const lines: FrameLine[] = [];
+  if (compactLogo) {
+    lines.push(prefixLine(
+      narrow,
+      gutterFor(part, focused, streaming, 0),
+      compactStarterLogo(focused)
+    ));
+  }
+  for (const line of wrapped) {
+    const lineIndex = lines.length;
+    lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex),
+      styledWrapped(line, focused ? "prose" : "prose · dim", focused ? "human edit" : "human edit dim",
+        state, part, streaming && !appending, deadlines, sourceStart)));
+  }
   const proseTip = lines.length - 1;
   for (let lineIndex = lines.length; lineIndex < gutterRows; lineIndex += 1) {
     lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex), []));
@@ -305,7 +328,8 @@ function wrapPart(
   stream: StreamView | null,
   measure: number,
   cache: WrapCache<ProseStyle>,
-  identityContext: { source: object; settledLength: number }
+  identityContext: { source: object; settledLength: number },
+  sourceStart?: number
 ) {
   const plan = storyPartWrapPlan(
     part,
@@ -313,11 +337,14 @@ function wrapPart(
     measure,
     identityContext.settledLength,
     identityContext.source,
-    stream
+    stream,
+    sourceStart
   );
   return {
     stream: plan.stream,
     appending: plan.appending,
+    sourceStart: plan.sourceStart,
+    compactLogo: plan.compactLogo,
     wrapped: cache.wrap(plan.partId, plan.width, plan.text, plan.runs, plan.identity)
   };
 }
@@ -329,29 +356,44 @@ export function storyPartWrapPlan(
   measure: number,
   settledLength = part.node.text.length,
   identitySource: object = part.node,
-  streamIdentity: object | null = stream
+  streamIdentity: object | null = stream,
+  projectedSourceStart?: number
 ): StoryPartWrapPlan {
   const appending = stream?.append === true;
-  const text = part.node.text;
+  const sourceText = part.node.text;
+  const width = measure - (part.isSummary ? 2 : 0);
+  const sourceStart = projectedSourceStart
+    ?? (part.isSummary ? 0 : starterLogoSourceStart(sourceText, part.humanSpans, width));
+  const text = sourceStart === 0 ? sourceText : sourceText.slice(sourceStart);
   // Wrapping aligns style boundaries while it already owns grapheme
   // segmentation. Keeping this raw avoids a second uninterruptible scan before
   // resumable cold work begins.
-  const streamingStart = appending && text.length > settledLength
+  const sourceStreamingStart = appending && sourceText.length > settledLength
     ? Math.max(0, settledLength)
     : null;
-  const runs: StyleRun<ProseStyle>[] = [];
+  const streamingStart = sourceStreamingStart === null
+    ? null
+    : Math.max(0, sourceStreamingStart - sourceStart);
+  const runs: StyleRun<ProseStyle>[] = sourceStart === 0
+    ? starterLogoRuns(text, part.humanSpans)
+    : [];
   const spanCount = Math.min(part.humanSpans.length, MAX_HUMAN_EDIT_RANGES);
   for (let index = 0; index < spanCount; index += 1) {
     const range = part.humanSpans[index]!;
-    const end = streamingStart === null ? range.end : Math.min(range.end, streamingStart);
-    if (end > range.start) runs.push({ start: range.start, end, style: "human" });
+    const start = Math.max(range.start, sourceStart) - sourceStart;
+    const end = (sourceStreamingStart === null
+      ? range.end
+      : Math.min(range.end, sourceStreamingStart)) - sourceStart;
+    if (end > start) runs.push({ start, end, style: "human" });
   }
   if (streamingStart !== null) runs.push({ start: streamingStart, end: text.length, style: "streaming" });
   return {
     partId: part.id,
-    width: measure - (part.isSummary ? 2 : 0),
+    width,
     text,
     runs,
+    sourceStart,
+    compactLogo: sourceStart > 0,
     identity: storyPartWrapIdentity(
       part,
       stream,
@@ -363,6 +405,61 @@ export function storyPartWrapPlan(
     appending,
     appendStart: streamingStart
   };
+}
+
+const STARTER_LOGO_STYLES = [
+  "logo red",
+  "logo orange",
+  "logo yellow",
+  "logo green",
+  "logo cyan",
+  "logo blue",
+  "logo violet"
+] as const satisfies readonly ProseStyle[];
+
+const STARTER_LOGO_PREFIX = `${STARTER_LOGO_TEXT}\n\n`;
+const STARTER_LOGO_WIDTH = Math.max(...STARTER_LOGO_LINES.map(visibleWidth));
+
+function hasPristineStarterLogo(text: string, humanSpans: readonly TextRange[]): boolean {
+  return text.startsWith(STARTER_LOGO_PREFIX)
+    && !humanSpans.some((range) => range.start < STARTER_LOGO_TEXT.length);
+}
+
+function starterLogoSourceStart(
+  text: string,
+  humanSpans: readonly TextRange[],
+  measure: number
+): number {
+  return measure < STARTER_LOGO_WIDTH && hasPristineStarterLogo(text, humanSpans)
+    ? STARTER_LOGO_PREFIX.length
+    : 0;
+}
+
+/** Match the complete prefix. An edited or partial logo becomes ordinary
+ * prose, which keeps a user change authoritative and avoids hidden markup. */
+function starterLogoRuns(
+  text: string,
+  humanSpans: readonly TextRange[]
+): StyleRun<ProseStyle>[] {
+  if (!hasPristineStarterLogo(text, humanSpans)) return [];
+  const runs: StyleRun<ProseStyle>[] = [];
+  let lineStart = 0;
+  for (const line of STARTER_LOGO_LINES) {
+    for (let band = 0; band < STARTER_LOGO_STYLES.length; band += 1) {
+      const start = lineStart + band * 3;
+      const end = Math.min(start + 3, lineStart + line.length);
+      if (start < end) runs.push({ start, end, style: STARTER_LOGO_STYLES[band]! });
+    }
+    lineStart += line.length + 1;
+  }
+  return runs;
+}
+
+function compactStarterLogo(focused: boolean): FrameLine {
+  const roles = focused
+    ? ["logo red", "logo yellow", "logo green", "logo violet"] as const
+    : ["prose · dim", "prose · dim", "prose · dim", "prose · dim"] as const;
+  return [..."1667"].map((digit, index) => segment(digit, roles[index]!));
 }
 
 /** O(1) content proof for immutable payload prose and one append-only stream.
@@ -564,7 +661,8 @@ function styledWrapped(
   state: StoryScreenState,
   part: StoryPart,
   streaming = false,
-  deadlines?: FrameDeadlineCollector
+  deadlines?: FrameDeadlineCollector,
+  sourceStart = 0
 ): FrameLine {
   const defaultRole = freshRole(state, part, resting, streaming, deadlines);
   const output: FrameLine = [];
@@ -574,23 +672,29 @@ function styledWrapped(
     if (run.start > cursor) {
       output.push(storySegment(
         line.text.slice(cursor, run.start), defaultRole,
-        sourceKey, part.node.text, line.start + cursor
+        sourceKey, part.node.text, sourceStart + line.start + cursor
       ));
     }
     output.push(storySegment(
-      line.text.slice(run.start, run.end), run.style === "human" ? human : "streaming",
-      sourceKey, part.node.text, line.start + run.start
+      line.text.slice(run.start, run.end), proseStyleRole(run.style, human, resting),
+      sourceKey, part.node.text, sourceStart + line.start + run.start
     ));
     cursor = run.end;
   }
   if (cursor < line.text.length) {
     output.push(storySegment(
       line.text.slice(cursor), defaultRole,
-      sourceKey, part.node.text, line.start + cursor
+      sourceKey, part.node.text, sourceStart + line.start + cursor
     ));
   }
   if (line.text.length === 0) output.push(segment("", defaultRole));
   return output;
+}
+
+function proseStyleRole(style: ProseStyle, human: DisplayRole, resting: DisplayRole): DisplayRole {
+  if (style === "human") return human;
+  if (style === "streaming") return "streaming";
+  return resting === "prose" ? style : resting;
 }
 
 function storySegment(

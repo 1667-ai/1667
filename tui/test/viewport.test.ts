@@ -44,6 +44,18 @@ test("viewport slices partially visible blocks and preserves owners", () => {
   expect(viewport.blockRows).toEqual([5, 6, 7, 8, 9, 0, 1, 2, 3, 4]);
 });
 
+test("viewport can align the focused block at its start", () => {
+  const rendered: number[] = [];
+  const blocks = [block(0, 30, rendered), block(1, 10, rendered)];
+  const viewport = viewportLines(blocks, "part-0", 10, false, null, 0, true);
+
+  expect(viewport.lines.map((line) => line[0]?.text)).toEqual(
+    Array.from({ length: 10 }, (_, index) => `0:${index}`)
+  );
+  expect(viewport.viewScroll).toBe(null);
+  expect(viewport.start).toBe(0);
+});
+
 test("cold-frame scroll intent stays relative until a complete viewport exists", () => {
   const intent = { viewScroll: null, viewScrollDelta: 0 };
   scrollStoryViewport(intent, -3);

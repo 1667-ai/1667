@@ -1,8 +1,18 @@
 import { graphemeCells, iterateGraphemeCells } from "./cell-width.js";
 
 /** The prose-layer styles carried through wrapping: human-edited spans and
- *  the freshly-streaming suffix of an appended part. */
-export type ProseStyle = "human" | "streaming";
+ *  the freshly-streaming suffix of an appended part. The seven logo styles
+ *  color the hardcoded starter mark without adding markup to story text. */
+export type ProseStyle =
+  | "human"
+  | "streaming"
+  | "logo red"
+  | "logo orange"
+  | "logo yellow"
+  | "logo green"
+  | "logo cyan"
+  | "logo blue"
+  | "logo violet";
 
 export interface StyleRun<Style = string> {
   start: number;

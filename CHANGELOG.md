@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The starter tour now starts with a rainbow 1667 mark.** The mark is part of
+  the first story part. It scrolls with the story. The TUI does not add a new
+  screen or an editor for the mark.
 - **HTTP retries now follow the selected project after a port change.** The
   backend puts a data-directory ID in HTTP health metadata. The TUI keeps an
   unfinished create or import operation for that ID. Git can track the

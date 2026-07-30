@@ -73,7 +73,9 @@ async function seedStory(service: StoryService, story: StarterStory): Promise<vo
           appendTo: null,
           expectedTextHash: null,
           instruction: take.instruction ?? "",
-          text: take.text.trim(),
+          // Starter text is trusted source data. Keep intentional leading
+          // cells in story-native art, but never store an accidental tail.
+          text: take.text.trimEnd(),
           model: "human",
           genId: null,
           nodeId
