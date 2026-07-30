@@ -82,8 +82,27 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
   }
   reconcileStoryActions(state, view);
   reconcileMapNavigation(state, payload);
+  retireSearchResults(state);
   reconcileStoryBoundIntent(state, view);
   return view;
+}
+
+/** Search answers the story as it was when the query ran. An authoritative
+ * payload replaces that story, so the hits stop describing it: prose that now
+ * exists is missing from them, and a rewrite can keep a node id while replacing
+ * every word the query matched. Retire them and let the next keystroke ask
+ * again, rather than leaving `enter` pointed at text that has moved.
+ *
+ * A request still in flight is abandoned here as well. Its reply will fail the
+ * ownership fence and never run a handler, so nothing else would ever clear the
+ * pending state and the pane would read `searching…` until the next keystroke. */
+function retireSearchResults(state: RuntimeState): void {
+  const search = state.search;
+  if (search === null) return;
+  search.requestId += 1;
+  search.searching = false;
+  search.response = null;
+  search.cursor = 0;
 }
 
 /** Re-anchor an open part menu by semantic identity, or close it if its
@@ -323,6 +342,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   state.composerClaimEpoch += 1;
   state.freshLandedAt = new Map();
   state.map = null;
+  state.search = null;
   state.contextMeterExpanded = false;
   state.prune = null;
   state.tag = null;

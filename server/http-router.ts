@@ -281,6 +281,11 @@ async function handleApi(
       return sendJson(response, 201, await mutate("createStory", { title }));
     }
   }
+  // A read, but the query travels in a body: it is the writer's own prose and
+  // must not land in a URL, a log line, or a proxy cache key.
+  if (head === "stories" && id === "search" && method === "POST") {
+    return sendJson(response, 200, await service.searchStories(await jsonBody()));
+  }
   if (head === "stories" && id === "catalog-page" && method === "POST") {
     return sendJson(response, 200, await service.listStoriesPage(
       await jsonBody()

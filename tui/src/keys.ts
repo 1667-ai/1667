@@ -47,10 +47,11 @@ export type KeyAction =
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
-  | "toggle-context-meter";
+  | "toggle-context-meter" | "open-search" | "toggle-search-case";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
-  | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS";
+  | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
+  | "SEARCH";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -185,6 +186,7 @@ export function pasteInto(
     } | null;
     facts: { filtering: boolean; query: string; cursor: number } | null;
     commands: { view: string; query: string } | null;
+    search: { query: string } | null;
     chapters?: { rename: { value: string } | null } | null;
     settings: {
       edit: SettingsInlineEditState | null;
@@ -243,6 +245,9 @@ export function pasteInto(
     state.commands.query += line;
     return true;
   }
+  if (state.mode === "SEARCH" && state.search !== null) {
+    return false;
+  }
   const chapterRename = state.mode === "CHAPTERS" ? state.chapters?.rename : null;
   if (chapterRename != null) {
     chapterRename.value += line;
@@ -297,7 +302,9 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
 }
 
 export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): boolean {
-  return mode === "COMPOSE" || mode === "EDITOR"
+  // Search refines live, so its query field owns every plain letter. Its own
+  // verbs are arrows and chords for exactly that reason.
+  return mode === "COMPOSE" || mode === "EDITOR" || mode === "SEARCH"
     || options.overlayTyping === true
     || mode === "COMMANDS" && options.commandsTags !== true
     || mode === "TAG" && options.tagChoosingStatus !== true;
@@ -393,6 +400,12 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     && (key.ctrl || key.super)
     && key.name.toLowerCase() === "v") {
     return { action: "paste-clipboard" };
+  }
+  if (mode === "SEARCH") {
+    const searchReference = resolveReferenceBinding("search", key, mode, mapView);
+    if (searchReference !== null) return { action: searchReference.action };
+    if (key.name === "backspace") return { action: "backspace" };
+    return textInput(key) ?? { action: "none" };
   }
   // A modified letter is a chord, never a plain hotkey. Keep unknown
   // terminal/application chords inert on every non-composer surface.

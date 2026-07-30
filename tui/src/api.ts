@@ -8,6 +8,7 @@ import {
   decodeChapterBreakRemovedResponse,
   decodeContextWindowResponse,
   decodeDeleteStoryResponse,
+  decodeSearchResponse,
   decodeStoryCatalogPageResponse,
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
@@ -67,6 +68,7 @@ import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
+import type { SearchRequest, SearchResponse } from "../../shared/story-search.js";
 import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { HttpStoryVersions } from "./http-story-versions.js";
 import {
@@ -104,6 +106,7 @@ export interface ContinueTarget {
  *  methods on that shape or teach connection.ts about the exception. */
 export interface StoryApi {
   listStories(): Promise<StorySummary[]>;
+  searchStories(request: SearchRequest): Promise<SearchResponse>;
   createStory(title?: string): Promise<StoryPayload>;
   loadStory(id: string): Promise<StoryPayload>;
   renameStory(id: string, title: string): Promise<StoryPayload>;
@@ -418,6 +421,12 @@ export function createApi(
       }
       throw new Error("The story catalog retry was exhausted.");
     },
+    searchStories: async (search) => await request(
+      "POST",
+      "/api/stories/search",
+      decodeSearchResponse,
+      search
+    ),
     createStory: async (title) => {
       const normalizedTitle = title?.trim() || "Untitled";
       const intent = await mutationIntents.claim(

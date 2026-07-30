@@ -486,8 +486,11 @@ describe("review regressions", () => {
       const mapStatus = plainLine(renderStoryScreen(mapped, { width: 120, height: 36 }).lines.at(-1)!);
 
       expect(view.visiblePayload.path.at(-1)?.id).toBe(stream.targetId);
-      expect(storyStatus).toContain(expectedIdentity);
-      expect(mapStatus).toContain(expectedIdentity);
+      // A tag is the only line identity these bars print. Both must read it
+      // from the projected leaf, and both must stay silent about an untagged
+      // line rather than naming the one the stream replaced.
+      expect(storyStatus.includes(expectedIdentity)).toBe(item.tagged);
+      expect(mapStatus.includes(expectedIdentity)).toBe(item.tagged);
       expect(storyStatus.includes("canon-storm")).toBe(item.tagged);
       expect(mapStatus.includes("canon-storm")).toBe(item.tagged);
     }

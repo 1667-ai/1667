@@ -26,6 +26,7 @@ import type {
   ListStoriesPageInput,
   StoryCatalogPage
 } from "./story-catalog.js";
+import type { SearchRequest, SearchResponse } from "./story-search.js";
 import type { StoryAggregateVersion } from "./story-aggregate-version.js";
 import type { ProviderRecoveryContext } from "./provider-recovery.js";
 import {
@@ -86,6 +87,7 @@ export function canonicalWorkerInputProtocolVersion(
 export interface WorkerMethodContract {
   listStories: { input: Record<string, never>; output: StorySummary[] };
   listStoriesPage: { input: ListStoriesPageInput; output: StoryCatalogPage };
+  searchStories: { input: SearchRequest; output: SearchResponse };
   createStory: { input: { title?: string }; output: StoryPayload };
   loadStory: { input: { id: string }; output: StoryPayload };
   getUnknownOutcomeStatus: {
@@ -423,7 +425,7 @@ export type WorkerToMainMessage =
   | { type: "stopped" };
 
 const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
-  "listStories", "listStoriesPage", "createStory", "loadStory",
+  "listStories", "listStoriesPage", "searchStories", "createStory", "loadStory",
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",

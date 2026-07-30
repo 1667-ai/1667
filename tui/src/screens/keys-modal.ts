@@ -167,6 +167,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navOpenCommandsColon"),
         binding("navOpenCommandsCtrlP")
       ]),
+      entry("search story or vault", [binding("navOpenSearch")]),
       entry("generation settings", [binding("navOpenSettings")]),
       entry("wide context details", [
         binding("navToggleContext"),
@@ -179,7 +180,8 @@ const SECTIONS: readonly KeysModalSection[] = [
       entry("close what is open", [
         binding("navClose"),
         binding("mapClose"),
-        binding("keysClose")
+        binding("keysClose"),
+        binding("searchClose")
       ]),
       entry("quit 1667", [binding("navQuit")])
     ]
@@ -211,6 +213,26 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapPathTag")
       ])
     ]
+  },
+  {
+    title: "SEARCH",
+    blurb: "while search is open",
+    role: "tag · draft",
+    entries: [
+      entry("previous · next hit", [
+        binding("searchFocusPrevious"),
+        binding("searchFocusNext")
+      ]),
+      entry("fold · open a group", [
+        binding("searchFold"),
+        binding("searchUnfold")
+      ]),
+      entry("this tree · whole vault", [binding("searchScope")]),
+      entry("go to the hit", [binding("searchOpen")]),
+      // The query field takes every plain letter, so this one has to be a
+      // chord — say so here, where a reader looks for the missing `c`.
+      entry("match case exactly", [binding("searchCase")])
+    ]
   }
 ];
 
@@ -222,11 +244,15 @@ export const KEYS_MODAL_MODEL: KeysModalModel = {
 /** Copy budget, not a measurement of the copy: exceeding it truncates rather
  *  than reflowing, so the panel geometry cannot be widened by a long line. */
 const DESCRIPTION_BUDGET = 24;
-/** Headings share the key column, so they widen it as an entry token would. */
-const TOKEN_WIDTH = Math.max(...SECTIONS.flatMap((section) => [
-  visibleWidth(heading(section)),
-  ...section.entries.map((item) => visibleWidth(item.token))
-]));
+/** The key column is as wide as the widest key, and no wider.
+ *
+ * Section headings share the column but do not widen it: letting `● SEARCH`
+ * set the width cost every column a cell, which dropped an 80-column terminal
+ * from two columns to one. A heading longer than the column keeps its full
+ * text and takes the extra cell from its own blurb's slack, which is the one
+ * row on the panel that has some. */
+const TOKEN_WIDTH = Math.max(...SECTIONS.flatMap((section) =>
+  section.entries.map((item) => visibleWidth(item.token))));
 const COLUMN_WIDTH = TOKEN_WIDTH + 2 + DESCRIPTION_BUDGET;
 const COLUMN_GUTTER = 2;
 const MAX_COLUMNS = 3;

@@ -95,6 +95,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         [...held.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       );
     },
+    searchStories: async (search) => await transport.call("searchStories", search),
     createStory: async (title) => rememberPayload(
       await transport.call("createStory", title === undefined ? {} : { title }, {
         expectedAggregateVersion: { kind: "absent" }

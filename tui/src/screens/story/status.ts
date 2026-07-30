@@ -1,5 +1,4 @@
 import { AI_1667_VERSION_TAG } from "../../../../shared/build-identity.js";
-import { lineName } from "../../../../shared/story-model.js";
 import type { Tag } from "../../../../shared/types.js";
 import { tagGlyph, tagRole } from "../../tag-presentation.js";
 import { chapterForRow, rowPart, type StoryViewModel } from "../../model.js";
@@ -46,14 +45,13 @@ export function renderStatus(
   }
   const left: FrameLine = [modeBlock];
   left.push(segment(`  ${title} · `, "chrome"));
-  // The line always has a name (spec: the line chip) — tag name when
-  // the leaf is tagged, the derived working name otherwise.
-  const leafId = payload.path.at(-1)?.id;
+  // Only a name the writer gave the line earns a cell here. An untagged line
+  // has no name, and printing the opening words of its last part instead said
+  // nothing the page above was not already saying.
   let lineIdentity: { text: string; role: DisplayRole } | null = null;
-  if (leafId !== undefined) {
-    const name = truncate(lineName(payload, leafId), narrow ? 14 : 24);
+  if (tag !== null) {
     lineIdentity = {
-      text: `${tag !== null ? `${tagGlyph(tag.status)} ` : ""}${name}`,
+      text: `${tagGlyph(tag.status)} ${truncate(tag.name, narrow ? 14 : 24)}`,
       role: tagRole(tag)
     };
     left.push(segment(lineIdentity.text, lineIdentity.role), segment(" · ", "chrome"));

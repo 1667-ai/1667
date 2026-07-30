@@ -41,6 +41,7 @@ export const STORY_GUTTER = 24;
 export interface StoryRowLayout {
   height: number;
   stickyGutter: StickyStoryGutter | null;
+  stickyPrompt: StickyStoryPrompt | null;
   render(): FrameLine[];
 }
 
@@ -68,6 +69,15 @@ export interface StickyStoryGutter {
   /** Natural row inside this layout; clamped to the visible part while scrolling. */
   start: number;
   lines: FrameLine[];
+}
+
+export interface StickyStoryPrompt {
+  /** Natural row of the prompt inside this part's block. */
+  start: number;
+  /** Rows this part paints, excluding the blank that separates it from the next. */
+  partRows: number;
+  /** Rendered lazily: blocks the viewport never paints must not be prepared. */
+  line: () => FrameLine;
 }
 
 /** One row plan owns measurement and visible rendering. Fixed rows are real
@@ -138,9 +148,19 @@ export function layoutStoryRow(
           gutterFor(row, true, false, lineIndex))
       }
     : null;
+  const promptRowIndex = narrow ? 1 : 0;
+  const partRows = prefixRows + Math.max(wrapped, gutterRows);
+  const stickyPrompt: StickyStoryPrompt | null = (prefixMask & 2) !== 0 && !expandedPrompt
+    ? {
+        start: promptRowIndex,
+        partRows,
+        line: () => preparePrefix()[promptRowIndex] ?? []
+      }
+    : null;
   return {
-    height: prefixRows + Math.max(wrapped, gutterRows),
+    height: partRows,
     stickyGutter,
+    stickyPrompt,
     render: () => [
       ...preparePrefix(),
       ...renderPartBody(row, state, focused, narrow, prepare(), gutterRows, deadlines)
@@ -156,7 +176,7 @@ export function renderChapterOneHeading(view: StoryViewModel, measure: number, n
 }
 
 function fixedLayout(lines: FrameLine[]): StoryRowLayout {
-  return { height: lines.length, stickyGutter: null, render: () => lines };
+  return { height: lines.length, stickyGutter: null, stickyPrompt: null, render: () => lines };
 }
 
 function renderChapterDivider(
@@ -628,6 +648,20 @@ function stripSegments(strip: ReturnType<typeof takeStrip>, currentTake: number)
 export function replaceStoryGutter(line: FrameLine, gutter: FrameLine, width: number): FrameLine {
   const prose = sliceFrame([line], STORY_GUTTER, Math.max(0, width - STORY_GUTTER))[0] ?? [];
   return prefixLine(false, gutter, prose);
+}
+
+/** Swap the prose column and leave the gutter alone. A sticky gutter can share
+ *  the row, and it owns those cells. A narrow frame has no gutter to protect. */
+export function replaceStoryProse(
+  line: FrameLine,
+  promptLine: FrameLine,
+  narrow: boolean,
+  width: number
+): FrameLine {
+  if (narrow) return promptLine;
+  const gutter = sliceFrame([line], 0, STORY_GUTTER)[0] ?? [];
+  const prose = sliceFrame([promptLine], STORY_GUTTER, Math.max(0, width - STORY_GUTTER))[0] ?? [];
+  return [...gutter, ...prose];
 }
 
 function renderBoundary(part: StoryPart, measure: number, focused: boolean, streaming: boolean): FrameLine {

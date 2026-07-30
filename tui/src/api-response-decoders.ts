@@ -23,6 +23,7 @@ import { MAX_SETTINGS_DOCUMENT_BYTES } from "../../server/settings-v2-scalars.js
 import { validateSettingsDocumentV2 } from "../../server/settings-v2-validation.js";
 import { parseStoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import type { StoryCatalogPage } from "../../shared/story-catalog.js";
+import type { SearchHit, SearchResponse } from "../../shared/story-search.js";
 
 export interface RemovedChapterBreak {
   break: ChapterBreak;
@@ -79,6 +80,50 @@ export function decodeStoryCatalogPageResponse(
     items: decodeStorySummariesResponse(response.items),
     cursor: response.cursor,
     done: response.done
+  };
+}
+
+export function decodeSearchResponse(value: unknown): SearchResponse {
+  const response = responseRecord(value, "search");
+  const scope = response.scope;
+  if (scope !== "tree" && scope !== "vault") invalidField("search response", "scope");
+  if (!Array.isArray(response.hits)) invalidField("search response", "hits");
+  return {
+    query: stringField(response, "query", "search response"),
+    scope,
+    caseSensitive: booleanField(response, "caseSensitive", "search response"),
+    hits: response.hits.map(decodeSearchHit),
+    capped: booleanField(response, "capped", "search response"),
+    storiesSearched: nonNegativeIntegerField(response, "storiesSearched", "search response")
+  };
+}
+
+function decodeSearchHit(value: unknown): SearchHit {
+  const hit = responseRecord(value, "search hit");
+  const kind = hit.kind;
+  if (kind !== "prose" && kind !== "prompt" && kind !== "fact") {
+    invalidField("search hit", "kind");
+  }
+  const snippet = stringField(hit, "snippet", "search hit");
+  const context = stringField(hit, "context", "search hit");
+  const snippetMatch = nonNegativeIntegerField(hit, "snippetMatch", "search hit");
+  const matchLength = nonNegativeIntegerField(hit, "matchLength", "search hit");
+  const contextMatch = nonNegativeIntegerField(hit, "contextMatch", "search hit");
+  // Offsets index into the strings beside them. A pair that does not fit would
+  // paint a highlight over text that is not the match.
+  if (snippetMatch + matchLength > snippet.length) invalidField("search hit", "snippetMatch");
+  if (contextMatch + matchLength > context.length) invalidField("search hit", "contextMatch");
+  return {
+    storyId: stringField(hit, "storyId", "search hit"),
+    storyTitle: stringField(hit, "storyTitle", "search hit"),
+    kind,
+    targetId: stringField(hit, "targetId", "search hit"),
+    depth: nonNegativeIntegerField(hit, "depth", "search hit"),
+    snippet,
+    snippetMatch,
+    matchLength,
+    context,
+    contextMatch
   };
 }
 

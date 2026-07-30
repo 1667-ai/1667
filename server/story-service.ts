@@ -13,6 +13,16 @@ import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
 import {
+  SEARCH_HIT_LIMIT,
+  searchCorpus,
+  searchQueryIsRunnable,
+  type SearchCorpus,
+  type SearchHit,
+  type SearchResponse
+} from "../shared/story-search.js";
+import { StorySearchIndex } from "./story-search-index.js";
+import { parseSearchRequest } from "./service-input.js";
+import {
   isServiceOwnedSettingsMutation,
   type LocalDurabilityMutationMethod,
   type WorkerMethod
@@ -54,6 +64,15 @@ export class StoryService extends StoryServiceRuntime {
 
   /** In flight or settled once seeding has been attempted for this service. */
   private starterVaultWrite: Promise<void> | null = null;
+
+  /** Prepared search text, so a query per keystroke does not reread the vault. */
+  private readonly searchIndex = new StorySearchIndex();
+
+  /** Corpus builds in flight, so concurrent keystrokes share one hydration. */
+  private readonly searchBuilds = new Map<
+    string,
+    { updatedAt: string; corpus: Promise<SearchCorpus | null> }
+  >();
 
   /**
    * Seeding runs after the lifecycle reports ready, because every authoring
@@ -128,6 +147,112 @@ export class StoryService extends StoryServiceRuntime {
   async listStoriesPage(input: unknown): Promise<StoryCatalogPage> {
     this.ensureOpen();
     return await this.storyCatalog.listPage(input);
+  }
+
+  /**
+   * Substring search over every take in the tree, or over every story in the
+   * vault. Prose, the prompt that made each part, and the facts are all in the
+   * corpus; the caller tells them apart by `SearchHit.kind`.
+   *
+   * The open story is scanned first so its hits survive the cap when a vault
+   * query matches more than the limit.
+   */
+  async searchStories(input: unknown): Promise<SearchResponse> {
+    this.ensureOpen();
+    const request = parseSearchRequest(input);
+    const query = request.query.trim();
+    const base: SearchResponse = {
+      query,
+      scope: request.scope,
+      caseSensitive: request.caseSensitive,
+      hits: [],
+      capped: false,
+      storiesSearched: 0
+    };
+    if (!searchQueryIsRunnable(query)) return base;
+    const summaries = request.scope === "tree" ? [] : await this.stories.list();
+    const revisions = new Map(summaries.map((summary) =>
+      [summary.id, { title: summary.title, updatedAt: summary.updatedAt }] as const));
+    const targets = [
+      request.storyId,
+      ...summaries.map((summary) => summary.id).filter((id) => id !== request.storyId)
+    ];
+    const hits: SearchHit[] = [];
+    let storiesSearched = 0;
+    let capped = false;
+    for (const id of targets) {
+      if (hits.length >= SEARCH_HIT_LIMIT) {
+        // Stories after this one go unread, so the count really is a floor
+        // even when those stories would have matched nothing.
+        capped = true;
+        break;
+      }
+      const corpus = await this.searchCorpusFor(id, revisions.get(id));
+      // A story deleted between the listing and the scan is simply not there.
+      if (corpus === null) continue;
+      storiesSearched += 1;
+      const room = SEARCH_HIT_LIMIT - hits.length;
+      // Ask for one more than there is room for: that extra hit is how a
+      // capped result set announces itself without a second scan.
+      const found = searchCorpus(corpus, query, request.caseSensitive, room + 1);
+      if (found.length > room) capped = true;
+      hits.push(...found.slice(0, room));
+    }
+    return { ...base, hits, capped, storiesSearched };
+  }
+
+  /** The cached corpus while its revision still stands, otherwise one built
+   *  from a fully hydrated story.
+   *
+   *  At vault scope `known` is the revision the catalog listing reported, and
+   *  that listing is taken fresh at the start of this same request. A story
+   *  edited or deleted inside that window is answered from the corpus the
+   *  listing described, which is one keystroke stale; the next keystroke lists
+   *  again and corrects it. Re-reading every manifest a second time to close a
+   *  window that small would double the per-keystroke cost of the feature. What
+   *  is not tolerated is a story vanishing mid-scan, which is handled below, or
+   *  a deleted story keeping a warm corpus, which `deleteStory` drops. */
+  private async searchCorpusFor(
+    id: string,
+    known: { title: string; updatedAt: string } | undefined
+  ): Promise<SearchCorpus | null> {
+    const revision = known ?? await this.stories.loadRevision(id);
+    if (revision === null) {
+      this.searchIndex.forget(id);
+      return null;
+    }
+    const held = this.searchIndex.cached(id, revision.title, revision.updatedAt);
+    if (held !== null) return held;
+    // A keystroke per request means several cold requests can reach this line
+    // for the same revision at once. Each would queue its own full-tree read
+    // behind the story's I/O slot, and the last of them can outlive the unary
+    // deadline. Share one build instead.
+    const pending = this.searchBuilds.get(id);
+    if (pending !== undefined && pending.updatedAt === revision.updatedAt) {
+      return await pending.corpus;
+    }
+    const build = this.buildSearchCorpus(id);
+    this.searchBuilds.set(id, { updatedAt: revision.updatedAt, corpus: build });
+    try {
+      return await build;
+    } finally {
+      if (this.searchBuilds.get(id)?.corpus === build) this.searchBuilds.delete(id);
+    }
+  }
+
+  private async buildSearchCorpus(id: string): Promise<SearchCorpus | null> {
+    try {
+      return this.searchIndex.adopt(await this.stories.loadHydrated(id));
+    } catch (error) {
+      // A vault scan walks a listing that is already a moment old. A story
+      // deleted between the listing and its turn is simply not there, and must
+      // not fail the query for every story after it.
+      if (error instanceof ServiceError && error.status === 404) {
+        this.searchIndex.forget(id);
+        return null;
+      }
+      throw error;
+    }
   }
 
   async createStory(
@@ -270,12 +395,18 @@ export class StoryService extends StoryServiceRuntime {
 
   async deleteStory(id: string, mutationRequest?: unknown): Promise<{ ok: true }> {
     this.ensureOpen();
-    if (mutationRequest !== undefined) {
-      await this.storyMutations.runDelete(mutationRequest);
+    try {
+      if (mutationRequest !== undefined) {
+        await this.storyMutations.runDelete(mutationRequest);
+        return { ok: true };
+      }
+      await this.stories.withLock(id, () => this.stories.remove(id));
       return { ok: true };
+    } finally {
+      // A deleted story keeps no prepared text. Dropping it here is what stops
+      // a warm corpus from answering for a story that is gone.
+      this.searchIndex.forget(id);
     }
-    await this.stories.withLock(id, () => this.stories.remove(id));
-    return { ok: true };
   }
 
   async exportMarkdown(id: string): Promise<string> {

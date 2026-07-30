@@ -1,3 +1,4 @@
+import type { SearchRequest } from "../shared/story-search.js";
 import type {
   CreateNodeRequest,
   EditNodeRequest,
@@ -104,6 +105,22 @@ export function parseSummaryTake(value: unknown): Record<string, unknown> {
     nodeId: requireString(body.nodeId, "nodeId"),
     ...(body.offset === undefined ? {} : { offset: requireNumber(body.offset, "offset") }),
     ...(body.expected === undefined ? {} : { expected: requireStringValue(body.expected, "expected") })
+  };
+}
+
+export function parseSearchRequest(value: unknown): SearchRequest {
+  const body = requireRecord(value, "search request");
+  const scope = requireString(body.scope, "scope");
+  if (scope !== "tree" && scope !== "vault") {
+    throw new ServiceError(400, "scope must be tree or vault");
+  }
+  return {
+    query: requireStringValue(body.query, "query"),
+    scope,
+    storyId: requireString(body.storyId, "storyId"),
+    caseSensitive: body.caseSensitive === undefined
+      ? false
+      : requireBoolean(body.caseSensitive, "caseSensitive")
   };
 }
 

@@ -476,11 +476,40 @@ export function armPrune(state: RuntimeState, targetId?: string): void {
   state.prune = createPrunePlan(state.payload, nodeId);
 }
 
+export function landOnNode(state: RuntimeState, source: AppSource, targetId: string): void {
+  state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(state.payload), targetId));
+  state.mode = "NAV";
+  rememberFocus(state, source);
+}
+
+export interface RerouteOrigin {
+  owns(state: RuntimeState): boolean;
+  release(state: RuntimeState): void;
+}
+
 export async function rerouteFromMap(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
   nodeId = state.map?.pathCursorId ?? null
+): Promise<void> {
+  await rerouteToNode(state, source, context, nodeId, {
+    owns: (current) => current.mode === "MAP" && current.map !== null,
+    release: (current) => { current.map = null; }
+  });
+}
+
+/** Route the line through a node and land on it.
+ *
+ * `origin` reports whether the surface that asked for the jump still owns the
+ * screen; only then does focus move and the surface close. Every full-bleed
+ * navigator (the map, search) travels through here. */
+export async function rerouteToNode(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  nodeId: string | null,
+  origin: RerouteOrigin
 ): Promise<void> {
   if (nodeId === null) return;
   // Rerouting mid-generation would let the landing take overwrite the line
@@ -503,11 +532,9 @@ export async function rerouteFromMap(
     // object identity changes during every ordinary reroute repaint. The
     // interaction epoch is the ownership fence: close only if no later input
     // has moved the user elsewhere while the backend request was in flight.
-    if (task.interactionCurrent() && state.mode === "MAP" && state.map !== null) {
-      state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), target));
-      state.mode = "NAV";
-      state.map = null;
-      rememberFocus(state, source);
+    if (task.interactionCurrent() && origin.owns(state)) {
+      origin.release(state);
+      landOnNode(state, source, target);
     }
     context.cache.invalidate();
   });

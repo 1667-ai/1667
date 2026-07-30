@@ -1,4 +1,3 @@
-import { createStoryIndex, lineName } from "../../../shared/story-model.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import {
   createAtlasLayout,
@@ -8,7 +7,7 @@ import {
 } from "../atlas-layout.js";
 import { addHit, type HitRegion, type HitRow, type HitRows } from "../hit.js";
 import { createPathLayout } from "../path-layout.js";
-import type { KeyAction } from "../keys.js";
+import { addFooterHits, joinHintTokens, type HintToken } from "./hint-footer.js";
 import { MAP_VIEWS, type MapState, type MapView } from "../map-state.js";
 import { pruneConfirmText } from "../prune-model.js";
 import type { StoryScreenState } from "../state.js";
@@ -332,16 +331,20 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
   const shownCrumb = density === "narrow" ? compactCrumb(crumb) : crumb;
   const activeLeaf = payload.path.at(-1)?.id ?? null;
   const tag = payload.tags.find((item) => item.nodeId === activeLeaf) ?? null;
-  const name = activeLeaf === null ? "unwritten" : lineName(payload, activeLeaf);
-  const lineIdentity = `${tag === null ? "" : `${tagGlyph(tag.status)} `}${name}`;
+  // A tag is a name the writer chose. An untagged line has none, and the first
+  // words of its leaf are not one — the crumb says nothing rather than that.
+  const lineIdentity = tag === null
+    ? activeLeaf === null ? "unwritten" : ""
+    : `${tagGlyph(tag.status)} ${tag.name}`;
   // Reserve the complete numeric crumb before spending the remaining cells on
   // identity. The tag marker belongs to the line identity budget: adding
   // it after truncating the name used to steal the final two cells from `653w`.
   const viewLabel = view === "path"
     ? `${view}/${map.pathShowAllTakes ? "all" : "branches"}`
     : view;
+  const separators = lineIdentity.length === 0 ? 1 : 2;
   const fixed = visibleWidth(" MAP ") + visibleWidth(` ${viewLabel}  `)
-    + visibleWidth(" · ") * 2 + visibleWidth(shownCrumb);
+    + visibleWidth(" · ") * separators + visibleWidth(shownCrumb);
   const [titleWidth, nameWidth] = saturatingIdentityWidths(
     payload.title, lineIdentity, Math.max(0, available - fixed)
   );
@@ -350,8 +353,9 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
     { text: " MAP ", role: "background", background: "focus / accent", bold: true },
     segment(` ${viewLabel}  `, "focus / accent"),
     segment(truncate(payload.title, titleWidth), "chrome"),
-    segment(" · ", "chrome"),
-    segment(shownName, tagRole(tag)),
+    ...(shownName.length === 0
+      ? []
+      : [segment(" · ", "chrome"), segment(shownName, tagRole(tag))]),
     segment(` · ${shownCrumb}`, "chrome")
   ];
   const shownLeft = fitLine(left, available);
@@ -388,27 +392,20 @@ type MapHintDensity = "narrow" | "medium" | "wide";
 /** A footer key and what it runs. The map is full-bleed, so its footer is the
  * only chrome advertising these keys — every one of them is a click target,
  * exactly as a floating panel's footer is. */
-interface MapHintToken {
-  text: string;
-  action?: KeyAction;
-  /** Glyph pairs (`↑↓`, `←→`) whose two cells run different actions. */
-  pair?: readonly [KeyAction, KeyAction];
-}
-
-function mapHintTokens(map: MapState, density: MapHintDensity): MapHintToken[] {
-  const rows = (label: string): MapHintToken =>
+function mapHintTokens(map: MapState, density: MapHintDensity): HintToken[] {
+  const rows = (label: string): HintToken =>
     ({ text: `↑↓ ${label}`, pair: ["focus-previous", "focus-next"] });
-  const cycle = (text: string): MapHintToken => ({ text, action: "cycle-map-view" });
-  const reroute = (text: string): MapHintToken => ({ text, action: "apply" });
-  const escape = (text: string): MapHintToken => ({ text, action: "cancel" });
-  const sort: MapHintToken = { text: "s sort", action: "map-cycle-sort" };
+  const cycle = (text: string): HintToken => ({ text, action: "cycle-map-view" });
+  const reroute = (text: string): HintToken => ({ text, action: "apply" });
+  const escape = (text: string): HintToken => ({ text, action: "cancel" });
+  const sort: HintToken = { text: "s sort", action: "map-cycle-sort" };
   if (map.view === "path") {
     const wideToggle = map.pathShowAllTakes ? "a branches" : "a all";
-    const toggle: MapHintToken = {
+    const toggle: HintToken = {
       text: density === "narrow" ? map.pathShowAllTakes ? "a branch" : "a all" : wideToggle,
       action: "toggle-path-takes"
     };
-    const takes: MapHintToken = { text: "←→ take", pair: ["take-previous", "take-next"] };
+    const takes: HintToken = { text: "←→ take", pair: ["take-previous", "take-next"] };
     if (density === "narrow") return [cycle("m"), toggle, rows("depth"), takes, escape("esc")];
     if (density === "medium") {
       return [cycle("m tree"), toggle, rows("depth"), takes, reroute("enter"), escape("esc")];
@@ -416,7 +413,7 @@ function mapHintTokens(map: MapState, density: MapHintDensity): MapHintToken[] {
     return [cycle("m tree"), toggle, rows("depth"), takes, reroute("enter reroute"), escape("esc writes")];
   }
   if (map.view === "tree") {
-    const follow: MapHintToken = { text: "l follow", action: "map-follow" };
+    const follow: HintToken = { text: "l follow", action: "map-follow" };
     if (density === "narrow") return [cycle("m mass"), rows("row"), follow, escape("esc")];
     if (density === "medium") {
       return [cycle("m mass"), rows("row"), follow, reroute("enter"), escape("esc writes")];
@@ -434,7 +431,7 @@ function mapHintTokens(map: MapState, density: MapHintDensity): MapHintToken[] {
 }
 
 function mapHint(map: MapState, density: MapHintDensity): string {
-  return mapHintTokens(map, density).map((token) => token.text).join(" · ");
+  return joinHintTokens(mapHintTokens(map, density), " · ");
 }
 
 function mapHintDensity(width: number): MapHintDensity {
@@ -451,33 +448,9 @@ function addMapFooterHits(
   map: MapState,
   width: number
 ): void {
-  const footerRow = Math.min(height, lines.length) - 1;
-  if (footerRow < 0) return;
-  const text = plainLine(lines[footerRow] ?? []);
   const density = mapHintDensity(width);
   const tokens = mapHintTokens(map, density);
-  // A toast, a prune confirmation, or a backend notice replaces the breadcrumb
-  // outright; then there is no hint on the row and nothing to register.
-  let offset = text.lastIndexOf(mapHint(map, density));
-  if (offset === -1) return;
-  for (const token of tokens) {
-    const index = text.indexOf(token.text, offset);
-    if (index === -1) continue;
-    offset = index + token.text.length;
-    const left = visibleWidth(text.slice(0, index));
-    if (token.pair !== undefined) {
-      addHit(hitRows, footerRow, { target: { kind: "action", action: token.pair[0] }, left, right: left + 1 });
-      addHit(hitRows, footerRow, {
-        target: { kind: "action", action: token.pair[1] }, left: left + 1, right: left + 2
-      });
-    } else if (token.action !== undefined) {
-      addHit(hitRows, footerRow, {
-        target: { kind: "action", action: token.action },
-        left,
-        right: left + visibleWidth(token.text)
-      });
-    }
-  }
+  addFooterHits(hitRows, lines, height, tokens, mapHint(map, density));
 }
 
 /** Spend every identity cell. A short title or line yields its unused share to

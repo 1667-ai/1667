@@ -19,6 +19,7 @@ import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
+import { openSearch } from "./search-actions.js";
 import { publishStories } from "./overlay-publication.js";
 import { retryBackendState } from "./recovery-orchestration.js";
 import {
@@ -66,6 +67,7 @@ export async function handleOverlayAction(
     return true;
   }
   if (resolved.action === "open-chapters") { openChapters(state); return true; }
+  if (resolved.action === "open-search") { openSearch(state, source); return true; }
   if (state.mode === "LIBRARY" && state.library !== null) {
     const prompt = state.library.prompt;
     const needsBackend = resolved.action === "new-item"

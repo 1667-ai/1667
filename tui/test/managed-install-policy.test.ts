@@ -330,9 +330,9 @@ test("package build-manifest accepts real release schema; rejects skew", async (
         sourceDirty: false,
         buildTimestamp: evidence.buildTimestamp,
         artifactTarget: TARGET,
-        apiProtocolVersion: 9,
-        minClientProtocolVersion: 9,
-        maxClientProtocolVersion: 9
+        apiProtocolVersion: 10,
+        minClientProtocolVersion: 10,
+        maxClientProtocolVersion: 10
       })
     });
     let identityReject = false;

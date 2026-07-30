@@ -66,8 +66,13 @@ export function movePathCursor(
   return cursor.id;
 }
 
+/** A line can only run through a take. Chapter summaries hang off the tree
+ *  without standing in it, so they are never a reroute target — the backend
+ *  rejects one outright. */
 export function resolveRerouteTarget(payload: StoryPayload, cursorNodeId: string): string | null {
-  return createStoryIndex(payload).tree.nodesById.has(cursorNodeId) ? cursorNodeId : null;
+  const node = createStoryIndex(payload).tree.nodesById.get(cursorNodeId);
+  if (node === undefined) return null;
+  return isChapterSummary(node) ? node.parentId : node.id;
 }
 
 export function createPathLayout(

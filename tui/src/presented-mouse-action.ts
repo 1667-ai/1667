@@ -4,6 +4,7 @@ import type { ResolvedKey } from "./keys.js";
 import { factRows } from "./facts-model.js";
 import { commandContext, commandMatches, commandSelectionId } from "./command-model.js";
 import { libraryRows } from "./library-model.js";
+import { searchRows, selectedSearchRow } from "./search-model.js";
 import { currentPartActions } from "./story-actions.js";
 import { createStoryIndex } from "../../shared/story-model.js";
 import { childrenOf, nodeById } from "../../shared/story-tree.js";
@@ -219,6 +220,9 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
 function listRowIdentity(state: MouseActionState, index: number | undefined): string | null {
   if (index === undefined) return null;
   if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
+  if (state.search !== null) {
+    return searchRowIdentity(state, index);
+  }
   if (state.actions !== null) return currentPartActions(state)[index]?.id ?? null;
   if (state.library !== null) {
     return libraryRows(
@@ -249,6 +253,21 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
   return null;
 }
 
+/** Name the hit, not its row number. A search response landing between the
+ *  click and its dispatch re-groups the whole pane, so an index alone would
+ *  reconcile a footer Apply against whatever now sits under the cursor — and
+ *  `enter` reroutes the story. */
+function searchRowIdentity(state: MouseActionState, index: number): string | null {
+  const search = state.search;
+  if (search === null) return null;
+  const model = searchRows(search, state.payload);
+  const row = selectedSearchRow(model, index);
+  if (row === null) return null;
+  return row.kind === "group"
+    ? `search:group:${row.id}`
+    : `search:hit:${row.hit.storyId}:${row.hit.kind}:${row.hit.targetId}:${row.hit.snippetMatch}`;
+}
+
 /** What an action that names no cell acts on. An overlay owns its own
  *  selection; otherwise the story's focused part is the target. Null means the
  *  selection cannot be named, which reconciliation treats as a refusal. */
@@ -269,10 +288,13 @@ const NO_SELECTION = "none";
 function selectableRowsOpen(state: MouseActionState): boolean {
   return state.map !== null || state.actions !== null || state.library !== null
     || state.facts !== null || state.commands !== null || state.chapters !== null
-    || state.settings !== null;
+    || state.settings !== null || state.search !== null;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
+  if (state.search !== null) {
+    return searchRowIdentity(state, state.search.cursor);
+  }
   if (state.mode === "MAP" && state.map !== null) {
     const id = state.map.view === "path" ? state.map.pathCursorId : state.map.treeCursorId;
     return id === null ? null : `map:${state.map.view}:${id}`;

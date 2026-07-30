@@ -32,7 +32,7 @@ const entries = KEYS_MODAL_MODEL.sections.flatMap((section) => section.entries);
 describe("keys reference", () => {
   test("sections read in a fixed order and each explains itself", () => {
     expect(KEYS_MODAL_MODEL.sections.map((section) => section.title)).toEqual([
-      "MOVE", "WRITE", "SHAPE", "OPEN", "MAP"
+      "MOVE", "WRITE", "SHAPE", "OPEN", "MAP", "SEARCH"
     ]);
     const frame = text(120, 36);
     for (const section of KEYS_MODAL_MODEL.sections) {
@@ -63,7 +63,7 @@ describe("keys reference", () => {
   });
 
   test("the minimum-width panel wraps every meaning instead of clipping it", () => {
-    const frame = text(20, 180);
+    const frame = text(20, 210);
     // Read the interior of each row: the frame closes on both sides now, so a
     // leading-border-only strip would splice the right border into the prose.
     const rows = frame.split("\n")
@@ -139,7 +139,7 @@ describe("keys reference", () => {
     const frame = text(120, 60);
     for (const item of entries) expect(frame).toContain(`  ${item.description}`);
     expect(frame).not.toContain("scrolls");
-    expect(frame).not.toContain("/29");
+    expect(frame).not.toContain("/31");
     expect(frame).toContain("esc closes");
     expect(render(120, 60, 4).scrollTop).toBe(0);
   });
@@ -150,7 +150,7 @@ describe("keys reference", () => {
     expect(top.scrollTop).toBe(0);
     expect(frame).toContain("● MOVE");
     // The range reads the way every other windowed panel's title does.
-    expect(frame).toContain("keys · and what they do · 1–15/29");
+    expect(frame).toContain("keys · and what they do · 1–15/31");
     expect(frame).toContain("↑↓ scrolls · esc closes");
 
     const scrolled = render(80, 24, 8);
@@ -160,7 +160,7 @@ describe("keys reference", () => {
     // Held arrows must land on the last row rather than scrolling into blank.
     const clamped = render(80, 24, 500);
     expect(clamped.scrollTop).toBeLessThan(500);
-    expect(frameText(clamped.composition.lines)).toContain("q  quit 1667");
+    expect(frameText(clamped.composition.lines)).toContain("⌃s  match case exactly");
     expect(render(80, 24, clamped.scrollTop + 1).scrollTop).toBe(clamped.scrollTop);
   });
 
@@ -177,9 +177,9 @@ describe("keys reference", () => {
       // The note is the last row by construction: reaching it proves the bound.
       const shown = `${height}:${frameText(bottom.composition.lines).includes("chapter rows differ")}`;
       expect(shown).toBe(`${height}:true`);
-      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:29`);
+      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:31`);
       expect(frameText(bottom.composition.lines))
-        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/29`);
+        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/31`);
     }
   });
 

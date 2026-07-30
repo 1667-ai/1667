@@ -26,6 +26,7 @@ import { renderFactEditorLayout } from "./story/fact-editor-layout.js";
 import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./overlay.js";
 import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
+import { renderSearchScreen } from "./search.js";
 import { renderPanels } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import {
@@ -44,9 +45,10 @@ import {
   type HintItem
 } from "./story/frame.js";
 import { addInlineHits } from "./story/hits.js";
-import { layoutStoryRow, renderChapterOneHeading, STORY_GUTTER } from "./story/row-layout.js";
+import { layoutStoryRow, renderChapterOneHeading, STORY_GUTTER, type StickyStoryPrompt } from "./story/row-layout.js";
 import { paintStorySelection } from "./story/selection-highlight.js";
 import { stickFocusedGutter, type FocusedStickyGutter } from "./story/sticky-gutter.js";
+import { stickStoryPrompt } from "./story/sticky-prompt.js";
 import {
   applyComposePageMode,
   renderComposerLayout,
@@ -92,9 +94,12 @@ const DEFAULT_CACHE = createWrapCache<ProseStyle>();
 
 export function renderStoryScreen(state: StoryScreenState, options: StoryScreenOptions): StoryScreenFrame {
   const { height } = options;
+  if (state.search !== null && state.mode === "SEARCH") {
+    return renderSearch(state, state.search, options.width, height, options.deadlines);
+  }
   if (state.map !== null && (state.mode === "MAP"
     || state.mode === "TAG" && state.tag?.returnMode === "MAP")) {
-    return renderMap(state, options.width, height, options.deadlines);
+    return renderMap(state, state.map, options.width, height, options.deadlines);
   }
   const fullscreen = state.mode === "COMPOSE" && state.composer.fullscreen;
   const view = createStoryViewModel(state.payload, state.stream);
@@ -125,6 +130,7 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const rows = view.rows;
   const blocks: ViewportBlock[] = [];
   let focusedGutter: FocusedStickyGutter | null = null;
+  const stickyPrompts = new Map<number, StickyStoryPrompt>();
   if (view.chapters.length > 1) {
     blocks.push({
       partId: "chapter-one-heading", partIndex: -1,
@@ -140,6 +146,9 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
         partHeight: layout.height,
         gutter: layout.stickyGutter
       };
+    }
+    if (layout.stickyPrompt !== null) {
+      stickyPrompts.set(rowIndex, layout.stickyPrompt);
     }
     blocks.push({
       partId: row.id,
@@ -169,11 +178,18 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     state.viewScrollDelta,
     focusAtStarterIntro
   );
-  const visibleBody = stickFocusedGutter(
-    viewport.lines,
+  const visibleBody = stickStoryPrompt(
+    stickFocusedGutter(
+      viewport.lines,
+      viewport.owners,
+      viewport.blockRows,
+      focusedGutter,
+      width
+    ),
     viewport.owners,
     viewport.blockRows,
-    focusedGutter,
+    stickyPrompts,
+    narrow,
     width
   );
   const pad = contentHeight - visibleBody.length;
@@ -297,20 +313,63 @@ export function storyProseMeasure(pageWidth: number): number {
   return Math.max(1, Math.min(72, pageWidth < 100 ? pageWidth - 4 : pageWidth - 26));
 }
 
-function renderMap(
+function fullBleedDerived(
   state: StoryScreenState,
+  hitRows: HitRows,
+  map: StoryScreenState["map"]
+): StoryScreenDerived {
+  return {
+    hitRows,
+    viewScroll: state.viewScroll,
+    viewScrollDelta: state.viewScrollDelta,
+    lastViewportStart: state.lastViewportStart,
+    composerScrollTop: state.composerScrollTop,
+    editorScrollTop: state.editorScrollTop,
+    keysScrollTop: state.keysScrollTop,
+    composerSelectionProjection: null,
+    storySelectionProjection: null,
+    map
+  };
+}
+
+/** Search takes the map's full-bleed shell: a query is answered by travelling
+ *  somewhere, so it can never be a panel floating over the page it will leave. */
+function renderSearch(
+  state: StoryScreenState,
+  search: StoryScreenState["search"] & {},
   width: number,
   height: number,
   deadlines?: FrameDeadlineCollector
 ): StoryScreenFrame {
   const hitRows: HitRows = Array.from({ length: height }, () => null);
-  const frame = renderMapScreen(state, state.map!, width, height, hitRows, deadlines);
+  const frame = renderSearchScreen(state, search, width, height, hitRows);
+  // The banner counts down to the next retry, so it needs the frame deadline
+  // collector here exactly as it does over the map.
+  const lines = state.connection.down
+    ? renderConnectionBanner(frame.lines, { ...state, hitRows }, width, deadlines)
+    : frame.lines;
+  return {
+    lines,
+    selectable: frame.selectable,
+    derived: fullBleedDerived(state, hitRows, state.map)
+  };
+}
+
+function renderMap(
+  state: StoryScreenState,
+  mapState: StoryScreenState["map"] & {},
+  width: number,
+  height: number,
+  deadlines?: FrameDeadlineCollector
+): StoryScreenFrame {
+  const hitRows: HitRows = Array.from({ length: height }, () => null);
+  const frame = renderMapScreen(state, mapState, width, height, hitRows, deadlines);
   const map = {
-    ...state.map!,
+    ...mapState,
     rowIds: frame.derived.rowIds,
     pathCursorId: frame.derived.pathCursorId,
     treeCursorId: frame.derived.treeCursorId,
-    openedColdFolds: new Set(state.map!.openedColdFolds)
+    openedColdFolds: new Set(mapState.openedColdFolds)
   };
   const tag = state.mode === "TAG" && state.tag !== null
     ? renderMapTag(frame.lines, state, hitRows, width, height)
@@ -321,18 +380,7 @@ function renderMap(
   return {
     lines,
     selectable: tag?.selectable ?? frame.selectable,
-    derived: {
-      hitRows,
-      viewScroll: state.viewScroll,
-      viewScrollDelta: state.viewScrollDelta,
-      lastViewportStart: state.lastViewportStart,
-      composerScrollTop: state.composerScrollTop,
-      editorScrollTop: state.editorScrollTop,
-      keysScrollTop: state.keysScrollTop,
-      composerSelectionProjection: null,
-      storySelectionProjection: null,
-      map
-    }
+    derived: fullBleedDerived(state, hitRows, map)
   };
 }
 

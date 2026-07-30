@@ -361,7 +361,7 @@ describe("text surfaces and palette", () => {
       .toBe("toggle-context-meter");
     expect(resolveKey(key("up", { ctrl: true, shift: true }), "COMPOSE").action)
       .toBe("history-previous");
-    expect(resolveKey(key("/"), "NAV").action).toBe("none");
+    expect(resolveKey(key("/"), "NAV").action).toBe("open-search");
     expect(resolveKey(key("?", { shift: true }), "NAV").action).toBe("open-keys");
     expect(resolveKey(key("/"), "LIBRARY").action).toBe("filter");
   });

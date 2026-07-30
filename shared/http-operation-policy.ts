@@ -25,6 +25,7 @@ const HTTP_API_SCOPES = {
 const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   listStories: "local",
   listStoriesPage: "local",
+  searchStories: "local",
   createStory: "local",
   loadStory: "local",
   getUnknownOutcomeStatus: "local",
@@ -119,6 +120,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
   }
   if (path === "/api/stories/catalog-page"
     && httpMethod === "POST") return "listStoriesPage";
+  if (path === "/api/stories/search"
+    && httpMethod === "POST") return "searchStories";
   if (path === "/api/settings") {
     if (httpMethod === "GET") return "getSettings";
     if (httpMethod === "PUT") return "saveSettings";

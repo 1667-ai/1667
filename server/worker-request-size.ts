@@ -34,6 +34,15 @@ function logicalRequestBody(
   protocolVersion?: number
 ): unknown {
   switch (method) {
+    // The query is the writer's own prose and travels in the body, so it takes
+    // the same ceiling the HTTP route applies to it.
+    case "searchStories":
+      return {
+        query: input.query,
+        scope: input.scope,
+        storyId: input.storyId,
+        caseSensitive: input.caseSensitive
+      };
     case "createStory": return { title: input.title };
     case "renameStory": return { title: input.title };
     case "acknowledgeUnknownOutcomes":

@@ -45,6 +45,7 @@ import type { RuntimeState, StreamView } from "./state.js";
 import { createStorySurface } from "./story-surface.js";
 import { createComposer } from "./composer-model.js";
 import { mapAction } from "./map-actions.js";
+import { searchAction } from "./search-actions.js";
 import { actionsMenuAction, armPrune, tagAction, composeAction, generate, generationBusy, navAction, openTag, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
 import { createWrapCache, type ProseStyle } from "./wrap.js";
 import { deriveGenerationRuntime } from "./runtime-settings.js";
@@ -451,7 +452,28 @@ export async function runInteractive(source: AppSource): Promise<void> {
         && state.settings !== null) {
         openSettingsPasteTarget(state);
       }
-      if (pasteInto(state, text)) { beginInteraction(state); repaint(); }
+      if (state.mode === "SEARCH" && state.search !== null) {
+        const clean = sanitizePastedText(text);
+        if (clean.length > 0) {
+          const line = clean.replace(/\n+/g, " ");
+          void dispatch(
+            { action: "input", text: line },
+            state,
+            source,
+            wrapCache,
+            repaint,
+            cancelStream,
+            requestQuit,
+            renderer,
+            applyTheme,
+            previewTheme,
+            backend
+          );
+        }
+      } else if (pasteInto(state, text)) {
+        beginInteraction(state);
+        repaint();
+      }
     }, () => retirePresentedSelection(renderer, queuedSelection));
   });
   surface.onMouse((event) => {
@@ -598,6 +620,7 @@ export async function dispatch(
     armPrune,
     openTag
   });
+  else if (state.mode === "SEARCH") await searchAction(resolved, state, source, context);
   else if (state.mode === "TAG") await tagAction(resolved, state, source, context);
   else if (state.mode === "COMPOSE") await composeAction(resolved, state, source, context);
   else if (state.mode === "EDITOR") await inlineEditorAction(resolved, state, source, context);
@@ -640,6 +663,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     now: 1_667_000_000_000,
     ...deriveGenerationRuntime(source.settings, source.demo),
     map: null,
+    search: null,
     contextMeterExpanded: false,
     prune: null,
     tag: null,

@@ -18,6 +18,7 @@ export type MouseActionState = Pick<RuntimeState,
   | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo"
   | "connection"
   | "actions" | "library" | "facts" | "commands" | "chapters" | "settings"
+  | "search"
 > & {
   /** Derived exactly as the panel renderer derives it, since the palette's
    *  rows — and therefore their indexes — depend on it. Optional so live
@@ -207,7 +208,8 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     facts: state.facts === null ? null : { ...state.facts },
     commands: state.commands === null ? null : { ...state.commands },
     chapters: state.chapters === null ? null : { ...state.chapters },
-    settings: state.settings === null ? null : { ...state.settings }
+    settings: state.settings === null ? null : { ...state.settings },
+    search: state.search === null ? null : { ...state.search }
   };
 }
 
@@ -300,6 +302,7 @@ function listCursor(state: MouseActionState): number | null {
   if (state.commands !== null) return state.commands.cursor;
   if (state.chapters !== null) return state.chapters.cursor;
   if (state.settings !== null) return state.settings.cursor;
+  if (state.search !== null) return state.search.cursor;
   // The map has no cursor index of its own; read it off the rendered rows
   // so the click and the frame always agree.
   if (state.mode === "MAP" && state.map !== null) {

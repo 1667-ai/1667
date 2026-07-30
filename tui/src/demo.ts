@@ -11,6 +11,15 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import {
+  SEARCH_HIT_LIMIT,
+  buildSearchCorpus,
+  searchCorpus,
+  searchQueryIsRunnable,
+  type SearchHit,
+  type SearchRequest,
+  type SearchResponse
+} from "../../shared/story-search.js";
 import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
 import { streamFake } from "./fake-stream.js";
@@ -68,6 +77,7 @@ export interface DemoController {
   summarizeChapter(breakId: string): StoryPayload;
   editChapterSummary(summaryId: string, text: string): StoryPayload;
   exportMarkdown(): string;
+  searchStories(request: SearchRequest): SearchResponse;
 }
 
 export function createDemoController(dense = false): DemoController {
@@ -107,6 +117,14 @@ export function createDemoController(dense = false): DemoController {
     story.tags = story.tags.filter((tag) => !removed.has(tag.nodeId));
     return payloadFrom(story);
   };
+  function listDemoStories(): StorySummary[] {
+    const current = storySummary(story);
+    return [current,
+      { id: "demo-salt-road", title: "salt road almanac", updatedAt: "2026-07-18T09:00:00.000Z", partCount: 27, words: 6_412, forked: false, lineCount: 4 },
+      { id: "demo-winter-orchard", title: "the winter orchard", updatedAt: "2026-07-12T09:00:00.000Z", partCount: 18, words: 4_206, forked: false, lineCount: 2 },
+      { id: "demo-glass-tide", title: "a glass tide", updatedAt: "2026-06-02T09:00:00.000Z", partCount: 9, words: 1_884, forked: true, lineCount: 3 }
+    ].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
+  }
   return {
     payload: () => payloadFrom(story),
     switchTo(nodeId, options) {
@@ -200,16 +218,11 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     listStories() {
-      const current = storySummary(story);
-      return [current,
-        { id: "demo-salt-road", title: "salt road almanac", updatedAt: "2026-07-18T09:00:00.000Z", partCount: 27, words: 6_412, forked: false, lineCount: 4 },
-        { id: "demo-winter-orchard", title: "the winter orchard", updatedAt: "2026-07-12T09:00:00.000Z", partCount: 18, words: 4_206, forked: false, lineCount: 2 },
-        { id: "demo-glass-tide", title: "a glass tide", updatedAt: "2026-06-02T09:00:00.000Z", partCount: 9, words: 1_884, forked: true, lineCount: 3 }
-      ].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
+      return listDemoStories();
     },
     openStory(id) {
       if (id === story.id) return payloadFrom(story);
-      const listed = this.listStories().find((candidate) => candidate.id === id);
+      const listed = listDemoStories().find((candidate) => candidate.id === id);
       if (listed === undefined) throw new Error(`Unknown demo story: ${id}`);
       story = { ...story, id, title: listed.title, updatedAt: listed.updatedAt, tags: [], recentNodeIds: [] };
       return payloadFrom(story);
@@ -263,7 +276,43 @@ export function createDemoController(dense = false): DemoController {
       editDemoChapterSummary(story, summaryId, text, EDITED);
       return payloadFrom(story);
     },
-    exportMarkdown() { return `# ${story.title}\n\n${activePath(story).map((node) => node.text).join("\n\n")}`; }
+    exportMarkdown() { return `# ${story.title}\n\n${activePath(story).map((node) => node.text).join("\n\n")}`; },
+    searchStories(request) {
+      const query = request.query.trim();
+      const response: SearchResponse = {
+        query,
+        scope: request.scope,
+        caseSensitive: request.caseSensitive,
+        hits: [],
+        capped: false,
+        storiesSearched: 0
+      };
+      if (!searchQueryIsRunnable(query)) return response;
+      // The fixture's other stories are the same prose under another title, so
+      // vault scope shows a real multi-story grid without a second corpus.
+      const others = request.scope === "vault"
+        ? listDemoStories().filter((summary) => summary.id !== story.id)
+        : [];
+      const targets: Story[] = [story, ...others.map((summary) =>
+        ({ ...story, id: summary.id, title: summary.title, updatedAt: summary.updatedAt }))];
+      const hits: SearchHit[] = [];
+      let storiesSearched = 0;
+      let capped = false;
+      for (const target of targets) {
+        if (hits.length >= SEARCH_HIT_LIMIT) {
+          capped = true;
+          break;
+        }
+        storiesSearched += 1;
+        const room = SEARCH_HIT_LIMIT - hits.length;
+        // One more than there is room for, exactly as the service does: that
+        // extra hit is how a capped result set announces itself.
+        const found = searchCorpus(buildSearchCorpus(target), query, request.caseSensitive, room + 1);
+        if (found.length > room) capped = true;
+        hits.push(...found.slice(0, room));
+      }
+      return { ...response, hits, capped, storiesSearched };
+    }
   };
 }
 
@@ -474,6 +523,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     }),
     importSillyTavern: async () => unavailable("SillyTavern import"),
     exportMarkdown: async () => demo.exportMarkdown(),
+    searchStories: async (search) => demo.searchStories(search),
     continueStory: async (_storyId, instruction, genId, target, onDelta, signal) => {
       const text = target.appendTo !== undefined ? DEMO_CONTINUE_TEXT : DEMO_GENERATED_TEXT;
       let landed = "";

@@ -20,6 +20,7 @@ export type ReferenceBindingLane =
   | "nav-chord"
   | "compose-chord"
   | "map"
+  | "search"
   | "nav";
 
 type BindingOptions = Partial<Pick<
@@ -91,6 +92,7 @@ const DEFINITIONS = {
   navOpenSettings: route("nav", ",", "NAV", "open-settings"),
   navToggleContext: route("nav-chord", "g", "NAV", "toggle-context-meter", { ctrl: true }),
   composeToggleContext: route("compose-chord", "g", "COMPOSE", "toggle-context-meter", { ctrl: true }),
+  navOpenSearch: route("nav", "/", "NAV", "open-search", { sequence: "/" }),
   navOpenKeysQuestion: route("nav", "?", "NAV", "open-keys"),
   navOpenKeysShiftSlash: route("nav", "/", "NAV", "open-keys", {
     sequence: "?",
@@ -110,7 +112,17 @@ const DEFINITIONS = {
   mapTreeSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "tree" }),
   mapMassSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "mass" }),
   mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
-  mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" })
+  mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" }),
+  searchClose: route("global", "escape", "SEARCH", "cancel"),
+  searchFocusPrevious: route("search", "up", "SEARCH", "focus-previous"),
+  searchFocusNext: route("search", "down", "SEARCH", "focus-next"),
+  searchFold: route("search", "left", "SEARCH", "take-previous"),
+  searchUnfold: route("search", "right", "SEARCH", "take-next"),
+  searchScope: route("search", "tab", "SEARCH", "cycle"),
+  searchOpen: route("search", "return", "SEARCH", "apply"),
+  // The query field is always live, so the case switch has to be a chord: a
+  // bare `c` belongs to the writer's query, not to the chrome.
+  searchCase: route("search", "s", "SEARCH", "toggle-search-case", { ctrl: true })
 } as const satisfies Record<string, BindingDefinition>;
 
 export type ReferenceBindingId = keyof typeof DEFINITIONS;

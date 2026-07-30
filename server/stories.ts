@@ -379,6 +379,37 @@ export class StoryStore {
     await this.withIo(story.id, () => hydrateStoryNodes(story, nodeIds));
   }
 
+  /** Manifest-only title and revision stamp. It opens no part text, so a
+   *  cached derivation can be revalidated without reading the story. */
+  async loadRevision(id: string): Promise<{ title: string; updatedAt: string } | null> {
+    return await this.withIo(id, async () => {
+      let slot: ResolvedStory;
+      try {
+        slot = await this.resolveUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) return null;
+        throw error;
+      }
+      await this.schedulePendingCleanup(id);
+      if (slot.kind === "legacy") {
+        return { title: slot.story.title, updatedAt: slot.story.updatedAt };
+      }
+      const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+      return { title: manifest.title, updatedAt: manifest.updatedAt };
+    });
+  }
+
+  /** Every part's text, not only the reading line. Search is the one reader
+   *  that must see the takes nobody is standing on. */
+  async loadHydrated(id: string): Promise<Story> {
+    return await this.withIo(id, async () => {
+      const story = await this.loadUnlocked(id);
+      await hydrateStoryNodes(story, story.nodes.map((node) => node.id));
+      await this.schedulePendingCleanup(id);
+      return story;
+    });
+  }
+
   async create(title: string, requestedId?: string): Promise<Story> {
     if (requestedId !== undefined) {
       try {

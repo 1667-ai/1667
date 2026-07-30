@@ -277,6 +277,7 @@ async function invokeReadOnly(
   switch (method) {
     case "listStories": return await service.listStories();
     case "listStoriesPage": return await service.listStoriesPage(input);
+    case "searchStories": return await service.searchStories(input);
     case "loadStory":
       return await service.loadStory(requireString(input.id, "id"));
     case "getUnknownOutcomeStatus":

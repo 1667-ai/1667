@@ -55,9 +55,9 @@ export function releaseIdentityJson(
     sourceDirty: false,
     buildTimestamp: "2026-07-29T00:00:00.000Z",
     artifactTarget: target,
-    apiProtocolVersion: 9,
-    minClientProtocolVersion: 9,
-    maxClientProtocolVersion: 9
+    apiProtocolVersion: 10,
+    minClientProtocolVersion: 10,
+    maxClientProtocolVersion: 10
   });
 }
 
