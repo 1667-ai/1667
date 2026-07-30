@@ -298,7 +298,7 @@ jobs:
         run: |
           set -euo pipefail
           digests="$(
-            node --import tsx -e '
+            node --import tsx --input-type=module -e '
               import { createHash } from "node:crypto";
               import { readdirSync, readFileSync } from "node:fs";
               const dir = "dist/assets";
