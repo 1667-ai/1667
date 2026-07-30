@@ -56,12 +56,10 @@ bun bench/perf.ts
 ```
 
 GitHub CI runs the root build, root tests, TUI type check, TUI tests, and
-standalone build on Linux x64. CI also runs the root tests, TUI tests, and
-standalone build on macOS arm64 and Linux arm64. CI does not run the frame
-performance gate.
-
-Routine CI does not test macOS x64 or Windows x64. Test these targets before
-their release work resumes.
+standalone build on Linux x64. Pull request CI also runs the root tests, TUI
+tests, and standalone build on macOS arm64 and Linux arm64. A push to `main`
+also runs these gates on macOS x64. CI does not test Windows x64. CI does not
+run the frame performance gate.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
 type check, TUI tests, and standalone build. The script runs the root tests and

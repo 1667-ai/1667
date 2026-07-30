@@ -21,8 +21,10 @@ type. Press `Enter` to close the filter.
 
 Select the system prompt row to open the full-screen editor.
 
-The context meter shows the estimated next request. Its pulsing segment shows
-the maximum response growth. The segment changes between two visible colors.
+The context meter shows the estimated next request. Its pulsing segment
+estimates response growth from recent provider text. The configured maximum
+output remains the upper limit. The segment changes between two visible
+colors.
 
 ## Provider support
 
@@ -32,16 +34,19 @@ the maximum response growth. The segment changes between two visible colors.
 - OpenAI Chat Completions
 - Anthropic Messages
 
-Settings contains presets for these providers and local servers:
+Settings contains these provider choices:
 
 - OpenAI
-- OpenRouter
+- OpenAI-compatible
 - Anthropic
 - LM Studio
 - Ollama
 - llama.cpp
 - KoboldCpp
-- Custom endpoint
+
+Use **OpenAI** for the official OpenAI endpoint. Use **OpenAI-compatible** for
+OpenRouter and other compatible endpoints. Linux shows local-server choices
+only when 1667 can verify exact socket ownership.
 
 Dry-run mode tests the interface without a provider request.
 
@@ -81,5 +86,5 @@ A provider connection can permit plain HTTP on a private network. Set
 **insecure HTTP (LAN)** to `on` for that connection. 1667 resolves the host
 once. It requires a private-network address. It then pins the verified address.
 
-Public hosts require authenticated HTTPS. All connections with credentials
-also require authenticated HTTPS.
+Public hosts require HTTPS. All connections with credentials also require
+HTTPS.

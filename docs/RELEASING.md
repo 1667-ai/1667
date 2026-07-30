@@ -29,7 +29,7 @@ This document uses these Technical Names:
 | Term | Meaning |
 | --- | --- |
 | release target | One supported operating system and processor architecture |
-| held target | A release target that is built and verified but not published |
+| held target | A release target that publication batches exclude |
 | release package | One npm tarball in the release matrix |
 | launcher package | The JavaScript package named `@1667-ai/cli` |
 | platform package | A package that contains one native executable |
@@ -66,27 +66,24 @@ The preflight tool does not:
 
 ## Held targets
 
-A held target is built, identified, smoke-tested and staged like any other
-release target. It is not published. `heldFromPublication` in
-`shared/release-targets.ts` carries the reason a target is held, and every
-publication decision in this repository derives from that one field: the
-launcher's `optionalDependencies`, the package matrix, the release plan length,
-the pack templates, the launcher's bill of materials, and the upgrade path.
-Clearing that field is the whole of releasing a held target.
+A held target stays in the release policy. Publication batches exclude it.
+`heldFromPublication` in `shared/release-targets.ts` contains the reason for the
+hold. This field controls the launcher's `optionalDependencies`, the release
+plan, the pack templates, the launcher's bill of materials, and the upgrade
+path.
 
-Staging decisions are a different question and do not read that field. A held
-target still gets a build identity, a package manifest, a `build-manifest.json`
-and its own `sbom.spdx.json`, because it is still staged, packed and validated
-locally. Withholding any of those would stop exercising the layout the target
-will publish under, which is the one thing a hold has to keep proving.
+A maintainer can build and smoke-test a held target. Local release tools can
+identify, stage, and pack it for verification. Batch commands do not do this
+work. The hosted npm workflow also has an explicit runner matrix for published
+targets. Add and verify its native build job before you clear a hold.
 
 npm requires this separation. An optional dependency that resolves to nothing
 fails softly, so a launcher that pinned an unpublished platform package would
 install cleanly on that platform and then fail at every launch. npm does not
 allow a published version to be replaced, so correcting it needs a new launcher
-release. The launcher therefore never names a held target's package, and refuses
-that target by name: its platform is supported and its executable is built, and
-only the package is withheld.
+release. The launcher therefore never names a held target's package. It refuses
+that target by name. Its platform is supported, and a developer can build its
+executable from source. The package is withheld.
 
 `windows-x64` is currently held.
 
@@ -173,8 +170,8 @@ Collect these inputs before preflight:
 6. Run `--version --json` on each of the four published native executables.
 7. Pack the launcher package and the four published platform packages.
 
-A held target's executable is built and smoke-tested, but the release plan has
-one entry per release package, so its identity has no slot in the plan.
+If you verify a held target, its identity has no slot in the release plan. The
+release plan has one entry per release package.
 
 Each release package must contain `build-manifest.json`, `sbom.spdx.json`,
 `LICENSE`, and `NOTICE`. Each platform package must also contain its native
@@ -505,14 +502,15 @@ release target. A maintainer dispatches it from the default branch and supplies
 the version. The version must include a prerelease identifier. The workflow
 refuses every other ref, and refuses a dirty checkout.
 
-`shared/release-targets.ts` decides which targets are published, in the single
-`heldFromPublication` field each target carries. `windows-x64` is held from
-publication today, and routine CI does not build it either, so its hold reason
-says plainly that it is unverified and the release notes tell a reader who
-builds it from source to treat that build as untested. A held target returns to
-the published set — matrix, notes table, held-target paragraph and archive set
-alike — when that one field is cleared. No release script keeps a target list of
-its own.
+`shared/release-targets.ts` decides which targets the GitHub workflow
+publishes. The `heldFromPublication` field contains this decision.
+`windows-x64` is held, and routine CI does not build it. Its hold reason says
+that it is not verified. The release notes tell a reader to treat a source
+build as untested.
+
+Clearing the field returns a target to the GitHub build matrix, notes table,
+held-target paragraph, and archive set. The npm workflow has a separate,
+explicit runner matrix. Add and verify that runner before you clear the field.
 
 The dispatched version must match the root package, the TUI package, and the
 lockfile. The `check` command refuses any other value, in the `prepare` job.

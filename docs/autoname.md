@@ -1,7 +1,27 @@
-# AI naming and direct editing
+---
+summary: Automatic story names and the story context that naming uses
+read_when:
+  - changing automatic story names
+  - changing the context for a naming request
+---
 
-Click **Name with AI** beside an editable story title to ask the configured model for a short, fitting name. The naming prompt samples the story's opening and newest direction without sending unbounded prose.
+# Automatic story names
 
-Naming samples the active line. Legacy standalone forks still include their source title and separate inherited prose from later writing; the model gives that standalone story its own identity instead of copying the source title.
+Open the command palette with `Ctrl+P` or `:`. Run **Autoname story** to ask
+the selected model for a short story name.
 
-Selecting prose opens an action popover with a pencil for direct editing. The part editor focuses and highlights that exact passage so typing replaces it. Clicking a visible prompt opens prompt-only editing with Save and Cancel directly beneath the prompt; the part-toolbar pencil still edits prompt and prose together.
+The story must contain prose. The naming request uses these items:
+
+- The active story line
+- Facts
+- The author brief
+
+1667 limits story prose in the request to 24,000 characters. It keeps text from
+the start and the newest direction of the story. For a fork, it separates
+inherited prose from new branch prose. It also includes the source story name.
+
+1667 changes only the story name. It rejects the result if the story name
+changes while the request is active.
+
+Run **Rename story** to enter a name without a model request. In Library, you
+can also press `e` to rename the selected story.

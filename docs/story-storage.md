@@ -76,6 +76,9 @@ project root. The selected story line contains the selected take for each story
 part. The export omits unselected takes and directions. Chapter titles use `##`
 headings.
 
+If the file exists, 1667 adds a numeric suffix such as `-2`. Use `--force` to
+replace the file without a suffix.
+
 `--story <id>` selects a story. Without this option, export uses the most
 recently updated story.
 

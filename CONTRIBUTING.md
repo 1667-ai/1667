@@ -41,9 +41,9 @@ cd tui && bun install
 
 ## Run the gates before you push
 
-CI runs the gates on macOS arm64, Linux arm64, and Linux x64. A pull request is
-not mergeable until those gates pass. Routine CI does not test macOS x64 or
-Windows x64. Test these targets before their release work resumes.
+Pull request CI runs the gates on macOS arm64, Linux arm64, and Linux x64. A
+pull request is not mergeable until those gates pass. A push to `main` also
+runs the gates on macOS x64. CI does not test Windows x64.
 
 Running the same gates locally first is faster than waiting on a round trip, and
 it is the only way to see the Linux-only suites before you push:
@@ -54,7 +54,8 @@ scripts/ci-local.sh
 
 On macOS arm64, this script runs `darwin-arm64` natively. It runs `linux-x64`
 and `linux-arm64` in Docker. It does not run `darwin-x64` or `windows-x64`.
-GitHub CI does not run these targets.
+GitHub CI runs `darwin-x64` after a push to `main`. GitHub CI does not run
+`windows-x64`.
 
 On Windows x64, run the root gates and the TUI gates directly. Run
 `bun run build:standalone` to test the Windows package candidate.
@@ -63,26 +64,6 @@ A full green run records the commit it passed. To have pushes refused unless
 that commit passed, opt into the hook with
 `git config core.hooksPath .githooks`. `--only <target>` is for iterating and
 deliberately does not record a pass.
-
-## Architecture decisions are binding
-
-The architecture decision records live in a separate
-[1667-ai/architecture](https://github.com/1667-ai/architecture) repository. They
-are normative: they describe invariants this code is required to hold, and
-around fifty comments in `server/` and `shared/` cite them by name — `ADR006`,
-`ADR007` — for rationale deliberately not repeated at the call site.
-
-Read the relevant record before changing admission, storage, mutation
-coordination, releases, or prompt caching. Each has a `read_when` list in its
-frontmatter saying when it applies to you.
-
-That repository is currently private. If you hit a comment citing an ADR you
-cannot read, say so in the issue and ask for the relevant invariant — do not
-guess at it from the surrounding code.
-
-If your change conflicts with an ADR, that is a real finding worth raising in
-the issue. Sometimes the ADR is what needs to change — but that is a decision to
-make deliberately and record, not to route around in a diff.
 
 ## Commits
 
