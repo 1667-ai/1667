@@ -118,9 +118,8 @@ export class FakeGitHub {
       const group = decodeURIComponent(url.pathname.split(
         "/actions/concurrency_groups/"
       )[1]!);
-      const expectedJob = String(this.#holdJob.id);
       if (group !== this.#concurrencyGroup
-        || url.searchParams.get("ahead_of_job") !== expectedJob) {
+        || url.search !== "") {
         return jsonResponse({ message: "not in group" }, 422);
       }
       const member = {

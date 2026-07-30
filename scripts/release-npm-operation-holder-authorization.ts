@@ -33,7 +33,7 @@ export async function authorizeNpmOperationHolder(
   );
   return requireNpmOperationConcurrencyHolder(
     acquisition,
-    await workflow.concurrencyMembers(NPM_OPERATION_CONCURRENCY_GROUP, job.id),
+    await workflow.concurrencyMembers(NPM_OPERATION_CONCURRENCY_GROUP),
     job,
     request
   );

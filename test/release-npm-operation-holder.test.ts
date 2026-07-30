@@ -155,7 +155,7 @@ test("the holder and claim require exact shared-lock membership", async () => {
   }
 });
 
-test("the holder uses the versioned live concurrency endpoints", async () => {
+test("the holder reads the complete versioned live concurrency group", async () => {
   const api = new FakeGitHub(REQUEST);
   await assert.rejects(
     client(api, { maxUnclaimedPolls: 1 }).startAndPoll(REQUEST),
@@ -167,7 +167,7 @@ test("the holder uses the versioned live concurrency endpoints", async () => {
   })).filter(({ url }) => url.pathname.includes("/actions/concurrency_groups"));
   assert.equal(calls.length, 2);
   assert.equal(calls[0]!.url.searchParams.get("per_page"), "100");
-  assert.equal(calls[1]!.url.searchParams.get("ahead_of_job"), "987654321");
+  assert.equal(calls[1]!.url.search, "");
   assert.deepEqual(calls.map(({ version }) => version), [
     "2026-03-10",
     "2026-03-10"

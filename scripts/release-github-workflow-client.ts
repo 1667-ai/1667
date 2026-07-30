@@ -101,16 +101,12 @@ export class GitHubWorkflowClient {
   }
 
   async concurrencyMembers(
-    groupName: string,
-    aheadOfJob: number
+    groupName: string
   ): Promise<readonly GitHubConcurrencyMember[]> {
     requireConcurrencyGroup(groupName);
-    if (!Number.isSafeInteger(aheadOfJob) || aheadOfJob <= 0) {
-      throw new Error("GitHub ref store concurrency job ID is invalid");
-    }
     const response = await this.#get(
       `repos/${this.#repository}/actions/concurrency_groups/`
-        + `${encodeURIComponent(groupName)}?ahead_of_job=${aheadOfJob}`,
+        + encodeURIComponent(groupName),
       CONCURRENCY_API_VERSION
     );
     if (response.status !== 200) {
