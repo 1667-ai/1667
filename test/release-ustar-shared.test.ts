@@ -21,6 +21,7 @@ import {
 } from "../scripts/release-package-manifests.js";
 import { readReleaseTarball } from "../scripts/release-tar-reader.js";
 import { extractPlatformPackageExecutable } from "../shared/release-tar-extract.js";
+import { ustarArchive } from "./ustar-fixture.js";
 
 const REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -39,23 +40,33 @@ const manifest = parseReleasePackageManifest(PLATFORM_MANIFEST, "3.0.0");
 const SETUID_EXEC_MODE = 0o4755;
 
 function platformFixture(executableMode: number): Buffer {
-  return gzipSync(tar([
-    entry(
-      "package/package.json",
-      "0",
-      0o644,
-      Buffer.from(JSON.stringify(PLATFORM_MANIFEST))
-    ),
-    entry(
-      "package/bin/1667",
-      "0",
-      executableMode,
-      Buffer.from("native executable")
-    ),
-    entry("package/build-manifest.json", "0", 0o644, Buffer.from('{"schemaVersion":1}')),
-    entry("package/sbom.spdx.json", "0", 0o644, Buffer.from('{"spdxVersion":"SPDX-2.3"}')),
-    entry("package/LICENSE", "0", 0o644, LICENSE),
-    entry("package/NOTICE", "0", 0o644, NOTICE)
+  return gzipSync(ustarArchive([
+    {
+      name: "package/package.json",
+      type: "0",
+      mode: 0o644,
+      body: Buffer.from(JSON.stringify(PLATFORM_MANIFEST))
+    },
+    {
+      name: "package/bin/1667",
+      type: "0",
+      mode: executableMode,
+      body: Buffer.from("native executable")
+    },
+    {
+      name: "package/build-manifest.json",
+      type: "0",
+      mode: 0o644,
+      body: Buffer.from('{"schemaVersion":1}')
+    },
+    {
+      name: "package/sbom.spdx.json",
+      type: "0",
+      mode: 0o644,
+      body: Buffer.from('{"spdxVersion":"SPDX-2.3"}')
+    },
+    { name: "package/LICENSE", type: "0", mode: 0o644, body: LICENSE },
+    { name: "package/NOTICE", type: "0", mode: 0o644, body: NOTICE }
   ]));
 }
 
@@ -96,16 +107,26 @@ test("reader and extractor reject the same malformed ustar streams", async (t) =
   const cases: Array<{ name: string; bytes: Buffer; pattern: RegExp }> = [
     {
       name: "symlink entry type",
-      bytes: gzipSync(tar([
-        entry("package/package.json", "2", 0o644, Buffer.alloc(0))
+      bytes: gzipSync(ustarArchive([
+        {
+          name: "package/package.json",
+          type: "2",
+          mode: 0o644,
+          linkname: "target"
+        }
       ])),
       pattern: /unsupported entry type/
     },
     {
       name: "corrupt header checksum",
       bytes: (() => {
-        const raw = tar([
-          entry("package/package.json", "0", 0o644, Buffer.from("{}"))
+        const raw = ustarArchive([
+          {
+            name: "package/package.json",
+            type: "0",
+            mode: 0o644,
+            body: Buffer.from("{}")
+          }
         ]);
         raw[0] = raw[0]! ^ 1;
         return gzipSync(raw);
@@ -115,9 +136,16 @@ test("reader and extractor reject the same malformed ustar streams", async (t) =
     {
       name: "nonzero padding",
       bytes: (() => {
-        const fixture = entry("package/package.json", "0", 0o644, Buffer.from("{}"));
-        const raw = tar([fixture]);
-        raw[512 + fixture.body.byteLength] = 1;
+        const body = Buffer.from("{}");
+        const raw = ustarArchive([
+          {
+            name: "package/package.json",
+            type: "0",
+            mode: 0o644,
+            body
+          }
+        ]);
+        raw[512 + body.byteLength] = 1;
         return gzipSync(raw);
       })(),
       pattern: /padding is nonzero/
@@ -125,8 +153,15 @@ test("reader and extractor reject the same malformed ustar streams", async (t) =
     {
       name: "incomplete end marker",
       bytes: gzipSync(
-        tar([entry("package/package.json", "0", 0o644, Buffer.from("{}"))])
-          .subarray(0, -512)
+        ustarArchive(
+          [{
+            name: "package/package.json",
+            type: "0",
+            mode: 0o644,
+            body: Buffer.from("{}")
+          }],
+          { terminatorBlocks: 1 }
+        )
       ),
       pattern: /complete end marker/
     }
@@ -159,65 +194,3 @@ test("reader and extractor agree on sha256 of a well-formed 0755 executable entr
   assert.equal(bin.mode, 0o755);
   assert.equal(bin.sha256, createHash("sha256").update(body).digest("hex"));
 });
-
-interface TarEntryFixture {
-  header: Buffer;
-  body: Buffer;
-}
-
-function entry(
-  name: string,
-  type: "0" | "2" | "5",
-  mode: number,
-  body: Buffer
-): TarEntryFixture {
-  return { header: tarHeader(name, type, mode, body.byteLength), body };
-}
-
-function tarHeader(
-  name: string,
-  type: "0" | "2" | "5",
-  mode: number,
-  size: number
-): Buffer {
-  const header = Buffer.alloc(512);
-  header.write(name, 0, 100, "utf8");
-  octal(header, 100, 8, mode);
-  octal(header, 108, 8, 0);
-  octal(header, 116, 8, 0);
-  octal(header, 124, 12, size);
-  octal(header, 136, 12, 0);
-  header.fill(0x20, 148, 156);
-  header.write(type, 156, 1, "ascii");
-  header.write("ustar\0", 257, 6, "ascii");
-  header.write("00", 263, 2, "ascii");
-  let checksum = 0;
-  for (const byte of header) checksum += byte;
-  header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
-  return header;
-}
-
-function tar(entries: TarEntryFixture[]): Buffer {
-  const chunks: Buffer[] = [];
-  for (const { header, body } of entries) {
-    chunks.push(header, body);
-    const padding = (512 - (body.byteLength % 512)) % 512;
-    if (padding > 0) chunks.push(Buffer.alloc(padding));
-  }
-  chunks.push(Buffer.alloc(1024));
-  return Buffer.concat(chunks);
-}
-
-function octal(
-  target: Buffer,
-  offset: number,
-  length: number,
-  value: number
-): void {
-  target.write(
-    `${value.toString(8).padStart(length - 1, "0")}\0`,
-    offset,
-    length,
-    "ascii"
-  );
-}

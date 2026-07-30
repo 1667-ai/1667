@@ -2,11 +2,7 @@
 import { createHash } from "node:crypto";
 import {
   mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile
+  readFile
 } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -14,6 +10,19 @@ import path from "node:path";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import type { BuiltArtifactTarget } from "../shared/release-targets.js";
 import { releaseArchiveFileName, releaseArchiveStem } from "../scripts/release-archive.js";
+import { releaseArchiveMemberPaths } from "../scripts/release-archive-layout.js";
+import {
+  ustarArchive,
+  writeUstarGzipArchive,
+  type UstarFixtureEntry
+} from "./ustar-fixture.js";
+
+export {
+  ustarArchive,
+  writeUstarGzipArchive,
+  type UstarFixtureEntry,
+  type UstarTypeFlag
+} from "./ustar-fixture.js";
 
 export const execFileAsync = promisify(execFile);
 export const INSTALL_VERSION = "1.2.3";
@@ -85,33 +94,74 @@ export function canonicalTxnBytes(input: {
   );
 }
 
+export type FakeArchiveOptions = {
+  readonly extraEntry?: boolean;
+  readonly symlinkEntry?: boolean;
+  /** When set, the 1667 member is this many zero bytes (not a probe stub). */
+  readonly executableByteLength?: number;
+};
+
 export async function writeFakeArchive(
   archivePath: string,
   version: string,
   target: BuiltArtifactTarget,
   embeddedVersion = version,
-  options: { readonly extraEntry?: boolean; readonly symlinkEntry?: boolean } = {}
+  options: FakeArchiveOptions = {}
 ): Promise<void> {
-  const stage = await mkdtemp(path.join(path.dirname(archivePath), "stage-"));
-  try {
-    const stem = releaseArchiveStem(version, target);
-    const dir = path.join(stage, stem);
-    await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, "1667"), releaseStub(embeddedVersion, target), { mode: 0o755 });
-    await writeFile(path.join(dir, "LICENSE"), "LICENSE\n");
-    await writeFile(path.join(dir, "NOTICE"), "NOTICE\n");
-    await writeFile(path.join(dir, "build-manifest.json"), "{}\n");
-    await writeFile(path.join(dir, "sbom.spdx.json"), "{}\n");
-    if (options.extraEntry) {
-      await writeFile(path.join(dir, "EXTRA"), "extra\n");
-    }
-    if (options.symlinkEntry) {
-      await symlink("LICENSE", path.join(dir, "LICENSE.link"));
-    }
-    await execFileAsync("tar", ["-czf", archivePath, "-C", stage, stem]);
-  } finally {
-    await rm(stage, { recursive: true, force: true });
+  // Pure POSIX ustar only. System tar on macOS injects PAX and AppleDouble
+  // members that the Shell Installer physical validator correctly refuses.
+  const stem = releaseArchiveStem(version, target);
+  const executable = options.executableByteLength === undefined
+    ? Buffer.from(releaseStub(embeddedVersion, target))
+    : Buffer.alloc(options.executableByteLength, 0);
+  const entries: UstarFixtureEntry[] = [
+    ...canonicalReleaseArchiveEntries(version, target, executable)
+  ];
+  if (options.extraEntry) {
+    entries.push({
+      name: `${stem}/EXTRA`,
+      type: "0",
+      mode: 0o644,
+      body: Buffer.from("extra\n")
+    });
   }
+  if (options.symlinkEntry) {
+    entries.push({
+      name: `${stem}/LICENSE.link`,
+      type: "2",
+      mode: 0o644,
+      linkname: "LICENSE"
+    });
+  }
+  await writeUstarGzipArchive(archivePath, entries);
+}
+
+/** Canonical Release Archive entries from the production member inventory. */
+export function canonicalReleaseArchiveEntries(
+  version: string,
+  target: BuiltArtifactTarget,
+  executableBody: Buffer
+): UstarFixtureEntry[] {
+  const stem = releaseArchiveStem(version, target);
+  const bodies = new Map<string, Buffer>([
+    ["1667", executableBody],
+    ["LICENSE", Buffer.from("LICENSE\n")],
+    ["NOTICE", Buffer.from("NOTICE\n")],
+    ["build-manifest.json", Buffer.from("{}\n")],
+    ["sbom.spdx.json", Buffer.from("{}\n")]
+  ]);
+  return releaseArchiveMemberPaths(target, version).map((member, index) => {
+    if (index === 0) return { name: `${member}/`, type: "5", mode: 0o755 };
+    const relPath = member.slice(stem.length + 1);
+    const body = bodies.get(relPath);
+    if (body === undefined) throw new Error(`No fixture body for ${relPath}`);
+    return {
+      name: member,
+      type: "0",
+      mode: relPath === "1667" ? 0o755 : 0o644,
+      body
+    };
+  });
 }
 
 export async function writePublishedArchives(

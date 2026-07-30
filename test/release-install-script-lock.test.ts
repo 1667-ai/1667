@@ -298,11 +298,10 @@ test("cleanup removes staging under lock before release so successor staging sur
   assert.ok(rmAt >= 0 && releaseAt > rmAt, "staging removed before release_lock");
   // Generated download closes lock FD in the background child.
   assert.match(body, /curl[\s\S]*9>&-/);
-  // Tar validation and extraction children also close FD 9.
-  assert.match(body, /tar -tvzf "\$archive_path" 9>&-/);
+  // Bounded decompress and extraction children also close FD 9.
+  assert.match(body, /gzip -dc "\$archive_path" 9>&-/);
+  assert.match(body, /tar --no-same-owner -xf "\$tar_path" -C "\$stage" "\$member" 9>&-/);
   // Post-lock command-substitution / parenthesized subshells close FD 9 themselves.
-  assert.match(body, /listing=\$\(\s*exec 9>&-/);
-  assert.match(body, /expected=\$\(\s*exec 9>&-/);
   assert.match(body, /actual=\$\(\s*exec 9>&-\s*file_sha256/);
   assert.match(body, /size=\$\(\s*exec 9>&-/);
   assert.match(body, /phase=\$\(\s*exec 9>&-/);
@@ -314,7 +313,7 @@ test("cleanup removes staging under lock before release so successor staging sur
   assert.match(body, /kind=\$\(\s*exec 9>&-/);
   assert.match(body, /case "\$\(\s*exec 9>&-/);
   assert.match(body, /\(\s*exec 9>&-\s*set -C/);
-  assert.match(body, /tar --no-same-owner -xzf "\$archive_path" -C "\$stage" 9>&-/);
+  assert.match(body, /parsed=\$\(\s*exec 9>&-/);
   // Staging cleanup is gated on CLEANUP_OWNS_STAGING.
   assert.match(body, /CLEANUP_OWNS_STAGING=0/);
   assert.match(body, /\[ "\$\{CLEANUP_OWNS_STAGING:-0\}" -eq 1 \]/);

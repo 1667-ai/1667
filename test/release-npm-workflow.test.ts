@@ -157,6 +157,16 @@ test("JSON-producing workflow commands suppress npm lifecycle output", () => {
   );
 });
 
+test("archive producers force canonical ustar and disable macOS metadata copies", () => {
+  const launcher = job("launcher");
+  // Shell Installer physical validation rejects PAX/GNU/AppleDouble entries.
+  assert.match(
+    launcher,
+    /COPYFILE_DISABLE=1 tar --format=ustar -czf "dist\/archives\/\$stem\.tar\.gz" -C dist\/archive-stage "\$stem"/u
+  );
+  assert.doesNotMatch(launcher, /(?<!format=ustar )-czf "dist\/archives\/\$stem\.tar\.gz"/u);
+});
+
 test("the build matrix is the canonical published target set", () => {
   const targetLine = /^        target: \[([^\]]+)\]$/mu.exec(job("build"));
   assert.ok(targetLine?.[1] !== undefined);

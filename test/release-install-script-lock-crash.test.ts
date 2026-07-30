@@ -1,6 +1,6 @@
 /**
  * Parent-crash Install Root lock: killed installer releases lock while extract,
- * archive-list, or checksum wrappers that closed FD 9 still run.
+ * decompress, or checksum wrappers that closed FD 9 still run.
  *
  * After SIGKILL of the top installer, wait for ChildProcess `exit` (not `close`).
  * A deliberately surviving command-substitution subshell can keep a stdio pipe
@@ -30,7 +30,7 @@ import {
 } from "./release-install-script-fixture.js";
 import { acquireInstallationLock } from "../tui/src/install-lock.js";
 
-type HangMode = "extract" | "list" | "checksum" | "size";
+type HangMode = "extract" | "decompress" | "checksum" | "size";
 
 async function makeRoot(label: string): Promise<string> {
   const homeScratch = path.join(homedir(), ".cache", "1667-tests");
@@ -82,48 +82,28 @@ function hangBody(pidFile: string): string {
   ].join("\n");
 }
 
-/**
- * PATH tar wrapper: hang on extract (-x) or non-verbose list (-t without -v).
- */
-function hangingTarWrapperScript(mode: "extract" | "list", pidFile: string): string {
+/** PATH tar wrapper: hang on extract (-x). */
+function hangingTarWrapperScript(pidFile: string): string {
   const body = hangBody(pidFile);
-  if (mode === "extract") {
-    return [
-      "#!/bin/sh",
-      "extract=0",
-      'for arg in "$@"; do',
-      '  case "$arg" in',
-      "    --*) ;;",
-      "    -*x*) extract=1 ;;",
-      "  esac",
-      "done",
-      'if [ "$extract" -eq 1 ]; then',
-      body,
-      "fi",
-      'exec /usr/bin/tar "$@"'
-    ].join("\n") + "\n";
-  }
   return [
     "#!/bin/sh",
-    "list=0",
-    "verbose=0",
+    "extract=0",
     'for arg in "$@"; do',
     '  case "$arg" in',
     "    --*) ;;",
-    "    -*x*) list=0; break ;;",
-    "    -*t*)",
-    "      list=1",
-    '      case "$arg" in',
-    "        -*v*) verbose=1 ;;",
-    "      esac",
-    "      ;;",
+    "    -*x*) extract=1 ;;",
     "  esac",
     "done",
-    'if [ "$list" -eq 1 ] && [ "$verbose" -eq 0 ]; then',
+    'if [ "$extract" -eq 1 ]; then',
     body,
     "fi",
     'exec /usr/bin/tar "$@"'
   ].join("\n") + "\n";
+}
+
+/** PATH gzip wrapper: hang on decompress (-dc) used before ustar validation. */
+function hangingGzipWrapperScript(pidFile: string): string {
+  return ["#!/bin/sh", hangBody(pidFile)].join("\n") + "\n";
 }
 
 /** PATH checksum helper: always hang (installer blocks after download). */
@@ -213,10 +193,12 @@ async function startHangScenario(
     assetBaseUrl: base
   })["install-beta.sh"]!;
   // Static: post-lock helpers close FD 9 so a surviving child cannot pin the lock.
-  assert.match(scriptBody, /tar -tvzf "\$archive_path" 9>&-/);
-  assert.match(scriptBody, /listing=\$\(\s*exec 9>&-/);
-  assert.match(scriptBody, /expected=\$\(\s*exec 9>&-/);
-  assert.match(scriptBody, /tar --no-same-owner -xzf "\$archive_path" -C "\$stage" 9>&-/);
+  assert.match(scriptBody, /gzip -dc "\$archive_path" 9>&-/);
+  assert.match(scriptBody, /parsed=\$\(\s*exec 9>&-/);
+  assert.match(
+    scriptBody,
+    /tar --no-same-owner -xf "\$tar_path" -C "\$stage" "\$member" 9>&-/
+  );
   assert.match(scriptBody, /actual=\$\(\s*exec 9>&-\s*file_sha256/);
   assert.match(scriptBody, /size=\$\(\s*exec 9>&-/);
   assert.match(scriptBody, /phase=\$\(\s*exec 9>&-/);
@@ -239,12 +221,14 @@ async function startHangScenario(
     await writeFile(path.join(bin, "wc"), hangingWcWrapperScript(pidFile), {
       mode: 0o755
     });
+  } else if (input.mode === "decompress") {
+    await writeFile(path.join(bin, "gzip"), hangingGzipWrapperScript(pidFile), {
+      mode: 0o755
+    });
   } else {
-    await writeFile(
-      path.join(bin, "tar"),
-      hangingTarWrapperScript(input.mode, pidFile),
-      { mode: 0o755 }
-    );
+    await writeFile(path.join(bin, "tar"), hangingTarWrapperScript(pidFile), {
+      mode: 0o755
+    });
   }
 
   const prefix = path.join(root, "prefix");
@@ -369,7 +353,7 @@ test("killed generated-installer parent releases lock while extract wrapper surv
   await assertLockHeldThenFreeAfterKill(scenario, "extract wrapper");
 });
 
-test("killed generated-installer parent releases lock while archive-list wrapper survives", async (t) => {
+test("killed generated-installer parent releases lock while decompress wrapper survives", async (t) => {
   if (!platformLockSupported()) {
     t.skip("Install Root lock tools are Darwin/Linux only");
     return;
@@ -380,11 +364,11 @@ test("killed generated-installer parent releases lock while archive-list wrapper
   }
 
   const scenario = await startHangScenario(t, {
-    label: "install-lock-list-",
-    mode: "list",
-    pidFileName: "list.pid"
+    label: "install-lock-decompress-",
+    mode: "decompress",
+    pidFileName: "decompress.pid"
   });
-  await assertLockHeldThenFreeAfterKill(scenario, "listing wrapper");
+  await assertLockHeldThenFreeAfterKill(scenario, "decompress wrapper");
 });
 
 test("killed generated-installer parent releases lock while checksum wrapper survives", async (t) => {

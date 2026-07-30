@@ -46,6 +46,7 @@ import {
 } from "../scripts/release-source-facts.js";
 import { releaseNotesMarkdown } from "../scripts/release-github-notes.js";
 import {
+  MAX_RELEASE_ARCHIVE_STEM_BYTES,
   releaseArchiveFileName,
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
@@ -247,6 +248,42 @@ test("the archive name and its inner directory are the same stem", () => {
   assert.equal(releaseArchiveFileName("1.2.3", "darwin-arm64"), "1667_1.2.3_darwin-arm64.tar.gz");
   assert.throws(() => releaseArchiveStem("0.1", "linux-x64"), /SemVer/);
   assert.throws(() => releaseContentFileSet("linux-x64", "v0.1.0"), /SemVer/);
+});
+
+/**
+ * Canonical ustar top-level directory entry is stem + "/" in the 100-byte name
+ * field. For linux-x64 the fixed prefix/suffix is 15 ASCII bytes, so a SemVer
+ * prerelease of length 84 yields a 99-byte stem (accepted) and 85 yields 100
+ * (rejected before any workflow names or tars).
+ */
+test("releaseArchiveStem accepts the maximum ustar directory stem and rejects the next", () => {
+  const target = "linux-x64";
+  const fixedBytes = Buffer.byteLength(`1667__${target}`, "utf8");
+  assert.equal(fixedBytes, 15);
+  const maxVersion = `0.0.0-${"a".repeat(MAX_RELEASE_ARCHIVE_STEM_BYTES - fixedBytes - 6)}`;
+  // "0.0.0-" is 6 bytes; maxVersion length is the version field only.
+  assert.equal(Buffer.byteLength(maxVersion, "utf8"), MAX_RELEASE_ARCHIVE_STEM_BYTES - fixedBytes);
+  const maxStem = releaseArchiveStem(maxVersion, target);
+  assert.equal(Buffer.byteLength(maxStem, "utf8"), MAX_RELEASE_ARCHIVE_STEM_BYTES);
+  assert.equal(maxStem, `1667_${maxVersion}_${target}`);
+  assert.equal(
+    releaseArchiveFileName(maxVersion, target),
+    `${maxStem}.tar.gz`
+  );
+
+  const rejectVersion = `0.0.0-${"a".repeat(MAX_RELEASE_ARCHIVE_STEM_BYTES - fixedBytes - 6 + 1)}`;
+  assert.equal(
+    Buffer.byteLength(`1667_${rejectVersion}_${target}`, "utf8"),
+    MAX_RELEASE_ARCHIVE_STEM_BYTES + 1
+  );
+  assert.throws(
+    () => releaseArchiveStem(rejectVersion, target),
+    /ustar name bound of 99 bytes/
+  );
+  assert.throws(
+    () => releaseArchiveFileName(rejectVersion, target),
+    /ustar name bound of 99 bytes/
+  );
 });
 
 // Both the version and the target contain hyphens, so hyphens cannot also
@@ -532,6 +569,17 @@ test("the build job proves the machine is the matrix target before it compiles",
   assert.ok(proof > 0, "the build job never checks the machine against matrix.target");
   assert.ok(compile > proof, "the machine check must run before anything is compiled");
   assert.match(build, /TARGET: \$\{\{ matrix\.target \}\}/u);
+});
+
+test("archive producers force canonical ustar and disable macOS metadata copies", () => {
+  const build = workflowJobs().get("build");
+  assert.ok(build !== undefined);
+  // Shell Installer physical validation rejects PAX/GNU/AppleDouble entries.
+  assert.match(
+    build,
+    /COPYFILE_DISABLE=1 tar --format=ustar -czf "dist\/archives\/\$stem\.tar\.gz" -C dist\/stage "\$stem"/u
+  );
+  assert.doesNotMatch(build, /(?<!format=ustar )-czf "dist\/archives\/\$stem\.tar\.gz"/u);
 });
 
 /**

@@ -13,7 +13,8 @@ import {
   MAX_RELEASE_ARTIFACT_GZIP_BYTES,
   MAX_RELEASE_ARTIFACT_TAR_BYTES,
   MAX_RELEASE_EXECUTABLE_BYTES,
-  MAX_RELEASE_MANIFEST_BYTES
+  MAX_RELEASE_MANIFEST_BYTES,
+  MAX_RELEASE_TOTAL_FILE_BYTES
 } from "./release-artifact-bounds.js";
 import {
   closeAndFsync,
@@ -67,7 +68,8 @@ export async function extractPlatformPackageExecutable(
   }
 ): Promise<ExtractedPlatformPackage> {
   const maximumGzip = options.maximumGzipBytes ?? MAX_RELEASE_ARTIFACT_GZIP_BYTES;
-  const maximumTotalFileBytes = options.maximumTotalFileBytes ?? MAX_RELEASE_ARTIFACT_TAR_BYTES;
+  const maximumTotalFileBytes =
+    options.maximumTotalFileBytes ?? MAX_RELEASE_TOTAL_FILE_BYTES;
   const maximumExecutableBytes = options.maximumExecutableBytes ?? MAX_RELEASE_EXECUTABLE_BYTES;
   const signal = options.signal;
   if (signal?.aborted) throw abortAsTarError(signal);

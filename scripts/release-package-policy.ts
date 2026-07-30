@@ -3,7 +3,8 @@ import {
 } from "../shared/build-identity.js";
 import {
   MAX_RELEASE_ARTIFACT_ENTRIES,
-  MAX_RELEASE_EXECUTABLE_BYTES
+  MAX_RELEASE_EXECUTABLE_BYTES,
+  MAX_RELEASE_TOTAL_FILE_BYTES
 } from "../shared/release-artifact-bounds.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
@@ -42,7 +43,7 @@ export type {
 } from "./release-package-manifests.js";
 
 export const MAX_RELEASE_TARBALL_ENTRIES = MAX_RELEASE_ARTIFACT_ENTRIES;
-export const MAX_RELEASE_TARBALL_FILE_BYTES = MAX_RELEASE_EXECUTABLE_BYTES + 16 * 1024 * 1024;
+export const MAX_RELEASE_TARBALL_FILE_BYTES = MAX_RELEASE_TOTAL_FILE_BYTES;
 
 /**
  * The bound on a staged `sbom.spdx.json`. The generator refuses to emit a

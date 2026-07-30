@@ -17,23 +17,19 @@ import {
 } from "../shared/release-targets.js";
 import { parseSemVer } from "../shared/semver.js";
 import {
-  assertPublishedReleaseTarget,
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
 } from "./release-archive.js";
+import { releaseArchiveFileSet } from "./release-archive-layout.js";
 import { sha256Digest } from "./release-boundary-validation.js";
 import {
   digestStagedFile,
   releaseContentFileSet,
   stageReleaseContent,
-  type ReleaseContentEntry,
   type StagedReleaseFile
 } from "./release-content.js";
 import { releaseNotesMarkdown } from "./release-github-notes.js";
 import { releaseIdentityForTarget } from "./release-identity.js";
-import {
-  RELEASE_LICENSE_FILES
-} from "./release-package-manifests.js";
 import { createReleasePlatformPackageTemplate } from "./release-package-templates.js";
 import {
   createReleaseSboms,
@@ -54,41 +50,12 @@ export {
   RELEASE_SBOM_FILE,
   releaseContentFileSet
 } from "./release-content.js";
-
-/**
- * The archive layout: every file at the top level of the extracted directory,
- * `LICENSE` and `NOTICE` among them.
- *
- * The licence check below is a presence assertion, not a shape assertion, and
- * it is here rather than only in the type system and the tests because the
- * release workflow runs neither. It runs `npm ci` and then `node --import tsx`,
- * which strips types without checking them, so the tuple type in
- * release-package-manifests.ts and the digest tests would let a dropped licence
- * file through at release time. `assertDirectoryHolds` cannot cover this: it
- * compares the staged directory against the list this function produced, so it
- * catches a stray file and structurally cannot catch an absent one. Apache-2.0
- * sections 4(a) and 4(d) attach to the archive a recipient downloads, so the
- * obligation fails closed in the release path itself.
- */
-export function releaseArchiveFileSet(
-  target: BuiltArtifactTarget,
-  version: string
-): readonly ReleaseContentEntry[] {
-  assertPublishedReleaseTarget(target);
-  const entries = releaseContentFileSet(target, version);
-  for (const entry of entries) {
-    if (entry.path.includes("/")) {
-      throw new Error(`Release archive entry ${entry.path} is not at the top level`);
-    }
-  }
-  for (const licenceFile of RELEASE_LICENSE_FILES) {
-    const entry = entries.find((candidate) => candidate.path === licenceFile);
-    if (entry === undefined || entry.source.kind !== "repository-file") {
-      throw new Error(`Release archive for ${target} would ship without ${licenceFile}`);
-    }
-  }
-  return entries;
-}
+export {
+  releaseArchiveFileSet,
+  releaseArchiveMemberPaths,
+  releaseArchiveMemberRelPaths,
+  publishedReleaseArchiveMemberRelLayout
+} from "./release-archive-layout.js";
 
 export interface ReleaseAssetDigest {
   readonly name: string;

@@ -327,7 +327,7 @@ test(
   await chmod(linkPrefix, 0o755);
   await assert.rejects(
     execFileAsync("sh", [linkScriptPath, "--prefix", linkPrefix], { cwd: root }),
-    /symbolic link or hard link/i
+    /symbolic link.*hard link/i
   );
 
   // Restore a good archive for lock-path tests.

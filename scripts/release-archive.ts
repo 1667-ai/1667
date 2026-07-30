@@ -20,6 +20,14 @@ export function assertPublishedReleaseTarget(target: BuiltArtifactTarget): void 
 }
 
 /**
+ * Canonical POSIX ustar stores the top-level directory entry as stem plus a
+ * trailing slash in the 100-byte name field (no prefix, no PAX). The stem
+ * itself must therefore fit in 99 UTF-8 bytes so every release name and
+ * workflow path that goes through this function inherits the same bound.
+ */
+export const MAX_RELEASE_ARCHIVE_STEM_BYTES = 99;
+
+/**
  * The name a downloaded archive carries, and the name of the single directory
  * inside it. They are the same string on purpose: `tar -xzf` then leaves one
  * directory rather than scattering an executable and four files into whatever
@@ -34,7 +42,14 @@ export function assertPublishedReleaseTarget(target: BuiltArtifactTarget): void 
 export function releaseArchiveStem(version: string, target: BuiltArtifactTarget): string {
   assertPublishedReleaseTarget(target);
   if (!isSemVer(version)) throw new Error(`Release archive needs a SemVer version, not ${version}`);
-  return `1667_${version}_${target}`;
+  const stem = `1667_${version}_${target}`;
+  // Reject before any workflow tars or names assets: directory entry is stem + "/".
+  if (Buffer.byteLength(stem, "utf8") > MAX_RELEASE_ARCHIVE_STEM_BYTES) {
+    throw new Error(
+      `Release archive stem exceeds the ustar name bound of ${MAX_RELEASE_ARCHIVE_STEM_BYTES} bytes: ${stem}`
+    );
+  }
+  return stem;
 }
 
 export function releaseArchiveFileName(version: string, target: BuiltArtifactTarget): string {

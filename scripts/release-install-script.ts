@@ -12,6 +12,7 @@ import {
 import { isSemVer, parseSemVer } from "../shared/semver.js";
 import { releaseArchiveFileName } from "./release-archive.js";
 import { sha256Digest } from "./release-boundary-validation.js";
+import { publishedReleaseArchiveMemberRelLayout } from "./release-archive-layout.js";
 import { shellInstallerBody } from "./release-install-script-body.js";
 
 export const INSTALL_SCRIPT_CHANNELS = ["stable", "beta"] as const;
@@ -107,13 +108,23 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
   }
   const defaultBase = `https://github.com/${input.repository}/releases/download/v${input.version}`;
   const assetBase = assertSafeAssetBaseUrl(input.assetBaseUrl ?? defaultBase);
+  // One portable installer: every published target must share this layout.
+  const memberRelPaths = publishedReleaseArchiveMemberRelLayout(input.version);
+  const executableMemberId = memberRelPaths.indexOf("1667");
+  if (executableMemberId <= 0) {
+    throw new Error("Install script archive layout is missing the 1667 executable");
+  }
   return shellInstallerBody({
     version: input.version,
     channel: input.channel,
     repository: input.repository,
     assetBase,
     nameLines: nameLines.join("\n"),
-    digestLines: digestLines.join("\n")
+    digestLines: digestLines.join("\n"),
+    extractLayout: Object.freeze({
+      memberRelPaths,
+      executableMemberId
+    })
   });
 }
 

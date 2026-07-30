@@ -389,17 +389,16 @@ while true; do sleep 3600; done
   const digests = await writePublishedArchives(archivesDir, INSTALL_VERSION);
   const hostArchive = releaseArchiveFileName(INSTALL_VERSION, hostTarget);
   const archivePath = path.join(archivesDir, hostArchive);
-  const stage = path.join(root, "hang-stage");
-  await mkdir(stage, { recursive: true });
   const stem = hostArchive.replace(/\.tar\.gz$/u, "");
-  const dir = path.join(stage, stem);
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "1667"), hangStub, { mode: 0o755 });
-  await writeFile(path.join(dir, "LICENSE"), "LICENSE\n");
-  await writeFile(path.join(dir, "NOTICE"), "NOTICE\n");
-  await writeFile(path.join(dir, "build-manifest.json"), "{}\n");
-  await writeFile(path.join(dir, "sbom.spdx.json"), "{}\n");
-  await execFileAsync("tar", ["-czf", archivePath, "-C", stage, stem]);
+  // Pure POSIX ustar: system tar injects PAX members the installer refuses.
+  const {
+    canonicalReleaseArchiveEntries,
+    writeUstarGzipArchive
+  } = await import("./release-install-script-fixture.js");
+  await writeUstarGzipArchive(
+    archivePath,
+    canonicalReleaseArchiveEntries(INSTALL_VERSION, hostTarget, Buffer.from(hangStub))
+  );
   digests[hostArchive] = sha256File(await readFileFn(archivePath));
 
   const server = createServer((request, response) => {

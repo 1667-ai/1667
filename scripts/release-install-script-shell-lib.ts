@@ -346,61 +346,6 @@ file_sha256() {
   fi
 }
 
-# Validate exact archive layout before extraction. Rejects links and extras.
-validate_archive_layout() {
-  archive_path=\$1
-  stem=\$2
-  # Close FD 9 on every pipeline child so a crash mid-validate cannot pin the lock.
-  if tar -tvzf "\$archive_path" 9>&- | awk '\$1 ~ /^[lh]/ { exit 1 }' 9>&-; then
-    :
-  else
-    die "Archive contains a symbolic link or hard link"
-  fi
-  # Command-substitution subshells inherit FD 9. Close it in the subshell itself
-  # (not only pipeline children) so a hanging listing child cannot pin the lock
-  # after the installer parent dies.
-  listing=\$(
-    exec 9>&-
-    tar -tzf "\$archive_path" | sed 's|/\$||' | sort
-  ) || die "Archive listing failed"
-  expected=\$(
-    exec 9>&-
-    printf '%s\\n' \\
-      "\$stem" \\
-      "\$stem/1667" \\
-      "\$stem/LICENSE" \\
-      "\$stem/NOTICE" \\
-      "\$stem/build-manifest.json" \\
-      "\$stem/sbom.spdx.json" | sort
-  )
-  if [ "\$listing" != "\$expected" ]; then
-    die "Archive layout is not the exact pinned Release Archive layout"
-  fi
-}
-
-extract_candidate() {
-  root=\$1
-  archive_path=\$2
-  archive=\$3
-  stem=\${archive%.tar.gz}
-  validate_archive_layout "\$archive_path" "\$stem"
-  # One exact reserved staging path, protected by the Install Root lock.
-  stage="\$root/\$EXTRACT_STAGE"
-  remove_extract_stage "\$root"
-  mkdir -m 0700 "\$stage"
-  # Never preserve archive member UID/GID. As root, tar defaults to same-owner
-  # (GNU tar and macOS bsdtar), which would install files as the release runner.
-  # Close FD 9 so a surviving extract child cannot hold the Install Root lock.
-  tar --no-same-owner -xzf "\$archive_path" -C "\$stage" 9>&-
-  candidate="\$stage/\$stem/1667"
-  [ -f "\$candidate" ] || die "Archive is missing the 1667 executable"
-  [ ! -L "\$candidate" ] || die "Archive executable must not be a symbolic link"
-  rm -f "\$root/\$CANDIDATE_FILE"
-  mv "\$candidate" "\$root/\$CANDIDATE_FILE"
-  chmod 0755 "\$root/\$CANDIDATE_FILE"
-  remove_extract_stage "\$root"
-}
-
 random_hex_32() {
   if [ -r /dev/urandom ]; then
     od -An -N16 -tx1 /dev/urandom 9>&- | tr -d ' \\n' 9>&-

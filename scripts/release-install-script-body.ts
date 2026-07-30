@@ -16,15 +16,25 @@ import {
 } from "../shared/install-ownership-record.js";
 import {
   MAX_RELEASE_ARTIFACT_GZIP_BYTES,
+  MAX_RELEASE_ARTIFACT_TAR_BYTES,
+  MAX_RELEASE_EXECUTABLE_BYTES,
+  MAX_RELEASE_TOTAL_FILE_BYTES,
   RELEASE_TRANSFER_CONNECT_TIMEOUT_MS,
   RELEASE_TRANSFER_TOTAL_TIMEOUT_MS
 } from "../shared/release-artifact-bounds.js";
 import { SHELL_INSTALLER_DURABLE } from "./release-install-script-durable.js";
+import {
+  shellInstallerExtract,
+  type ShellInstallerExtractLayout
+} from "./release-install-script-extract-lib.js";
 import { SHELL_INSTALLER_LOCK } from "./release-install-script-lock-lib.js";
 import { SHELL_INSTALLER_PROBE } from "./release-install-script-probe-lib.js";
 import { SHELL_INSTALLER_HELPERS } from "./release-install-script-shell-lib.js";
 
 const SHELL_MAX_ARCHIVE_BYTES = MAX_RELEASE_ARTIFACT_GZIP_BYTES;
+const SHELL_MAX_TAR_BYTES = MAX_RELEASE_ARTIFACT_TAR_BYTES;
+const SHELL_MAX_EXECUTABLE_BYTES = MAX_RELEASE_EXECUTABLE_BYTES;
+const SHELL_MAX_FILE_BYTES = MAX_RELEASE_TOTAL_FILE_BYTES;
 const SHELL_DOWNLOAD_CONNECT_TIMEOUT_SEC = RELEASE_TRANSFER_CONNECT_TIMEOUT_MS / 1_000;
 const SHELL_DOWNLOAD_MAX_TIME_SEC = RELEASE_TRANSFER_TOTAL_TIMEOUT_MS / 1_000;
 
@@ -35,7 +45,9 @@ export function shellInstallerBody(input: {
   readonly assetBase: string;
   readonly nameLines: string;
   readonly digestLines: string;
+  readonly extractLayout: ShellInstallerExtractLayout;
 }): string {
+  const extract = shellInstallerExtract(input.extractLayout);
   return `#!/bin/sh
 # 1667 Shell Installer — channel ${input.channel}, version ${input.version}
 # Generated release asset. Do not edit. Attest before you trust a local copy.
@@ -46,6 +58,12 @@ INSTALL_CHANNEL='${input.channel}'
 GITHUB_REPOSITORY='${input.repository}'
 ASSET_BASE='${input.assetBase}'
 MAX_ARCHIVE_BYTES=${SHELL_MAX_ARCHIVE_BYTES}
+# Complete decompressed tar stream bound (headers, payloads, padding, terminators).
+MAX_TAR_BYTES=${SHELL_MAX_TAR_BYTES}
+# Expanded 1667 executable bound (same shared limit as managed upgrade).
+MAX_EXECUTABLE_BYTES=${SHELL_MAX_EXECUTABLE_BYTES}
+# Cumulative bytes in all regular-file members.
+MAX_FILE_BYTES=${SHELL_MAX_FILE_BYTES}
 # Portable curl deadlines: connect bound, then overall transfer bound.
 DOWNLOAD_CONNECT_TIMEOUT_SEC=${SHELL_DOWNLOAD_CONNECT_TIMEOUT_SEC}
 DOWNLOAD_MAX_TIME_SEC=${SHELL_DOWNLOAD_MAX_TIME_SEC}
@@ -300,6 +318,7 @@ refuse_prior_managed_path() {
 ${SHELL_INSTALLER_DURABLE}
 ${SHELL_INSTALLER_LOCK}
 ${SHELL_INSTALLER_HELPERS}
+${extract}
 ${SHELL_INSTALLER_PROBE}
 main "\$@"
 `;

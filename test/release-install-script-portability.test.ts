@@ -92,7 +92,10 @@ test("Shell Installer extraction passes --no-same-owner through the external tar
     repository: INSTALL_REPO,
     archives: digestsFor(INSTALL_VERSION)
   });
-  assert.match(body, /tar --no-same-owner -xzf "\$archive_path" -C "\$stage"/);
+  assert.match(
+    body,
+    /tar --no-same-owner -xf "\$tar_path" -C "\$stage" "\$member"/
+  );
 
   const hostTarget = hostPublishedTarget();
   if (hostTarget === null) {
@@ -168,12 +171,13 @@ test("Shell Installer extraction passes --no-same-owner through the external tar
   const tarInvocations = (await readFile(tarLog, "utf8")).trimEnd().split("\n");
   assert.ok(tarInvocations.length > 0, "installer must invoke external tar");
   const extractCalls = tarInvocations.filter((line) => {
-    return /(?:^|\s)-x(?:\s|$)/.test(line) || /(?:^|\s)-xzf(?:\s|$)/.test(line);
+    return /(?:^|\s)-x(?:\s|$)/.test(line) || /(?:^|\s)-xf(?:\s|$)/.test(line);
   });
   assert.ok(extractCalls.length >= 1, "installer must extract with external tar");
   for (const call of extractCalls) {
     assert.match(call, /(?:^|\s)--no-same-owner(?:\s|$)/);
+    // Extract uses the private validated tar, not the gzip download path.
+    assert.match(call, /(?:^|\s)-xf(?:\s|$)/);
+    assert.doesNotMatch(call, /(?:^|\s)-xzf(?:\s|$)/);
   }
-  // Listing / validation may call tar without extract; those must still reach the shim.
-  assert.ok(tarInvocations.some((line) => line.includes("-t")));
 });

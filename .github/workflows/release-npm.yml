@@ -298,7 +298,10 @@ jobs:
             stem="$(node --import tsx scripts/release-github-assets.ts stage \
               "$VERSION" "$GITHUB_SHA" "$RELEASE_TIMESTAMP" "$target" \
               "dist/native/builds/$target" dist/archive-stage)"
-            tar -czf "dist/archives/$stem.tar.gz" -C dist/archive-stage "$stem"
+            # POSIX ustar only: Shell Installer validates the physical stream and
+            # refuses PAX/GNU extension headers that default tar formats emit.
+            # COPYFILE_DISABLE keeps macOS metadata from adding physical entries.
+            COPYFILE_DISABLE=1 tar --format=ustar -czf "dist/archives/$stem.tar.gz" -C dist/archive-stage "$stem"
             tar -tzf "dist/archives/$stem.tar.gz"
           done
 

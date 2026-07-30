@@ -38,6 +38,7 @@ This document uses these Technical Names:
 | Managed Installation | An installation that the Shell Installer creates and registers |
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
 | Release Archive | The target-specific native archive in an immutable GitHub release |
+| POSIX ustar | The archive format that the release workflows use |
 | build identity | Version, source, time, protocol, and target data in a native executable |
 | source evidence | Trusted source, tag, version, and time data |
 | release plan | The strict JSON input for release preflight |
@@ -457,6 +458,13 @@ tags.
 `scripts/release-install-script.ts` renders the scripts from those digests.
 Both release workflows call that generator. They do not keep a second target
 list or a second script template.
+
+The release workflows write each Release Archive in POSIX ustar format. They
+disable macOS metadata copies. The Shell Installer bounds the compressed
+archive. It also bounds the complete decompressed archive. It validates each
+physical member against the canonical Release Archive layout. It rejects
+extension headers, links, special files, duplicate paths, unknown paths, and
+malformed headers. It extracts only the `1667` executable after validation.
 
 The canonical hosted path is `.github/workflows/release-npm.yml`:
 
