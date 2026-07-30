@@ -12,8 +12,6 @@ Set LineHeight 1.15
 Set Width 1280
 Set Height 720
 Set Padding 18
-Set MarginFill "#0B0906"
-Set Margin 64
 Set BorderRadius 14
 Set WindowBar "Colorful"
 Set WindowBarSize 40
