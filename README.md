@@ -1,9 +1,12 @@
 <div align="center">
 
+<img src="docs/assets/1667-rainbow.svg" alt="1667" width="420">
+
 # 1667
 
 **A full-screen terminal environment for fiction writing with language models.**
 
+[![npm pre-release](https://img.shields.io/npm/v/%401667-ai%2Fcli/next?label=npm%20next)](https://www.npmjs.com/package/@1667-ai/cli)
 [![CI and standalone builds](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/1667-ai/1667/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -13,20 +16,7 @@
 1667 also provides a direct connection to a selected model provider. This
 repository contains the terminal user interface (TUI) and its backend runtime.
 
-This README uses the Technical Names in
-[Technical terms](docs/technical-terms.md).
-
-## Status
-
-This public repository contains pre-release source.
-
-| Item | Current status |
-| --- | --- |
-| Source repository | GitHub provides public access. |
-| Standalone candidates | CI builds and tests three targets. CI does not publish these files. |
-| Installer | Release workflows generate `install-beta.sh`. They generate `install-stable.sh` for a release version. The homepage hides these scripts until the Managed Installation release gate passes. |
-| npm packages | The release workflow targets `@1667-ai/cli` and four platform packages. Check npm for published versions. |
-| GitHub release | `Release (npm)` is the canonical path. It retains npm packages and native Release Archives. It also retains Shell Installers, checksums, and attestations. `Release (GitHub)` is a prerelease archive path. It includes `install-beta.sh`. `windows-x64` is held from publication. |
+[![The 1667 starter onboarding story](docs/assets/starter-onboarding.png)](https://1667.ai)
 
 Build and run 1667 from source. You can also build a local standalone
 executable.
