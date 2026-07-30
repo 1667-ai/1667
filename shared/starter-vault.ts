@@ -81,7 +81,7 @@ const TOUR: StarterStory = {
           text: STARTER_LOGO_TEXT + "\n\n"
             + "Welcome to 1667. This story is also the manual, which means you can "
             + "ruin it freely, and you can delete both starter "
-            + "stories the moment they stop earning their place.\n\n"
+            + "stories the moment they stop being useful.\n\n"
             + "Start with the thing that makes this editor different. This paragraph exists in "
             + "three versions. They are called takes. Press [→] to read the next one, and [←] "
             + "to come back.\n\n"
