@@ -3,6 +3,8 @@
  * optional completed early result, reload after opposite completion, probe
  * active, run operation work, always release.
  */
+import { join } from "node:path";
+import { INSTALL_OWNERSHIP_FILE } from "../../shared/install-ownership-record.js";
 import type { InstallationAuthority } from "./install-ownership.js";
 import {
   acquireInstallationLock,
@@ -107,12 +109,15 @@ export async function lockedActiveVersion(
   if (identity.artifactTarget !== authority.record.artifactTarget) {
     throw new UpgradeFailure(
       "verification_failed",
-      // Do not tell the reader to install again. The install command refuses an
-      // Install Root that already holds a 1667, and this failure comes from the
-      // upgrade command, so that advice is a loop.
+      // Name the two files this installation owns. The Install Root is often
+      // ~/.local/bin and holds unrelated programs, so advice to remove a
+      // directory can destroy them. Removing the executable alone is not enough
+      // either: the install command refuses a leftover Ownership Record.
       `The 1667 at ${activePath} was built for ${identity.artifactTarget},`
       + ` but this installation recorded ${authority.record.artifactTarget}.`
-      + " 1667 cannot update it. Remove that directory to install 1667 again."
+      + " 1667 cannot update it."
+      + ` Remove ${activePath} and ${join(authority.installRoot, INSTALL_OWNERSHIP_FILE)},`
+      + " then install 1667 again."
     );
   }
   return identity.productVersion;

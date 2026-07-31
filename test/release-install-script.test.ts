@@ -407,9 +407,10 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
     const ttyRun = await execFileAsync(pty.file, pty.args, { cwd: root });
     const ttyOutput = `${ttyRun.stdout}${ttyRun.stderr}`;
     assert.match(ttyOutput, new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`));
-    // curl redraws the bar in place, so the transfer reaches the terminal.
-    assert.match(ttyOutput, /\r/u);
-    assert.match(ttyOutput, /100\.0%/u);
+    // A pty sets ONLCR, so every newline already arrives as CRLF. Only the bar
+    // itself distinguishes this branch from the --silent one, so assert on the
+    // bar: a run of '#' immediately before the completed percentage.
+    assert.match(ttyOutput, /#{2,}\s+100\.0%/u);
     const ttyOwnership = parseInstallOwnershipRecordText(
       await readFile(path.join(ttyPrefix, ".1667-install.json"), "utf8")
     );
