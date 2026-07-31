@@ -319,11 +319,10 @@ async function handleApi(
   }
 
   if (head === "import" && id === "markdown" && sub === undefined && method === "POST") {
+    const framedBody = await textBody(MAX_MARKDOWN_HTTP_BODY_BYTES);
     let decoded: ReturnType<typeof decodeMarkdownHttpBody>;
     try {
-      decoded = decodeMarkdownHttpBody(
-        await textBody(MAX_MARKDOWN_HTTP_BODY_BYTES)
-      );
+      decoded = decodeMarkdownHttpBody(framedBody);
     } catch (error) {
       throw new ServiceError(400, error instanceof Error ? error.message : "Invalid Markdown import");
     }

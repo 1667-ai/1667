@@ -1,4 +1,8 @@
-import { MAX_IMPORT_BYTES, MAX_JSON_BODY_BYTES } from "../shared/types.js";
+import {
+  MAX_IMPORT_BYTES,
+  MAX_JSON_BODY_BYTES,
+  MAX_STORED_TITLE_CHARS
+} from "../shared/types.js";
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
@@ -18,6 +22,13 @@ export function validateWorkerRequestSize(
   if (method === "importSillyTavern" || method === "importMarkdown") {
     const text = method === "importSillyTavern" ? input.jsonl : input.markdown;
     if (typeof text === "string" && new TextEncoder().encode(text).byteLength > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    if (
+      method === "importMarkdown"
+      && typeof input.defaultTitle === "string"
+      && input.defaultTitle.length > MAX_STORED_TITLE_CHARS
+    ) {
       throw new ServiceError(413, "Request body too large");
     }
     return;

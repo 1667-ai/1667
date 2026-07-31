@@ -1,6 +1,9 @@
 import { ServiceError } from "./errors.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
-import { MAX_STORY_TITLE_CHARS } from "./story-v5-strict.js";
+import {
+  MAX_STORY_MANIFEST_BYTES,
+  MAX_STORY_TITLE_CHARS
+} from "./story-v5-strict.js";
 import {
   MAX_IMPORT_BYTES,
   MAX_PARTS,
@@ -25,6 +28,13 @@ interface LineInfo {
   end: number;
 }
 
+// Imported nodes have fixed identifiers and timestamps plus at most a 100-character
+// preview in the manifest. These deliberately conservative reserves keep the exact
+// V6 manifest below its hard limit even when every JSON string needs escaping.
+const IMPORT_MANIFEST_ROOT_RESERVE_BYTES = 64 * 1024;
+const IMPORT_MANIFEST_NODE_RESERVE_BYTES = 2 * 1024;
+const IMPORT_MANIFEST_CHAPTER_RESERVE_BYTES = 512;
+
 export function partsFromMarkdown(markdown: string, defaultTitle?: string): MarkdownImport {
   if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) {
     throw new ServiceError(413, "Request body too large");
@@ -34,11 +44,31 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   let titleFound = false;
   const parts: ImportedPart[] = [];
   const chapterBreaks: MarkdownImportBreak[] = [];
+  const chapterBreakParents = new Set<number>();
   let remainingChars = MAX_TOTAL_CHARS;
+  let remainingManifestBytes = MAX_STORY_MANIFEST_BYTES
+    - IMPORT_MANIFEST_ROOT_RESERVE_BYTES;
   let paragraphStart = -1;
   let paragraphEnd = -1;
   let paragraphNormalizedChars = 0;
   let pendingChapterTitle: string | null = null;
+
+  const consumeManifestBytes = (bytes: number) => {
+    remainingManifestBytes -= bytes;
+    if (remainingManifestBytes < 0) {
+      throw new ServiceError(400, "Markdown expands beyond the stored story manifest limit");
+    }
+  };
+
+  const appendChapterBreak = (parentPartIndex: number, chapterTitle: string) => {
+    if (chapterBreakParents.has(parentPartIndex)) return;
+    consumeManifestBytes(
+      IMPORT_MANIFEST_CHAPTER_RESERVE_BYTES
+      + Buffer.byteLength(JSON.stringify(chapterTitle))
+    );
+    chapterBreaks.push({ parentPartIndex, title: chapterTitle });
+    chapterBreakParents.add(parentPartIndex);
+  };
 
   const flushParagraph = () => {
     if (paragraphStart === -1) return;
@@ -64,17 +94,13 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       text,
       createdAt: now
     });
+    consumeManifestBytes(IMPORT_MANIFEST_NODE_RESERVE_BYTES);
 
     const newPartIndex = parts.length - 1;
 
     if (pendingChapterTitle !== null && newPartIndex > 0) {
       const prevIndex = newPartIndex - 1;
-      if (!chapterBreaks.some((b) => b.parentPartIndex === prevIndex)) {
-        chapterBreaks.push({
-          parentPartIndex: prevIndex,
-          title: pendingChapterTitle
-        });
-      }
+      appendChapterBreak(prevIndex, pendingChapterTitle);
       pendingChapterTitle = null;
     } else {
       pendingChapterTitle = null;
@@ -99,16 +125,10 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       }
     }
 
-    if (trimmed.startsWith("## ")) {
+    const chapterHeading = /^##(?:[ \t]+(.*))?$/.exec(trimmed);
+    if (chapterHeading !== null) {
       flushParagraph();
-      const headingTitle = trimmed.slice(3).trim();
-      pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_STORY_TITLE_CHARS);
-      continue;
-    }
-
-    if (trimmed.startsWith("##") && !trimmed.startsWith("###")) {
-      flushParagraph();
-      const headingTitle = trimmed.slice(2).trim();
+      const headingTitle = (chapterHeading[1] ?? "").trim();
       pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_STORY_TITLE_CHARS);
       continue;
     }
@@ -136,12 +156,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   if (pendingChapterTitle !== null && parts.length > 0) {
     const prevIndex = parts.length - 1;
-    if (!chapterBreaks.some((b) => b.parentPartIndex === prevIndex)) {
-      chapterBreaks.push({
-        parentPartIndex: prevIndex,
-        title: pendingChapterTitle
-      });
-    }
+    appendChapterBreak(prevIndex, pendingChapterTitle);
     pendingChapterTitle = null;
   }
 
@@ -149,8 +164,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     const fallback = defaultTitle?.trim() || "Imported story";
     title = sliceWellFormedUtf16Prefix(fallback, MAX_STORY_TITLE_CHARS);
   }
+  consumeManifestBytes(Buffer.byteLength(JSON.stringify(title)));
 
-  if (parts.length === 0) {
+  if (parts.length === 0 && !titleFound) {
     throw new ServiceError(400, "No importable prose found in Markdown file");
   }
 

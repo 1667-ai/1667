@@ -11,7 +11,10 @@ import { storyFromImport } from "../server/import-st.js";
 import { parseImportCommand } from "../tui/src/import-cli.js";
 import { initializeProject } from "../server/project-discovery.js";
 import type { StoryPayload } from "../shared/types.js";
-import { encodeMarkdownHttpBody } from "../shared/import-markdown-wire.js";
+import {
+  encodeMarkdownHttpBody,
+  MAX_MARKDOWN_HTTP_BODY_BYTES
+} from "../shared/import-markdown-wire.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { testApp } from "./story-server-fixture.js";
 
@@ -100,6 +103,26 @@ test("markdown import preserves long titles up to stored bound (4096 chars) with
   assert.equal(parsed.chapterBreaks[0]?.title, longChapterTitle);
 });
 
+test("markdown recognizes only CommonMark H2 markers and preserves ##literal prose", () => {
+  const parsed = partsFromMarkdown("# Title\n\n##literal\n\n##\tChapter\n\nNext part.");
+  assert.equal(parsed.parts[0]?.text, "##literal");
+  assert.equal(parsed.chapterBreaks[0]?.title, "Chapter");
+});
+
+test("markdown manifest admission charges chapter titles and structural metadata", () => {
+  const chapterTitle = "x".repeat(2_000);
+  const markdown = [
+    "# Title",
+    "opening",
+    ...Array.from({ length: 4_000 }, (_, index) => `## ${chapterTitle}\n\npart ${index}`)
+  ].join("\n\n");
+  assert.ok(Buffer.byteLength(markdown) < 20 * 1024 * 1024);
+  assert.throws(
+    () => partsFromMarkdown(markdown),
+    (error: unknown) => isServiceError(error, 400, "stored story manifest limit")
+  );
+});
+
 test("export and reimport round-trip preserves story structure and re-exported markdown", async (t) => {
   const service = await openService(t);
   const created = await service.createStory("The Tavern After Rain");
@@ -142,6 +165,16 @@ test("export and reimport round-trip preserves story structure and re-exported m
   // Re-export the reimported story
   const reexported = await service.exportStory(reimportedPayload.id);
   assert.equal(reexported.markdown, exported.markdown);
+});
+
+test("export and reimport round-trip preserves a title-only empty story", async (t) => {
+  const service = await openService(t);
+  const created = await service.createStory("Empty but exportable");
+  const exported = await service.exportStory(created.id);
+  const reimported = await service.importMarkdown(exported.markdown);
+  assert.equal(reimported.title, "Empty but exportable");
+  assert.deepEqual(reimported.nodes, []);
+  assert.equal((await service.exportStory(reimported.id)).markdown, exported.markdown);
 });
 
 test("storyFromImport generates deterministic chapter break IDs when supplied", () => {
@@ -242,6 +275,17 @@ linuxTest("HTTP POST /api/import/markdown bounds raw Markdown without JSON escap
     body: encodeMarkdownHttpBody(oversizedMarkdown)
   });
   assert.equal(overResponse.status, 413);
+
+  const framedOverResponse = await fetchWithApiProtocol(`${base}/api/import/markdown`, {
+    method: "POST",
+    headers: {
+      ...API_PROTOCOL_HEADERS,
+      "content-type": "application/vnd.1667.markdown; charset=utf-8"
+    },
+    body: "a".repeat(MAX_MARKDOWN_HTTP_BODY_BYTES + 1)
+  });
+  assert.equal(framedOverResponse.status, 413);
+  assert.equal((await framedOverResponse.json() as { error?: { code?: string } }).error?.code, "content_too_large");
 });
 
 test("E2E integration: 1667 import routes to a project and returns a failure exit status", async (t) => {

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAX_IMPORT_BYTES, MAX_JSON_BODY_BYTES } from "../shared/types.js";
+import {
+  MAX_IMPORT_BYTES,
+  MAX_JSON_BODY_BYTES,
+  MAX_STORED_TITLE_CHARS
+} from "../shared/types.js";
 import {
   PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION,
   PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION,
@@ -63,6 +67,20 @@ test("worker import measures raw JSONL bytes rather than escaped protocol bytes"
   assert.doesNotThrow(() => validateWorkerRequestSize("importSillyTavern", { jsonl }));
   assert.throws(
     () => validateWorkerRequestSize("importSillyTavern", { jsonl: `${jsonl}x` }),
+    (error: unknown) => error instanceof ServiceError && error.status === 413
+  );
+});
+
+test("worker Markdown import bounds its fallback title before durable publication", () => {
+  assert.doesNotThrow(() => validateWorkerRequestSize("importMarkdown", {
+    markdown: "prose",
+    defaultTitle: "x".repeat(MAX_STORED_TITLE_CHARS)
+  }));
+  assert.throws(
+    () => validateWorkerRequestSize("importMarkdown", {
+      markdown: "prose",
+      defaultTitle: "x".repeat(MAX_STORED_TITLE_CHARS + 1)
+    }),
     (error: unknown) => error instanceof ServiceError && error.status === 413
   );
 });
