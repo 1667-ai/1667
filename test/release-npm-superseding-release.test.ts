@@ -210,15 +210,17 @@ test("quarantine refreshes superseding proof before writes and finalization", as
     }
   });
 
-  assert.deepEqual(proofWriteCounts, [0, 0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(proofWriteCounts, [
+    0,
+    ...Array.from({ length: PUBLISHED_PACKAGE_COUNT + 1 }, (_, index) => index)
+  ]);
   assert.deepEqual(authorizationTrace, [
     "proof:0",
-    "proof:0", "verify:0",
-    "proof:1", "verify:1",
-    "proof:2", "verify:2",
-    "proof:3", "verify:3",
-    "proof:4", "verify:4",
-    "proof:5"
+    ...Array.from({ length: PUBLISHED_PACKAGE_COUNT }, (_, index) => [
+      `proof:${index}`,
+      `verify:${index}`
+    ]).flat(),
+    `proof:${PUBLISHED_PACKAGE_COUNT}`
   ]);
 });
 

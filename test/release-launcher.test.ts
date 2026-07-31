@@ -371,10 +371,8 @@ async function launcherFixture(
   );
   const descriptor = releaseTargetForArtifact(target);
   const executable = path.join(platformRoot, descriptor.executable);
-  // Read before the hold is tested: while windows-x64 is held the compiler can
-  // prove no published descriptor is a Windows one, so asking after the check
-  // below would be a comparison it rejects rather than the branch un-holding
-  // brings back.
+  // Read before the hold check. The executable fixture depends on the target
+  // platform even when a future policy holds that target.
   const stagesWindowsImage = descriptor.platform === "win32";
   if (descriptor.heldFromPublication !== null) {
     // Nothing spawns a held target's executable: the launcher refuses it before

@@ -32,7 +32,12 @@ export function installActiveExecutablePath(installRoot: string): string {
   return `${installRoot}/${INSTALL_ACTIVE_EXECUTABLE}`;
 }
 
-const RECORD_KEYS = Object.freeze([
+/**
+ * The exact Ownership Record field set. The PowerShell Installer and the
+ * Windows authority check both derive their key list from this one, so a schema
+ * change cannot leave a hand-written copy behind.
+ */
+export const RECORD_KEYS = Object.freeze([
   "schemaVersion",
   "product",
   "installationId",

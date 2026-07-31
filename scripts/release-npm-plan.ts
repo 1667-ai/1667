@@ -43,7 +43,7 @@ const MAX_OBSERVATION_BYTES = 128 * 1024;
 
 /**
  * Binds observations made on native runners to the executable bytes in the
- * five tarballs, then writes the exact plan consumed by release preflight.
+ * release tarballs, then writes the exact plan consumed by release preflight.
  */
 export async function createReleasePreflightPlan(
   sourceEvidence: unknown,

@@ -186,24 +186,20 @@ test("publication resumes platforms in order and publishes the launcher last", a
     }
   };
   await publishNpmRelease(packages, registry, publicationLedger());
-  assert.deepEqual(calls, [
-    `inspect:${packages[1]!.name}`,
-    `wait:${packages[1]!.name}`,
-    `inspect:${packages[2]!.name}`,
-    `publish:${packages[2]!.name}`,
-    `wait:${packages[2]!.name}`,
-    `inspect:${packages[3]!.name}`,
-    `publish:${packages[3]!.name}`,
-    `wait:${packages[3]!.name}`,
-    `inspect:${packages[4]!.name}`,
-    `publish:${packages[4]!.name}`,
-    `wait:${packages[4]!.name}`,
+  const expectedCalls: string[] = [];
+  for (const [index, entry] of packages.slice(1).entries()) {
+    expectedCalls.push(`inspect:${entry.name}`);
+    if (index > 0) expectedCalls.push(`publish:${entry.name}`);
+    expectedCalls.push(`wait:${entry.name}`);
+  }
+  expectedCalls.push(
     `wait:${packages.slice(1).map((entry) => entry.name).join(",")}`,
     `inspect:${RELEASE_LAUNCHER_PACKAGE}`,
     `publish:${RELEASE_LAUNCHER_PACKAGE}`,
     `wait:${RELEASE_LAUNCHER_PACKAGE}`,
     `wait:${packages.map((entry) => entry.name).join(",")}`
-  ]);
+  );
+  assert.deepEqual(calls, expectedCalls);
 });
 
 test("a present platform is fully verified before later npm writes", async () => {

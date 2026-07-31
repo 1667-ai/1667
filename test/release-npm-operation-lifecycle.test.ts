@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { PUBLISHED_PACKAGE_COUNT } from "../shared/release-targets.js";
 import {
   runNpmTagOperation,
   type NpmTagOperationLease,
@@ -132,7 +133,10 @@ test("writer recovery records failure before registry construction completes",
       failure?: { observationErrors?: readonly unknown[] };
     });
   assert.equal(records.at(-1)?.record, "failed");
-  assert.equal(records.at(-1)?.failure?.observationErrors?.length, 5);
+  assert.equal(
+    records.at(-1)?.failure?.observationErrors?.length,
+    PUBLISHED_PACKAGE_COUNT
+  );
 });
 
 test("writer acquisition failure does not start unowned recovery", async (t) => {
@@ -190,7 +194,7 @@ test("registry-ready recovery records fresh public observations", async (t) => {
       observationErrors: readonly { message: string }[];
     };
   };
-  assert.equal(failed.failure.observationErrors.length, 5);
+  assert.equal(failed.failure.observationErrors.length, PUBLISHED_PACKAGE_COUNT);
   assert.deepEqual(
     new Set(failed.failure.observationErrors.map((error) => error.message)),
     new Set(["registry observation failed"])

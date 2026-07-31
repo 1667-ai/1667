@@ -22,7 +22,6 @@ import { parseBuildIdentity } from "../shared/build-identity.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
   PUBLISHED_PACKAGE_COUNT,
-  RELEASE_TARGETS,
   releaseTargetForArtifact,
   releaseTargetForRuntime,
   type BuiltArtifactTarget,
@@ -104,8 +103,8 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
       const artifactTarget = entry.artifactTarget as BuiltArtifactTarget;
       const descriptor = releaseTargetForArtifact(artifactTarget);
       const { stdout } = await execFileAsync(
-        path.join(entry.directory, descriptor.executable),
-        ["--version", "--json"],
+        process.execPath,
+        [path.join(entry.directory, descriptor.executable), "--version", "--json"],
         { encoding: "utf8" }
       );
       return [artifactTarget, parseBuildIdentity(JSON.parse(stdout))] as const;
@@ -199,37 +198,36 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
   await assertInstalledLauncherStarts(firstPacked, npm, root);
 });
 
-test("a held target stages and validates without entering the published batch", async (t) => {
-  const held = RELEASE_TARGETS.find((entry) => entry.heldFromPublication !== null);
-  assert.ok(held, "the test requires the current held target");
-  const root = await mkdtemp(path.join(tmpdir(), "1667-release-held-"));
+test("the Windows target stages and validates as a published package", async (t) => {
+  const windows = releaseTargetForArtifact("windows-x64");
+  const root = await mkdtemp(path.join(tmpdir(), "1667-release-windows-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const executable = path.join(root, path.posix.basename(held.executable));
-  await writeExecutable(executable, held.artifactTarget);
-  let heldSourceCommitReads = 0;
+  const executable = path.join(root, path.posix.basename(windows.executable));
+  await writeExecutable(executable, windows.artifactTarget);
+  let sourceCommitReads = 0;
   const staged = stageReleasePackage({
     version: facts.version,
     get sourceCommit(): string {
-      heldSourceCommitReads += 1;
-      return heldSourceCommitReads === 1 ? COMMIT : "f".repeat(40);
+      sourceCommitReads += 1;
+      return sourceCommitReads === 1 ? COMMIT : "f".repeat(40);
     },
     buildTimestamp: facts.buildTimestamp,
-    artifactTarget: held.artifactTarget,
+    artifactTarget: windows.artifactTarget,
     executable,
     outputDirectory: path.join(root, "stage")
   });
-  assert.equal(heldSourceCommitReads, 1);
-  assert.equal(staged.published, false);
-  assert.equal(staged.packageName, held.packageName);
-  assert.equal(staged.packageManifest.name, held.packageName);
+  assert.equal(sourceCommitReads, 1);
+  assert.equal(staged.published, true);
+  assert.equal(staged.packageName, windows.packageName);
+  assert.equal(staged.packageManifest.name, windows.packageName);
   await mkdir(path.join(root, "pack"));
   const packed = await packReleasePackage(
     staged,
     path.join(root, "pack"),
     npmPackInvocationFromEnvironment()
   );
-  assert.equal(packed.artifactTarget, held.artifactTarget);
-  assert.equal(packed.packageName, held.packageName);
+  assert.equal(packed.artifactTarget, windows.artifactTarget);
+  assert.equal(packed.packageName, windows.packageName);
 
   const wrongTarget = PUBLISHED_ARTIFACT_TARGETS[0]!;
   await mkdir(path.join(root, "wrong-pack"));
@@ -239,7 +237,7 @@ test("a held target stages and validates without entering the published batch", 
       path.join(root, "wrong-pack"),
       npmPackInvocationFromEnvironment()
     ),
-    new RegExp(`returned ${held.artifactTarget}, expected ${wrongTarget}`)
+    new RegExp(`returned ${windows.artifactTarget}, expected ${wrongTarget}`)
   );
 
   await mkdir(path.join(root, "wrong-version-pack"));
@@ -262,7 +260,7 @@ test("a held target stages and validates without entering the published batch", 
     /absolute path/
   );
 
-  await chmod(path.join(staged.directory, held.executable), 0o755);
+  await chmod(path.join(staged.directory, windows.executable), 0o755);
   await mkdir(path.join(root, "unsafe-mode-pack"));
   await assert.rejects(
     packReleasePackage(
@@ -375,22 +373,23 @@ test("staging and batch packing do not publish partial output", async (t) => {
 });
 
 test("staging refuses an existing package path without following it", async (t) => {
-  const held = RELEASE_TARGETS.find((entry) => entry.heldFromPublication !== null);
-  assert.ok(held);
+  // Any published target drives this. Naming one couples the test to the
+  // publication state of that target rather than to what it checks.
+  const windows = releaseTargetForArtifact(PUBLISHED_ARTIFACT_TARGETS[0]!);
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-existing-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const executable = path.join(root, path.posix.basename(held.executable));
-  await writeExecutable(executable, held.artifactTarget);
+  const executable = path.join(root, path.posix.basename(windows.executable));
+  await writeExecutable(executable, windows.artifactTarget);
   const staging = path.join(root, "staging");
   const outside = path.join(root, "outside");
   await mkdir(staging);
   await mkdir(outside);
-  await symlink(outside, path.join(staging, held.artifactTarget), "dir");
+  await symlink(outside, path.join(staging, windows.artifactTarget), "dir");
   const marker = path.join(outside, "keep");
   await writeFile(marker, "unchanged");
   assert.throws(() => stageReleasePackage({
     ...facts,
-    artifactTarget: held.artifactTarget,
+    artifactTarget: windows.artifactTarget,
     executable,
     outputDirectory: staging
   }), /already exists/);
@@ -398,15 +397,14 @@ test("staging refuses an existing package path without following it", async (t) 
 });
 
 test("release pack cannot run package lifecycle scripts", async (t) => {
-  const held = RELEASE_TARGETS.find((entry) => entry.heldFromPublication !== null);
-  assert.ok(held);
+  const windows = releaseTargetForArtifact(PUBLISHED_ARTIFACT_TARGETS[0]!);
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-lifecycle-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const executable = path.join(root, path.posix.basename(held.executable));
-  await writeExecutable(executable, held.artifactTarget);
+  const executable = path.join(root, path.posix.basename(windows.executable));
+  await writeExecutable(executable, windows.artifactTarget);
   const staged = stageReleasePackage({
     ...facts,
-    artifactTarget: held.artifactTarget,
+    artifactTarget: windows.artifactTarget,
     executable,
     outputDirectory: path.join(root, "staging")
   });

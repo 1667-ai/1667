@@ -25,7 +25,7 @@ import { renderInstallScriptsForVersion } from "../scripts/release-install-scrip
 import {
   INSTALL_REPO,
   INSTALL_VERSION,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   writePublishedArchives
 } from "./release-install-script-fixture.js";
 import { acquireInstallationLock } from "../tui/src/install-lock.js";
@@ -340,8 +340,8 @@ test("killed generated-installer parent releases lock while extract wrapper surv
     t.skip("Install Root lock tools are Darwin/Linux only");
     return;
   }
-  if (hostPublishedTarget() === null) {
-    t.skip("Host is not a published release target");
+  if (hostShellInstallerTarget() === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -358,8 +358,8 @@ test("killed generated-installer parent releases lock while decompress wrapper s
     t.skip("Install Root lock tools are Darwin/Linux only");
     return;
   }
-  if (hostPublishedTarget() === null) {
-    t.skip("Host is not a published release target");
+  if (hostShellInstallerTarget() === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -376,8 +376,8 @@ test("killed generated-installer parent releases lock while checksum wrapper sur
     t.skip("Install Root lock tools are Darwin/Linux only");
     return;
   }
-  if (hostPublishedTarget() === null) {
-    t.skip("Host is not a published release target");
+  if (hostShellInstallerTarget() === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -396,8 +396,8 @@ test("killed generated-installer parent releases lock while archive-size wc wrap
     t.skip("Install Root lock tools are Darwin/Linux only");
     return;
   }
-  if (hostPublishedTarget() === null) {
-    t.skip("Host is not a published release target");
+  if (hostShellInstallerTarget() === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 

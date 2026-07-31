@@ -72,10 +72,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     minimumCpuFeature: null,
     minimumMacosVersion: null,
     minimumGlibcVersion: null,
-    heldFromPublication: "CI does not build the Windows platform work at present, "
-      + "so it is unverified, and maintainers have not approved it for publication",
-    heldAlternative: "To use 1667 on Windows now, install it in WSL. "
-      + "WSL runs the published Linux package."
+    heldFromPublication: null,
+    heldAlternative: null
   })
 });
 const BUILD_MANIFEST_KEYS = new Set([

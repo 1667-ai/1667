@@ -17,7 +17,7 @@ import { renderInstallScriptsForVersion } from "../scripts/release-install-scrip
 import {
   INSTALL_REPO,
   INSTALL_VERSION,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   writePublishedArchives
 } from "./release-install-script-fixture.js";
 import { acquireInstallationLock } from "../tui/src/install-lock.js";
@@ -29,9 +29,9 @@ test("generated installer INT during download exits 130 without ownership", asyn
   const root = await mkdtemp(path.join(homeScratch, "install-signal-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -207,9 +207,9 @@ test("stalled download respects curl max-time and releases install lock", async 
   const root = await mkdtemp(path.join(homeScratch, "install-stall-download-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -367,9 +367,9 @@ test("bounded probe kills hanging TERM-resistant candidate and releases lock", a
   const root = await mkdtemp(path.join(homeScratch, "install-probe-hang-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
