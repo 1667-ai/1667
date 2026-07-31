@@ -70,36 +70,21 @@ export function renderSettingsPanel(
   const horizontal = panelHorizontalGeometry(width, 76);
   const contentCapacity = panelContentRows(height);
   const status = settingsStatusLines(overlay);
-  const resultVisible = overlay.checking || overlay.probing
-    || overlay.discoveringModels || overlay.result !== null;
+  const resultLines = settingsResultLines(overlay, horizontal.contentWidth);
   const fixedRows = 3 + status.top.length
-    + status.bottom.length + (resultVisible ? 1 : 0);
+    + status.bottom.length + resultLines.length;
   const editableRows = rows.slice(2);
   const painted = rows.map((row, index) =>
     settingsRow(row, index, overlay, horizontal.contentWidth)
   );
   const renderedRows = painted.map((row) => row.line);
-  const resultLine: FrameLine | null = overlay.checking
-    ? [raisedSegment("  ⟳ checking model server…", "focus / accent")]
-    : overlay.probing
-      ? [raisedSegment("  ⟳ detecting context window…", "focus / accent")]
-      : overlay.discoveringModels
-        ? [raisedSegment("  ⟳ reading model list…", "focus / accent")]
-      : overlay.result === null
-        ? null
-        : [
-            raisedSegment(
-              `  ${overlay.result.state === "ready" ? "✓" : "▲"} ${overlay.result.message}`,
-              overlay.result.state === "ready" ? "focus / accent" : "danger text"
-            )
-          ];
   // At short heights, notices become compact chrome and the cursor-centered
   // row window wins whatever the panel can actually paint.
   let content: FrameLine[];
   let targets: Array<HitTarget | null>;
   if (contentCapacity < fixedRows + 1) {
     const noticeBlocks = [
-      ...(resultLine === null ? [] : [[resultLine]]),
+      ...(resultLines.length === 0 ? [] : [resultLines]),
       status.top.filter((line) => line.length > 0),
       status.bottom.filter((line) => line.length > 0)
     ];
@@ -139,7 +124,7 @@ export function renderSettingsPanel(
       ...status.top,
       ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
       ...status.bottom,
-      ...(resultLine === null ? [] : [resultLine])
+      ...resultLines
     ];
     targets = [
       listTarget(0),
@@ -150,7 +135,7 @@ export function renderSettingsPanel(
         .slice(rowWindow.start, rowWindow.end)
         .map((_, index) => listTarget(rowWindow.start + index + 2)),
       ...status.bottom.map(() => null),
-      ...(resultLine === null ? [] : [null])
+      ...resultLines.map(() => null)
     ];
   }
 
@@ -226,6 +211,70 @@ export function renderSettingsPanel(
  *
  * Each `bottom` variant leads with a blank so the strip stands off the fields.
  */
+/** A probe reports what the provider said, and a provider says whatever it
+ * likes. Clipping that to the panel width used to cut the sentence mid-word —
+ * often exactly where the reason was — so the notice wraps instead, aligned
+ * under its own glyph. Its rows are counted as fixed panel rows, so the fields
+ * yield to it rather than the frame overflowing. */
+function settingsResultLines(
+  overlay: NonNullable<OverlayState["settings"]>,
+  contentWidth: number
+): FrameLine[] {
+  const progress = overlay.checking
+    ? "checking model server…"
+    : overlay.probing
+      ? "detecting context window…"
+      : overlay.discoveringModels
+        ? "reading model list…"
+        : null;
+  if (progress !== null) {
+    return [[raisedSegment(`  ⟳ ${progress}`, "focus / accent")]];
+  }
+  if (overlay.result === null) return [];
+  const ready = overlay.result.state === "ready";
+  const role = ready ? "focus / accent" : "danger text";
+  const lead = "  ";
+  const glyph = ready ? "✓" : "▲";
+  // The continuation indent clears the glyph so the wrapped sentence reads as
+  // one block rather than as several notices.
+  const indent = `${lead}${" ".repeat(visibleWidth(glyph) + 1)}`;
+  const budget = Math.max(1, contentWidth - visibleWidth(indent));
+  const words = overlay.result.message.split(/\s+/u).filter((word) => word.length > 0);
+  const rows: string[] = [];
+  let row = "";
+  for (const word of words) {
+    const candidate = row.length === 0 ? word : `${row} ${word}`;
+    if (visibleWidth(candidate) <= budget) {
+      row = candidate;
+      continue;
+    }
+    if (row.length > 0) rows.push(row);
+    // A single token longer than the panel — a URL, a model ID — is broken
+    // across rows rather than dropped.
+    row = word;
+    while (visibleWidth(row) > budget) {
+      rows.push(truncate(row, budget));
+      row = row.slice(cutPoint(row, budget));
+    }
+  }
+  if (row.length > 0) rows.push(row);
+  return (rows.length === 0 ? [""] : rows).map((text, index) =>
+    [raisedSegment(`${index === 0 ? `${lead}${glyph} ` : indent}${text}`, role)]);
+}
+
+/** How many characters of an oversized token fit, leaving room for nothing —
+ * the row is continued rather than marked, because the rest follows. */
+function cutPoint(value: string, budget: number): number {
+  let used = 0;
+  let index = 0;
+  for (const cell of graphemeCells(value)) {
+    if (used + cell.width > budget) break;
+    used += cell.width;
+    index += cell.text.length;
+  }
+  return Math.max(1, index);
+}
+
 function settingsStatusLines(
   overlay: NonNullable<OverlayState["settings"]>
 ): { top: FrameLine[]; bottom: FrameLine[] } {

@@ -5,6 +5,7 @@ import {
   parseRemovedChapterBreak,
   removeChapterBreak,
   renameChapterBreak,
+  renameFirstChapter,
   restoreChapterBreak,
   type RemovedChapterBreak
 } from "./chapter-breaks.js";
@@ -81,28 +82,35 @@ export class StoryServiceChapters {
 
   async renameChapterBreak(
     id: string,
-    breakId: string,
+    breakId: string | null,
     title: string,
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
+    // A null break id names chapter one, which no break opens.
+    const apply = (story: Story): boolean => {
+      if (breakId === null) {
+        const unchanged = (story.firstChapterTitle ?? "") === title;
+        renameFirstChapter(story, title);
+        return unchanged;
+      }
+      const current = story.chapterBreaks.find(
+        (chapterBreak) => chapterBreak.id === breakId
+      );
+      const unchanged = current?.title === title;
+      renameChapterBreak(story, breakId, title);
+      return unchanged;
+    };
     if (mutationRequest !== undefined) {
       return await this.localStoryPayload(
         mutationRequest,
         "renameChapterBreak",
-        (story) => {
-          const current = story.chapterBreaks.find(
-            (chapterBreak) => chapterBreak.id === breakId
-          );
-          const unchanged = current?.title === title;
-          renameChapterBreak(story, breakId, title);
-          return unchanged ? STORY_UNCHANGED : undefined;
-        }
+        (story) => apply(story) ? STORY_UNCHANGED : undefined
       );
     }
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
-      (story) => { renameChapterBreak(story, breakId, title); }
+      (story) => { apply(story); }
     ));
   }
 

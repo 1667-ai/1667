@@ -88,7 +88,12 @@ export function createStoryViewModel(payload: StoryPayload, stream: StreamView |
     instruction: part.node.instruction,
     updatedAt: part.node.updatedAt ?? part.stub.updatedAt
   }));
-  const derived = deriveChapters(chapterPath, visiblePayload.chapterBreaks, visiblePayload.nodes);
+  const derived = deriveChapters(
+    chapterPath,
+    visiblePayload.chapterBreaks,
+    visiblePayload.nodes,
+    visiblePayload.firstChapterTitle ?? ""
+  );
   const partsById = new Map(visibleParts.map((part) => [part.id, part] as const));
   const chapters: StoryChapter[] = derived.map((chapter, index) => {
     const parts = chapter.parts.flatMap((part) => {

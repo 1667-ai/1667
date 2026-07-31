@@ -152,6 +152,7 @@ export interface StoryPayload {
   createdAt: string;
   updatedAt: string;
   origin?: StoryOrigin;
+  firstChapterTitle?: string;
   nodes: NodeStub[];
   path: StoryNode[];
   activeRootId: string | null;
@@ -198,6 +199,12 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   facts.forEach(assertStoryFact);
   chapterBreaks.forEach(assertChapterBreak);
   if (candidate.origin !== undefined) assertStoryOrigin(candidate.origin);
+  if (
+    candidate.firstChapterTitle !== undefined
+    && typeof candidate.firstChapterTitle !== "string"
+  ) {
+    throw new Error("The server returned an invalid story payload.firstChapterTitle.");
+  }
   if (candidate.aggregateVersion !== undefined) {
     assertStoryAggregateVersion(
       candidate.aggregateVersion,
@@ -338,6 +345,9 @@ export interface Story {
   createdAt: string;
   updatedAt: string;
   origin?: StoryOrigin;
+  /** Chapter one has no opening break to carry a name, so it carries one here.
+   * Absent means unnamed, and an unnamed chapter one reads as the story. */
+  firstChapterTitle?: string;
   nodes: StoryNode[];
   activeRootId: string | null;
   tags: Tag[];

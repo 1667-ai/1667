@@ -138,7 +138,7 @@ export interface WorkerMethodContract {
     input: { storyId: string; parentPartId: string; title: string };
     output: { payload: StoryPayload; breakId: string };
   };
-  renameChapterBreak: { input: { storyId: string; breakId: string; title: string }; output: StoryPayload };
+  renameChapterBreak: { input: { storyId: string; breakId: string | null; title: string }; output: StoryPayload };
   removeChapterBreak: {
     input: {
       storyId: string;

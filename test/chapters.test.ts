@@ -155,3 +155,27 @@ function chapterSummary(
     text: `Summary ${id}`
   };
 }
+
+test("chapter one takes its name from the story, because no break opens it", () => {
+  const a = node("a", null, "b");
+  const b = node("b", "a");
+  const closing = seam("closing", "a", "Second");
+  const nodes = [a, b];
+  const path = activePath({ nodes, activeRootId: "a" } as never);
+
+  // Every other chapter is named by the break that opens it. Chapter one has
+  // no opening break, so an unnamed one has no title at all — which is what
+  // lets the export omit a heading the document title already supplies.
+  const unnamed = deriveChapters(path, [closing], nodes);
+  assert.equal(unnamed[0]!.title, "");
+  assert.equal(unnamed[1]!.title, "Second");
+
+  const named = deriveChapters(path, [closing], nodes, "Arrival");
+  assert.equal(named[0]!.title, "Arrival");
+  assert.equal(named[1]!.title, "Second", "a later chapter still answers to its own break");
+
+  // The seed reaches only chapter one; it is not a default for the rest.
+  const noBreaks = deriveChapters(path, [], nodes, "Arrival");
+  assert.equal(noBreaks.length, 1);
+  assert.equal(noBreaks[0]!.title, "Arrival");
+});

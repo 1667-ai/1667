@@ -70,7 +70,7 @@ export interface DemoController {
   patchFact(id: string, input: FactInput): StoryPayload;
   deleteFact(id: string): StoryPayload;
   createChapterBreak(parentPartId: string, title?: string): { payload: StoryPayload; breakId: string };
-  renameChapterBreak(breakId: string, title: string): StoryPayload;
+  renameChapterBreak(breakId: string | null, title: string): StoryPayload;
   removeChapterBreak(breakId: string): { payload: StoryPayload; removed: RemovedChapterBreak };
   restoreChapterBreak(breakId: string, removed: RemovedChapterBreak): StoryPayload;
   summarizeChapter(breakId: string): StoryPayload;
@@ -256,7 +256,12 @@ export function createDemoController(dense = false): DemoController {
       return { payload: payloadFrom(story), breakId };
     },
     renameChapterBreak(breakId, title) {
-      renameDemoChapterBreak(story, breakId, title);
+      if (breakId === null) {
+        if (title === "") delete story.firstChapterTitle;
+        else story.firstChapterTitle = title;
+      } else {
+        renameDemoChapterBreak(story, breakId, title);
+      }
       return payloadFrom(story);
     },
     removeChapterBreak(breakId) {

@@ -28,7 +28,9 @@ export async function pinnedPrivateHttpFetch(
   const hostClass = classifyHttpHost(url.href);
   if (
     url.protocol !== "http:"
-    || (hostClass !== "private-literal" && hostClass !== "lan-hostname")
+    || (hostClass !== "private-literal"
+      && hostClass !== "lan-hostname"
+      && hostClass !== "loopback")
     || url.username !== ""
     || url.password !== ""
     || (policy.allowPresetQuery !== true && url.href.includes("?"))
@@ -147,10 +149,16 @@ export class PinnedAddressAgent extends Agent {
 
 async function resolvePinnedLanAddress(
   url: URL,
-  hostClass: "private-literal" | "lan-hostname"
+  hostClass: "private-literal" | "lan-hostname" | "loopback"
 ): Promise<string> {
   const host = unbracketed(url.hostname);
-  if (hostClass === "private-literal") return host;
+  // A loopback literal is already the peer. `localhost` is a name, so it takes
+  // the same resolve-and-check path as a LAN hostname; isLanPeerAddress admits
+  // loopback answers, and a name that resolves off the private network is
+  // refused there rather than here.
+  if (hostClass === "private-literal" || (hostClass === "loopback" && isIP(host) !== 0)) {
+    return host;
+  }
   const answers = await lookup(host, { all: true, verbatim: true });
   if (answers.length === 0 || answers.some(({ address }) => !isLanPeerAddress(address))) {
     throw new ProviderError("LAN HTTP provider resolved outside the private network.");

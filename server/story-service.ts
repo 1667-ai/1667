@@ -329,7 +329,8 @@ export class StoryService extends StoryServiceRuntime {
     const chapters = deriveChapters(
       activePath(story),
       story.chapterBreaks,
-      story.nodes
+      story.nodes,
+      story.firstChapterTitle ?? ""
     );
     const sections = chapters.map((chapter) => {
       const prose = chapter.parts.map((part) => part.text).join("\n\n");
@@ -629,7 +630,7 @@ export class StoryService extends StoryServiceRuntime {
 
   async renameChapterBreak(
     id: string,
-    breakId: string,
+    breakId: string | null,
     title: string,
     mutationRequest?: unknown
   ): Promise<StoryPayload> {

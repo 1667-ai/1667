@@ -45,6 +45,14 @@ export function renameChapterBreak(story: Story, breakId: string, title: string)
   return chapterBreak;
 }
 
+/** Chapter one has no opening break, so its name is stored on the story. An
+ * empty name is an absent one: the chapter then reads as the story itself,
+ * which is what it did before it could be named at all. */
+export function renameFirstChapter(story: Story, title: string): void {
+  if (title === "") delete story.firstChapterTitle;
+  else story.firstChapterTitle = title;
+}
+
 export function removeChapterBreak(story: Story, breakId: string): RemovedChapterBreak {
   const index = story.chapterBreaks.findIndex((chapterBreak) => chapterBreak.id === breakId);
   if (index === -1) throw new HttpError(404, `Chapter break not found: ${breakId}`);

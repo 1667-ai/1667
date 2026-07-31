@@ -386,14 +386,22 @@ const MUTATIONS: MutationRegistry = {
     }
   }),
   renameChapterBreak: define<"renameChapterBreak">({
-    parse: (value) => requiredStrings<"renameChapterBreak">(
-      value, "renameChapterBreak", "storyId", "breakId", "title"
-    ),
+    // A null break id names chapter one, which no break opens.
+    parse: (value) => {
+      const input = requireRecord(value, "renameChapterBreak input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        breakId: input.breakId === null ? null : requireString(input.breakId, "breakId"),
+        title: requireString(input.title, "title")
+      } as WorkerInput<"renameChapterBreak">;
+    },
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) =>
-        story.chapterBreaks.some((chapterBreak) => chapterBreak.id === input.breakId
-          && chapterBreak.title === input.title));
+        input.breakId === null
+          ? (story.firstChapterTitle ?? "") === input.title
+          : story.chapterBreaks.some((chapterBreak) => chapterBreak.id === input.breakId
+            && chapterBreak.title === input.title));
       return recovered ?? await service.renameChapterBreak(
         input.storyId,
         input.breakId,
