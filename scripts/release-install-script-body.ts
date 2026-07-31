@@ -168,10 +168,14 @@ ${input.digestLines}
   RECOVER_STATUS=
   recover_install "\$prefix" "\$executable" "\$target" "\$digest" "\$archive" || exit 1
   if [ "\$RECOVER_STATUS" = completed ]; then
-    printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
-      "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
     trap - EXIT INT TERM
     release_lock "\$prefix"
+    (
+      exec 9>&-
+      trap '' PIPE
+      printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
+        "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+    ) || :
     return 0
   fi
 
@@ -225,14 +229,21 @@ ${input.digestLines}
   clear_txn "\$prefix"
   trap - EXIT INT TERM
   release_lock "\$prefix"
-  printf 'Installed 1667 %s (%s) for %s to %s\\n' \\
-    "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
-  case ":\$PATH:" in
-    *":\$prefix:"*) ;;
-    *)
-      printf 'Add this directory to PATH:\\n  export PATH="%s:\$PATH"\\n' "\$prefix"
-      ;;
-  esac
+  # The installation is complete and the lock is released. Reporting it must not
+  # turn a finished install into a signal death, so the result goes through the
+  # same guard the progress uses. 'head' on the output is enough to trigger it.
+  (
+    exec 9>&-
+    trap '' PIPE
+    printf 'Installed 1667 %s (%s) for %s to %s\\n' \\
+      "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+    case ":\$PATH:" in
+      *":\$prefix:"*) ;;
+      *)
+        printf 'Add this directory to PATH:\\n  export PATH="%s:\$PATH"\\n' "\$prefix"
+        ;;
+    esac
+  ) || :
 }
 
 usage() {
@@ -314,6 +325,10 @@ die() {
 # Without it the installer is silent for the whole transfer, and a slow network
 # is indistinguishable from a stall.
 #
+# The prefix is deliberately not the one die() uses. A successful install must
+# not print the string that marks a refusal, because that string is a usable
+# failure signal for anything wrapping this script.
+#
 # The write is best-effort. These calls happen between the transaction record
 # and the activation, so a closed, full, or unreadable stderr must not end the
 # installation under 'set -e'. Progress is cosmetic; the install is not.
@@ -326,7 +341,7 @@ say() {
   (
     exec 9>&-
     trap '' PIPE
-    printf '1667 install: %s\\n' "\$*" >&2
+    printf 'info: %s\\n' "\$*" >&2
   ) || :
 }
 

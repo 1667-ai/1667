@@ -62,7 +62,14 @@ export function ptyCommand(
 }
 
 function pythonInterpreter(): string | null {
-  const found = spawnSync("python3", ["-c", "import pty"], { stdio: "ignore" });
+  // Probe everything PTY_RUNNER needs: os.waitstatus_to_exitcode arrived in
+  // 3.9, and a container without /dev/ptmx cannot allocate a terminal at all.
+  // A narrower probe would pass and then fail the suite inside the runner.
+  const found = spawnSync(
+    "python3",
+    ["-c", "import os,pty; os.waitstatus_to_exitcode; os.close(pty.openpty()[0])"],
+    { stdio: "ignore" }
+  );
   return found.error === undefined && found.status === 0 ? "python3" : null;
 }
 

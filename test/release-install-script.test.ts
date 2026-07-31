@@ -364,10 +364,10 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   // The installer reports each slow stage. Without this the command is silent
   // for the whole transfer, and a slow network looks the same as a stall.
   const stages = [
-    `1667 install: Downloading 1667 ${INSTALL_VERSION} for ${hostTarget}`,
-    "1667 install: Checking the download",
-    "1667 install: Unpacking",
-    "1667 install: Starting 1667 once to confirm it runs"
+    `info: Downloading 1667 ${INSTALL_VERSION} for ${hostTarget}`,
+    "info: Checking the download",
+    "info: Unpacking",
+    "info: Starting 1667 once to confirm it runs"
   ];
   let searchedTo = -1;
   for (const stage of stages) {
@@ -377,6 +377,12 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
     searchedTo = at;
     assert.ok(!stdout.includes(stage), "progress must not reach stdout");
   }
+  // 'die()' owns the '1667 install:' prefix. A successful run must not print it,
+  // because anything wrapping this script can use it as a failure signal.
+  assert.ok(
+    !stderr.includes("1667 install:"),
+    `a successful install printed the refusal prefix:\n${stderr}`
+  );
   // stderr is a pipe here, so this run took the --silent branch and carries no
   // transfer bar. The terminal branch is covered separately below.
   assert.doesNotMatch(stderr, /\r/u);
@@ -413,16 +419,27 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   // Progress is cosmetic, and it is written between the Transaction Record and
   // the activation. A reader that closes or stops early must not end an
   // otherwise valid installation and leave recovery state behind.
-  for (const [label, redirect] of [
-    ["closed stderr", "2>&-"],
-    ["reader stops early", "2>&1 | head -n 2"]
+  for (const [label, command] of [
+    ["closed stderr", (script: string, prefix: string, status: string) =>
+      `sh ${script} --prefix ${prefix} 2>&-; printf %s $? > ${status}`],
+    // A pipeline reports the reader's status, so the installer's own status is
+    // captured before head can mask it. head closes the pipe after two lines,
+    // which is what makes the remaining writes hit a closed reader.
+    ["reader stops early", (script: string, prefix: string, status: string) =>
+      `{ sh ${script} --prefix ${prefix}; printf %s $? > ${status}; } 2>&1 | head -n 2`]
   ] as const) {
     const quietPrefix = path.join(root, `quiet-${label.replace(/\W+/gu, "-")}`);
     await mkdir(quietPrefix, { mode: 0o755 });
     await chmod(quietPrefix, 0o755);
-    await execFileAsync("sh", ["-c", `sh ${scriptPath} --prefix ${quietPrefix} ${redirect}`], {
-      cwd: root
-    });
+    const statusPath = path.join(root, `status-${label.replace(/\W+/gu, "-")}`);
+    await execFileAsync("sh", ["-c", command(scriptPath, quietPrefix, statusPath)], { cwd: root });
+    // 141 is 128 + SIGPIPE. Progress is cosmetic, so it must never end the
+    // installer, and the pipeline's own status cannot show that.
+    assert.equal(
+      await readFile(statusPath, "utf8"),
+      "0",
+      `${label} did not leave the installer with a zero status`
+    );
     const installed = path.join(quietPrefix, "1667");
     assert.ok(existsSync(installed), `${label} did not install the executable`);
     assert.ok(

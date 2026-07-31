@@ -219,8 +219,11 @@ test("help is local and performs no registry I/O", async () => {
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("--rollback");
   // Help speaks to the person running the command. Internal names for the
-  // install model do not tell them what to do.
-  expect(result.stdout).toContain("update it the same");
+  // install model do not tell them what to do. Assert the whole sentence: a
+  // substring still passes if the guidance loses a case or is reversed.
+  expect(result.stdout).toContain(
+    "If you installed 1667 with npm, or you built it from source, update it the same\nway you installed it."
+  );
   for (const internal of ["Managed Installation", "Candidate", "External installation"]) {
     expect(result.stdout).not.toContain(internal);
   }

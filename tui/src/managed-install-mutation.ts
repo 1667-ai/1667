@@ -107,8 +107,12 @@ export async function lockedActiveVersion(
   if (identity.artifactTarget !== authority.record.artifactTarget) {
     throw new UpgradeFailure(
       "verification_failed",
-      "The installed 1667 is not the one this installation recorded."
-      + " Install 1667 again to correct it."
+      // Do not tell the reader to install again. The install command refuses an
+      // Install Root that already holds a 1667, and this failure comes from the
+      // upgrade command, so that advice is a loop.
+      `The 1667 at ${activePath} was built for ${identity.artifactTarget},`
+      + ` but this installation recorded ${authority.record.artifactTarget}.`
+      + " 1667 cannot update it. Remove that directory to install 1667 again."
     );
   }
   return identity.productVersion;
