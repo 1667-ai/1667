@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
@@ -39,6 +40,15 @@ export async function runInstallUpgradeE2e(
     throw new Error("Host OS/architecture is not a supported published release target.");
   }
   const hostTarget = runtimeTarget.artifactTarget;
+  // Step 10 runs the source entry with Bun, and that entry imports from
+  // tui/node_modules. Refuse here rather than after nine steps have downloaded
+  // and installed real release artifacts.
+  if (!existsSync(path.join(repoRoot, "tui", "node_modules"))) {
+    throw new Error(
+      "The TUI dependencies are not installed."
+      + " Run 'cd tui && bun install --frozen-lockfile' before this gate."
+    );
+  }
   const currentIdentity: IdentityExpectation = {
     version: currentVersion,
     artifactTarget: hostTarget

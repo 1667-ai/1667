@@ -520,9 +520,19 @@ npm run release:verify-install-upgrade -- --from-version <semver> [--from-channe
 The `--from-version` argument is required. The `--from-channel` argument
 defaults to `beta`.
 
-The command needs `curl`, `gh`, `npm`, and `bun`. It does all of its work in a
-temporary directory below `~/.cache/1667-tests`. It removes that directory when
-it stops.
+The command needs `curl`, `gh`, `npm`, and `bun`.
+
+Install both dependency sets first. Step 10 runs the source entry with `bun`,
+and that entry imports from `tui/node_modules`. `npm ci` does not create that
+directory.
+
+```sh
+npm ci
+cd tui && bun install --frozen-lockfile && cd ..
+```
+
+The command does all of its work in a temporary directory below
+`~/.cache/1667-tests`. It removes that directory when it stops.
 
 The command does these checks:
 
