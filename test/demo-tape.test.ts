@@ -46,4 +46,34 @@ test("the demo tape writes both artifacts the render script derives from", () =>
   assert.match(script, /vhs scripts\/demo\.tape/);
   assert.match(script, /-t 20/, "the README GIF is cut to twenty seconds");
   assert.match(script, /scale=800:-1/, "the README GIF is 800px wide");
+  assert.match(
+    script,
+    /overlay=\$chrome_x:\$chrome_y/,
+    "the README GIF is composited into the chrome"
+  );
+});
+
+test("the chrome the GIF is framed with matches the homepage's own", () => {
+  // The homepage draws this frame in CSS from src/styles/tokens.css. A GIF in
+  // Markdown cannot, so the values are duplicated in the drawing script. That
+  // duplication is the risk this test exists to make loud: if the site's
+  // .terminal-video__bar changes, these have to follow or the README and the
+  // site stop looking like the same product.
+  const chrome = readFileSync(join(root, "scripts/demo-chrome.py"), "utf8");
+  for (const [name, value] of [
+    ["LINE_LIT", "#2a2015"],
+    ["BAR", "#120e09"],
+    ["LINE", "#241c11"],
+    ["TUI", "#14100b"],
+    ["DOT", "#3a2e1e"],
+    ["TITLE", "#7e6f58"],
+    ["STATUS", "#c8933f"]
+  ]) {
+    assert.match(
+      chrome,
+      new RegExp(`^${name} = "${value}"`, "m"),
+      `${name} no longer matches the homepage token`
+    );
+  }
+  assert.match(chrome, /^VIDEO = \(1280, 720\)$/m);
 });

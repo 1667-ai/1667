@@ -112,8 +112,16 @@ and writes three artifacts to `demo-out/`, which is not committed:
 | `1667-demo-poster.png` | The homepage poster frame |
 | `demo.gif` | The README hero at the top of this repository |
 
-It needs `vhs`, `ffmpeg`, and Bun. `scripts/demo.tape` holds the recorded flow,
-and `test/demo-tape.test.ts` holds it to that flow and to its capture geometry.
+It needs `vhs`, `ffmpeg`, Bun, and `python3` with Pillow. `scripts/demo.tape`
+holds the recorded flow, and `test/demo-tape.test.ts` holds it to that flow and
+to its capture geometry.
+
+The GIF is framed with the same terminal chrome the homepage puts around every
+panel: three dots, a title, a status, over a hairline border. The site draws
+that in CSS, which a GIF in Markdown cannot use, so `scripts/demo-chrome.py`
+draws it into an image that the recording is composited onto. Its colours are
+copied from the homepage's design tokens and the test asserts them, because
+nothing else connects the two. `DEMO_FONT` overrides the Berkeley Mono path.
 
 The GIF is served from 1667.ai rather than committed here. The README embeds an
 absolute URL because npmjs.com renders the same README for `@1667-ai/cli` and
