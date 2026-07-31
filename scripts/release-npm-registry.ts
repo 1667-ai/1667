@@ -48,6 +48,7 @@ export interface NpmReleaseRegistryOptions {
   readonly pollIntervalMs?: number;
   readonly fetch?: typeof fetch;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  readonly now?: () => number;
 }
 
 export class NpmReleaseRegistry implements NpmPublicationRegistry {
@@ -60,6 +61,7 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
   readonly #visibilityTimeoutMs: number;
   readonly #pollIntervalMs: number;
   readonly #sleep: (milliseconds: number) => Promise<void>;
+  readonly #now: () => number;
 
   constructor(options: NpmReleaseRegistryOptions) {
     if (!COMMIT.test(options.sourceCommit)) {
@@ -88,6 +90,7 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
     this.#sleep = options.sleep ?? ((milliseconds) => {
       return new Promise((resolve) => setTimeout(resolve, milliseconds));
     });
+    this.#now = options.now ?? Date.now;
     assertNoNpmCredentialEnvironment(process.env);
   }
 
@@ -126,9 +129,9 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
   }
 
   async waitUntilVerified(packages: readonly NpmPublicationPackage[]): Promise<void> {
-    const deadline = Date.now() + this.#visibilityTimeoutMs;
+    const deadline = this.#now() + this.#visibilityTimeoutMs;
     let lastError: unknown = new Error("npm package is not visible");
-    while (Date.now() < deadline) {
+    while (this.#now() < deadline) {
       try {
         for (const packageToVerify of packages) {
           if (await this.inspect(packageToVerify) !== "present") {

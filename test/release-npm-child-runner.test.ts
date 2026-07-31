@@ -17,6 +17,7 @@ import {
   type NpmProcessJournalIdentity,
   type NpmProcessTerminal
 } from "../scripts/release-npm-process-journal.js";
+import { assertProcessIsNotRunning } from "./process-liveness.js";
 
 const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -27,6 +28,8 @@ const IDENTITY: NpmProcessJournalIdentity = Object.freeze({
   version: VERSION,
   sourceCommit: COMMIT
 });
+/** Delay between the SIGTERM that npm ignores and the write that must not land. */
+const LATE_WRITE_DELAY_MS = 1_000;
 test("execve npm starts only after its durable gate and inherits stdin", {
   timeout: 15_000
 }, async (t) => {
@@ -79,37 +82,43 @@ test("execve npm starts only after its durable gate and inherits stdin", {
   assert.equal(records[2]?.outcome, "success");
 });
 test("independent runner deadline kills npm before a late write", {
-  timeout: 15_000
+  timeout: 30_000
 }, async (t) => {
   const root = await temporaryRoot(t);
   const pidFile = path.join(root, "pid");
   const late = path.join(root, "late");
   let fixturePid: number | null = null;
   t.after(() => terminateFixtureProcess(fixturePid));
+  // The late write starts at SIGTERM, not at npm start, so process start-up
+  // cannot move it across the kill. npm keeps the SIGTERM handler empty, so only
+  // the SIGKILL that follows the grace can stop the write.
   const npmCli = await npmFixture(root, [
     'const fs = require("node:fs");',
     `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
-    'process.on("SIGTERM", () => {});',
-    `setTimeout(() => fs.writeFileSync(${JSON.stringify(late)}, "late"), 2500);`,
+    'process.on("SIGTERM", () => {',
+    `  setTimeout(() => fs.writeFileSync(${JSON.stringify(late)}, "late"), ${
+      LATE_WRITE_DELAY_MS
+    });`,
+    "});",
     "setInterval(() => {}, 1000);"
   ]);
   const journal = new NpmProcessJournal(
     path.join(root, "process.jsonl"),
     IDENTITY
   );
+  // The independent deadline must outlast three process starts on a loaded
+  // machine, and the write deadline must stay above it so that the independent
+  // deadline is the one that ends the run.
   const client = childClient(npmCli, journal, {
-    writeTimeoutMs: 4_000,
+    writeTimeoutMs: 20_000,
     terminationGraceMs: 100,
-    independentTimeoutMs: 1_000
+    independentTimeoutMs: 5_000
   });
   await assert.rejects(client.run(["dist-tag"]), /deadline.*terminated/u);
   const pid = Number(await readFile(pidFile, "utf8"));
   fixturePid = pid;
-  assert.throws(
-    () => process.kill(pid, 0),
-    (error: NodeJS.ErrnoException) => error.code === "ESRCH"
-  );
-  await new Promise((resolve) => setTimeout(resolve, 1_800));
+  assertProcessIsNotRunning(pid, "npm");
+  await new Promise((resolve) => setTimeout(resolve, LATE_WRITE_DELAY_MS * 2));
   await assert.rejects(readFile(late), { code: "ENOENT" });
   assert.equal((await recordsAt(journal.path)).at(-1)?.outcome, "timed-out");
 });
@@ -138,7 +147,7 @@ test("a terminal callback failure is contained and latches the client", {
     (error: unknown) => error instanceof NpmChildStateUncertainError
   );
   const pid = Number(await readFile(pidFile, "utf8"));
-  assertProcessIsDead(pid);
+  assertProcessIsNotRunning(pid, "npm");
   await assert.rejects(
     client.run(["dist-tag"]),
     /uncertain; this client refuses another write/u
@@ -220,7 +229,7 @@ test("worker loss makes the keeper kill npm before it can write", {
   );
   const pid = Number(await readFile(pidFile, "utf8"));
   fixturePid = pid;
-  assertProcessIsDead(pid);
+  assertProcessIsNotRunning(pid, "npm");
   assert.doesNotThrow(() => process.kill(sentinel.pid!, 0));
   await new Promise((resolve) => setTimeout(resolve, 800));
   await assert.rejects(readFile(late), { code: "ENOENT" });
@@ -262,7 +271,7 @@ test("keeper loss does not settle before the worker kills npm", {
   );
   const pid = Number(await readFile(pidFile, "utf8"));
   fixturePid = pid;
-  assertProcessIsDead(pid);
+  assertProcessIsNotRunning(pid, "npm");
   await new Promise((resolve) => setTimeout(resolve, 800));
   await assert.rejects(readFile(late), { code: "ENOENT" });
 });
@@ -271,27 +280,34 @@ test("quiescence blocks a live runner and succeeds after terminal exit", {
   timeout: 15_000
 }, async (t) => {
   const root = await temporaryRoot(t);
+  // npm runs until the test opens the gate. The test therefore controls when the
+  // run ends, so no deadline has to expire and no budget has to be tuned.
+  const gate = path.join(root, "gate");
   const npmCli = await npmFixture(root, [
-    'process.on("SIGTERM", () => {});',
-    "setInterval(() => {}, 1000);"
+    'const fs = require("node:fs");',
+    `setInterval(() => {`,
+    `  if (fs.existsSync(${JSON.stringify(gate)})) process.exit(0);`,
+    "}, 10);"
   ]);
   const journal = new NpmProcessJournal(
     path.join(root, "process.jsonl"),
     IDENTITY
   );
   const running = childClient(npmCli, journal, {
-    writeTimeoutMs: 2_000,
-    terminationGraceMs: 50,
-    independentTimeoutMs: 4_000
+    writeTimeoutMs: 20_000,
+    independentTimeoutMs: 20_000
   }).run(["dist-tag"]);
-  await waitForStarted(journal.path);
+  await waitForStarted(journal.path, running);
   assert.equal(inspectNpmProcessQuiescence(journal.path, IDENTITY).active.length, 1);
   assert.throws(
     () => assertNpmProcessQuiescent(journal.path, IDENTITY),
     /is active/u
   );
-  await assert.rejects(running, /deadline.*terminated/u);
+
+  await writeFile(gate, "open");
+  await running;
   assertNpmProcessQuiescent(journal.path, IDENTITY);
+  assert.equal((await recordsAt(journal.path)).at(-1)?.outcome, "success");
 });
 
 function childClient(
@@ -335,12 +351,26 @@ async function recordsAt(file: string): Promise<Array<Record<string, unknown>>> 
   });
 }
 
-async function waitForStarted(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+/**
+ * Waits for the durable started record. The client writes it when npm reports
+ * ready. The wait needs no budget: it races the run, so a run that ends before
+ * npm starts fails with the error from the run and not with a timeout.
+ */
+async function waitForStarted(file: string, running: Promise<void>): Promise<void> {
+  let ended = false;
+  const ends = running.then(
+    () => { ended = true; },
+    () => { ended = true; }
+  );
+  while (!ended) {
     if ((await readFile(file, "utf8")).includes('"record":"started"')) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await Promise.race([
+      new Promise((resolve) => setTimeout(resolve, 10)),
+      ends
+    ]);
   }
-  throw new Error("npm process did not start");
+  await running;
+  throw new Error("the npm run ended before npm started");
 }
 
 class TerminalThrowingJournal extends NpmProcessJournal {
@@ -362,13 +392,6 @@ class ErasingTerminalJournal extends NpmProcessJournal {
     const records = readFileSync(this.path, "utf8").trimEnd().split("\n");
     writeFileSync(this.path, `${records.slice(0, -1).join("\n")}\n`);
   }
-}
-
-function assertProcessIsDead(pid: number): void {
-  assert.throws(
-    () => process.kill(pid, 0),
-    (error: NodeJS.ErrnoException) => error.code === "ESRCH"
-  );
 }
 
 function terminateFixtureProcess(pid: number | null): void {

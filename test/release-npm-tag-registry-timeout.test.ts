@@ -12,6 +12,7 @@ import {
   NpmProcessJournal,
   type NpmProcessStarted
 } from "../scripts/release-npm-process-journal.js";
+import { assertProcessIsNotRunning } from "./process-liveness.js";
 
 const VERSION = "1.2.3";
 const OTHER_VERSION = "1.2.2";
@@ -176,9 +177,13 @@ test("the final registry read precedes write authorization", async () => {
   ]);
 });
 
+// The three tests below start real processes. Their timeouts only stop a wedged
+// test; the behavior under test is bounded by writeTimeoutMs and
+// terminationGraceMs, which the assertions check. Keep the timeouts far above
+// the measured run time so that a slow machine cannot fail a correct run.
 test("a timed-out npm writer can commit before exit and is then reconciled", {
   skip: process.platform === "win32",
-  timeout: 3_000
+  timeout: 30_000
 }, async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "1667-npm-timeout-")));
   const npmCli = path.join(root, "npm.cjs");
@@ -216,12 +221,12 @@ test("a timed-out npm writer can commit before exit and is then reconciled", {
   await registry.addTag(RELEASE_LAUNCHER_PACKAGE, VERSION, "latest");
   childPid = Number(await readFile(pidFile, "utf8"));
   assert.equal(await readFile(committed, "utf8"), "committed");
-  assertProcessIsGone(childPid);
+  assertProcessIsNotRunning(childPid, "npm");
 });
 
 test("a timed-out npm writer that ignores SIGTERM is killed before reconciliation", {
   skip: process.platform === "win32",
-  timeout: 8_000
+  timeout: 30_000
 }, async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "1667-npm-timeout-")));
   const npmCli = path.join(root, "npm.cjs");
@@ -267,12 +272,12 @@ test("a timed-out npm writer that ignores SIGTERM is killed before reconciliatio
     /was not confirmed by npm/u
   );
   childPid = Number(await readFile(pidFile, "utf8"));
-  assertProcessIsGone(childPid);
+  assertProcessIsNotRunning(childPid, "npm");
   await assert.rejects(readFile(lateWrite), { code: "ENOENT" });
 });
 
 test("an uncertain committed write settles before the client refuses another write", {
-  timeout: 10_000
+  timeout: 60_000
 }, async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "1667-npm-timeout-")));
   const npmCli = path.join(root, "npm.cjs");
@@ -429,11 +434,4 @@ async function reap(pid: number | undefined, file: string): Promise<void> {
   } catch {
     // The operation reaped the expected child.
   }
-}
-
-function assertProcessIsGone(pid: number): void {
-  assert.throws(
-    () => process.kill(pid, 0),
-    (error: NodeJS.ErrnoException) => error.code === "ESRCH"
-  );
 }

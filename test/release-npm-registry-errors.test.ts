@@ -162,12 +162,16 @@ function registryFor(
   sleep: (milliseconds: number) => Promise<void>
 ): NpmReleaseRegistry {
   const expected = publicationPackage();
+  // The injected clock moves only when the registry sleeps, so the visibility
+  // deadline measures polls and not the real npm starts that each poll makes.
+  let now = 0;
   return new NpmReleaseRegistry({
     npm: { nodeExecutable: process.execPath, npmCli },
     sourceCommit: COMMIT,
     sourceRef: SOURCE_REF,
     visibilityTimeoutMs: 1_000,
     pollIntervalMs: 1,
+    now: () => now,
     fetch: async (input) => {
       const exactVersion = new URL(String(input)).pathname.endsWith(`/${VERSION}`);
       return new Response(JSON.stringify(exactVersion ? {
@@ -187,7 +191,10 @@ function registryFor(
         status: 200
       });
     },
-    sleep
+    sleep: async (milliseconds) => {
+      now += milliseconds;
+      await sleep(milliseconds);
+    }
   });
 }
 

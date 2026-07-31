@@ -17,6 +17,14 @@ const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const CLAIM = "a".repeat(64);
 const WRITER = "b".repeat(64);
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+/**
+ * Unclaimed timeout for the two claim deadline tests. The lease anchors the
+ * deadline to the server clock and allows 999ms for the age of the concurrency
+ * record, so the time left after the anchor is this value less 999ms. Keep about
+ * a second left, so that a loaded machine still reaches the intercepted request
+ * before the deadline ends the claim.
+ */
+const CLAIM_DEADLINE_TIMEOUT_MS = 2_000;
 const REQUEST: NpmOperationLeaseRequest = Object.freeze({
   repository: REPOSITORY,
   runId: "123456789",
@@ -196,78 +204,36 @@ test("the GitHub acquisition time rejects a late unclaimed holder", async () => 
 
 test("a claim arms its deadline before holder authorization I/O", async () => {
   const api = new FakeGitHub(REQUEST);
-  const deadlineAwareFetch: typeof fetch = async (input, init) => {
-    const url = new URL(
-      typeof input === "string" || input instanceof URL ? input : input.url
-    );
-    if (!url.pathname.endsWith("/git/matching-refs/heads/main")) {
-      return api.fetch(input, init);
-    }
-    return await new Promise<Response>((resolve, reject) => {
-      const signal = init?.signal;
-      assert.ok(signal);
-      if (signal.aborted) {
-        reject(signal.reason);
-        return;
-      }
-      const fallback = setTimeout(() => resolve(new Response(null, {
-        status: 500
-      })), 200);
-      signal.addEventListener("abort", () => {
-        clearTimeout(fallback);
-        reject(signal.reason);
-      }, { once: true });
-    });
-  };
-  const startedAt = Date.now();
+  const probe = deadlineProbe(api, (url) => {
+    return url.pathname.endsWith("/git/matching-refs/heads/main");
+  });
   await assert.rejects(
     client(api, {
-      fetch: deadlineAwareFetch,
-      unclaimedTimeoutMs: 1_020
+      fetch: probe.fetch,
+      unclaimedTimeoutMs: CLAIM_DEADLINE_TIMEOUT_MS
     }).claim(REQUEST, CLAIM),
     /was not claimed before its deadline/u
   );
-  assert.ok(Date.now() - startedAt < 100);
+  assert.equal(probe.aborted(), true);
   assert.equal(api.has("active"), false);
 });
 
 test("a claim propagates its deadline to repository control I/O", async () => {
   const api = new FakeGitHub(REQUEST);
-  const deadlineAwareFetch: typeof fetch = async (input, init) => {
-    const url = new URL(
-      typeof input === "string" || input instanceof URL ? input : input.url
-    );
-    if (!url.pathname.includes("/environments/npm-operations")) {
-      return api.fetch(input, init);
-    }
-    return await new Promise<Response>((resolve, reject) => {
-      const signal = init?.signal;
-      assert.ok(signal);
-      if (signal.aborted) {
-        reject(signal.reason);
-        return;
-      }
-      const fallback = setTimeout(() => resolve(new Response(null, {
-        status: 500
-      })), 200);
-      signal.addEventListener("abort", () => {
-        clearTimeout(fallback);
-        reject(signal.reason);
-      }, { once: true });
-    });
-  };
+  const probe = deadlineProbe(api, (url) => {
+    return url.pathname.includes("/environments/npm-operations");
+  });
   const lease = new GitHubNpmOperationLease({
     repository: REPOSITORY,
     token: "test-token",
-    fetch: deadlineAwareFetch,
-    unclaimedTimeoutMs: 1_020
+    fetch: probe.fetch,
+    unclaimedTimeoutMs: CLAIM_DEADLINE_TIMEOUT_MS
   });
-  const startedAt = Date.now();
   await assert.rejects(
     lease.claim(REQUEST, CLAIM),
     /was not claimed before its deadline/u
   );
-  assert.ok(Date.now() - startedAt < 100);
+  assert.equal(probe.aborted(), true);
   assert.equal(api.has("active"), false);
 });
 
@@ -310,38 +276,17 @@ test("a timely claim admits a holder after its local watchdog expires", async ()
 
 test("a stalled acquisition check stops at the unclaimed deadline", async () => {
   const api = new FakeGitHub(REQUEST);
-  const hangingFetch: typeof fetch = async (input, init) => {
-    const url = new URL(
-      typeof input === "string" || input instanceof URL ? input : input.url
-    );
-    if (!url.pathname.endsWith("/actions/concurrency_groups")) {
-      return api.fetch(input, init);
-    }
-    return await new Promise<Response>((resolve, reject) => {
-      const signal = init?.signal;
-      assert.ok(signal);
-      if (signal.aborted) {
-        reject(signal.reason);
-        return;
-      }
-      const timer = setTimeout(() => resolve(new Response(null, {
-        status: 500
-      })), 200);
-      signal.addEventListener("abort", () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      }, { once: true });
-    });
-  };
-  const startedAt = Date.now();
+  const probe = deadlineProbe(api, (url) => {
+    return url.pathname.endsWith("/actions/concurrency_groups");
+  });
   await assert.rejects(
     client(api, {
-      fetch: hangingFetch,
+      fetch: probe.fetch,
       unclaimedTimeoutMs: 20
     }).startAndPoll(REQUEST),
     /was not claimed before its deadline/u
   );
-  assert.ok(Date.now() - startedAt < 100);
+  assert.equal(probe.aborted(), true);
 });
 
 test("the first-step watchdog does not restart after acquisition", async () => {
@@ -538,6 +483,57 @@ test("a malformed claim cannot clear the API deadline signal", async () => {
     /was not claimed before its deadline/u
   );
 });
+
+/**
+ * Delay before deadlineProbe answers a request by itself. It stays far above
+ * every deadline in these tests, so the lease deadline always ends the request
+ * first.
+ */
+const DEADLINE_PROBE_FALLBACK_MS = 5_000;
+
+/**
+ * Holds one endpoint open until the lease deadline aborts the request. The lease
+ * must arm its deadline before it starts the request and must pass the signal
+ * into it; aborted() reports that it did both. A lease that does neither answers
+ * from the fallback instead, which fails the aborted() assertion.
+ */
+interface DeadlineProbe {
+  /** Replaces the lease fetch and intercepts the endpoint. */
+  readonly fetch: typeof fetch;
+  /** True after the lease deadline aborted the intercepted request. */
+  readonly aborted: () => boolean;
+}
+
+function deadlineProbe(
+  api: FakeGitHub,
+  endpoint: (url: URL) => boolean
+): DeadlineProbe {
+  let aborted = false;
+  const probeFetch: typeof fetch = async (input, init) => {
+    const url = new URL(
+      typeof input === "string" || input instanceof URL ? input : input.url
+    );
+    if (!endpoint(url)) return api.fetch(input, init);
+    const signal = init?.signal;
+    assert.ok(signal);
+    return await new Promise<Response>((resolve, reject) => {
+      if (signal.aborted) {
+        aborted = true;
+        reject(signal.reason);
+        return;
+      }
+      const fallback = setTimeout(() => resolve(new Response(null, {
+        status: 500
+      })), DEADLINE_PROBE_FALLBACK_MS);
+      signal.addEventListener("abort", () => {
+        aborted = true;
+        clearTimeout(fallback);
+        reject(signal.reason);
+      }, { once: true });
+    });
+  };
+  return { fetch: probeFetch, aborted: () => aborted };
+}
 
 function client(
   api: FakeGitHub,

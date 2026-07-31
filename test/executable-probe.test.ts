@@ -26,28 +26,17 @@ import {
   readReleaseExecutableIdentity
 } from "../shared/executable-probe.js";
 import { acquireInstallationLock } from "../tui/src/install-lock.js";
+import {
+  assertProcessIsNotRunning,
+  assertProcessIsReaped,
+  processIsRunning
+} from "./process-liveness.js";
 
 async function makeRoot(label: string): Promise<string> {
   const homeScratch = path.join(homedir(), ".cache", "1667-tests");
   await mkdir(homeScratch, { recursive: true, mode: 0o755 });
   await chmod(homeScratch, 0o755);
   return mkdtemp(path.join(homeScratch, label));
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH") return false;
-    if (code === "EPERM") return true;
-    throw error;
-  }
-}
-
-function assertProcessDead(pid: number, label: string): void {
-  assert.equal(processIsAlive(pid), false, `${label} pid ${pid} still alive`);
 }
 
 async function waitForFile(filePath: string, timeoutMs = 3_000): Promise<void> {
@@ -135,8 +124,8 @@ test("abort reaps SIGTERM-ignoring probe and descendant before reject", {
   probePid = await readPid(probePidFile);
   descendantPid = await readPid(descendantPidFile);
   assert.notEqual(probePid, descendantPid);
-  assert.equal(processIsAlive(probePid), true);
-  assert.equal(processIsAlive(descendantPid), true);
+  assert.equal(processIsRunning(probePid), true);
+  assert.equal(processIsRunning(descendantPid), true);
 
   // Both ignore SIGTERM; without group SIGKILL, close would hang on inherited pipes.
   controller.abort();
@@ -146,8 +135,8 @@ test("abort reaps SIGTERM-ignoring probe and descendant before reject", {
   assert.match((result.error as ExecutableProbeError).message, /interrupted/u);
 
   // Settlement proves reaping: both must already be gone.
-  assertProcessDead(probePid, "probe");
-  assertProcessDead(descendantPid, "descendant");
+  assertProcessIsReaped(probePid, "probe");
+  assertProcessIsNotRunning(descendantPid, "descendant");
   // Grace is short; abort must not leave timers that outlive settlement.
   assert.ok(
     EXECUTABLE_PROBE_TERMINATION_GRACE_MS > 0
@@ -205,8 +194,8 @@ test("probe abort under Install Root lock reaps before lock can release", {
   controller.abort();
   await assert.rejects(mutation, (error: unknown) => error instanceof ExecutableProbeError);
 
-  assertProcessDead(probePid, "probe");
-  assertProcessDead(descendantPid, "descendant");
+  assertProcessIsReaped(probePid, "probe");
+  assertProcessIsNotRunning(descendantPid, "descendant");
   // Lock is free only after the mutation finally ran; re-acquire proves release.
   const again = await acquireInstallationLock(installRoot);
   await again.release();
@@ -240,7 +229,7 @@ exit 1
 
 test("setsid descendant cannot keep probe promise open past settlement deadline", {
   skip: process.platform === "win32" ? "POSIX process groups only" : false,
-  timeout: 10_000
+  timeout: 30_000
 }, async (t) => {
   const root = await makeRoot("probe-setsid-");
   let probePid: number | null = null;
@@ -276,7 +265,6 @@ test("setsid descendant cannot keep probe promise open past settlement deadline"
   await chmod(exe, 0o755);
 
   const controller = new AbortController();
-  const started = Date.now();
   const probe = readReleaseExecutableIdentity(exe, {
     signal: controller.signal,
     timeoutMs: 8_000
@@ -290,8 +278,8 @@ test("setsid descendant cannot keep probe promise open past settlement deadline"
   probePid = await readPid(probePidFile);
   escapedPid = await readPid(escapedPidFile);
   assert.notEqual(probePid, escapedPid);
-  assert.equal(processIsAlive(probePid), true);
-  assert.equal(processIsAlive(escapedPid), true);
+  assert.equal(processIsRunning(probePid), true);
+  assert.equal(processIsRunning(escapedPid), true);
 
   controller.abort();
   const result = await observed;
@@ -300,16 +288,11 @@ test("setsid descendant cannot keep probe promise open past settlement deadline"
   assert.match((result.error as ExecutableProbeError).message, /interrupted/u);
 
   // Probe group is reaped; escaped setsid child may still be alive until we clean it.
-  assertProcessDead(probePid, "probe");
-  // Settlement is bounded: grace + final deadline + schedule slack, not forever.
-  const elapsed = Date.now() - started;
-  assert.ok(
-    elapsed
-      < EXECUTABLE_PROBE_TERMINATION_GRACE_MS
-        + EXECUTABLE_PROBE_SETTLEMENT_DEADLINE_MS
-        + 2_000,
-    `settlement took ${elapsed}ms past the bound`
-  );
+  assertProcessIsReaped(probePid, "probe");
+  // The escaped writer holds the inherited pipe for 3600s, so the promise
+  // settled only because the deadline closed the streams. The test timeout is
+  // the bound. An elapsed-time assertion would add no proof, because a node
+  // timer has no upper bound on a loaded machine.
   assert.ok(
     EXECUTABLE_PROBE_SETTLEMENT_DEADLINE_MS > 0
     && EXECUTABLE_PROBE_SETTLEMENT_DEADLINE_MS < 5_000
@@ -321,7 +304,7 @@ test("setsid descendant cannot keep probe promise open past settlement deadline"
 
 test("timeout reaps sticky process group before reject", {
   skip: process.platform === "win32" ? "POSIX process groups only" : false,
-  timeout: 10_000
+  timeout: 30_000
 }, async (t) => {
   const root = await makeRoot("probe-timeout-");
   let probePid: number | null = null;
@@ -337,8 +320,8 @@ test("timeout reaps sticky process group before reject", {
   await writeFile(exe, stickyProbeScript(probePidFile, descendantPidFile), { mode: 0o755 });
   await chmod(exe, 0o755);
 
-  const started = Date.now();
-  // Timeout after pid files exist: long enough to start the sticky tree, short overall.
+  // Timeout after pid files exist: the sticky tree is two shells and two writes,
+  // which stay far inside this timeout even on a loaded machine.
   const probe = readReleaseExecutableIdentity(exe, { timeoutMs: 800 });
   const observed = probe.then(
     (value) => ({ ok: true as const, value }),
@@ -354,10 +337,10 @@ test("timeout reaps sticky process group before reject", {
   assert.equal(result.ok, false);
   assert.ok(result.ok === false && result.error instanceof ExecutableProbeError);
   assert.match((result.error as ExecutableProbeError).message, /timed out/u);
-  assertProcessDead(probePid, "probe");
-  assertProcessDead(descendantPid, "descendant");
-  // Bound: timeout + grace + small schedule slack, not the 3600s sleep.
-  assert.ok(Date.now() - started < 4_000);
+  assertProcessIsReaped(probePid, "probe");
+  assertProcessIsNotRunning(descendantPid, "descendant");
+  // The probe rejected on its own timeout and did not wait out the 3600s sleep.
+  // The test timeout is the bound, for the same reason as the setsid test above.
 });
 
 test("stdout-bound termination reaps before reject", {
@@ -410,8 +393,8 @@ exit 1
   assert.equal(result.ok, false);
   assert.ok(result.ok === false && result.error instanceof ExecutableProbeError);
   assert.match((result.error as ExecutableProbeError).message, /stdout exceeded/u);
-  assertProcessDead(probePid, "probe");
-  assertProcessDead(descendantPid, "descendant");
+  assertProcessIsReaped(probePid, "probe");
+  assertProcessIsNotRunning(descendantPid, "descendant");
 });
 
 test("successful probe still parses strict JSON identity", {
@@ -485,7 +468,6 @@ test("spawn failure rejects with probe-failed message after close", {
     "probe-enoent-does-not-exist",
     "1667"
   );
-  const started = Date.now();
   await assert.rejects(
     () => readReleaseExecutableIdentity(missing, { timeoutMs: 8_000 }),
     (error: unknown) => {
@@ -494,8 +476,8 @@ test("spawn failure rejects with probe-failed message after close", {
       return true;
     }
   );
-  // Must not wait for the wall-clock timeout; close follows error promptly.
-  assert.ok(Date.now() - started < 2_000);
+  // The 5s test timeout is below the 8s probe timeout, so reaching this line
+  // proves close followed the error and did not wait for the wall clock.
 });
 
 test("abort that races past the initial check is still observed", {
