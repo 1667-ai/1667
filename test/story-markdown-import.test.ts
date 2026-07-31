@@ -234,6 +234,33 @@ test("export and reimport round-trip preserves a title-only empty story", async 
   assert.equal((await service.exportStory(reimported.id)).markdown, exported.markdown);
 });
 
+test("export codec preserves multiline titles and chapters after an unterminated prose fence", async (t) => {
+  const service = await openService(t);
+  const created = await service.createStory("First line\n\nSecond line");
+  const opening = await service.createNode(created.id, {
+    parentId: null,
+    instruction: "",
+    text: "```markdown\nunterminated fence"
+  });
+  const firstPart = opening.nodes.find((node) => node.parentId === null)!;
+  await service.createChapterBreak(created.id, firstPart.id, "Chapter\n\nTwo");
+  await service.createNode(created.id, {
+    parentId: firstPart.id,
+    instruction: "",
+    text: "Still a separate part."
+  });
+
+  const exported = await service.exportStory(created.id);
+  const reimported = await service.importMarkdown(exported.markdown);
+  assert.equal(reimported.title, "First line\n\nSecond line");
+  assert.deepEqual(reimported.path.map(({ text }) => text), [
+    "```markdown\nunterminated fence",
+    "Still a separate part."
+  ]);
+  assert.equal(reimported.chapterBreaks[0]?.title, "Chapter\n\nTwo");
+  assert.equal((await service.exportStory(reimported.id)).markdown, exported.markdown);
+});
+
 test("storyFromImport generates deterministic chapter break IDs when supplied", () => {
   const markdown = `# Title\n\nPart 1.\n\n## Chapter 2\n\nPart 2.\n`;
   const parsed = partsFromMarkdown(markdown);

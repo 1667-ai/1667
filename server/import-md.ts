@@ -1,6 +1,11 @@
 import { ServiceError } from "./errors.js";
 import { sliceUnicodeScalarPrefix } from "../shared/unicode.js";
 import {
+  decodeMarkdownChapterMarker,
+  decodeMarkdownStoryTitleMarker,
+  STORY_MARKDOWN_EXPORT_MARKER
+} from "../shared/story-markdown-codec.js";
+import {
   MAX_STORY_MANIFEST_BYTES,
   MAX_STORY_TITLE_CHARS
 } from "./story-v5-strict.js";
@@ -75,9 +80,13 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     chapterBreakParents.add(parentPartIndex);
   };
 
-  const flushParagraph = () => {
+  const flushParagraph = (stripGeneratedSeparator = false) => {
     if (paragraphStart === -1) return;
-    const rawText = markdown.slice(paragraphStart, paragraphEnd);
+    let rawText = markdown.slice(paragraphStart, paragraphEnd);
+    if (stripGeneratedSeparator) {
+      if (rawText.endsWith("\r\n")) rawText = rawText.slice(0, -2);
+      else if (rawText.endsWith("\n")) rawText = rawText.slice(0, -1);
+    }
     paragraphStart = -1;
     paragraphEnd = -1;
     paragraphNormalizedChars = 0;
@@ -114,6 +123,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   let beforeProse = true;
   let fence: MarkdownFence | null = null;
+  let exportCodec = false;
+  let awaitingGeneratedChapterHeading = false;
+  let generatedChapterTitle: string | null = null;
   for (const { line, start, end } of iterateLineInfos(markdown)) {
     const trimmed = line.trim();
 
@@ -127,8 +139,44 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
         }
         continue;
       }
+      if (titleFound && line === STORY_MARKDOWN_EXPORT_MARKER) {
+        exportCodec = true;
+        continue;
+      }
+      if (titleFound && exportCodec) {
+        const exactTitle = decodeStoryTitleMarker(line);
+        if (exactTitle !== undefined) {
+          title = exactTitle;
+          continue;
+        }
+      }
       if (titleFound && isGeneratedDerivedComment(line)) continue;
       beforeProse = false;
+    }
+
+    if (exportCodec) {
+      const generatedChapter = decodeChapterMarker(line);
+      if (generatedChapter !== undefined) {
+        // Export inserts one blank-line separator before its marker. Inside an
+        // unterminated prose fence that separator was provisionally buffered.
+        flushParagraph(true);
+        fence = null;
+        generatedChapterTitle = generatedChapter.title;
+        awaitingGeneratedChapterHeading = true;
+        continue;
+      }
+      if (awaitingGeneratedChapterHeading) {
+        if (trimmed.length === 0) continue;
+        const visibleTitle = atxHeadingTitle(line, 2);
+        if (visibleTitle === null) {
+          throw new ServiceError(400, "1667 Markdown chapter marker is missing its heading");
+        }
+        pendingChapterTitle = generatedChapterTitle
+          ?? sliceUnicodeScalarPrefix(visibleTitle, MAX_STORY_TITLE_CHARS);
+        generatedChapterTitle = null;
+        awaitingGeneratedChapterHeading = false;
+        continue;
+      }
     }
 
     if (fence !== null) {
@@ -193,6 +241,22 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     paragraphEnd = end;
     if (paragraphNormalizedChars > remainingChars) {
       throw new ServiceError(400, "Markdown expands to more text than can be imported");
+    }
+  }
+
+  function decodeStoryTitleMarker(line: string): string | undefined {
+    try {
+      return decodeMarkdownStoryTitleMarker(line);
+    } catch (error) {
+      throw new ServiceError(400, error instanceof Error ? error.message : "Invalid 1667 Markdown title marker");
+    }
+  }
+
+  function decodeChapterMarker(line: string): ReturnType<typeof decodeMarkdownChapterMarker> {
+    try {
+      return decodeMarkdownChapterMarker(line);
+    } catch (error) {
+      throw new ServiceError(400, error instanceof Error ? error.message : "Invalid 1667 Markdown chapter marker");
     }
   }
 }

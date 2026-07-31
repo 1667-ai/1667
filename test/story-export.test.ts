@@ -53,7 +53,7 @@ test("a story with no chapter break exports as plain prose", async (t) => {
   assert.equal(exported.markdown.includes("##"), false);
   assert.equal(
     exported.markdown,
-    "# One Sitting\n\nOne sitting, one line.\n"
+    "# One Sitting\n\n<!-- 1667:export:v1 -->\n\nOne sitting, one line.\n"
   );
 });
 

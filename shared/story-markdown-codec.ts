@@ -1,0 +1,66 @@
+import { MAX_STORED_TITLE_CHARS } from "./types.js";
+import { unicodeScalarLength } from "./unicode.js";
+
+export const STORY_MARKDOWN_EXPORT_MARKER = "<!-- 1667:export:v1 -->";
+
+const STORY_TITLE_PREFIX = "<!-- 1667:story-title:v1:";
+const CHAPTER_PREFIX = "<!-- 1667:chapter:v1";
+const MARKER_SUFFIX = " -->";
+const MAX_TITLE_UTF8_BYTES = MAX_STORED_TITLE_CHARS * 4;
+
+export interface MarkdownChapterMarker {
+  /** Null means the following visible H2 owns the exact title. */
+  readonly title: string | null;
+}
+
+export function markdownDisplayTitle(title: string, fallback: string): string {
+  const display = title.replace(/\r\n?|\n/g, " ").trim();
+  return display.length === 0 ? fallback : display;
+}
+
+export function markdownStoryTitleMarker(title: string, display: string): string | null {
+  return title === display ? null : `${STORY_TITLE_PREFIX}${encodeTitle(title)}${MARKER_SUFFIX}`;
+}
+
+export function markdownChapterMarker(title: string, display: string): string {
+  return title === display
+    ? `${CHAPTER_PREFIX}${MARKER_SUFFIX}`
+    : `${CHAPTER_PREFIX}:${encodeTitle(title)}${MARKER_SUFFIX}`;
+}
+
+export function decodeMarkdownStoryTitleMarker(line: string): string | undefined {
+  if (!line.startsWith(STORY_TITLE_PREFIX) || !line.endsWith(MARKER_SUFFIX)) return undefined;
+  return decodeTitle(line.slice(STORY_TITLE_PREFIX.length, -MARKER_SUFFIX.length));
+}
+
+export function decodeMarkdownChapterMarker(line: string): MarkdownChapterMarker | undefined {
+  const plain = `${CHAPTER_PREFIX}${MARKER_SUFFIX}`;
+  if (line === plain) return { title: null };
+  const encodedPrefix = `${CHAPTER_PREFIX}:`;
+  if (!line.startsWith(encodedPrefix) || !line.endsWith(MARKER_SUFFIX)) return undefined;
+  return {
+    title: decodeTitle(line.slice(encodedPrefix.length, -MARKER_SUFFIX.length))
+  };
+}
+
+function encodeTitle(title: string): string {
+  return Buffer.from(title, "utf8").toString("base64url");
+}
+
+function decodeTitle(encoded: string): string {
+  if (!/^[A-Za-z0-9_-]*$/u.test(encoded)) throw new Error("invalid 1667 Markdown title marker");
+  const bytes = Buffer.from(encoded, "base64url");
+  if (bytes.toString("base64url") !== encoded || bytes.byteLength > MAX_TITLE_UTF8_BYTES) {
+    throw new Error("invalid 1667 Markdown title marker");
+  }
+  let title: string;
+  try {
+    title = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("invalid 1667 Markdown title marker");
+  }
+  if (unicodeScalarLength(title, MAX_STORED_TITLE_CHARS) > MAX_STORED_TITLE_CHARS) {
+    throw new Error("invalid 1667 Markdown title marker");
+  }
+  return title;
+}

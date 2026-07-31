@@ -1,4 +1,10 @@
 import { deriveChapters } from "../shared/chapters.js";
+import {
+  markdownChapterMarker,
+  markdownDisplayTitle,
+  markdownStoryTitleMarker,
+  STORY_MARKDOWN_EXPORT_MARKER
+} from "../shared/story-markdown-codec.js";
 import { activePath } from "../shared/story-tree.js";
 import type {
   SettingsMutationResult,
@@ -327,6 +333,8 @@ export class StoryService extends StoryServiceRuntime {
     const comment = (value: string) => value.replace(/--!?>/g, "→");
     const header = story.origin === undefined ? "" :
       `<!-- derived from "${comment(story.origin.storyTitle)}" (story ${story.origin.storyId}, node ${story.origin.partId}${story.origin.offset === null ? "" : ` @ ${story.origin.offset}`}) -->\n\n`;
+    const displayStoryTitle = markdownDisplayTitle(story.title, "Untitled story");
+    const exactStoryTitle = markdownStoryTitleMarker(story.title, displayStoryTitle);
     const chapters = deriveChapters(
       activePath(story),
       story.chapterBreaks,
@@ -337,7 +345,8 @@ export class StoryService extends StoryServiceRuntime {
       // The document title already names the opening chapter when nothing
       // renamed it, so an untitled first chapter gets no heading of its own.
       if (chapter.number === 1 && chapter.title === "") return prose;
-      return `## ${chapter.title === "" ? `Chapter ${chapter.number}` : chapter.title}\n\n${prose}`;
+      const displayTitle = markdownDisplayTitle(chapter.title, `Chapter ${chapter.number}`);
+      return `${markdownChapterMarker(chapter.title, displayTitle)}\n\n## ${displayTitle}\n\n${prose}`;
     });
     // Deliberately narrower than the on-disk name (`exportFileBase`): this one
     // goes into a Content-Disposition quoted-string, so it stays ASCII and
@@ -345,7 +354,13 @@ export class StoryService extends StoryServiceRuntime {
     const filename = `${story.title.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "story"}.md`;
     return {
       filename,
-      markdown: `# ${story.title}\n\n${header}${sections.join("\n\n")}\n`
+      markdown: [
+        `# ${displayStoryTitle}`,
+        STORY_MARKDOWN_EXPORT_MARKER,
+        ...(exactStoryTitle === null ? [] : [exactStoryTitle]),
+        ...(header.length === 0 ? [] : [header.trimEnd()]),
+        sections.join("\n\n")
+      ].join("\n\n") + "\n"
     };
   }
 
