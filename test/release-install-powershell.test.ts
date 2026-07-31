@@ -69,6 +69,23 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
   assert.equal(await installedVersion(installRoot), "1.2.3");
   assert.equal((await ownershipRecord(installRoot)).installationId, firstRecord.installationId);
 
+  const originalUserPath = await readRawUserPath();
+  try {
+    await writeRawUserPath({
+      exists: true,
+      value: "%USERPROFILE%\\1667-preserved",
+      kind: "ExpandString"
+    });
+    await runInstaller(v1.url, installRoot, true);
+    assert.deepEqual(await readRawUserPath(), {
+      exists: true,
+      value: "%USERPROFILE%\\1667-preserved;" + installRoot,
+      kind: "ExpandString"
+    });
+  } finally {
+    await writeRawUserPath(originalUserPath);
+  }
+
   const active = path.join(installRoot, "1667.exe");
   const held = spawn(active, ["--hold"], { stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => {
@@ -255,7 +272,20 @@ Add-Type -Path $Source -OutputAssembly $Output -OutputType ConsoleApplication
   return readFile(executablePath);
 }
 
-async function runInstaller(url: string, installRoot: string) {
+async function runInstaller(
+  url: string,
+  installRoot: string,
+  updatePath = false
+) {
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    AI_1667_INSTALL_ROOT: installRoot
+  };
+  if (updatePath) {
+    delete environment.AI_1667_SKIP_PATH_UPDATE;
+  } else {
+    environment.AI_1667_SKIP_PATH_UPDATE = "1";
+  }
   return execFileAsync("powershell.exe", [
     "-NoLogo",
     "-NoProfile",
@@ -264,12 +294,62 @@ async function runInstaller(url: string, installRoot: string) {
     "-Command",
     `irm '${url}' | iex`
   ], {
+    env: environment,
+    timeout: 15_000
+  });
+}
+
+interface RawUserPath {
+  readonly exists: boolean;
+  readonly value: string;
+  readonly kind: string;
+}
+
+async function readRawUserPath(): Promise<RawUserPath> {
+  const script = [
+    "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')",
+    "try {",
+    "  $exists = $key.GetValueNames() -contains 'Path'",
+    "  $value = if ($exists) {",
+    "    [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)",
+    "  } else { '' }",
+    "  $kind = if ($exists) { [string]$key.GetValueKind('Path') } else { '' }",
+    "  [ordered]@{ exists = $exists; value = $value; kind = $kind } | ConvertTo-Json -Compress",
+    "} finally { $key.Dispose() }"
+  ].join("\n");
+  const { stdout } = await execFileAsync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-Command",
+    script
+  ]);
+  return JSON.parse(stdout) as RawUserPath;
+}
+
+async function writeRawUserPath(value: RawUserPath): Promise<void> {
+  const script = [
+    "$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)",
+    "try {",
+    "  if ($env:AI_1667_TEST_PATH_EXISTS -eq '1') {",
+    "    $kind = [Enum]::Parse([Microsoft.Win32.RegistryValueKind], $env:AI_1667_TEST_PATH_KIND)",
+    "    $key.SetValue('Path', $env:AI_1667_TEST_PATH_VALUE, $kind)",
+    "  } else {",
+    "    $key.DeleteValue('Path', $false)",
+    "  }",
+    "} finally { $key.Dispose() }"
+  ].join("\n");
+  await execFileAsync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-Command",
+    script
+  ], {
     env: {
       ...process.env,
-      AI_1667_INSTALL_ROOT: installRoot,
-      AI_1667_SKIP_PATH_UPDATE: "1"
-    },
-    timeout: 15_000
+      AI_1667_TEST_PATH_EXISTS: value.exists ? "1" : "0",
+      AI_1667_TEST_PATH_VALUE: value.value,
+      AI_1667_TEST_PATH_KIND: value.kind
+    }
   });
 }
 

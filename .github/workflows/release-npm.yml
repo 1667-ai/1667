@@ -127,10 +127,14 @@ jobs:
       - name: Pin the hosted GitHub CLI
         run: |
           set -euo pipefail
-          gh_path="$(realpath "$(command -v gh)")"
-          if [ ! -f "$gh_path" ] || [ ! -x "$gh_path" ] || [ -L "$gh_path" ]; then
+          posix_gh_path="$(realpath "$(command -v gh)")"
+          if [ ! -f "$posix_gh_path" ] || [ ! -x "$posix_gh_path" ] || [ -L "$posix_gh_path" ]; then
             echo "::error::GitHub CLI is not a regular executable"
             exit 1
+          fi
+          gh_path="$posix_gh_path"
+          if [ "$RUNNER_OS" = Windows ]; then
+            gh_path="$(cygpath -w "$posix_gh_path")"
           fi
           printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
 

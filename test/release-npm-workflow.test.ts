@@ -288,6 +288,10 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
     const install = body.indexOf("npm ci");
     assert.ok(pin !== -1 && pin < install, `${name} pins gh after project install`);
   }
+  assert.match(
+    job("build"),
+    /if \[ "\$RUNNER_OS" = Windows \]; then\s+gh_path="\$\(cygpath -w "\$posix_gh_path"\)"/u
+  );
 });
 
 test("publication grants the publish job immutable-attempt authority", () => {

@@ -312,13 +312,29 @@ function Write-InstallRecord(
 }
 
 function Add-UserPath([string]$Root) {
-  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-  $parts = @()
-  if (-not [string]::IsNullOrWhiteSpace($userPath)) {
-    $parts = @($userPath.Split(';', [StringSplitOptions]::RemoveEmptyEntries))
-  }
-  if (-not ($parts | Where-Object { $_.TrimEnd('\\') -ieq $Root })) {
-    [Environment]::SetEnvironmentVariable('Path', (($parts + $Root) -join ';'), 'User')
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+  if ($null -eq $key) { Fail 'Could not open the user environment registry key.' }
+  try {
+    $raw = $key.GetValue(
+      'Path',
+      '',
+      [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $userPath = if ($null -eq $raw) { '' } else { [string]$raw }
+    $parts = @()
+    if (-not [string]::IsNullOrWhiteSpace($userPath)) {
+      $parts = @($userPath.Split(';', [StringSplitOptions]::RemoveEmptyEntries))
+    }
+    $containsRoot = $parts | Where-Object {
+      [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\\') -ieq $Root
+    }
+    if (-not $containsRoot) {
+      $key.SetValue(
+        'Path',
+        (($parts + $Root) -join ';'),
+        [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    }
+  } finally {
+    $key.Dispose()
   }
   if (-not (($env:Path.Split(';', [StringSplitOptions]::RemoveEmptyEntries)) |
       Where-Object { $_.TrimEnd('\\') -ieq $Root })) {
