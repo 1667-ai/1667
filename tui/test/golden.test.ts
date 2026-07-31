@@ -32,6 +32,24 @@ describe("deterministic demo frames", () => {
     expect(frame).not.toContain("307 words");
   });
 
+  test("/ renders a full-bleed SEARCH answered in the same frame", async () => {
+    // renderOnce sends its keys and captures at once, so this also pins that a
+    // fixture answering from memory never waits out a pause it does not need.
+    const frame = await renderOnce(demoSource(), 120, 36, "/compass");
+    expect(frame.startsWith("━━ search ━ ⌕ compass")).toBeTrue();
+    expect(frame).toContain("hits in");
+    expect(frame).not.toContain("searching…");
+    expect(frame).toContain("· this line");
+    expect(frame).toContain("⏎ reroute + jump");
+    expect(frame).not.toContain("␠ continue");
+
+    const lines = frame.split("\n");
+    const hit = lines.find((line) => line.includes("compass") && line.includes("¶"))!;
+    // The doc 17a grid: focus rail column 0, ¶ ref at column 4, divider at 58.
+    expect(hit.indexOf("¶")).toBe(4);
+    expect(hit[58]).toBe("│");
+  });
+
   test("m opens a full-bleed MAP path with no story page or scrim behind it", async () => {
     const frame = await renderOnce(demoSource(), 120, 36, "m");
     expect(frame.startsWith("━━ map ·  path   tree   mass")).toBeTrue();

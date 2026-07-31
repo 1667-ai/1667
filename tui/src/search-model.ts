@@ -22,6 +22,9 @@ export interface SearchState {
   /** The request in flight, so the scan behind a superseded reply can be
    *  stopped rather than merely ignored. */
   pending: AbortController | null;
+  /** A request waiting out the rest of the word. Typing replaces it; nothing
+   *  reaches the backend until the writer pauses. */
+  scheduled: ReturnType<typeof setTimeout> | null;
   /** Cursor over selectable rows (group headers and hits). */
   cursor: number;
   /** Story or branch groups the user folded. */
@@ -74,14 +77,17 @@ export function createSearchState(
     caseSensitive: false,
     response: null,
     pending: null,
+    scheduled: null,
     cursor: 0,
     foldedGroupIds: [],
     error: null
   };
 }
 
+/** Whether the pane is waiting on an answer — including the pause before a
+ *  scan starts, which the reader cannot tell apart from the scan itself. */
 export function searchInFlight(search: SearchState): boolean {
-  return search.pending !== null;
+  return search.pending !== null || search.scheduled !== null;
 }
 
 /** Rows for the left pane: a blank line, a header and its hits per group, and

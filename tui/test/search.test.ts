@@ -79,6 +79,39 @@ describe("global search screen and model", () => {
     expect(searchRows(search, state.payload).selectableCount).toBe(0);
   });
 
+  test("typing a word costs one scan, not one per letter", async () => {
+    const { source, state, press } = setupSearchHarness();
+    // This is the behaviour under test, so this harness keeps the real pause.
+    source.searchDebounceMs = 25;
+    let scans = 0;
+    const searchStories = source.api.searchStories.bind(source.api);
+    source.api.searchStories = async (request, signal) => {
+      scans += 1;
+      return await searchStories(request, signal);
+    };
+
+    await press("/");
+    for (const character of "lantern") await press(character, character);
+    expect(scans).toBe(0);
+    expect(searchInFlight(state.search!)).toBeTrue();
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(scans).toBe(1);
+    expect(state.search!.response?.hits.length).toBeGreaterThan(0);
+    expect(searchInFlight(state.search!)).toBeFalse();
+  });
+
+  test("a deliberate scope change does not wait for the pause", async () => {
+    const { source, state, press, typeString } = setupSearchHarness();
+    await press("/");
+    await typeString("lantern");
+    source.searchDebounceMs = 10_000;
+
+    await press("tab", "\t");
+    // `tab` is one act, not the middle of a word, so it answers at once.
+    expect(state.search!.response?.scope).toBe("vault");
+  });
+
   test("a later keystroke stops the scan it supersedes", async () => {
     const { source, state, press, typeString } = setupSearchHarness();
     await press("/");

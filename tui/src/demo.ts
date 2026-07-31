@@ -572,6 +572,11 @@ export function demoAppSource(dense = false): AppSource {
     storyFolder: "",
     exportDirectory: process.cwd(),
     connection: null,
+    // The fixture answers from memory, so there is no burst to collapse and
+    // nothing to protect by waiting. It also keeps `renderOnce` deterministic:
+    // that path sends its keys and captures the frame at once, so a scan that
+    // had not started yet would be captured for ever as `searching…`.
+    searchDebounceMs: 0,
     config: {
       theme: "lantern",
       factsRail: "auto",

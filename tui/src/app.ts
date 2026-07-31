@@ -46,6 +46,7 @@ import { createStorySurface } from "./story-surface.js";
 import { createComposer } from "./composer-model.js";
 import { mapAction } from "./map-actions.js";
 import { searchAction } from "./search-actions.js";
+import { abortPendingSearch } from "./search-request.js";
 import { actionsMenuAction, armPrune, tagAction, composeAction, generate, generationBusy, navAction, openTag, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
 import { createWrapCache, type ProseStyle } from "./wrap.js";
 import { deriveGenerationRuntime } from "./runtime-settings.js";
@@ -98,6 +99,9 @@ export interface AppSource {
   config: UserConfig;
   /** Local changing store: last focused part per story. Not settings. */
   readingPositions: ReadingPositions;
+  /** How long typing pauses before a search scan starts. Tests and fixtures
+   *  that answer from memory set 0; production leaves it unset. */
+  searchDebounceMs?: number;
 }
 
 type InteractivePresentedInteraction = PresentedInteraction & {
@@ -152,6 +156,10 @@ export async function renderOnce(source: AppSource, width: number, height: numbe
   await setup.renderOnce();
   const captured = setup.captureCharFrame();
   state.abort?.controller.abort();
+  // A frame is captured the moment the keys land, so a scan still waiting out
+  // a pause has nothing left to draw to. This path is not demo-only — an
+  // embedded or HTTP source reaches it too, and its transport closes next.
+  if (state.search !== null) abortPendingSearch(state.search);
   backend.dispose();
   setup.renderer.destroy();
   return captured;
@@ -257,6 +265,9 @@ export async function runInteractive(source: AppSource): Promise<void> {
     if (exited) return;
     exited = true;
     captureProfile();
+    // A scan waiting out a pause must not outlive the app and reach for a
+    // transport that is closing.
+    if (state.search !== null) abortPendingSearch(state.search);
     frames.dispose();
     stopRecoveryOrchestration?.();
     stopUpdateCheck?.();

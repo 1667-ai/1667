@@ -53,15 +53,17 @@ export async function searchAction(
     }
     return;
   }
+  // Changing scope or case is one deliberate act, not the middle of a word, so
+  // neither waits for the pause that typing does.
   if (resolved.action === "cycle") {
     search.scope = search.scope === "tree" ? "vault" : "tree";
     search.cursor = 0;
-    runSearch(state, search, source, context.repaint);
+    runSearch(state, search, source, context.repaint, 0);
     return;
   }
   if (resolved.action === "toggle-search-case") {
     search.caseSensitive = !search.caseSensitive;
-    runSearch(state, search, source, context.repaint);
+    runSearch(state, search, source, context.repaint, 0);
     return;
   }
   const model = searchRows(search, state.payload);
