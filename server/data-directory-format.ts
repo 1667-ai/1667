@@ -117,7 +117,7 @@ export async function readDataDirectoryFormatSource(
   }
   const dataFormat = parseDataDirectoryOwnerMarkerBytes(ownerBytes, ownerMarker).dataFormat;
   requireSupportedDataDirectoryFormat(dataFormat, options.supportedFormats);
-  if (dataFormat === 2) await validateSettingsStateV2(dataDir);
+  if (dataFormat >= 2) await validateSettingsStateV2(dataDir);
   return { dataFormat, source: "owner-marker" };
 }
 
@@ -129,7 +129,7 @@ export async function discardOwnerMarkerNextResidue(dataDir: string): Promise<vo
   const nextPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT);
   await inspectTypedPrivatePublicationResidue(
     nextPath,
-    ([1, 2] as const).map((dataFormat) =>
+    ([1, 2, 3] as const).map((dataFormat) =>
       Buffer.from(dataDirectoryOwnerMarkerText(dataFormat), "utf8")),
     OWNER_MARKER_POLICY,
     (detail, cause) => invalidMarkerError(nextPath, detail, cause)
@@ -154,7 +154,7 @@ export async function writeInitialDataDirectoryFormat(
   dataDir: string,
   dataFormat: DataDirectoryFormat
 ): Promise<void> {
-  if (dataFormat === 2) {
+  if (dataFormat !== 1) {
     await resumeInitialSettingsStateV2(dataDir);
   } else {
     await requireInitialSettingsPathsAbsent(dataDir);
@@ -177,8 +177,8 @@ export function parseDataDirectoryOwnerMarkerBytes(
     literal(marker.product, "1667", "data-directory owner marker.product");
     literal(marker.markerSchema, 1, "data-directory owner marker.markerSchema");
     literal(marker.lockProtocol, 1, "data-directory owner marker.lockProtocol");
-    if (marker.dataFormat !== 1 && marker.dataFormat !== 2) {
-      throw new Error("data-directory owner marker.dataFormat must be 1 or 2");
+    if (marker.dataFormat !== 1 && marker.dataFormat !== 2 && marker.dataFormat !== 3) {
+      throw new Error("data-directory owner marker.dataFormat must be 1, 2, or 3");
     }
     assertNfcJsonStrings(value, "data-directory owner marker");
     if (canonicalJson(value) !== text) {

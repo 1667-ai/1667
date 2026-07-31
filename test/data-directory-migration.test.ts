@@ -70,12 +70,12 @@ test("offline migration copies data, upgrades the destination, and leaves legacy
   );
   assert.equal(
     await readFile(path.join(destination, DATA_DIRECTORY_OWNER_MARKER), "utf8"),
-    dataDirectoryOwnerMarkerText(2)
+    dataDirectoryOwnerMarkerText(3)
   );
   await access(path.join(destination, SETTINGS_STATE_V2_FILE));
   const lock = new DataDirectoryLock(destination);
   await lock.acquire();
-  assert.equal(lock.dataFormat, 2);
+  assert.equal(lock.dataFormat, 3);
   await lock.release();
 });
 
@@ -89,7 +89,7 @@ test("offline migration upgrades a settings-only legacy directory to the latest 
 
   await migrateDataDirectory(source, destination);
 
-  assert.equal(await readDataDirectoryFormat(destination), 2);
+  assert.equal(await readDataDirectoryFormat(destination), 3);
   assert.equal(await readFile(path.join(destination, "settings.json"), "utf8"), LEGACY_SETTINGS);
   await access(path.join(destination, SETTINGS_STATE_V2_FILE));
   assert.deepEqual(await readdir(source), ["settings.json"]);

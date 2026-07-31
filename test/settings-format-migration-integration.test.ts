@@ -42,12 +42,12 @@ test("historical v1 next recovery feeds the same automatic migration", async (t)
   const lock = new DataDirectoryLock(dataDir);
   await lock.acquire();
   try {
-    assert.equal(await lock.migrateSettingsFormat(), 2);
+    assert.equal(await lock.migrateSettingsFormat(), 3);
   } finally {
     await lock.release();
   }
 
-  assert.equal(await readDataDirectoryFormat(dataDir), 2);
+  assert.equal(await readDataDirectoryFormat(dataDir), 3);
   assert.equal(
     await readFile(path.join(dataDir, SETTINGS_STATE_V1_FILE), "utf8"),
     canonicalV1

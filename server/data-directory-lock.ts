@@ -8,6 +8,7 @@ import {
 import {
   discardOwnerMarkerNextResidue,
   hasDataDirectoryFormatMarker,
+  publishDataDirectoryOwnerMarker,
   readDataDirectoryFormatSource,
   writeInitialDataDirectoryFormat,
   type DataDirectoryFormatSource
@@ -119,7 +120,7 @@ export class DataDirectoryLock {
       await assertLockingFilesystem(lockPath, canonicalDir);
       this.publishedFormat = await publishInitialFormat(
         canonicalDir,
-        this.options.initializeDataFormat ?? 2
+        this.options.initializeDataFormat ?? 3
       );
       const adoption = await adoptMarker(canonicalDir, dataDirectoryHandle);
       this.lock = lock;
@@ -159,28 +160,43 @@ export class DataDirectoryLock {
       || this.dataDirectoryHandle === null) {
       throw new Error("Settings format migration requires an acquired data-directory lock");
     }
-    if (this.selectedDataFormat === 2
-      || this.selectedDataFormatSource === "legacy-preview") {
+    if (this.selectedDataFormatSource === "legacy-preview") {
       return this.selectedDataFormat;
     }
 
     const canonicalDir = this.canonicalDir;
     const dataDirectoryHandle = this.dataDirectoryHandle;
-    await migrateSettingsFormatV1ToV2UnderLock(
-      canonicalDir,
-      options,
-      async () => void await assertRetainedDataDirectory(
+    if (this.selectedDataFormat === 1) {
+      await migrateSettingsFormatV1ToV2UnderLock(
         canonicalDir,
-        dataDirectoryHandle
-      )
-    );
-    const adoption = await adoptMarker(canonicalDir, dataDirectoryHandle);
-    if (adoption.dataFormat !== 2 || adoption.source !== "owner-marker") {
-      throw new Error("Settings format migration did not activate the canonical format-2 marker");
+        options,
+        async () => void await assertRetainedDataDirectory(
+          canonicalDir,
+          dataDirectoryHandle
+        )
+      );
+      const adoption = await adoptMarker(canonicalDir, dataDirectoryHandle);
+      if (adoption.dataFormat !== 2 || adoption.source !== "owner-marker") {
+        throw new Error("Settings format migration did not activate the canonical format-2 marker");
+      }
+      this.selectedDataFormat = adoption.dataFormat;
+      this.selectedDataFormatSource = adoption.source;
     }
-    this.selectedDataFormat = adoption.dataFormat;
-    this.selectedDataFormatSource = adoption.source;
-    return adoption.dataFormat;
+    if (this.selectedDataFormat === 2) {
+      // Format 3 moves nothing on disk. It records that this directory may
+      // hold the shapes format 2 never allowed, so an older executable stops
+      // at the marker instead of refusing a story or a settings state it
+      // believed it should understand.
+      await assertRetainedDataDirectory(canonicalDir, dataDirectoryHandle);
+      await publishDataDirectoryOwnerMarker(canonicalDir, 3);
+      const upgraded = await adoptMarker(canonicalDir, dataDirectoryHandle);
+      if (upgraded.dataFormat !== 3 || upgraded.source !== "owner-marker") {
+        throw new Error("Data-directory format 3 marker did not activate");
+      }
+      this.selectedDataFormat = upgraded.dataFormat;
+      this.selectedDataFormatSource = upgraded.source;
+    }
+    return this.selectedDataFormat;
   }
 
   async release(): Promise<void> {

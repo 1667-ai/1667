@@ -48,9 +48,12 @@ const DEFAULTS: GenerationSettings = {
 
 const PROVIDERS: readonly Provider[] = ["dry-run", "openai-compatible", "anthropic"];
 
+/** Format 1 is the legacy read-only shape. Every later format keeps the same
+ * v2 store; a new number fences what a directory may contain, not how it is
+ * read. So the store's presence, not one exact number, is the discriminant. */
 type InitializedSettingsStore =
   | { readonly dataFormat: 1 }
-  | { readonly dataFormat: 2; readonly store: SettingsV2Store };
+  | { readonly dataFormat: 2 | 3; readonly store: SettingsV2Store };
 
 export interface LoadedGenerationSettings {
   readonly settings: GenerationSettings;
@@ -116,7 +119,7 @@ export class SettingsStore {
 
   async loadView(): Promise<SettingsView> {
     const initialized = this.requireInitialized();
-    if (initialized.dataFormat === 2) return await initialized.store.loadView();
+    if (initialized.dataFormat !== 1) return await initialized.store.loadView();
     return {
       dataFormat: 1,
       editable: false,
@@ -139,14 +142,14 @@ export class SettingsStore {
 
   async inspectMutationReceipt(mutationId: string) {
     const initialized = this.requireInitialized();
-    return initialized.dataFormat === 2
+    return initialized.dataFormat !== 1
       ? await initialized.store.inspectMutationReceipt(mutationId)
       : null;
   }
 
   assertProviderRequestSupported(settings: GenerationSettings): void {
     const initialized = this.requireInitialized();
-    if (initialized.dataFormat === 2) {
+    if (initialized.dataFormat !== 1) {
       try {
         assertRuntimeGenerationSettingsSupported(settings);
       } catch (error) {
@@ -164,7 +167,7 @@ export class SettingsStore {
     settings: GenerationSettings
   ): Promise<GenerationSettings> {
     const initialized = this.requireInitialized();
-    if (initialized.dataFormat !== 2) {
+    if (initialized.dataFormat === 1) {
       this.assertProviderRequestSupported(settings);
       return settings;
     }
@@ -202,7 +205,7 @@ export class SettingsStore {
     if (documentTarget === null) {
       return await this.assertProviderProbeSupported(normalizeForProbe(value));
     }
-    if (initialized.dataFormat !== 2) {
+    if (initialized.dataFormat === 1) {
       throw new ServiceError(
         400,
         "Settings-document probe targets require data format 2.",
@@ -227,7 +230,7 @@ export class SettingsStore {
 
   private requireEditable(): SettingsV2Store {
     const initialized = this.requireInitialized();
-    if (initialized.dataFormat !== 2) {
+    if (initialized.dataFormat === 1) {
       throw new ServiceError(
         409,
         "Settings editing requires data format 2; this format-1 directory is read-only.",
