@@ -26,6 +26,7 @@ import { runProcessUpgrade } from "./upgrade-cli.js";
 import { createBackgroundUpdateStarter } from "./update-runtime.js";
 import { attachHttpServer } from "./http-attach.js";
 import { runStoryExport } from "./export-cli.js";
+import { runStoryImport } from "./import-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
@@ -76,6 +77,7 @@ current directory the way git finds .git.
 Usage: 1667 [options]
        1667 init [--adopt [--from <legacy-data-dir>]]
        1667 export [--story <id>] [--force] [--data <path>|--global]
+       1667 import sillytavern <file>... [--data <path>|--global]
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
        1667 serve --legacy-v1 --data <path> [--print-logs] (Linux only)
@@ -89,6 +91,13 @@ Export:
   Defaults to the most recently updated story. Never clobbers an existing
   file (story.md, story-2.md, …) unless --force. 1667 never reads an
   exported file back.
+
+Import:
+  Reads SillyTavern chat files (.jsonl) into this project, one new story per
+  file. Each message becomes a story part; a trailing message with no reply
+  is dropped. Import never writes back to the file it read.
+  One unreadable file does not stop the others: the command reports each
+  failure and exits non-zero at the end.
 
 Options:
   --story <id>       Open a story, or name the one to export; both default
@@ -120,6 +129,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (argv[0] === "export") {
     await runStoryExport(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "import") {
+    await runStoryImport(argv.slice(1));
     return;
   }
   const parsed = parseArguments(argv);
