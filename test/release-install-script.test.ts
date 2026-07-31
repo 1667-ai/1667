@@ -32,6 +32,7 @@ import {
   digestsFor,
   execFileAsync,
   hostPublishedTarget,
+  ptyCommand,
   releaseStub,
   sha256File,
   writeFakeArchive,
@@ -362,15 +363,38 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
     searchedTo = at;
     assert.ok(!stdout.includes(stage), "progress must not reach stdout");
   }
-  // A pipe or a log gets no transfer bar, so captured output stays free of
-  // carriage returns.
+  // stderr is a pipe here, so this run took the --silent branch and carries no
+  // transfer bar. The terminal branch is covered separately below.
   assert.doesNotMatch(stderr, /\r/u);
+  assert.ok(!stderr.includes("#"), `pipe run drew a transfer bar:\n${stderr}`);
   const ownership = parseInstallOwnershipRecordText(
     await readFile(path.join(safePrefix, ".1667-install.json"), "utf8")
   );
   assert.equal(ownership.channel, "beta");
   assert.equal(ownership.method, "shell");
   assert.equal(ownership.artifactTarget, hostTarget);
+
+  // A terminal takes the --progress-bar branch, and every person who runs the
+  // published one-line command has stderr on a terminal. A pipe-only test would
+  // leave the branch that all of them use unexercised.
+  const ttyPrefix = path.join(root, "tty-prefix");
+  await mkdir(ttyPrefix, { mode: 0o755 });
+  await chmod(ttyPrefix, 0o755);
+  const pty = ptyCommand(["sh", scriptPath, "--prefix", ttyPrefix]);
+  if (pty === null) {
+    t.diagnostic("no pty runner on this platform; terminal progress branch not exercised");
+  } else {
+    const ttyRun = await execFileAsync(pty.file, pty.args, { cwd: root });
+    const ttyOutput = `${ttyRun.stdout}${ttyRun.stderr}`;
+    assert.match(ttyOutput, new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`));
+    // curl redraws the bar in place, so the transfer reaches the terminal.
+    assert.match(ttyOutput, /\r/u);
+    assert.match(ttyOutput, /100\.0%/u);
+    const ttyOwnership = parseInstallOwnershipRecordText(
+      await readFile(path.join(ttyPrefix, ".1667-install.json"), "utf8")
+    );
+    assert.equal(ttyOwnership.artifactTarget, hostTarget);
+  }
 
   // Candidate identity mismatch refuses activation.
   const badArchiveName = releaseArchiveFileName(INSTALL_VERSION, hostTarget);

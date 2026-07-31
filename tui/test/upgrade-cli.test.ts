@@ -147,6 +147,26 @@ test("interruption emits exit 130 and one JSON envelope", async () => {
   expect(JSON.parse(result.stdout).command).toBe(null);
 });
 
+test("rollback refusal keeps its code and reaches JSON without internal names", async () => {
+  // failure.message reaches the JSON envelope as well as human stderr, so a
+  // wording change is visible to both. The code is the stable machine field.
+  const registry = fakeRegistry("2.0.0");
+  const json = await executeUpgradeCli(["--rollback", "--json"], { observation, registry });
+  expect(json.exitCode).toBe(1);
+  const envelope = JSON.parse(json.stdout);
+  expect(envelope.status).toBe("error");
+  expect(envelope.error.code).toBe("unsupported_target");
+  expect(envelope.error.retryable).toBe(false);
+  for (const internal of ["Managed Installation", "Shell Installer", "Candidate"]) {
+    expect(envelope.error.message).not.toContain(internal);
+  }
+
+  const human = await executeUpgradeCli(["--rollback"], { observation, registry });
+  expect(human.exitCode).toBe(1);
+  expect(human.stdout).toBe("");
+  expect(human.stderr).toContain("Rollback works only when you installed 1667");
+});
+
 test("human plan output uses only locally derived fixed instructions", async () => {
   const result = await executeUpgradeCli(["--version", "2.0.0"], {
     observation,

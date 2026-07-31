@@ -37,6 +37,25 @@ export function hostPublishedTarget(): BuiltArtifactTarget | null {
   return null;
 }
 
+/**
+ * Runs a command with a real terminal on its output, so a test can exercise a
+ * branch that only an interactive run reaches.
+ *
+ * `script(1)` cannot do this from a test: it reads terminal attributes from its
+ * own stdin, which a captured child process does not have. Python's `pty`
+ * module allocates the terminal itself, and needs no new dependency. The child
+ * writes both streams into the terminal, so the caller reads one merged stream.
+ */
+export const PTY_RUNNER =
+  "import os,pty,sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))";
+
+export function ptyCommand(
+  argv: readonly string[]
+): { readonly file: string; readonly args: readonly string[] } | null {
+  if (process.platform !== "darwin" && process.platform !== "linux") return null;
+  return { file: "python3", args: ["-c", PTY_RUNNER, ...argv] };
+}
+
 export function digestsFor(version: string) {
   return PUBLISHED_ARTIFACT_TARGETS.map((target) => Object.freeze({
     target,

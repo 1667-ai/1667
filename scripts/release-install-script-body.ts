@@ -313,8 +313,12 @@ die() {
 # Progress goes to stderr so that stdout carries only the install result.
 # Without it the installer is silent for the whole transfer, and a slow network
 # is indistinguishable from a stall.
+#
+# The write is best-effort. These calls happen between the transaction record
+# and the activation, so a closed, full, or unreadable stderr must not end the
+# installation under 'set -e'. Progress is cosmetic; the install is not.
 say() {
-  printf '1667 install: %s\\n' "\$*" >&2
+  printf '1667 install: %s\\n' "\$*" >&2 || :
 }
 
 # Refuse any prior managed path (regular file, directory, or symbolic link).
