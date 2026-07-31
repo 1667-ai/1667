@@ -168,6 +168,21 @@ function Download-Archive([string]$Url, [string]$Destination) {
   }
 }
 
+function Get-Sha256([string]$PathValue) {
+  $stream = $null
+  $algorithm = $null
+  try {
+    $stream = [IO.File]::Open(
+      $PathValue, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    $digest = $algorithm.ComputeHash($stream)
+    return [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+  } finally {
+    if ($null -ne $algorithm) { $algorithm.Dispose() }
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
+}
+
 function Extract-Candidate([string]$ArchivePath, [string]$WorkRoot) {
   $tar = [IO.Path]::Combine($env:SystemRoot, 'System32', 'tar.exe')
   if (-not [IO.File]::Exists($tar)) { Fail 'Windows tar.exe is required.' }
@@ -333,7 +348,7 @@ function Main {
     try {
       $archivePath = [IO.Path]::Combine($workRoot, $ArchiveName)
       Download-Archive $url $archivePath
-      $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+      $actual = Get-Sha256 $archivePath
       if ($actual -cne $ArchiveDigest) { Fail 'Release Archive SHA-256 digest did not match.' }
       $candidate = Extract-Candidate $archivePath $workRoot
       Assert-CandidateIdentity $candidate

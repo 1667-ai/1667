@@ -103,8 +103,8 @@ test("real staging and packing feed preflight reproducibly and launch locally", 
       const artifactTarget = entry.artifactTarget as BuiltArtifactTarget;
       const descriptor = releaseTargetForArtifact(artifactTarget);
       const { stdout } = await execFileAsync(
-        path.join(entry.directory, descriptor.executable),
-        ["--version", "--json"],
+        process.execPath,
+        [path.join(entry.directory, descriptor.executable), "--version", "--json"],
         { encoding: "utf8" }
       );
       return [artifactTarget, parseBuildIdentity(JSON.parse(stdout))] as const;
