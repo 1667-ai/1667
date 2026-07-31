@@ -54,7 +54,31 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
   assert.match(job("publish"), /^      id-token: write$/mu);
   assert.match(job("release"), /refs\/tags\/released\/v\$VERSION/u);
   for (const name of ["build", "publish"] as const) {
-    assert.match(job(name), /GITHUB_REF.*refs\/heads\/\$DEFAULT_BRANCH/u);
+    assert.match(job(name), /GITHUB_REF.*refs\/tags\/v\$VERSION/u);
+  }
+});
+
+test("the npm release dispatch binds to the signed tag commit", () => {
+  // A dispatch on the default branch takes GITHUB_SHA from the branch tip, so a
+  // merge after the maintainer signs the tag moves the source commit. The
+  // dispatch ref is the signed tag, which no later merge can move.
+  assert.match(WORKFLOW, /The dispatch ref must be the\n\s+signed v<version> tag\./u);
+  for (const name of ["build", "publish"] as const) {
+    const body = job(name);
+    assert.match(body, /VERSION: \$\{\{ inputs\.version \}\}/u);
+    assert.match(body, /if \[ "\$GITHUB_REF" != "refs\/tags\/v\$VERSION" \]; then/u);
+  }
+  assert.doesNotMatch(WORKFLOW, /"\$GITHUB_REF" != "refs\/heads\//u);
+  // Reachability from the protected default branch is now the only control that
+  // keeps an unmerged tag out of a release, so every job that collects source
+  // evidence must fetch that branch.
+  for (const name of ["build", "launcher", "preflight", "publish", "release"] as const) {
+    const body = job(name);
+    assert.match(body, /release-evidence\.ts/u);
+    assert.match(
+      body,
+      /\+refs\/heads\/\$DEFAULT_BRANCH:refs\/remotes\/origin\/\$DEFAULT_BRANCH/u
+    );
   }
 });
 

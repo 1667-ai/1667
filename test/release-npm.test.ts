@@ -48,9 +48,20 @@ import {
 const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
-const SOURCE_REF = "refs/heads/main";
+const SOURCE_REF = `refs/tags/v${VERSION}`;
 const WORKFLOW = ".github/workflows/release-npm.yml";
 const REPOSITORY = "https://github.com/1667-ai/1667";
+// The signing certificate identity holds SOURCE_REF, so this fixture changes
+// whenever that ref changes. Regenerate it with:
+//
+//   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+//     -keyout key.pem -out cert.pem -days 3650 \
+//     -subj "/CN=1667 release test fixture" \
+//     -addext "subjectAltName=URI:$REPOSITORY/$WORKFLOW@$SOURCE_REF"
+//   openssl x509 -in cert.pem -outform DER | openssl base64 -A
+//
+// The validator reads the subject alternative name only, so a self-signed
+// certificate is enough. The encoding must stay canonical single-line base64.
 const PROVENANCE_CERTIFICATE = readFileSync(
   new URL("fixtures/npm-provenance-certificate.base64", import.meta.url),
   "utf8"

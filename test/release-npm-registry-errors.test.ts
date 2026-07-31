@@ -23,7 +23,7 @@ import { RELEASE_LAUNCHER_PACKAGE } from "../shared/release-targets.js";
 
 const VERSION = "1.2.3";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
-const SOURCE_REF = "refs/heads/main";
+const SOURCE_REF = `refs/tags/v${VERSION}`;
 const PROVENANCE_CERTIFICATE = readFileSync(
   new URL("fixtures/npm-provenance-certificate.base64", import.meta.url),
   "utf8"

@@ -42,7 +42,7 @@ const PRE_VERSION = "1.2.3-rc.1";
 const REPOSITORY = "1667-ai/1667";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
-const SOURCE_REF = "refs/heads/main";
+const SOURCE_REF = `refs/tags/v${VERSION}`;
 const execFileAsync = promisify(execFile);
 const GITHUB_RELEASE_CLI = fileURLToPath(
   new URL("../scripts/release-npm-github.ts", import.meta.url)

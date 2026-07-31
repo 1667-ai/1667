@@ -167,6 +167,9 @@ async function run(command: "publish" | "verify", argv: readonly string[]): Prom
   if (sourceSha !== publication.manifest.sourceCommit) {
     throw new Error("GitHub source commit differs from the release artifact manifest");
   }
+  if (sourceRef !== `refs/tags/v${publication.manifest.productVersion}`) {
+    throw new Error("GitHub source ref is not the signed tag for the released version");
+  }
   const registry = new NpmReleaseRegistry({
     npm: { npmCli, nodeExecutable },
     sourceCommit: sourceSha,

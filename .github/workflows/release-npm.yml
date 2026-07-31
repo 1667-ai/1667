@@ -7,8 +7,8 @@ on:
     inputs:
       version:
         description: >-
-          Version to publish without a leading v. The signed v<version> tag
-          must point at the dispatch commit.
+          Version to publish without a leading v. The dispatch ref must be the
+          signed v<version> tag.
         required: true
         type: string
 
@@ -80,13 +80,17 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Refuse a dispatch outside the default branch
+      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
+      # commit. A merge to the default branch cannot move it after a maintainer
+      # signs the tag. release-evidence.ts still refuses a commit that is not
+      # reachable from the protected default branch.
+      - name: Refuse a dispatch that is not the signed release tag
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
-            echo "::error::npm release dispatch must use refs/heads/$DEFAULT_BRANCH"
+          if [ "$GITHUB_REF" != "refs/tags/v$VERSION" ]; then
+            echo "::error::npm release dispatch must use refs/tags/v$VERSION"
             exit 1
           fi
 
@@ -97,10 +101,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -202,10 +210,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -367,10 +379,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -488,13 +504,17 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - name: Refuse a dispatch outside the default branch
+      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
+      # commit. A merge to the default branch cannot move it after a maintainer
+      # signs the tag. release-evidence.ts still refuses a commit that is not
+      # reachable from the protected default branch.
+      - name: Refuse a dispatch that is not the signed release tag
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
-            echo "::error::npm release dispatch must use refs/heads/$DEFAULT_BRANCH"
+          if [ "$GITHUB_REF" != "refs/tags/v$VERSION" ]; then
+            echo "::error::npm release dispatch must use refs/tags/v$VERSION"
             exit 1
           fi
 
@@ -505,10 +525,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -619,10 +643,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node

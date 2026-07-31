@@ -300,9 +300,20 @@ rejects package identities that do not agree with the source evidence.
 Trusted Publishing trusts this exact workflow path for the five release
 packages.
 
-The workflow accepts a manual dispatch from the default branch. The input is
-one version without a leading `v`. The signed `v<version>` tag must target the
-dispatch commit.
+The workflow accepts a manual dispatch on the signed `v<version>` tag. The input
+is one version without a leading `v`. The dispatch ref must be
+`refs/tags/v<version>`. The workflow refuses every other ref.
+
+Dispatch the workflow with this command:
+
+```sh
+gh workflow run release-npm.yml --ref "v<version>" -f version=<version>
+```
+
+The tag commit is the release source commit. A merge to the default branch
+cannot change that commit after a maintainer signs the tag. The workflow refuses
+a release commit that the default branch cannot reach. The completion and replay
+records also bind to that one commit.
 
 The workflow has these jobs:
 
