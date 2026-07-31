@@ -21,6 +21,7 @@ import {
 } from "../shared/release-targets.js";
 import {
   exactRecord,
+  isExecutableFile,
   sha256Digest
 } from "./release-boundary-validation.js";
 import { MAX_RELEASE_TARBALL_FILE_BYTES } from "./release-package-policy.js";
@@ -53,7 +54,7 @@ export async function observeReleaseExecutable(
   artifactTarget: PublishedArtifactTarget,
   executable: string
 ): Promise<ReleaseExecutableObservation> {
-  const file = boundedExecutable(executable, artifactTarget);
+  const file = boundedExecutable(executable);
   const { stdout, stderr } = await execFileAsync(file, ["--version", "--json"], {
     encoding: "utf8",
     env: {
@@ -132,18 +133,12 @@ function releaseBuildIdentity(
   return identity;
 }
 
-function boundedExecutable(
-  value: string,
-  artifactTarget: PublishedArtifactTarget
-): string {
+function boundedExecutable(value: string): string {
   const file = realpathSync(value);
   const stat = lstatSync(file);
-  // NTFS does not expose POSIX execute bits through Node. Windows executable
-  // identity and the native process launch provide the executable check.
-  const requiresExecutableMode = artifactTarget !== "windows-x64";
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0
     || stat.size > MAX_RELEASE_TARBALL_FILE_BYTES
-    || (requiresExecutableMode && (stat.mode & 0o111) === 0)) {
+    || !isExecutableFile(file, stat.mode)) {
     throw new Error("Release executable must be a bounded executable file");
   }
   return file;

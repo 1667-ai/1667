@@ -30,6 +30,7 @@ import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
 import { smokeInstalledDefaultData } from "./standalone-smoke-install.js";
 import { smokeWindowsNpmPackage } from "./standalone-smoke-package.js";
 import {
+  StandaloneSmokeTimeout,
   removeSmokeTree,
   runStandalone
 } from "./standalone-smoke-process.js";
@@ -305,13 +306,21 @@ async function smokePromptTokenizer(
       `Compiled prompt-tokenizer smoke failed to build: ${result.logs.join("\n")}`
     );
   }
-  const smoke = await runStandalone(
-    executable,
-    [],
-    directory,
-    environment,
-    timeoutMs
-  );
+  // A scanner holding a freshly compiled executable presents as a timeout on
+  // the first launch and clears by the second. That hang is what pulled
+  // windows-x64 out of the matrix before. Retry once, and only on a timeout, so
+  // a real failure still fails on the first attempt.
+  const launch = async () =>
+    await runStandalone(executable, [], directory, environment, timeoutMs);
+  let smoke: Awaited<ReturnType<typeof launch>>;
+  try {
+    smoke = await launch();
+  } catch (error) {
+    if (!(error instanceof StandaloneSmokeTimeout) || process.platform !== "win32") {
+      throw error;
+    }
+    smoke = await launch();
+  }
   if (smoke.exitCode !== 0) {
     throw new Error(
       `Compiled prompt-tokenizer smoke failed (${smoke.exitCode}): ${smoke.stderr.trim()}`

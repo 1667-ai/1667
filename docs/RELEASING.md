@@ -511,6 +511,11 @@ Background update checks stay notify-only. They never install a Candidate.
 The homepage must serve bytes that match one attested channel Installer for the
 promoted release.
 
+Do not advertise an Installer command before the homepage serves that route.
+`https://1667.ai/install.ps1` stays absent until a promotion sets
+`powershellInstallerSha256`. Complete the release and the promotion first. Then
+advertise the PowerShell Installer command.
+
 ## End-to-end release gate
 
 Verify both Installers and the applicable upgrade path before you change the
@@ -584,7 +589,9 @@ downloaded script to PowerShell. It verifies these cases:
 5. The Installer keeps the `installationId` value during an upgrade.
 6. The Installer does not replace an unmanaged executable.
 7. The Installer rejects an incorrect SHA-256 digest.
-8. The Installer rejects an incorrect build identity.
+8. A new attempt succeeds in a root where an attempt failed before.
+9. The Installer refuses a root that holds a file it does not own.
+10. The Installer rejects an incorrect build identity.
 
 ## GitHub pre-release of native archives
 

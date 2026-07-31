@@ -27,7 +27,7 @@ import {
   canonicalTxnBytes,
   digestsFor,
   execFileAsync,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   sha256File,
   writeFakeArchive,
   writePublishedArchives
@@ -194,9 +194,9 @@ test(
   const root = await mkdtemp(path.join(homeScratch, "install-strict-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const detectedTarget = hostPublishedTarget();
+  const detectedTarget = hostShellInstallerTarget();
   if (detectedTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
   const hostTarget: BuiltArtifactTarget = detectedTarget;
@@ -426,9 +426,9 @@ test("recovery removes exact extract staging and keeps unrelated paths", async (
   const root = await mkdtemp(path.join(homeScratch, "install-extract-stage-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 

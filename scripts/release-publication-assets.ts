@@ -7,8 +7,10 @@ import {
 } from "../shared/release-targets.js";
 import { releaseArchiveFileName } from "./release-archive.js";
 import {
+  INSTALLER_KINDS,
   installScriptChannelsForVersion,
-  installScriptFileName
+  installScriptFileName,
+  installerTargets
 } from "./release-install-script.js";
 
 /**
@@ -76,10 +78,11 @@ export function expectedLauncherPackageFileCount(version: string): number {
 }
 
 export function expectedInstallerNames(version: string): readonly string[] {
-  return installScriptChannelsForVersion(version).flatMap((channel) => [
-    installScriptFileName(channel),
-    installScriptFileName(channel, "powershell")
-  ]);
+  return installScriptChannelsForVersion(version).flatMap((channel) => {
+    return INSTALLER_KINDS
+      .filter((kind) => installerTargets(kind.id).length > 0)
+      .map((kind) => installScriptFileName(channel, kind.id));
+  });
 }
 
 export function isPrereleaseVersion(version: string): boolean {

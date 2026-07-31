@@ -11,6 +11,7 @@ import {
 } from "../../shared/build-identity.js";
 import {
   INSTALL_OWNERSHIP_FILE,
+  RECORD_KEYS,
   parseInstallOwnershipRecordText,
   serializeInstallOwnershipRecord,
   type InstallChannel,
@@ -113,16 +114,7 @@ function resolvePowerShellInstallationAuthority(
     }
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record).sort();
-    const expected = [
-      "artifactTarget",
-      "channel",
-      "executable",
-      "installRoot",
-      "installationId",
-      "method",
-      "product",
-      "schemaVersion"
-    ];
+    const expected = [...RECORD_KEYS].sort();
     if (keys.length !== expected.length
       || keys.some((key, index) => key !== expected[index])) {
       return { kind: "manual" };

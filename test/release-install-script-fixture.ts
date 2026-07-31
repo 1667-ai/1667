@@ -11,7 +11,10 @@ import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import type { BuiltArtifactTarget } from "../shared/release-targets.js";
 import { releaseArchiveFileName, releaseArchiveStem } from "../scripts/release-archive.js";
 import { releaseArchiveMemberPaths } from "../scripts/release-archive-layout.js";
-import { releaseTargetForArtifact } from "../shared/release-targets.js";
+import {
+  releaseTargetForArtifact,
+  releaseTargetForRuntime
+} from "../shared/release-targets.js";
 import {
   ustarArchive,
   writeUstarGzipArchive,
@@ -30,12 +33,18 @@ export const INSTALL_VERSION = "1.2.3";
 export const INSTALL_PRE_VERSION = "1.2.3-rc.1";
 export const INSTALL_REPO = "1667-ai/1667";
 
-export function hostPublishedTarget(): BuiltArtifactTarget | null {
-  if (process.platform === "darwin" && process.arch === "arm64") return "darwin-arm64";
-  if (process.platform === "darwin" && process.arch === "x64") return "darwin-x64";
-  if (process.platform === "linux" && process.arch === "arm64") return "linux-arm64";
-  if (process.platform === "linux" && process.arch === "x64") return "linux-x64";
-  return null;
+/**
+ * The published target whose Release Archive this host can install with the
+ * Shell Installer. Derived rather than listed, so a new or held target cannot
+ * leave a stale copy behind. Windows is excluded because the Shell Installer is
+ * POSIX-only, not because windows-x64 is unpublished - the PowerShell Installer
+ * end-to-end test in release-install-powershell.test.ts covers that host.
+ */
+export function hostShellInstallerTarget(): BuiltArtifactTarget | null {
+  if (process.platform === "win32") return null;
+  const descriptor = releaseTargetForRuntime(process.platform, process.arch);
+  if (descriptor === null || descriptor.heldFromPublication !== null) return null;
+  return descriptor.artifactTarget;
 }
 
 export function digestsFor(version: string) {

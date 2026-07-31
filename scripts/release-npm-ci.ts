@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { isExecutableFile } from "./release-boundary-validation.js";
 import { RELEASE_TAG_REF } from "./release-evidence-inspection.js";
 
 const execFileAsync = promisify(execFile);
@@ -145,9 +146,8 @@ async function runGh(
     throw new Error("GitHub CLI must use an absolute path");
   }
   const stat = lstatSync(executable);
-  // Node reports no POSIX execute bits for gh.exe on NTFS.
   if (!stat.isFile() || stat.isSymbolicLink()
-    || (process.platform !== "win32" && (stat.mode & 0o111) === 0)) {
+    || !isExecutableFile(executable, stat.mode)) {
     throw new Error("GitHub CLI must be an absolute executable file");
   }
   const gh = realpathSync(executable);

@@ -210,48 +210,18 @@ export async function smokeWindowsNpmPackage(
       + render.stderr.trim()
     );
   }
-  await smokePowerShellUpgradeFallback(
-    runEntry,
-    installedExecutable,
-    installRoot,
-    environment
-  );
+  // The PowerShell upgrade refusal is not smoked here. An npm installation is
+  // never PowerShell-managed, so reaching that branch meant writing an Ownership
+  // Record the PowerShell Installer would never put in a package directory, and
+  // leaving it there for the state-root smoke that runs next. The real path is
+  // covered end to end in test/release-install-powershell.test.ts and at the
+  // contract level in tui/test/upgrade-cli.test.ts.
   if (process.env[DEFAULT_STATE_SMOKE_VARIABLE] === "1") {
     await smokeDefaultWindowsStateRoot(runEntry, installRoot, environment);
   }
   return createHash("sha256")
     .update(await readFile(installedExecutable))
     .digest("hex");
-}
-
-async function smokePowerShellUpgradeFallback(
-  runEntry: RunEntry,
-  installedExecutable: string,
-  cwd: string,
-  environment: Record<string, string>
-): Promise<void> {
-  const executable = await realpath(installedExecutable);
-  const managedRoot = path.dirname(executable);
-  await writeJson(path.join(managedRoot, INSTALL_OWNERSHIP_FILE), {
-    schemaVersion: 1,
-    product: "1667",
-    installationId: "0".repeat(32),
-    method: "powershell",
-    channel: "stable",
-    installRoot: managedRoot,
-    executable,
-    artifactTarget: WINDOWS_TARGET.artifactTarget
-  });
-  const rollback = await runEntry(["upgrade", "--rollback", "--json"], cwd, environment);
-  const output = `${rollback.stdout}${rollback.stderr}`;
-  if (rollback.exitCode !== 1
-    || !output.includes('"method":"powershell"')
-    || !output.includes('"code":"unsupported_target"')
-    || !output.includes("https://1667.ai/install.ps1")) {
-    throw new Error(
-      `Windows upgrade fallback smoke failed (${rollback.exitCode}): ${output.trim()}`
-    );
-  }
 }
 
 async function smokeDefaultWindowsStateRoot(

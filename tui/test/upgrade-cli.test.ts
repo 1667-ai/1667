@@ -183,13 +183,19 @@ test("manual current releases do not recommend a redundant reinstall", async () 
   expect(result.stdout).not.toContain("Instructions:");
 });
 
-test("PowerShell installs return the rerunnable Windows Installer command", async () => {
-  const authority = {
+const POWERSHELL_ROOT = "C:\\Users\\writer\\AppData\\Local\\Programs\\1667\\bin";
+
+function powershellAuthority(channel: "stable" | "beta") {
+  return {
     kind: "powershell" as const,
-    channel: "beta" as const,
-    installRoot: "C:\\Users\\writer\\AppData\\Local\\Programs\\1667\\bin",
-    executable: "C:\\Users\\writer\\AppData\\Local\\Programs\\1667\\bin\\1667.exe"
+    channel,
+    installRoot: POWERSHELL_ROOT,
+    executable: `${POWERSHELL_ROOT}\\1667.exe`
   };
+}
+
+test("PowerShell installs return the rerunnable Windows Installer command", async () => {
+  const authority = powershellAuthority("stable");
   const checked = await executeUpgradeCli(["--check", "--json"], {
     observation,
     authority,
@@ -197,12 +203,12 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
   });
   expect(JSON.parse(checked.stdout)).toMatchObject({
     status: "manual",
-    channel: "beta",
+    channel: "stable",
     method: "powershell",
     command: WINDOWS_INSTALL_COMMAND
   });
 
-  const applied = await executeUpgradeCli(["--channel", "stable"], {
+  const applied = await executeUpgradeCli([], {
     observation,
     authority,
     registry: fakeRegistry("2.0.0")
@@ -218,6 +224,33 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
   });
   expect(rollback.exitCode).toBe(1);
   expect(rollback.stderr).toContain(WINDOWS_INSTALL_COMMAND);
+});
+
+// https://1667.ai/install.ps1 serves the one promoted release. Handing it to a
+// beta Installation would verify a beta version and then install the stable
+// one, rewriting the Ownership Record to the wrong channel.
+test("a channel the Windows Installer route cannot serve is refused", async () => {
+  const authority = powershellAuthority("beta");
+  const checked = await executeUpgradeCli(["--check", "--json"], {
+    observation,
+    authority,
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(checked.exitCode).toBe(1);
+  const envelope = JSON.parse(checked.stdout);
+  expect(envelope.status).toBe("error");
+  expect(envelope.error.code).toBe("unsupported_target");
+  expect(envelope.error.message).toContain("install-beta.ps1");
+  expect(checked.stdout).not.toContain(WINDOWS_INSTALL_COMMAND);
+
+  const requested = await executeUpgradeCli(["--channel", "beta"], {
+    observation,
+    authority: powershellAuthority("stable"),
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(requested.exitCode).toBe(1);
+  expect(requested.stderr).toContain("install-beta.ps1");
+  expect(requested.stderr).not.toContain(WINDOWS_INSTALL_COMMAND);
 });
 
 test("help is local and performs no registry I/O", async () => {

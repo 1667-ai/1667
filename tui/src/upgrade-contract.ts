@@ -21,6 +21,7 @@ export interface UpgradeError {
 interface UpgradeEnvelopeBase {
   method: UpgradeMethod;
   restartRequired: boolean;
+  /** Only a PowerShell Installation reports a command. See UpgradeManualEnvelope. */
   command: string | null;
 }
 
@@ -37,12 +38,26 @@ export interface UpgradeUpToDateEnvelope extends UpgradeSuccessEnvelopeBase {
   restartRequired: false;
 }
 
-export interface UpgradeManualEnvelope extends UpgradeSuccessEnvelopeBase {
-  status: "manual";
-  method: "manual" | "powershell";
-  target: string;
-  restartRequired: false;
-}
+/**
+ * A read-only plan. A PowerShell Installation always carries the command that
+ * applies it; every other manual Installation never does. The two cases are
+ * separate members so the pairing cannot be built wrong.
+ */
+export type UpgradeManualEnvelope =
+  | (UpgradeSuccessEnvelopeBase & {
+      status: "manual";
+      method: "manual";
+      command: null;
+      target: string;
+      restartRequired: false;
+    })
+  | (UpgradeSuccessEnvelopeBase & {
+      status: "manual";
+      method: "powershell";
+      command: string;
+      target: string;
+      restartRequired: false;
+    });
 
 export interface UpgradeAvailableEnvelope extends UpgradeSuccessEnvelopeBase {
   status: "available";
@@ -102,8 +117,16 @@ export function upgradeEnvelope(
         latest: string;
         target: string;
         channel: UpgradeChannel;
-        method?: "manual" | "powershell";
-        command?: string;
+        method: "manual";
+      }
+    | {
+        status: "manual";
+        current: string;
+        latest: string;
+        target: string;
+        channel: UpgradeChannel;
+        method: "powershell";
+        command: string;
       }
     | {
         status: "available";
@@ -147,17 +170,31 @@ export function upgradeEnvelope(
     };
   }
   if (values.status === "manual") {
-    return {
-      status: "manual",
-      current: values.current,
-      latest: values.latest,
-      target: values.target,
-      channel: values.channel,
-      method: values.method ?? "manual",
-      restartRequired: false,
-      command: values.command ?? null,
-      error: null
-    };
+    // Field order is the wire contract. Build each member in full rather than
+    // spreading a shared prefix, which reorders the optional tail.
+    return values.method === "powershell"
+      ? {
+          status: "manual",
+          current: values.current,
+          latest: values.latest,
+          target: values.target,
+          channel: values.channel,
+          method: "powershell",
+          restartRequired: false,
+          command: values.command,
+          error: null
+        }
+      : {
+          status: "manual",
+          current: values.current,
+          latest: values.latest,
+          target: values.target,
+          channel: values.channel,
+          method: "manual",
+          restartRequired: false,
+          command: null,
+          error: null
+        };
   }
   return {
     status: "up-to-date",

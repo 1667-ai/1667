@@ -32,7 +32,7 @@ import {
   canonicalTxnBytes,
   digestsFor,
   execFileAsync,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   releaseStub,
   sha256File,
   writeFakeArchive,
@@ -42,7 +42,7 @@ import {
 test("install script channels require stable only for non-prerelease versions", () => {
   assert.deepEqual(installScriptChannelsForVersion(INSTALL_VERSION), ["beta", "stable"]);
   assert.deepEqual(installScriptChannelsForVersion(INSTALL_PRE_VERSION), ["beta"]);
-  assert.equal(installScriptFileName("beta"), "install-beta.sh");
+  assert.equal(installScriptFileName("beta", "shell"), "install-beta.sh");
   assert.equal(installScriptFileName("beta", "powershell"), "install-beta.ps1");
   assert.throws(
     () => renderInstallScript({
@@ -113,8 +113,8 @@ test("generated install scripts embed exact digests and never resolve latest", (
 
 test("Shell Installer rejects filesystem root --prefix before dry-run", async (t) => {
   // dry-run only: proves rejection without any Install Root mutation at /.
-  if (hostPublishedTarget() === null) {
-    t.skip("Host is not a published release target");
+  if (hostShellInstallerTarget() === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
   const homeScratch = path.join(homedir(), ".cache", "1667-tests");
@@ -155,8 +155,8 @@ test("Shell Installer rejects filesystem root --prefix before dry-run", async (t
 });
 
 test("Shell Installer rejects empty --prefix forms and keeps default without flag", async (t) => {
-  if (hostPublishedTarget() === null) {
-    t.skip("Host is not a published release target");
+  if (hostShellInstallerTarget() === null) {
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
   const homeScratch = path.join(homedir(), ".cache", "1667-tests");
@@ -205,9 +205,9 @@ test("Shell Installer rejects directory Ownership Record destination and verifie
   const root = await mkdtemp(path.join(homeScratch, "install-own-dir-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -295,9 +295,9 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   const root = await mkdtemp(path.join(homeScratch, "install-script-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 

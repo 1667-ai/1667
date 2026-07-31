@@ -26,7 +26,7 @@ import {
   INSTALL_VERSION,
   digestsFor,
   execFileAsync,
-  hostPublishedTarget
+  hostShellInstallerTarget
 } from "./release-install-script-fixture.js";
 import { acquireInstallationLock } from "../tui/src/install-lock.js";
 
@@ -320,9 +320,9 @@ test("cleanup removes staging under lock before release so successor staging sur
 });
 
 test("generated installer refuses nonregular lock path", async (t) => {
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
   if (!platformLockSupported()) {

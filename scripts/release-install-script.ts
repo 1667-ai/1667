@@ -26,6 +26,28 @@ import { powershellInstallerBody } from "./release-install-powershell-body.js";
 export const INSTALL_SCRIPT_CHANNELS = ["stable", "beta"] as const;
 export type InstallScriptChannel = InstallChannel;
 
+/**
+ * One Installer kind per host family. `covers` selects the published targets the
+ * kind installs, so a target that returns to `heldFromPublication` empties its
+ * kind's slice instead of failing the render. A kind with no published target
+ * produces no Installer at all.
+ */
+export const INSTALLER_KINDS = Object.freeze([
+  Object.freeze({ id: "shell" as const, extension: "sh", windows: false }),
+  Object.freeze({ id: "powershell" as const, extension: "ps1", windows: true })
+]);
+
+export type InstallerKind = (typeof INSTALLER_KINDS)[number]["id"];
+
+export function installerTargets(
+  kind: InstallerKind
+): readonly PublishedArtifactTarget[] {
+  const wantsWindows = kind === "powershell";
+  return PUBLISHED_ARTIFACT_TARGETS.filter((target) => {
+    return (releaseTargetForArtifact(target).platform === "win32") === wantsWindows;
+  });
+}
+
 export interface ReleaseArchiveDigest {
   readonly target: PublishedArtifactTarget;
   readonly fileName: string;
@@ -51,9 +73,11 @@ export function installScriptChannelsForVersion(version: string): readonly Insta
 
 export function installScriptFileName(
   channel: InstallScriptChannel,
-  kind: "shell" | "powershell" = "shell"
+  kind: InstallerKind
 ): string {
-  return `install-${channel}.${kind === "shell" ? "sh" : "ps1"}`;
+  const descriptor = INSTALLER_KINDS.find((entry) => entry.id === kind);
+  if (descriptor === undefined) throw new Error(`Unknown Installer kind ${kind}`);
+  return `install-${channel}.${descriptor.extension}`;
 }
 
 export function normalizeArchiveDigests(
@@ -88,7 +112,19 @@ export function normalizeArchiveDigests(
   return Object.freeze(archives);
 }
 
-export function renderInstallScript(input: RenderInstallScriptInput): string {
+/**
+ * The checks every Installer kind shares. It returns the validated archive map
+ * and the published targets the kind covers, so each renderer holds only the
+ * part that differs between shell and PowerShell.
+ */
+function validatedInstallerInput(
+  input: RenderInstallScriptInput,
+  kind: InstallerKind
+): {
+  readonly byTarget: ReadonlyMap<PublishedArtifactTarget, ReleaseArchiveDigest>;
+  readonly targets: readonly PublishedArtifactTarget[];
+} {
+  const name = installScriptFileName(input.channel, kind);
   if (!isSemVer(input.version)) {
     throw new Error(`Install script needs a SemVer version, not ${input.version}`);
   }
@@ -96,7 +132,7 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
     throw new Error("Install script channel must be stable or beta");
   }
   if (input.channel === "stable" && parseSemVer(input.version)!.prerelease.length > 0) {
-    throw new Error("install-stable.sh is only valid for a non-prerelease version");
+    throw new Error(`${name} is only valid for a non-prerelease version`);
   }
   if (!REPOSITORY.test(input.repository)) {
     throw new Error("Install script repository is invalid");
@@ -104,19 +140,20 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
   if (input.archives.length !== PUBLISHED_ARTIFACT_TARGETS.length) {
     throw new Error("Install script must cover every published release target");
   }
-  const byTarget = validatedArchiveMap(input.archives, input.version);
+  const targets = installerTargets(kind);
+  if (targets.length === 0) {
+    throw new Error(`${name} has no published release target`);
+  }
+  return { byTarget: validatedArchiveMap(input.archives, input.version), targets };
+}
+
+export function renderInstallScript(input: RenderInstallScriptInput): string {
+  const { byTarget, targets } = validatedInstallerInput(input, "shell");
   const digestLines: string[] = [];
   const nameLines: string[] = [];
-  const targets = PUBLISHED_ARTIFACT_TARGETS.filter((target) => {
-    return releaseTargetForArtifact(target).platform !== "win32";
-  });
   for (const target of targets) {
     const archive = byTarget.get(target);
     if (archive === undefined) throw new Error(`Install script is missing ${target}`);
-    if (archive.fileName !== releaseArchiveFileName(input.version, target)) {
-      throw new Error(`Install script archive name is wrong for ${target}`);
-    }
-    sha256Digest(archive.sha256, archive.fileName);
     digestLines.push(`    ${target}) digest='${archive.sha256}' ;;`);
     nameLines.push(`    ${target}) archive='${archive.fileName}' ;;`);
   }
@@ -143,30 +180,13 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
 }
 
 export function renderPowerShellInstallScript(input: RenderInstallScriptInput): string {
-  if (!isSemVer(input.version)) {
-    throw new Error(`PowerShell installer needs a SemVer version, not ${input.version}`);
+  const { byTarget, targets } = validatedInstallerInput(input, "powershell");
+  if (targets.length !== 1) {
+    throw new Error("The PowerShell Installer covers exactly one release target");
   }
-  if (input.channel !== "stable" && input.channel !== "beta") {
-    throw new Error("PowerShell installer channel must be stable or beta");
-  }
-  if (input.channel === "stable" && parseSemVer(input.version)!.prerelease.length > 0) {
-    throw new Error("install-stable.ps1 is only valid for a non-prerelease version");
-  }
-  if (!REPOSITORY.test(input.repository)) {
-    throw new Error("PowerShell installer repository is invalid");
-  }
-  if (input.archives.length !== PUBLISHED_ARTIFACT_TARGETS.length) {
-    throw new Error("PowerShell installer must cover every published release target");
-  }
-  const byTarget = validatedArchiveMap(input.archives, input.version);
-  const windowsTargets = PUBLISHED_ARTIFACT_TARGETS.filter((target) => {
-    return releaseTargetForArtifact(target).platform === "win32";
-  });
-  if (windowsTargets.length !== 1 || windowsTargets[0] !== "windows-x64") {
-    throw new Error("PowerShell installer requires the published windows-x64 target");
-  }
-  const target = windowsTargets[0];
-  const archive = byTarget.get(target)!;
+  const target = targets[0]!;
+  const archive = byTarget.get(target);
+  if (archive === undefined) throw new Error(`Install script is missing ${target}`);
   const stem = releaseArchiveStem(input.version, target);
   const archiveEntries = releaseArchiveMemberRelPaths(target, input.version).map((entry) => {
     return entry === "" ? `${stem}/` : `${stem}/${entry}`;
@@ -179,6 +199,7 @@ export function renderPowerShellInstallScript(input: RenderInstallScriptInput): 
     assetBase: assertSafeAssetBaseUrl(input.assetBaseUrl ?? defaultBase),
     archive: archive.fileName,
     digest: archive.sha256,
+    stem,
     archiveEntries
   });
 }
@@ -264,8 +285,14 @@ export function renderInstallScriptsForVersion(input: {
       archives,
       assetBaseUrl: input.assetBaseUrl
     };
-    out[installScriptFileName(channel)] = renderInstallScript(values);
-    out[installScriptFileName(channel, "powershell")] = renderPowerShellInstallScript(values);
+    for (const kind of INSTALLER_KINDS) {
+      // A held target empties its kind. The release then carries the Installers
+      // it can honor, rather than none at all.
+      if (installerTargets(kind.id).length === 0) continue;
+      out[installScriptFileName(channel, kind.id)] = kind.id === "shell"
+        ? renderInstallScript(values)
+        : renderPowerShellInstallScript(values);
+    }
   }
   return Object.freeze(out);
 }

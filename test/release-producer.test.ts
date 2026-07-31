@@ -373,7 +373,9 @@ test("staging and batch packing do not publish partial output", async (t) => {
 });
 
 test("staging refuses an existing package path without following it", async (t) => {
-  const windows = releaseTargetForArtifact("windows-x64");
+  // Any published target drives this. Naming one couples the test to the
+  // publication state of that target rather than to what it checks.
+  const windows = releaseTargetForArtifact(PUBLISHED_ARTIFACT_TARGETS[0]!);
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-existing-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const executable = path.join(root, path.posix.basename(windows.executable));
@@ -395,7 +397,7 @@ test("staging refuses an existing package path without following it", async (t) 
 });
 
 test("release pack cannot run package lifecycle scripts", async (t) => {
-  const windows = releaseTargetForArtifact("windows-x64");
+  const windows = releaseTargetForArtifact(PUBLISHED_ARTIFACT_TARGETS[0]!);
   const root = await mkdtemp(path.join(tmpdir(), "1667-release-lifecycle-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const executable = path.join(root, path.posix.basename(windows.executable));

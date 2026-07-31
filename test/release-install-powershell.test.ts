@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
 import { releaseArchiveFileName } from "../scripts/release-archive.js";
+import { INSTALL_LOCK_FILE } from "../shared/install-layout.js";
 import {
   renderPowerShellInstallScript,
   type ReleaseArchiveDigest
@@ -104,8 +105,28 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
     "0".repeat(64)
   );
   assets.set(`/bad-digest/${v2.archiveName}`, v2.archive);
-  await assert.rejects(runInstaller(badDigest, path.join(scratch, "bad-digest")), (error: unknown) => {
+  const retryRoot = path.join(scratch, "bad-digest");
+  await assert.rejects(runInstaller(badDigest, retryRoot), (error: unknown) => {
     return /SHA-256 digest did not match/iu.test(errorText(error));
+  });
+
+  // The failed attempt above took the Install Root lock, and closing the handle
+  // does not remove the lock file. A root holding only what the Installer itself
+  // left behind is still fresh, so the next attempt must install rather than
+  // refuse the root forever.
+  assert.ok(
+    (await readdir(retryRoot)).includes(INSTALL_LOCK_FILE),
+    "the failed attempt leaves its lock file in the Install Root"
+  );
+  const retried = await runInstaller(v1.url, retryRoot);
+  assert.match(retried.stdout, /Installed 1667 1\.2\.3 \(stable\)/u);
+  assert.equal(await installedVersion(retryRoot), "1.2.3");
+
+  const foreignRoot = path.join(scratch, "foreign");
+  await mkdir(foreignRoot);
+  await writeFile(path.join(foreignRoot, "notes.txt"), "not ours\n");
+  await assert.rejects(runInstaller(v1.url, foreignRoot), (error: unknown) => {
+    return /Fresh Install Root is not empty/iu.test(errorText(error));
   });
 
   const wrongIdentityExe = await compileFixture(

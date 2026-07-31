@@ -170,11 +170,11 @@ async function dispatchUpgradeCommand(
   switch (command.kind) {
     case "rollback": {
       if (authority.kind === "powershell") {
+        requireServableWindowsChannel(authority.channel);
         throw new UpgradeFailure(
           "unsupported_target",
-          `Windows rollback is unavailable. Exit 1667, then run: ${windowsInstallCommand(
-            authority.channel
-          )}`
+          "Windows rollback is unavailable. Exit 1667, then run: "
+          + WINDOWS_INSTALL_COMMAND
         );
       }
       if (authority.kind !== "shell") {
@@ -196,6 +196,7 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
+      if (method === "powershell") requireServableWindowsChannel(plan.channel);
       return publicEnvelopeFromPlan(plan, method);
     }
     case "apply": {
@@ -215,6 +216,7 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
+      if (method === "powershell") requireServableWindowsChannel(plan.channel);
       return publicEnvelopeFromPlan(plan, method);
     }
   }
@@ -247,17 +249,42 @@ export function publicEnvelopeFromPlan(
       channel: plan.channel
     });
   }
+  if (method === "powershell") {
+    return upgradeEnvelope({
+      status: "manual",
+      current: plan.current,
+      latest: plan.latest,
+      target: plan.target,
+      channel: plan.channel,
+      method: "powershell",
+      command: WINDOWS_INSTALL_COMMAND
+    });
+  }
   return upgradeEnvelope({
     status: "manual",
     current: plan.current,
     latest: plan.latest,
     target: plan.target,
     channel: plan.channel,
-    method,
-    ...(method === "powershell"
-      ? { command: windowsInstallCommand(plan.channel) }
-      : {})
+    method: "manual"
   });
+}
+
+/**
+ * `https://1667.ai/install.ps1` serves the one promoted release, which is the
+ * stable channel. A beta PowerShell Installation therefore cannot be pointed at
+ * it: the plan would verify a beta version and the command would install the
+ * stable one, then rewrite the Ownership Record to `stable`. Refuse instead, and
+ * name the attested asset that does carry the requested channel.
+ */
+function requireServableWindowsChannel(channel: UpgradeChannel): void {
+  if (channel === "stable") return;
+  throw new UpgradeFailure(
+    "unsupported_target",
+    `The Windows Installer route serves the stable channel only. `
+    + `Download and attest install-${channel}.ps1 from the GitHub release, `
+    + "then run it."
+  );
 }
 
 export async function runProcessUpgrade(
@@ -322,10 +349,10 @@ function renderUpgrade(
   }
   if (command.kind === "check") {
     if (envelope.status === "manual") {
-      if (envelope.command === null) {
-        lines.push("Run '1667 upgrade' for a fresh, exact read-only plan.");
-      } else {
+      if (envelope.method === "powershell") {
         lines.push("Exit 1667, then run:", envelope.command);
+      } else {
+        lines.push("Run '1667 upgrade' for a fresh, exact read-only plan.");
       }
     } else if (envelope.status === "available") {
       lines.push("Run '1667 upgrade' to apply the Candidate.");
@@ -337,7 +364,7 @@ function renderUpgrade(
   }
   lines.push("Verified metadata source: canonical npm registry.");
   if (envelope.status === "manual") {
-    if (envelope.command !== null) {
+    if (envelope.method === "powershell") {
       lines.push("Exit 1667, then run:");
       lines.push(envelope.command);
       return `${lines.join("\n")}\n`;
@@ -356,10 +383,6 @@ function authorityMethod(authority: InstallationAuthority): UpgradeMethod {
     : authority.kind === "powershell"
       ? "powershell"
       : "manual";
-}
-
-function windowsInstallCommand(_channel: UpgradeChannel): string {
-  return WINDOWS_INSTALL_COMMAND;
 }
 
 function instructionsUrl(version: string): string {

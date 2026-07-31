@@ -5,8 +5,15 @@ import {
   RELEASE_TRANSFER_CONNECT_TIMEOUT_MS,
   RELEASE_TRANSFER_TOTAL_TIMEOUT_MS
 } from "../shared/release-artifact-bounds.js";
-import { INSTALL_LOCK_FILE } from "../shared/install-layout.js";
-import { INSTALL_OWNERSHIP_FILE } from "../shared/install-ownership-record.js";
+import {
+  INSTALL_LOCK_FILE,
+  INSTALL_RESERVED_FRESH_NAMES,
+  INSTALL_WORK_PREFIX
+} from "../shared/install-layout.js";
+import {
+  INSTALL_OWNERSHIP_FILE,
+  RECORD_KEYS
+} from "../shared/install-ownership-record.js";
 
 const CONNECT_TIMEOUT = RELEASE_TRANSFER_CONNECT_TIMEOUT_MS;
 const READ_TIMEOUT = RELEASE_TRANSFER_TOTAL_TIMEOUT_MS;
@@ -18,11 +25,19 @@ export function powershellInstallerBody(input: {
   readonly assetBase: string;
   readonly archive: string;
   readonly digest: string;
+  readonly stem: string;
   readonly archiveEntries: readonly string[];
 }): string {
   const entries = input.archiveEntries
     .map((entry) => `  '${entry}'`)
     .join(",\n");
+  const reserved = INSTALL_RESERVED_FRESH_NAMES
+    .map((name) => `'${name}'`)
+    .join(", ");
+  const recordKeys = [...RECORD_KEYS]
+    .sort()
+    .map((key) => `'${key}'`)
+    .join(",");
   return `# 1667 PowerShell Installer - channel ${input.channel}, version ${input.version}
 # Generated release asset. Do not edit. Attest before you trust a local copy.
 [CmdletBinding()]
@@ -45,6 +60,12 @@ $ArtifactTarget = 'windows-x64'
 $ActiveName = '1667.exe'
 $OwnershipName = '${INSTALL_OWNERSHIP_FILE}'
 $LockName = '${INSTALL_LOCK_FILE}'
+$ArchiveStem = '${input.stem}'
+$WorkPrefix = '${INSTALL_WORK_PREFIX}'
+# A prior attempt that failed after it took the lock leaves these behind. They
+# belong to the Installer, so a root that holds only these is still fresh.
+$ReservedFreshNames = @(${reserved})
+$ReplaceFailureMessage = 'Could not replace 1667.exe. Close all running 1667 processes, then run this installer again.'
 $MaxArchiveBytes = ${MAX_RELEASE_ARTIFACT_GZIP_BYTES}
 $MaxExecutableBytes = ${MAX_RELEASE_EXECUTABLE_BYTES}
 $ConnectTimeoutMs = ${CONNECT_TIMEOUT}
@@ -117,7 +138,7 @@ function Read-InstallRecord([string]$RecordPath, [string]$Root, [string]$Executa
   try { $record = [IO.File]::ReadAllText($RecordPath) | ConvertFrom-Json }
   catch { Fail 'Ownership Record is invalid.' }
   $names = @($record.PSObject.Properties.Name | Sort-Object)
-  $expected = @('artifactTarget','channel','executable','installRoot','installationId','method','product','schemaVersion')
+  $expected = @(${recordKeys})
   if (($names -join ',') -cne (($expected | Sort-Object) -join ',')) { Fail 'Ownership Record is invalid.' }
   if ($record.schemaVersion -ne 1 -or $record.product -cne '1667' -or
       $record.method -cne 'powershell' -or $record.artifactTarget -cne $ArtifactTarget -or
@@ -141,6 +162,9 @@ function Download-Archive([string]$Url, [string]$Destination) {
   $response = $null
   $inputStream = $null
   $outputStream = $null
+  # ReadWriteTimeout bounds one blocking read, not the transfer. A server that
+  # sends a byte before each read deadline would otherwise never end the loop.
+  $deadline = [Diagnostics.Stopwatch]::StartNew()
   try {
     $response = $request.GetResponse()
     $finalUri = $response.ResponseUri
@@ -158,10 +182,15 @@ function Download-Archive([string]$Url, [string]$Destination) {
     while (($count = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
       $total += $count
       if ($total -gt $MaxArchiveBytes) { Fail 'Release Archive is too large.' }
+      if ($deadline.ElapsedMilliseconds -gt $ReadTimeoutMs) {
+        $request.Abort()
+        Fail 'Release Archive download exceeded its time limit.'
+      }
       $outputStream.Write($buffer, 0, $count)
     }
     $outputStream.Flush($true)
   } finally {
+    $deadline.Stop()
     if ($null -ne $outputStream) { $outputStream.Dispose() }
     if ($null -ne $inputStream) { $inputStream.Dispose() }
     if ($null -ne $response) { $response.Dispose() }
@@ -195,8 +224,7 @@ function Extract-Candidate([string]$ArchivePath, [string]$WorkRoot) {
   }
   & $tar -xzf $ArchivePath -C $WorkRoot
   if ($LASTEXITCODE -ne 0) { Fail 'Could not extract the Release Archive.' }
-  $stem = $ExpectedArchiveEntries[0].TrimEnd('/')
-  $candidate = [IO.Path]::Combine($WorkRoot, $stem, $ActiveName)
+  $candidate = [IO.Path]::Combine($WorkRoot, $ArchiveStem, $ActiveName)
   Assert-NoReparsePoint $candidate
   $item = Get-Item -LiteralPath $candidate -Force
   if (-not $item.PSIsContainer -and $item.Length -gt 0 -and $item.Length -le $MaxExecutableBytes) {
@@ -286,9 +314,9 @@ function Assert-ExecutableReplaceable([string]$Executable) {
     $probe = [IO.File]::Open($Executable, [IO.FileMode]::Open,
       [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   } catch [IO.IOException] {
-    Fail 'Could not replace 1667.exe. Close all running 1667 processes, then run this installer again.'
+    Fail $ReplaceFailureMessage
   } catch [UnauthorizedAccessException] {
-    Fail 'Could not replace 1667.exe. Close all running 1667 processes, then run this installer again.'
+    Fail $ReplaceFailureMessage
   } finally {
     if ($null -ne $probe) { $probe.Dispose() }
   }
@@ -319,7 +347,11 @@ function Main {
     Fail "Refusing to replace an unmanaged executable at $active."
   }
   if (-not $hasActive -and $null -eq $record) {
-    $other = @(Get-ChildItem -LiteralPath $root -Force)
+    $other = @(Get-ChildItem -LiteralPath $root -Force |
+      Where-Object {
+        $ReservedFreshNames -notcontains $_.Name -and
+        -not $_.Name.StartsWith($WorkPrefix, [StringComparison]::Ordinal)
+      })
     if ($other.Count -gt 0) { Fail 'Fresh Install Root is not empty.' }
   }
   Protect-InstallRoot $root
@@ -343,7 +375,7 @@ function Main {
     $installationId = if ($null -eq $record) {
       [Guid]::NewGuid().ToString('N')
     } else { [string]$record.installationId }
-    $workRoot = [IO.Path]::Combine($root, ('.1667-install.' + [Guid]::NewGuid().ToString('N')))
+    $workRoot = [IO.Path]::Combine($root, ($WorkPrefix + [Guid]::NewGuid().ToString('N')))
     [IO.Directory]::CreateDirectory($workRoot) | Out-Null
     try {
       $archivePath = [IO.Path]::Combine($workRoot, $ArchiveName)
@@ -358,9 +390,9 @@ function Main {
         try {
           [IO.File]::Replace($candidate, $active, $previous, $true)
         } catch [IO.IOException] {
-          Fail 'Could not replace 1667.exe. Close all running 1667 processes, then run this installer again.'
+          Fail $ReplaceFailureMessage
         } catch [UnauthorizedAccessException] {
-          Fail 'Could not replace 1667.exe. Close all running 1667 processes, then run this installer again.'
+          Fail $ReplaceFailureMessage
         }
         Write-InstallRecord $recordPath $root $active $installationId $workRoot
       } elseif ($null -eq $record) {
