@@ -12,6 +12,7 @@ import { parseImportCommand } from "../tui/src/import-cli.js";
 import { initializeProject } from "../server/project-discovery.js";
 import type { StoryPayload } from "../shared/types.js";
 import {
+  decodeMarkdownHttpBody,
   encodeMarkdownHttpBody,
   MAX_MARKDOWN_HTTP_BODY_BYTES
 } from "../shared/import-markdown-wire.js";
@@ -101,6 +102,20 @@ test("markdown import preserves long titles up to stored bound (4096 chars) with
   assert.equal(parsed.title, longStoryTitle);
   assert.equal(parsed.chapterBreaks[0]?.title.length, 4096);
   assert.equal(parsed.chapterBreaks[0]?.title, longChapterTitle);
+
+  const emojiTitle = "😀".repeat(3_000);
+  const scalarParsed = partsFromMarkdown(
+    `# ${emojiTitle}\n\nPart 1.\n\n## ${emojiTitle}\n\nPart 2.`
+  );
+  assert.equal(scalarParsed.title, emojiTitle);
+  assert.equal(scalarParsed.chapterBreaks[0]?.title, emojiTitle);
+});
+
+test("Markdown HTTP framing preserves the scalar title bound", () => {
+  const title = "😀".repeat(4_097);
+  const decoded = decodeMarkdownHttpBody(encodeMarkdownHttpBody("prose", title));
+  assert.equal(decoded.defaultTitle, "😀".repeat(4_096));
+  assert.equal(decoded.markdown, "prose");
 });
 
 test("markdown recognizes only CommonMark H2 markers and preserves ##literal prose", () => {
@@ -360,6 +375,24 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
   ).catch((error: unknown) => error);
   assert.ok(failure instanceof Error && "code" in failure && failure.code === 1);
   assert.ok("stderr" in failure && String(failure.stderr).includes("ENOENT"));
+
+  if (process.platform !== "win32") {
+    const fifo = path.join(root, "blocked.md");
+    await execFileAsync("mkfifo", [fifo]);
+    const fifoFailure = await execFileAsync(
+      bun,
+      [entrypoint, "import", "--data", project.root, fifo],
+      {
+        env: { ...process.env, AI_1667_STATE: path.join(root, "machine") },
+        timeout: 5_000
+      }
+    ).catch((error: unknown) => error);
+    assert.ok(fifoFailure instanceof Error && "code" in fifoFailure && fifoFailure.code === 1);
+    assert.ok(
+      "stderr" in fifoFailure
+      && String(fifoFailure.stderr).includes("not a regular file")
+    );
+  }
 });
 
 test("E2E integration: npm import persists through the root maintenance boundary", {

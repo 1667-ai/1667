@@ -1,7 +1,7 @@
-import { sliceWellFormedUtf16Prefix } from "./unicode.js";
+import { sliceUnicodeScalarPrefix } from "./unicode.js";
 import { MAX_IMPORT_BYTES, MAX_STORED_TITLE_CHARS } from "./types.js";
 
-const MAX_TITLE_UTF8_BYTES = MAX_STORED_TITLE_CHARS * 3;
+const MAX_TITLE_UTF8_BYTES = MAX_STORED_TITLE_CHARS * 4;
 const MAX_TITLE_BASE64URL_CHARS = Math.ceil(MAX_TITLE_UTF8_BYTES / 3) * 4;
 
 /** Raw Markdown plus one bounded ASCII metadata line; avoids JSON escape amplification. */
@@ -14,7 +14,7 @@ export interface MarkdownHttpBody {
 }
 
 export function normalizeMarkdownDefaultTitle(title: string): string {
-  return sliceWellFormedUtf16Prefix(title, MAX_STORED_TITLE_CHARS);
+  return sliceUnicodeScalarPrefix(title, MAX_STORED_TITLE_CHARS);
 }
 
 export function encodeMarkdownHttpBody(

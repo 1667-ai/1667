@@ -3,6 +3,7 @@ import {
   MAX_JSON_BODY_BYTES,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
+import { unicodeScalarLength } from "../shared/unicode.js";
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
@@ -27,7 +28,7 @@ export function validateWorkerRequestSize(
     if (
       method === "importMarkdown"
       && typeof input.defaultTitle === "string"
-      && input.defaultTitle.length > MAX_STORED_TITLE_CHARS
+      && unicodeScalarLength(input.defaultTitle, MAX_STORED_TITLE_CHARS) > MAX_STORED_TITLE_CHARS
     ) {
       throw new ServiceError(413, "Request body too large");
     }

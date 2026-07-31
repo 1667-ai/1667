@@ -83,6 +83,17 @@ test("worker Markdown import bounds its fallback title before durable publicatio
     }),
     (error: unknown) => error instanceof ServiceError && error.status === 413
   );
+  assert.doesNotThrow(() => validateWorkerRequestSize("importMarkdown", {
+    markdown: "prose",
+    defaultTitle: "😀".repeat(MAX_STORED_TITLE_CHARS)
+  }));
+  assert.throws(
+    () => validateWorkerRequestSize("importMarkdown", {
+      markdown: "prose",
+      defaultTitle: "😀".repeat(MAX_STORED_TITLE_CHARS + 1)
+    }),
+    (error: unknown) => error instanceof ServiceError && error.status === 413
+  );
 });
 
 test("worker JSON methods measure their HTTP-equivalent body", () => {

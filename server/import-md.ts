@@ -1,5 +1,5 @@
 import { ServiceError } from "./errors.js";
-import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
+import { sliceUnicodeScalarPrefix } from "../shared/unicode.js";
 import {
   MAX_STORY_MANIFEST_BYTES,
   MAX_STORY_TITLE_CHARS
@@ -122,7 +122,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       const candidateTitle = atxHeadingTitle(line, 1);
       if (!titleFound && candidateTitle !== null) {
         if (candidateTitle.length > 0) {
-          title = sliceWellFormedUtf16Prefix(candidateTitle, MAX_STORY_TITLE_CHARS);
+          title = sliceUnicodeScalarPrefix(candidateTitle, MAX_STORY_TITLE_CHARS);
           titleFound = true;
         }
         continue;
@@ -147,7 +147,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     const chapterHeading = atxHeadingTitle(line, 2);
     if (chapterHeading !== null) {
       flushParagraph();
-      pendingChapterTitle = sliceWellFormedUtf16Prefix(chapterHeading, MAX_STORY_TITLE_CHARS);
+      pendingChapterTitle = sliceUnicodeScalarPrefix(chapterHeading, MAX_STORY_TITLE_CHARS);
       continue;
     }
 
@@ -169,7 +169,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   if (!titleFound) {
     const fallback = defaultTitle?.trim() || "Imported story";
-    title = sliceWellFormedUtf16Prefix(fallback, MAX_STORY_TITLE_CHARS);
+    title = sliceUnicodeScalarPrefix(fallback, MAX_STORY_TITLE_CHARS);
   }
   consumeManifestBytes(Buffer.byteLength(JSON.stringify(title)));
 
