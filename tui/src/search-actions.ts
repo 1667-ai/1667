@@ -1,16 +1,16 @@
-import { searchQueryIsRunnable, type SearchHit } from "../../shared/story-search.js";
+import type { SearchHit } from "../../shared/story-search.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { factRows } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
+import { resolveRerouteTarget } from "./path-layout.js";
 import { flushReadingPositionPersist } from "./reading-position-persist.js";
+import { abortPendingSearch, runSearch } from "./search-request.js";
 
 import {
-  abortPendingSearch,
   boundedSearchCursor,
   createSearchState,
-  firstHitCursor,
   searchRows,
   selectedSearchRow,
   type SearchGroupRow,
@@ -24,7 +24,6 @@ import {
   rerouteToNode,
   type RerouteOrigin
 } from "./story-actions.js";
-import { resolveRerouteTarget } from "./path-layout.js";
 import type { RuntimeState } from "./state.js";
 
 export function openSearch(state: RuntimeState, source: AppSource): void {
@@ -46,7 +45,6 @@ export async function searchAction(
     state.mode = "NAV";
     return;
   }
-  const model = searchRows(search, state.payload);
   if (resolved.action === "input" || resolved.action === "backspace") {
     const next = applyTextKey(search.query, resolved);
     if (next !== null && next !== search.query) {
@@ -66,6 +64,7 @@ export async function searchAction(
     runSearch(state, search, source, context.repaint);
     return;
   }
+  const model = searchRows(search, state.payload);
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
     const step = resolved.action === "focus-next" ? 1 : -1;
     search.cursor = boundedSearchCursor(search.cursor + step, model.selectableCount);
@@ -241,74 +240,4 @@ function openHitFact(hit: SearchHit, state: RuntimeState, search: SearchState): 
     deleteArmedId: null
   };
   state.mode = "FACTS";
-}
-
-/**
- * Ask the backend for the current query.
- *
- * Every keystroke fires one request. `requestId` is the fence: a response is
- * adopted only while it is still the newest one asked for, so out-of-order
- * arrivals cannot overwrite a later query's results.
- *
- * The settled response is dropped as the request goes out. Keeping it would
- * paint hits from the previous query, scope or case under the new header —
- * and `enter` would travel to one of them.
- *
- * The request it replaces is aborted rather than merely ignored: a vault scan
- * reads stories off disk, so a query nobody is waiting for still competes with
- * the one that is.
- */
-export function runSearch(
-  state: RuntimeState,
-  search: SearchState,
-  source: AppSource,
-  repaint: () => void
-): void {
-  const query = search.query.trim();
-  const requestId = search.requestId + 1;
-  search.requestId = requestId;
-  search.response = null;
-  search.error = null;
-  search.cursor = 0;
-  abortPendingSearch(search);
-  if (!searchQueryIsRunnable(query)) {
-    search.searching = false;
-    return;
-  }
-  search.searching = true;
-  const pending = new AbortController();
-  search.pending = pending;
-  // The payload is the fence, not just the story id. Only adoption replaces it
-  // — a stream mutates its own view, never this object — so requiring the same
-  // payload rejects exactly the responses that describe a story which has since
-  // changed, and rejects nothing while the writer is generating.
-  const payload = state.payload;
-  const owns = () => state.search === search
-    && search.requestId === requestId
-    && state.payload === payload;
-  const settle = () => {
-    if (search.pending === pending) search.pending = null;
-  };
-  void source.api.searchStories({
-    query,
-    scope: search.scope,
-    storyId: state.payload.id,
-    caseSensitive: search.caseSensitive
-  }, pending.signal).then((response) => {
-    settle();
-    if (!owns()) return;
-    search.response = response;
-    search.searching = false;
-    search.cursor = firstHitCursor(searchRows(search, state.payload));
-    repaint();
-  }, (error: unknown) => {
-    settle();
-    // An abort is this reducer's own doing, and the state it would report into
-    // belongs to whatever superseded it.
-    if (!owns() || pending.signal.aborted) return;
-    search.searching = false;
-    search.response = null;
-    search.error = error instanceof Error ? error.message : String(error);
-    repaint();
-  });
 }

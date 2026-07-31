@@ -1,3 +1,5 @@
+import { escapeRegExp } from "../shared/regex.js";
+
 // "Copy the boundary, then output the marker" legitimately reads as "marker on
 // its own line" — allow a short whitespace bridge, never other characters.
 const CONTRACT_WHITESPACE_BRIDGE = 24;
@@ -171,6 +173,3 @@ export class AnchoredOutputFilter {
   }
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

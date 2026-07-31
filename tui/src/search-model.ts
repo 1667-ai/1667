@@ -1,5 +1,6 @@
 import {
   createStoryIndex,
+  lineName,
   workingName,
   type StoryIndex
 } from "../../shared/story-model.js";
@@ -18,10 +19,6 @@ export interface SearchState {
   caseSensitive: boolean;
   /** The newest settled response, or null before the first one lands. */
   response: SearchResponse | null;
-  /** True while a request for the current query is still out. */
-  searching: boolean;
-  /** Monotonic fence: only the newest request may adopt its response. */
-  requestId: number;
   /** The request in flight, so the scan behind a superseded reply can be
    *  stopped rather than merely ignored. */
   pending: AbortController | null;
@@ -54,10 +51,9 @@ export interface SearchHitRow {
   groupId: string;
 }
 
-export type SearchRow =
-  | (SearchGroupRow & { select: number })
-  | (SearchHitRow & { select: number })
-  | { kind: "blank" };
+export type SelectableSearchRow = (SearchGroupRow | SearchHitRow) & { select: number };
+
+export type SearchRow = SelectableSearchRow | { kind: "blank" };
 
 export interface SearchRowModel {
   rows: SearchRow[];
@@ -65,7 +61,6 @@ export interface SearchRowModel {
   groupCount: number;
   /** Groups that stand for a line or branch — the facts group is not one. */
   lineGroupCount: number;
-  hitCount: number;
 }
 
 export function createSearchState(
@@ -78,8 +73,6 @@ export function createSearchState(
     stories,
     caseSensitive: false,
     response: null,
-    searching: false,
-    requestId: 0,
     pending: null,
     cursor: 0,
     foldedGroupIds: [],
@@ -87,13 +80,8 @@ export function createSearchState(
   };
 }
 
-/** Stop the scan behind a request nobody is waiting for. A vault scan reads
- *  stories off disk, so an abandoned query still competes with the live one. */
-export function abortPendingSearch(search: SearchState): void {
-  const pending = search.pending;
-  if (pending === null) return;
-  search.pending = null;
-  pending.abort();
+export function searchInFlight(search: SearchState): boolean {
+  return search.pending !== null;
 }
 
 /** Rows for the left pane: a blank line, a header and its hits per group, and
@@ -105,7 +93,6 @@ export function searchRows(state: SearchState, payload: StoryPayload): SearchRow
     : vaultGroups(hits, payload, state.stories);
   const rows: SearchRow[] = [];
   let select = 0;
-  let hitCount = 0;
   for (const group of groups) {
     const folded = state.foldedGroupIds.includes(group.id);
     rows.push({ kind: "blank" });
@@ -113,7 +100,6 @@ export function searchRows(state: SearchState, payload: StoryPayload): SearchRow
     if (folded) continue;
     for (const hit of group.hits) {
       rows.push({ kind: "hit", hit, groupId: group.id, select: select++ });
-      hitCount += 1;
     }
   }
   if (rows.length > 0) rows.push({ kind: "blank" });
@@ -121,26 +107,23 @@ export function searchRows(state: SearchState, payload: StoryPayload): SearchRow
     rows,
     selectableCount: select,
     groupCount: groups.length,
-    lineGroupCount: groups.filter((group) => group.sort !== "facts").length,
-    hitCount
+    lineGroupCount: groups.filter((group) => group.sort !== "facts").length
   };
 }
 
 export function selectedSearchRow(
   model: SearchRowModel,
   cursor: number
-): (SearchGroupRow & { select: number }) | (SearchHitRow & { select: number }) | null {
+): SelectableSearchRow | null {
   const targetSelect = boundedSearchCursor(cursor, model.selectableCount);
-  const row = model.rows.find((r) => r.kind !== "blank" && r.select === targetSelect);
-  return row as (SearchGroupRow & { select: number }) | (SearchHitRow & { select: number }) | null ?? null;
+  return model.rows.find((r): r is SelectableSearchRow => r.kind !== "blank" && r.select === targetSelect) ?? null;
 }
 
 /** The hit the preview pane shows: the focused one, or a folded group's first.
  *  It carries its landing, so the pane names the part `enter` would open. */
 export function previewSearchHit(
   model: SearchRowModel,
-  cursor: number,
-  payload: StoryPayload
+  cursor: number
 ): SearchHitRow | null {
   const row = selectedSearchRow(model, cursor);
   if (row === null) return null;
@@ -234,7 +217,8 @@ function lineGroupRow(key: string, hits: SearchHit[], index: StoryIndex, payload
       kind: "group",
       id: "line",
       sort: "line",
-      name: leafId === null ? "unwritten" : lineLabel(leafId, index),
+      // Search retains workingName fallback for untagged lines so branch headers at equal depth stay distinct.
+      name: leafId === null ? "unwritten" : lineName(payload, leafId, index),
       detail: "· this line",
       folded: false,
       tag,
@@ -247,17 +231,13 @@ function lineGroupRow(key: string, hits: SearchHit[], index: StoryIndex, payload
     kind: "group",
     id: key,
     sort: "branch",
-    name: `¶${depth} ${lineLabel(leafId, index)}`,
+    // Search retains workingName fallback for untagged lines so branch headers at equal depth stay distinct.
+    name: `¶${depth} ${lineName(payload, leafId, index)}`,
     detail: "· dead branch",
     folded: false,
     tag: index.tagByNodeId.get(leafId) ?? null,
     hits
   };
-}
-
-function lineLabel(leafId: string, index: StoryIndex): string {
-  const tag = index.tagByNodeId.get(leafId);
-  return tag?.name ?? workingName(index.tree.nodesById.get(leafId) ?? null);
 }
 
 function factsGroupRow(hits: SearchHit[]): SearchGroupRow {

@@ -5,9 +5,9 @@ import { handleKey, initialState, type AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine } from "../src/screens/story/frame.js";
-import { runSearch } from "../src/search-actions.js";
+import { runSearch } from "../src/search-request.js";
 import { adoptSameStoryPayload, adoptStoryState } from "../src/story-adoption.js";
-import { searchRows, type SearchGroupRow, type SearchHitRow } from "../src/search-model.js";
+import { searchInFlight, searchRows, type SearchGroupRow, type SearchHitRow } from "../src/search-model.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { searchCorpus, type SearchCorpus } from "../../shared/story-search.js";
 
@@ -133,12 +133,12 @@ describe("global search screen and model", () => {
 
     search.query = "lantern";
     runSearch(state, search, source, () => {});
-    expect(search.searching).toBeTrue();
+    expect(searchInFlight(search)).toBeTrue();
     // The reply will fail the ownership fence and run no handler, so adoption
     // has to clear the pending state or the pane reads "searching…" forever.
     const pending = search.pending!;
     adoptSameStoryPayload(state, { ...state.payload });
-    expect(search.searching).toBeFalse();
+    expect(searchInFlight(search)).toBeFalse();
     expect(pending.signal.aborted).toBeTrue();
   });
 
@@ -202,7 +202,7 @@ describe("global search screen and model", () => {
     // that has just been replaced — `enter` would travel to one of its hits.
     search.query = "compass that never appears";
     runSearch(state, search, source, () => {});
-    expect(search.searching).toBeTrue();
+    expect(searchInFlight(search)).toBeTrue();
     expect(search.response).toBe(null);
     expect(searchRows(search, state.payload).selectableCount).toBe(0);
   });

@@ -1,8 +1,4 @@
-import {
-  buildSearchCorpus,
-  type SearchCorpus
-} from "../shared/story-search.js";
-import type { Story } from "../shared/types.js";
+import type { SearchCorpus } from "../shared/story-search.js";
 
 /** How much prepared text stays in memory, counted in UTF-16 units.
  *
@@ -13,6 +9,13 @@ import type { Story } from "../shared/types.js";
  * and only then falls back to rescanning. */
 const MAX_CACHED_CHARACTERS = 8_000_000;
 
+interface HeldCorpus {
+  title: string;
+  updatedAt: string;
+  promise: Promise<SearchCorpus | null>;
+  size: number;
+}
+
 /** Prepared searchable text, kept across keystrokes.
  *
  * A corpus is valid while the story's title and `updatedAt` stand still; every
@@ -20,44 +23,75 @@ const MAX_CACHED_CHARACTERS = 8_000_000;
  * costs one rescan — but keeping it is what lets a vault search answer each
  * keystroke without reading every part off disk again. */
 export class StorySearchIndex {
-  private readonly corpora = new Map<string, SearchCorpus>();
+  private readonly corpora = new Map<string, HeldCorpus>();
   private characters = 0;
 
-  /** The prepared corpus for this exact revision, or null when it must be
-   *  rebuilt from a hydrated story. */
-  cached(storyId: string, title: string, updatedAt: string): SearchCorpus | null {
-    const held = this.corpora.get(storyId);
-    return held === undefined
-      || held.updatedAt !== updatedAt
-      || held.storyTitle !== title
-      ? null
-      : held;
-  }
-
-  /** Build and hold the corpus for a fully hydrated story. */
-  adopt(story: Story): SearchCorpus {
-    const corpus = buildSearchCorpus(story);
-    const size = corpusSize(corpus);
-    this.forget(story.id);
-    if (size > MAX_CACHED_CHARACTERS) return corpus;
-    this.corpora.set(story.id, corpus);
-    this.characters += size;
-    // Evict in insertion order. Promoting on every read would make a vault
-    // scan reorder the whole cache behind itself, which is the pattern this
-    // cache exists to survive.
-    for (const [id, held] of this.corpora) {
-      if (this.characters <= MAX_CACHED_CHARACTERS || id === story.id) break;
-      this.corpora.delete(id);
-      this.characters -= corpusSize(held);
+  /** The prepared corpus for this exact revision, or a build promise if one is
+   *  currently in flight or needed. */
+  async get(
+    id: string,
+    title: string,
+    updatedAt: string,
+    build: () => Promise<SearchCorpus | null>
+  ): Promise<SearchCorpus | null> {
+    const held = this.corpora.get(id);
+    if (held !== undefined && held.title === title && held.updatedAt === updatedAt) {
+      return held.promise;
     }
-    return corpus;
+    if (held !== undefined) {
+      this.forget(id);
+    }
+
+    let activePromise!: Promise<SearchCorpus | null>;
+    activePromise = (async () => {
+      try {
+        const corpus = await build();
+        if (corpus === null) {
+          // Only this build's own entry may go. A newer revision can have
+          // replaced it while this one was reading, and evicting that would
+          // throw away a corpus somebody is already waiting on.
+          if (this.corpora.get(id)?.promise === activePromise) this.forget(id);
+          return null;
+        }
+        const current = this.corpora.get(id);
+        if (current?.promise === activePromise) {
+          const size = corpusSize(corpus);
+          if (size > MAX_CACHED_CHARACTERS) {
+            this.forget(id);
+            return corpus;
+          }
+          current.size = size;
+          this.characters += size;
+          this.evictOverflow();
+        }
+        return corpus;
+      } catch (error) {
+        const current = this.corpora.get(id);
+        if (current?.promise === activePromise) {
+          this.forget(id);
+        }
+        throw error;
+      }
+    })();
+
+    this.corpora.set(id, { title, updatedAt, promise: activePromise, size: 0 });
+    return activePromise;
   }
 
   forget(storyId: string): void {
     const held = this.corpora.get(storyId);
     if (held === undefined) return;
     this.corpora.delete(storyId);
-    this.characters -= corpusSize(held);
+    this.characters -= held.size;
+  }
+
+  private evictOverflow(): void {
+    for (const [id, held] of this.corpora) {
+      if (this.characters <= MAX_CACHED_CHARACTERS) break;
+      if (held.size === 0) continue;
+      this.corpora.delete(id);
+      this.characters -= held.size;
+    }
   }
 }
 

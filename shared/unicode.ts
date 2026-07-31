@@ -21,6 +21,18 @@ export function unicodeScalarLength(value: string, stopAfter = Number.POSITIVE_I
   return length;
 }
 
+export function alignUtf16Boundary(value: string, index: number): number {
+  const bounded = Math.max(0, Math.min(value.length, index));
+  if (bounded > 0 && bounded < value.length) {
+    const last = value.charCodeAt(bounded - 1);
+    const next = value.charCodeAt(bounded);
+    if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+      return bounded - 1;
+    }
+  }
+  return bounded;
+}
+
 /** Preserve legacy UTF-16 truncation widths without manufacturing an unpaired
  * surrogate when the boundary lands inside a scalar. */
 export function sliceWellFormedUtf16Prefix(value: string, maxCodeUnits: number): string {
@@ -28,9 +40,6 @@ export function sliceWellFormedUtf16Prefix(value: string, maxCodeUnits: number):
     throw new RangeError("UTF-16 prefix bound must be a non-negative safe integer");
   }
   if (value.length <= maxCodeUnits) return value;
-  let end = maxCodeUnits;
-  const last = value.charCodeAt(end - 1);
-  const next = value.charCodeAt(end);
-  if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end -= 1;
-  return value.slice(0, end);
+  return value.slice(0, alignUtf16Boundary(value, maxCodeUnits));
 }
+

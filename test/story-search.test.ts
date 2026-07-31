@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { StoryService } from "../server/story-service.js";
 import { StorySearchIndex } from "../server/story-search-index.js";
-import type { SearchResponse } from "../shared/story-search.js";
+import { buildSearchCorpus, type SearchCorpus, type SearchResponse } from "../shared/story-search.js";
 import type { Story } from "../shared/types.js";
 
 async function openService(): Promise<{
@@ -473,7 +473,53 @@ test("a scan stops when the query behind it is superseded", async () => {
   }
 });
 
-test("oversized corpus is returned without being cached in index", () => {
+test("an obsolete build cannot evict the corpus that replaced it", async () => {
+  const index = new StorySearchIndex();
+  const corpus = (id: string): SearchCorpus =>
+    ({ storyId: id, storyTitle: "t", updatedAt: "r2", entries: [] });
+
+  // A build for the old revision is still reading when a new revision arrives.
+  let releaseStale!: (value: SearchCorpus | null) => void;
+  const stale = index.get("s", "t", "r1", () =>
+    new Promise<SearchCorpus | null>((resolve) => { releaseStale = resolve; }));
+
+  let freshBuilds = 0;
+  const fresh = await index.get("s", "t", "r2", async () => {
+    freshBuilds += 1;
+    return corpus("s");
+  });
+  assert.equal(fresh?.updatedAt, "r2");
+
+  // The stale build now reports the story missing. It must retire itself, not
+  // the entry that replaced it.
+  releaseStale(null);
+  assert.equal(await stale, null);
+
+  await index.get("s", "t", "r2", async () => {
+    freshBuilds += 1;
+    return corpus("s");
+  });
+  assert.equal(freshBuilds, 1, "the surviving corpus was served from the cache");
+});
+
+test("concurrent cold callers share one build", async () => {
+  const index = new StorySearchIndex();
+  let builds = 0;
+  const build = async (): Promise<SearchCorpus> => {
+    builds += 1;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return { storyId: "s", storyTitle: "t", updatedAt: "r1", entries: [] };
+  };
+  const all = await Promise.all([
+    index.get("s", "t", "r1", build),
+    index.get("s", "t", "r1", build),
+    index.get("s", "t", "r1", build)
+  ]);
+  assert.equal(builds, 1);
+  assert.ok(all.every((corpus) => corpus?.updatedAt === "r1"));
+});
+
+test("oversized corpus is returned without being cached in index", async () => {
   const index = new StorySearchIndex();
   // Construct a story larger than MAX_CACHED_CHARACTERS (8,000,000 chars)
   const hugeText = "x".repeat(8_000_001);
@@ -499,9 +545,14 @@ test("oversized corpus is returned without being cached in index", () => {
     chapterBreaks: []
   };
 
-  const corpus = index.adopt(story);
-  assert.equal(corpus.storyId, "huge-1");
+  const corpus = await index.get("huge-1", "Huge Story", "2026-07-30T00:00:00.000Z", async () => buildSearchCorpus(story));
+  assert.equal(corpus?.storyId, "huge-1");
   // Index must not retain it
-  assert.equal(index.cached("huge-1", "Huge Story", "2026-07-30T00:00:00.000Z"), null);
+  let buildCalled = false;
+  await index.get("huge-1", "Huge Story", "2026-07-30T00:00:00.000Z", async () => {
+    buildCalled = true;
+    return null;
+  });
+  assert.equal(buildCalled, true);
 });
 

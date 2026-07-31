@@ -7,7 +7,7 @@ import {
 } from "../atlas-layout.js";
 import { addHit, type HitRegion, type HitRow, type HitRows } from "../hit.js";
 import { createPathLayout } from "../path-layout.js";
-import { addFooterHits, joinHintTokens, type HintToken } from "./hint-footer.js";
+import { addInlineHits } from "./story/hits.js";
 import { MAP_VIEWS, type MapState, type MapView } from "../map-state.js";
 import { pruneConfirmText } from "../prune-model.js";
 import type { StoryScreenState } from "../state.js";
@@ -82,7 +82,7 @@ export function renderMapScreen(
   for (let row = 0; row < Math.min(shown.length, body.hits.length); row += 1) {
     hitRows[row + 2] = body.hits[row] ?? null;
   }
-  addMapFooterHits(hitRows, lines, height, map, width);
+  addInlineHits([lines[lines.length - 1]!], hitRows, () => true, lines.length - 1);
   return { lines, selectable: null, derived: body.derived };
 }
 
@@ -326,8 +326,9 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
   const payload = state.payload;
   const view = map.view;
   const density = mapHintDensity(width);
-  const hint = mapHint(map, density);
-  const available = Math.max(0, width - visibleWidth(hint) - 1);
+  const hintSegments = mapHintSegments(map, density);
+  const hintWidth = lineWidth(hintSegments);
+  const available = Math.max(0, width - hintWidth - 1);
   const shownCrumb = density === "narrow" ? compactCrumb(crumb) : crumb;
   const activeLeaf = payload.path.at(-1)?.id ?? null;
   const tag = payload.tags.find((item) => item.nodeId === activeLeaf) ?? null;
@@ -359,8 +360,8 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
     segment(` · ${shownCrumb}`, "chrome")
   ];
   const shownLeft = fitLine(left, available);
-  const gap = Math.max(1, width - lineWidth(shownLeft) - visibleWidth(hint));
-  return [...shownLeft, segment(" ".repeat(gap), "chrome"), segment(hint, "chrome")];
+  const gap = Math.max(1, width - lineWidth(shownLeft) - hintWidth);
+  return [...shownLeft, segment(" ".repeat(gap), "chrome"), ...hintSegments];
 }
 
 function renderMapNotice(text: string, width: number): FrameLine {
@@ -392,65 +393,63 @@ type MapHintDensity = "narrow" | "medium" | "wide";
 /** A footer key and what it runs. The map is full-bleed, so its footer is the
  * only chrome advertising these keys — every one of them is a click target,
  * exactly as a floating panel's footer is. */
-function mapHintTokens(map: MapState, density: MapHintDensity): HintToken[] {
-  const rows = (label: string): HintToken =>
-    ({ text: `↑↓ ${label}`, pair: ["focus-previous", "focus-next"] });
-  const cycle = (text: string): HintToken => ({ text, action: "cycle-map-view" });
-  const reroute = (text: string): HintToken => ({ text, action: "apply" });
-  const escape = (text: string): HintToken => ({ text, action: "cancel" });
-  const sort: HintToken = { text: "s sort", action: "map-cycle-sort" };
+function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
+  const line: FrameLine = [];
+  const appendToken = (segments: FrameLine) => {
+    if (line.length > 0) line.push(segment(" · ", "chrome"));
+    line.push(...segments);
+  };
+
+  const rows = (label: string): FrameLine => [
+    segment("↑", "chrome", { kind: "action", action: "focus-previous" }),
+    segment("↓", "chrome", { kind: "action", action: "focus-next" }),
+    segment(` ${label}`, "chrome")
+  ];
+  const takes: FrameLine = [
+    segment("←", "chrome", { kind: "action", action: "take-previous" }),
+    segment("→", "chrome", { kind: "action", action: "take-next" }),
+    segment(" take", "chrome")
+  ];
+  const cycle = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "cycle-map-view" })];
+  const reroute = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "apply" })];
+  const escape = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "cancel" })];
+  const sort: FrameLine = [segment("s sort", "chrome", { kind: "action", action: "map-cycle-sort" })];
+  const follow = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "map-follow" })];
+
   if (map.view === "path") {
     const wideToggle = map.pathShowAllTakes ? "a branches" : "a all";
-    const toggle: HintToken = {
-      text: density === "narrow" ? map.pathShowAllTakes ? "a branch" : "a all" : wideToggle,
-      action: "toggle-path-takes"
-    };
-    const takes: HintToken = { text: "←→ take", pair: ["take-previous", "take-next"] };
-    if (density === "narrow") return [cycle("m"), toggle, rows("depth"), takes, escape("esc")];
-    if (density === "medium") {
-      return [cycle("m tree"), toggle, rows("depth"), takes, reroute("enter"), escape("esc")];
-    }
-    return [cycle("m tree"), toggle, rows("depth"), takes, reroute("enter reroute"), escape("esc writes")];
-  }
-  if (map.view === "tree") {
-    const follow: HintToken = { text: "l follow", action: "map-follow" };
-    if (density === "narrow") return [cycle("m mass"), rows("row"), follow, escape("esc")];
-    if (density === "medium") {
-      return [cycle("m mass"), rows("row"), follow, reroute("enter"), escape("esc writes")];
-    }
-    return [cycle("m mass"), rows("row"), follow, reroute("enter reroute"), sort, escape("esc writes")];
-  }
-  if (density === "narrow") {
-    return [cycle("m path"), rows("row"), sort, { text: "l open", action: "map-follow" }, escape("esc")];
-  }
-  if (density === "medium") {
-    return [cycle("m path"), rows("row"), sort, { text: "l open", action: "map-follow" }, escape("esc writes")];
-  }
-  return [cycle("m path"), rows("row"), sort, { text: "l open line", action: "map-follow" },
-    reroute("enter reroute"), escape("esc writes")];
-}
+    const toggleText = density === "narrow" ? (map.pathShowAllTakes ? "a branch" : "a all") : wideToggle;
+    const toggle: FrameLine = [segment(toggleText, "chrome", { kind: "action", action: "toggle-path-takes" })];
 
-function mapHint(map: MapState, density: MapHintDensity): string {
-  return joinHintTokens(mapHintTokens(map, density), " · ");
+    if (density === "narrow") {
+      appendToken(cycle("m")); appendToken(toggle); appendToken(rows("depth")); appendToken(takes); appendToken(escape("esc"));
+    } else if (density === "medium") {
+      appendToken(cycle("m tree")); appendToken(toggle); appendToken(rows("depth")); appendToken(takes); appendToken(reroute("enter")); appendToken(escape("esc"));
+    } else {
+      appendToken(cycle("m tree")); appendToken(toggle); appendToken(rows("depth")); appendToken(takes); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
+    }
+  } else if (map.view === "tree") {
+    if (density === "narrow") {
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(escape("esc"));
+    } else if (density === "medium") {
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(reroute("enter")); appendToken(escape("esc writes"));
+    } else {
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(reroute("enter reroute")); appendToken(sort); appendToken(escape("esc writes"));
+    }
+  } else {
+    if (density === "narrow") {
+      appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(follow("l open")); appendToken(escape("esc"));
+    } else if (density === "medium") {
+      appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(follow("l open")); appendToken(escape("esc writes"));
+    } else {
+      appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(follow("l open line")); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
+    }
+  }
+  return line;
 }
 
 function mapHintDensity(width: number): MapHintDensity {
   return width < 100 ? "narrow" : width < 136 ? "medium" : "wide";
-}
-
-/** Register every footer key drawn on the breadcrumb row. The scan starts at
- * the hint itself: a bare token like `m` would otherwise match a letter of the
- * story title sitting to its left on the same row. */
-function addMapFooterHits(
-  hitRows: HitRows,
-  lines: FrameLine[],
-  height: number,
-  map: MapState,
-  width: number
-): void {
-  const density = mapHintDensity(width);
-  const tokens = mapHintTokens(map, density);
-  addFooterHits(hitRows, lines, height, tokens, mapHint(map, density));
 }
 
 /** Spend every identity cell. A short title or line yields its unused share to

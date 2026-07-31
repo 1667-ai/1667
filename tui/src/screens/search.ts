@@ -1,7 +1,8 @@
-import { SEARCH_MAX_QUERY } from "../../../shared/story-search.js";
+import { SEARCH_MAX_QUERY, SEARCH_MIN_QUERY } from "../../../shared/story-search.js";
 import type { HitRow, HitRows } from "../hit.js";
 import {
   boundedSearchCursor,
+  searchInFlight,
   searchRows,
   selectedSearchRow,
   type SearchRow,
@@ -18,7 +19,6 @@ import {
   type FrameComposition,
   type FrameLine
 } from "./story/frame.js";
-import { addFooterHits, joinHintTokens, type HintToken } from "./hint-footer.js";
 import { addInlineHits } from "./story/hits.js";
 import {
   DIVIDER_COLUMN,
@@ -31,6 +31,32 @@ import { joinPanes, renderPreview } from "./search-preview.js";
 
 const SHELL_ROWS = 2;
 
+export type SearchStatus =
+  | { kind: "idle" }
+  | { kind: "too-short" }
+  | { kind: "too-long" }
+  | { kind: "running" }
+  /** The results were dropped because the story they described was replaced,
+   *  and no request is out. The next keystroke asks again. */
+  | { kind: "retired" }
+  | { kind: "failed"; message: string }
+  | { kind: "empty" }
+  | { kind: "results"; hits: number; groups: number; capped: boolean };
+
+export function deriveSearchStatus(search: SearchState, model: SearchRowModel): SearchStatus {
+  const query = search.query.trim();
+  if (query.length === 0) return { kind: "idle" };
+  if (search.error !== null) return { kind: "failed", message: search.error };
+  if (query.length < SEARCH_MIN_QUERY) return { kind: "too-short" };
+  if (query.length > SEARCH_MAX_QUERY) return { kind: "too-long" };
+  if (searchInFlight(search)) return { kind: "running" };
+  if (search.response === null) return { kind: "retired" };
+  const hits = search.response.hits.length;
+  if (hits === 0) return { kind: "empty" };
+  const groups = search.scope === "tree" ? model.lineGroupCount : model.groupCount;
+  return { kind: "results", hits, groups, capped: search.response.capped };
+}
+
 export function renderSearchScreen(
   state: StoryScreenState,
   search: SearchState,
@@ -39,6 +65,7 @@ export function renderSearchScreen(
   hitRows: HitRows
 ): FrameComposition {
   const model = searchRows(search, state.payload);
+  const status = deriveSearchStatus(search, model);
   const bodyHeight = Math.max(1, height - SHELL_ROWS);
   const preview = width >= PREVIEW_MIN_WIDTH;
   const listWidth = preview ? DIVIDER_COLUMN : width;
@@ -53,13 +80,13 @@ export function renderSearchScreen(
     body.push(renderRow(row, isFocused, listWidth));
     bodyHits.push(rowHit(row, listWidth));
   }
-  const notice = paneNotice(state, search, model);
+  const notice = paneNotice(state, search, status);
   if (notice !== null) body[0] = fitLine([segment(`  ${notice}`, "chrome")], listWidth);
   const previewLines = preview
     ? renderPreview(state, search, model, width - PREVIEW_COLUMN)
     : [];
   const lines = [
-    renderTitle(state, search, model, width),
+    renderTitle(state, search, status, width),
     ...body.map((line, offset) => preview
       ? joinPanes(line, previewLines[offset] ?? [], width)
       : fitLine(line, width)),
@@ -71,12 +98,12 @@ export function renderSearchScreen(
   for (let offset = 0; offset < Math.min(bodyHeight, lines.length - 1); offset += 1) {
     hitRows[offset + 1] = bodyHits[offset] ?? null;
   }
-  const footerTokens = searchHintTokens(search, width);
-  addFooterHits(hitRows, lines, height, footerTokens, searchHint(search, width));
-  // The title paints the scope toggle and the case lamp as controls, so they
-  // have to answer a click. Full-bleed screens harvest nothing by default.
+  // Title and footer carry action metadata directly on their segments.
   const titleRow = lines[0];
   if (titleRow !== undefined) addInlineHits([titleRow], hitRows);
+  const footerRow = lines[lines.length - 1];
+  if (footerRow !== undefined) addInlineHits([footerRow], hitRows, () => true, lines.length - 1);
+
   return { lines, selectable: null };
 }
 
@@ -113,72 +140,104 @@ function rowHit(row: SearchRow, listWidth: number): HitRow | null {
 function paneNotice(
   state: StoryScreenState,
   search: SearchState,
-  model: SearchRowModel
+  status: SearchStatus
 ): string | null {
-  if (search.error !== null) return `search failed · ${search.error}`;
-  if (search.query.trim().length === 0) {
-    return search.scope === "tree"
-      ? `type to search every take in ${state.payload.title}`
-      : "type to search every story in the vault";
+  switch (status.kind) {
+    case "idle":
+      return search.scope === "tree"
+        ? `type to search every take in ${state.payload.title}`
+        : "type to search every story in the vault";
+    case "too-short":
+    case "retired":
+      return "keep typing…";
+    case "running":
+      return "searching…";
+    case "too-long":
+      return `that query is longer than ${SEARCH_MAX_QUERY} characters · search a phrase from it`;
+    case "failed":
+      return `search failed · ${status.message}`;
+    case "empty":
+      return `no match for ${search.query.trim()}`;
+    case "results":
+      return null;
   }
-  if (search.query.trim().length > SEARCH_MAX_QUERY) {
-    return `that query is longer than ${SEARCH_MAX_QUERY} characters · search a phrase from it`;
-  }
-  if (search.response === null) return search.searching ? "searching…" : "keep typing…";
-  if (model.selectableCount === 0) return `no match for ${search.query.trim()}`;
-  return null;
 }
 
 /** The header states the count and the scope, and nothing else — the redundant
  *  stat rows of the first pass folded into this rule. */
-function searchTally(search: SearchState, model: SearchRowModel): string {
-  if (search.query.trim().length === 0) return "no query yet";
-  if (search.error !== null) return "search failed";
-  if (search.query.trim().length > SEARCH_MAX_QUERY) return "query too long";
-  if (search.response === null) return search.searching ? "searching…" : "keep typing";
-  // Folding hides rows, never findings: the tally counts what the query found.
-  const hits = search.response.hits.length;
-  // Facts hang off no line, so they are not counted as one.
-  const groups = search.scope === "tree" ? model.lineGroupCount : model.groupCount;
-  const noun = search.scope === "tree"
-    ? groups === 1 ? "line" : "lines"
-    : groups === 1 ? "story" : "stories";
-  const capped = search.response.capped ? "+" : "";
-  return `${hits}${capped} ${hits === 1 ? "hit" : "hits"} in ${groups} ${noun}`;
-}
-
-/** The copy the grids print, verbatim — `↑↓ hit`, `⏎ reroute + jump`,
- *  `⏎ switch story + open`. Only the two keys the design could not keep differ:
- *  the query owns every plain letter, so `c case` is `⌃s case` and `␣ fold
- *  story` is `←→ fold`. */
-function searchHintTokens(search: SearchState, width: number): HintToken[] {
-  const narrow = width < PREVIEW_MIN_WIDTH;
-  const rows: HintToken = { text: "↑↓ hit", pair: ["focus-previous", "focus-next"] };
-  const fold: HintToken = { text: "←→ fold", pair: ["take-previous", "take-next"] };
-  const scope: HintToken = {
-    text: search.scope === "tree" ? "⇥ vault" : "⇥ tree",
-    action: "cycle"
-  };
-  const open: HintToken = {
-    text: narrow ? "⏎ open"
-      : search.scope === "tree" ? "⏎ reroute + jump" : "⏎ switch story + open",
-    action: "apply"
-  };
-  const casing: HintToken = { text: "⌃s case", action: "toggle-search-case" };
-  const back: HintToken = { text: "esc back", action: "cancel" };
-  return [rows, fold, scope, open, casing, back];
-}
-
-function searchHint(search: SearchState, width: number): string {
-  return joinHintTokens(searchHintTokens(search, width), " ━ ");
+function searchTally(search: SearchState, status: SearchStatus): string {
+  switch (status.kind) {
+    case "idle":
+      return "no query yet";
+    case "too-short":
+    case "retired":
+      return "keep typing";
+    case "too-long":
+      return "query too long";
+    case "failed":
+      return "search failed";
+    case "running":
+      return "searching…";
+    case "empty": {
+      const noun = search.scope === "tree" ? "lines" : "stories";
+      return `0 hits in 0 ${noun}`;
+    }
+    case "results": {
+      const noun = search.scope === "tree"
+        ? status.groups === 1 ? "line" : "lines"
+        : status.groups === 1 ? "story" : "stories";
+      const capped = status.capped ? "+" : "";
+      return `${status.hits}${capped} ${status.hits === 1 ? "hit" : "hits"} in ${status.groups} ${noun}`;
+    }
+  }
 }
 
 function renderFooter(search: SearchState, width: number): FrameLine {
+  const narrow = width < PREVIEW_MIN_WIDTH;
   const line: FrameLine = [segment("━━ ", "brass dim")];
-  for (const [index, token] of searchHintTokens(search, width).entries()) {
-    if (index > 0) line.push(segment(" ━ ", "brass dim"));
-    line.push(segment(token.text, token.action === "apply" ? "focus / accent" : "prose"));
-  }
+  const appendSep = () => line.push(segment(" ━ ", "brass dim"));
+
+  // 1: ↑↓ hit
+  line.push(
+    segment("↑", "prose", { kind: "action", action: "focus-previous" }),
+    segment("↓", "prose", { kind: "action", action: "focus-next" }),
+    segment(" hit", "prose")
+  );
+
+  // 2: ←→ fold
+  appendSep();
+  line.push(
+    segment("←", "prose", { kind: "action", action: "take-previous" }),
+    segment("→", "prose", { kind: "action", action: "take-next" }),
+    segment(" fold", "prose")
+  );
+
+  // 3: ⇥ vault / ⇥ tree
+  appendSep();
+  line.push(
+    segment(search.scope === "tree" ? "⇥ vault" : "⇥ tree", "prose", { kind: "action", action: "cycle" })
+  );
+
+  // 4: ⏎ open
+  appendSep();
+  const openText = narrow ? "⏎ open"
+    : search.scope === "tree" ? "⏎ reroute + jump" : "⏎ switch story + open";
+  line.push(
+    segment(openText, "focus / accent", { kind: "action", action: "apply" })
+  );
+
+  // 5: ⌃s case
+  appendSep();
+  line.push(
+    segment("⌃s case", "prose", { kind: "action", action: "toggle-search-case" })
+  );
+
+  // 6: esc back
+  appendSep();
+  line.push(
+    segment("esc back", "prose", { kind: "action", action: "cancel" })
+  );
+
   const remaining = width - lineWidth(line);
   if (remaining > 0) line.push(segment(` ${"━".repeat(Math.max(0, remaining - 1))}`, "brass dim"));
   return fitLine(line, width);
@@ -190,7 +249,7 @@ function renderFooter(search: SearchState, width: number): FrameLine {
 function renderTitle(
   state: StoryScreenState,
   search: SearchState,
-  model: SearchRowModel,
+  status: SearchStatus,
   width: number
 ): FrameLine {
   const narrow = width < PREVIEW_MIN_WIDTH;
@@ -214,7 +273,7 @@ function renderTitle(
     : visibleWidth(` ━ ⇥ ${other} ━ case ○`);
   const room = Math.max(0, width - lineWidth(line) - trailing - visibleWidth(` ━ scope ${scope} `));
   line.push(
-    segment(truncate(searchTally(search, model), room), "chrome"),
+    segment(truncate(searchTally(search, status), room), "chrome"),
     segment(" ━ scope ", "brass dim"),
     segment(scope, "prose")
   );

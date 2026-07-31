@@ -188,6 +188,40 @@ describe("embedded backend worker", () => {
       expect(story.path.at(-1)?.genId).toBe("worker-cancel");
       expect(story.path.at(-1)?.text).toBe(stoppedText.join("").trim());
 
+      // Search crosses the worker boundary like every other method: the
+      // request is validated there, the scan runs in the worker, and the
+      // response comes back over the protocol rather than over HTTP.
+      const found = await api.searchStories({
+        query: "placeholder",
+        scope: "tree",
+        storyId: story.id,
+        caseSensitive: false
+      });
+      expect(found.scope).toBe("tree");
+      expect(found.storiesSearched).toBe(1);
+      expect(found.hits.length > 0).toBeTrue();
+      for (const hit of found.hits) {
+        expect(hit.storyId).toBe(story.id);
+        expect(hit.snippet.slice(hit.snippetMatch, hit.snippetMatch + hit.matchLength))
+          .toBe("placeholder");
+      }
+      const cancelledSearch = new AbortController();
+      cancelledSearch.abort();
+      let cancelledSearchRefused = false;
+      try {
+        await api.searchStories({
+          query: "placeholder",
+          scope: "vault",
+          storyId: story.id,
+          caseSensitive: false
+        }, cancelledSearch.signal);
+      } catch {
+        cancelledSearchRefused = true;
+      }
+      // The transport answers an aborted call with null; the API turns that
+      // into a rejection so both backends report cancellation alike.
+      expect(cancelledSearchRefused).toBeTrue();
+
       const named = await api.autonameStory(story.id);
       expect(named.title).toBe("The Quiet After Rain");
       expect(await api.exportMarkdown(story.id)).toContain("# The Quiet After Rain");

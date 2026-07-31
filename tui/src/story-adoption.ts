@@ -8,7 +8,7 @@ import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
 import { applyOpeningFocus } from "./reading-position.js";
 import { flushReadingPositionPersist } from "./reading-position-persist.js";
-import { abortPendingSearch } from "./search-model.js";
+import { abortPendingSearch, retireSearch } from "./search-request.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
@@ -98,13 +98,7 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
  * ownership fence and never run a handler, so nothing else would ever clear the
  * pending state and the pane would read `searching…` until the next keystroke. */
 function retireSearchResults(state: RuntimeState): void {
-  const search = state.search;
-  if (search === null) return;
-  abortPendingSearch(search);
-  search.requestId += 1;
-  search.searching = false;
-  search.response = null;
-  search.cursor = 0;
+  if (state.search !== null) retireSearch(state.search);
 }
 
 /** Re-anchor an open part menu by semantic identity, or close it if its

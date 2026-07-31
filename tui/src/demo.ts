@@ -12,9 +12,8 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import {
-  SEARCH_HIT_LIMIT,
   buildSearchCorpus,
-  searchCorpus,
+  createSearchScan,
   searchQueryIsRunnable,
   type SearchHit,
   type SearchRequest,
@@ -295,23 +294,15 @@ export function createDemoController(dense = false): DemoController {
         : [];
       const targets: Story[] = [story, ...others.map((summary) =>
         ({ ...story, id: summary.id, title: summary.title, updatedAt: summary.updatedAt }))];
-      const hits: SearchHit[] = [];
-      let storiesSearched = 0;
-      let capped = false;
+      const scan = createSearchScan(query, request.caseSensitive);
       for (const target of targets) {
-        if (hits.length >= SEARCH_HIT_LIMIT) {
-          capped = true;
+        if (scan.full()) {
+          scan.stopEarly();
           break;
         }
-        storiesSearched += 1;
-        const room = SEARCH_HIT_LIMIT - hits.length;
-        // One more than there is room for, exactly as the service does: that
-        // extra hit is how a capped result set announces itself.
-        const found = searchCorpus(buildSearchCorpus(target), query, request.caseSensitive, room + 1);
-        if (found.length > room) capped = true;
-        hits.push(...found.slice(0, room));
+        scan.add(buildSearchCorpus(target));
       }
-      return { ...response, hits, capped, storiesSearched };
+      return { ...response, hits: scan.hits, capped: scan.capped, storiesSearched: scan.storiesSearched };
     }
   };
 }

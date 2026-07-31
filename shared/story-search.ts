@@ -1,5 +1,7 @@
 import { indexTree, isChapterSummary } from "./story-tree.js";
 import type { Story, StoryFact, StoryNode } from "./types.js";
+import { alignUtf16Boundary } from "./unicode.js";
+import { escapeRegExp } from "./regex.js";
 
 /** Which corpus a hit came from. Prose is a part's text, a prompt is the
  * instruction that made it, and a fact is one canon note. */
@@ -152,15 +154,53 @@ function matcher(query: string, caseSensitive: boolean): RegExp {
   return new RegExp(escapeRegExp(query), caseSensitive ? "gu" : "giu");
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** A fact reads as one row, so its tag travels with its body. */
 function factText(fact: StoryFact): string {
   return fact.tag === null || fact.tag.trim().length === 0
     ? fact.text
     : `${fact.tag} · ${fact.text}`;
+}
+
+/** One vault scan in progress, so the cap contract lives in one place.
+ *
+ *  `capped` says the scan stopped at the hit cap and stories after it went
+ *  unread — not that hits were cut. A caller that breaks out of its own loop
+ *  says so with `stopEarly`, because only the caller knows a target remained. */
+export interface SearchScan {
+  readonly hits: SearchHit[];
+  readonly capped: boolean;
+  readonly storiesSearched: number;
+  full(): boolean;
+  stopEarly(): void;
+  add(corpus: SearchCorpus): void;
+}
+
+export function createSearchScan(query: string, caseSensitive: boolean): SearchScan {
+  const hits: SearchHit[] = [];
+  let capped = false;
+  let storiesSearched = 0;
+
+  return {
+    get hits() { return hits; },
+    get capped() { return capped; },
+    get storiesSearched() { return storiesSearched; },
+    full() {
+      return hits.length >= SEARCH_HIT_LIMIT;
+    },
+    stopEarly() {
+      capped = true;
+    },
+    add(corpus: SearchCorpus) {
+      if (hits.length >= SEARCH_HIT_LIMIT) return;
+      storiesSearched += 1;
+      const room = SEARCH_HIT_LIMIT - hits.length;
+      // One more than there is room for: that extra hit is how a result set
+      // announces it was cut, without a second scan to find out.
+      const found = searchCorpus(corpus, query, caseSensitive, room + 1);
+      if (found.length > room) capped = true;
+      hits.push(...found.slice(0, room));
+    }
+  };
 }
 
 interface SnippetWindow {
@@ -200,17 +240,17 @@ function collectMatches(
  *  Both ends stop at a word boundary: a snippet that starts mid-word reads as
  *  damage rather than as context. */
 function snippetWindow(raw: string, at: number, length: number): SnippetWindow {
-  const lead = normalizeSpace(raw.slice(windowStart(raw, at - SNIPPET_BEFORE * 2), at));
+  const lead = normalizeSpace(raw.slice(alignUtf16Boundary(raw, at - SNIPPET_BEFORE * 2), at));
   const cutLead = lead.length > SNIPPET_BEFORE || at > SNIPPET_BEFORE * 2;
-  const leadKept = cutLead ? trimToWordStart(lead.slice(windowStart(lead, lead.length - SNIPPET_BEFORE))) : lead;
+  const leadKept = cutLead ? trimToWordStart(lead.slice(alignUtf16Boundary(lead, lead.length - SNIPPET_BEFORE))) : lead;
   const prefix = cutLead ? `…${leadKept}` : leadKept;
   const match = normalizeSpace(raw.slice(at, at + length));
   const tailRoom = Math.max(0, SNIPPET_LENGTH - prefix.length - match.length);
   const tailRaw = normalizeSpace(
-    raw.slice(at + length, windowEnd(raw, at + length + tailRoom * 2))
+    raw.slice(at + length, alignUtf16Boundary(raw, at + length + tailRoom * 2))
   );
   const tail = tailRaw.length > tailRoom
-    ? `${trimToWordEnd(tailRaw.slice(0, windowEnd(tailRaw, tailRoom - 1)))}…`
+    ? `${trimToWordEnd(tailRaw.slice(0, alignUtf16Boundary(tailRaw, tailRoom - 1)))}…`
     : tailRaw;
   return { snippet: `${prefix}${match}${tail}`, snippetMatch: prefix.length, matchLength: match.length };
 }
@@ -234,8 +274,8 @@ function trimToWordEnd(text: string): string {
  *  the context it travels with, which the client rejects — one long query would
  *  fail the whole response rather than just its own preview. */
 function contextWindow(raw: string, at: number, length: number): ContextWindow {
-  const start = windowStart(raw, at - CONTEXT_BEFORE);
-  const end = windowEnd(raw, Math.max(start + CONTEXT_LENGTH, at + length));
+  const start = alignUtf16Boundary(raw, at - CONTEXT_BEFORE);
+  const end = alignUtf16Boundary(raw, Math.max(start + CONTEXT_LENGTH, at + length));
   const prefix = start > 0 ? "…" : "";
   const suffix = end < raw.length ? "…" : "";
   const body = normalizeSpace(raw.slice(start, end));
@@ -247,41 +287,6 @@ function contextWindow(raw: string, at: number, length: number): ContextWindow {
 
 function normalizeSpace(text: string): string {
   return text.replace(/\s+/gu, " ");
-}
-
-/** Window edges are counted in UTF-16 units, so one can fall between the two
- *  halves of an astral character. Step off the low half rather than shipping a
- *  lone surrogate the renderer cannot measure.
- *
- *  Only a complete pair moves an edge. Storage rejects an unpaired surrogate
- *  before prose is ever written (`assertWellFormedUnicode`), so this is defence
- *  in depth rather than a case that arrives — but treating a lone low surrogate
- *  at index 0 as half of something returned -1, and a negative index slices
- *  from the far end of the string. */
-function windowStart(raw: string, index: number): number {
-  const start = Math.max(0, Math.min(raw.length, index));
-  return start > 0
-    && isLowSurrogate(raw.charCodeAt(start))
-    && isHighSurrogate(raw.charCodeAt(start - 1))
-    ? start - 1
-    : start;
-}
-
-function windowEnd(raw: string, index: number): number {
-  const end = Math.max(0, Math.min(raw.length, index));
-  return end > 0
-    && isHighSurrogate(raw.charCodeAt(end - 1))
-    && isLowSurrogate(raw.charCodeAt(end))
-    ? end - 1
-    : end;
-}
-
-function isHighSurrogate(code: number): boolean {
-  return code >= 0xd800 && code <= 0xdbff;
-}
-
-function isLowSurrogate(code: number): boolean {
-  return code >= 0xdc00 && code <= 0xdfff;
 }
 
 /** Depth by parent chain, walked iteratively: a long line is deeper than a

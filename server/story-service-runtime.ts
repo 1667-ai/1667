@@ -20,6 +20,7 @@ import { RuntimeDataDirectoryLock } from "./runtime-data-directory.js";
 import { ServiceLifecycle } from "./service-lifecycle.js";
 import { SettingsStore } from "./settings.js";
 import { StoryCatalog } from "./story-catalog.js";
+import { StorySearch } from "./story-search.js";
 import { StoryCreationMutationStore } from "./story-creation-mutation.js";
 import { StoryMutationStore } from "./story-mutation-store.js";
 import { assertNoProjectTierSecrets } from "./project-secret-fence.js";
@@ -97,6 +98,7 @@ export abstract class StoryServiceRuntime {
   protected storyMutations!: StoryMutationStore;
   protected storyCreations!: StoryCreationMutationStore;
   protected storyCatalog!: StoryCatalog;
+  protected storySearch!: StorySearch;
   protected storyReaper!: StoryReaper;
   protected storyLocal!: StoryServiceLocal;
   protected storyGeneration!: StoryServiceGeneration;
@@ -398,6 +400,7 @@ export abstract class StoryServiceRuntime {
       cancellable: async (signal, work) =>
         await this.cancellable(signal, work)
     });
+    this.storySearch = new StorySearch(this.stories);
     this.storyChapters = new StoryServiceChapters({
       stories: this.stories,
       storyMutations: this.storyMutations,

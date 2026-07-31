@@ -25,7 +25,7 @@ export function renderPreview(
   model: SearchRowModel,
   width: number
 ): FrameLine[] {
-  const row = previewSearchHit(model, search.cursor, state.payload);
+  const row = previewSearchHit(model, search.cursor);
   if (row === null || width < 12) return [];
   const hit = row.hit;
   const rule = "─".repeat(Math.min(50, width));
