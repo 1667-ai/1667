@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleChapterContext, deriveChapters, isChapterSummaryStale } from "../shared/chapters.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
+import { StoryServiceChapters } from "../server/story-service-chapters.js";
 import { activePath, childrenOf, computeRollups, contextSlice, switchToNode, takeIndex } from "../shared/story-tree.js";
 import type { ChapterBreak, StoryNode } from "../shared/types.js";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
@@ -209,4 +210,34 @@ test("renaming a chapter accepts the null break of chapter one and an empty name
   assert.throws(() => parseWorkerMutation("renameChapterBreak", {
     storyId: "story", breakId: "", title: "Arrival"
   }), /breakId/u);
+});
+
+test("naming chapter one is refused where the directory never took the fence", async () => {
+  const refusals: unknown[] = [];
+  const chapters = new StoryServiceChapters({
+    stories: {} as never,
+    storyMutations: {} as never,
+    ensureOpen: () => undefined,
+    // A legacy-preview directory keeps format 1 by design, so it is the one
+    // place a story write could carry a format-3 shape past the marker.
+    dataFormat: () => 1
+  });
+
+  await chapters.renameChapterBreak("story", null, "Arrival").catch((error: unknown) => {
+    refusals.push(error);
+  });
+  assert.equal(refusals.length, 1);
+  assert.match(String((refusals[0] as Error).message), /data format 3/u);
+
+  // A break rename carries no new shape, so it is not fenced.
+  const unfenced = new StoryServiceChapters({
+    stories: { mutate: async () => { throw new Error("reached the store"); } } as never,
+    storyMutations: {} as never,
+    ensureOpen: () => undefined,
+    dataFormat: () => 1
+  });
+  await assert.rejects(
+    () => unfenced.renameChapterBreak("story", "break", "Two"),
+    /reached the store/u
+  );
 });

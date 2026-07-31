@@ -88,7 +88,10 @@ export class SettingsStore {
     } else {
       const store = new SettingsV2Store(this.dir, this.options);
       await store.init();
-      this.initialized = { dataFormat: 2, store };
+      // Record the directory's own format, not the settings representation.
+      // Hardcoding 2 here made the getter lie about a format-3 directory and
+      // made a second, idempotent init(3) throw as if the format had changed.
+      this.initialized = { dataFormat, store };
     }
   }
 

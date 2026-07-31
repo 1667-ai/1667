@@ -25,6 +25,10 @@ export interface StoryServiceChapterDependencies {
   readonly stories: StoryStore;
   readonly storyMutations: StoryMutationStore;
   readonly ensureOpen: () => void;
+  /** The directory's own format. Chapter one's name is a format-3 shape, and
+   * a legacy-preview directory keeps format 1 by design, so it is the one
+   * place a write could carry the new shape past the marker fence. */
+  readonly dataFormat: () => number;
 }
 
 /** Chapter-divider persistence, separate from provider-backed summarization. */
@@ -87,7 +91,17 @@ export class StoryServiceChapters {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
-    // A null break id names chapter one, which no break opens.
+    // A null break id names chapter one, which no break opens. That name is a
+    // format-3 shape: a directory that never took the marker cannot hold one,
+    // or an older executable would accept the directory and then refuse the
+    // story inside it.
+    if (breakId === null && this.dependencies.dataFormat() < 3) {
+      throw new ServiceError(
+        409,
+        "Naming chapter one requires a project on data format 3; this directory is not upgraded.",
+        "data_directory_version_unsupported"
+      );
+    }
     const apply = (story: Story): boolean => {
       if (breakId === null) {
         const unchanged = (story.firstChapterTitle ?? "") === title;
