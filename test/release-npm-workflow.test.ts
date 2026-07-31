@@ -292,6 +292,11 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
     job("build"),
     /if \[ "\$RUNNER_OS" = Windows \]; then\s+gh_path="\$\(cygpath -w "\$posix_gh_path"\)"/u
   );
+  assert.match(job("build"), /ssh_keygen_path="\$\(cygpath -w "\$posix_ssh_keygen_path"\)"/u);
+  assert.match(
+    job("build"),
+    /--ssh-keygen "\$RELEASE_SSH_KEYGEN_PATH"/u
+  );
 });
 
 test("publication grants the publish job immutable-attempt authority", () => {

@@ -132,11 +132,19 @@ jobs:
             echo "::error::GitHub CLI is not a regular executable"
             exit 1
           fi
+          posix_ssh_keygen_path="$(realpath "$(command -v ssh-keygen)")"
+          if [ ! -f "$posix_ssh_keygen_path" ] || [ ! -x "$posix_ssh_keygen_path" ] || [ -L "$posix_ssh_keygen_path" ]; then
+            echo "::error::ssh-keygen is not a regular executable"
+            exit 1
+          fi
           gh_path="$posix_gh_path"
+          ssh_keygen_path="$posix_ssh_keygen_path"
           if [ "$RUNNER_OS" = Windows ]; then
             gh_path="$(cygpath -w "$posix_gh_path")"
+            ssh_keygen_path="$(cygpath -w "$posix_ssh_keygen_path")"
           fi
           printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
+          printf 'RELEASE_SSH_KEYGEN_PATH=%s\n' "$ssh_keygen_path" >> "$GITHUB_ENV"
 
       # This job can mint native provenance. It does not run dependency
       # lifecycle scripts and has no publication environment.
@@ -157,7 +165,8 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" > /dev/null
+            --tag "v$VERSION" --build-timestamp "$timestamp" \
+            --ssh-keygen "$RELEASE_SSH_KEYGEN_PATH" > /dev/null
           identity="$(node --import tsx scripts/release-github-assets.ts identity \
             "$VERSION" "$GITHUB_SHA" "$timestamp" "$TARGET")"
           printf 'AI_1667_BUILD_IDENTITY_JSON=%s\n' "$identity" >> "$GITHUB_ENV"

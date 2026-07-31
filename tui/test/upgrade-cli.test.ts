@@ -9,7 +9,7 @@ import {
   executeUpgradeCli,
   parseUpgradeArguments,
   runProcessUpgrade,
-  WINDOWS_INSTALL_COMMAND
+  windowsInstallCommand
 } from "../src/upgrade-cli.js";
 import { UpgradeFailure, type UpgradeChannel } from "../src/upgrade-contract.js";
 import type { PlatformPackage, RegistryFetch } from "../src/npm-upgrade-registry.js";
@@ -196,6 +196,7 @@ function powershellAuthority(channel: "stable" | "beta") {
 
 test("PowerShell installs return the rerunnable Windows Installer command", async () => {
   const authority = powershellAuthority("stable");
+  const managedCommand = windowsInstallCommand(POWERSHELL_ROOT);
   const checked = await executeUpgradeCli(["--check", "--json"], {
     observation,
     authority,
@@ -205,7 +206,7 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
     status: "manual",
     channel: "stable",
     method: "powershell",
-    command: WINDOWS_INSTALL_COMMAND
+    command: managedCommand
   });
 
   const applied = await executeUpgradeCli([], {
@@ -214,7 +215,7 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
     registry: fakeRegistry("2.0.0")
   });
   expect(applied.stdout).toContain("Exit 1667, then run:");
-  expect(applied.stdout).toContain(WINDOWS_INSTALL_COMMAND);
+  expect(applied.stdout).toContain(managedCommand);
   expect(applied.stdout).not.toContain("npmjs.com");
 
   const rollback = await executeUpgradeCli(["--rollback"], {
@@ -223,7 +224,29 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
     registry: fakeRegistry("2.0.0")
   });
   expect(rollback.exitCode).toBe(1);
-  expect(rollback.stderr).toContain(WINDOWS_INSTALL_COMMAND);
+  expect(rollback.stderr).toContain(managedCommand);
+});
+
+test("PowerShell reruns preserve custom roots and explicit channel switches", async () => {
+  const encoded = windowsInstallCommand("C:\\Writer's $tools").split(" ").at(-1)!;
+  expect(Buffer.from(encoded, "base64").toString("utf16le")).toContain(
+    "-InstallRoot 'C:\\Writer''s $tools'"
+  );
+  const switched = await executeUpgradeCli(["--channel", "stable", "--json"], {
+    observation,
+    authority: powershellAuthority("beta"),
+    registry: fakeRegistry(observation.currentVersion)
+  });
+  expect(switched.exitCode).toBe(0);
+  expect(JSON.parse(switched.stdout)).toMatchObject({
+    status: "manual",
+    current: observation.currentVersion,
+    latest: observation.currentVersion,
+    target: observation.currentVersion,
+    channel: "stable",
+    method: "powershell",
+    command: windowsInstallCommand(POWERSHELL_ROOT)
+  });
 });
 
 // https://1667.ai/install.ps1 serves the one promoted release. Handing it to a
@@ -241,7 +264,7 @@ test("a channel the Windows Installer route cannot serve is refused", async () =
   expect(envelope.status).toBe("error");
   expect(envelope.error.code).toBe("unsupported_target");
   expect(envelope.error.message).toContain("install-beta.ps1");
-  expect(checked.stdout).not.toContain(WINDOWS_INSTALL_COMMAND);
+  expect(checked.stdout).not.toContain("https://1667.ai/install.ps1");
 
   const requested = await executeUpgradeCli(["--channel", "beta"], {
     observation,
@@ -250,7 +273,7 @@ test("a channel the Windows Installer route cannot serve is refused", async () =
   });
   expect(requested.exitCode).toBe(1);
   expect(requested.stderr).toContain("install-beta.ps1");
-  expect(requested.stderr).not.toContain(WINDOWS_INSTALL_COMMAND);
+  expect(requested.stderr).not.toContain("https://1667.ai/install.ps1");
 });
 
 // The refusal is about the command the route cannot serve. A beta Installation

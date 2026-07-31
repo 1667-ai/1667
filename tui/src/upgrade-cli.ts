@@ -55,8 +55,13 @@ export const UPGRADE_HELP = `Usage:
 Managed Installations apply a verified Candidate. External installations stay read-only.
 On Windows, exit 1667 and run the PowerShell Installer again.`;
 
-export const WINDOWS_INSTALL_COMMAND =
-  'powershell -ExecutionPolicy Bypass -c "irm https://1667.ai/install.ps1 | iex"';
+export function windowsInstallCommand(installRoot: string): string {
+  const root = installRoot.replaceAll("'", "''");
+  const script = "& ([scriptblock]::Create((irm https://1667.ai/install.ps1))) "
+    + "-InstallRoot '" + root + "'";
+  return "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "
+    + Buffer.from(script, "utf16le").toString("base64");
+}
 
 const INSTRUCTIONS_ORIGIN =
   `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v`;
@@ -174,7 +179,7 @@ async function dispatchUpgradeCommand(
         throw new UpgradeFailure(
           "unsupported_target",
           "Windows rollback is unavailable. Exit 1667, then run: "
-          + WINDOWS_INSTALL_COMMAND
+          + windowsInstallCommand(authority.installRoot)
         );
       }
       if (authority.kind !== "shell") {
@@ -199,7 +204,7 @@ async function dispatchUpgradeCommand(
       if (method === "powershell" && plan.status !== "up-to-date") {
         requireServableWindowsChannel(plan.channel);
       }
-      return publicEnvelopeFromPlan(plan, method);
+      return publicEnvelopeFromPlan(plan, authority);
     }
     case "apply": {
       if (authority.kind === "shell") {
@@ -218,10 +223,12 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      if (method === "powershell" && plan.status !== "up-to-date") {
+      const channelSwitch = authority.kind === "powershell"
+        && command.channel !== authority.channel;
+      if (method === "powershell" && (plan.status !== "up-to-date" || channelSwitch)) {
         requireServableWindowsChannel(plan.channel);
       }
-      return publicEnvelopeFromPlan(plan, method);
+      return publicEnvelopeFromPlan(plan, authority, channelSwitch);
     }
   }
 }
@@ -232,8 +239,21 @@ async function dispatchUpgradeCommand(
  */
 export function publicEnvelopeFromPlan(
   plan: UpgradeCorePlan,
-  method: UpgradeMethod
+  authority: InstallationAuthority,
+  forcePowerShellInstall = false
 ): UpgradeSuccessEnvelope {
+  const method = authorityMethod(authority);
+  if (forcePowerShellInstall && authority.kind === "powershell") {
+    return upgradeEnvelope({
+      status: "manual",
+      current: plan.current,
+      latest: plan.latest,
+      target: plan.latest,
+      channel: plan.channel,
+      method: "powershell",
+      command: windowsInstallCommand(authority.installRoot)
+    });
+  }
   if (plan.status === "up-to-date") {
     return upgradeEnvelope({
       status: "up-to-date",
@@ -253,7 +273,7 @@ export function publicEnvelopeFromPlan(
       channel: plan.channel
     });
   }
-  if (method === "powershell") {
+  if (authority.kind === "powershell") {
     return upgradeEnvelope({
       status: "manual",
       current: plan.current,
@@ -261,7 +281,7 @@ export function publicEnvelopeFromPlan(
       target: plan.target,
       channel: plan.channel,
       method: "powershell",
-      command: WINDOWS_INSTALL_COMMAND
+      command: windowsInstallCommand(authority.installRoot)
     });
   }
   return upgradeEnvelope({

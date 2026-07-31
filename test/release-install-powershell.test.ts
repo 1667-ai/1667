@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -77,11 +77,16 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
       kind: "ExpandString"
     });
     await runInstaller(v1.url, installRoot, true);
-    assert.deepEqual(await readRawUserPath(), {
-      exists: true,
-      value: "%USERPROFILE%\\1667-preserved;" + installRoot,
-      kind: "ExpandString"
-    });
+    const updatedUserPath = await readRawUserPath();
+    assert.equal(updatedUserPath.exists, true);
+    assert.equal(updatedUserPath.kind, "ExpandString");
+    const [preserved, registered, extra] = updatedUserPath.value.split(";");
+    assert.equal(preserved, "%USERPROFILE%\\1667-preserved");
+    assert.equal(extra, undefined);
+    assert.equal(
+      (await realpath(registered!)).toLowerCase(),
+      (await realpath(installRoot)).toLowerCase()
+    );
   } finally {
     await writeRawUserPath(originalUserPath);
   }
