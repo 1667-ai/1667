@@ -107,7 +107,8 @@ export async function lockedActiveVersion(
   if (identity.artifactTarget !== authority.record.artifactTarget) {
     throw new UpgradeFailure(
       "verification_failed",
-      "Active executable target does not match the Ownership Record."
+      "The installed 1667 is not the one this installation recorded."
+      + " Install 1667 again to correct it."
     );
   }
   return identity.productVersion;

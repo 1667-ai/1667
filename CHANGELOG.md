@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The install command now shows its progress.** It names each stage, and it
+  shows the transfer while it downloads. The command was silent until it
+  finished, so a slow network looked the same as a stopped command. A pipe or a
+  log gets the stage lines without the transfer bar.
+- **`1667 upgrade` now uses plain language.** The help text, the messages, and
+  the refusals tell you what happened and what to do. They no longer use the
+  internal names for the install model. The `--json` result keeps the same
+  fields and the same error codes.
 - **Settings now reads the model list from the selected provider.** Use
   `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a
   custom model name. Settings includes an OpenAI preset. The cache policy is

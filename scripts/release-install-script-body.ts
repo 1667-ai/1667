@@ -318,7 +318,16 @@ die() {
 # and the activation, so a closed, full, or unreadable stderr must not end the
 # installation under 'set -e'. Progress is cosmetic; the install is not.
 say() {
-  printf '1667 install: %s\\n' "\$*" >&2 || :
+  # The write happens in a subshell that ignores SIGPIPE, so a reader that stops
+  # early (for example '2>&1 | head') cannot signal the installer. The subshell
+  # takes the EPIPE instead, and '|| :' keeps its status away from 'set -e'.
+  # The subshell closes FD 9, like every other subshell here, so a stalled write
+  # can never hold the Install Root lock.
+  (
+    exec 9>&-
+    trap '' PIPE
+    printf '1667 install: %s\\n' "\$*" >&2
+  ) || :
 }
 
 # Refuse any prior managed path (regular file, directory, or symbolic link).

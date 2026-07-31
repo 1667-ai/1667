@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import {
   access,
   chmod,
@@ -82,6 +83,19 @@ test("generated install scripts embed exact digests and never resolve latest", (
     /http:\/\/127\.0\.0\.1:\*\|http:\/\/localhost:\*\)[\s\S]*?curl[\s\S]*?--connect-timeout "\$DOWNLOAD_CONNECT_TIMEOUT_SEC"[\s\S]*?--max-time "\$DOWNLOAD_MAX_TIME_SEC"[\s\S]*?;;/
   );
   assert.ok(loopbackBranch !== null, "loopback curl branch has connect and max-time bounds");
+  // The HTTPS branch must keep failing closed and must never follow a redirect
+  // off HTTPS. The digest check would catch wrong bytes, but not the correct
+  // bytes fetched over plaintext. Pin the flags so an edit to this line cannot
+  // drop them silently.
+  assert.match(httpsBranch![0], /curl -fSL /u);
+  assert.match(httpsBranch![0], /--proto '=https'/u);
+  assert.match(httpsBranch![0], /--proto-redir '=https'/u);
+  assert.match(loopbackBranch![0], /curl -fSL /u);
+  // The transfer bar is for a person at a terminal. A pipe or a log gets
+  // silence, so captured output keeps no carriage returns.
+  assert.match(body, /if \[ -t 2 \]; then\n\s+progress='--progress-bar'\n\s+else\n\s+progress='--silent'/u);
+  assert.match(httpsBranch![0], /"\$progress"/u);
+  assert.match(loopbackBranch![0], /"\$progress"/u);
   // Every accepted --prefix must be able to produce a canonical Ownership Record.
   assert.match(body, /prefix must not be the filesystem root/);
   for (const archive of archives) {
@@ -394,6 +408,31 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
       await readFile(path.join(ttyPrefix, ".1667-install.json"), "utf8")
     );
     assert.equal(ttyOwnership.artifactTarget, hostTarget);
+  }
+
+  // Progress is cosmetic, and it is written between the Transaction Record and
+  // the activation. A reader that closes or stops early must not end an
+  // otherwise valid installation and leave recovery state behind.
+  for (const [label, redirect] of [
+    ["closed stderr", "2>&-"],
+    ["reader stops early", "2>&1 | head -n 2"]
+  ] as const) {
+    const quietPrefix = path.join(root, `quiet-${label.replace(/\W+/gu, "-")}`);
+    await mkdir(quietPrefix, { mode: 0o755 });
+    await chmod(quietPrefix, 0o755);
+    await execFileAsync("sh", ["-c", `sh ${scriptPath} --prefix ${quietPrefix} ${redirect}`], {
+      cwd: root
+    });
+    const installed = path.join(quietPrefix, "1667");
+    assert.ok(existsSync(installed), `${label} did not install the executable`);
+    assert.ok(
+      !existsSync(path.join(quietPrefix, ".1667-install-txn.json")),
+      `${label} left a Transaction Record behind`
+    );
+    const quietOwnership = parseInstallOwnershipRecordText(
+      await readFile(path.join(quietPrefix, ".1667-install.json"), "utf8")
+    );
+    assert.equal(quietOwnership.artifactTarget, hostTarget);
   }
 
   // Candidate identity mismatch refuses activation.

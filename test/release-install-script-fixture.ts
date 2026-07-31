@@ -4,7 +4,7 @@ import {
   mkdir,
   readFile
 } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
@@ -53,7 +53,17 @@ export function ptyCommand(
   argv: readonly string[]
 ): { readonly file: string; readonly args: readonly string[] } | null {
   if (process.platform !== "darwin" && process.platform !== "linux") return null;
-  return { file: "python3", args: ["-c", PTY_RUNNER, ...argv] };
+  // A host without a working python3 reports the gap and skips. The terminal
+  // branch is worth covering, but it is not worth failing an unrelated suite
+  // with an error that points at a missing interpreter.
+  const python = pythonInterpreter();
+  if (python === null) return null;
+  return { file: python, args: ["-c", PTY_RUNNER, ...argv] };
+}
+
+function pythonInterpreter(): string | null {
+  const found = spawnSync("python3", ["-c", "import pty"], { stdio: "ignore" });
+  return found.error === undefined && found.status === 0 ? "python3" : null;
 }
 
 export function digestsFor(version: string) {
