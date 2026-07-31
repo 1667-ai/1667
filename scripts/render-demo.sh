@@ -22,7 +22,6 @@ set -eu
 out_dir="demo-out"
 demo_mp4="$out_dir/1667-demo.mp4"
 demo_gif="$out_dir/demo.gif"
-font="${DEMO_FONT:-$HOME/Library/Fonts/BerkeleyMono-Regular.ttf}"
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/1667-demo.XXXXXX")"
 
 trap 'rm -rf "$temp_dir"' EXIT
@@ -36,16 +35,11 @@ ffmpeg -v error -i "$demo_mp4" \
   "$temp_dir/1667-demo.mp4"
 mv "$temp_dir/1667-demo.mp4" "$demo_mp4"
 
-# The GIF carries the homepage's terminal chrome. That frame is CSS on the site
-# and cannot be on GitHub or npm, so it is drawn once and composited under the
-# recording. The MP4 above stays bare: the site draws its own.
+# The GIF carries window chrome. That frame is CSS on the homepage and cannot
+# be on GitHub or npm, so it is drawn once and composited under the recording.
+# The MP4 above stays bare: the site draws its own.
 chrome_png="$temp_dir/chrome.png"
-if [ ! -f "$font" ]; then
-  echo "Berkeley Mono not found at $font" >&2
-  echo "set DEMO_FONT to its path; the tape needs the same font" >&2
-  exit 1
-fi
-offset="$(python3 scripts/demo-chrome.py "$font" "$chrome_png")"
+offset="$(python3 scripts/demo-chrome.py "$chrome_png")"
 chrome_x="${offset% *}"
 chrome_y="${offset#* }"
 

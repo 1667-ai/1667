@@ -1,88 +1,75 @@
-"""Draws the terminal chrome that the README GIF is composited into.
+"""Draws the window frame that the README GIF is composited into.
 
-The homepage frames every terminal panel with the same bar: three dots, a
-title, a status, over a hairline border. It does that in CSS. A GIF in a
-Markdown file has no CSS, so the bar has to be pixels, and this draws them.
+The hero is the outermost frame a reader sees: it says "this is a program you
+run", so it wears window chrome. The panels further down the homepage are views
+inside the program and wear the site's own bar instead. Those are different
+jobs, and they get different frames on purpose.
+
+Measured off the screenshot this replaced, so the frame is the one that was
+there before rather than an approximation of it. Nothing is rounded: the
+original had square corners inside and out.
 
 Run it through scripts/render-demo.sh rather than directly.
 
-    python3 scripts/demo-chrome.py <font.ttf> <out.png>
+    python3 scripts/demo-chrome.py <out.png>
 
 It prints the offset the video is composited at, which render-demo.sh reads.
 """
 
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-# From the homepage's src/styles/tokens.css. Keep these in step with
-# .terminal-video__bar over there; the two frames are compared side by side by
-# anyone who follows the README link to the site.
-LINE_LIT = "#2a2015"  # --line-lit, the outer border
-BAR = "#120e09"  # the title bar fill
-LINE = "#241c11"  # --line, the hairline under the bar
-TUI = "#14100b"  # --tui-background, behind the video
-DOT = "#3a2e1e"  # --line-hot
-TITLE = "#7e6f58"  # --text-dim
-STATUS = "#c8933f"  # --amber
+FRAME = (23, 23, 23)  # #171717
+TUI = (19, 15, 10)  # behind the video, matching the capture's own background
+LIGHTS = ((255, 79, 77), (255, 186, 0), (0, 204, 28))
 
-# The homepage bar is measured in CSS pixels at display size. GitHub renders a
-# README image at about 800px wide and the capture is 1280 wide, so every CSS
-# value is scaled by 1280/800 here and lands back on the homepage's proportions
-# once render-demo.sh scales the composite down.
-SCALE = 1.6
 VIDEO = (1280, 720)
-BORDER = round(1 * SCALE)
-BAR_HEIGHT = round(32 * SCALE)
-DOT_SIZE = round(7 * SCALE)
-DOT_GAP = round(5 * SCALE)
-PAD_X = round(14 * SCALE)
-TEXT_GAP = round(12 * SCALE)
-FONT_SIZE = round(10.5 * SCALE)
+INSET = (18, 58)  # where the capture sits: 18 left, 58 down past the bar
+MARGIN = 18  # right and bottom
+LIGHT_R = 6
+LIGHT_Y = 19.5
+LIGHT_X = (19.5, 37.5, 55.5)
 
-TITLE_TEXT = "1667 · demo"
-STATUS_TEXT = "the lantern keeper"
+# ImageDraw does not anti-alias. The circles are the only curves here, so the
+# frame is drawn large and reduced, which costs one resize and looks right.
+SUPERSAMPLE = 4
 
 
-def main(font_path: str, out_path: str) -> None:
-    font = ImageFont.truetype(font_path, FONT_SIZE)
+def main(out_path: str) -> None:
+    width = VIDEO[0] + INSET[0] + MARGIN
+    height = VIDEO[1] + INSET[1] + MARGIN
 
-    width = VIDEO[0] + BORDER * 2
-    height = VIDEO[1] + BAR_HEIGHT + BORDER * 2
-    image = Image.new("RGB", (width, height), LINE_LIT)
+    scale = SUPERSAMPLE
+    image = Image.new("RGB", (width * scale, height * scale), FRAME)
     draw = ImageDraw.Draw(image)
 
-    right = width - BORDER - 1
-    bar_bottom = BORDER + BAR_HEIGHT
-    draw.rectangle([BORDER, BORDER, right, bar_bottom - 2], fill=BAR)
-    draw.rectangle([BORDER, bar_bottom - 1, right, bar_bottom - 1], fill=LINE)
-    draw.rectangle([BORDER, bar_bottom, right, height - BORDER - 1], fill=TUI)
+    draw.rectangle(
+        [
+            INSET[0] * scale,
+            INSET[1] * scale,
+            (INSET[0] + VIDEO[0]) * scale - 1,
+            (INSET[1] + VIDEO[1]) * scale - 1,
+        ],
+        fill=TUI,
+    )
 
-    centre = BORDER + BAR_HEIGHT / 2
-    x = BORDER + PAD_X
-    for _ in range(3):
+    for centre_x, colour in zip(LIGHT_X, LIGHTS):
         draw.ellipse(
-            [x, centre - DOT_SIZE / 2, x + DOT_SIZE - 1, centre + DOT_SIZE / 2 - 1],
-            fill=DOT,
+            [
+                (centre_x - LIGHT_R) * scale,
+                (LIGHT_Y - LIGHT_R) * scale,
+                (centre_x + LIGHT_R) * scale,
+                (LIGHT_Y + LIGHT_R) * scale,
+            ],
+            fill=colour,
         )
-        x += DOT_SIZE + DOT_GAP
 
-    draw.text(
-        (x - DOT_GAP + TEXT_GAP, centre),
-        TITLE_TEXT,
-        font=font,
-        fill=TITLE,
-        anchor="lm",
-    )
-    draw.text(
-        (right - PAD_X, centre), STATUS_TEXT, font=font, fill=STATUS, anchor="rm"
-    )
-
-    image.save(out_path)
-    print(f"{BORDER} {bar_bottom}")
+    image.resize((width, height), Image.LANCZOS).save(out_path)
+    print(f"{INSET[0]} {INSET[1]}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: demo-chrome.py <font.ttf> <out.png>")
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: demo-chrome.py <out.png>")
+    main(sys.argv[1])

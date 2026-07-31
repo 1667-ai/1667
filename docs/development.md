@@ -116,18 +116,23 @@ It needs `vhs`, `ffmpeg`, Bun, and `python3` with Pillow. `scripts/demo.tape`
 holds the recorded flow, and `test/demo-tape.test.ts` holds it to that flow and
 to its capture geometry.
 
-The GIF is framed with the same terminal chrome the homepage puts around every
-panel: three dots, a title, a status, over a hairline border. The site draws
-that in CSS, which a GIF in Markdown cannot use, so `scripts/demo-chrome.py`
-draws it into an image that the recording is composited onto. Its colours are
-copied from the homepage's design tokens and the test asserts them, because
-nothing else connects the two. `DEMO_FONT` overrides the Berkeley Mono path.
+The GIF wears window chrome: a grey surround with three traffic lights. That
+says "a program you run", which is the hero's job. The panels further down the
+homepage wear the site's own bar instead, because they are views inside the
+program rather than the window around it.
+
+The site draws the hero frame in CSS, which a GIF in Markdown cannot use, so
+`scripts/demo-chrome.py` draws it into an image that the recording is
+composited onto. Its geometry was measured off the screenshot the GIF replaced,
+and the test asserts every value, because nothing else connects it to
+`DemoVideo.astro` on the site.
 
 The GIF is served from 1667.ai rather than committed here. The README embeds an
 absolute URL because npmjs.com renders the same README for `@1667-ai/cli` and
 drops relative image paths. The name carries a revision, so a new recording is
-published as `demo-2.gif` and the README link moves: GitHub's camo proxy caches
-these images long enough that overwriting one in place does not reach readers.
+published under the next number and the README link moves: GitHub's camo proxy
+caches these images long enough that overwriting one in place does not reach
+readers.
 
 Publishing a new recording means copying the GIF into the homepage repository's
 `public/`, adding its `_headers` rule, deploying, then updating the README link

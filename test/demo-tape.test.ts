@@ -53,27 +53,23 @@ test("the demo tape writes both artifacts the render script derives from", () =>
   );
 });
 
-test("the chrome the GIF is framed with matches the homepage's own", () => {
-  // The homepage draws this frame in CSS from src/styles/tokens.css. A GIF in
-  // Markdown cannot, so the values are duplicated in the drawing script. That
-  // duplication is the risk this test exists to make loud: if the site's
-  // .terminal-video__bar changes, these have to follow or the README and the
-  // site stop looking like the same product.
+test("the window frame the GIF wears matches the homepage's hero frame", () => {
+  // The homepage draws this frame in CSS, in DemoVideo.astro. A GIF in
+  // Markdown cannot use CSS, so the geometry and the colours are duplicated in
+  // the drawing script, and nothing but this test connects the two. Every
+  // number here was measured off the screenshot the GIF replaced.
   const chrome = readFileSync(join(root, "scripts/demo-chrome.py"), "utf8");
-  for (const [name, value] of [
-    ["LINE_LIT", "#2a2015"],
-    ["BAR", "#120e09"],
-    ["LINE", "#241c11"],
-    ["TUI", "#14100b"],
-    ["DOT", "#3a2e1e"],
-    ["TITLE", "#7e6f58"],
-    ["STATUS", "#c8933f"]
-  ]) {
-    assert.match(
-      chrome,
-      new RegExp(`^${name} = "${value}"`, "m"),
-      `${name} no longer matches the homepage token`
-    );
-  }
+
+  assert.match(chrome, /^FRAME = \(23, 23, 23\)/m, "frame fill moved off #171717");
+  assert.match(
+    chrome,
+    /^LIGHTS = \(\(255, 79, 77\), \(255, 186, 0\), \(0, 204, 28\)\)$/m,
+    "the traffic lights changed colour"
+  );
   assert.match(chrome, /^VIDEO = \(1280, 720\)$/m);
+  assert.match(chrome, /^INSET = \(18, 58\)/m, "the capture moved inside the frame");
+  assert.match(chrome, /^MARGIN = 18/m);
+  assert.match(chrome, /^LIGHT_R = 6$/m);
+  assert.match(chrome, /^LIGHT_Y = 19\.5$/m);
+  assert.match(chrome, /^LIGHT_X = \(19\.5, 37\.5, 55\.5\)$/m);
 });
