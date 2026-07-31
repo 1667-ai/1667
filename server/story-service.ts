@@ -157,7 +157,7 @@ export class StoryService extends StoryServiceRuntime {
    * The open story is scanned first so its hits survive the cap when a vault
    * query matches more than the limit.
    */
-  async searchStories(input: unknown): Promise<SearchResponse> {
+  async searchStories(input: unknown, signal?: AbortSignal): Promise<SearchResponse> {
     this.ensureOpen();
     const request = parseSearchRequest(input);
     const query = request.query.trim();
@@ -170,6 +170,7 @@ export class StoryService extends StoryServiceRuntime {
       storiesSearched: 0
     };
     if (!searchQueryIsRunnable(query)) return base;
+    requireLiveSearch(signal);
     const summaries = request.scope === "tree" ? [] : await this.stories.list();
     const revisions = new Map(summaries.map((summary) =>
       [summary.id, { title: summary.title, updatedAt: summary.updatedAt }] as const));
@@ -181,6 +182,9 @@ export class StoryService extends StoryServiceRuntime {
     let storiesSearched = 0;
     let capped = false;
     for (const id of targets) {
+      // A keystroke supersedes the query before it: check between stories, the
+      // seam where the next story would otherwise be hydrated off disk.
+      requireLiveSearch(signal);
       if (hits.length >= SEARCH_HIT_LIMIT) {
         // Stories after this one go unread, so the count really is a floor
         // even when those stories would have matched nothing.
@@ -781,4 +785,16 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+}
+
+/** Stop a scan the caller no longer wants.
+ *
+ * Search runs one request per keystroke, so a query is routinely obsolete
+ * before it finishes. The status matches the worker's own cancellation answer:
+ * the client discards a superseded reply either way, and what matters here is
+ * that the reading stops. */
+function requireLiveSearch(signal: AbortSignal | undefined): void {
+  if (signal?.aborted === true) {
+    throw new ServiceError(408, "Search was superseded or cancelled");
+  }
 }

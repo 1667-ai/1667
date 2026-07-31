@@ -6,7 +6,7 @@ import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine } from "../src/screens/story/frame.js";
 import { runSearch } from "../src/search-actions.js";
-import { adoptSameStoryPayload } from "../src/story-adoption.js";
+import { adoptSameStoryPayload, adoptStoryState } from "../src/story-adoption.js";
 import { searchRows, type SearchGroupRow, type SearchHitRow } from "../src/search-model.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { searchCorpus, type SearchCorpus } from "../../shared/story-search.js";
@@ -79,6 +79,52 @@ describe("global search screen and model", () => {
     expect(searchRows(search, state.payload).selectableCount).toBe(0);
   });
 
+  test("a later keystroke stops the scan it supersedes", async () => {
+    const { source, state, press, typeString } = setupSearchHarness();
+    await press("/");
+    await typeString("compass");
+    const search = state.search!;
+
+    search.query = "lantern";
+    runSearch(state, search, source, () => {});
+    const superseded = search.pending!;
+    expect(superseded.signal.aborted).toBeFalse();
+
+    // Ignoring the reply is not enough: a vault scan reads stories off disk.
+    search.query = "lanterns";
+    runSearch(state, search, source, () => {});
+    expect(superseded.signal.aborted).toBeTrue();
+    expect(search.pending).not.toBe(superseded);
+  });
+
+  test("esc stops the scan as well as the screen", async () => {
+    const { state, press, typeString } = setupSearchHarness();
+    await press("/");
+    await typeString("compass");
+    const search = state.search!;
+    // The fixture answers instantly, so stand in for a scan still running.
+    const pending = new AbortController();
+    search.pending = pending;
+
+    await press("escape", "");
+    expect(state.mode).toBe("NAV");
+    expect(pending.signal.aborted).toBeTrue();
+  });
+
+  test("switching story stops the scan it discards", async () => {
+    const { state, press, typeString } = setupSearchHarness();
+    await press("/");
+    await typeString("compass");
+    const search = state.search!;
+    // The fixture answers instantly, so stand in for a scan still running.
+    const pending = new AbortController();
+    search.pending = pending;
+
+    adoptStoryState(state, { ...state.payload, id: "another-story" });
+    expect(state.search).toBe(null);
+    expect(pending.signal.aborted).toBeTrue();
+  });
+
   test("a request still in flight is abandoned, not left pending", async () => {
     const { source, state, press, typeString } = setupSearchHarness();
     await press("/");
@@ -90,8 +136,10 @@ describe("global search screen and model", () => {
     expect(search.searching).toBeTrue();
     // The reply will fail the ownership fence and run no handler, so adoption
     // has to clear the pending state or the pane reads "searching…" forever.
+    const pending = search.pending!;
     adoptSameStoryPayload(state, { ...state.payload });
     expect(search.searching).toBeFalse();
+    expect(pending.signal.aborted).toBeTrue();
   });
 
   test("an armed case lamp survives a narrow header", async () => {

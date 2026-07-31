@@ -22,6 +22,9 @@ export interface SearchState {
   searching: boolean;
   /** Monotonic fence: only the newest request may adopt its response. */
   requestId: number;
+  /** The request in flight, so the scan behind a superseded reply can be
+   *  stopped rather than merely ignored. */
+  pending: AbortController | null;
   /** Cursor over selectable rows (group headers and hits). */
   cursor: number;
   /** Story or branch groups the user folded. */
@@ -77,10 +80,20 @@ export function createSearchState(
     response: null,
     searching: false,
     requestId: 0,
+    pending: null,
     cursor: 0,
     foldedGroupIds: [],
     error: null
   };
+}
+
+/** Stop the scan behind a request nobody is waiting for. A vault scan reads
+ *  stories off disk, so an abandoned query still competes with the live one. */
+export function abortPendingSearch(search: SearchState): void {
+  const pending = search.pending;
+  if (pending === null) return;
+  search.pending = null;
+  pending.abort();
 }
 
 /** Rows for the left pane: a blank line, a header and its hits per group, and

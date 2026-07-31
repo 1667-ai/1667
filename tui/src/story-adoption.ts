@@ -8,6 +8,7 @@ import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { createPrunePlan, createUnusedTakesPrunePlan } from "./prune-model.js";
 import { applyOpeningFocus } from "./reading-position.js";
 import { flushReadingPositionPersist } from "./reading-position-persist.js";
+import { abortPendingSearch } from "./search-model.js";
 import type { RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
@@ -99,6 +100,7 @@ export function adoptSameStoryPayload(state: RuntimeState, payload: StoryPayload
 function retireSearchResults(state: RuntimeState): void {
   const search = state.search;
   if (search === null) return;
+  abortPendingSearch(search);
   search.requestId += 1;
   search.searching = false;
   search.response = null;
@@ -342,6 +344,9 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   state.composerClaimEpoch += 1;
   state.freshLandedAt = new Map();
   state.map = null;
+  // Dropping the search state would strand the scan behind it: the reply is
+  // discarded either way, but the reading has to stop too.
+  if (state.search !== null) abortPendingSearch(state.search);
   state.search = null;
   state.contextMeterExpanded = false;
   state.prune = null;

@@ -7,6 +7,7 @@ import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { flushReadingPositionPersist } from "./reading-position-persist.js";
 
 import {
+  abortPendingSearch,
   boundedSearchCursor,
   createSearchState,
   firstHitCursor,
@@ -40,6 +41,7 @@ export async function searchAction(
   const search = state.search;
   if (search === null) return;
   if (resolved.action === "cancel") {
+    abortPendingSearch(search);
     state.search = null;
     state.mode = "NAV";
     return;
@@ -251,6 +253,10 @@ function openHitFact(hit: SearchHit, state: RuntimeState, search: SearchState): 
  * The settled response is dropped as the request goes out. Keeping it would
  * paint hits from the previous query, scope or case under the new header —
  * and `enter` would travel to one of them.
+ *
+ * The request it replaces is aborted rather than merely ignored: a vault scan
+ * reads stories off disk, so a query nobody is waiting for still competes with
+ * the one that is.
  */
 export function runSearch(
   state: RuntimeState,
@@ -264,11 +270,14 @@ export function runSearch(
   search.response = null;
   search.error = null;
   search.cursor = 0;
+  abortPendingSearch(search);
   if (!searchQueryIsRunnable(query)) {
     search.searching = false;
     return;
   }
   search.searching = true;
+  const pending = new AbortController();
+  search.pending = pending;
   // The payload is the fence, not just the story id. Only adoption replaces it
   // — a stream mutates its own view, never this object — so requiring the same
   // payload rejects exactly the responses that describe a story which has since
@@ -277,19 +286,26 @@ export function runSearch(
   const owns = () => state.search === search
     && search.requestId === requestId
     && state.payload === payload;
+  const settle = () => {
+    if (search.pending === pending) search.pending = null;
+  };
   void source.api.searchStories({
     query,
     scope: search.scope,
     storyId: state.payload.id,
     caseSensitive: search.caseSensitive
-  }).then((response) => {
+  }, pending.signal).then((response) => {
+    settle();
     if (!owns()) return;
     search.response = response;
     search.searching = false;
     search.cursor = firstHitCursor(searchRows(search, state.payload));
     repaint();
   }, (error: unknown) => {
-    if (!owns()) return;
+    settle();
+    // An abort is this reducer's own doing, and the state it would report into
+    // belongs to whatever superseded it.
+    if (!owns() || pending.signal.aborted) return;
     search.searching = false;
     search.response = null;
     search.error = error instanceof Error ? error.message : String(error);

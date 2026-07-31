@@ -523,7 +523,12 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     }),
     importSillyTavern: async () => unavailable("SillyTavern import"),
     exportMarkdown: async () => demo.exportMarkdown(),
-    searchStories: async (search) => demo.searchStories(search),
+    searchStories: async (search, signal) => {
+      // The fixture answers instantly, so the only cancellation it can honour
+      // is one that arrived before the call.
+      if (signal?.aborted === true) throw new Error("Search was superseded or cancelled");
+      return demo.searchStories(search);
+    },
     continueStory: async (_storyId, instruction, genId, target, onDelta, signal) => {
       const text = target.appendTo !== undefined ? DEMO_CONTINUE_TEXT : DEMO_GENERATED_TEXT;
       let landed = "";

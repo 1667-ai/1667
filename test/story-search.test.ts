@@ -425,6 +425,54 @@ test("a deleted story leaves no prepared text behind", async () => {
   }
 });
 
+test("an already-cancelled search reads nothing", async () => {
+  const { service, close } = await openService();
+  try {
+    const seeded = await seedForkedStory(service);
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      () => service.searchStories({
+        query: "compass",
+        scope: "vault",
+        storyId: seeded.storyId,
+        caseSensitive: false
+      }, controller.signal),
+      /superseded or cancelled/
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("a scan stops when the query behind it is superseded", async () => {
+  const { service, close } = await openService();
+  try {
+    const seeded = await seedForkedStory(service);
+    for (const title of ["the salt year", "the winter orchard", "a glass tide"]) {
+      const other = await service.createStory(title);
+      await service.createNode(other.id, {
+        parentId: null,
+        text: "A compass is a promise you can hold.",
+        instruction: "open on the harbour"
+      });
+    }
+
+    const controller = new AbortController();
+    const scan = service.searchStories({
+      query: "compass",
+      scope: "vault",
+      storyId: seeded.storyId,
+      caseSensitive: false
+    }, controller.signal);
+    // The next keystroke lands while the scan is still walking the vault.
+    controller.abort();
+    await assert.rejects(() => scan, /superseded or cancelled/);
+  } finally {
+    await close();
+  }
+});
+
 test("oversized corpus is returned without being cached in index", () => {
   const index = new StorySearchIndex();
   // Construct a story larger than MAX_CACHED_CHARACTERS (8,000,000 chars)

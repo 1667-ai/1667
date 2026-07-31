@@ -106,7 +106,7 @@ export interface ContinueTarget {
  *  methods on that shape or teach connection.ts about the exception. */
 export interface StoryApi {
   listStories(): Promise<StorySummary[]>;
-  searchStories(request: SearchRequest): Promise<SearchResponse>;
+  searchStories(request: SearchRequest, signal?: AbortSignal): Promise<SearchResponse>;
   createStory(title?: string): Promise<StoryPayload>;
   loadStory(id: string): Promise<StoryPayload>;
   renameStory(id: string, title: string): Promise<StoryPayload>;
@@ -421,11 +421,14 @@ export function createApi(
       }
       throw new Error("The story catalog retry was exhausted.");
     },
-    searchStories: async (search) => await request(
+    searchStories: async (search, signal) => await request(
       "POST",
       "/api/stories/search",
       decodeSearchResponse,
-      search
+      search,
+      HTTP_REQUEST_TIMEOUT_MS,
+      undefined,
+      signal
     ),
     createStory: async (title) => {
       const normalizedTitle = title?.trim() || "Untitled";

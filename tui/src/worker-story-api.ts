@@ -95,7 +95,18 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         [...held.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       );
     },
-    searchStories: async (search) => await transport.call("searchStories", search),
+    searchStories: async (search, signal) => {
+      const response = await transport.call(
+        "searchStories",
+        search,
+        signal === undefined ? {} : { signal }
+      );
+      // The transport answers an aborted call with null rather than rejecting.
+      // Search reports cancellation the same way over both backends, so the
+      // caller never has to know which one it is talking to.
+      if (response === null) throw new Error("Search was superseded or cancelled");
+      return response;
+    },
     createStory: async (title) => rememberPayload(
       await transport.call("createStory", title === undefined ? {} : { title }, {
         expectedAggregateVersion: { kind: "absent" }
