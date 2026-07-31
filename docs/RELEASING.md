@@ -495,6 +495,53 @@ Do not advertise the homepage one-line install command until the end-to-end
 release gate in ADR 010 passes. The homepage must serve bytes that match one
 attested channel install script for the promoted release.
 
+## End-to-end release gate
+
+Verify the Shell Installer and `1667 upgrade` behavior before you advertise the
+homepage install command.
+
+Run this command:
+
+```sh
+npm run release:verify-install-upgrade -- --from-version <semver> [--from-channel beta|stable]
+```
+
+The `--from-version` argument is required. The `--from-channel` argument
+defaults to `beta`.
+
+The command needs `curl`, `gh`, `npm`, and `bun`. It does all of its work in a
+temporary directory below `~/.cache/1667-tests`. It removes that directory when
+it stops.
+
+The command does these checks:
+
+1. It uses `curl` to download the homepage script and the canonical GitHub
+   installer script. It verifies byte equality, shell syntax, and the GitHub
+   attestation.
+2. It executes the verified homepage bytes in a private prefix. It verifies the
+   current release identity and the Ownership Record.
+3. It verifies the up-to-date result from `1667 upgrade --check` and
+   `1667 upgrade`.
+4. It executes the verified homepage bytes in the same prefix again. It
+   verifies that the script refuses the existing executable.
+5. It executes `1667 upgrade --rollback` without a previous executable. It
+   verifies the error result and the active executable.
+6. It downloads and verifies the previous installer script. It executes the
+   verified bytes. It verifies the previous release identity and the Ownership
+   Record.
+7. It copies the previous executable without the Ownership Record. It verifies
+   that `1667 upgrade` does not replace the copy.
+8. It upgrades the previous Managed Installation. It verifies upgrade,
+   rollback, re-upgrade, no-op, and channel-change results. The beta channel can
+   hold a release that is more recent than the stable channel. The command first
+   asks the beta channel what it offers. It then verifies the applied result
+   against that answer.
+9. It installs `@1667-ai/cli` in the temporary directory. It executes the check
+   and apply paths. It verifies that the npm installation stays externally
+   managed.
+10. It executes the check and apply paths from the source checkout. It verifies
+    that the source installation stays externally managed.
+
 ## GitHub pre-release of native archives
 
 `.github/workflows/release-github.yml` publishes one archive per published
