@@ -17,6 +17,7 @@ export type LauncherReleaseTarget = Readonly<{
   minimumMacosVersion: "13.0" | null;
   minimumGlibcVersion: "2.17" | null;
   heldFromPublication: string | null;
+  heldAlternative: string | null;
 }>;
 export const LAUNCHER_RELEASE_TARGETS: Readonly<Record<string, LauncherReleaseTarget>>;
 
