@@ -341,10 +341,30 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   const safePrefix = path.join(root, "safe-prefix");
   await mkdir(safePrefix, { mode: 0o755 });
   await chmod(safePrefix, 0o755);
-  const { stdout } = await execFileAsync("sh", [scriptPath, "--prefix", safePrefix], {
+  const { stdout, stderr } = await execFileAsync("sh", [scriptPath, "--prefix", safePrefix], {
     cwd: root
   });
   assert.match(stdout, new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`));
+
+  // The installer reports each slow stage. Without this the command is silent
+  // for the whole transfer, and a slow network looks the same as a stall.
+  const stages = [
+    `1667 install: Downloading 1667 ${INSTALL_VERSION} for ${hostTarget}`,
+    "1667 install: Checking the download",
+    "1667 install: Unpacking",
+    "1667 install: Starting 1667 once to confirm it runs"
+  ];
+  let searchedTo = -1;
+  for (const stage of stages) {
+    const at = stderr.indexOf(stage);
+    assert.ok(at !== -1, `progress is missing ${JSON.stringify(stage)}:\n${stderr}`);
+    assert.ok(at > searchedTo, `progress reports ${JSON.stringify(stage)} out of order:\n${stderr}`);
+    searchedTo = at;
+    assert.ok(!stdout.includes(stage), "progress must not reach stdout");
+  }
+  // A pipe or a log gets no transfer bar, so captured output stays free of
+  // carriage returns.
+  assert.doesNotMatch(stderr, /\r/u);
   const ownership = parseInstallOwnershipRecordText(
     await readFile(path.join(safePrefix, ".1667-install.json"), "utf8")
   );

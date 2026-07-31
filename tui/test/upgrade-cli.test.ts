@@ -159,8 +159,19 @@ test("human plan output uses only locally derived fixed instructions", async () 
   );
   expect(result.stdout).not.toContain("%2f");
   expect(result.stdout).not.toContain("github");
-  expect(result.stdout).toContain("outside 1667's trust boundary");
+  expect(result.stdout).toContain("Start 1667 again after you update it.");
   expect(result.stdout).not.toContain("npm install");
+  // Output speaks to the person running the command. Internal vocabulary for
+  // the install and release model does not tell them what to do.
+  for (const internal of [
+    "Verified metadata source",
+    "Candidate",
+    "Managed Installation",
+    "trust boundary",
+    "Install method"
+  ]) {
+    expect(result.stdout).not.toContain(internal);
+  }
 });
 
 test("human checks defer exact instructions until a fresh plan", async () => {
@@ -186,8 +197,13 @@ test("help is local and performs no registry I/O", async () => {
   const registry = fakeRegistry("2.0.0");
   const result = await executeUpgradeCli(["--help"], { observation, registry });
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("Managed Installations apply a verified Candidate");
   expect(result.stdout).toContain("--rollback");
+  // Help speaks to the person running the command. Internal names for the
+  // install model do not tell them what to do.
+  expect(result.stdout).toContain("update it the same");
+  for (const internal of ["Managed Installation", "Candidate", "External installation"]) {
+    expect(result.stdout).not.toContain(internal);
+  }
   expect(registry.calls).toEqual([]);
 });
 

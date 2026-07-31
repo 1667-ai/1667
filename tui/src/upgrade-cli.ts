@@ -52,7 +52,8 @@ export const UPGRADE_HELP = `Usage:
   1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json]
   1667 upgrade --rollback [--json]
 
-Managed Installations apply a verified Candidate. External installations stay read-only.`;
+If you installed 1667 with npm, or you built it from source, update it the same
+way you installed it.`;
 
 const INSTRUCTIONS_ORIGIN =
   `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v`;
@@ -166,7 +167,7 @@ async function dispatchUpgradeCommand(
       if (authority.kind !== "shell") {
         throw new UpgradeFailure(
           "unsupported_target",
-          "Rollback requires a Managed Installation created by the Shell Installer."
+          "Rollback works only when you installed 1667 with the install command."
         );
       }
       return await applyRollback({
@@ -298,27 +299,28 @@ function renderUpgrade(
       lines.push(`1667 ${envelope.target} is available on ${envelope.channel}.`);
       break;
   }
-  lines.push(`Install method: ${envelope.method}.`);
+  lines.push(
+    envelope.method === "shell"
+      ? "1667 installed this copy, so it can update it."
+      : "1667 did not install this copy, so it cannot update it."
+  );
   if (envelope.restartRequired) {
-    lines.push("Restart 1667 to run the new executable.");
+    lines.push("Restart 1667 to run the new version.");
   }
   if (command.kind === "check") {
     if (envelope.status === "manual") {
-      lines.push("Run '1667 upgrade' for a fresh, exact read-only plan.");
+      lines.push("Run '1667 upgrade' to see how to update.");
     } else if (envelope.status === "available") {
-      lines.push("Run '1667 upgrade' to apply the Candidate.");
+      lines.push("Run '1667 upgrade' to install it.");
     }
     return `${lines.join("\n")}\n`;
   }
   if (envelope.status === "applied") {
     return `${lines.join("\n")}\n`;
   }
-  lines.push("Verified metadata source: canonical npm registry.");
   if (envelope.status === "manual") {
     lines.push(`Instructions: ${instructionsUrl(envelope.target)}`);
-    lines.push(
-      "Any external reinstall is outside 1667's trust boundary; launch 1667 again afterward."
-    );
+    lines.push("Start 1667 again after you update it.");
   }
   return `${lines.join("\n")}\n`;
 }

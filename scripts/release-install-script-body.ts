@@ -196,11 +196,15 @@ ${input.digestLines}
   write_txn "\$prefix" "downloading" "\$target" "\$digest"
   archive_path="\$prefix/\$archive"
   rm -f "\$archive_path"
+  say "Downloading 1667 \$PRODUCT_VERSION for \$target"
   download_archive "\$url" "\$archive_path"
+  say "Checking the download"
   verify_sha256 "\$archive_path" "\$digest"
   write_txn "\$prefix" "extracted" "\$target" "\$digest"
+  say "Unpacking"
   extract_candidate "\$prefix" "\$archive_path" "\$archive"
   rm -f "\$archive_path"
+  say "Starting 1667 once to confirm it runs"
   probe_candidate "\$prefix/\$CANDIDATE_FILE" "\$target"
   # Candidate bytes must be durable before candidate-ready is published.
   # Power loss after a durable txn must not leave a missing or corrupt candidate.
@@ -304,6 +308,13 @@ on_install_signal() {
 die() {
   printf '1667 install: %s\\n' "\$*" >&2
   exit 1
+}
+
+# Progress goes to stderr so that stdout carries only the install result.
+# Without it the installer is silent for the whole transfer, and a slow network
+# is indistinguishable from a stall.
+say() {
+  printf '1667 install: %s\\n' "\$*" >&2
 }
 
 # Refuse any prior managed path (regular file, directory, or symbolic link).

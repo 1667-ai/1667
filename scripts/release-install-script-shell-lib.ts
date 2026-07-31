@@ -282,15 +282,22 @@ download_archive() {
   url=\$1
   out=\$2
   command -v curl >/dev/null 2>&1 || die "curl is required"
+  # A person watching a terminal gets the transfer bar. A log or a pipe gets
+  # silence, so captured output stays free of carriage returns.
+  if [ -t 2 ]; then
+    progress='--progress-bar'
+  else
+    progress='--silent'
+  fi
   case "\$url" in
     https://*)
-      curl -fsSL --proto '=https' --proto-redir '=https' \\
+      curl -fSL "\$progress" --proto '=https' --proto-redir '=https' \\
         --connect-timeout "\$DOWNLOAD_CONNECT_TIMEOUT_SEC" \\
         --max-time "\$DOWNLOAD_MAX_TIME_SEC" \\
         --max-filesize "\$MAX_ARCHIVE_BYTES" "\$url" -o "\$out" 9>&- &
       ;;
     http://127.0.0.1:*|http://localhost:*)
-      curl -fsSL \\
+      curl -fSL "\$progress" \\
         --connect-timeout "\$DOWNLOAD_CONNECT_TIMEOUT_SEC" \\
         --max-time "\$DOWNLOAD_MAX_TIME_SEC" \\
         --max-filesize "\$MAX_ARCHIVE_BYTES" "\$url" -o "\$out" 9>&- &
