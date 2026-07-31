@@ -5,16 +5,17 @@ import type {
 } from "./mutation-coordinator.js";
 import { hashPreparedMutationRecord } from "./mutation-ledger-codec.js";
 import type { StoryMutationReceipt } from "./mutation-ledger-store.js";
-import type {
-  CompletedMutationRecord,
-  MutationResult,
-  PreparedUserMutationRecord
+import {
+  ABSENT_STORY_MUTATION_METHODS,
+  type CompletedMutationRecord,
+  type MutationResult,
+  type PreparedUserMutationRecord
 } from "./mutation-ledger-types.js";
 import { hashStoryV6ManifestBytes } from "./story-manifest-hash.js";
 import { formatV6 } from "./story-v6-codec.js";
 import type { StoryManifestV6 } from "./story-v6-types.js";
 
-export type CreationMethod = "createStory" | "importSillyTavern" | "importMarkdown";
+export type CreationMethod = typeof ABSENT_STORY_MUTATION_METHODS[number];
 
 export function creationPrepared(
   method: CreationMethod,
