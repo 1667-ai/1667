@@ -96,10 +96,37 @@ restoration, 1667 writes one JSON report to standard error.
 | `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
 | `shared/` | Types and policies shared by the TUI and backend |
 | `schema/` | Generated JSON Schema files |
-| `scripts/` | CI, release, and schema tools |
+| `scripts/` | CI, release, schema, and demo-recording tools |
 | `test/` | Node.js tests for the backend runtime |
 | `docs/` | Release instructions and technical design notes |
 | `release/npm/` | Launcher source for the npm packages |
+
+## Record the product demo
+
+`scripts/render-demo.sh` drives the real TUI through its demo fixture with VHS
+and writes three artifacts to `demo-out/`, which is not committed:
+
+| Artifact | Consumer |
+| --- | --- |
+| `1667-demo.mp4` | The homepage video |
+| `1667-demo-poster.png` | The homepage poster frame |
+| `demo.gif` | The README hero at the top of this repository |
+
+It needs `vhs`, `ffmpeg`, and Bun. `scripts/demo.tape` holds the recorded flow,
+and `test/demo-tape.test.ts` holds it to that flow and to its capture geometry.
+
+The GIF is served from 1667.ai rather than committed here. The README embeds an
+absolute URL because npmjs.com renders the same README for `@1667-ai/cli` and
+drops relative image paths. The name carries a revision, so a new recording is
+published as `demo-2.gif` and the README link moves: GitHub's camo proxy caches
+these images long enough that overwriting one in place does not reach readers.
+
+Publishing a new recording means copying the GIF into the homepage repository's
+`public/`, adding its `_headers` rule, deploying, then updating the README link
+here.
+
+The homepage measured chapter timestamps against this recording and samples
+pixels at them, so changing the tape's pacing fails a test in that repository.
 
 ## Stable names
 

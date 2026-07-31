@@ -14,7 +14,7 @@
 1667 also provides a direct connection to a selected model provider. This
 repository contains the terminal user interface (TUI) and its backend runtime.
 
-[![The 1667 starter onboarding story](docs/assets/starter-onboarding.png)](https://1667.ai)
+[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-1.gif)](https://1667.ai)
 
 Install 1667 with the Shell Installer, npm, or source.
 
