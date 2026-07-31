@@ -486,27 +486,16 @@ test("the evidence collector reads no file", () => {
   }
 });
 
-// The release build job runs on every published target, windows-x64 included.
-// Windows resolves a leading-slash path against the current drive rather than
-// against Git Bash's tree, so the POSIX pair names nothing there and the
-// Windows leg would refuse before it built anything.
-test("the default signature verifier is absolute on every release host", () => {
-  for (const candidate of defaultSignatureVerifiers("linux", {})) {
+// POSIX system paths are constants. Windows paths depend on mutable runner
+// environment, so the release workflow must pass its independently pinned
+// verifier explicitly rather than this collector deriving one.
+test("signature verifier defaults are fixed on POSIX and fail closed on Windows", () => {
+  for (const candidate of defaultSignatureVerifiers("linux")) {
     assert.match(candidate, /^\/(?:usr\/)?bin\/ssh-keygen$/u);
   }
-  const windows = defaultSignatureVerifiers("win32", {
-    SystemRoot: "C:\\Windows",
-    ProgramFiles: "C:\\Program Files"
-  });
-  assert.deepEqual(windows, [
-    "C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe",
-    "C:\\Program Files\\Git\\usr\\bin\\ssh-keygen.exe"
+  assert.deepEqual(defaultSignatureVerifiers("darwin"), [
+    "/usr/bin/ssh-keygen",
+    "/bin/ssh-keygen"
   ]);
-  for (const candidate of windows) {
-    assert.match(candidate, /^[A-Za-z]:\\/u);
-  }
-  // A runner that relocates Windows must not fall back to a relative path.
-  for (const candidate of defaultSignatureVerifiers("win32", {})) {
-    assert.match(candidate, /^[A-Za-z]:\\/u);
-  }
+  assert.deepEqual(defaultSignatureVerifiers("win32"), []);
 });
