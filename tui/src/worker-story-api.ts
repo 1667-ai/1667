@@ -316,6 +316,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { jsonl },
       { expectedAggregateVersion: { kind: "absent" } }
     )),
+    importMarkdown: async (markdown, defaultTitle) => rememberPayload(await transport.call(
+      "importMarkdown",
+      { markdown, ...(defaultTitle !== undefined ? { defaultTitle } : {}) },
+      { expectedAggregateVersion: { kind: "absent" } }
+    )),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(

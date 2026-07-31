@@ -174,7 +174,7 @@ export class StoryCreationMutationStore {
         return true;
       }
       const method = receipt.prepared.method;
-      if (method !== "createStory" && method !== "importSillyTavern") {
+      if (method !== "createStory" && method !== "importSillyTavern" && method !== "importMarkdown") {
         throw corruptCreation(identity.mutationId);
       }
       const request: MutationCoordinatorRequest<StoryMutationTarget> = {

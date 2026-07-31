@@ -14,7 +14,7 @@ import { hashStoryV6ManifestBytes } from "./story-manifest-hash.js";
 import { formatV6 } from "./story-v6-codec.js";
 import type { StoryManifestV6 } from "./story-v6-types.js";
 
-export type CreationMethod = "createStory" | "importSillyTavern";
+export type CreationMethod = "createStory" | "importSillyTavern" | "importMarkdown";
 
 export function creationPrepared(
   method: CreationMethod,

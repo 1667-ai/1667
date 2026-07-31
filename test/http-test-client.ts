@@ -221,7 +221,9 @@ async function expectedStoryVersion(
   if (policy.scope !== "story" || !isWorkerMutationMethod(policy.method)) {
     return undefined;
   }
-  if (policy.method === "createStory" || policy.method === "importSillyTavern") {
+  if (policy.method === "createStory"
+    || policy.method === "importSillyTavern"
+    || policy.method === "importMarkdown") {
     return { kind: "absent" };
   }
   const storyId = path.split("/")[3];

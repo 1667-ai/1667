@@ -138,7 +138,8 @@ export function requireHttpOperationExpectedStoryVersion(
       "expectedAggregateVersion"
     );
     const createsStory = method === "createStory"
-      || method === "importSillyTavern";
+      || method === "importSillyTavern"
+      || method === "importMarkdown";
     if (createsStory !== (version.kind === "absent")) {
       throw new Error(
         createsStory

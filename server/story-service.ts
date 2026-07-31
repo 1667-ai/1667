@@ -34,6 +34,7 @@ import { probeContextWindow } from "./context-probe.js";
 import { ServiceError } from "./errors.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import { MAX_IMPORT_BYTES, partsFromSillyTavernJsonl, storyFromImport } from "./import-st.js";
+import { partsFromMarkdown } from "./import-md.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import { seedStarterVault } from "./starter-vault.js";
@@ -554,6 +555,64 @@ export class StoryService extends StoryServiceRuntime {
     return {
       payload: buildStoryPayload(story),
       droppedTrailingUserMessages: imported.droppedTrailingUserMessages
+    };
+  }
+
+  async importMarkdown(
+    markdown: string,
+    options: {
+      defaultTitle?: string;
+      storyId?: string;
+      nodeId?: (index: number) => string;
+      chapterBreakId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return (await this.importMarkdownWithReport(
+      markdown,
+      options,
+      mutationRequest
+    )).payload;
+  }
+
+  async importMarkdownWithReport(
+    markdown: string,
+    options: {
+      defaultTitle?: string;
+      storyId?: string;
+      nodeId?: (index: number) => string;
+      chapterBreakId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload }> {
+    this.ensureOpen();
+    if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) throw new ServiceError(413, "Request body too large");
+    const imported = partsFromMarkdown(markdown, options.defaultTitle);
+    if (mutationRequest !== undefined) {
+      const committed = await this.storyCreations.run(
+        mutationRequest,
+        "importMarkdown",
+        (deterministicId) => storyFromImport(imported, {
+          storyId: deterministicId,
+          nodeId: options.nodeId,
+          chapterBreakId: options.chapterBreakId
+        })
+      );
+      return {
+        payload: buildStoryPayload(committed.story, {
+          kind: "v6",
+          revision: committed.result.storyRevision
+        })
+      };
+    }
+    const story = storyFromImport(imported, {
+      storyId: options.storyId,
+      nodeId: options.nodeId,
+      chapterBreakId: options.chapterBreakId
+    });
+    await this.stories.save(story);
+    return {
+      payload: buildStoryPayload(story)
     };
   }
 

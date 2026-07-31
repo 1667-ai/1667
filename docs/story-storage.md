@@ -83,4 +83,14 @@ replace the file without a suffix.
 recently updated story.
 
 No option selects a story line. Select the story line in the TUI before export.
-1667 does not read an exported file. Use the 1667 editor to change story data.
+
+## Import a story
+
+`1667 import <file.md>` reads a 1667-exported Markdown file or manuscript. It
+creates a new story.
+
+- `#` headings set the story title.
+- `##` headings create chapter boundaries.
+- Prose blocks separated by blank lines become story parts.
+
+You can also import SillyTavern chat JSONL files with `1667 import <chat.jsonl>`.

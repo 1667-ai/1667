@@ -314,6 +314,20 @@ async function handleApi(
     );
   }
 
+  if (head === "import" && id === "markdown" && sub === undefined && method === "POST") {
+    const body = await readJsonBody(request, operation.signal, MAX_IMPORT_BYTES + 100_000);
+    const markdown = requireString(body.markdown, "markdown");
+    const defaultTitle = typeof body.defaultTitle === "string" ? body.defaultTitle : undefined;
+    return sendJson(
+      response,
+      201,
+      await mutate("importMarkdown", {
+        markdown,
+        ...(defaultTitle !== undefined ? { defaultTitle } : {})
+      })
+    );
+  }
+
   if (head === "stories" && id !== undefined && sub === "switch" && method === "POST") {
     const body = await jsonBody();
     const nodeId = requireString(body.nodeId, "nodeId");

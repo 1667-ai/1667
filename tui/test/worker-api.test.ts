@@ -233,6 +233,20 @@ describe("embedded backend worker", () => {
       ].join("\n"));
       expect(imported.path).toHaveLength(1);
       expect((await api.deleteStory(imported.id)).ok).toBeTrue();
+
+      const importedMarkdown = await api.importMarkdown(
+        "First part.\n\n## Later\n\nSecond part.",
+        "Worker manuscript"
+      );
+      expect(importedMarkdown.title).toBe("Worker manuscript");
+      expect(importedMarkdown.path.map((node) => node.text)).toEqual([
+        "First part.",
+        "Second part."
+      ]);
+      expect(importedMarkdown.chapterBreaks).toHaveLength(1);
+      expect(importedMarkdown.chapterBreaks[0]?.parentPartId)
+        .toBe(importedMarkdown.path[0]?.id);
+      expect((await api.deleteStory(importedMarkdown.id)).ok).toBeTrue();
       expect((await api.deleteStory(story.id)).ok).toBeTrue();
 
       expect(await rejection(api.loadStory("missing-story"))).toMatchObject({
@@ -243,6 +257,11 @@ describe("embedded backend worker", () => {
         code: "content_too_large",
         status: 413
       } satisfies Partial<WorkerApiError>);
+      expect(await rejection(api.importMarkdown("x".repeat(MAX_IMPORT_BYTES + 1))))
+        .toMatchObject({
+          code: "content_too_large",
+          status: 413
+        } satisfies Partial<WorkerApiError>);
     } finally {
       await backend.dispose();
       if (previousData === undefined) delete process.env.AI_1667_DATA;

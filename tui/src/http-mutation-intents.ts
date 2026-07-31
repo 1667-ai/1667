@@ -41,7 +41,7 @@ const POLICY = {
   maxBytes: MAX_INTENT_BYTES
 } as const;
 
-export type HttpAbsentMutation = "createStory" | "importSillyTavern";
+export type HttpAbsentMutation = "createStory" | "importSillyTavern" | "importMarkdown";
 
 export interface HttpMutationIntentClaim {
   readonly mutationId: string;
