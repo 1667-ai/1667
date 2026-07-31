@@ -1,4 +1,9 @@
-import { MAX_IMPORT_BYTES, MAX_JSON_BODY_BYTES } from "../shared/types.js";
+import {
+  MAX_IMPORT_BYTES,
+  MAX_JSON_BODY_BYTES,
+  MAX_STORED_TITLE_CHARS
+} from "../shared/types.js";
+import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import {
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
@@ -15,8 +20,26 @@ export function validateWorkerRequestSize(
   protocolVersion?: number
 ): void {
   const input = requireRecord(value, `${method} input`);
-  if (method === "importSillyTavern") {
-    if (typeof input.jsonl === "string" && new TextEncoder().encode(input.jsonl).byteLength > MAX_IMPORT_BYTES) {
+  if (method === "importSillyTavern" || method === "importMarkdown") {
+    const text = method === "importSillyTavern" ? input.jsonl : input.markdown;
+    if (method === "importMarkdown" && typeof text === "string" && hasUnpairedSurrogate(text)) {
+      throw new ServiceError(400, "Markdown contains invalid Unicode");
+    }
+    if (typeof text === "string" && Buffer.byteLength(text) > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    if (
+      method === "importMarkdown"
+      && typeof input.defaultTitle === "string"
+      && hasUnpairedSurrogate(input.defaultTitle)
+    ) {
+      throw new ServiceError(400, "Markdown default title contains invalid Unicode");
+    }
+    if (
+      method === "importMarkdown"
+      && typeof input.defaultTitle === "string"
+      && unicodeScalarLength(input.defaultTitle, MAX_STORED_TITLE_CHARS) > MAX_STORED_TITLE_CHARS
+    ) {
       throw new ServiceError(413, "Request body too large");
     }
     return;
@@ -109,6 +132,7 @@ function logicalRequestBody(
     case "summarizeChapter":
     case "getSettings":
     case "importSillyTavern":
+    case "importMarkdown":
       return undefined;
   }
 }

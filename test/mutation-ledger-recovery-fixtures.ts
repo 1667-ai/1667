@@ -180,7 +180,9 @@ export function migrationPrepared(): PreparedRecord {
   }), "prepared");
 }
 
-export function createPrepared(method: "createStory" | "importSillyTavern"): PreparedRecord {
+export function createPrepared(
+  method: "createStory" | "importSillyTavern" | "importMarkdown"
+): PreparedRecord {
   const storyId = storyIdForMutation(M2);
   return parse({
     schema: 1,

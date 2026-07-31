@@ -24,11 +24,12 @@ const packaged = createPackagedBuildIdentity(packagedInput);
 test("source identity is explicit and cannot masquerade as a packaged build", () => {
   // Pinned on purpose, so the advertised version and the wire shape can only
   // move together. v9 added authenticated listener identity and project-scoped
-  // HTTP retry identity. An older peer must fail at preflight.
+  // HTTP retry identity. v10 added global search and hit pagination. v11 adds
+  // Markdown reimport. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    10,
-    "global search and hit pagination require HTTP API v10"
+    11,
+    "Markdown reimport requires HTTP API v11"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

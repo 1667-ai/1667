@@ -31,6 +31,7 @@ import {
 import {
   HttpListenerAuthority
 } from "../../shared/http-listener-authority.js";
+import { decodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -1001,7 +1002,8 @@ test("HTTP generation lease expiry is an error, not user cancellation", async ()
 
 test("HTTP provider operations request their full transport-parity lifetimes", async () => {
   const reservations: Record<string, unknown>[] = [];
-  globalThis.fetch = (async (input) => {
+  const importBodies: unknown[] = [];
+  globalThis.fetch = (async (input, init) => {
     const path = new URL(String(input)).pathname;
     if (path === "/api/health") return Response.json(metadata());
     if (path === "/api/stories/story") {
@@ -1023,6 +1025,10 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     if (path === "/api/import/sillytavern") {
       return Response.json(storyPayload("imported"));
     }
+    if (path === "/api/import/markdown") {
+      importBodies.push(decodeMarkdownHttpBody(String(init?.body)));
+      return Response.json(storyPayload("markdown-imported"));
+    }
     throw new Error(`Unexpected API path: ${path}`);
   }) as typeof fetch;
   const api = createApi(
@@ -1038,12 +1044,19 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   await api.discoverModels(DEMO_SETTINGS_VIEW.effective);
   await api.exportMarkdown("story");
   await api.importSillyTavern("{}");
+  await api.importMarkdown("Opening prose.", "Draft title");
+
+  expect(importBodies).toEqual([{
+    markdown: "Opening prose.",
+    defaultTitle: "Draft title"
+  }]);
 
   expect(reservations.map((reservation) =>
     reservation.requestedLifetimeMs)).toEqual([
     HTTP_OPERATION_LIFETIME_MS.generation,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+    HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer
   ]);

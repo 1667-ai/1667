@@ -39,6 +39,7 @@ export const STORY_MUTATION_METHODS = [
   "restoreChapterBreak",
   "summarizeChapter",
   "importSillyTavern",
+  "importMarkdown",
   "continueStory",
   "rewriteNode",
   "createSummaryTake",
@@ -54,7 +55,7 @@ export const PROVIDER_MUTATION_METHODS = [
   "rewriteNode",
   "createSummaryTake"
 ] as const;
-export const ABSENT_STORY_MUTATION_METHODS = ["createStory", "importSillyTavern"] as const;
+export const ABSENT_STORY_MUTATION_METHODS = ["createStory", "importSillyTavern", "importMarkdown"] as const;
 
 export type StoryMutationMethod = typeof STORY_MUTATION_METHODS[number];
 export type SettingsMutationMethod = typeof SETTINGS_MUTATION_METHODS[number];
