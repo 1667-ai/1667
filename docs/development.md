@@ -96,10 +96,45 @@ restoration, 1667 writes one JSON report to standard error.
 | `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
 | `shared/` | Types and policies shared by the TUI and backend |
 | `schema/` | Generated JSON Schema files |
-| `scripts/` | CI, release, and schema tools |
+| `scripts/` | CI, release, schema, and demo-recording tools |
 | `test/` | Node.js tests for the backend runtime |
 | `docs/` | Release instructions and technical design notes |
 | `release/npm/` | Launcher source for the npm packages |
+
+## Record the product demo
+
+`scripts/render-demo.sh` drives the real TUI through its demo fixture with VHS
+and writes three artifacts to `demo-out/`, which is not committed:
+
+| Artifact | Consumer |
+| --- | --- |
+| `1667-demo.mp4` | The homepage video |
+| `1667-demo-poster.png` | The homepage poster frame |
+| `demo.gif` | The README hero at the top of this repository |
+
+It needs `vhs`, `ffmpeg`, Bun, and `python3` with Pillow. `scripts/demo.tape`
+holds the recorded flow, and `test/demo-tape.test.ts` holds it to that flow and
+to its capture geometry.
+
+The GIF is framed with the same terminal chrome the homepage puts around every
+panel: three dots, a title, a status, over a hairline border. The site draws
+that in CSS, which a GIF in Markdown cannot use, so `scripts/demo-chrome.py`
+draws it into an image that the recording is composited onto. Its colours are
+copied from the homepage's design tokens and the test asserts them, because
+nothing else connects the two. `DEMO_FONT` overrides the Berkeley Mono path.
+
+The GIF is served from 1667.ai rather than committed here. The README embeds an
+absolute URL because npmjs.com renders the same README for `@1667-ai/cli` and
+drops relative image paths. The name carries a revision, so a new recording is
+published as `demo-2.gif` and the README link moves: GitHub's camo proxy caches
+these images long enough that overwriting one in place does not reach readers.
+
+Publishing a new recording means copying the GIF into the homepage repository's
+`public/`, adding its `_headers` rule, deploying, then updating the README link
+here.
+
+The homepage measured chapter timestamps against this recording and samples
+pixels at them, so changing the tape's pacing fails a test in that repository.
 
 ## Stable names
 
