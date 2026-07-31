@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleChapterContext, deriveChapters, isChapterSummaryStale } from "../shared/chapters.js";
+import { parseWorkerMutation } from "../server/worker-mutations.js";
 import { activePath, childrenOf, computeRollups, contextSlice, switchToNode, takeIndex } from "../shared/story-tree.js";
 import type { ChapterBreak, StoryNode } from "../shared/types.js";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
@@ -178,4 +179,34 @@ test("chapter one takes its name from the story, because no break opens it", () 
   const noBreaks = deriveChapters(path, [], nodes, "Arrival");
   assert.equal(noBreaks.length, 1);
   assert.equal(noBreaks[0]!.title, "Arrival");
+});
+
+test("renaming a chapter accepts the null break of chapter one and an empty name", () => {
+  // A null break id names chapter one, which no break opens.
+  assert.deepEqual(
+    parseWorkerMutation("renameChapterBreak", {
+      storyId: "story", breakId: null, title: "Arrival"
+    }),
+    { storyId: "story", breakId: null, title: "Arrival" }
+  );
+
+  // Creating a break defaults its title to "", so rename has to be able to
+  // reach the same state. Clearing chapter one's name restores the story's.
+  assert.deepEqual(
+    parseWorkerMutation("renameChapterBreak", {
+      storyId: "story", breakId: null, title: ""
+    }),
+    { storyId: "story", breakId: null, title: "" }
+  );
+  assert.equal(
+    parseWorkerMutation("renameChapterBreak", {
+      storyId: "story", breakId: "break", title: ""
+    }).title,
+    ""
+  );
+
+  // A break id is still an identifier when one is given at all.
+  assert.throws(() => parseWorkerMutation("renameChapterBreak", {
+    storyId: "story", breakId: "", title: "Arrival"
+  }), /breakId/u);
 });

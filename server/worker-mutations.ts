@@ -392,7 +392,10 @@ const MUTATIONS: MutationRegistry = {
       return {
         storyId: requireString(input.storyId, "storyId"),
         breakId: input.breakId === null ? null : requireString(input.breakId, "breakId"),
-        title: requireString(input.title, "title")
+        // An empty title is a legal chapter name: creating a break defaults to
+        // one, and clearing chapter one's name restores the story's own. Rename
+        // has to be able to reach the state create can already produce.
+        title: requireStringValue(input.title, "title")
       } as WorkerInput<"renameChapterBreak">;
     },
     storyId: (input) => input.storyId,
