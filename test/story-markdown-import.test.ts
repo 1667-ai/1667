@@ -116,6 +116,11 @@ test("Markdown HTTP framing preserves the scalar title bound", () => {
   const decoded = decodeMarkdownHttpBody(encodeMarkdownHttpBody("prose", title));
   assert.equal(decoded.defaultTitle, "😀".repeat(4_096));
   assert.equal(decoded.markdown, "prose");
+  const oversizedTitle = Buffer.from("a".repeat(4_097)).toString("base64url");
+  assert.throws(
+    () => decodeMarkdownHttpBody(`${oversizedTitle}\nprose`),
+    /metadata is invalid/u
+  );
 });
 
 test("markdown recognizes only CommonMark H2 markers and preserves ##literal prose", () => {
@@ -188,7 +193,10 @@ test("export and reimport round-trip preserves story structure and re-exported m
   const opening = await service.createNode(created.id, {
     parentId: null,
     instruction: "",
-    text: "Rain still ran off the eaves."
+    text: [
+      "<!-- derived from \"User prose\" (story prose, node prose) -->",
+      "Rain still ran off the eaves."
+    ].join("\n")
   });
   const firstPart = opening.nodes.find((node) => node.parentId === null)!;
 
@@ -310,6 +318,14 @@ test("markdown import enforces import byte and part limits", () => {
     () => partsFromMarkdown(hugeParagraphs),
     (error: unknown) => isServiceError(error, 400, "5000 parts")
   );
+  assert.throws(
+    () => partsFromMarkdown([
+      "# Story",
+      "<!-- 1667:export:v1 -->",
+      "<!-- 1667:chapter:v1 -->"
+    ].join("\n\n")),
+    (error: unknown) => isServiceError(error, 400, "missing its heading")
+  );
 });
 
 test("markdown import keeps one long multi-line paragraph in bounded parser state", () => {
@@ -401,7 +417,7 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
 
   const project = await initializeProject(root);
   const sampleMd = path.join(root, "sample.md");
-  await writeFile(sampleMd, "# TUI Imported Story\n\nFirst paragraph.", "utf8");
+  await writeFile(sampleMd, "\uFEFF# TUI Imported Story\n\nFirst paragraph.", "utf8");
 
   const bun = process.execPath.includes("bun") ? process.execPath : "bun";
   const entrypoint = path.resolve("tui/src/standalone.ts");

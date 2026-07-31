@@ -50,6 +50,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) {
     throw new ServiceError(413, "Request body too large");
   }
+  const sourceMarkdown = markdown.charCodeAt(0) === 0xfeff
+    ? markdown.slice(1)
+    : markdown;
 
   let title = "";
   let titleFound = false;
@@ -83,7 +86,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   const flushParagraph = (stripGeneratedSeparator = false) => {
     if (paragraphStart === -1) return;
-    let rawText = markdown.slice(paragraphStart, paragraphEnd);
+    let rawText = sourceMarkdown.slice(paragraphStart, paragraphEnd);
     if (stripGeneratedSeparator) {
       if (rawText.endsWith("\r\n")) rawText = rawText.slice(0, -2);
       else if (rawText.endsWith("\n") || rawText.endsWith("\r")) {
@@ -132,7 +135,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   let awaitingGeneratedChapterHeading = false;
   let generatedChapterTitle: string | null = null;
   let generatedChapterDisplay: string | null = null;
-  for (const { line, start, end } of iterateLineInfos(markdown)) {
+  for (const { line, start, end } of iterateLineInfos(sourceMarkdown)) {
     const trimmed = line.trim();
 
     if (beforeProse && trimmed.length === 0) continue;
@@ -217,6 +220,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     appendParagraphLine(line, start, end);
   }
 
+  if (awaitingGeneratedChapterHeading) {
+    throw new ServiceError(400, "1667 Markdown chapter marker is missing its heading");
+  }
   flushParagraph();
 
   if (pendingChapterTitle !== null && parts.length > 0) {

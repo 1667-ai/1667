@@ -1,4 +1,4 @@
-import { sliceUnicodeScalarPrefix } from "./unicode.js";
+import { sliceUnicodeScalarPrefix, unicodeScalarLength } from "./unicode.js";
 import { MAX_IMPORT_BYTES, MAX_STORED_TITLE_CHARS } from "./types.js";
 
 const MAX_TITLE_UTF8_BYTES = MAX_STORED_TITLE_CHARS * 4;
@@ -47,6 +47,9 @@ export function decodeMarkdownHttpBody(body: string): MarkdownHttpBody {
     try {
       defaultTitle = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
+      throw new Error("Markdown import metadata is invalid");
+    }
+    if (unicodeScalarLength(defaultTitle, MAX_STORED_TITLE_CHARS) > MAX_STORED_TITLE_CHARS) {
       throw new Error("Markdown import metadata is invalid");
     }
   }
