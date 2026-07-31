@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { promisify } from "node:util";
 import { StoryService } from "../server/story-service.js";
 import { partsFromMarkdown } from "../server/import-md.js";
 import { storyFromImport } from "../server/import-st.js";
 import { parseImportCommand } from "../tui/src/import-cli.js";
+import { initializeProject } from "../server/project-discovery.js";
 import type { StoryPayload } from "../shared/types.js";
+import { encodeMarkdownHttpBody } from "../shared/import-markdown-wire.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { testApp } from "./story-server-fixture.js";
 
+const execFileAsync = promisify(execFile);
 const linuxTest = process.platform === "linux" ? test : test.skip;
 
 function isServiceError(error: unknown, status: number, messageSub: string): boolean {
@@ -62,6 +67,37 @@ Only paragraph of chapter 3.
     parentPartIndex: 3,
     title: "Chapter 3: The Summit"
   });
+});
+
+test("partsFromMarkdown preserves trailing H2 chapter break by attaching to preceding part at EOF", () => {
+  const markdown = `# Story Title
+
+Part 1 content.
+
+Part 2 content.
+
+## Trailing Chapter
+`;
+
+  const parsed = partsFromMarkdown(markdown);
+  assert.equal(parsed.parts.length, 2);
+  assert.equal(parsed.chapterBreaks.length, 1);
+  assert.deepEqual(parsed.chapterBreaks[0], {
+    parentPartIndex: 1,
+    title: "Trailing Chapter"
+  });
+});
+
+test("markdown import preserves long titles up to stored bound (4096 chars) without SillyTavern MAX_NAME truncation", () => {
+  const longStoryTitle = "A".repeat(4096);
+  const longChapterTitle = "B".repeat(4096);
+  const markdown = `# ${longStoryTitle}\n\nPart 1 text.\n\n## ${longChapterTitle}\n\nPart 2 text.`;
+
+  const parsed = partsFromMarkdown(markdown);
+  assert.equal(parsed.title.length, 4096);
+  assert.equal(parsed.title, longStoryTitle);
+  assert.equal(parsed.chapterBreaks[0]?.title.length, 4096);
+  assert.equal(parsed.chapterBreaks[0]?.title, longChapterTitle);
 });
 
 test("export and reimport round-trip preserves story structure and re-exported markdown", async (t) => {
@@ -136,6 +172,12 @@ test("markdown import enforces import byte and part limits", () => {
   );
 });
 
+test("markdown import keeps one long multi-line paragraph in bounded parser state", () => {
+  const parsed = partsFromMarkdown(`x\n`.repeat(100_000));
+  assert.equal(parsed.parts.length, 1);
+  assert.equal(parsed.parts[0]?.text.length, 199_999);
+});
+
 test("CLI parseImportCommand parses files and flags correctly", () => {
   assert.deepEqual(parseImportCommand(["file1.md", "file2.jsonl"]), {
     files: ["file1.md", "file2.jsonl"],
@@ -157,18 +199,113 @@ test("CLI parseImportCommand parses files and flags correctly", () => {
   );
 });
 
-linuxTest("HTTP POST /api/import/markdown accepts JSON envelope with markdown and fallback defaultTitle", async (t) => {
+linuxTest("HTTP POST /api/import/markdown accepts framed Markdown and fallback defaultTitle", async (t) => {
   const base = await testApp(t, "1667-import-md-http-");
   const markdownBody = "Prose without a title heading.";
   const response = await fetchWithApiProtocol(`${base}/api/import/markdown`, {
     method: "POST",
-    headers: { ...API_PROTOCOL_HEADERS, "content-type": "application/json; charset=utf-8" },
-    body: JSON.stringify({ markdown: markdownBody, defaultTitle: "Custom Default Title" })
+    headers: {
+      ...API_PROTOCOL_HEADERS,
+      "content-type": "application/vnd.1667.markdown; charset=utf-8"
+    },
+    body: encodeMarkdownHttpBody(markdownBody, "Custom Default Title")
   });
   assert.equal(response.status, 201);
   const payload = await response.json() as StoryPayload;
   assert.equal(payload.title, "Custom Default Title");
   assert.equal(payload.path[0]?.text, "Prose without a title heading.");
+});
+
+linuxTest("HTTP POST /api/import/markdown bounds raw Markdown without JSON escape amplification", async (t) => {
+  const base = await testApp(t, "1667-import-md-expanded-");
+  const rawMarkdown = "# Expansion Test\n\n" + "\\\"".repeat(500_000);
+
+  const response = await fetchWithApiProtocol(`${base}/api/import/markdown`, {
+    method: "POST",
+    headers: {
+      ...API_PROTOCOL_HEADERS,
+      "content-type": "application/vnd.1667.markdown; charset=utf-8"
+    },
+    body: encodeMarkdownHttpBody(rawMarkdown)
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json() as StoryPayload;
+  assert.equal(payload.title, "Expansion Test");
+
+  const oversizedMarkdown = "a".repeat(20_000_001);
+  const overResponse = await fetchWithApiProtocol(`${base}/api/import/markdown`, {
+    method: "POST",
+    headers: {
+      ...API_PROTOCOL_HEADERS,
+      "content-type": "application/vnd.1667.markdown; charset=utf-8"
+    },
+    body: encodeMarkdownHttpBody(oversizedMarkdown)
+  });
+  assert.equal(overResponse.status, 413);
+});
+
+test("E2E integration: 1667 import routes to a project and returns a failure exit status", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-tui-cli-import-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const sampleMd = path.join(root, "sample.md");
+  await writeFile(sampleMd, "# TUI Imported Story\n\nFirst paragraph.", "utf8");
+
+  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
+  const entrypoint = path.resolve("tui/src/standalone.ts");
+  const imported = await execFileAsync(
+    bun,
+    [entrypoint, "import", "--data", project.root, sampleMd],
+    { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
+  );
+  assert.match(imported.stdout, /imported "TUI Imported Story"/u);
+
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const list = await service.listStories();
+  assert.ok(list.some(({ title }) => title === "TUI Imported Story"));
+  await service.dispose();
+
+  const failure = await execFileAsync(
+    bun,
+    [entrypoint, "import", "--data", project.root, path.join(root, "missing.md")],
+    { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
+  ).catch((error: unknown) => error);
+  assert.ok(failure instanceof Error && "code" in failure && failure.code === 1);
+  assert.ok("stderr" in failure && String(failure.stderr).includes("ENOENT"));
+});
+
+test("E2E integration: npm import persists through the root maintenance boundary", {
+  skip: process.platform === "win32"
+}, async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-server-cli-import-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const sampleMd = path.join(root, "server-sample.md");
+  await writeFile(sampleMd, "# Server CLI Story\n\nServer prose.", "utf8");
+
+  const dataDir = path.join(root, "data");
+  const environment = {
+    ...process.env,
+    AI_1667_DATA: dataDir,
+    AI_1667_STATE: path.join(root, "machine")
+  };
+  const { stdout } = await execFileAsync("npm", ["run", "import", "--", sampleMd], {
+    env: environment
+  });
+  assert.ok(stdout.includes('imported "Server CLI Story"'));
+
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  assert.deepEqual((await service.listStories()).map(({ title }) => title), ["Server CLI Story"]);
+  await service.dispose();
+
+  const failure = await execFileAsync("npm", ["run", "import", "--", "nonexistent.md"], {
+    env: environment
+  }).catch((error: unknown) => error);
+  assert.ok(failure instanceof Error && "code" in failure && failure.code === 1);
+  assert.ok("stderr" in failure && String(failure.stderr).includes("ENOENT"));
 });
 
 async function openService(t: TestContext): Promise<StoryService> {

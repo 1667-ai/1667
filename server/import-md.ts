@@ -1,8 +1,8 @@
 import { ServiceError } from "./errors.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
+import { MAX_STORY_TITLE_CHARS } from "./story-v5-strict.js";
 import {
   MAX_IMPORT_BYTES,
-  MAX_NAME,
   MAX_PARTS,
   MAX_TOTAL_CHARS,
   type ImportedPart
@@ -19,6 +19,12 @@ export interface MarkdownImport {
   chapterBreaks: MarkdownImportBreak[];
 }
 
+interface LineInfo {
+  line: string;
+  start: number;
+  end: number;
+}
+
 export function partsFromMarkdown(markdown: string, defaultTitle?: string): MarkdownImport {
   if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) {
     throw new ServiceError(413, "Request body too large");
@@ -29,13 +35,18 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   const parts: ImportedPart[] = [];
   const chapterBreaks: MarkdownImportBreak[] = [];
   let remainingChars = MAX_TOTAL_CHARS;
-  let currentParagraphLines: string[] = [];
+  let paragraphStart = -1;
+  let paragraphEnd = -1;
+  let paragraphNormalizedChars = 0;
   let pendingChapterTitle: string | null = null;
 
   const flushParagraph = () => {
-    if (currentParagraphLines.length === 0) return;
-    const text = currentParagraphLines.join("\n").trim();
-    currentParagraphLines = [];
+    if (paragraphStart === -1) return;
+    const rawText = textWithoutComments.slice(paragraphStart, paragraphEnd);
+    paragraphStart = -1;
+    paragraphEnd = -1;
+    paragraphNormalizedChars = 0;
+    const text = rawText.replace(/\r\n/g, "\n").trim();
     if (text.length === 0) return;
 
     remainingChars -= text.length;
@@ -72,7 +83,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   let beforeProse = true;
   const textWithoutComments = markdown.replace(/<!--[\s\S]*?-->/g, "");
-  for (const line of iterateLines(textWithoutComments)) {
+  for (const { line, start, end } of iterateLineInfos(textWithoutComments)) {
     const trimmed = line.trim();
 
     if (beforeProse && trimmed.length === 0) continue;
@@ -81,7 +92,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       if (trimmed.startsWith("# ")) {
         const candidateTitle = trimmed.slice(2).trim();
         if (candidateTitle.length > 0) {
-          title = sliceWellFormedUtf16Prefix(candidateTitle, MAX_NAME);
+          title = sliceWellFormedUtf16Prefix(candidateTitle, MAX_STORY_TITLE_CHARS);
           titleFound = true;
         }
         continue;
@@ -91,14 +102,14 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     if (trimmed.startsWith("## ")) {
       flushParagraph();
       const headingTitle = trimmed.slice(3).trim();
-      pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_NAME);
+      pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_STORY_TITLE_CHARS);
       continue;
     }
 
     if (trimmed.startsWith("##") && !trimmed.startsWith("###")) {
       flushParagraph();
       const headingTitle = trimmed.slice(2).trim();
-      pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_NAME);
+      pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_STORY_TITLE_CHARS);
       continue;
     }
 
@@ -107,14 +118,36 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       continue;
     }
 
-    currentParagraphLines.push(line);
+    if (paragraphStart === -1) {
+      paragraphStart = start;
+      paragraphNormalizedChars = line.trimStart().length;
+    } else {
+      paragraphNormalizedChars += 1 + line.length;
+    }
+    paragraphEnd = end;
+    const charsAfterFinalTrim = paragraphNormalizedChars
+      - (line.length - line.trimEnd().length);
+    if (charsAfterFinalTrim > remainingChars) {
+      throw new ServiceError(400, "Markdown expands to more text than can be imported");
+    }
   }
 
   flushParagraph();
 
+  if (pendingChapterTitle !== null && parts.length > 0) {
+    const prevIndex = parts.length - 1;
+    if (!chapterBreaks.some((b) => b.parentPartIndex === prevIndex)) {
+      chapterBreaks.push({
+        parentPartIndex: prevIndex,
+        title: pendingChapterTitle
+      });
+    }
+    pendingChapterTitle = null;
+  }
+
   if (!titleFound) {
     const fallback = defaultTitle?.trim() || "Imported story";
-    title = sliceWellFormedUtf16Prefix(fallback, MAX_NAME);
+    title = sliceWellFormedUtf16Prefix(fallback, MAX_STORY_TITLE_CHARS);
   }
 
   if (parts.length === 0) {
@@ -128,14 +161,14 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   };
 }
 
-/** Iterate a bounded input without allocating one array entry per source line. */
-function* iterateLines(text: string): Generator<string> {
+/** Iterate a bounded input yielding line content and character offsets. */
+function* iterateLineInfos(text: string): Generator<LineInfo> {
   let start = 0;
   while (start <= text.length) {
     const newline = text.indexOf("\n", start);
     const end = newline === -1 ? text.length : newline;
     const lineEnd = end > start && text[end - 1] === "\r" ? end - 1 : end;
-    yield text.slice(start, lineEnd);
+    yield { line: text.slice(start, lineEnd), start, end: lineEnd };
     if (newline === -1) return;
     start = newline + 1;
   }

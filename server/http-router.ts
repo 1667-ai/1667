@@ -9,6 +9,10 @@ import {
   waitForResponseSettlement
 } from "./http.js";
 import { MAX_IMPORT_BYTES } from "./import-st.js";
+import {
+  decodeMarkdownHttpBody,
+  MAX_MARKDOWN_HTTP_BODY_BYTES
+} from "../shared/import-markdown-wire.js";
 import type { StoryService } from "./story-service.js";
 import { streamResponse } from "./stream-response.js";
 import { optionalString, requireString, requireStringValue } from "./validation.js";
@@ -315,9 +319,18 @@ async function handleApi(
   }
 
   if (head === "import" && id === "markdown" && sub === undefined && method === "POST") {
-    const body = await readJsonBody(request, operation.signal, MAX_IMPORT_BYTES + 100_000);
-    const markdown = requireString(body.markdown, "markdown");
-    const defaultTitle = typeof body.defaultTitle === "string" ? body.defaultTitle : undefined;
+    let decoded: ReturnType<typeof decodeMarkdownHttpBody>;
+    try {
+      decoded = decodeMarkdownHttpBody(
+        await textBody(MAX_MARKDOWN_HTTP_BODY_BYTES)
+      );
+    } catch (error) {
+      throw new ServiceError(400, error instanceof Error ? error.message : "Invalid Markdown import");
+    }
+    const { markdown, defaultTitle } = decoded;
+    if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
     return sendJson(
       response,
       201,

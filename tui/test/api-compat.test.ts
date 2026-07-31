@@ -31,6 +31,7 @@ import {
 import {
   HttpListenerAuthority
 } from "../../shared/http-listener-authority.js";
+import { decodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -1025,7 +1026,7 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
       return Response.json(storyPayload("imported"));
     }
     if (path === "/api/import/markdown") {
-      importBodies.push(JSON.parse(String(init?.body)) as unknown);
+      importBodies.push(decodeMarkdownHttpBody(String(init?.body)));
       return Response.json(storyPayload("markdown-imported"));
     }
     throw new Error(`Unexpected API path: ${path}`);
