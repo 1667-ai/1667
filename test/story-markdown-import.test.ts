@@ -430,7 +430,7 @@ linuxTest("HTTP POST /api/import/markdown bounds raw Markdown without JSON escap
     body: "a".repeat(MAX_MARKDOWN_HTTP_BODY_BYTES + 1)
   });
   assert.equal(framedOverResponse.status, 413);
-  assert.equal((await framedOverResponse.json() as { error?: { code?: string } }).error?.code, "content_too_large");
+  assert.equal((await framedOverResponse.json() as { code?: string }).code, "content_too_large");
 });
 
 test("E2E integration: 1667 import routes to a project and returns a failure exit status", async (t) => {
