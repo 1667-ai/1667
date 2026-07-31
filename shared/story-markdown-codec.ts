@@ -28,6 +28,21 @@ export function markdownChapterMarker(title: string, display: string): string {
     : `${CHAPTER_PREFIX}:${encodeTitle(title)}${MARKER_SUFFIX}`;
 }
 
+/** Escape the reserved namespace bijectively; existing zero-width escapes are doubled. */
+export function escapeStoryMarkdownProse(prose: string): string {
+  return prose.replace(
+    /(^|[\r\n])<!--(\u200B*) 1667:/gu,
+    "$1<!--\u200B$2 1667:"
+  );
+}
+
+export function unescapeStoryMarkdownProse(prose: string): string {
+  return prose.replace(
+    /(^|[\r\n])<!--\u200B(\u200B*) 1667:/gu,
+    "$1<!--$2 1667:"
+  );
+}
+
 export function decodeMarkdownStoryTitleMarker(line: string): string | undefined {
   if (!line.startsWith(STORY_TITLE_PREFIX) || !line.endsWith(MARKER_SUFFIX)) return undefined;
   return decodeTitle(line.slice(STORY_TITLE_PREFIX.length, -MARKER_SUFFIX.length));

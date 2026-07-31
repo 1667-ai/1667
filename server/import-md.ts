@@ -3,7 +3,8 @@ import { sliceUnicodeScalarPrefix } from "../shared/unicode.js";
 import {
   decodeMarkdownChapterMarker,
   decodeMarkdownStoryTitleMarker,
-  STORY_MARKDOWN_EXPORT_MARKER
+  STORY_MARKDOWN_EXPORT_MARKER,
+  unescapeStoryMarkdownProse
 } from "../shared/story-markdown-codec.js";
 import {
   MAX_STORY_MANIFEST_BYTES,
@@ -85,12 +86,17 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     let rawText = markdown.slice(paragraphStart, paragraphEnd);
     if (stripGeneratedSeparator) {
       if (rawText.endsWith("\r\n")) rawText = rawText.slice(0, -2);
-      else if (rawText.endsWith("\n")) rawText = rawText.slice(0, -1);
+      else if (rawText.endsWith("\n") || rawText.endsWith("\r")) {
+        rawText = rawText.slice(0, -1);
+      }
     }
     paragraphStart = -1;
     paragraphEnd = -1;
     paragraphNormalizedChars = 0;
-    const text = rawText.replace(/\r\n/g, "\n");
+    const normalizedText = rawText.replace(/\r\n?|\n/g, "\n");
+    const text = exportCodec
+      ? unescapeStoryMarkdownProse(normalizedText)
+      : normalizedText;
     if (text.length === 0) return;
 
     remainingChars -= text.length;
@@ -313,12 +319,12 @@ function isGeneratedDerivedComment(line: string): boolean {
 /** Iterate a bounded input yielding line content and character offsets. */
 function* iterateLineInfos(text: string): Generator<LineInfo> {
   let start = 0;
-  while (start <= text.length) {
-    const newline = text.indexOf("\n", start);
-    const end = newline === -1 ? text.length : newline;
-    const lineEnd = end > start && text[end - 1] === "\r" ? end - 1 : end;
-    yield { line: text.slice(start, lineEnd), start, end: lineEnd };
-    if (newline === -1) return;
-    start = newline + 1;
+  for (let cursor = 0; cursor < text.length; cursor += 1) {
+    const unit = text[cursor];
+    if (unit !== "\r" && unit !== "\n") continue;
+    yield { line: text.slice(start, cursor), start, end: cursor };
+    if (unit === "\r" && text[cursor + 1] === "\n") cursor += 1;
+    start = cursor + 1;
   }
+  yield { line: text.slice(start), start, end: text.length };
 }

@@ -22,7 +22,7 @@ export function validateWorkerRequestSize(
   const input = requireRecord(value, `${method} input`);
   if (method === "importSillyTavern" || method === "importMarkdown") {
     const text = method === "importSillyTavern" ? input.jsonl : input.markdown;
-    if (typeof text === "string" && new TextEncoder().encode(text).byteLength > MAX_IMPORT_BYTES) {
+    if (typeof text === "string" && Buffer.byteLength(text) > MAX_IMPORT_BYTES) {
       throw new ServiceError(413, "Request body too large");
     }
     if (

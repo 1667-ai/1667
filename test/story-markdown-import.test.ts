@@ -155,6 +155,12 @@ test("markdown keeps indented and fenced heading markers as prose", () => {
   assert.equal(parsed.chapterBreaks[0]?.title, "Real chapter");
 });
 
+test("markdown accepts CR-only line endings as physical lines", () => {
+  const parsed = partsFromMarkdown("# Title\r\rFirst\r\rSecond");
+  assert.equal(parsed.title, "Title");
+  assert.deepEqual(parsed.parts.map(({ text }) => text), ["First", "Second"]);
+});
+
 test("markdown comment scanning remains linear for unterminated openers", () => {
   const prose = "<!--".repeat(100_000);
   const parsed = partsFromMarkdown(`# Title\n\n${prose}`);
@@ -240,7 +246,12 @@ test("export codec preserves multiline titles and chapters after an unterminated
   const opening = await service.createNode(created.id, {
     parentId: null,
     instruction: "",
-    text: "```markdown\nunterminated fence"
+    text: [
+      "```markdown",
+      "<!-- 1667:chapter:v1 -->",
+      "<!--\u200B 1667:chapter:v1 -->",
+      "unterminated fence"
+    ].join("\n")
   });
   const firstPart = opening.nodes.find((node) => node.parentId === null)!;
   await service.createChapterBreak(created.id, firstPart.id, "Chapter\n\nTwo");
@@ -254,7 +265,12 @@ test("export codec preserves multiline titles and chapters after an unterminated
   const reimported = await service.importMarkdown(exported.markdown);
   assert.equal(reimported.title, "First line\n\nSecond line");
   assert.deepEqual(reimported.path.map(({ text }) => text), [
-    "```markdown\nunterminated fence",
+    [
+      "```markdown",
+      "<!-- 1667:chapter:v1 -->",
+      "<!--\u200B 1667:chapter:v1 -->",
+      "unterminated fence"
+    ].join("\n"),
     "Still a separate part."
   ]);
   assert.equal(reimported.chapterBreaks[0]?.title, "Chapter\n\nTwo");

@@ -1,5 +1,6 @@
 import { deriveChapters } from "../shared/chapters.js";
 import {
+  escapeStoryMarkdownProse,
   markdownChapterMarker,
   markdownDisplayTitle,
   markdownStoryTitleMarker,
@@ -330,7 +331,9 @@ export class StoryService extends StoryServiceRuntime {
   async exportStory(id: string): Promise<{ filename: string; markdown: string }> {
     this.ensureOpen();
     const story = await this.stories.load(id);
-    const comment = (value: string) => value.replace(/--!?>/g, "→");
+    const comment = (value: string) => value
+      .replace(/\r\n?|\n/g, " ")
+      .replace(/--!?>/g, "→");
     const header = story.origin === undefined ? "" :
       `<!-- derived from "${comment(story.origin.storyTitle)}" (story ${story.origin.storyId}, node ${story.origin.partId}${story.origin.offset === null ? "" : ` @ ${story.origin.offset}`}) -->\n\n`;
     const displayStoryTitle = markdownDisplayTitle(story.title, "Untitled story");
@@ -341,7 +344,9 @@ export class StoryService extends StoryServiceRuntime {
       story.nodes
     );
     const sections = chapters.map((chapter) => {
-      const prose = chapter.parts.map((part) => part.text).join("\n\n");
+      const prose = chapter.parts
+        .map((part) => escapeStoryMarkdownProse(part.text))
+        .join("\n\n");
       // The document title already names the opening chapter when nothing
       // renamed it, so an untitled first chapter gets no heading of its own.
       if (chapter.number === 1 && chapter.title === "") return prose;
