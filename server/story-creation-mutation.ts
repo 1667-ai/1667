@@ -17,9 +17,10 @@ import type {
 import {
   MutationLedgerStore,
 } from "./mutation-ledger-store.js";
-import type {
-  MutationResult,
-  PreparedUserMutationRecord
+import {
+  isAbsentStoryMutationMethod,
+  type MutationResult,
+  type PreparedUserMutationRecord
 } from "./mutation-ledger-types.js";
 import { storyIdForMutation } from "./story-identity.js";
 import {
@@ -174,7 +175,7 @@ export class StoryCreationMutationStore {
         return true;
       }
       const method = receipt.prepared.method;
-      if (method !== "createStory" && method !== "importSillyTavern") {
+      if (!isAbsentStoryMutationMethod(method)) {
         throw corruptCreation(identity.mutationId);
       }
       const request: MutationCoordinatorRequest<StoryMutationTarget> = {

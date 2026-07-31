@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 import` now imports 1667-exported Markdown files as new stories.**
+  Markdown `#` headings set the story title. `##` headings become chapter
+  boundaries. Prose blocks separated by blank lines become story parts.
+  Thanks @10fra for the request.
 - **Settings now reads the model list from the selected provider.** Use
   `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a
   custom model name. Settings includes an OpenAI preset. The cache policy is

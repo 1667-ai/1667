@@ -536,6 +536,26 @@ const MUTATIONS: MutationRegistry = {
       }, context.storyMutationRequest);
     }
   }),
+  importMarkdown: define<"importMarkdown">({
+    parse: (value) => {
+      const record = requireRecord(value, "importMarkdown input");
+      const markdown = requireString(record.markdown, "markdown");
+      const defaultTitle = record.defaultTitle === undefined
+        ? undefined
+        : requireStringValue(record.defaultTitle, "defaultTitle");
+      return { markdown, ...(defaultTitle !== undefined ? { defaultTitle } : {}) };
+    },
+    storyId: (_input, plan) => plan.entityId("story"),
+    execute: async (service, input, plan, context) => {
+      const storyId = plan.entityId("story");
+      return await service.importMarkdown(input.markdown, {
+        defaultTitle: input.defaultTitle,
+        storyId,
+        nodeId: (index) => plan.entityId("import-node", index),
+        chapterBreakId: (index) => plan.entityId("chapter-break", index)
+      }, context.storyMutationRequest);
+    }
+  }),
   continueStory: define<"continueStory">({
     parse: (value) => {
       const input = requireRecord(value, "continueStory input");

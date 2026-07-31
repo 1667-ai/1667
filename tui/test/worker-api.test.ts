@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_IMPORT_BYTES } from "../../shared/types.js";
+import { MAX_IMPORT_BYTES, MAX_STORED_TITLE_CHARS } from "../../shared/types.js";
 import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
@@ -233,6 +233,51 @@ describe("embedded backend worker", () => {
       ].join("\n"));
       expect(imported.path).toHaveLength(1);
       expect((await api.deleteStory(imported.id)).ok).toBeTrue();
+
+      const importedMarkdown = await api.importMarkdown(
+        "First part.\n\n## Later\n\nSecond part.",
+        "Worker manuscript"
+      );
+      expect(importedMarkdown.title).toBe("Worker manuscript");
+      expect(importedMarkdown.path.map((node) => node.text)).toEqual([
+        "First part.",
+        "Second part."
+      ]);
+      expect(importedMarkdown.chapterBreaks).toHaveLength(1);
+      expect(importedMarkdown.chapterBreaks[0]?.parentPartId)
+        .toBe(importedMarkdown.path[0]?.id);
+      expect((await api.deleteStory(importedMarkdown.id)).ok).toBeTrue();
+      const boundedTitleImport = await api.importMarkdown(
+        "Bounded title prose.",
+        "t".repeat(MAX_STORED_TITLE_CHARS + 100)
+      );
+      expect(boundedTitleImport.title).toHaveLength(MAX_STORED_TITLE_CHARS);
+      expect((await api.deleteStory(boundedTitleImport.id)).ok).toBeTrue();
+      const normalizedImport = await api.importMarkdown(
+        "# Cafe\u0301\n\nRe\u0301sume\u0301."
+      );
+      expect(normalizedImport.title).toBe("Café");
+      expect(normalizedImport.path[0]?.text).toBe("Résumé.");
+      expect((await api.deleteStory(normalizedImport.id)).ok).toBeTrue();
+      let losslessSource = await api.createStory("Decomposed prose");
+      losslessSource = await api.createNode(losslessSource.id, {
+        parentId: null,
+        instruction: "",
+        text: "x".repeat(120) + "\n\nCafe\u0301"
+      });
+      const losslessImport = await api.importMarkdown(
+        await api.exportMarkdown(losslessSource.id)
+      );
+      expect(losslessImport.path.map((node) => node.text)).toEqual([
+        "x".repeat(120),
+        "Cafe\u0301"
+      ]);
+      const decomposedNode = losslessImport.nodes.find(
+        (node) => node.id === losslessImport.path[1]?.id
+      );
+      expect(decomposedNode?.preview).toBe("Café");
+      expect((await api.deleteStory(losslessSource.id)).ok).toBeTrue();
+      expect((await api.deleteStory(losslessImport.id)).ok).toBeTrue();
       expect((await api.deleteStory(story.id)).ok).toBeTrue();
 
       expect(await rejection(api.loadStory("missing-story"))).toMatchObject({
@@ -243,6 +288,11 @@ describe("embedded backend worker", () => {
         code: "content_too_large",
         status: 413
       } satisfies Partial<WorkerApiError>);
+      expect(await rejection(api.importMarkdown("x".repeat(MAX_IMPORT_BYTES + 1))))
+        .toMatchObject({
+          code: "content_too_large",
+          status: 413
+        } satisfies Partial<WorkerApiError>);
     } finally {
       await backend.dispose();
       if (previousData === undefined) delete process.env.AI_1667_DATA;
