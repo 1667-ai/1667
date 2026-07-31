@@ -253,8 +253,12 @@ function settingsResultLines(
     // across rows rather than dropped.
     row = word;
     while (visibleWidth(row) > budget) {
-      rows.push(truncate(row, budget));
-      row = row.slice(cutPoint(row, budget));
+      // Take exactly the cells this row renders, then continue from the next
+      // one. Ellipsizing here would both mark a break that is not an end and
+      // drop the character it replaced.
+      const taken = cutPoint(row, budget);
+      rows.push(row.slice(0, taken));
+      row = row.slice(taken);
     }
   }
   if (row.length > 0) rows.push(row);

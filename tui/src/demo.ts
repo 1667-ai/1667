@@ -327,6 +327,9 @@ function payloadFrom(story: Story): StoryPayload {
     title: story.title,
     createdAt: story.createdAt,
     updatedAt: story.updatedAt,
+    ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
+      ? {}
+      : { firstChapterTitle: story.firstChapterTitle }),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id)!;
       const base = {

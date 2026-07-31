@@ -408,7 +408,7 @@ function normalizeBasicSettingsIdentity(
       : settings.baseUrl.trim().replace(/\/+$/, "");
   const allowInsecureHttp = settings.provider !== "dry-run"
     && settings.allowInsecureHttp === true
-    && isOptedInLanHttp(baseUrl);
+    && isOptedInPlaintextHttp(baseUrl);
   return {
     ...settings,
     apiKeyEnv: settings.provider === "dry-run" ? null : settings.apiKeyEnv,
@@ -431,12 +431,18 @@ function connectionWithBasicPolicy(
   };
 }
 
-function isOptedInLanHttp(baseUrl: string): boolean {
+/** Plaintext endpoints the opt-in can authorize. Loopback is included because
+ * a target without the account-ownership proof reaches it the same way a LAN
+ * address is reached, and stripping the flag here would silently undo the
+ * setting the writer just made. */
+function isOptedInPlaintextHttp(baseUrl: string): boolean {
   try {
     const parsed = new URL(baseUrl);
     const hostClass = classifyHttpHost(parsed.href);
     return parsed.protocol === "http:"
-      && (hostClass === "private-literal" || hostClass === "lan-hostname");
+      && (hostClass === "private-literal"
+        || hostClass === "lan-hostname"
+        || hostClass === "loopback");
   } catch {
     return false;
   }

@@ -27,8 +27,8 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // HTTP retry identity. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    10,
-    "global search and hit pagination require HTTP API v10"
+    11,
+    "naming chapter one requires HTTP API v11"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {
