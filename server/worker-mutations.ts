@@ -546,13 +546,6 @@ const MUTATIONS: MutationRegistry = {
     storyId: (_input, plan) => plan.entityId("story"),
     execute: async (service, input, plan, context) => {
       const storyId = plan.entityId("story");
-      if (plan.recoveryMode !== "new") {
-        try {
-          return await loadMutationPayload(service, storyId);
-        } catch (error) {
-          if (!(error instanceof ServiceError) || error.status !== 404) throw error;
-        }
-      }
       return await service.importMarkdown(input.markdown, {
         defaultTitle: input.defaultTitle,
         storyId,

@@ -99,5 +99,8 @@ function decodeTitle(encoded: string): string {
   if (unicodeScalarLength(title, MAX_STORED_TITLE_CHARS) > MAX_STORED_TITLE_CHARS) {
     throw new Error("invalid 1667 Markdown title marker");
   }
+  if (title.normalize("NFC") !== title) {
+    throw new Error("invalid 1667 Markdown title marker");
+  }
   return title;
 }

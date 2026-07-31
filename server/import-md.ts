@@ -1,5 +1,8 @@
 import { ServiceError } from "./errors.js";
-import { sliceUnicodeScalarPrefix } from "../shared/unicode.js";
+import {
+  hasUnpairedSurrogate,
+  sliceUnicodeScalarPrefix
+} from "../shared/unicode.js";
 import {
   decodeMarkdownChapterMarker,
   decodeMarkdownStoryTitleMarker,
@@ -96,9 +99,10 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     paragraphStart = -1;
     paragraphEnd = -1;
     paragraphNormalizedChars = 0;
-    const text = exportCodec
+    const decodedText = exportCodec
       ? unescapeStoryMarkdownProse(rawText)
       : rawText.replace(/\r\n?|\n/g, "\n");
+    const text = normalizeImportedText(decodedText);
     if (text.length === 0) return;
 
     remainingChars -= text.length;
@@ -143,7 +147,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       const candidateTitle = atxHeadingTitle(line, 1);
       if (!titleFound && candidateTitle !== null) {
         if (candidateTitle.length > 0) {
-          title = sliceUnicodeScalarPrefix(candidateTitle, MAX_STORY_TITLE_CHARS);
+          title = normalizeImportedTitle(candidateTitle);
           titleFound = true;
         }
         continue;
@@ -155,7 +159,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       if (titleFound && exportCodec) {
         const exactTitle = decodeStoryTitleMarker(line);
         if (exactTitle !== undefined) {
-          if (title === exactTitle.display) title = exactTitle.title;
+          if (title === exactTitle.display) {
+            title = normalizeImportedTitle(exactTitle.title);
+          }
           continue;
         }
       }
@@ -177,14 +183,15 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       }
       if (awaitingGeneratedChapterHeading) {
         if (trimmed.length === 0) continue;
-        const visibleTitle = atxHeadingTitle(line, 2);
-        if (visibleTitle === null) {
+        const headingTitle = atxHeadingTitle(line, 2);
+        if (headingTitle === null) {
           throw new ServiceError(400, "1667 Markdown chapter marker is missing its heading");
         }
+        const visibleTitle = normalizeImportedTitle(headingTitle);
         pendingChapterTitle = generatedChapterTitle
           !== null && generatedChapterDisplay === visibleTitle
           ? generatedChapterTitle
-          : sliceUnicodeScalarPrefix(visibleTitle, MAX_STORY_TITLE_CHARS);
+          : visibleTitle;
         generatedChapterTitle = null;
         generatedChapterDisplay = null;
         awaitingGeneratedChapterHeading = false;
@@ -208,7 +215,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     const chapterHeading = atxHeadingTitle(line, 2);
     if (chapterHeading !== null) {
       flushParagraph();
-      pendingChapterTitle = sliceUnicodeScalarPrefix(chapterHeading, MAX_STORY_TITLE_CHARS);
+      pendingChapterTitle = normalizeImportedTitle(chapterHeading);
       continue;
     }
 
@@ -233,7 +240,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   if (!titleFound) {
     const fallback = defaultTitle?.trim() || "Imported story";
-    title = sliceUnicodeScalarPrefix(fallback, MAX_STORY_TITLE_CHARS);
+    title = normalizeImportedTitle(fallback);
   }
   consumeManifestBytes(Buffer.byteLength(JSON.stringify(title)));
 
@@ -276,6 +283,20 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     } catch (error) {
       throw new ServiceError(400, error instanceof Error ? error.message : "Invalid 1667 Markdown chapter marker");
     }
+  }
+
+  function normalizeImportedTitle(value: string): string {
+    return sliceUnicodeScalarPrefix(
+      normalizeImportedText(value),
+      MAX_STORY_TITLE_CHARS
+    );
+  }
+
+  function normalizeImportedText(value: string): string {
+    if (hasUnpairedSurrogate(value)) {
+      throw new ServiceError(400, "Markdown contains an unpaired Unicode surrogate");
+    }
+    return value.normalize("NFC");
   }
 }
 

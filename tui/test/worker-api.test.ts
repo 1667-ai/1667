@@ -253,6 +253,12 @@ describe("embedded backend worker", () => {
       );
       expect(boundedTitleImport.title).toHaveLength(MAX_STORED_TITLE_CHARS);
       expect((await api.deleteStory(boundedTitleImport.id)).ok).toBeTrue();
+      const normalizedImport = await api.importMarkdown(
+        "# Cafe\u0301\n\nRe\u0301sume\u0301."
+      );
+      expect(normalizedImport.title).toBe("Café");
+      expect(normalizedImport.path[0]?.text).toBe("Résumé.");
+      expect((await api.deleteStory(normalizedImport.id)).ok).toBeTrue();
       expect((await api.deleteStory(story.id)).ok).toBeTrue();
 
       expect(await rejection(api.loadStory("missing-story"))).toMatchObject({

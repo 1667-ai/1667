@@ -370,6 +370,19 @@ linuxTest("HTTP POST /api/import/markdown accepts framed Markdown and fallback d
   const payload = await response.json() as StoryPayload;
   assert.equal(payload.title, "Custom Default Title");
   assert.equal(payload.path[0]?.text, "Prose without a title heading.");
+
+  const unicodeResponse = await fetchWithApiProtocol(`${base}/api/import/markdown`, {
+    method: "POST",
+    headers: {
+      ...API_PROTOCOL_HEADERS,
+      "content-type": "application/vnd.1667.markdown; charset=utf-8"
+    },
+    body: encodeMarkdownHttpBody("# Cafe\u0301\n\nRe\u0301sume\u0301.")
+  });
+  assert.equal(unicodeResponse.status, 201);
+  const unicodePayload = await unicodeResponse.json() as StoryPayload;
+  assert.equal(unicodePayload.title, "Café");
+  assert.equal(unicodePayload.path[0]?.text, "Résumé.");
 });
 
 linuxTest("HTTP POST /api/import/markdown bounds raw Markdown without JSON escape amplification", async (t) => {
