@@ -55,9 +55,20 @@ export const UPGRADE_HELP = `Usage:
 Managed Installations apply a verified Candidate. External installations stay read-only.
 On Windows, exit 1667 and run the PowerShell Installer again.`;
 
-export function windowsInstallCommand(installRoot: string): string {
+export function windowsInstallCommand(
+  installRoot: string,
+  targetVersion?: string
+): string {
+  if (targetVersion !== undefined && !isSemVer(targetVersion)) {
+    throw new TypeError("Windows Installer target version must be SemVer");
+  }
   const root = installRoot.replaceAll("'", "''");
-  const script = "& ([scriptblock]::Create((irm https://1667.ai/install.ps1))) "
+  const installerUrl = targetVersion === undefined
+    ? "https://1667.ai/install.ps1"
+    : `https://github.com/1667-ai/1667/releases/download/v${
+      encodeURIComponent(targetVersion)
+    }/install-stable.ps1`;
+  const script = `& ([scriptblock]::Create((irm ${installerUrl}))) `
     + "-InstallRoot '" + root + "'";
   return "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "
     + Buffer.from(script, "utf16le").toString("base64");
@@ -251,7 +262,7 @@ export function publicEnvelopeFromPlan(
       target: plan.latest,
       channel: plan.channel,
       method: "powershell",
-      command: windowsInstallCommand(authority.installRoot)
+      command: windowsInstallCommand(authority.installRoot, plan.latest)
     });
   }
   if (plan.status === "up-to-date") {
@@ -281,7 +292,7 @@ export function publicEnvelopeFromPlan(
       target: plan.target,
       channel: plan.channel,
       method: "powershell",
-      command: windowsInstallCommand(authority.installRoot)
+      command: windowsInstallCommand(authority.installRoot, plan.target)
     });
   }
   return upgradeEnvelope({

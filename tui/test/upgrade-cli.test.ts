@@ -196,7 +196,7 @@ function powershellAuthority(channel: "stable" | "beta") {
 
 test("PowerShell installs return the rerunnable Windows Installer command", async () => {
   const authority = powershellAuthority("stable");
-  const managedCommand = windowsInstallCommand(POWERSHELL_ROOT);
+  const managedCommand = windowsInstallCommand(POWERSHELL_ROOT, "2.0.0");
   const checked = await executeUpgradeCli(["--check", "--json"], {
     observation,
     authority,
@@ -224,11 +224,34 @@ test("PowerShell installs return the rerunnable Windows Installer command", asyn
     registry: fakeRegistry("2.0.0")
   });
   expect(rollback.exitCode).toBe(1);
-  expect(rollback.stderr).toContain(managedCommand);
+  expect(rollback.stderr).toContain(windowsInstallCommand(POWERSHELL_ROOT));
+});
+
+test("PowerShell plans bind the command to the exact immutable stable Installer", async () => {
+  const installRoot = "C:\\Writer's $tools";
+  const applied = await executeUpgradeCli(["--version", "2.0.0", "--json"], {
+    observation,
+    authority: {
+      ...powershellAuthority("stable"),
+      installRoot,
+      executable: `${installRoot}\\1667.exe`
+    },
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(applied.exitCode).toBe(0);
+  const command = JSON.parse(applied.stdout).command as string;
+  const encoded = command.split(" ").at(-1)!;
+  const script = Buffer.from(encoded, "base64").toString("utf16le");
+  expect(script).toContain(
+    "irm https://github.com/1667-ai/1667/releases/download/v2.0.0/install-stable.ps1"
+  );
+  expect(script).toContain("-InstallRoot 'C:\\Writer''s $tools'");
+  expect(script).not.toContain("https://1667.ai/install.ps1");
 });
 
 test("PowerShell reruns preserve custom roots and explicit channel switches", async () => {
-  const encoded = windowsInstallCommand("C:\\Writer's $tools").split(" ").at(-1)!;
+  const encoded = windowsInstallCommand("C:\\Writer's $tools", "2.0.0")
+    .split(" ").at(-1)!;
   expect(Buffer.from(encoded, "base64").toString("utf16le")).toContain(
     "-InstallRoot 'C:\\Writer''s $tools'"
   );
@@ -245,7 +268,7 @@ test("PowerShell reruns preserve custom roots and explicit channel switches", as
     target: observation.currentVersion,
     channel: "stable",
     method: "powershell",
-    command: windowsInstallCommand(POWERSHELL_ROOT)
+    command: windowsInstallCommand(POWERSHELL_ROOT, observation.currentVersion)
   });
 });
 

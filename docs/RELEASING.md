@@ -502,9 +502,11 @@ executable. The transaction stays in the Install Root.
 
 Windows does not replace the running `1667.exe` file. On Windows, `1667 upgrade`
 verifies the available release and shows the applicable PowerShell Installer
-command. Exit 1667 before you run that command. Run the same command again for
-an upgrade. The PowerShell Installer keeps the Installation ID. Windows does
-not support `1667 upgrade --rollback`.
+command. The command downloads `install-stable.ps1` from the exact, immutable
+`v<version>` GitHub release that the plan selected; it does not re-resolve the
+moving homepage route. Exit 1667 before you run that command. Run the same
+command again for an upgrade. The PowerShell Installer keeps the Installation
+ID. Windows does not support `1667 upgrade --rollback`.
 
 Background update checks stay notify-only. They never install a Candidate.
 
