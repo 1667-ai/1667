@@ -94,8 +94,9 @@ Export:
 
 Import:
   Reads SillyTavern chat files (.jsonl) into this project, one new story per
-  file. Each message becomes a story part; a trailing message with no reply
-  is dropped. Import never writes back to the file it read.
+  file. Each character message becomes a story part; the user messages
+  before it become that part's direction, and unanswered ones at the end
+  are dropped. Import never writes back to the file it read.
   One unreadable file does not stop the others: the command reports each
   failure and exits non-zero at the end.
 
