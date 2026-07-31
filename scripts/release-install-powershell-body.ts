@@ -236,9 +236,12 @@ function Extract-Candidate([string]$ArchivePath, [string]$WorkRoot) {
   if (-not [IO.File]::Exists($tar)) { Fail 'Windows tar.exe is required.' }
   $listed = @(& $tar -tzf $ArchivePath)
   if ($LASTEXITCODE -ne 0) { Fail 'Could not list the Release Archive.' }
-  $listed = @($listed | ForEach-Object { ([string]$_).Replace('\\','/') })
+  [string[]]$listed = @($listed | ForEach-Object { ([string]$_).Replace('\\','/') })
+  [string[]]$expected = @($ExpectedArchiveEntries)
+  [Array]::Sort($listed, [StringComparer]::Ordinal)
+  [Array]::Sort($expected, [StringComparer]::Ordinal)
   $newline = [Environment]::NewLine
-  if (($listed -join $newline) -cne ($ExpectedArchiveEntries -join $newline)) {
+  if (($listed -join $newline) -cne ($expected -join $newline)) {
     Fail 'Release Archive layout is invalid.'
   }
   & $tar -xzf $ArchivePath -C $WorkRoot

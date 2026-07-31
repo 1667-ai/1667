@@ -8,7 +8,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { releaseArchiveFileName } from "../scripts/release-archive.js";
+import { releaseArchiveFileName, releaseArchiveStem } from "../scripts/release-archive.js";
 import { INSTALL_LOCK_FILE } from "../shared/install-layout.js";
 import {
   renderPowerShellInstallScript,
@@ -68,6 +68,27 @@ test("PowerShell Installer handles install, repeat, and upgrade cases", async (t
   assert.match(repeat.stdout, /Installed 1667 1\.2\.3 \(stable\)/u);
   assert.equal(await installedVersion(installRoot), "1.2.3");
   assert.equal((await ownershipRecord(installRoot)).installationId, firstRecord.installationId);
+
+  const reorderedExecutable = await compileFixture(scratch, "1.2.6", "reordered");
+  const reorderedEntries = canonicalReleaseArchiveEntries(
+    "1.2.6",
+    WINDOWS_TARGET,
+    reorderedExecutable
+  );
+  const reorderedArchive = gzipSync(ustarArchive([
+    reorderedEntries[0]!,
+    ...reorderedEntries.slice(1).reverse()
+  ]));
+  const reorderedUrl = addInstaller(
+    assets,
+    `${base}/reordered`,
+    "1.2.6",
+    reorderedArchive,
+    sha256(reorderedArchive)
+  );
+  const reorderedRoot = path.join(scratch, "reordered-root");
+  await runInstaller(reorderedUrl, reorderedRoot);
+  assert.equal(await installedVersion(reorderedRoot), "1.2.6");
 
   const originalUserPath = await readRawUserPath();
   try {
@@ -179,7 +200,7 @@ async function addRelease(
   route: string
 ): Promise<{ readonly url: string; readonly archive: Buffer; readonly archiveName: string }> {
   const executable = await compileFixture(scratch, version, route);
-  const archive = releaseArchive(version, executable);
+  const archive = await nativeReleaseArchive(scratch, route, version, executable);
   const routeBase = `${base}/${route}`;
   const url = addInstaller(assets, routeBase, version, archive, sha256(archive));
   return { url, archive, archiveName: releaseArchiveFileName(version, WINDOWS_TARGET) };
@@ -219,6 +240,35 @@ function releaseArchive(version: string, executable: Buffer): Buffer {
     WINDOWS_TARGET,
     executable
   )));
+}
+
+async function nativeReleaseArchive(
+  scratch: string,
+  name: string,
+  version: string,
+  executable: Buffer
+): Promise<Buffer> {
+  const stem = releaseArchiveStem(version, WINDOWS_TARGET);
+  const root = path.join(scratch, `native-archive-${name}`);
+  const stage = path.join(root, "stage");
+  const archivePath = path.join(root, `${stem}.tar.gz`);
+  await mkdir(stage, { recursive: true });
+  for (const entry of canonicalReleaseArchiveEntries(version, WINDOWS_TARGET, executable)) {
+    const destination = path.join(stage, ...entry.name.replace(/\/$/u, "").split("/"));
+    if (entry.type === "5") {
+      await mkdir(destination, { recursive: true });
+      continue;
+    }
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, entry.body ?? Buffer.alloc(0));
+  }
+  await execFileAsync("bash", [
+    "-lc",
+    'set -euo pipefail; COPYFILE_DISABLE=1 tar --format=ustar -czf "$1.tar.gz" -C stage "$1"',
+    "1667-native-release-tar",
+    stem
+  ], { cwd: root });
+  return await readFile(archivePath);
 }
 
 async function compileFixture(
