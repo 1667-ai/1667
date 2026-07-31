@@ -11,6 +11,7 @@ import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import type { BuiltArtifactTarget } from "../shared/release-targets.js";
 import { releaseArchiveFileName, releaseArchiveStem } from "../scripts/release-archive.js";
 import { releaseArchiveMemberPaths } from "../scripts/release-archive-layout.js";
+import { releaseTargetForArtifact } from "../shared/release-targets.js";
 import {
   ustarArchive,
   writeUstarGzipArchive,
@@ -145,6 +146,7 @@ export function canonicalReleaseArchiveEntries(
   const stem = releaseArchiveStem(version, target);
   const bodies = new Map<string, Buffer>([
     ["1667", executableBody],
+    ["1667.exe", executableBody],
     ["LICENSE", Buffer.from("LICENSE\n")],
     ["NOTICE", Buffer.from("NOTICE\n")],
     ["build-manifest.json", Buffer.from("{}\n")],
@@ -158,7 +160,9 @@ export function canonicalReleaseArchiveEntries(
     return {
       name: member,
       type: "0",
-      mode: relPath === "1667" ? 0o755 : 0o644,
+      mode: relPath === path.basename(releaseTargetForArtifact(target).executable)
+        ? 0o755
+        : 0o644,
       body
     };
   });

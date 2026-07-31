@@ -7,13 +7,21 @@ import { fileURLToPath } from "node:url";
 import type { InstallChannel } from "../shared/install-ownership-record.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
+  releaseTargetForArtifact,
   type PublishedArtifactTarget
 } from "../shared/release-targets.js";
 import { isSemVer, parseSemVer } from "../shared/semver.js";
-import { releaseArchiveFileName } from "./release-archive.js";
+import {
+  releaseArchiveFileName,
+  releaseArchiveStem
+} from "./release-archive.js";
 import { sha256Digest } from "./release-boundary-validation.js";
-import { publishedReleaseArchiveMemberRelLayout } from "./release-archive-layout.js";
+import {
+  publishedShellArchiveMemberRelLayout,
+  releaseArchiveMemberRelPaths
+} from "./release-archive-layout.js";
 import { shellInstallerBody } from "./release-install-script-body.js";
+import { powershellInstallerBody } from "./release-install-powershell-body.js";
 
 export const INSTALL_SCRIPT_CHANNELS = ["stable", "beta"] as const;
 export type InstallScriptChannel = InstallChannel;
@@ -41,8 +49,11 @@ export function installScriptChannelsForVersion(version: string): readonly Insta
   return parsed.prerelease.length === 0 ? ["beta", "stable"] : ["beta"];
 }
 
-export function installScriptFileName(channel: InstallScriptChannel): string {
-  return `install-${channel}.sh`;
+export function installScriptFileName(
+  channel: InstallScriptChannel,
+  kind: "shell" | "powershell" = "shell"
+): string {
+  return `install-${channel}.${kind === "shell" ? "sh" : "ps1"}`;
 }
 
 export function normalizeArchiveDigests(
@@ -93,10 +104,13 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
   if (input.archives.length !== PUBLISHED_ARTIFACT_TARGETS.length) {
     throw new Error("Install script must cover every published release target");
   }
-  const byTarget = new Map(input.archives.map((archive) => [archive.target, archive]));
+  const byTarget = validatedArchiveMap(input.archives, input.version);
   const digestLines: string[] = [];
   const nameLines: string[] = [];
-  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
+  const targets = PUBLISHED_ARTIFACT_TARGETS.filter((target) => {
+    return releaseTargetForArtifact(target).platform !== "win32";
+  });
+  for (const target of targets) {
     const archive = byTarget.get(target);
     if (archive === undefined) throw new Error(`Install script is missing ${target}`);
     if (archive.fileName !== releaseArchiveFileName(input.version, target)) {
@@ -108,8 +122,8 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
   }
   const defaultBase = `https://github.com/${input.repository}/releases/download/v${input.version}`;
   const assetBase = assertSafeAssetBaseUrl(input.assetBaseUrl ?? defaultBase);
-  // One portable installer: every published target must share this layout.
-  const memberRelPaths = publishedReleaseArchiveMemberRelLayout(input.version);
+  // One portable installer: every published POSIX target shares this layout.
+  const memberRelPaths = publishedShellArchiveMemberRelLayout(input.version);
   const executableMemberId = memberRelPaths.indexOf("1667");
   if (executableMemberId <= 0) {
     throw new Error("Install script archive layout is missing the 1667 executable");
@@ -126,6 +140,63 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
       executableMemberId
     })
   });
+}
+
+export function renderPowerShellInstallScript(input: RenderInstallScriptInput): string {
+  if (!isSemVer(input.version)) {
+    throw new Error(`PowerShell installer needs a SemVer version, not ${input.version}`);
+  }
+  if (input.channel !== "stable" && input.channel !== "beta") {
+    throw new Error("PowerShell installer channel must be stable or beta");
+  }
+  if (input.channel === "stable" && parseSemVer(input.version)!.prerelease.length > 0) {
+    throw new Error("install-stable.ps1 is only valid for a non-prerelease version");
+  }
+  if (!REPOSITORY.test(input.repository)) {
+    throw new Error("PowerShell installer repository is invalid");
+  }
+  if (input.archives.length !== PUBLISHED_ARTIFACT_TARGETS.length) {
+    throw new Error("PowerShell installer must cover every published release target");
+  }
+  const byTarget = validatedArchiveMap(input.archives, input.version);
+  const windowsTargets = PUBLISHED_ARTIFACT_TARGETS.filter((target) => {
+    return releaseTargetForArtifact(target).platform === "win32";
+  });
+  if (windowsTargets.length !== 1 || windowsTargets[0] !== "windows-x64") {
+    throw new Error("PowerShell installer requires the published windows-x64 target");
+  }
+  const target = windowsTargets[0];
+  const archive = byTarget.get(target)!;
+  const stem = releaseArchiveStem(input.version, target);
+  const archiveEntries = releaseArchiveMemberRelPaths(target, input.version).map((entry) => {
+    return entry === "" ? `${stem}/` : `${stem}/${entry}`;
+  });
+  const defaultBase = `https://github.com/${input.repository}/releases/download/v${input.version}`;
+  return powershellInstallerBody({
+    version: input.version,
+    channel: input.channel,
+    repository: input.repository,
+    assetBase: assertSafeAssetBaseUrl(input.assetBaseUrl ?? defaultBase),
+    archive: archive.fileName,
+    digest: archive.sha256,
+    archiveEntries
+  });
+}
+
+function validatedArchiveMap(
+  archives: readonly ReleaseArchiveDigest[],
+  version: string
+): ReadonlyMap<PublishedArtifactTarget, ReleaseArchiveDigest> {
+  const byTarget = new Map(archives.map((archive) => [archive.target, archive]));
+  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
+    const archive = byTarget.get(target);
+    if (archive === undefined) throw new Error(`Install script is missing ${target}`);
+    if (archive.fileName !== releaseArchiveFileName(version, target)) {
+      throw new Error(`Install script archive name is wrong for ${target}`);
+    }
+    sha256Digest(archive.sha256, archive.fileName);
+  }
+  return byTarget;
 }
 
 /**
@@ -186,13 +257,15 @@ export function renderInstallScriptsForVersion(input: {
   const archives = normalizeArchiveDigests(input.version, input.digests);
   const out: Record<string, string> = {};
   for (const channel of installScriptChannelsForVersion(input.version)) {
-    out[installScriptFileName(channel)] = renderInstallScript({
+    const values: RenderInstallScriptInput = {
       version: input.version,
       channel,
       repository: input.repository,
       archives,
       assetBaseUrl: input.assetBaseUrl
-    });
+    };
+    out[installScriptFileName(channel)] = renderInstallScript(values);
+    out[installScriptFileName(channel, "powershell")] = renderPowerShellInstallScript(values);
   }
   return Object.freeze(out);
 }

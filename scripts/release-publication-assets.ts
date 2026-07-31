@@ -1,6 +1,7 @@
 import { parseSemVer, isSemVer } from "../shared/semver.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
+  PUBLISHED_PACKAGE_COUNT,
   RELEASE_LAUNCHER_PACKAGE,
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
@@ -11,7 +12,7 @@ import {
 } from "./release-install-script.js";
 
 /**
- * Exact npm pack basenames for the five release packages.
+ * Exact npm pack basenames for all release packages.
  * Scoped names become scope-name-version.tgz (slash replaced by hyphen).
  */
 export function expectedNpmTarballNames(version: string): readonly string[] {
@@ -36,7 +37,7 @@ export function npmPackBasename(packageName: string, version: string): string {
  */
 export function expectedGitHubReleaseAssetNames(version: string): readonly string[] {
   if (!isSemVer(version)) throw new Error(`GitHub release assets need a SemVer version, not ${version}`);
-  const installers = installScriptChannelsForVersion(version).map(installScriptFileName);
+  const installers = expectedInstallerNames(version);
   const archives = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
     return releaseArchiveFileName(version, target);
   });
@@ -56,8 +57,7 @@ export function expectedGitHubReleaseAssetNames(version: string): readonly strin
 
 /**
  * Exact nested publication directory file count after preflight.
- * Layout: artifact-manifest(+sha256), tarballs/x5, observations/x4, sboms/x5,
- * archives/x4, installers/x1or2.
+ * The count comes from the current release target and Installer policy.
  */
 export function expectedPublicationFileCount(version: string): number {
   return expectedGitHubReleaseAssetNames(version).length - 1; // no checksums.txt in publication
@@ -69,13 +69,17 @@ export function expectedPublicationFileCount(version: string): number {
  */
 export function expectedLauncherPackageFileCount(version: string): number {
   // tarballs + observations + sboms + archives + installers
-  const installerCount = installScriptChannelsForVersion(version).length;
+  const installerCount = expectedInstallerNames(version).length;
   const platformCount = PUBLISHED_ARTIFACT_TARGETS.length;
-  return 5 + platformCount + (platformCount + 1) + platformCount + installerCount;
+  return PUBLISHED_PACKAGE_COUNT + platformCount + PUBLISHED_PACKAGE_COUNT
+    + platformCount + installerCount;
 }
 
 export function expectedInstallerNames(version: string): readonly string[] {
-  return installScriptChannelsForVersion(version).map(installScriptFileName);
+  return installScriptChannelsForVersion(version).flatMap((channel) => [
+    installScriptFileName(channel),
+    installScriptFileName(channel, "powershell")
+  ]);
 }
 
 export function isPrereleaseVersion(version: string): boolean {

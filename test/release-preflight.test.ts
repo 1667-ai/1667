@@ -69,9 +69,8 @@ test("local release preflight CLI validates every tarball and emits canonical ev
     const executable = target === "launcher"
       ? "bin/1667.js"
       : releaseTargetForArtifact(target).executable;
-    // Release policy drops the exec bit only for a Windows package. No
-    // published target packs one while windows-x64 is held, so this reads the
-    // descriptor rather than assuming that stays true.
+    // Release policy drops the exec bit only for a Windows package. Read the
+    // platform from the descriptor.
     const platform: string | null = target === "launcher"
       ? null
       : releaseTargetForArtifact(target).platform;

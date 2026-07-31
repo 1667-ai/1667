@@ -8,7 +8,8 @@ import {
   currentPlatformPackage,
   executeUpgradeCli,
   parseUpgradeArguments,
-  runProcessUpgrade
+  runProcessUpgrade,
+  WINDOWS_INSTALL_COMMAND
 } from "../src/upgrade-cli.js";
 import { UpgradeFailure, type UpgradeChannel } from "../src/upgrade-contract.js";
 import type { PlatformPackage, RegistryFetch } from "../src/npm-upgrade-registry.js";
@@ -180,6 +181,43 @@ test("manual current releases do not recommend a redundant reinstall", async () 
   });
   expect(result.stdout).toContain("is up to date");
   expect(result.stdout).not.toContain("Instructions:");
+});
+
+test("PowerShell installs return the rerunnable Windows Installer command", async () => {
+  const authority = {
+    kind: "powershell" as const,
+    channel: "beta" as const,
+    installRoot: "C:\\Users\\writer\\AppData\\Local\\Programs\\1667\\bin",
+    executable: "C:\\Users\\writer\\AppData\\Local\\Programs\\1667\\bin\\1667.exe"
+  };
+  const checked = await executeUpgradeCli(["--check", "--json"], {
+    observation,
+    authority,
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(JSON.parse(checked.stdout)).toMatchObject({
+    status: "manual",
+    channel: "beta",
+    method: "powershell",
+    command: WINDOWS_INSTALL_COMMAND
+  });
+
+  const applied = await executeUpgradeCli(["--channel", "stable"], {
+    observation,
+    authority,
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(applied.stdout).toContain("Exit 1667, then run:");
+  expect(applied.stdout).toContain(WINDOWS_INSTALL_COMMAND);
+  expect(applied.stdout).not.toContain("npmjs.com");
+
+  const rollback = await executeUpgradeCli(["--rollback"], {
+    observation,
+    authority,
+    registry: fakeRegistry("2.0.0")
+  });
+  expect(rollback.exitCode).toBe(1);
+  expect(rollback.stderr).toContain(WINDOWS_INSTALL_COMMAND);
 });
 
 test("help is local and performs no registry I/O", async () => {

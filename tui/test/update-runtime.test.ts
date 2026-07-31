@@ -31,10 +31,8 @@ describe("default background update runtime", () => {
     expect(typeof starter).toBe("function");
   });
 
-  // Asking only about the host would prove one branch on whichever machine ran
-  // the suite: on Linux the held branch never executes, and on the windows-x64
-  // matrix leg the published branch never does. Both are asserted against every
-  // canonical target instead, so the outcome tracks `heldFromPublication`.
+  // Asking only about the host would cover one target. Assert every canonical
+  // target so the outcome continues to track `heldFromPublication`.
   test("a starter follows the target's publication state, not the test host", () => {
     const config = normalizeUserConfig({ updates: { mode: "notify" } });
     for (const descriptor of RELEASE_TARGETS) {

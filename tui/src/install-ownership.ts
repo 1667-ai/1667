@@ -6,14 +6,17 @@ import {
 import path from "node:path";
 import {
   AI_1667_BUILD_IDENTITY,
-  AI_1667_PRODUCT
+  AI_1667_PRODUCT,
+  type ArtifactTarget
 } from "../../shared/build-identity.js";
 import {
   INSTALL_OWNERSHIP_FILE,
   parseInstallOwnershipRecordText,
   serializeInstallOwnershipRecord,
+  type InstallChannel,
   type InstallOwnershipRecord
 } from "../../shared/install-ownership-record.js";
+import { parseJsonRejectingDuplicateKeys } from "../../shared/strict-json.js";
 import {
   fsyncDirectory,
   removeQuietly,
@@ -23,6 +26,12 @@ import { assertSafeOwnedPath, assertSafeInstallRoot } from "./install-path-safet
 
 export type InstallationAuthority =
   | { readonly kind: "manual" }
+  | {
+      readonly kind: "powershell";
+      readonly channel: InstallChannel;
+      readonly installRoot: string;
+      readonly executable: string;
+    }
   | {
       readonly kind: "shell";
       readonly record: InstallOwnershipRecord;
@@ -35,8 +44,12 @@ export type InstallationAuthority =
  * Missing or invalid records grant no replacement authority.
  */
 export function resolveInstallationAuthority(
-  executablePath = process.execPath
+  executablePath = process.execPath,
+  artifactTarget: ArtifactTarget = AI_1667_BUILD_IDENTITY.artifactTarget
 ): InstallationAuthority {
+  if (process.platform === "win32") {
+    return resolvePowerShellInstallationAuthority(executablePath, artifactTarget);
+  }
   try {
     const executable = resolveExecutablePath(executablePath);
     const installRoot = path.dirname(executable);
@@ -60,7 +73,7 @@ export function resolveInstallationAuthority(
     if (record.product !== AI_1667_PRODUCT || record.method !== "shell") {
       return { kind: "manual" };
     }
-    const target = AI_1667_BUILD_IDENTITY.artifactTarget;
+    const target = artifactTarget;
     if (target === "source" || record.artifactTarget !== target) {
       return { kind: "manual" };
     }
@@ -74,6 +87,60 @@ export function resolveInstallationAuthority(
       installRoot,
       executable
     });
+  } catch {
+    return { kind: "manual" };
+  }
+}
+
+function resolvePowerShellInstallationAuthority(
+  executablePath: string,
+  artifactTarget: ArtifactTarget
+): InstallationAuthority {
+  try {
+    const executable = resolveWindowsExecutablePath(executablePath);
+    if (path.win32.basename(executable).toLowerCase() !== "1667.exe") {
+      return { kind: "manual" };
+    }
+    const installRoot = path.win32.dirname(executable);
+    const recordPath = path.win32.join(installRoot, INSTALL_OWNERSHIP_FILE);
+    const recordStats = lstatSync(recordPath);
+    if (!recordStats.isFile() || recordStats.isSymbolicLink() || recordStats.size > 16_384) {
+      return { kind: "manual" };
+    }
+    const value = parseJsonRejectingDuplicateKeys(readFileSync(recordPath, "utf8"));
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return { kind: "manual" };
+    }
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort();
+    const expected = [
+      "artifactTarget",
+      "channel",
+      "executable",
+      "installRoot",
+      "installationId",
+      "method",
+      "product",
+      "schemaVersion"
+    ];
+    if (keys.length !== expected.length
+      || keys.some((key, index) => key !== expected[index])) {
+      return { kind: "manual" };
+    }
+    const channel = record.channel;
+    if (record.schemaVersion !== 1
+      || record.product !== AI_1667_PRODUCT
+      || record.method !== "powershell"
+      || record.artifactTarget !== "windows-x64"
+      || (channel !== "stable" && channel !== "beta")
+      || typeof record.installationId !== "string"
+      || !/^[0-9a-f]{32}$/u.test(record.installationId)
+      || !windowsPathEquals(record.installRoot, installRoot)
+      || !windowsPathEquals(record.executable, executable)
+      || artifactTarget !== "windows-x64") {
+      return { kind: "manual" };
+    }
+    return Object.freeze({ kind: "powershell", channel, installRoot, executable });
   } catch {
     return { kind: "manual" };
   }
@@ -110,6 +177,28 @@ function resolveExecutablePath(value: string): string {
   const real = realpathNoFollowFile(value);
   if (real !== value) throw new Error("Executable path must be canonical");
   return value;
+}
+
+function resolveWindowsExecutablePath(value: string): string {
+  if (!path.win32.isAbsolute(value) || value.startsWith("\\\\")) {
+    throw new Error("Executable path must be an absolute local path");
+  }
+  const stats = lstatSync(value);
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new Error("Executable path must be a regular file");
+  }
+  const canonical = path.win32.join(realpathSync(path.win32.dirname(value)), path.win32.basename(value));
+  if (!windowsPathEquals(canonical, value)) {
+    throw new Error("Executable path must be canonical");
+  }
+  return canonical;
+}
+
+function windowsPathEquals(left: unknown, right: string): boolean {
+  return typeof left === "string"
+    && path.win32.isAbsolute(left)
+    && !left.startsWith("\\\\")
+    && path.win32.normalize(left).toLowerCase() === path.win32.normalize(right).toLowerCase();
 }
 
 function realpathNoFollowFile(value: string): string {

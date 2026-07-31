@@ -145,7 +145,9 @@ async function runGh(
     throw new Error("GitHub CLI must use an absolute path");
   }
   const stat = lstatSync(executable);
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) {
+  // Node reports no POSIX execute bits for gh.exe on NTFS.
+  if (!stat.isFile() || stat.isSymbolicLink()
+    || (process.platform !== "win32" && (stat.mode & 0o111) === 0)) {
     throw new Error("GitHub CLI must be an absolute executable file");
   }
   const gh = realpathSync(executable);

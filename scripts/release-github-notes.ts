@@ -43,6 +43,9 @@ export function releaseNotesMarkdown(version: string): string {
   if (first === undefined) throw new Error("Release notes need at least one published target");
   const sample = releaseArchiveFileName(version, first);
   const sampleStem = sample.replace(/\.tar\.gz$/u, "");
+  const hasWindows = PUBLISHED_ARTIFACT_TARGETS.some((target) => {
+    return releaseTargetForArtifact(target).platform === "win32";
+  });
   return [
     `# 1667 v${version}`,
     "",
@@ -59,15 +62,15 @@ export function releaseNotesMarkdown(version: string): string {
       return `| ${targetLabel(target)} | \`${releaseArchiveFileName(version, target)}\` |`;
     }),
     "",
-    "`checksums.txt` holds the SHA-256 digest of each archive and install script above.",
+    "`checksums.txt` holds the SHA-256 digest of each archive and Installer.",
     "",
     "Each archive extracts into one directory holding the executable, `LICENSE`,",
     "`NOTICE`, `build-manifest.json`, and `sbom.spdx.json`. The executable needs",
     "neither Bun nor Node.js at run time.",
     "",
-    "This release also includes `install-beta.sh`. The script embeds this version,",
-    "the beta channel, each archive name, and each archive SHA-256 digest. It never",
-    "resolves GitHub latest and never reads npm tags.",
+    "This release includes `install-beta.sh` and `install-beta.ps1`. Each Installer",
+    "embeds this version, the beta channel, the applicable archive name, and its",
+    "SHA-256 digest. The Installers do not resolve GitHub latest or read npm tags.",
     "",
     "## Verify what you downloaded, then run it",
     "",
@@ -90,6 +93,13 @@ export function releaseNotesMarkdown(version: string): string {
     "sh ./install-beta.sh",
     "```",
     "",
+    ...(hasWindows ? [
+      "```powershell",
+      `gh attestation verify install-beta.ps1 --repo ${RELEASE_REPOSITORY_SLUG}`,
+      "powershell -ExecutionPolicy Bypass -File .\\install-beta.ps1",
+      "```",
+      ""
+    ] : []),
     "That attestation is the evidence this release offers. There is no signed tag",
     "here, and nothing above asks you to check one.",
     "",

@@ -1,6 +1,6 @@
 name: Release (npm)
 
-# Produces and preflights the five release packages. Publication uses npm
+# Produces and preflights all release packages. Publication uses npm
 # Trusted Publishing. No npm token is stored or accepted.
 on:
   workflow_dispatch:
@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [darwin-arm64, darwin-x64, linux-arm64, linux-x64]
+        target: [darwin-arm64, darwin-x64, linux-arm64, linux-x64, windows-x64]
         include:
           - target: darwin-arm64
             runner: macos-15
@@ -72,6 +72,8 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: linux-x64
             runner: ubuntu-24.04
+          - target: windows-x64
+            runner: windows-2025
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     permissions:
@@ -170,17 +172,22 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          executable="$(node --import tsx --input-type=module -e '
+            import { basename } from "node:path";
+            import { releaseTargetForArtifact } from "./shared/release-targets.ts";
+            process.stdout.write(basename(releaseTargetForArtifact(process.argv[1]).executable));
+          ' "$TARGET")"
           mkdir -p "dist/builds/$TARGET" dist/observations
-          cp tui/dist/1667 "dist/builds/$TARGET/1667"
-          chmod 0755 "dist/builds/$TARGET/1667"
+          cp "tui/dist/$executable" "dist/builds/$TARGET/$executable"
+          chmod 0755 "dist/builds/$TARGET/$executable"
           node --import tsx scripts/release-npm-observation.ts \
-            "$TARGET" "dist/builds/$TARGET/1667" > "dist/observations/$TARGET.json"
+            "$TARGET" "dist/builds/$TARGET/$executable" > "dist/observations/$TARGET.json"
 
       - name: Attest the native result before upload
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: |
-            dist/builds/${{ matrix.target }}/1667
+            dist/builds/${{ matrix.target }}/*
             dist/observations/${{ matrix.target }}.json
 
       - name: Upload the native result
@@ -188,7 +195,7 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: |
-            dist/builds/${{ matrix.target }}/1667
+            dist/builds/${{ matrix.target }}/*
             dist/observations/${{ matrix.target }}.json
           if-no-files-found: error
           retention-days: 90
@@ -271,7 +278,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           node --import tsx scripts/release-npm-ci.ts
-          verify-attestations dist/native 8
+          verify-attestations dist/native 10
 
       - name: Stage the packages
         env:
@@ -317,7 +324,7 @@ jobs:
             tar -tzf "dist/archives/$stem.tar.gz"
           done
 
-      - name: Render channel-specific Shell Installers
+      - name: Render channel-specific Installers
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -347,7 +354,7 @@ jobs:
             dist/observations/*.json
             dist/sboms/*.spdx.json
             dist/archives/*.tar.gz
-            dist/installers/*.sh
+            dist/installers/*
 
       - name: Upload the release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -358,7 +365,7 @@ jobs:
             dist/observations/*.json
             dist/sboms/*.spdx.json
             dist/archives/*.tar.gz
-            dist/installers/*.sh
+            dist/installers/*
           if-no-files-found: error
           retention-days: 90
 
@@ -483,7 +490,7 @@ jobs:
             dist/publication/observations/*.json
             dist/publication/sboms/*.spdx.json
             dist/publication/archives/*.tar.gz
-            dist/publication/installers/*.sh
+            dist/publication/installers/*
 
       - name: Upload the retained publication inputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -741,17 +748,17 @@ jobs:
           cp dist/publication/observations/*.json dist/assets/
           cp dist/publication/sboms/*.spdx.json dist/assets/
           cp dist/publication/archives/*.tar.gz dist/assets/
-          cp dist/publication/installers/*.sh dist/assets/
+          cp dist/publication/installers/* dist/assets/
           cp dist/publication/artifact-manifest.json dist/assets/
           cp dist/publication/artifact-manifest.sha256 dist/assets/
           node --import tsx scripts/release-github-assets.ts checksums dist/assets \
             > dist/assets/checksums.txt
           {
             printf '# 1667 v%s\n\n' "$VERSION"
-            printf 'This release retains the five npm packages, native Release Archives,\n'
-            printf 'and channel-specific Shell Installers.\n\n'
+            printf 'This release retains all npm packages and native Release Archives.\n'
+            printf 'It also retains the channel-specific Shell and PowerShell Installers.\n\n'
             printf 'npm publication uses the `next` tag. Promotion is a separate maintainer action.\n'
-            printf 'The homepage serves one selected install script after a separate promotion gate.\n'
+            printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
           } > dist/release-notes.md
 
       - name: Publish or verify the immutable GitHub release

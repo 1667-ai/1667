@@ -105,13 +105,8 @@ export const RELEASE_TARGETS = Object.freeze([
     minimumCpuFeature: null,
     minimumMacosVersion: null,
     minimumGlibcVersion: null,
-    heldFromPublication: "CI does not build the Windows platform work at present, "
-      + "so it is unverified, and maintainers have not approved it for publication",
-    // WSL runs the published linux-x64 package, so a Windows user is not held
-    // back by this hold at all. The Windows-native state-root work the hold
-    // covers is unreachable there: it runs only when the platform is win32.
-    heldAlternative: "To use 1667 on Windows now, install it in WSL. "
-      + "WSL runs the published Linux package."
+    heldFromPublication: null,
+    heldAlternative: null
   })
 ] as const satisfies readonly ReleaseTargetDescriptor[]);
 

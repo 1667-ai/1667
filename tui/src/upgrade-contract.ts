@@ -9,7 +9,7 @@ export type UpgradeErrorCode =
   | "verification_failed"
   | "internal_error";
 
-export type UpgradeMethod = "manual" | "shell";
+export type UpgradeMethod = "manual" | "powershell" | "shell";
 
 export interface UpgradeError {
   code: UpgradeErrorCode;
@@ -21,7 +21,7 @@ export interface UpgradeError {
 interface UpgradeEnvelopeBase {
   method: UpgradeMethod;
   restartRequired: boolean;
-  command: null;
+  command: string | null;
 }
 
 interface UpgradeSuccessEnvelopeBase extends UpgradeEnvelopeBase {
@@ -39,7 +39,7 @@ export interface UpgradeUpToDateEnvelope extends UpgradeSuccessEnvelopeBase {
 
 export interface UpgradeManualEnvelope extends UpgradeSuccessEnvelopeBase {
   status: "manual";
-  method: "manual";
+  method: "manual" | "powershell";
   target: string;
   restartRequired: false;
 }
@@ -102,6 +102,8 @@ export function upgradeEnvelope(
         latest: string;
         target: string;
         channel: UpgradeChannel;
+        method?: "manual" | "powershell";
+        command?: string;
       }
     | {
         status: "available";
@@ -151,9 +153,9 @@ export function upgradeEnvelope(
       latest: values.latest,
       target: values.target,
       channel: values.channel,
-      method: "manual",
+      method: values.method ?? "manual",
       restartRequired: false,
-      command: null,
+      command: values.command ?? null,
       error: null
     };
   }

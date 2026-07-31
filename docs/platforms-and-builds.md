@@ -18,9 +18,8 @@ read_when:
 - Linux x64
 - Windows x64
 
-The release publishes packages for the four macOS and Linux targets. Windows
-x64 is a held target. CI does not build or test it. Build it from source only
-for development.
+The release publishes packages for all five targets. CI builds and tests each
+native package. Windows CI also tests the PowerShell Installer.
 
 Linux HTTP server mode requires Linux kernel 6.8 or newer. The data file system
 must support durable Linux file handles. Linux releases require glibc 2.17 or

@@ -178,24 +178,24 @@ test("the pinned licence digests are the digests of the files in this repository
   }
 });
 
-test("a target held from publication has no archive at all", () => {
+test("Windows x64 has a published native archive", () => {
   assert.deepEqual(
     RELEASE_TARGETS
       .filter((descriptor) => descriptor.heldFromPublication !== null)
       .map((descriptor) => descriptor.artifactTarget),
-    ["windows-x64"]
+    []
   );
   assert.ok(BUILT_ARTIFACT_TARGETS.includes("windows-x64"));
-  assert.ok(!(PUBLISHED_ARTIFACT_TARGETS as readonly string[]).includes("windows-x64"));
-  assert.ok(heldFromPublication("windows-x64"));
-  assert.throws(
-    () => releaseArchiveFileSet("windows-x64", VERSION),
-    /windows-x64 is held from publication/
-  );
-  assert.throws(
-    () => releaseArchiveStem(VERSION, "windows-x64"),
-    /windows-x64 is held from publication/
-  );
+  assert.ok((PUBLISHED_ARTIFACT_TARGETS as readonly string[]).includes("windows-x64"));
+  assert.ok(!heldFromPublication("windows-x64"));
+  assert.deepEqual(releaseArchiveFileSet("windows-x64", VERSION).map((entry) => entry.path), [
+    "1667.exe",
+    RELEASE_BUILD_MANIFEST_FILE,
+    RELEASE_SBOM_FILE,
+    "LICENSE",
+    "NOTICE"
+  ]);
+  assert.equal(releaseArchiveStem(VERSION, "windows-x64"), "1667_0.1.2_windows-x64");
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
     assert.ok(!heldFromPublication(target));
   }
@@ -223,7 +223,8 @@ test("the published set is the built set minus the holds, in matrix order", () =
     "darwin-arm64",
     "darwin-x64",
     "linux-arm64",
-    "linux-x64"
+    "linux-x64",
+    "windows-x64"
   ]);
 });
 
@@ -400,7 +401,9 @@ test("staging writes the whole file set and nothing else", (t) => {
     readFileSync(path.join(staged.directory, "1667"), "utf8"),
     stubExecutable
   );
-  assert.equal(statSync(path.join(staged.directory, "1667")).mode & 0o777, 0o755);
+  if (process.platform !== "win32") {
+    assert.equal(statSync(path.join(staged.directory, "1667")).mode & 0o777, 0o755);
+  }
   const buildManifestText = readFileSync(
     path.join(staged.directory, RELEASE_BUILD_MANIFEST_FILE),
     "utf8"
@@ -442,6 +445,7 @@ test("every target in one run stamps the same version, commit and timestamp", (t
   const buildDirectory = path.join(scratch, "dist");
   mkdirSync(buildDirectory, { recursive: true });
   writeFileSync(path.join(buildDirectory, "1667"), "#!/bin/sh\necho stub\n", "utf8");
+  writeFileSync(path.join(buildDirectory, "1667.exe"), "windows stub\n", "utf8");
 
   const stems = new Set<string>();
   for (const target of PUBLISHED_ARTIFACT_TARGETS) {
@@ -625,11 +629,8 @@ test("the release notes claim the attestation and nothing it does not have", () 
   }
   assert.match(notes, /gh attestation verify [^\n]+ --repo 1667-ai\/1667/u);
   assert.match(notes, /checksums\.txt/u);
-  // Held, named, and explained: a reader must not be left guessing why their
-  // platform is absent.
-  assert.match(notes, /windows-x64/u);
-  assert.match(notes, /build:standalone/u);
-  assert.ok(!notes.includes(`1667_${PRERELEASE_VERSION}_windows-x64.tar.gz`));
+  assert.ok(notes.includes(`1667_${PRERELEASE_VERSION}_windows-x64.tar.gz`));
+  assert.match(notes, /install-beta\.ps1/u);
   // This workflow cannot determine registry availability. Its notes make no
   // npm availability claim. The prerelease identifier is explained rather
   // than left to look like a slip, and the explanation is the standing rule

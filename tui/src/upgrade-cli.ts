@@ -52,7 +52,11 @@ export const UPGRADE_HELP = `Usage:
   1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json]
   1667 upgrade --rollback [--json]
 
-Managed Installations apply a verified Candidate. External installations stay read-only.`;
+Managed Installations apply a verified Candidate. External installations stay read-only.
+On Windows, exit 1667 and run the PowerShell Installer again.`;
+
+export const WINDOWS_INSTALL_COMMAND =
+  'powershell -ExecutionPolicy Bypass -c "irm https://1667.ai/install.ps1 | iex"';
 
 const INSTRUCTIONS_ORIGIN =
   `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v`;
@@ -88,7 +92,9 @@ export async function executeUpgradeCli(
   const configChannel = dependencies.defaultChannel ?? "stable";
   const defaultChannel: UpgradeChannel = authority.kind === "shell"
     ? authority.record.channel
-    : configChannel;
+    : authority.kind === "powershell"
+      ? authority.channel
+      : configChannel;
   let parsed: ParsedUpgradeArguments | null;
   try {
     parsed = parseUpgradeArguments(argv, defaultChannel);
@@ -99,7 +105,7 @@ export async function executeUpgradeCli(
       argv.includes("--json"),
       { currentVersion: AI_1667_PRODUCT_VERSION },
       partialChannel(argv, defaultChannel),
-      authority.kind === "shell" ? "shell" : "manual",
+      authorityMethod(authority),
       failure.code === "invalid_arguments" ? 2 : failure.code === "interrupted" ? 130 : 1
     );
   }
@@ -116,11 +122,11 @@ export async function executeUpgradeCli(
       parsed.json,
       { currentVersion: AI_1667_PRODUCT_VERSION },
       upgradeCommandChannel(parsed.command, defaultChannel),
-      authority.kind === "shell" ? "shell" : "manual",
+      authorityMethod(authority),
       1
     );
   }
-  const method: UpgradeMethod = authority.kind === "shell" ? "shell" : "manual";
+  const method = authorityMethod(authority);
   const registry = dependencies.registry ?? new NpmUpgradeRegistry(dependencies.fetcher);
   try {
     const envelope = await dispatchUpgradeCommand(
@@ -163,6 +169,14 @@ async function dispatchUpgradeCommand(
 ): Promise<UpgradeSuccessEnvelope> {
   switch (command.kind) {
     case "rollback": {
+      if (authority.kind === "powershell") {
+        throw new UpgradeFailure(
+          "unsupported_target",
+          `Windows rollback is unavailable. Exit 1667, then run: ${windowsInstallCommand(
+            authority.channel
+          )}`
+        );
+      }
       if (authority.kind !== "shell") {
         throw new UpgradeFailure(
           "unsupported_target",
@@ -201,7 +215,7 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      return publicEnvelopeFromPlan(plan, "manual");
+      return publicEnvelopeFromPlan(plan, method);
     }
   }
 }
@@ -238,7 +252,11 @@ export function publicEnvelopeFromPlan(
     current: plan.current,
     latest: plan.latest,
     target: plan.target,
-    channel: plan.channel
+    channel: plan.channel,
+    method,
+    ...(method === "powershell"
+      ? { command: windowsInstallCommand(plan.channel) }
+      : {})
   });
 }
 
@@ -304,7 +322,11 @@ function renderUpgrade(
   }
   if (command.kind === "check") {
     if (envelope.status === "manual") {
-      lines.push("Run '1667 upgrade' for a fresh, exact read-only plan.");
+      if (envelope.command === null) {
+        lines.push("Run '1667 upgrade' for a fresh, exact read-only plan.");
+      } else {
+        lines.push("Exit 1667, then run:", envelope.command);
+      }
     } else if (envelope.status === "available") {
       lines.push("Run '1667 upgrade' to apply the Candidate.");
     }
@@ -315,12 +337,29 @@ function renderUpgrade(
   }
   lines.push("Verified metadata source: canonical npm registry.");
   if (envelope.status === "manual") {
+    if (envelope.command !== null) {
+      lines.push("Exit 1667, then run:");
+      lines.push(envelope.command);
+      return `${lines.join("\n")}\n`;
+    }
     lines.push(`Instructions: ${instructionsUrl(envelope.target)}`);
     lines.push(
       "Any external reinstall is outside 1667's trust boundary; launch 1667 again afterward."
     );
   }
   return `${lines.join("\n")}\n`;
+}
+
+function authorityMethod(authority: InstallationAuthority): UpgradeMethod {
+  return authority.kind === "shell"
+    ? "shell"
+    : authority.kind === "powershell"
+      ? "powershell"
+      : "manual";
+}
+
+function windowsInstallCommand(_channel: UpgradeChannel): string {
+  return WINDOWS_INSTALL_COMMAND;
 }
 
 function instructionsUrl(version: string): string {

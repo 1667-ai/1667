@@ -19,9 +19,9 @@ import {
   type BuildIdentity
 } from "../../shared/build-identity.js";
 import {
-  heldTargetRefusal,
   releaseTargetForArtifact
 } from "../../shared/release-targets.js";
+import { INSTALL_OWNERSHIP_FILE } from "../../shared/install-ownership-record.js";
 import {
   MACHINE_TIER_OVERRIDE_VARIABLE
 } from "../../server/machine-tier.js";
@@ -57,16 +57,9 @@ const execFileAsync = promisify(execFile);
 const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(tuiRoot);
 const WINDOWS_TARGET = releaseTargetForArtifact("windows-x64");
-/** Widened so this file reads the hold as a fact, not as a compile-time literal. */
-const WINDOWS_HOLD: string | null = WINDOWS_TARGET.heldFromPublication;
 const DEFAULT_STATE_SMOKE_VARIABLE =
   "AI_1667_WINDOWS_DEFAULT_STATE_SMOKE";
 
-/**
- * How this smoke reaches the installed product: through the launcher when the
- * target is published, and directly at the executable while it is held. One
- * decision, taken once, expressed as the call every step below makes.
- */
 type RunEntry = (
   args: readonly string[],
   cwd: string,
@@ -186,17 +179,9 @@ export async function smokeWindowsNpmPackage(
     platformManifest.name,
     WINDOWS_TARGET.executable
   );
-  // While windows-x64 is held there is no published launcher route onto this
-  // platform, so the smoke proves the refusal a Windows user would actually get
-  // and then drives the installed executable itself. Clearing the hold puts the
-  // launcher back in front of every run below without another edit here.
-  let runEntry: RunEntry;
-  if (WINDOWS_HOLD === null) {
-    runEntry = (args, cwd, env) => runStandalone("node", [installedLauncher, ...args], cwd, env);
-  } else {
-    await smokeHeldLauncherRefusal(installedLauncher, installRoot, environment);
-    runEntry = (args, cwd, env) => runStandalone(installedExecutable, args, cwd, env);
-  }
+  const runEntry: RunEntry = (args, cwd, env) => {
+    return runStandalone("node", [installedLauncher, ...args], cwd, env);
+  };
   const launched = await runEntry(["--version", "--json"], installRoot, environment);
   if (launched.exitCode !== 0 || launched.stderr !== "") {
     throw new Error(
@@ -225,6 +210,12 @@ export async function smokeWindowsNpmPackage(
       + render.stderr.trim()
     );
   }
+  await smokePowerShellUpgradeFallback(
+    runEntry,
+    installedExecutable,
+    installRoot,
+    environment
+  );
   if (process.env[DEFAULT_STATE_SMOKE_VARIABLE] === "1") {
     await smokeDefaultWindowsStateRoot(runEntry, installRoot, environment);
   }
@@ -233,27 +224,32 @@ export async function smokeWindowsNpmPackage(
     .digest("hex");
 }
 
-/**
- * The installed launcher must name the hold and the source route, on a real
- * Windows install of the real tarballs. Reporting an unsupported platform here
- * would send a user looking for support that is already built and verified.
- */
-async function smokeHeldLauncherRefusal(
-  installedLauncher: string,
-  installRoot: string,
+async function smokePowerShellUpgradeFallback(
+  runEntry: RunEntry,
+  installedExecutable: string,
+  cwd: string,
   environment: Record<string, string>
 ): Promise<void> {
-  const refused = await runStandalone(
-    "node",
-    [installedLauncher, "--version", "--json"],
-    installRoot,
-    environment
-  );
-  const expected = `1667: ${heldTargetRefusal(WINDOWS_TARGET)}\n`;
-  if (refused.exitCode !== 1 || refused.stdout !== "" || refused.stderr !== expected) {
+  const executable = await realpath(installedExecutable);
+  const managedRoot = path.dirname(executable);
+  await writeJson(path.join(managedRoot, INSTALL_OWNERSHIP_FILE), {
+    schemaVersion: 1,
+    product: "1667",
+    installationId: "0".repeat(32),
+    method: "powershell",
+    channel: "stable",
+    installRoot: managedRoot,
+    executable,
+    artifactTarget: WINDOWS_TARGET.artifactTarget
+  });
+  const rollback = await runEntry(["upgrade", "--rollback", "--json"], cwd, environment);
+  const output = `${rollback.stdout}${rollback.stderr}`;
+  if (rollback.exitCode !== 1
+    || !output.includes('"method":"powershell"')
+    || !output.includes('"code":"unsupported_target"')
+    || !output.includes("https://1667.ai/install.ps1")) {
     throw new Error(
-      `Windows npm launcher did not refuse the held target (${refused.exitCode}): `
-        + refused.stderr.trim()
+      `Windows upgrade fallback smoke failed (${rollback.exitCode}): ${output.trim()}`
     );
   }
 }
