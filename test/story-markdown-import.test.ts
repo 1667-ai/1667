@@ -18,6 +18,7 @@ import {
 } from "../shared/import-markdown-wire.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { testApp } from "./story-server-fixture.js";
+import { parseWorkerMutation } from "../server/worker-mutations.js";
 
 const execFileAsync = promisify(execFile);
 const linuxTest = process.platform === "linux" ? test : test.skip;
@@ -299,6 +300,32 @@ test("export codec preserves multiline titles and chapters after an unterminated
   const edited = await service.importMarkdown(editedMarkdown);
   assert.equal(edited.title, "Edited title");
   assert.equal(edited.chapterBreaks[0]?.title, "Edited chapter");
+});
+
+test("export codec does not accumulate final newlines inside an open fence", async (t) => {
+  const service = await openService(t);
+  const created = await service.createStory("Open fence");
+  const text = String.fromCharCode(96).repeat(3) + "markdown\nfinal line";
+  await service.createNode(created.id, {
+    parentId: null,
+    instruction: "",
+    text
+  });
+
+  const exported = await service.exportStory(created.id);
+  const reimported = await service.importMarkdown(exported.markdown);
+  assert.equal(reimported.path[0]?.text, text);
+  assert.equal((await service.exportStory(reimported.id)).markdown, exported.markdown);
+});
+
+test("worker Markdown parser rejects a malformed optional title", () => {
+  assert.throws(
+    () => parseWorkerMutation("importMarkdown", {
+      markdown: "Prose.",
+      defaultTitle: 123
+    }),
+    (error: unknown) => isServiceError(error, 400, "defaultTitle must be a string")
+  );
 });
 
 test("storyFromImport generates deterministic chapter break IDs when supplied", () => {

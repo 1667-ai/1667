@@ -259,6 +259,25 @@ describe("embedded backend worker", () => {
       expect(normalizedImport.title).toBe("Café");
       expect(normalizedImport.path[0]?.text).toBe("Résumé.");
       expect((await api.deleteStory(normalizedImport.id)).ok).toBeTrue();
+      let losslessSource = await api.createStory("Decomposed prose");
+      losslessSource = await api.createNode(losslessSource.id, {
+        parentId: null,
+        instruction: "",
+        text: "x".repeat(120) + "\n\nCafe\u0301"
+      });
+      const losslessImport = await api.importMarkdown(
+        await api.exportMarkdown(losslessSource.id)
+      );
+      expect(losslessImport.path.map((node) => node.text)).toEqual([
+        "x".repeat(120),
+        "Cafe\u0301"
+      ]);
+      const decomposedNode = losslessImport.nodes.find(
+        (node) => node.id === losslessImport.path[1]?.id
+      );
+      expect(decomposedNode?.preview).toBe("Café");
+      expect((await api.deleteStory(losslessSource.id)).ok).toBeTrue();
+      expect((await api.deleteStory(losslessImport.id)).ok).toBeTrue();
       expect((await api.deleteStory(story.id)).ok).toBeTrue();
 
       expect(await rejection(api.loadStory("missing-story"))).toMatchObject({

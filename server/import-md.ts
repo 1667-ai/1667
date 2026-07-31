@@ -229,7 +229,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   if (awaitingGeneratedChapterHeading) {
     throw new ServiceError(400, "1667 Markdown chapter marker is missing its heading");
   }
-  flushParagraph();
+  flushParagraph(exportCodec && fence !== null);
 
   if (pendingChapterTitle !== null && parts.length > 0) {
     const prevIndex = parts.length - 1;

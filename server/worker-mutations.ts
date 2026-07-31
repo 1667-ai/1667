@@ -540,7 +540,9 @@ const MUTATIONS: MutationRegistry = {
     parse: (value) => {
       const record = requireRecord(value, "importMarkdown input");
       const markdown = requireString(record.markdown, "markdown");
-      const defaultTitle = typeof record.defaultTitle === "string" ? record.defaultTitle : undefined;
+      const defaultTitle = record.defaultTitle === undefined
+        ? undefined
+        : requireStringValue(record.defaultTitle, "defaultTitle");
       return { markdown, ...(defaultTitle !== undefined ? { defaultTitle } : {}) };
     },
     storyId: (_input, plan) => plan.entityId("story"),
