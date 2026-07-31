@@ -11,6 +11,7 @@ import { canonicalJson } from "../server/canonical-json.js";
 import {
   collectReleaseEvidence,
   collectReleaseTagAuthorization,
+  defaultSignatureVerifiers,
   type ReleaseEvidenceRequest
 } from "../scripts/release-evidence.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
@@ -482,5 +483,30 @@ test("the evidence collector reads no file", () => {
       false,
       `scripts/release-evidence.ts must learn nothing from ${reader}; ask Git instead`
     );
+  }
+});
+
+// The release build job runs on every published target, windows-x64 included.
+// Windows resolves a leading-slash path against the current drive rather than
+// against Git Bash's tree, so the POSIX pair names nothing there and the
+// Windows leg would refuse before it built anything.
+test("the default signature verifier is absolute on every release host", () => {
+  for (const candidate of defaultSignatureVerifiers("linux", {})) {
+    assert.match(candidate, /^\/(?:usr\/)?bin\/ssh-keygen$/u);
+  }
+  const windows = defaultSignatureVerifiers("win32", {
+    SystemRoot: "C:\\Windows",
+    ProgramFiles: "C:\\Program Files"
+  });
+  assert.deepEqual(windows, [
+    "C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh-keygen.exe"
+  ]);
+  for (const candidate of windows) {
+    assert.match(candidate, /^[A-Za-z]:\\/u);
+  }
+  // A runner that relocates Windows must not fall back to a relative path.
+  for (const candidate of defaultSignatureVerifiers("win32", {})) {
+    assert.match(candidate, /^[A-Za-z]:\\/u);
   }
 });

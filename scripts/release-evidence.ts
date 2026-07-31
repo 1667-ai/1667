@@ -53,10 +53,29 @@ export const DEFAULT_PROTECTED_REF = "refs/remotes/origin/main";
  * Git and then by this module, so the one program whose verdict is trusted here
  * is named by absolute path or the release is refused.
  */
-export const DEFAULT_SIGNATURE_VERIFIERS: readonly string[] = Object.freeze([
-  "/usr/bin/ssh-keygen",
-  "/bin/ssh-keygen"
-]);
+export const DEFAULT_SIGNATURE_VERIFIERS: readonly string[] =
+  Object.freeze(defaultSignatureVerifiers(process.platform, process.env));
+
+/**
+ * The absolute paths this module will accept without `--ssh-keygen`. Windows
+ * resolves a leading-slash path against the current drive rather than against
+ * Git Bash's tree, so the POSIX pair names nothing there and every Windows
+ * release leg would refuse before it built. Windows ships OpenSSH under
+ * System32, and Git for Windows carries its own copy; both are absolute, which
+ * is the property the comment above requires.
+ */
+export function defaultSignatureVerifiers(
+  platform: string,
+  environment: NodeJS.ProcessEnv
+): readonly string[] {
+  if (platform !== "win32") return ["/usr/bin/ssh-keygen", "/bin/ssh-keygen"];
+  const systemRoot = environment.SystemRoot ?? "C:\\Windows";
+  const programFiles = environment.ProgramFiles ?? "C:\\Program Files";
+  return [
+    `${systemRoot}\\System32\\OpenSSH\\ssh-keygen.exe`,
+    `${programFiles}\\Git\\usr\\bin\\ssh-keygen.exe`
+  ];
+}
 
 const GIT_REF_NAME = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}$/;
 const REPOSITORY_PATH = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}$/;
