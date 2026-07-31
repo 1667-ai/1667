@@ -4,7 +4,7 @@
 
 **A full-screen terminal environment for fiction writing with language models.**
 
-[![npm pre-release](https://img.shields.io/npm/v/%401667-ai%2Fcli/next?label=npm%20next)](https://www.npmjs.com/package/@1667-ai/cli)
+[![npm](https://img.shields.io/npm/v/%401667-ai%2Fcli/latest?label=npm)](https://www.npmjs.com/package/@1667-ai/cli)
 [![CI and standalone builds](https://github.com/1667-ai/1667/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/1667-ai/1667/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -16,8 +16,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 
 [![The 1667 starter onboarding story](docs/assets/starter-onboarding.png)](https://1667.ai)
 
-Build and run 1667 from source. You can also build a local standalone
-executable.
+Install 1667 with the Shell Installer, npm, or source.
 
 ## Features
 
@@ -34,21 +33,27 @@ executable.
 
 ## Install
 
-1667 is a pre-release. The Shell Installer is not available yet. The homepage
-publishes `install.sh` only after a release passes the Managed Installation
-gate.
-
-Install the npm pre-release globally:
+Install with the Shell Installer:
 
 ```sh
-npm install --global @1667-ai/cli@next
+curl -fsSL https://1667.ai/install.sh | sh
 ```
 
-Or run the npm pre-release without a global installation:
+The Shell Installer verifies the downloaded archive checksum. It supports
+macOS arm64, macOS x64, Linux arm64, and Linux x64. Run `1667 upgrade` to
+install a later managed release.
+
+Install with npm:
 
 ```sh
-npx --yes @1667-ai/cli@next
+npm install --global @1667-ai/cli@latest
 ```
+
+npm manages this installation. Use npm to install a later release.
+
+Install from source with the
+[source installation procedure](docs/run-from-source.md).
+Git manages this installation.
 
 ## Keyboard orientation
 
