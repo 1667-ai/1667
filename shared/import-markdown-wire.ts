@@ -1,4 +1,8 @@
-import { sliceUnicodeScalarPrefix, unicodeScalarLength } from "./unicode.js";
+import {
+  hasUnpairedSurrogate,
+  sliceUnicodeScalarPrefix,
+  unicodeScalarLength
+} from "./unicode.js";
 import { MAX_IMPORT_BYTES, MAX_STORED_TITLE_CHARS } from "./types.js";
 
 const MAX_TITLE_UTF8_BYTES = MAX_STORED_TITLE_CHARS * 4;
@@ -14,6 +18,7 @@ export interface MarkdownHttpBody {
 }
 
 export function normalizeMarkdownDefaultTitle(title: string): string {
+  if (hasUnpairedSurrogate(title)) throw new Error("Markdown default title contains invalid Unicode");
   return sliceUnicodeScalarPrefix(title, MAX_STORED_TITLE_CHARS);
 }
 
@@ -21,6 +26,7 @@ export function encodeMarkdownHttpBody(
   markdown: string,
   defaultTitle?: string
 ): string {
+  if (hasUnpairedSurrogate(markdown)) throw new Error("Markdown contains invalid Unicode");
   const boundedTitle = defaultTitle === undefined
     ? ""
     : normalizeMarkdownDefaultTitle(defaultTitle);

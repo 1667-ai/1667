@@ -99,10 +99,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     paragraphStart = -1;
     paragraphEnd = -1;
     paragraphNormalizedChars = 0;
-    const decodedText = exportCodec
-      ? unescapeStoryMarkdownProse(rawText)
-      : rawText.replace(/\r\n?|\n/g, "\n");
-    const text = normalizeImportedText(decodedText);
+    const text = exportCodec
+      ? requireWellFormedImportedText(unescapeStoryMarkdownProse(rawText))
+      : normalizeImportedText(rawText.replace(/\r\n?|\n/g, "\n"));
     if (text.length === 0) return;
 
     remainingChars -= text.length;
@@ -293,10 +292,14 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   }
 
   function normalizeImportedText(value: string): string {
+    return requireWellFormedImportedText(value).normalize("NFC");
+  }
+
+  function requireWellFormedImportedText(value: string): string {
     if (hasUnpairedSurrogate(value)) {
       throw new ServiceError(400, "Markdown contains an unpaired Unicode surrogate");
     }
-    return value.normalize("NFC");
+    return value;
   }
 }
 

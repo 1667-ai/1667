@@ -121,6 +121,11 @@ test("Markdown HTTP framing preserves the scalar title bound", () => {
     () => decodeMarkdownHttpBody(`${oversizedTitle}\nprose`),
     /metadata is invalid/u
   );
+  assert.throws(() => encodeMarkdownHttpBody("\uD800"), /invalid Unicode/u);
+  assert.throws(
+    () => encodeMarkdownHttpBody("prose", "\uD800"),
+    /invalid Unicode/u
+  );
 });
 
 test("markdown recognizes only CommonMark H2 markers and preserves ##literal prose", () => {
@@ -258,6 +263,8 @@ test("export codec preserves multiline titles and chapters after an unterminated
       "```markdown",
       "<!-- 1667:chapter:v1 -->",
       "<!--\u200B 1667:chapter:v1 -->",
+      "x".repeat(120),
+      "Cafe\u0301",
       "unterminated fence"
     ].join("\n")
   });
@@ -277,6 +284,8 @@ test("export codec preserves multiline titles and chapters after an unterminated
       "```markdown",
       "<!-- 1667:chapter:v1 -->",
       "<!--\u200B 1667:chapter:v1 -->",
+      "x".repeat(120),
+      "Cafe\u0301",
       "unterminated fence"
     ].join("\n"),
     "Still\r\na separate part."
