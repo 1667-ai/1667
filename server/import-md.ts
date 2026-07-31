@@ -28,6 +28,11 @@ interface LineInfo {
   end: number;
 }
 
+interface MarkdownFence {
+  marker: "`" | "~";
+  length: number;
+}
+
 // Imported nodes have fixed identifiers and timestamps plus at most a 100-character
 // preview in the manifest. These deliberately conservative reserves keep the exact
 // V6 manifest below its hard limit even when every JSON string needs escaping.
@@ -72,11 +77,11 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
 
   const flushParagraph = () => {
     if (paragraphStart === -1) return;
-    const rawText = textWithoutComments.slice(paragraphStart, paragraphEnd);
+    const rawText = markdown.slice(paragraphStart, paragraphEnd);
     paragraphStart = -1;
     paragraphEnd = -1;
     paragraphNormalizedChars = 0;
-    const text = rawText.replace(/\r\n/g, "\n").trim();
+    const text = rawText.replace(/\r\n/g, "\n");
     if (text.length === 0) return;
 
     remainingChars -= text.length;
@@ -108,28 +113,41 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   };
 
   let beforeProse = true;
-  const textWithoutComments = markdown.replace(/<!--[\s\S]*?-->/g, "");
-  for (const { line, start, end } of iterateLineInfos(textWithoutComments)) {
+  let fence: MarkdownFence | null = null;
+  for (const { line, start, end } of iterateLineInfos(markdown)) {
     const trimmed = line.trim();
 
     if (beforeProse && trimmed.length === 0) continue;
     if (beforeProse) {
-      beforeProse = false;
-      if (trimmed.startsWith("# ")) {
-        const candidateTitle = trimmed.slice(2).trim();
+      const candidateTitle = atxHeadingTitle(line, 1);
+      if (!titleFound && candidateTitle !== null) {
         if (candidateTitle.length > 0) {
           title = sliceWellFormedUtf16Prefix(candidateTitle, MAX_STORY_TITLE_CHARS);
           titleFound = true;
         }
         continue;
       }
+      if (titleFound && isGeneratedDerivedComment(line)) continue;
+      beforeProse = false;
     }
 
-    const chapterHeading = /^##(?:[ \t]+(.*))?$/.exec(trimmed);
+    if (fence !== null) {
+      appendParagraphLine(line, start, end);
+      if (isClosingFence(line, fence)) fence = null;
+      continue;
+    }
+
+    const openingFence = markdownFence(line);
+    if (openingFence !== null) {
+      appendParagraphLine(line, start, end);
+      fence = openingFence;
+      continue;
+    }
+
+    const chapterHeading = atxHeadingTitle(line, 2);
     if (chapterHeading !== null) {
       flushParagraph();
-      const headingTitle = (chapterHeading[1] ?? "").trim();
-      pendingChapterTitle = sliceWellFormedUtf16Prefix(headingTitle, MAX_STORY_TITLE_CHARS);
+      pendingChapterTitle = sliceWellFormedUtf16Prefix(chapterHeading, MAX_STORY_TITLE_CHARS);
       continue;
     }
 
@@ -138,18 +156,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       continue;
     }
 
-    if (paragraphStart === -1) {
-      paragraphStart = start;
-      paragraphNormalizedChars = line.trimStart().length;
-    } else {
-      paragraphNormalizedChars += 1 + line.length;
-    }
-    paragraphEnd = end;
-    const charsAfterFinalTrim = paragraphNormalizedChars
-      - (line.length - line.trimEnd().length);
-    if (charsAfterFinalTrim > remainingChars) {
-      throw new ServiceError(400, "Markdown expands to more text than can be imported");
-    }
+    appendParagraphLine(line, start, end);
   }
 
   flushParagraph();
@@ -175,6 +182,68 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     parts,
     chapterBreaks
   };
+
+  function appendParagraphLine(line: string, start: number, end: number): void {
+    if (paragraphStart === -1) {
+      paragraphStart = start;
+      paragraphNormalizedChars = line.length;
+    } else {
+      paragraphNormalizedChars += 1 + line.length;
+    }
+    paragraphEnd = end;
+    if (paragraphNormalizedChars > remainingChars) {
+      throw new ServiceError(400, "Markdown expands to more text than can be imported");
+    }
+  }
+}
+
+function atxHeadingTitle(line: string, level: 1 | 2): string | null {
+  let cursor = 0;
+  while (cursor < line.length && line[cursor] === " " && cursor < 4) cursor += 1;
+  if (cursor > 3) return null;
+  for (let index = 0; index < level; index += 1) {
+    if (line[cursor + index] !== "#") return null;
+  }
+  cursor += level;
+  if (line[cursor] === "#") return null;
+  if (cursor === line.length) return "";
+  if (line[cursor] !== " " && line[cursor] !== "\t") return null;
+  return line.slice(cursor + 1).trim();
+}
+
+function markdownFence(line: string): MarkdownFence | null {
+  let cursor = 0;
+  while (cursor < line.length && line[cursor] === " " && cursor < 4) cursor += 1;
+  if (cursor > 3) return null;
+  const marker = line[cursor];
+  if (marker !== "`" && marker !== "~") return null;
+  let end = cursor;
+  while (line[end] === marker) end += 1;
+  if (end - cursor < 3) return null;
+  if (marker === "`" && line.slice(end).includes("`")) return null;
+  return { marker, length: end - cursor };
+}
+
+function isClosingFence(line: string, fence: MarkdownFence): boolean {
+  let cursor = 0;
+  while (cursor < line.length && line[cursor] === " " && cursor < 4) cursor += 1;
+  if (cursor > 3 || line[cursor] !== fence.marker) return false;
+  let end = cursor;
+  while (line[end] === fence.marker) end += 1;
+  return end - cursor >= fence.length && line.slice(end).trim().length === 0;
+}
+
+function isGeneratedDerivedComment(line: string): boolean {
+  const prefix = "<!-- derived from \"";
+  const storySeparator = "\" (story ";
+  const nodeSeparator = ", node ";
+  const suffix = ") -->";
+  if (!line.startsWith(prefix) || !line.endsWith(suffix)) return false;
+  const storyAt = line.lastIndexOf(storySeparator);
+  const nodeAt = line.lastIndexOf(nodeSeparator);
+  return storyAt >= prefix.length
+    && nodeAt > storyAt + storySeparator.length
+    && nodeAt + nodeSeparator.length < line.length - suffix.length;
 }
 
 /** Iterate a bounded input yielding line content and character offsets. */

@@ -7,6 +7,7 @@ import type { StoryAggregateVersion } from "../../shared/story-aggregate-version
 import type { ProviderRecoveryContext } from "../../shared/provider-recovery.js";
 import { textHash, type StoryApi } from "./api.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
+import { normalizeMarkdownDefaultTitle } from "../../shared/import-markdown-wire.js";
 
 export interface StoryWorkerTransport {
   call<M extends WorkerMethod>(
@@ -318,7 +319,12 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     )),
     importMarkdown: async (markdown, defaultTitle) => rememberPayload(await transport.call(
       "importMarkdown",
-      { markdown, ...(defaultTitle !== undefined ? { defaultTitle } : {}) },
+      {
+        markdown,
+        ...(defaultTitle !== undefined
+          ? { defaultTitle: normalizeMarkdownDefaultTitle(defaultTitle) }
+          : {})
+      },
       { expectedAggregateVersion: { kind: "absent" } }
     )),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {

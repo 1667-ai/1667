@@ -35,7 +35,7 @@ function isErrorWithMessage(error: unknown, messageSub: string): boolean {
 test("partsFromMarkdown parses title, prose paragraphs, and ## chapter breaks", () => {
   const markdown = `# The Great Adventure
 
-<!-- header comment -->
+<!-- derived from "Source" (story source-id, node node-id) -->
 
 First paragraph of opening chapter.
 
@@ -109,6 +109,43 @@ test("markdown recognizes only CommonMark H2 markers and preserves ##literal pro
   assert.equal(parsed.chapterBreaks[0]?.title, "Chapter");
 });
 
+test("markdown preserves prose comments and ignores only generated origin metadata", () => {
+  const parsed = partsFromMarkdown([
+    "# Title",
+    "",
+    "<!-- derived from \"Source\" (story source-id, node node-id @ 4) -->",
+    "",
+    "Before <!-- keep --> after"
+  ].join("\n"));
+  assert.equal(parsed.parts[0]?.text, "Before <!-- keep --> after");
+});
+
+test("markdown keeps indented and fenced heading markers as prose", () => {
+  const parsed = partsFromMarkdown([
+    "# Title",
+    "",
+    "    ## indented literal",
+    "",
+    "```markdown",
+    "## fenced literal",
+    "```",
+    "",
+    "## Real chapter",
+    "",
+    "Next part."
+  ].join("\n"));
+  assert.equal(parsed.parts[0]?.text, "    ## indented literal");
+  assert.equal(parsed.parts[1]?.text, "```markdown\n## fenced literal\n```");
+  assert.equal(parsed.parts[2]?.text, "Next part.");
+  assert.equal(parsed.chapterBreaks[0]?.title, "Real chapter");
+});
+
+test("markdown comment scanning remains linear for unterminated openers", () => {
+  const prose = "<!--".repeat(100_000);
+  const parsed = partsFromMarkdown(`# Title\n\n${prose}`);
+  assert.equal(parsed.parts[0]?.text, prose);
+});
+
 test("markdown manifest admission charges chapter titles and structural metadata", () => {
   const chapterTitle = "x".repeat(2_000);
   const markdown = [
@@ -137,7 +174,12 @@ test("export and reimport round-trip preserves story structure and re-exported m
   const secondNode = await service.createNode(created.id, {
     parentId: firstPart.id,
     instruction: "",
-    text: "The second part of chapter 1."
+    text: [
+      "The second part of chapter 1. Before <!-- keep --> after.",
+      "```markdown",
+      "## fenced literal",
+      "```"
+    ].join("\n")
   });
   const secondPart = secondNode.nodes.find((node) => node.parentId === firstPart.id)!;
 

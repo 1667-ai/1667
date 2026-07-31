@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_IMPORT_BYTES } from "../../shared/types.js";
+import { MAX_IMPORT_BYTES, MAX_STORED_TITLE_CHARS } from "../../shared/types.js";
 import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
@@ -247,6 +247,12 @@ describe("embedded backend worker", () => {
       expect(importedMarkdown.chapterBreaks[0]?.parentPartId)
         .toBe(importedMarkdown.path[0]?.id);
       expect((await api.deleteStory(importedMarkdown.id)).ok).toBeTrue();
+      const boundedTitleImport = await api.importMarkdown(
+        "Bounded title prose.",
+        "t".repeat(MAX_STORED_TITLE_CHARS + 100)
+      );
+      expect(boundedTitleImport.title).toHaveLength(MAX_STORED_TITLE_CHARS);
+      expect((await api.deleteStory(boundedTitleImport.id)).ok).toBeTrue();
       expect((await api.deleteStory(story.id)).ok).toBeTrue();
 
       expect(await rejection(api.loadStory("missing-story"))).toMatchObject({

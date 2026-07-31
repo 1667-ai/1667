@@ -13,13 +13,17 @@ export interface MarkdownHttpBody {
   readonly defaultTitle?: string;
 }
 
+export function normalizeMarkdownDefaultTitle(title: string): string {
+  return sliceWellFormedUtf16Prefix(title, MAX_STORED_TITLE_CHARS);
+}
+
 export function encodeMarkdownHttpBody(
   markdown: string,
   defaultTitle?: string
 ): string {
   const boundedTitle = defaultTitle === undefined
     ? ""
-    : sliceWellFormedUtf16Prefix(defaultTitle, MAX_STORED_TITLE_CHARS);
+    : normalizeMarkdownDefaultTitle(defaultTitle);
   const encodedTitle = Buffer.from(boundedTitle, "utf8").toString("base64url");
   return `${encodedTitle}\n${markdown}`;
 }
