@@ -93,10 +93,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     paragraphStart = -1;
     paragraphEnd = -1;
     paragraphNormalizedChars = 0;
-    const normalizedText = rawText.replace(/\r\n?|\n/g, "\n");
     const text = exportCodec
-      ? unescapeStoryMarkdownProse(normalizedText)
-      : normalizedText;
+      ? unescapeStoryMarkdownProse(rawText)
+      : rawText.replace(/\r\n?|\n/g, "\n");
     if (text.length === 0) return;
 
     remainingChars -= text.length;
@@ -132,6 +131,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
   let exportCodec = false;
   let awaitingGeneratedChapterHeading = false;
   let generatedChapterTitle: string | null = null;
+  let generatedChapterDisplay: string | null = null;
   for (const { line, start, end } of iterateLineInfos(markdown)) {
     const trimmed = line.trim();
 
@@ -152,7 +152,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       if (titleFound && exportCodec) {
         const exactTitle = decodeStoryTitleMarker(line);
         if (exactTitle !== undefined) {
-          title = exactTitle;
+          if (title === exactTitle.display) title = exactTitle.title;
           continue;
         }
       }
@@ -168,6 +168,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
         flushParagraph(true);
         fence = null;
         generatedChapterTitle = generatedChapter.title;
+        generatedChapterDisplay = generatedChapter.display;
         awaitingGeneratedChapterHeading = true;
         continue;
       }
@@ -178,8 +179,11 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
           throw new ServiceError(400, "1667 Markdown chapter marker is missing its heading");
         }
         pendingChapterTitle = generatedChapterTitle
-          ?? sliceUnicodeScalarPrefix(visibleTitle, MAX_STORY_TITLE_CHARS);
+          !== null && generatedChapterDisplay === visibleTitle
+          ? generatedChapterTitle
+          : sliceUnicodeScalarPrefix(visibleTitle, MAX_STORY_TITLE_CHARS);
         generatedChapterTitle = null;
+        generatedChapterDisplay = null;
         awaitingGeneratedChapterHeading = false;
         continue;
       }
@@ -242,7 +246,7 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
       paragraphStart = start;
       paragraphNormalizedChars = line.length;
     } else {
-      paragraphNormalizedChars += 1 + line.length;
+      paragraphNormalizedChars += start - paragraphEnd + line.length;
     }
     paragraphEnd = end;
     if (paragraphNormalizedChars > remainingChars) {
@@ -250,7 +254,9 @@ export function partsFromMarkdown(markdown: string, defaultTitle?: string): Mark
     }
   }
 
-  function decodeStoryTitleMarker(line: string): string | undefined {
+  function decodeStoryTitleMarker(
+    line: string
+  ): ReturnType<typeof decodeMarkdownStoryTitleMarker> {
     try {
       return decodeMarkdownStoryTitleMarker(line);
     } catch (error) {

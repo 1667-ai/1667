@@ -258,7 +258,7 @@ test("export codec preserves multiline titles and chapters after an unterminated
   await service.createNode(created.id, {
     parentId: firstPart.id,
     instruction: "",
-    text: "Still a separate part."
+    text: "Still\r\na separate part."
   });
 
   const exported = await service.exportStory(created.id);
@@ -271,10 +271,17 @@ test("export codec preserves multiline titles and chapters after an unterminated
       "<!--\u200B 1667:chapter:v1 -->",
       "unterminated fence"
     ].join("\n"),
-    "Still a separate part."
+    "Still\r\na separate part."
   ]);
   assert.equal(reimported.chapterBreaks[0]?.title, "Chapter\n\nTwo");
   assert.equal((await service.exportStory(reimported.id)).markdown, exported.markdown);
+
+  const editedMarkdown = exported.markdown
+    .replace(/^# .*$/mu, "# Edited title")
+    .replace(/^## .*$/mu, "## Edited chapter");
+  const edited = await service.importMarkdown(editedMarkdown);
+  assert.equal(edited.title, "Edited title");
+  assert.equal(edited.chapterBreaks[0]?.title, "Edited chapter");
 });
 
 test("storyFromImport generates deterministic chapter break IDs when supplied", () => {

@@ -11,6 +11,12 @@ const MAX_TITLE_UTF8_BYTES = MAX_STORED_TITLE_CHARS * 4;
 export interface MarkdownChapterMarker {
   /** Null means the following visible H2 owns the exact title. */
   readonly title: string | null;
+  readonly display: string | null;
+}
+
+export interface MarkdownStoryTitleMarker {
+  readonly title: string;
+  readonly display: string;
 }
 
 export function markdownDisplayTitle(title: string, fallback: string): string {
@@ -19,13 +25,15 @@ export function markdownDisplayTitle(title: string, fallback: string): string {
 }
 
 export function markdownStoryTitleMarker(title: string, display: string): string | null {
-  return title === display ? null : `${STORY_TITLE_PREFIX}${encodeTitle(title)}${MARKER_SUFFIX}`;
+  return title === display
+    ? null
+    : `${STORY_TITLE_PREFIX}${encodeTitle(display)}.${encodeTitle(title)}${MARKER_SUFFIX}`;
 }
 
 export function markdownChapterMarker(title: string, display: string): string {
   return title === display
     ? `${CHAPTER_PREFIX}${MARKER_SUFFIX}`
-    : `${CHAPTER_PREFIX}:${encodeTitle(title)}${MARKER_SUFFIX}`;
+    : `${CHAPTER_PREFIX}:${encodeTitle(display)}.${encodeTitle(title)}${MARKER_SUFFIX}`;
 }
 
 /** Escape the reserved namespace bijectively; existing zero-width escapes are doubled. */
@@ -43,19 +51,33 @@ export function unescapeStoryMarkdownProse(prose: string): string {
   );
 }
 
-export function decodeMarkdownStoryTitleMarker(line: string): string | undefined {
+export function decodeMarkdownStoryTitleMarker(
+  line: string
+): MarkdownStoryTitleMarker | undefined {
   if (!line.startsWith(STORY_TITLE_PREFIX) || !line.endsWith(MARKER_SUFFIX)) return undefined;
-  return decodeTitle(line.slice(STORY_TITLE_PREFIX.length, -MARKER_SUFFIX.length));
+  const fields = encodedTitlePair(
+    line.slice(STORY_TITLE_PREFIX.length, -MARKER_SUFFIX.length)
+  );
+  return { display: decodeTitle(fields.display), title: decodeTitle(fields.title) };
 }
 
 export function decodeMarkdownChapterMarker(line: string): MarkdownChapterMarker | undefined {
   const plain = `${CHAPTER_PREFIX}${MARKER_SUFFIX}`;
-  if (line === plain) return { title: null };
+  if (line === plain) return { display: null, title: null };
   const encodedPrefix = `${CHAPTER_PREFIX}:`;
   if (!line.startsWith(encodedPrefix) || !line.endsWith(MARKER_SUFFIX)) return undefined;
-  return {
-    title: decodeTitle(line.slice(encodedPrefix.length, -MARKER_SUFFIX.length))
-  };
+  const fields = encodedTitlePair(
+    line.slice(encodedPrefix.length, -MARKER_SUFFIX.length)
+  );
+  return { display: decodeTitle(fields.display), title: decodeTitle(fields.title) };
+}
+
+function encodedTitlePair(value: string): { display: string; title: string } {
+  const separator = value.indexOf(".");
+  if (separator < 0 || value.indexOf(".", separator + 1) >= 0) {
+    throw new Error("invalid 1667 Markdown title marker");
+  }
+  return { display: value.slice(0, separator), title: value.slice(separator + 1) };
 }
 
 function encodeTitle(title: string): string {
