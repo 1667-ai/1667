@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { MAX_IMPORT_BYTES } from "../../shared/types.js";
 import {
   resolveProject,
@@ -86,16 +86,7 @@ export async function runStoryImport(
   try {
     for (const file of command.files) {
       try {
-        const { size } = await stat(file);
-        if (size > MAX_IMPORT_BYTES) {
-          throw new Error(
-            `file is ${Math.round(size / 1e6)}MB — larger than the `
-              + `${MAX_IMPORT_BYTES / 1e6}MB import limit`
-          );
-        }
-        const payload = await backend.api.importSillyTavern(
-          await readFile(file, "utf8")
-        );
+        const payload = await backend.api.importSillyTavern(await boundedRead(file));
         output.write(
           `${plain(file)}: imported "${plain(payload.title)}" `
             + `(${payload.path.length} parts) as ${payload.id}\n`
@@ -109,6 +100,38 @@ export async function runStoryImport(
     await backend.dispose();
   }
   if (failed) throw new Error("import did not read every file");
+}
+
+/** Read one regular file, and stop at the limit rather than after it.
+ *
+ * Checking a size and then reading is two answers to one question: the file can
+ * grow or be replaced in between. A FIFO or a pseudo-file reports no size at
+ * all and then produces bytes without end. So the handle that is measured is
+ * the handle that is read, it must be a regular file, and the read stops the
+ * moment it crosses the limit instead of buffering everything first. */
+async function boundedRead(file: string): Promise<string> {
+  const handle = await open(file, "r");
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error("not a regular file");
+    if (info.size > MAX_IMPORT_BYTES) throw new Error(overLimit(info.size));
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    for await (const chunk of handle.createReadStream()) {
+      const part = chunk as Buffer;
+      bytes += part.byteLength;
+      if (bytes > MAX_IMPORT_BYTES) throw new Error(overLimit(bytes));
+      chunks.push(part);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+function overLimit(bytes: number): string {
+  return `file is ${Math.round(bytes / 1e6)}MB — larger than the `
+    + `${MAX_IMPORT_BYTES / 1e6}MB import limit`;
 }
 
 function isImportSource(value: string): value is ImportSource {

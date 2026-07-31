@@ -92,8 +92,14 @@ export function renderSettingsPanel(
     const noticeCapacity = contentCapacity;
     for (const block of noticeBlocks) {
       if (block.length === 0) continue;
-      if (notices.length + block.length > noticeCapacity) break;
-      notices.push(...block);
+      const room = noticeCapacity - notices.length;
+      if (room <= 0) break;
+      // A notice taller than the panel keeps the rows that fit rather than
+      // vanishing. A wrapped provider error is several rows now, so dropping
+      // the block whole would show no error at all on a short terminal —
+      // and no error reads as no problem.
+      notices.push(...block.slice(0, room));
+      if (block.length > room) break;
     }
     // Complete notices outrank fields in a short panel. A selected row can
     // disappear temporarily; an error must not lose its final wrapped rows.

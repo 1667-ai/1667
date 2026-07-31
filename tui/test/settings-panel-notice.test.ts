@@ -37,20 +37,31 @@ function dense(text: string): string {
   return withoutFrame(text).replace(/\s+/gu, "");
 }
 
-function panelText(message: string): string {
+test("a short panel keeps what fits of a notice rather than dropping it", () => {
+  // The provider's reason is several rows now. On a terminal too short to
+  // hold them, showing nothing would read as no error at all.
+  const text = sentence(panelText(
+    "Server is reachable, but the model list is unavailable.",
+    10
+  ));
+
+  expect(text).toContain("Server is reachable");
+});
+
+function panelText(message: string, height = 36): string {
   const source = demoAppSource();
   const state = initialState(source, false);
   state.mode = "SETTINGS";
   state.settings = initialSettingsOverlay(source.settingsView, state.config);
   state.settings.result = { state: "warning", message };
-  const hitRows: HitRows = Array.from({ length: 36 }, () => null);
-  const base: never[][] = Array.from({ length: 36 }, () => []);
+  const hitRows: HitRows = Array.from({ length: height }, () => null);
+  const base: never[][] = Array.from({ length: height }, () => []);
   return frameText(renderPanels(
     base,
     state,
     hitRows,
     120,
-    36,
+    height,
     nextRequestEstimate(state.payload, nextRequestContext(state))
   ).lines);
 }
