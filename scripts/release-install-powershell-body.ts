@@ -70,6 +70,7 @@ $MaxArchiveBytes = ${MAX_RELEASE_ARTIFACT_GZIP_BYTES}
 $MaxExecutableBytes = ${MAX_RELEASE_EXECUTABLE_BYTES}
 $ConnectTimeoutMs = ${CONNECT_TIMEOUT}
 $ReadTimeoutMs = ${READ_TIMEOUT}
+$ReadSliceMs = ${CONNECT_TIMEOUT}
 $ExpectedArchiveEntries = @(
 ${entries}
 )
@@ -84,10 +85,21 @@ function Resolve-InstallRoot([string]$Requested) {
     if ([string]::IsNullOrWhiteSpace($local)) { Fail 'Windows LocalAppData is unavailable.' }
     $Requested = [IO.Path]::Combine($local, 'Programs', '1667', 'bin')
   }
-  if (-not [IO.Path]::IsPathRooted($Requested) -or $Requested.StartsWith('\\')) {
-    Fail 'Install Root must be an absolute local path.'
+  # Require a drive and a separator in the request itself. IsPathRooted accepts
+  # the drive-relative 'C:bin', which resolves against per-drive process state,
+  # and it accepts '\\bin'. Windows also treats '/' as a separator, so
+  # '//server/share' passes a backslash-prefix test and normalizes to a UNC path,
+  # which would take the local ACL and locking assumptions and join PATH.
+  # IsPathFullyQualified would say this in one call, but Windows PowerShell 5.1
+  # runs on .NET Framework, which does not have it.
+  if ($Requested -notmatch '^[A-Za-z]:[\\\\/]') {
+    Fail 'Install Root must be an absolute path on a local drive.'
   }
   $resolved = [IO.Path]::GetFullPath($Requested).TrimEnd('\\')
+  # Normalization can still produce something else, so check the result too.
+  if ($resolved -notmatch '^[A-Za-z]:\\\\') {
+    Fail 'Install Root must be an absolute path on a local drive.'
+  }
   if ($resolved -eq [IO.Path]::GetPathRoot($resolved).TrimEnd('\\')) {
     Fail 'Install Root must not be a file-system root.'
   }
@@ -130,6 +142,9 @@ function Protect-InstallRoot([string]$Root) {
   [IO.Directory]::SetAccessControl($Root, $acl)
 }
 
+# Path fields compare case-insensitively, because Windows paths are. The rest
+# stay case-sensitive. Rerunning the Installer with an equivalently spelled root
+# must not make the Installer reject the record it wrote itself.
 function Read-InstallRecord([string]$RecordPath, [string]$Root, [string]$Executable) {
   if (-not [IO.File]::Exists($RecordPath)) { return $null }
   Assert-NoReparsePoint $RecordPath
@@ -143,7 +158,7 @@ function Read-InstallRecord([string]$RecordPath, [string]$Root, [string]$Executa
   if ($record.schemaVersion -ne 1 -or $record.product -cne '1667' -or
       $record.method -cne 'powershell' -or $record.artifactTarget -cne $ArtifactTarget -or
       ($record.channel -cne 'stable' -and $record.channel -cne 'beta') -or
-      $record.installRoot -cne $Root -or $record.executable -cne $Executable -or
+      $record.installRoot -ine $Root -or $record.executable -ine $Executable -or
       $record.installationId -cnotmatch '^[0-9a-f]{32}$') {
     Fail 'Ownership Record does not authorize this Install Root.'
   }
@@ -158,7 +173,11 @@ function Download-Archive([string]$Url, [string]$Destination) {
   }
   $request = [Net.HttpWebRequest]::Create($uri)
   $request.Timeout = $ConnectTimeoutMs
-  $request.ReadWriteTimeout = $ReadTimeoutMs
+  # One read may not outlast the whole transfer budget. The stopwatch below can
+  # only act between reads, so a long per-read timeout would let a stalling
+  # server overshoot the cumulative deadline by that timeout. A slice bounds the
+  # overshoot to the slice.
+  $request.ReadWriteTimeout = [Math]::Min($ReadTimeoutMs, $ReadSliceMs)
   $response = $null
   $inputStream = $null
   $outputStream = $null

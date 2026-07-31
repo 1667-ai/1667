@@ -196,7 +196,9 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      if (method === "powershell") requireServableWindowsChannel(plan.channel);
+      if (method === "powershell" && plan.status !== "up-to-date") {
+        requireServableWindowsChannel(plan.channel);
+      }
       return publicEnvelopeFromPlan(plan, method);
     }
     case "apply": {
@@ -216,7 +218,9 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      if (method === "powershell") requireServableWindowsChannel(plan.channel);
+      if (method === "powershell" && plan.status !== "up-to-date") {
+        requireServableWindowsChannel(plan.channel);
+      }
       return publicEnvelopeFromPlan(plan, method);
     }
   }

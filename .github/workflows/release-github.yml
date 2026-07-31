@@ -312,8 +312,19 @@ jobs:
           )"
           node --import tsx scripts/release-install-script.ts render \
             "$VERSION" "$GITHUB_REPOSITORY" "$digests" dist/assets
-          test -f dist/assets/install-beta.sh
-          test -f dist/assets/install-beta.ps1
+          # Ask policy which Installers this version produces. A held target
+          # empties its kind, and naming the files here would then demand an
+          # asset the renderer intentionally did not write.
+          expected="$(
+            node --import tsx --input-type=module -e '
+              import { expectedInstallerNames } from "./scripts/release-publication-assets.ts";
+              process.stdout.write(expectedInstallerNames(process.argv[1]).join("\n"));
+            ' "$VERSION"
+          )"
+          printf '%s\n' "$expected" | while read -r name; do
+            test -n "$name" || continue
+            test -f "dist/assets/$name"
+          done
           test ! -e dist/assets/install-stable.sh
           test ! -e dist/assets/install-stable.ps1
 
@@ -331,8 +342,7 @@ jobs:
         with:
           subject-path: |
             dist/assets/*.tar.gz
-            dist/assets/install-beta.sh
-            dist/assets/install-beta.ps1
+            dist/assets/install-beta.*
             dist/assets/checksums.txt
 
       - name: Publish the pre-release
@@ -350,6 +360,5 @@ jobs:
             --title "1667 v$VERSION" \
             --notes-file dist/release-notes.md \
             dist/assets/*.tar.gz \
-            dist/assets/install-beta.sh \
-            dist/assets/install-beta.ps1 \
+            dist/assets/install-beta.* \
             dist/assets/checksums.txt

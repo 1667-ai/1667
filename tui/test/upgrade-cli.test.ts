@@ -253,6 +253,23 @@ test("a channel the Windows Installer route cannot serve is refused", async () =
   expect(requested.stderr).not.toContain(WINDOWS_INSTALL_COMMAND);
 });
 
+// The refusal is about the command the route cannot serve. A beta Installation
+// that is already current is offered no command, so there is nothing to refuse.
+test("an up-to-date beta PowerShell install still reports its state", async () => {
+  const current = await executeUpgradeCli(["--check", "--json"], {
+    observation,
+    authority: powershellAuthority("beta"),
+    registry: fakeRegistry(observation.currentVersion)
+  });
+  expect(current.exitCode).toBe(0);
+  expect(JSON.parse(current.stdout)).toMatchObject({
+    status: "up-to-date",
+    channel: "beta",
+    method: "powershell",
+    command: null
+  });
+});
+
 test("help is local and performs no registry I/O", async () => {
   const registry = fakeRegistry("2.0.0");
   const result = await executeUpgradeCli(["--help"], { observation, registry });
