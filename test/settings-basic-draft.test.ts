@@ -28,6 +28,10 @@ test("discovery metadata stays separate from manual context overrides", () => {
       name: "Discovered model",
       contextWindow: 32_768,
       maxOutputTokens: 4_096,
+      capabilities: {
+        temperature: "unknown" as const,
+        reasoningEffort: "unknown" as const
+      },
       source: "openai-models" as const
     }]
   };

@@ -473,7 +473,9 @@ function navHint(
   budget: number
 ): FrameLine {
   if (state.toast !== null) {
-    return [segment(state.toast, "focus / accent")];
+    // Every other branch here fits to the budget; a toast carrying a provider
+    // sentence has to as well, or one long message bleeds past the measure.
+    return fitLine([segment(state.toast, "focus / accent")], budget);
   }
   if (state.connection.down) {
     const lead: FrameLine = [segment("connection offline · reading · overlays remain available", "chrome")];

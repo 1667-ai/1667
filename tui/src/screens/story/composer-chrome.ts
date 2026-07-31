@@ -5,11 +5,15 @@ import {
   hintItem,
   joinHints,
   segment,
+  truncate,
   visibleWidth,
   type FrameLine,
   type FrameSegment,
   type HintItem
 } from "./frame.js";
+
+/** How much of the composer a notice may take before the draft loses room. */
+const MAX_NOTICE_ROWS = 3;
 
 export function composerTitle(
   fullscreen: boolean,
@@ -49,13 +53,23 @@ export function renderComposerFooter(
   const lead = segment("┗━ ", "compose accent");
   const budget = Math.max(0, width - visibleWidth("┗━ "));
   if (notice !== null) {
-    return wrapText(notice, [], Math.max(1, budget)).map((line, index) =>
+    const wrapped = wrapText(notice, [], Math.max(1, budget));
+    // A notice is the composer's footer, not a second panel. Provider errors
+    // arrive at whatever length a provider chose, and an unbounded wrap pushes
+    // the draft itself down to a single row. Keep the last row readable rather
+    // than dropping the rows that would not fit without a mark.
+    const rows = wrapped.slice(0, MAX_NOTICE_ROWS).map((line, index) =>
+      index === MAX_NOTICE_ROWS - 1 && wrapped.length > MAX_NOTICE_ROWS
+        ? truncate(`${line.text} …`, Math.max(1, budget))
+        : line.text
+    );
+    return rows.map((text, index) =>
       composerFieldLine(
         indent,
         width,
         [
           index === 0 ? lead : segment("   ", "compose accent"),
-          segment(line.text, "compose accent")
+          segment(text, "compose accent")
         ]
       )
     );

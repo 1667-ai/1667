@@ -202,55 +202,143 @@ async function* streamAnthropic(
   });
   const prepared = preparePromptCache(promptCache, prompt);
   const body = buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire);
-  const outputRedactor = createProviderStreamRedactor(secrets);
+  const refusalKey = samplingRefusalKey(settings);
+  if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
+  const runtime = providerRuntimeFor(settings);
   let decodedBytes = 0;
+  // One deadline covers the retry too. Each attempt starts its own total timer,
+  // so a rejection arriving near the deadline would otherwise buy the retry a
+  // second full budget.
+  let totalDeadlineReached = false;
+  const totalDeadline = new AbortController();
+  const totalTimer = setTimeout(() => {
+    totalDeadlineReached = true;
+    totalDeadline.abort();
+  }, runtime.timeouts.totalMs);
+  const requestSignal = AbortSignal.any([signal, totalDeadline.signal]);
+  // The catalog records which models dropped sampling, but a model typed by
+  // hand — or added after the last catalog read — has no such record. The
+  // rejection is a 400 that arrives before any stream data, so the request can
+  // be retried without the parameter; a stream that has already produced data
+  // is never retried.
   try {
-    for await (const data of providerSseEvents(
-      settings,
-      providerUrl(settings, "/v1/messages"),
-      body,
-      headers,
-      secrets,
-      signal,
-      redactProviderSecrets,
-      providerStarted,
-      prepared.commit,
-      isAnthropicContentDelta,
-      isAnthropicTerminalEvent
-    )) {
-      const parsed = parseEvent(data, secrets);
-      if (parsed.type === "error") {
-        const err = isObject(parsed.error) ? parsed.error : {};
-        const detail = redactProviderSecrets(
-          typeof err.message === "string" ? err.message : data,
-          secrets
-        ).slice(0, 300);
-        throw new ProviderError(`Anthropic stream error: ${detail}`);
-      }
-      if (parsed.type === "message_stop") {
+    for (let attempt = 0; ; attempt++) {
+      const outputRedactor = createProviderStreamRedactor(secrets);
+      let streamed = false;
+      try {
+        for await (const data of providerSseEvents(
+          settings,
+          providerUrl(settings, "/v1/messages"),
+          body,
+          headers,
+          secrets,
+          requestSignal,
+          redactProviderSecrets,
+          providerStarted,
+          prepared.commit,
+          isAnthropicContentDelta,
+          isAnthropicTerminalEvent,
+          signal,
+          () => clearTimeout(totalTimer)
+        )) {
+          streamed = true;
+          const parsed = parseEvent(data, secrets);
+          if (parsed.type === "error") {
+            const err = isObject(parsed.error) ? parsed.error : {};
+            const detail = redactProviderSecrets(
+              typeof err.message === "string" ? err.message : data,
+              secrets
+            ).slice(0, 300);
+            throw new ProviderError(`Anthropic stream error: ${detail}`);
+          }
+          if (parsed.type === "message_stop") {
+            const tail = outputRedactor.finish();
+            if (tail.length > 0) yield tail;
+            return;
+          }
+          if (parsed.type === "message_delta" && isObject(parsed.delta) && typeof parsed.delta.stop_reason === "string" && outcome !== undefined) {
+            outcome.finishReason = parsed.delta.stop_reason === "max_tokens" ? "length" : "stop";
+          }
+          if (parsed.type === "content_block_delta" && isObject(parsed.delta) && parsed.delta.type === "text_delta") {
+            const text = parsed.delta.text;
+            if (typeof text === "string" && text.length > 0) {
+              decodedBytes = requireOutputWithinLimit(settings, decodedBytes, text);
+              const safe = outputRedactor.push(text);
+              if (safe.length > 0) yield safe;
+            }
+          }
+        }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
         return;
-      }
-      if (parsed.type === "message_delta" && isObject(parsed.delta) && typeof parsed.delta.stop_reason === "string" && outcome !== undefined) {
-        outcome.finishReason = parsed.delta.stop_reason === "max_tokens" ? "length" : "stop";
-      }
-      if (parsed.type === "content_block_delta" && isObject(parsed.delta) && parsed.delta.type === "text_delta") {
-        const text = parsed.delta.text;
-        if (typeof text === "string" && text.length > 0) {
-          decodedBytes = requireOutputWithinLimit(settings, decodedBytes, text);
-          const safe = outputRedactor.push(text);
-          if (safe.length > 0) yield safe;
+      } catch (error) {
+        const tail = outputRedactor.finish();
+        if (tail.length > 0) yield tail;
+        if (totalDeadlineReached) {
+          if (error instanceof ProviderError && error.status !== null) {
+            throw new ProviderError(
+              "Model request exceeded its total deadline.",
+              error.status,
+              error.body
+            );
+          }
+          throw new ProviderError("Model request exceeded its total deadline.");
         }
+        if (
+          streamed
+          || attempt >= 1
+          || !dropRejectedAnthropicSampling(body, error)
+        ) throw error;
+        SAMPLING_REFUSED.add(refusalKey);
       }
     }
-  } catch (error) {
-    const tail = outputRedactor.finish();
-    if (tail.length > 0) yield tail;
-    throw error;
+  } finally {
+    clearTimeout(totalTimer);
   }
-  const tail = outputRedactor.finish();
-  if (tail.length > 0) yield tail;
+}
+
+/** Models observed to reject sampling outright, keyed by endpoint and model.
+ * The writer's stored temperature is their preference and stays untouched; this
+ * records only what a provider has already refused, so the refusal is paid once
+ * per model rather than on every request. Process-local by design: it is an
+ * observation about a remote endpoint, not settings. */
+const SAMPLING_REFUSED = new Set<string>();
+
+function samplingRefusalKey(settings: GenerationSettings): string {
+  return `${settings.baseUrl} ${settings.model}`;
+}
+
+export function forgetRefusedSampling(): void {
+  SAMPLING_REFUSED.clear();
+}
+
+/** Anthropic names a rejected parameter in prose rather than in a `param`
+ * field, so the match has to read the sentence. It stays narrow deliberately:
+ * an invalid-request 400 that both names the parameter this request sent and
+ * says the model does not take it. "temperature must be between 0 and 1" names
+ * the same parameter and means something else entirely — that one is the
+ * writer's to see, not ours to silently paper over. */
+function dropRejectedAnthropicSampling(
+  body: Record<string, unknown>,
+  error: unknown
+): boolean {
+  if (!(error instanceof ProviderError) || error.status !== 400) return false;
+  if (!("temperature" in body)) return false;
+  let detail: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(error.body) as unknown;
+    detail = isObject(parsed) && isObject(parsed.error) ? parsed.error : {};
+  } catch {
+    return false;
+  }
+  if (detail.type !== "invalid_request_error") return false;
+  const message = typeof detail.message === "string" ? detail.message : "";
+  if (!/\btemperature\b/iu.test(message)) return false;
+  if (!/\b(?:deprecated|unsupported|not supported|unexpected|unrecognized)\b/iu.test(message)) {
+    return false;
+  }
+  delete body.temperature;
+  return true;
 }
 
 function isOpenAiContentDelta(data: string): boolean {

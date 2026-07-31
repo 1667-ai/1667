@@ -576,3 +576,35 @@ function environmentSlotKey(name: string): string {
 function storedSlotKey(secretId: string): string {
   return `stored:${secretId}`;
 }
+
+/** One readable sentence. Long enough for a provider's own wording, short
+ * enough that a status line or a toast can show it whole. */
+const MAX_PROVIDER_ERROR_SUMMARY = 160;
+
+/** The sentence a provider wrote for a person, not the envelope it arrived in.
+ * Every provider this program speaks to states its reason under `error.message`
+ * or `message`; the raw body stays on the error for diagnostics. A body that
+ * states nothing readable falls back to its own first line, collapsed, so the
+ * surface that shows it still gets one line rather than a wall of JSON. */
+export function providerErrorSummary(body: string): string {
+  const readable = (value: unknown): string | null => {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+    if (value === null || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    return readable(record.message) ?? readable(record.detail);
+  };
+  let summary: string | null = null;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    summary = parsed !== null && typeof parsed === "object"
+      ? readable((parsed as Record<string, unknown>).error)
+        ?? readable(parsed)
+      : null;
+  } catch {
+    summary = null;
+  }
+  const collapsed = (summary ?? body).replace(/\s+/gu, " ").trim();
+  return collapsed.length <= MAX_PROVIDER_ERROR_SUMMARY
+    ? collapsed
+    : `${collapsed.slice(0, MAX_PROVIDER_ERROR_SUMMARY - 1).trimEnd()}…`;
+}

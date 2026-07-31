@@ -132,7 +132,11 @@ async function runModelDiscoveryRequest(
     overlay.result = null;
     try {
       const discovery = await source.api.discoverModels(
-        settingsProviderProbeTarget(request.view, request.settings),
+        settingsProviderProbeTarget(
+          request.view,
+          request.settings,
+          overlay.connectionSecrets
+        ),
         request.signal
       );
       if (!task.owns() || !ownsCurrentRequest(state, overlay, request)) return;
@@ -198,7 +202,11 @@ function settingsModelDiscoveryTargetIdentity(
     : overlay.view.effective;
   let connection: unknown = null;
   try {
-    const target = settingsProviderProbeTarget(overlay.view, settings);
+    const target = settingsProviderProbeTarget(
+      overlay.view,
+      settings,
+      overlay.connectionSecrets
+    );
     if ("kind" in target) {
       connection = selectSettingsRoute(
         target.document,

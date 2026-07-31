@@ -131,11 +131,17 @@ export interface ModelDiscoveryResultV2 {
 }
 
 /** A probe may carry a validated draft document so connection policy is not
- * flattened out before the server constructs its no-secret provider runtime. */
+ * flattened out before the server constructs its provider runtime.
+ *
+ * `secrets` carries key material the editor holds but has not saved yet, so a
+ * key can be tested the moment it is typed. The server resolves it in memory
+ * for this one request and never writes it to the secret store: a probe proves
+ * possession of the key, it does not activate a credential. */
 export interface ProviderProbeDocumentTargetV2 {
   readonly kind: "settings-document";
   readonly document: SettingsDocumentV2;
   readonly purpose: SettingsRoutePurpose;
+  readonly secrets?: Readonly<Record<string, string>>;
 }
 
 export type ProviderProbeTarget = GenerationSettings | ProviderProbeDocumentTargetV2;

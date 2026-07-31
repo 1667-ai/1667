@@ -499,6 +499,59 @@ test("format-2 probes reject a changed credential target before provider work", 
   );
 });
 
+test("format-2 probes resolve a key the editor has typed but not saved", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-settings-v2-probe-pending-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const connection = INITIAL_SETTINGS_DOCUMENT_V2.connections["builtin:dry-run"]!;
+  const secretId = "builtin:dry-run.kpending";
+  const document: SettingsDocumentV2 = {
+    ...INITIAL_SETTINGS_DOCUMENT_V2,
+    connections: {
+      "builtin:dry-run": {
+        ...connection,
+        name: "Anthropic",
+        preset: "anthropic",
+        protocol: "anthropic-messages",
+        baseUrl: "https://api.anthropic.com",
+        auth: { type: "header-stored", name: "x-api-key", secretId }
+      }
+    }
+  };
+
+  // Without the key the probe has nothing to authenticate with. Reading the
+  // model list here is what produced a 401 from the provider instead.
+  await assert.rejects(
+    store.resolveProviderProbe({
+      kind: "settings-document",
+      document,
+      purpose: "default"
+    }),
+    hasServiceCode("credential_test_requires_activation")
+  );
+
+  const settings = await store.resolveProviderProbe({
+    kind: "settings-document",
+    document,
+    purpose: "default",
+    secrets: { [secretId]: "sk-ant-pending-probe-key" }
+  });
+  const { headers } = resolveProviderHeaders(settings, {});
+  assert.equal(headers["x-api-key"], "sk-ant-pending-probe-key");
+
+  // A probe tests a key; it never stores one.
+  const state = await readSettingsState(dataDir);
+  assert.equal(state.pendingRevision, null);
+  await assert.rejects(
+    store.resolveProviderProbe({
+      kind: "settings-document",
+      document,
+      purpose: "default"
+    }),
+    hasServiceCode("credential_test_requires_activation")
+  );
+});
+
 test("format-2 probes restore the active private-HTTP transport policy", async (t) => {
   const dataDir = await initializedFormat2Directory(
     t,

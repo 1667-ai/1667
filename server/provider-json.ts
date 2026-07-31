@@ -5,6 +5,7 @@ import {
   providerFetchWithPresetQuery
 } from "./provider-fetch.js";
 import {
+  providerErrorSummary,
   providerRuntimeFor,
   redactProviderBody,
   redactProviderJson,
@@ -85,10 +86,7 @@ export async function getProviderJson(
       throw error;
     }
     if (!response.ok) {
-      const detail = redactProviderBody(text, secrets)
-        .replace(/\s+/gu, " ")
-        .trim()
-        .slice(0, 300);
+      const detail = providerErrorSummary(redactProviderBody(text, secrets));
       throw new ProviderError(
         `Model discovery failed (${response.status})${detail === "" ? "." : `: ${detail}`}`,
         response.status

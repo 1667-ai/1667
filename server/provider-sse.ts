@@ -2,6 +2,7 @@ import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
 import { providerFetch } from "./provider-fetch.js";
 import {
+  providerErrorSummary,
   providerRuntimeFor,
   redactProviderBody
 } from "./provider-runtime.js";
@@ -98,7 +99,7 @@ export async function* providerSseEvents(
       }
       const text = redactProviderBody(rawText, secrets);
       throw new ProviderError(
-        `Model request failed (${response.status}): ${text.slice(0, 500)}`,
+        `Model request failed (${response.status}): ${providerErrorSummary(text)}`,
         response.status,
         text
       );

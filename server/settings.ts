@@ -21,6 +21,12 @@ import {
 import {
   attachProviderRuntime
 } from "./provider-runtime.js";
+import { requireSecretId } from "./settings-v2-scalars.js";
+import { validateProviderSecretValue } from "../shared/provider-secret-value.js";
+
+/** A probe resolves one route, so it needs one credential. The ceiling keeps a
+ * malformed or hostile payload from turning a probe into bulk secret input. */
+const MAX_PROVIDER_PROBE_SECRETS = 4;
 
 export const DEFAULT_SYSTEM_PROMPT = [
   "You are a skilled fiction writer collaborating on a story.",
@@ -206,7 +212,8 @@ export class SettingsStore {
     try {
       return await initialized.store.loadProviderProbeTarget(
         documentTarget.document,
-        documentTarget.purpose
+        documentTarget.purpose,
+        documentTarget.secrets
       );
     } catch (error) {
       if (error instanceof ServiceError) throw error;
@@ -269,8 +276,49 @@ function parseProviderProbeDocumentTarget(
   return {
     kind: "settings-document",
     document: raw.document as SettingsDocumentV2,
-    purpose: raw.purpose
+    purpose: raw.purpose,
+    ...(raw.secrets === undefined
+      ? {}
+      : { secrets: parseProviderProbeSecrets(raw.secrets) })
   };
+}
+
+/** Key material a probe carries for a credential the editor has not saved yet.
+ * It is validated exactly like a stored secret so a probe cannot smuggle a
+ * value the secret store would reject, and it is bounded because a probe
+ * resolves one route: a large map is a mistake, not a use case. */
+function parseProviderProbeSecrets(
+  value: unknown
+): Readonly<Record<string, string>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ServiceError(
+      400,
+      "Provider probe secrets must be an object.",
+      "invalid_request"
+    );
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > MAX_PROVIDER_PROBE_SECRETS) {
+    throw new ServiceError(
+      400,
+      `A provider probe carries at most ${MAX_PROVIDER_PROBE_SECRETS} secrets.`,
+      "invalid_request"
+    );
+  }
+  const result: Record<string, string> = {};
+  for (const [secretId, secret] of entries) {
+    try {
+      requireSecretId(secretId, "Provider probe secret ID");
+      result[secretId] = validateProviderSecretValue(secret);
+    } catch (error) {
+      throw new ServiceError(
+        400,
+        error instanceof Error ? error.message : "Provider probe secret is invalid.",
+        "invalid_request"
+      );
+    }
+  }
+  return result;
 }
 
 function normalize(value: unknown): GenerationSettings {

@@ -244,13 +244,26 @@ export class SettingsV2Store {
 
   async loadProviderProbeTarget(
     documentValue: unknown,
-    purpose: SettingsRoutePurpose
+    purpose: SettingsRoutePurpose,
+    probeSecrets: Readonly<Record<string, string>> = {}
   ): Promise<GenerationSettings> {
     const document = parseSettingsDocumentV2(documentValue);
     const route = selectSettingsRoute(document, purpose);
     const connectionId = route.model.connectionId;
     const { state, storedSecrets } = await this.readRuntimeSnapshot();
-    if (usesCredentialReferences(route.connection)) {
+    // Probe-only key material. It is resolved for this request and never
+    // published, so it is layered over the store rather than into it.
+    const probeSecretId = storedCredentialSecretId(route.connection.auth);
+    const suppliedProbeSecret = probeSecretId !== null
+      && probeSecrets[probeSecretId] !== undefined
+      && route.connection.headers.length === 0;
+    const resolvedSecrets = suppliedProbeSecret
+      ? new Map([...storedSecrets, [probeSecretId, probeSecrets[probeSecretId]!]])
+      : storedSecrets;
+    // A caller that supplies the key has proved possession of it, which is all
+    // a probe tests. Requiring a save first would make the model list
+    // unreachable until after the very step it exists to inform.
+    if (!suppliedProbeSecret && usesCredentialReferences(route.connection)) {
       const activeConnection =
         activeSettingsDocument(state).connections[connectionId];
       const activeTargetSaved = activeConnection !== undefined
@@ -277,7 +290,7 @@ export class SettingsV2Store {
       {},
       this.environment,
       { allowBlankModel: true },
-      storedSecrets
+      resolvedSecrets
     );
     assertRuntimeGenerationSettingsSupported(runtime.settings);
     return runtime.settings;

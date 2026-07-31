@@ -41,6 +41,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import {
   frameText,
   lineWidth,
+  plainLine,
   segment,
   type FrameLine
 } from "../src/screens/story/frame.js";
@@ -79,6 +80,41 @@ describe("composer renderer", () => {
     const caret = layout.lines[1]!.find((part) => part.background === "compose accent");
     expect(caret).toMatchObject({ text: "B", role: "background" });
     expect(frameText(layout.lines)).toContain("enter send · ⇧enter newline");
+  });
+
+  test("a long notice stays inside the composer instead of taking the draft's rows", () => {
+    const composer = createComposer("A test");
+    const short = renderComposerLayout({
+      composer,
+      terminalWidth: 80,
+      terminalHeight: 24,
+      measure: 52,
+      indent: "  ",
+      footerNotice: "Model request failed (400): `temperature` is deprecated for this model."
+    });
+    // The provider's own sentence fits the composer without crowding the draft.
+    expect(short.bodyRows).toBeGreaterThan(0);
+    expect(frameText(short.lines).replace(/\s+/gu, " ")).toContain(
+      "`temperature` is deprecated for this model."
+    );
+
+    const flood = renderComposerLayout({
+      composer,
+      terminalWidth: 80,
+      terminalHeight: 24,
+      measure: 52,
+      indent: "  ",
+      footerNotice: `Model request failed (400): ${"gateway timeout ".repeat(60)}`
+    });
+    const noticeRows = flood.lines.length - flood.bodyRows - 1;
+    expect(noticeRows <= 3).toBe(true);
+    expect(flood.bodyRows).toBeGreaterThan(0);
+    expect(flood.lines.every((line) => lineWidth(line) <= 80)).toBe(true);
+    // The last row continues the sentence and marks where it stops. Keeping the
+    // row's tail instead would drop the words that follow row two.
+    const last = plainLine(flood.lines.at(-1)!).trimEnd();
+    expect(last.endsWith("…")).toBe(true);
+    expect(last.replace(/^\s+/u, "").startsWith("…")).toBe(false);
   });
 
   test("grows per newline, reports headroom, then scrolls around the cursor", () => {

@@ -6,6 +6,7 @@ import {
   settingsRowUsesServer
 } from "./settings-overlay-model.js";
 import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
+import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import type { RuntimeState, SettingsOverlayState } from "./state.js";
 
@@ -24,13 +25,21 @@ export async function detectSettingsContext(
     context.repaint();
     const editable = overlay.view.editable;
     const probed = editable ? overlay.draft.generation : overlay.view.effective;
+    // The probe now authenticates with the sidecar key, so the key is part of
+    // what was probed. Without it a limit discovered under one key could land
+    // in a draft the writer has since re-keyed.
+    const probedSecrets = overlay.connectionSecrets;
     try {
       // No model-first gate here. Whether one is needed is the probe's own
       // knowledge — KoboldCpp and llama.cpp answer from the loaded model
       // without being told its name — and a provider that does need one
       // returns nothing, which lands on the manual-entry warning below.
       const { contextWindow } = await source.api.probeContextWindow(
-        settingsProviderProbeTarget(overlay.view, probed)
+        settingsProviderProbeTarget(
+          overlay.view,
+          probed,
+          overlay.connectionSecrets
+        )
       );
       const currentlyEditable = overlay.view.editable;
       const current = currentlyEditable
@@ -41,6 +50,7 @@ export async function detectSettingsContext(
         || edit !== null
         || currentlyEditable !== editable
         || !sameProbeIdentity(probed, current)
+        || !sameConnectionSecrets(probedSecrets, overlay.connectionSecrets)
         || current.contextWindow !== probed.contextWindow) {
         return;
       }
@@ -89,8 +99,13 @@ export async function checkSettings(
       const checked = overlay.view.editable
         ? overlay.draft.generation
         : overlay.view.effective;
+      const checkedSecrets = overlay.connectionSecrets;
       const result = await source.api.checkModelServer(
-        settingsProviderProbeTarget(overlay.view, checked)
+        settingsProviderProbeTarget(
+          overlay.view,
+          checked,
+          overlay.connectionSecrets
+        )
       );
       const current = overlay.view.editable
         ? overlay.draft.generation
@@ -99,6 +114,7 @@ export async function checkSettings(
       if (task.owns() && state.settings === overlay
         && (edit === null
           || !settingsRowUsesServer(edit.row))
+        && sameConnectionSecrets(checkedSecrets, overlay.connectionSecrets)
         && sameGenerationSettings(checked, current)) {
         overlay.result = result;
       }

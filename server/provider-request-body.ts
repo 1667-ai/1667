@@ -56,9 +56,16 @@ export function buildOpenAiChatRequestBody(
     stream: true,
     ...cacheFields
   };
-  if (settings.temperature !== null) body.temperature = settings.temperature;
+  if (sendsTemperature(settings)) body.temperature = settings.temperature;
   applyGenerationEffort(body, settings, "openai");
   return body;
+}
+
+/** A model that declares no sampling support rejects the whole request, so a
+ * temperature left over from an earlier model must not be put on the wire. */
+function sendsTemperature(settings: GenerationSettings): boolean {
+  return settings.temperature !== null
+    && providerRuntimeFor(settings).capabilities.temperature !== "unsupported";
 }
 
 export function buildAnthropicMessagesRequestBody(
@@ -116,7 +123,7 @@ export function buildAnthropicMessagesRequestBody(
     stream: true
   };
   if (system.length > 0) body.system = system;
-  if (settings.temperature !== null) body.temperature = settings.temperature;
+  if (sendsTemperature(settings)) body.temperature = settings.temperature;
   applyGenerationEffort(body, settings, "anthropic");
   return body;
 }

@@ -204,6 +204,52 @@ test("explicit supported effort lowers through each protocol adapter", () => {
   );
 });
 
+test("a model that declares no sampling support keeps temperature off the wire", () => {
+  for (const provider of ["anthropic", "openai-compatible"] as const) {
+    const build = provider === "anthropic"
+      ? buildAnthropicMessagesRequestBody
+      : buildOpenAiChatRequestBody;
+    const base = settings(provider);
+    assert.equal(
+      build(withTemperatureSupport(base, "supported"), PROMPT, OMIT_PLANS[0]!).temperature,
+      0.25
+    );
+    assert.equal(
+      "temperature" in build(
+        withTemperatureSupport(base, "unsupported"),
+        PROMPT,
+        OMIT_PLANS[0]!
+      ),
+      false
+    );
+  }
+});
+
+function withTemperatureSupport(
+  value: GenerationSettings,
+  temperature: ProviderRuntime["capabilities"]["temperature"]
+): GenerationSettings {
+  return attachProviderRuntime({ ...value }, {
+    preset: "custom",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 1_000,
+      firstTokenMs: 1_000,
+      idleMs: 1_000,
+      totalMs: 5_000
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    capabilities: {
+      temperature,
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  }, true);
+}
+
 function settings(provider: GenerationSettings["provider"]): GenerationSettings {
   return {
     provider,
