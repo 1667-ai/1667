@@ -1,3 +1,4 @@
+import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { isSemVer } from "../shared/semver.js";
 import { GitHubRefStore } from "./release-github-ref-store.js";
 import {
@@ -6,8 +7,26 @@ import {
 } from "./release-npm-operation-lease-state.js";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
-const ATTEMPT =
-  /^_attempt_(launcher|darwin-arm64|darwin-x64|linux-arm64|linux-x64)_[0-9a-f]{64}$/u;
+const ATTEMPT_DIGEST = /^[0-9a-f]{64}$/u;
+/**
+ * The publication ledger writes one attempt ref per package, and this module
+ * has to recognize every one of them. The target set comes from release policy
+ * for the same reason the ledger takes it from there: a literal list silently
+ * rejects the first release that publishes a new target, and rejecting an
+ * attempt ref blocks every promotion and quarantine for that version.
+ */
+const ATTEMPT_TARGETS: ReadonlySet<string> =
+  new Set(["launcher", ...PUBLISHED_ARTIFACT_TARGETS]);
+
+function isAttemptSuffix(suffix: string): boolean {
+  const prefix = "_attempt_";
+  if (!suffix.startsWith(prefix)) return false;
+  const body = suffix.slice(prefix.length);
+  const separator = body.lastIndexOf("_");
+  if (separator <= 0) return false;
+  return ATTEMPT_TARGETS.has(body.slice(0, separator))
+    && ATTEMPT_DIGEST.test(body.slice(separator + 1));
+}
 
 export interface NpmOperationAuthorizationRequest {
   readonly operation: "promotion" | "quarantine";
@@ -102,7 +121,7 @@ function operationAuthorizationState(
     const suffix = entry.ref.slice(base.length);
     if (suffix === "") completed = true;
     else if (suffix === "_quarantined") quarantined = true;
-    else if (!ATTEMPT.test(suffix)) {
+    else if (!isAttemptSuffix(suffix)) {
       throw new Error(`npm operation release authorization ref ${entry.ref} is malformed`);
     }
   }
@@ -128,7 +147,7 @@ function isReleaseRef(ref: string): boolean {
   const separator = suffix.indexOf("_attempt_");
   return separator > 0
     && validSemVer(suffix.slice(0, separator))
-    && ATTEMPT.test(suffix.slice(separator));
+    && isAttemptSuffix(suffix.slice(separator));
 }
 
 function validSemVer(value: string): boolean {
