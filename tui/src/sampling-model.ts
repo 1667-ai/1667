@@ -14,20 +14,17 @@ import {
   type SamplingContext
 } from "../../shared/sampling-capabilities.js";
 import {
-  MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
-  MAX_SAMPLING_STOP_SEQUENCES,
-  requireSamplingLogitBias,
-  requireSamplingNumber,
-  requireSamplingStopSequences,
-  requireSamplingTopK
-} from "../../server/settings-v2-scalars.js";
+  SAMPLING_LOGIT_BIAS_POLICY,
+  SAMPLING_SCALAR_KNOBS as SAMPLING_POLICY_SCALAR_KNOBS,
+  SAMPLING_STOP_POLICY,
+  validateSamplingLogitBiasEntry,
+  validateSamplingSettings
+} from "../../shared/sampling-validation-policy.js";
 import type { SettingsOverlayState, SamplingPanelId } from "./state.js";
 import { createComposer, type ComposerState } from "./composer-model.js";
 
 export type SamplingScalarKnob = Exclude<SamplingKnobV2, "stop" | "logitBias">;
-export const SAMPLING_SCALAR_KNOBS = SAMPLING_KNOB_V2_VALUES.filter(
-  (knob): knob is SamplingScalarKnob => knob !== "stop" && knob !== "logitBias"
-);
+export const SAMPLING_SCALAR_KNOBS = SAMPLING_POLICY_SCALAR_KNOBS;
 
 export interface SamplingScalarRow {
   readonly label: string;
@@ -115,18 +112,18 @@ export function samplingListRows(
   return [
     {
       panel: "stop",
-      value: sampling.stop.length === 0 ? "empty" : `${sampling.stop.length}/${MAX_SAMPLING_STOP_SEQUENCES}`,
+      value: sampling.stop.length === 0 ? "empty" : `${sampling.stop.length}/${SAMPLING_STOP_POLICY.maxSequences}`,
       count: sampling.stop.length,
-      maximum: MAX_SAMPLING_STOP_SEQUENCES,
+      maximum: SAMPLING_STOP_POLICY.maxSequences,
       ...stopPresentation
     },
     {
       panel: "logit-bias",
       value: Object.keys(sampling.logitBias).length === 0
         ? "empty"
-        : `${Object.keys(sampling.logitBias).length}/${MAX_SAMPLING_LOGIT_BIAS_ENTRIES}`,
+        : `${Object.keys(sampling.logitBias).length}/${SAMPLING_LOGIT_BIAS_POLICY.maxEntries}`,
       count: Object.keys(sampling.logitBias).length,
-      maximum: MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
+      maximum: SAMPLING_LOGIT_BIAS_POLICY.maxEntries,
       ...logitPresentation
     }
   ];
@@ -181,10 +178,22 @@ export function boundedSamplingCursor(
 ): number {
   const length = panel === "sampling"
     ? SAMPLING_LAYER_ROWS.length
-    : panel === "stop"
-      ? Math.max(1, overlay.draft.sampling.stop.length)
-      : Math.max(1, Object.keys(overlay.draft.sampling.logitBias).length);
+    : samplingListItemCount(overlay, panel);
   return Math.max(0, Math.min(length - 1, cursor));
+}
+
+function samplingListItemCount(
+  overlay: SettingsOverlayState,
+  panel: Exclude<SamplingPanelId, "sampling">
+): number {
+  const persisted = panel === "stop"
+    ? overlay.draft.sampling.stop.length
+    : samplingLogitBiasEntries(overlay).length;
+  const edit = overlay.sampling?.edit;
+  const hasPendingRow = edit !== null && edit !== undefined
+    && edit.kind === panel
+    && edit.index === persisted;
+  return Math.max(1, persisted + (hasPendingRow ? 1 : 0));
 }
 
 export function setSamplingScalar(
@@ -229,12 +238,13 @@ export function setLogitBias(
   if (divider <= 0) return "use token ID:integer bias";
   const token = raw.slice(0, divider).trim();
   const weightText = raw.slice(divider + 1).trim();
-  if (!/^\d+$/u.test(token) || !Number.isSafeInteger(Number(token))) {
-    return "token ID must be a non-negative integer";
-  }
   if (!/^-?\d+$/u.test(weightText)) return "bias must be an integer";
   const weight = Number(weightText);
-  if (!Number.isSafeInteger(weight)) return "bias must be an integer";
+  try {
+    validateSamplingLogitBiasEntry(token, weight, "logit bias");
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   const entries = samplingLogitBiasEntries(overlay);
   if (index < 0 || index > entries.length) return "logit bias row is no longer available";
   const existingToken = index < entries.length ? entries[index]![0] : null;
@@ -334,10 +344,10 @@ export function beginNewSamplingEdit(overlay: SettingsOverlayState): string | nu
   if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
   const count = nested.panel === "stop"
     ? overlay.draft.sampling.stop.length
-    : Object.keys(overlay.draft.sampling.logitBias).length;
+    : samplingLogitBiasEntries(overlay).length;
   const maximum = nested.panel === "stop"
-    ? MAX_SAMPLING_STOP_SEQUENCES
-    : MAX_SAMPLING_LOGIT_BIAS_ENTRIES;
+    ? SAMPLING_STOP_POLICY.maxSequences
+    : SAMPLING_LOGIT_BIAS_POLICY.maxEntries;
   if (count >= maximum) return `list limit reached · ${maximum} items maximum`;
   nested.cursor = count;
   nested.edit = {
@@ -357,14 +367,7 @@ export function createSamplingComposer(initial: string): ComposerState {
 
 export function validateSampling(sampling: SamplingSettingsV2): string | null {
   try {
-    if (sampling.topP !== null) requireSamplingNumber(sampling.topP, "top p", 0, 1);
-    if (sampling.topK !== null) requireSamplingTopK(sampling.topK, "top k");
-    if (sampling.minP !== null) requireSamplingNumber(sampling.minP, "min p", 0, 1);
-    if (sampling.frequencyPenalty !== null) requireSamplingNumber(sampling.frequencyPenalty, "frequency penalty", -2, 2);
-    if (sampling.presencePenalty !== null) requireSamplingNumber(sampling.presencePenalty, "presence penalty", -2, 2);
-    if (sampling.repeatPenalty !== null) requireSamplingNumber(sampling.repeatPenalty, "repeat penalty", 1, 10);
-    requireSamplingStopSequences(sampling.stop, "stop sequences");
-    requireSamplingLogitBias(sampling.logitBias, "logit bias");
+    validateSamplingSettings(sampling);
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);

@@ -89,11 +89,15 @@ export function reconcileSettingsOverlay(
 
   if (edit !== null && (draftWasClean || converged) && editWasClean
     && editRow !== null
-    && settingsDraftTextRow(editRow)) {
-    const refreshed = draftRowEditValue(overlay.draft, editRow);
-    setComposerText(edit.composer, refreshed);
-    if (refreshed.length > 0) edit.composer.anchor = 0;
-    edit.setInitialText(refreshed);
+  ) {
+    if (editRow === "sampling") {
+      edit.close?.();
+    } else if (settingsDraftTextRow(editRow)) {
+      const refreshed = draftRowEditValue(overlay.draft, editRow);
+      setComposerText(edit.composer, refreshed);
+      if (refreshed.length > 0) edit.composer.anchor = 0;
+      edit.setInitialText(refreshed);
+    }
   }
 
   if (converged) {

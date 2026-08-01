@@ -2,6 +2,7 @@ import { applyComposerEdit } from "./composer-editing.js";
 import { insertComposerText } from "./composer-model.js";
 import { readFromClipboard } from "./clipboard.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
+import { SAMPLING_SCALAR_DESCRIPTORS } from "../../shared/sampling-validation-policy.js";
 import {
   beginNewSamplingEdit,
   beginSamplingEdit,
@@ -129,6 +130,7 @@ function stepSamplingScalar(
     return;
   }
   const spec = SAMPLING_SCALAR_STEPS[knob];
+  const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
   const current = settings.draft.sampling[knob];
   if (current === null) {
     if (step < 0) return;
@@ -137,12 +139,12 @@ function stepSamplingScalar(
     return;
   }
   const next = roundSamplingValue(current + step * spec.step, spec.precision);
-  if (next < spec.minimum) {
+  if (next < descriptor.minimum) {
     const error = setSamplingScalar(settings, knob, "");
     if (error !== null) nested.result = `row kept · ${error}`;
     return;
   }
-  if (next > spec.maximum) {
+  if (next > descriptor.maximum) {
     nested.result = `${presentation.label} at max`;
     return;
   }
@@ -152,17 +154,15 @@ function stepSamplingScalar(
 
 const SAMPLING_SCALAR_STEPS: Readonly<Record<SamplingScalarKnob, {
   readonly step: number;
-  readonly minimum: number;
-  readonly maximum: number;
   readonly neutral: number;
   readonly precision: number;
 }>> = {
-  topP: { step: 0.05, minimum: 0, maximum: 1, neutral: 1, precision: 2 },
-  topK: { step: 1, minimum: 0, maximum: 100_000, neutral: 0, precision: 0 },
-  minP: { step: 0.01, minimum: 0, maximum: 1, neutral: 0, precision: 2 },
-  frequencyPenalty: { step: 0.1, minimum: -2, maximum: 2, neutral: 0, precision: 1 },
-  presencePenalty: { step: 0.1, minimum: -2, maximum: 2, neutral: 0, precision: 1 },
-  repeatPenalty: { step: 0.05, minimum: 1, maximum: 10, neutral: 1, precision: 2 }
+  topP: { step: 0.05, neutral: 1, precision: 2 },
+  topK: { step: 1, neutral: 0, precision: 0 },
+  minP: { step: 0.01, neutral: 0, precision: 2 },
+  frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
+  presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
+  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 }
 };
 
 function roundSamplingValue(value: number, precision: number): number {

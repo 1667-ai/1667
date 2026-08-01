@@ -12,6 +12,7 @@ export interface ActiveSettingsEdit {
   composer: ComposerState;
   initialText(): string;
   setInitialText(value: string): void;
+  close?(): void;
 }
 
 /** Derive the visible Settings edit from its one canonical owner. */
@@ -21,6 +22,18 @@ export function activeSettingsEdit(
 ): ActiveSettingsEdit | null {
   if (state.settings !== overlay) return null;
   if (state.mode === "SETTINGS") {
+    const samplingEdit = overlay.sampling?.edit;
+    if (samplingEdit !== null && samplingEdit !== undefined) {
+      return {
+        row: "sampling",
+        composer: samplingEdit.composer,
+        initialText: () => samplingEdit.initial,
+        setInitialText: (value) => { samplingEdit.initial = value; },
+        close: () => {
+          if (overlay.sampling?.edit === samplingEdit) overlay.sampling.edit = null;
+        }
+      };
+    }
     const edit = overlay.edit;
     return edit === null ? null : {
       row: edit.row,

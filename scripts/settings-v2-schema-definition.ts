@@ -11,12 +11,7 @@ import {
   MAX_SETTINGS_TIMEOUT_MS,
   MAX_SETTINGS_TOKEN_COUNT,
   MAX_SETTINGS_URL_SCALARS,
-  MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
-  MAX_SAMPLING_STOP_SCALARS,
-  MAX_SAMPLING_STOP_SEQUENCES,
-  MAX_SAMPLING_TOP_K,
   SECRET_ID_PATTERN_SOURCE,
-  SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE,
   SETTINGS_ID_PATTERN_SOURCE
 } from "../server/settings-v2-scalars.js";
 import {
@@ -34,6 +29,12 @@ import {
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES
 } from "../shared/settings-v2-types.js";
+import {
+  SAMPLING_LOGIT_BIAS_POLICY,
+  SAMPLING_SCALAR_DESCRIPTORS,
+  SAMPLING_STOP_POLICY,
+  type SamplingScalarKnob
+} from "../shared/sampling-validation-policy.js";
 
 type Schema = Record<string, unknown>;
 
@@ -124,25 +125,28 @@ export function settingsV2Schema(): Schema {
       sampling: ref("Sampling")
     }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
     Sampling: closed({
-      topP: nullable(number(0, 1)),
-      topK: nullable(integer(0, MAX_SAMPLING_TOP_K)),
-      minP: nullable(number(0, 1)),
-      frequencyPenalty: nullable(number(-2, 2)),
-      presencePenalty: nullable(number(-2, 2)),
-      repeatPenalty: nullable(number(1, 10)),
+      topP: samplingScalar("topP"),
+      topK: samplingScalar("topK"),
+      minP: samplingScalar("minP"),
+      frequencyPenalty: samplingScalar("frequencyPenalty"),
+      presencePenalty: samplingScalar("presencePenalty"),
+      repeatPenalty: samplingScalar("repeatPenalty"),
       stop: {
         type: "array",
-        maxItems: MAX_SAMPLING_STOP_SEQUENCES,
+        maxItems: SAMPLING_STOP_POLICY.maxSequences,
         uniqueItems: true,
-        items: boundedString(MAX_SAMPLING_STOP_SCALARS, 1)
+        items: boundedString(SAMPLING_STOP_POLICY.maxScalars, 1)
       },
       logitBias: {
         type: "object",
-        maxProperties: MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
+        maxProperties: SAMPLING_LOGIT_BIAS_POLICY.maxEntries,
         propertyNames: {
-          pattern: exactStringPatternSource(SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE)
+          pattern: exactStringPatternSource(SAMPLING_LOGIT_BIAS_POLICY.keyPatternSource)
         },
-        additionalProperties: integer(-100, 100)
+        additionalProperties: integer(
+          SAMPLING_LOGIT_BIAS_POLICY.minimum,
+          SAMPLING_LOGIT_BIAS_POLICY.maximum
+        )
       }
     }),
     Connections: settingsMap("Connection"),
@@ -265,6 +269,15 @@ function integer(minimum: number, maximum: number): Schema {
 
 function number(minimum: number, maximum: number): Schema {
   return { type: "number", minimum, maximum };
+}
+
+function samplingScalar(knob: SamplingScalarKnob): Schema {
+  const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
+  return nullable(
+    descriptor.integer
+      ? integer(descriptor.minimum, descriptor.maximum)
+      : number(descriptor.minimum, descriptor.maximum)
+  );
 }
 
 function stringPattern(source: string, maxLength?: number): Schema {

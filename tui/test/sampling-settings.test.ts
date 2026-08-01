@@ -3,14 +3,16 @@ import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
+import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type { SaveSettingsCommand, SettingsView } from "../../shared/settings-v2-types.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { publishSettingsView } from "../src/overlay-publication.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
-import { samplingLogitBiasEntries } from "../src/sampling-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   key,
@@ -73,6 +75,39 @@ describe("Sampling Settings user flow", () => {
     await selectRow(press, state, "sampling");
     await press(key("return"));
     expect(state.settings?.draft.sampling.topP).toBe(0.7);
+  });
+
+  test("refreshes a clean scalar editor before Enter can apply stale text", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await press(key("return"));
+
+    expect(state.settings?.sampling?.edit?.kind).toBe("scalar");
+    publishSamplingRefresh(source, state, 0.7);
+
+    expect(state.settings?.draft.sampling.topP).toBe(0.7);
+    expect(state.settings?.sampling?.edit).toBe(null);
+
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.topP).toBe(0.7);
+  });
+
+  test("retains a dirty scalar buffer and records a refresh conflict", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await press(key("return"));
+    setSamplingEdit(state, "0.7");
+
+    publishSamplingRefresh(source, state, 0.9);
+
+    expect(state.settings?.sampling?.edit?.composer.text).toBe("0.7");
+    expect(state.settings?.draft.sampling.topP).toBe(0.9);
+    expect(state.settings?.conflict).toEqual({
+      message: "settings changed during refresh · draft kept",
+      armed: false
+    });
   });
 
   test("scalar arrows use exact steps, neutral entry, unset crossing, and max limits", async () => {
@@ -153,6 +188,8 @@ describe("Sampling Settings user flow", () => {
   test("edits a token-ID row in place and rejects duplicate IDs without mutation", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
+    const saved: SaveSettingsCommand[] = [];
+    installSave(source, saved);
     await enterSampling(state, press);
     await moveLayer2Cursor(press, 7);
     await press(key("return"));
@@ -169,30 +206,30 @@ describe("Sampling Settings user flow", () => {
     await press(key("n"));
     setSamplingEdit(state, "9:-3");
     await press(key("return"));
-    expect(samplingLogitBiasEntries(state.settings!)).toEqual([
-      ["42", 7],
-      ["9", -3]
-    ]);
+    let frame = render(state, 80, 24);
+    expect(renderedLogitRows(frame, ["42", "9"]).map((line) => line.includes("42")))
+      .toEqual([true, false]);
     await press(key("up"));
     await press(key("return"));
     setSamplingEdit(state, "10:5");
     await press(key("return"));
-    expect(samplingLogitBiasEntries(state.settings!)).toEqual([
-      ["10", 5],
-      ["9", -3]
-    ]);
+    frame = render(state, 80, 24);
+    expect(renderedLogitRows(frame, ["10", "9"]).map((line) => line.includes("10")))
+      .toEqual([true, false]);
     expect(state.settings?.sampling?.cursor).toBe(0);
 
     await press(key("return"));
     setSamplingEdit(state, "9:99");
     await press(key("return"));
     expect(state.settings?.sampling?.edit).not.toBe(null);
-    expect(samplingLogitBiasEntries(state.settings!)).toEqual([
-      ["10", 5],
-      ["9", -3]
-    ]);
     expect(state.settings?.sampling?.cursor).toBe(0);
     await press(key("escape"));
+    await press(key("escape"));
+    await press(key("escape"));
+    await press(key("s"));
+    expect(saved).toHaveLength(1);
+    const profile = saved[0]!.document.profiles[saved[0]!.document.routing.default]!;
+    expect(profile.sampling?.logitBias).toEqual({ "10": 5, "9": -3 });
   });
 
   test("selected nested rows open with a mouse click", async () => {
@@ -226,6 +263,44 @@ describe("Sampling Settings user flow", () => {
     expect(logitFrame).toContain("no biased tokens yet.");
     expect(logitFrame).toContain("n writes one · token IDs come from the model's tokenizer.");
     expect(logitFrame.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
+  });
+
+  test("renders selected pending rows for empty and non-empty stop and logit lists", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+
+    await moveLayer2Cursor(press, 6);
+    await press(key("return"));
+    await press(key("n"));
+    let frame = render(state, 80, 24);
+    expect(frame).toContain("no stop sequences yet.");
+    expect(frame).toContain("▸ 01");
+    expect(selectedNestedHit(state, 0)).not.toBe(null);
+
+    setSamplingEdit(state, "END");
+    await press(key("return"));
+    await press(key("n"));
+    frame = render(state, 80, 24);
+    expect(frame.indexOf('"END"')).toBeLessThan(frame.indexOf("▸ 02"));
+    expect(selectedNestedHit(state, 1)).not.toBe(null);
+
+    await press(key("escape"));
+    await press(key("escape"));
+    await moveLayer2Cursor(press, 7);
+    await press(key("return"));
+    await press(key("n"));
+    frame = render(state, 80, 24);
+    expect(frame).toContain("no biased tokens yet.");
+    expect(frame).toContain("▸ 01");
+    expect(selectedNestedHit(state, 0)).not.toBe(null);
+
+    setSamplingEdit(state, "42:7");
+    await press(key("return"));
+    await press(key("n"));
+    frame = render(state, 80, 24);
+    expect(frame.indexOf("42")).toBeLessThan(frame.indexOf("▸ 02"));
+    expect(selectedNestedHit(state, 1)).not.toBe(null);
   });
 
   test("escape peels list, sampling, and Settings layers in order", async () => {
@@ -298,6 +373,30 @@ function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
   source.api.getSettings = async () => source.settingsView;
 }
 
+function publishSamplingRefresh(
+  source: ReturnType<typeof demoAppSource>,
+  state: ReturnType<typeof initialState>,
+  topP: number
+): void {
+  const current = source.settingsView;
+  if (!current.editable) throw new Error("demo settings must be editable");
+  const profileId = current.document.routing.default;
+  const profile = current.document.profiles[profileId];
+  if (profile === undefined) throw new Error("default profile is missing");
+  const document = applySamplingSettings(current.document, {
+    ...(profile.sampling ?? EMPTY_SAMPLING_V2),
+    topP
+  });
+  const effective = basicSettingsFromDocument(document);
+  publishSettingsView(state, source, {
+    ...current,
+    stateGeneration: current.stateGeneration + 1,
+    activeRevision: current.activeRevision + 1,
+    document,
+    effective
+  });
+}
+
 function installSave(
   source: ReturnType<typeof demoAppSource>,
   saved: SaveSettingsCommand[]
@@ -361,4 +460,8 @@ function selectedNestedHit(
     if (region !== undefined) return { x: region.left, y };
   }
   return null;
+}
+
+function renderedLogitRows(frame: string, tokens: readonly string[]): string[] {
+  return frame.split("\n").filter((line) => tokens.some((token) => line.includes(token)));
 }

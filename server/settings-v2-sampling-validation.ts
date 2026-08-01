@@ -14,14 +14,15 @@ import {
 } from "../shared/sampling-capabilities.js";
 import type { SamplingUnavailableReason } from "../shared/sampling-capabilities.js";
 import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
-import { closedRecord, closedShape } from "./story-wire-validation.js";
 import {
-  SettingsFormatError,
-  requireSamplingLogitBias,
-  requireSamplingNumber,
-  requireSamplingStopSequences,
-  requireSamplingTopK
-} from "./settings-v2-scalars.js";
+  SamplingValidationError,
+  validateSamplingLogitBias,
+  validateSamplingScalarOrNull,
+  validateSamplingStopSequences,
+  type SamplingScalarKnob
+} from "../shared/sampling-validation-policy.js";
+import { closedRecord, closedShape } from "./story-wire-validation.js";
+import { SettingsFormatError } from "./settings-v2-scalars.js";
 
 const SAMPLING = closedShape([
   "topP",
@@ -37,25 +38,50 @@ const SAMPLING = closedShape([
 export function parseSampling(value: unknown, label: string): SamplingSettingsV2 | undefined {
   if (value === undefined) return undefined;
   const sampling = closedRecord(value, label, SAMPLING);
-  const parsed: SamplingSettingsV2 = {
-    topP: sampling.topP === null ? null : requireSamplingNumber(sampling.topP, `${label}.topP`, 0, 1),
-    topK: sampling.topK === null ? null : requireSamplingTopK(sampling.topK, `${label}.topK`),
-    minP: sampling.minP === null ? null : requireSamplingNumber(sampling.minP, `${label}.minP`, 0, 1),
-    frequencyPenalty: sampling.frequencyPenalty === null
-      ? null
-      : requireSamplingNumber(sampling.frequencyPenalty, `${label}.frequencyPenalty`, -2, 2),
-    presencePenalty: sampling.presencePenalty === null
-      ? null
-      : requireSamplingNumber(sampling.presencePenalty, `${label}.presencePenalty`, -2, 2),
-    repeatPenalty: sampling.repeatPenalty === null
-      ? null
-      : requireSamplingNumber(sampling.repeatPenalty, `${label}.repeatPenalty`, 1, 10),
-    stop: requireSamplingStopSequences(sampling.stop, `${label}.stop`),
-    logitBias: requireSamplingLogitBias(sampling.logitBias, `${label}.logitBias`)
-  };
+  const parsed: SamplingSettingsV2 = samplingPolicy(() => ({
+    topP: samplingScalarOrNull("topP", sampling.topP, `${label}.topP`),
+    topK: samplingScalarOrNull("topK", sampling.topK, `${label}.topK`),
+    minP: samplingScalarOrNull("minP", sampling.minP, `${label}.minP`),
+    frequencyPenalty: samplingScalarOrNull(
+      "frequencyPenalty",
+      sampling.frequencyPenalty,
+      `${label}.frequencyPenalty`
+    ),
+    presencePenalty: samplingScalarOrNull(
+      "presencePenalty",
+      sampling.presencePenalty,
+      `${label}.presencePenalty`
+    ),
+    repeatPenalty: samplingScalarOrNull(
+      "repeatPenalty",
+      sampling.repeatPenalty,
+      `${label}.repeatPenalty`
+    ),
+    stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
+    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`)
+  }));
   return SAMPLING_KNOB_V2_VALUES.some((knob) => samplingKnobValueIsSet(parsed, knob))
     ? parsed
     : undefined;
+}
+
+function samplingScalarOrNull(
+  knob: SamplingScalarKnob,
+  value: unknown,
+  label: string
+): number | null {
+  return validateSamplingScalarOrNull(knob, value, label);
+}
+
+function samplingPolicy<T>(operation: () => T): T {
+  try {
+    return operation();
+  } catch (error) {
+    if (error instanceof SamplingValidationError) {
+      throw new SettingsFormatError(error.message, { cause: error });
+    }
+    throw error;
+  }
 }
 
 export function validateSamplingRoute(
