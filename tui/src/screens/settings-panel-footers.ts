@@ -268,7 +268,60 @@ export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+/** A C-08 scalar owns `←→`, `⇧` and `↵`, so its keyline says so rather than
+ *  borrowing the cycler's `choose`. */
+export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ step", action: "take-next" },
+      { token: "↵ type", action: "open-selected" },
+      { token: "s save", action: "save-edit" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ←→ step · ↵ type · s · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ step", action: "take-next" },
+      { token: "↵ type", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ ↵ esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
 export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ step", action: "take-next" },
+      { token: "↵ type", action: "open-selected" },
+      { token: "p detect", action: "detect-context" },
+      { token: "s save", action: "save-edit" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
   {
     text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
     actions: SETTINGS_CONTEXT_FOOTER_ACTIONS

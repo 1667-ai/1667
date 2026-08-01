@@ -184,7 +184,9 @@ export async function settingsOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
     if (settingsRowHasArrows(overlay, row)) {
-      await cycleSettingsRow(row, step, state, source, context, overlay);
+      await cycleSettingsRow(
+        row, step, state, source, context, overlay, resolved.magnitude ?? "step"
+      );
     }
   } else if (resolved.action === "discard-pending") {
     await discardPendingSettings(state, source, context, overlay);

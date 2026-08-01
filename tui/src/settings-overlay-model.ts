@@ -11,6 +11,7 @@ import {
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
+import { isSettingsScalarRow } from "./settings-scalar.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
@@ -41,7 +42,9 @@ export {
   promptCacheRowValue,
   settingsModelDisplayText,
   settingsRows,
-  type SettingsRowPresentation
+  SETTINGS_SECTIONS,
+  type SettingsRowPresentation,
+  type SettingsSectionId
 } from "./settings-profile-controls.js";
 
 export const SETTINGS_ROW_IDS = [
@@ -50,8 +53,9 @@ export const SETTINGS_ROW_IDS = [
   "provider",
   "base-url",
   "allow-insecure-http",
-  "api-key",
+  // C-14 prefers the env-var form, so it leads the stored key.
   "api-key-env",
+  "api-key",
   "profile",
   "model",
   "temperature",
@@ -309,11 +313,15 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
     || row === "utility-route";
 }
 
+/** Rows `←→` acts on: a cycler steps through its options, a C-08 scalar steps
+ *  through its range. Both wear brackets or chevrons, which is what the arrows
+ *  are anchored to. */
 export function settingsRowHasArrows(
   overlay: SettingsOverlayState,
   row: SettingsRowId
 ): boolean {
   return settingsRowCycles(row)
+    || isSettingsScalarRow(row)
     || row === "model" && settingsModelChoices(overlay).length > 0;
 }
 

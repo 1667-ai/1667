@@ -77,6 +77,9 @@ export interface ResolvedKey {
   settingsRow?: SettingsRowId;
   /** Route whose profile the semantic shortcut describes. */
   settingsProfilePurpose?: SettingsRoutePurpose;
+  /** How far a stepping key moves a C-08 scalar: one step, `⇧` ten of them, or
+   *  home/end to the wall. Cyclers ignore it — they have no distance. */
+  magnitude?: "step" | "coarse" | "end";
 }
 
 export interface PlainNavigationState {
@@ -446,8 +449,18 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "n") return { action: "new-item" };
     if (key.name === "d") return { action: "delete-item" };
     if (key.name === "x") return { action: "discard-pending" };
-    if (key.name === "left") return { action: "take-previous" };
-    if (key.name === "right") return { action: "take-next" };
+    // C-08 stepping: `←→` by one, `⇧←→` by ten, home/end to the ends. A cycler
+    // on the same keys ignores the distance and steps once either way.
+    if (key.name === "left") {
+      return { action: "take-previous", magnitude: key.shift ? "coarse" : "step" };
+    }
+    if (key.name === "right") {
+      return { action: "take-next", magnitude: key.shift ? "coarse" : "step" };
+    }
+    if (key.name === "home") return { action: "take-previous", magnitude: "end" };
+    if (key.name === "end") return { action: "take-next", magnitude: "end" };
+    // Law 1: a row's secondary action is reached with `tab`, never with `↓`.
+    if (key.name === "tab") return { action: "check" };
     return { action: "none" };
   }
   if (mode === "CHAPTERS") {

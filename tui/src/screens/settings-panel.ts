@@ -1,17 +1,14 @@
 import { graphemeCells } from "../cell-width.js";
-import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import {
   boundedSettingsCursor,
   settingsActivationFailureText,
-  settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRows,
-  SETTINGS_ROW_IDS,
-  type SettingsRowPresentation
+  SETTINGS_ROW_IDS
 } from "../settings-overlay-model.js";
-import type { OverlayState } from "../state.js";
+import type { OverlayState, SettingsRowId } from "../state.js";
 import {
   dimPage,
   panelContentRows,
@@ -29,33 +26,24 @@ import {
   SETTINGS_PENDING_FOOTERS,
   SETTINGS_PENDING_PROFILE_FOOTERS,
   SETTINGS_PROFILE_FOOTERS,
+  SETTINGS_SCALAR_FOOTERS,
   SETTINGS_TEXT_FOOTERS
 } from "./settings-panel-footers.js";
-import { renderComposerInput } from "./story/composer.js";
+import { isSettingsScalarRow } from "../settings-scalar.js";
 import {
-  truncate,
+  settingsFormRowOffset,
+  settingsFormRows
+} from "./settings-form.js";
+import {
   visibleWidth,
   type FrameComposition,
   type FrameLine
 } from "./story/frame.js";
 
-/** Settings rows wear the same `  ▸ ` cursor lead as every other list panel,
- * so `›` stays the prompt glyph it is everywhere else. */
-const SETTINGS_LEAD_WIDTH = 4;
-/** Wide enough for every label the panel has, so all the values start in one
- * column. A test holds the labels to it. */
-const SETTINGS_LABEL_WIDTH = 20;
-
-/** Column the value starts in, relative to the content line. Only
- * `settingsRow` reads this, because only `settingsRow` paints the value.
- *
- * A label too wide for the column pushes its own value right and keeps one
- * cell of air. That row alone leaves the column, which the test reports. The
- * arrows stay on the brackets, because they come from this same number. A
- * constant here put them on the label instead. */
-function settingsValueLeft(label: string): number {
-  return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
-}
+/** C-03's example in the library *is* settings: a 13-col jump rail beside the
+ * form. The panel is wider than the other overlays because the rail, the field
+ * grid and a C-08 track have to fit beside one another. */
+const SETTINGS_PANEL_WIDTH = 96;
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -69,114 +57,57 @@ export function renderSettingsPanel(
 ): FrameComposition {
   const overlay = state.settings!;
   const rows = settingsRows(overlay, state.config);
-  const horizontal = panelHorizontalGeometry(width, 76);
+  const horizontal = panelHorizontalGeometry(width, SETTINGS_PANEL_WIDTH);
   const contentCapacity = panelContentRows(height);
   const status = settingsStatusLines(overlay);
   const resultLines = settingsResultLines(overlay, horizontal.contentWidth);
-  const fixedRows = 3 + status.top.length
-    + status.bottom.length + resultLines.length;
-  const editableRows = rows.slice(2);
-  const painted = rows.map((row, index) =>
-    settingsRow(row, index, overlay, horizontal.contentWidth)
-  );
-  const renderedRows = painted.map((row) => row.line);
-  // At short heights, notices become compact chrome and the cursor-centered
-  // row window wins whatever the panel can actually paint.
-  let content: FrameLine[];
-  let targets: Array<HitTarget | null>;
-  if (contentCapacity < fixedRows + 1) {
-    const noticeBlocks = [
-      ...(resultLines.length === 0 ? [] : [resultLines]),
-      status.top.filter((line) => line.length > 0),
-      status.bottom.filter((line) => line.length > 0)
-    ];
-    const notices: FrameLine[] = [];
-    const noticeCapacity = contentCapacity;
-    for (const block of noticeBlocks) {
-      if (block.length === 0) continue;
-      const room = noticeCapacity - notices.length;
-      if (room <= 0) break;
-      // A notice taller than the panel keeps the rows that fit rather than
-      // vanishing. A wrapped provider error is several rows now, so dropping
-      // the block whole would show no error at all on a short terminal —
-      // and no error reads as no problem.
-      notices.push(...block.slice(0, room));
-      if (block.length > room) break;
-    }
-    // Complete notices outrank fields in a short panel. A selected row can
-    // disappear temporarily; an error must not lose its final wrapped rows.
-    const rowCapacity = Math.max(0, contentCapacity - notices.length);
-    const rowWindow = rowCapacity === 0
-      ? { start: 0, end: 0 }
-      : panelRowWindow(rows.map(() => 1), overlay.cursor, rowCapacity);
-    content = [
-      ...notices,
-      ...renderedRows.slice(rowWindow.start, rowWindow.end)
-    ];
-    targets = [
-      ...notices.map(() => null),
-      ...rows
-        .slice(rowWindow.start, rowWindow.end)
-        .map((_, index) => listTarget(rowWindow.start + index))
-    ];
-  } else {
-    const rowWindow = panelRowWindow(
-      editableRows.map(() => 1),
-      Math.max(0, overlay.cursor - 2),
-      contentCapacity - fixedRows
-    );
-    content = [
-      renderedRows[0]!,
-      renderedRows[1]!,
-      [],
-      ...status.top,
-      ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
-      ...status.bottom,
-      ...resultLines
-    ];
-    targets = [
-      listTarget(0),
-      listTarget(1),
-      null,
-      ...status.top.map(() => null),
-      ...editableRows
-        .slice(rowWindow.start, rowWindow.end)
-        .map((_, index) => listTarget(rowWindow.start + index + 2)),
-      ...status.bottom.map(() => null),
-      ...resultLines.map(() => null)
-    ];
-  }
-
-  const overrides: HitRegion[][] = content.map(() => []);
-  // Every closed-choice row carries its own arrows, and the action names the
-  // row so a click moves the cursor there first — mouse and keyboard then act
-  // on the same row. The columns come from the row that painted the brackets,
-  // so no second opinion about the drawn value can move an arrow off one.
-  for (const [selectorIndex, selector] of painted.entries()) {
-    if (selector.arrows === null) continue;
-    const selectorRow = targets.findIndex((target) =>
-      target?.kind === "list" && target.index === selectorIndex
-    );
-    if (selectorRow < 0) continue;
-    overrides[selectorRow] = [
-      {
-        target: { kind: "action", action: "take-previous", index: selectorIndex },
-        left: selector.arrows.previous,
-        right: selector.arrows.previous + 1
-      },
-      {
-        target: { kind: "action", action: "take-next", index: selectorIndex },
-        left: selector.arrows.next,
-        right: selector.arrows.next + 1
-      }
-    ];
-  }
+  const painted = settingsFormRows({
+    rows,
+    cursor: boundedSettingsCursor(overlay.cursor),
+    edit: overlay.edit,
+    contentWidth: horizontal.contentWidth,
+    terminalWidth: width,
+    hasArrows: (row) => settingsRowHasArrows(overlay, row.id),
+    actionReport: inPlaceActionReport(overlay)
+  });
+  // Complete notices outrank fields: a selected row can scroll away for a
+  // moment, but an error must not lose its final wrapped rows. On a panel too
+  // short for both, the fields yield entirely — no error reads as no problem.
+  const fixedRows = status.top.length + status.bottom.length + resultLines.length;
+  const shown = contentCapacity < fixedRows + 1
+    ? []
+    : (() => {
+      const window = panelRowWindow(
+        painted.map(() => 1),
+        settingsFormRowOffset(rows, boundedSettingsCursor(overlay.cursor)),
+        Math.max(1, contentCapacity - fixedRows)
+      );
+      return painted.slice(window.start, window.end);
+    })();
+  const leading = shown.length === 0
+    ? shortPanelNotices([resultLines, status.top, status.bottom], contentCapacity)
+    : status.top;
+  const trailing = shown.length === 0 ? [] : [...status.bottom, ...resultLines];
+  const content: FrameLine[] = [
+    ...leading,
+    ...shown.map((row) => row.line),
+    ...trailing
+  ];
+  const targets: Array<HitTarget | null> = [
+    ...leading.map(() => null),
+    ...shown.map((row) => row.target),
+    ...trailing.map(() => null)
+  ];
+  const overrides: HitRegion[][] = [
+    ...leading.map((): HitRegion[] => []),
+    ...shown.map((row) => row.overrides),
+    ...trailing.map((): HitRegion[] => [])
+  ];
 
   const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
   const editing = overlay.edit !== null;
   const selectedRow = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
   const choosing = !editing && settingsRowHasArrows(overlay, selectedRow);
-  const detecting = !editing && rows[overlay.cursor]?.id === "context-window";
   const footerVariants = editing
     ? SETTINGS_EDIT_FOOTERS
     : pending && selectedRow === "profile"
@@ -185,13 +116,17 @@ export function renderSettingsPanel(
         ? SETTINGS_PENDING_FOOTERS
         : selectedRow === "profile"
         ? SETTINGS_PROFILE_FOOTERS
+        // The context window is a scalar that can also be probed, so it keeps
+        // its own keyline rather than the plain scalar one.
+        : selectedRow === "context-window"
+        ? SETTINGS_CONTEXT_FOOTERS
+        : isSettingsScalarRow(selectedRow)
+        ? SETTINGS_SCALAR_FOOTERS
         : choosing && selectedRow === "model"
         ? SETTINGS_MODEL_FOOTERS
         : choosing
           ? SETTINGS_CHOICE_FOOTERS
-          : detecting
-            ? SETTINGS_CONTEXT_FOOTERS
-            : SETTINGS_TEXT_FOOTERS;
+          : SETTINGS_TEXT_FOOTERS;
   const footer = fittingFooter(footerVariants, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
@@ -200,7 +135,7 @@ export function renderSettingsPanel(
     footer.text,
     width,
     height,
-    76,
+    SETTINGS_PANEL_WIDTH,
     {
       rows: state.hitRows,
       targets,
@@ -208,6 +143,38 @@ export function renderSettingsPanel(
       footerActions: footer.actions
     }
   );
+}
+
+/** A notice taller than the panel keeps the rows that fit rather than
+ *  vanishing: a wrapped provider error is several rows, and dropping the block
+ *  whole would show no error at all on a short terminal. */
+function shortPanelNotices(
+  blocks: readonly FrameLine[][],
+  capacity: number
+): FrameLine[] {
+  const notices: FrameLine[] = [];
+  for (const block of blocks) {
+    const rows = block.filter((line) => line.length > 0);
+    if (rows.length === 0) continue;
+    const room = capacity - notices.length;
+    if (room <= 0) break;
+    notices.push(...rows.slice(0, room));
+    if (rows.length > room) break;
+  }
+  return notices;
+}
+
+/** C-18: an action reports in place, to the right of what caused it, and keeps
+ *  reporting until the next keypress. The one-word verdict rides the row; the
+ *  provider's own sentence keeps the wrapped block below, where it has room to
+ *  say why. */
+function inPlaceActionReport(
+  overlay: NonNullable<OverlayState["settings"]>
+): { row: SettingsRowId; text: string; ok: boolean } | null {
+  if (overlay.checking) return { row: "base-url", text: "⟳ checking…", ok: true };
+  if (overlay.result === null) return null;
+  const ready = overlay.result.state === "ready";
+  return { row: "base-url", text: ready ? "✓ ready" : "▲ check failed", ok: ready };
 }
 
 /** The panel's two notice positions.
@@ -382,85 +349,3 @@ function bottomStatus(lines: FrameLine[]): FrameLine[] {
   return [...padding, ...lines];
 }
 
-/** A painted row, and where it put the arrows of a closed choice.
- *
- * `arrows` is `null` when the row is not a closed choice, when the composer
- * owns it, or when the panel is too narrow to paint the closing bracket. The
- * caller must not place a hit region then: `hitAt` consults overrides before
- * row bounds, so an override past the painted glyph would stay clickable. */
-interface PaintedSettingsRow {
-  readonly line: FrameLine;
-  readonly arrows: { readonly previous: number; readonly next: number } | null;
-}
-
-function settingsRow(
-  row: SettingsRowPresentation,
-  index: number,
-  overlay: NonNullable<OverlayState["settings"]>,
-  contentWidth: number
-): PaintedSettingsRow {
-  const selected = index === overlay.cursor;
-  const edit = selected && overlay.edit?.kind === "inline"
-    ? overlay.edit
-    : null;
-  const valueLeft = settingsValueLeft(row.label);
-  const valueWidth = Math.max(1, contentWidth - valueLeft);
-  const lead = `${selected ? "  ▸ " : "    "}${row.label}`;
-  const prefix = raisedSegment(
-    lead + " ".repeat(valueLeft - visibleWidth(lead)),
-    selected ? "focus / accent" : "chrome"
-  );
-  if (edit === null) {
-    const drawn = truncate(row.value, valueWidth);
-    return {
-      line: [
-        prefix,
-        raisedSegment(drawn, selected ? "focus / accent" : "prose")
-      ],
-      arrows: settingsRowHasArrows(overlay, row.id)
-        ? bracketArrows(drawn, valueLeft)
-        : null
-    };
-  }
-  const displayComposer = settingsEditDisplayComposer(edit);
-  return {
-    line: [
-      prefix,
-      raisedSegment("[", "chrome"),
-      ...renderComposerInput(
-        displayComposer,
-        0,
-        composerPosition(displayComposer).column,
-        Math.max(1, valueWidth - 2),
-        "streaming",
-        false,
-        ""
-      ),
-      raisedSegment("]", "chrome")
-    ],
-    arrows: null
-  };
-}
-
-/** A closed choice opens on its first cell and closes on its bracket. The
- * detail a row may add after that bracket is not part of the choice. */
-function bracketArrows(
-  drawn: string,
-  valueLeft: number
-): PaintedSettingsRow["arrows"] {
-  const cells = graphemeCells(drawn);
-  const opening = cells[0]?.text;
-  if (opening !== "‹" && opening !== "[") return null;
-  let column = 0;
-  for (const cell of cells) {
-    if (column > 0 && (cell.text === "›" || cell.text === "]")) {
-      return { previous: valueLeft, next: valueLeft + column };
-    }
-    column += cell.width;
-  }
-  return null;
-}
-
-function listTarget(index: number): HitTarget {
-  return { kind: "list", index };
-}
