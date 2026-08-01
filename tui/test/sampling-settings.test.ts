@@ -15,6 +15,7 @@ import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
+  installSave,
   key,
   openSettings,
   selectRow,
@@ -395,32 +396,6 @@ function publishSamplingRefresh(
     document,
     effective
   });
-}
-
-function installSave(
-  source: ReturnType<typeof demoAppSource>,
-  saved: SaveSettingsCommand[]
-): void {
-  source.api.saveSettings = async (command) => {
-    saved.push(command);
-    const current = source.settingsView;
-    if (!current.editable) throw new Error("demo settings must be editable");
-    const effective = basicSettingsFromDocument(command.document);
-    source.settingsView = {
-      ...current,
-      stateGeneration: current.stateGeneration + 1,
-      activeRevision: current.activeRevision + 1,
-      document: command.document,
-      effective
-    };
-    return {
-      kind: "settings" as const,
-      settingsStateGeneration: source.settingsView.stateGeneration,
-      activeSettingsRevision: source.settingsView.activeRevision,
-      pendingSettingsRevision: null,
-      activationOutcome: null
-    };
-  };
 }
 
 function render(

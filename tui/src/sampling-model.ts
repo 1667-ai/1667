@@ -9,6 +9,7 @@ import {
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import {
+  applySamplingSettings,
   samplingContextForRoute,
   samplingKnobLabel,
   samplingKnobPresentation,
@@ -65,9 +66,12 @@ export function samplingContextForOverlay(
   }
   try {
     const profileId = overlay.draft.selectedProfileId;
-    if (profileId === null) throw new Error("selected settings profile is unavailable");
+    const document = overlay.draft.document;
+    if (profileId === null || document === null) {
+      throw new Error("selected settings profile is unavailable");
+    }
     const projected = applyBasicSettingsDraft(
-      overlay.view.document,
+      document,
       overlay.draft.generation,
       profileId
     );
@@ -76,10 +80,10 @@ export function samplingContextForOverlay(
     // The basic editor may contain an incomplete endpoint while it is being
     // typed. Keep the route's central capability answer visible until save
     // reports the endpoint error.
-    const profileId = overlay.draft.selectedProfileId;
-    const route = profileId === null
-      ? resolveSettingsProfile(overlay.view.document, overlay.view.document.routing.default)
-      : resolveSettingsProfile(overlay.view.document, profileId);
+    const document = overlay.draft.document;
+    if (document === null) throw new Error("editable settings document is unavailable");
+    const profileId = overlay.draft.selectedProfileId ?? document.routing.default;
+    const route = resolveSettingsProfile(document, profileId);
     return {
       ...samplingContextForRoute(route),
       remoteModelId: overlay.draft.generation.model
@@ -378,7 +382,14 @@ function updateSamplingDraft(
   overlay: SettingsOverlayState,
   sampling: SamplingSettingsV2
 ): void {
-  overlay.draft = { ...overlay.draft, sampling };
+  const document = overlay.draft.document === null || overlay.draft.selectedProfileId === null
+    ? overlay.draft.document
+    : applySamplingSettings(
+        overlay.draft.document,
+        sampling,
+        overlay.draft.selectedProfileId
+      );
+  overlay.draft = { ...overlay.draft, document, sampling };
   if (overlay.conflict !== null) overlay.conflict.armed = false;
   overlay.result = null;
   if (overlay.sampling !== null) overlay.sampling.result = "draft updated · save in Settings";
