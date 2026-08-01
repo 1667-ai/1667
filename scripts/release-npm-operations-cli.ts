@@ -5,6 +5,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
+import { promoteGitHubRelease } from "./release-github-promotion.js";
 import {
   NpmTagOperationJournal,
   type NpmTagObservationError
@@ -88,6 +89,12 @@ export interface NpmTagOperationDependencies {
   readonly processJournal?: NpmProcessJournal;
   readonly assertProcessQuiescent?: () => void;
   readonly supersedingRelease?: NpmSupersedingReleaseVerifier;
+  /** Marks the GitHub release for a completed `latest` or `stable` promotion.
+   *  The default reads GH_TOKEN only when it runs. */
+  readonly markGitHubRelease?: (
+    version: string,
+    repository: string
+  ) => Promise<unknown>;
 }
 
 export async function runNpmTagOperation(
@@ -167,6 +174,27 @@ export async function runNpmTagOperation(
     await lease.acknowledgeWriter(leaseRequest, writerSecret, "success");
     if (request.command === "promote") {
       await lease.complete(leaseRequest, claimSecret);
+      // npm now names this version on the destination channel. The publication
+      // workflow created the GitHub release as a pre-release, because
+      // publication only reaches the npm 'next' tag. Nothing moved it
+      // afterwards, so a promoted release still showed as a pre-release and the
+      // repository named no current release at all.
+      //
+      // This runs after the lease completes, so npm remains the authority for
+      // what a channel contains. A failure here reports a release that is
+      // published on npm and not yet marked on GitHub, and repeating the
+      // promotion is safe.
+      if (parameters.operation === "promotion"
+        && (parameters.promotion.destination === "latest"
+          || parameters.promotion.destination === "stable")) {
+        const markRelease = dependencies.markGitHubRelease
+          ?? ((releaseVersion: string, repository: string) => promoteGitHubRelease({
+            repository,
+            token: requiredEnvironment("GH_TOKEN"),
+            version: releaseVersion
+          }));
+        await markRelease(version, leaseRequest.repository);
+      }
     }
   } catch (error) {
     await recoverNpmTagOperation(lifecycle, error, {

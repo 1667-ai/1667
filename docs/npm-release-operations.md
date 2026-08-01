@@ -218,6 +218,15 @@ It moves the five platform destination tags before it moves the launcher tag.
 It verifies each write before it starts the next write.
 It keeps `next` on `VERSION`.
 It skips a destination tag that already names `VERSION`.
+For a `latest` or a `stable` promotion, it then marks the GitHub release. It
+clears the pre-release flag, and it makes that release the current release. It
+reads GitHub again to confirm both facts. The publication workflow creates every
+GitHub release as a pre-release, because publication reaches only the npm `next`
+tag. A promotion that did not do this step left the release marked as a
+pre-release, and the repository named no current release.
+The GitHub step runs after the lease completes, so npm stays the authority for
+the contents of a channel. A failure at this step reports a release that npm
+holds and GitHub does not yet mark. Run the promotion again to correct it.
 It creates a process-local writer secret after it starts both journals.
 It does not put the writer secret in an environment variable.
 It verifies the writer before each npm process starts.
