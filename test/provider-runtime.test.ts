@@ -118,7 +118,7 @@ test("stored bearer and named-header credentials resolve and enter redaction", (
       assistantPrefill: "unknown",
       reasoningEffort: "unknown",
       promptCaching: "unknown"
-    }, EMPTY_SAMPLING_V2, {}, new Map([[auth.secretId, secret]]));
+    }, {}, new Map([[auth.secretId, secret]]));
     const resolved = resolveProviderHeaders(
       attachProviderRuntime(baseSettings(), runtime),
       {}
@@ -247,7 +247,7 @@ test("v2 runtime uses its bounded credential snapshot, not later process environ
     assistantPrefill: "unknown",
     reasoningEffort: "unknown",
     promptCaching: "unknown"
-  }, EMPTY_SAMPLING_V2, {
+  }, {
     AI_1667_SNAPSHOT_KEY: "snapshotted-secret"
   });
   process.env.AI_1667_SNAPSHOT_KEY = "later-process-value";

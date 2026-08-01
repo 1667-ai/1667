@@ -81,9 +81,9 @@ export function providerRuntimeFromV2(
   connection: ModelConnectionV2,
   effort: GenerationEffortV2,
   capabilities: ModelCapabilitiesV2,
-  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
   environment?: NodeJS.ProcessEnv,
-  storedSecrets?: ReadonlyMap<string, string>
+  storedSecrets?: ReadonlyMap<string, string>,
+  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,

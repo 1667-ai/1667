@@ -455,6 +455,7 @@ test("Anthropic lowering uses only its exact wire names", () => {
     OMIT_PLANS[0]!
   );
   assert.equal(body.top_p, 0.9);
+  assert.equal("temperature" in body, false);
   assert.equal(body.top_k, 32);
   assert.deepEqual(body.stop_sequences, ["END"]);
   for (const field of [

@@ -196,6 +196,7 @@ test("a rejected sampling parameter is never removed for an Anthropic retry", as
   }, /top_p.*not supported/u);
   assert.equal(bodies.length, 1);
   assert.equal(bodies[0]?.top_p, 0.8);
+  assert.equal("temperature" in (bodies[0] ?? {}), false);
 });
 
 test("a provider error reads as its own sentence, not as its envelope", () => {

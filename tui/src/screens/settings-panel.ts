@@ -52,12 +52,18 @@ export function renderSettingsPanel(
   const contentCapacity = panelContentRows(height);
   const status = settingsStatusLines(overlay);
   const resultLines = settingsResultLines(overlay, horizontal.contentWidth);
+  const editableRows = rows.slice(2);
+  const fullRows = 3 + status.top.length + status.bottom.length
+    + editableRows.length + resultLines.length;
+  // Keep the padded strip for normal panel geometry. The short-panel branch
+  // below filters blank rows when it builds compact notices. If a clean panel
+  // has no spare content row, omit its blank strip so fields stay available.
   const bottomStatus = status.bottom.some((line) => line.length > 0)
+    || contentCapacity > fullRows
     ? status.bottom
     : [];
   const fixedRows = 3 + status.top.length
     + bottomStatus.length + resultLines.length;
-  const editableRows = rows.slice(2);
   const painted = rows.map((row, index) =>
     settingsFieldRow(row, index, overlay, horizontal.contentWidth)
   );

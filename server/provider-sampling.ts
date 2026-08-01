@@ -6,6 +6,7 @@ import {
 } from "../shared/sampling-capabilities.js";
 import type {
   SamplingKnobV2,
+  SamplingScalarKnobV2,
   SamplingSettingsV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -25,7 +26,7 @@ export function applySamplingFields(
     remoteModelId: settings.model,
     temperatureSupport: runtime.capabilities.temperature
   };
-  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
+  const plan = resolveConfiguredSamplingKnobs(context, sampling).map(({ knob, resolution }) => {
     if (resolution.kind === "unavailable") {
       throw new ProviderError(
         `Configured sampling parameter ${samplingKnobWireName(knob)} is unavailable: ${
@@ -33,8 +34,12 @@ export function applySamplingFields(
         }`
       );
     }
-    body[resolution.wireField] = encodeSamplingValue(knob, sampling);
-  }
+    return {
+      wireField: resolution.wireField,
+      value: encodeSamplingValue(knob, sampling)
+    };
+  });
+  for (const { wireField, value } of plan) body[wireField] = value;
 }
 
 const PROVIDER_UNAVAILABLE_REASON: Readonly<Record<SamplingUnavailableReason, string>> = {
@@ -51,21 +56,41 @@ function encodeSamplingValue(
   knob: SamplingKnobV2,
   sampling: SamplingSettingsV2
 ): number | readonly string[] | Readonly<Record<string, number>> {
-  const value = sampling[knob];
   switch (knob) {
     case "topP":
+      return configuredScalarValue(sampling.topP, knob);
     case "topK":
+      return configuredScalarValue(sampling.topK, knob);
     case "minP":
+      return configuredScalarValue(sampling.minP, knob);
     case "frequencyPenalty":
+      return configuredScalarValue(sampling.frequencyPenalty, knob);
     case "presencePenalty":
+      return configuredScalarValue(sampling.presencePenalty, knob);
     case "repeatPenalty":
-      return value as number;
+      return configuredScalarValue(sampling.repeatPenalty, knob);
     case "stop":
-      return [...(value as readonly string[])];
+      return [...sampling.stop];
     case "logitBias":
       return Object.fromEntries(
-        Object.entries(value as Readonly<Record<string, number>>)
+        Object.entries(sampling.logitBias)
           .sort((left, right) => Number(left[0]) - Number(right[0]))
       );
+    default:
+      return assertNever(knob);
   }
+}
+
+function configuredScalarValue(
+  value: number | null,
+  knob: SamplingScalarKnobV2
+): number {
+  if (value === null) {
+    throw new Error(`Configured sampling scalar ${samplingKnobWireName(knob)} is unexpectedly null`);
+  }
+  return value;
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported sampling parameter ${String(value)}`);
 }

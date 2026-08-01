@@ -419,6 +419,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "paste-clipboard" };
   }
   if (mode === "SETTINGS" && settingsSampling) {
+    // A modified key is a chord, never a plain Sampling hotkey. The Settings
+    // paste chord is handled immediately above.
+    if (key.ctrl || key.meta || key.super) return { action: "none" };
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
     if (key.name === "return") return { action: "open-selected" };

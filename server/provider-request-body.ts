@@ -136,6 +136,7 @@ export function buildAnthropicMessagesRequestBody(
   if (system.length > 0) body.system = system;
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
   applySamplingFields(body, settings, "anthropic-messages");
+  if ("top_p" in body) delete body.temperature;
   applyGenerationEffort(body, settings, "anthropic");
   return body;
 }

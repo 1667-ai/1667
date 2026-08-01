@@ -131,9 +131,9 @@ export function effectiveGenerationRuntime(
     connection,
     profile.effort,
     model.capabilities,
-    profile.sampling ?? EMPTY_SAMPLING_V2,
     environment,
-    storedSecrets
+    storedSecrets,
+    profile.sampling ?? EMPTY_SAMPLING_V2
   );
   const settings = attachProviderRuntime({
       provider,

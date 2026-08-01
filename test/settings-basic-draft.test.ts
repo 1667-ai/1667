@@ -408,7 +408,6 @@ function resolvedStoredHeaders(
         connection,
         "default",
         model.capabilities,
-        EMPTY_SAMPLING_V2,
         {},
         new Map([[auth.secretId, secret]])
       ),
