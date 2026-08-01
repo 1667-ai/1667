@@ -24,6 +24,19 @@ the original passage unchanged.
 Boundary whitespace stays owned by the original selection. Only generated prose
 between the verified anchors is spliced into the active take in place.
 
+## Author's Note boundary
+
+The Author's Note is per-story steering for a continuation or a prompted
+retake. 1667 sends it immediately before the last story part. 1667 sends it
+again for each request.
+
+Official OpenAI Chat Completions receives a late `system` message. Anthropic
+Messages and OpenAI-compatible endpoints receive the fold form in the last
+`user` message.
+
+A highlighted rewrite does not use the Author's Note. A summary take does not
+use it. The autoname operation does not use it.
+
 All generation operations first build the provider-neutral block model in
 `shared/prompt-plan.ts`. Author brief, facts, operation contract, and source
 blocks form a stable prefix. Request text, selections, boundary tags, and

@@ -10,7 +10,8 @@ export type StablePromptBlockKind =
   | "author-brief"
   | "facts"
   | "operation-contract"
-  | "source";
+  | "source"
+  | "authors-note";
 
 export type VolatilePromptBlockKind =
   | "request"
@@ -55,6 +56,7 @@ export function fixedPromptTexts(plan: PromptPlan): string[] {
   return plan.turns.flatMap((turn) => turn.blocks)
     .filter((block) =>
       block.kind !== "facts"
+      && block.kind !== "authors-note"
       && block.kind !== "source"
       && block.kind !== "selection")
     .map((block) => block.text);

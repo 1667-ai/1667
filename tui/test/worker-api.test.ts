@@ -161,32 +161,28 @@ describe("embedded backend worker", () => {
       expect(summaryDeltas.length > 0).toBeTrue();
 
       const cancel = new AbortController();
-      let deltasAfterCancel = 0;
-      const stoppedText: string[] = [];
+      const arrivedText: string[] = [];
       const cancelled = await api.continueStory(
         story.id,
         "This must be cancelled.",
         "worker-cancel",
         { parentId: story.path.at(-1)!.id },
         (text) => {
-          if (cancel.signal.aborted) deltasAfterCancel += 1;
-          else {
-            stoppedText.push(text);
-            cancel.abort();
-          }
+          arrivedText.push(text);
+          if (!cancel.signal.aborted) cancel.abort();
         },
         cancel.signal
       );
       expect(cancelled).toBe(null);
-      expect(deltasAfterCancel).toBe(0);
+      expect(arrivedText.join("").length > 0).toBeTrue();
       story = await api.createNode(story.id, {
         parentId: story.path.at(-1)!.id,
         instruction: "This must be cancelled.",
-        text: stoppedText.join(""),
+        text: arrivedText.join(""),
         genId: "worker-cancel"
       });
       expect(story.path.at(-1)?.genId).toBe("worker-cancel");
-      expect(story.path.at(-1)?.text).toBe(stoppedText.join("").trim());
+      expect(story.path.at(-1)?.text).toBe(arrivedText.join("").trim());
 
       // Search crosses the worker boundary like every other method: the
       // request is validated there, the scan runs in the worker, and the

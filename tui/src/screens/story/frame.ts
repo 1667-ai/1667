@@ -8,7 +8,7 @@ export type LogoDisplayRole =
   | "logo cyan" | "logo blue" | "logo violet";
 
 export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "danger text" | "context warning"
-  | "context voice" | "context facts" | "context recent" | "context summary"
+  | "context voice" | "context facts" | "context recent" | "context summary" | "context note"
   | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2"
   | LogoDisplayRole;
 
@@ -331,7 +331,7 @@ export function fitLine(line: FrameLine, width: number): FrameLine {
  * Where every alias gets its color. Being a total record, an alias added to
  * `DisplayRole` cannot be forgotten here.
  *
- * The four meter slices (doc 12b) borrow hues the theme already owns rather
+ * The five meter slices (doc 12b) borrow hues the theme already owns rather
  * than inventing four more: the standing voice is the writer's own ink, facts
  * take the alt-tag violet, recent prose carries the page accent because it
  * is what actually fills the window, and a summary is sepia wherever the theme
@@ -347,6 +347,7 @@ const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   "context facts": (palette) => palette.color("tag · alt"),
   "context recent": (palette) => palette.color("focus / accent"),
   "context summary": (palette) => palette.color("summary"),
+  "context note": (palette) => palette.color("tag · canon"),
   // Forecast cells must stay off the request-fill palette (focus / accent,
   // context warning, danger). Brass and draft cool keep both pulse phases
   // distinct from every severity's request ink without reading as an alert.

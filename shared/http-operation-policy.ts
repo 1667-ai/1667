@@ -31,6 +31,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   getUnknownOutcomeStatus: "local",
   previewChapterBreakRemoval: "local",
   renameStory: "local",
+  setAuthorsNote: "local",
   autonameStory: "generation",
   acknowledgeUnknownOutcomes: "local",
   deleteStory: "local",
@@ -158,6 +159,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
   }
   if (sub === "export" && parts.length === 5
     && httpMethod === "GET") return "exportMarkdown";
+  if (sub === "authors-note" && parts.length === 5
+    && httpMethod === "PUT") return "setAuthorsNote";
   if (sub === "switch" && parts.length === 5
     && httpMethod === "POST") return "switchLine";
   if (sub === "continue" && parts.length === 5

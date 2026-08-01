@@ -1,5 +1,9 @@
 import { activePath, unusedTakePruneSelection } from "../shared/story-tree.js";
 import {
+  MAX_AUTHORS_NOTE_CHARS,
+  normalizeAuthorsNote
+} from "../shared/authors-note.js";
+import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
@@ -10,6 +14,7 @@ import {
 import {
   isProviderRecoveryContext
 } from "../shared/provider-recovery.js";
+import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
 import {
   chapterBreakRemovalFingerprint,
@@ -91,6 +96,37 @@ const MUTATIONS: MutationRegistry = {
       return recovered ?? await service.renameStory(
         input.id,
         input.title,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setAuthorsNote: define<"setAuthorsNote">({
+    parse: (value) => {
+      const input = requireRecord(value, "setAuthorsNote input");
+      const raw = requireStringValue(input.note, "note");
+      if (hasUnpairedSurrogate(raw)) {
+        throw badInput("Author's Note contains invalid Unicode.");
+      }
+      if (unicodeScalarLength(raw, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
+        throw badInput(
+          `Author's Note exceeds the ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} Unicode scalar value limit.`
+        );
+      }
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        note: normalizeAuthorsNote(raw) ?? ""
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => (story.authorsNote ?? "") === input.note
+      );
+      return recovered ?? await service.setAuthorsNote(
+        input.storyId,
+        input.note,
         context.storyMutationRequest
       );
     }

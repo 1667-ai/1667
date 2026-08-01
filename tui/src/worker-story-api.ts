@@ -119,6 +119,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { id, title },
       { expectedAggregateVersion: await expectedVersion(id) }
     )),
+    setAuthorsNote: async (storyId, note) => rememberPayload(await transport.call(
+      "setAuthorsNote",
+      { storyId, note },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = rememberPayload(await transport.call("loadStory", { id }));

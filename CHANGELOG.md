@@ -5,7 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-## 0.2.0 - 2026-08-01
+- **`1667 export` now writes NovelAI archives.** Use `--format story`,
+  `--format scenario`, or `--format lorebook`. Use `--all` to export every
+  story. The command reports content changes and omissions for each archive.
+
+- **Stories now have an Author's Note.** Press `a` to write short steering for
+  the next continuation or prompted retake. 1667 shows the note cost in the
+  context meter and warns above 300 estimated tokens. Thanks @10fra for the
+  request.
+
+## 0.2.1 - 2026-08-01
 
 - **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2
   MessagePack documents and Editor V1 legacy stories. Story title and section

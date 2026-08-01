@@ -40,6 +40,7 @@ bun start -- --global                # Open the machine-wide project
 bun start -- --story <id>            # Open one story
 bun start -- --data path/to/book     # Open one project root
 bun start -- export --force          # Export the selected story line
+bun start -- export --all --format story # Export all stories as archives
 bun start -- --url                   # Use the server in run.json
 ```
 

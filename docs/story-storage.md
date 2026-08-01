@@ -71,18 +71,50 @@ identifiers when it next changes a story.
 
 ## Export a story
 
-`1667 export` writes the selected story line to `<Story Title>.md` in the
-project root. The selected story line contains the selected take for each story
-part. The export omits unselected takes and directions. Chapter titles use `##`
-headings.
+In this section, archive is a Technical Name for a NovelAI `.story`,
+`.scenario`, or `.lorebook` file.
+
+`1667 export` writes Markdown to `<Story Title>.md` in the project root. The
+Markdown contains the selected take for each story part. The export omits
+unselected takes and directions. Chapter titles use `##` headings.
+
+Use `--format` to write an archive:
+
+```sh
+1667 export --format story
+1667 export --format scenario
+1667 export --format lorebook
+```
+
+A `.story` archive contains the selected prose in order. It does not contain
+Facts, directions, the Author's Note, unselected takes, summary parts, chapter
+boundaries, or retry history.
+
+A `.scenario` archive contains the selected prose in one prompt. It puts the
+author brief in the instruction context. It puts Facts in the Lorebook. It
+does not include the Author's Note. It does not create placeholder variables.
+
+A `.lorebook` archive contains one entry for each Fact. A Fact tag becomes a
+category. Current Facts have no keys. Thus, each entry is always on.
+
+The command writes the path of each file to standard output. For an archive,
+it writes a fidelity report to standard error. The report gives the number of
+items that the export changes or omits.
+
+Use `--all` to export every story. The command writes the newest story first.
+It uses numeric suffixes when two story titles make the same file name.
 
 If the file exists, 1667 adds a numeric suffix such as `-2`. Use `--force` to
-replace the file without a suffix.
+replace the selected output file. During an `--all` export, `--force` keeps
+separate file names for title collisions.
 
 `--story <id>` selects a story. Without this option, export uses the most
 recently updated story.
 
 No option selects a story line. Select the story line in the TUI before export.
+
+1667 can import a `.story` archive. 1667 cannot import a `.scenario` archive or
+a `.lorebook` archive.
 
 ## Import a story
 

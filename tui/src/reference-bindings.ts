@@ -71,6 +71,7 @@ const DEFINITIONS = {
   navRetakeWithPrompt: route("nav-shifted", "R", "NAV", "retake-with-prompt", { shift: true }),
   navWrite: route("nav", "w", "NAV", "write"),
   navEdit: route("nav", "e", "NAV", "edit"),
+  navAuthorsNote: route("nav", "a", "NAV", "open-authors-note"),
   navCopyPart: route("nav", "y", "NAV", "copy-part"),
   navCopyLine: route("nav-shifted", "Y", "NAV", "copy-line", { shift: true }),
   composeHistoryPrevious: route("compose-chord", "up", "COMPOSE", "history-previous", { ctrl: true }),

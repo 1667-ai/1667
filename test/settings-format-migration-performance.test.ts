@@ -68,7 +68,7 @@ test(
         }
       });
 
-      assert.equal(measurement.value, 3);
+      assert.equal(measurement.value, 4);
       const migratedModel = (await readSettingsState(dataDir))
         .documents["1"]?.models["migrated:model"];
       assert.equal(migratedModel?.remoteId, settings.model);
@@ -95,7 +95,7 @@ test(
         }
       });
 
-      assert.equal(measurement.value, 3);
+      assert.equal(measurement.value, 4);
       assertPerformanceBound(context, "absent-default migration", measurement, ABSENT_DEFAULT_BUDGET);
     });
 
@@ -132,7 +132,7 @@ test(
         }
       });
 
-      assert.equal(measurement.value, 3);
+      assert.equal(measurement.value, 4);
       assertPerformanceBound(context, "post-crash migration retry", measurement, RETRY_BUDGET);
     });
 
@@ -143,7 +143,7 @@ test(
       );
       const lock = new DataDirectoryLock(dataDir);
       await lock.acquire();
-      assert.equal(lock.dataFormat, 3);
+      assert.equal(lock.dataFormat, 4);
       const iterations = 10_000;
 
       const measurement = await measure(async () => {
@@ -158,10 +158,10 @@ test(
         }
       });
 
-      assert.equal(measurement.value, iterations * 3);
+      assert.equal(measurement.value, iterations * 4);
       assertPerformanceBound(
         context,
-        `${iterations.toLocaleString()} format-3 no-ops`,
+        `${iterations.toLocaleString()} format-4 no-ops`,
         measurement,
         NO_OP_BUDGET
       );

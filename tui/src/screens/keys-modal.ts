@@ -125,6 +125,7 @@ const SECTIONS: readonly KeysModalSection[] = [
       ]),
       entry("write a take yourself", [binding("navWrite")]),
       entry("edit prose and prompt", [binding("navEdit")]),
+      entry("author's note", [binding("navAuthorsNote")]),
       entry("copy part · whole line", [
         binding("navCopyPart"),
         binding("navCopyLine")

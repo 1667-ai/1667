@@ -30,6 +30,9 @@ const IDENTITY: NpmProcessJournalIdentity = Object.freeze({
 });
 /** Delay between the SIGTERM that npm ignores and the write that must not land. */
 const LATE_WRITE_DELAY_MS = 1_000;
+// The supervised path starts the keeper, worker, executor, and fixture before
+// the fixture writes its pid. Loaded Intel macOS runners can exceed 2 seconds.
+const CHILD_RUNNER_TIMEOUT_MS = 5_000;
 test("execve npm starts only after its durable gate and inherits stdin", {
   timeout: 15_000
 }, async (t) => {
@@ -124,7 +127,7 @@ test("independent runner deadline kills npm before a late write", {
 });
 
 test("a terminal callback failure is contained and latches the client", {
-  timeout: 15_000
+  timeout: 30_000
 }, async (t) => {
   const root = await temporaryRoot(t);
   const pidFile = path.join(root, "pid");
@@ -139,8 +142,8 @@ test("a terminal callback failure is contained and latches the client", {
     IDENTITY
   );
   const client = childClient(npmCli, journal, {
-    writeTimeoutMs: 2_000,
-    independentTimeoutMs: 2_000
+    writeTimeoutMs: CHILD_RUNNER_TIMEOUT_MS,
+    independentTimeoutMs: CHILD_RUNNER_TIMEOUT_MS
   });
   await assert.rejects(
     client.run(["dist-tag"]),
@@ -194,7 +197,7 @@ test("the keeper rejects an acknowledgment whose terminal record disappeared", {
 });
 
 test("worker loss makes the keeper kill npm before it can write", {
-  timeout: 15_000
+  timeout: 30_000
 }, async (t) => {
   const root = await temporaryRoot(t);
   const pidFile = path.join(root, "pid");
@@ -219,9 +222,9 @@ test("worker loss makes the keeper kill npm before it can write", {
     IDENTITY
   );
   const client = childClient(npmCli, journal, {
-    writeTimeoutMs: 2_000,
+    writeTimeoutMs: CHILD_RUNNER_TIMEOUT_MS,
     terminationGraceMs: 50,
-    independentTimeoutMs: 2_000
+    independentTimeoutMs: CHILD_RUNNER_TIMEOUT_MS
   });
   await assert.rejects(
     client.run(["dist-tag"]),
@@ -236,7 +239,7 @@ test("worker loss makes the keeper kill npm before it can write", {
 });
 
 test("keeper loss does not settle before the worker kills npm", {
-  timeout: 15_000
+  timeout: 30_000
 }, async (t) => {
   const root = await temporaryRoot(t);
   const pidFile = path.join(root, "pid");
@@ -260,9 +263,9 @@ test("keeper loss does not settle before the worker kills npm", {
     IDENTITY
   );
   const client = childClient(npmCli, journal, {
-    writeTimeoutMs: 2_000,
+    writeTimeoutMs: CHILD_RUNNER_TIMEOUT_MS,
     terminationGraceMs: 250,
-    independentTimeoutMs: 3_000
+    independentTimeoutMs: CHILD_RUNNER_TIMEOUT_MS
   });
 
   await assert.rejects(

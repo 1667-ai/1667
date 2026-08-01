@@ -53,7 +53,7 @@ const PROVIDERS: readonly Provider[] = ["dry-run", "openai-compatible", "anthrop
  * read. So the store's presence, not one exact number, is the discriminant. */
 type InitializedSettingsStore =
   | { readonly dataFormat: 1 }
-  | { readonly dataFormat: 2 | 3; readonly store: SettingsV2Store };
+  | { readonly dataFormat: 2 | 3 | 4; readonly store: SettingsV2Store };
 
 export interface LoadedGenerationSettings {
   readonly settings: GenerationSettings;

@@ -10,11 +10,11 @@ import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalize
 import { activeHumanAttribution, attributionAfterReplacement } from "../shared/human-edit.js";
 import { streamCompletion } from "./providers.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
-import type { GenerationAdmissionRegistry } from "./generation-admission.js";
+import { assertFixedContextFits, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
-import { assertFactsFit, factsSystemMessage } from "./story-facts.js";
+import { factsSystemMessage } from "./story-facts.js";
 import {
   streamModel,
   type DeltaConsumer
@@ -64,7 +64,7 @@ export async function autonameStory(
           - titleFacts.length - briefChars - 800)
       );
   const { prompt: titlePrompt } = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleFacts);
-  assertFactsFit(titleSettings, titleFacts, fixedPromptTexts(titlePrompt));
+  assertFixedContextFits(titleSettings, titleFacts, null, fixedPromptTexts(titlePrompt));
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
   try {
     for await (const delta of streamCompletion(
@@ -170,6 +170,7 @@ export async function continueStory(
     contextParts = parentId === null ? [] : pathTo(story, parentId);
   }
   const facts = factsSystemMessage(story);
+  const authorsNote = story.authorsNote ?? null;
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
@@ -181,6 +182,7 @@ export async function continueStory(
   const continuation = continuationPlan(
     settings.systemPrompt,
     facts,
+    authorsNote,
     contextParts,
     instruction,
     appendTo !== null,
@@ -189,12 +191,13 @@ export async function continueStory(
     story.chapterBreaks,
     story.nodes
   );
-  assertFactsFit(settings, facts, fixedPromptTexts(continuation.prompt));
+  assertFixedContextFits(settings, facts, authorsNote, fixedPromptTexts(continuation.prompt));
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
     contextPartIds: contextParts.map((part) => part.id),
     facts,
+    authorsNote,
     instruction,
     appendTo,
     parentId
@@ -328,7 +331,7 @@ export async function rewriteNode(
     : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
   // Measure the fixed rewrite prompt from the semantic plan so admission cannot
   // drift from later prompt wording.
-  assertFactsFit(settings, facts, fixedPromptTexts(plan.prompt));
+  assertFixedContextFits(settings, facts, null, fixedPromptTexts(plan.prompt));
   // Rewriting is a precision task: high temperatures break exact seam copying
   // long before they improve prose. A plain regenerate also gets a hard output
   // budget, so a model that ignores the word band runs out after a few dozen

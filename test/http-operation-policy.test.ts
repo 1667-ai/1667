@@ -35,6 +35,10 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
       lifetime: "transfer"
     }
   );
+  assert.deepEqual(
+    httpOperationPolicy("PUT", "/api/stories/story/authors-note"),
+    { method: "setAuthorsNote", lifetime: "local" }
+  );
   for (const [method, path] of [
     ["PUT", "/api/stories/story/tags/node/extra"],
     ["PATCH", "/api/stories/story/facts/fact/extra"],

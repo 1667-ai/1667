@@ -191,6 +191,7 @@ export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "chapter-summary"; summaryId: string; expected: string }
+  | { kind: "authors-note"; expected: string }
   | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
 
 export interface FactEditorTarget {

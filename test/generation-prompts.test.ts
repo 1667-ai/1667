@@ -16,7 +16,7 @@ import type { Story, StoryNode } from "../shared/types.js";
 test("empty Continue ends on the unfinished assistant passage", () => {
   const parts = [part("Open the door.", "The latch was unlo")];
   const messages = rendered(continuationPlan(
-    "Write vivid prose.", null, parts, "Continue the story.", true, true, "ct-test", [], parts
+    "Write vivid prose.", null, null, parts, "Continue the story.", true, true, "ct-test", [], parts
   ));
 
   assert.equal(messages.at(-1)?.role, "assistant");
@@ -28,6 +28,7 @@ test("empty Continue ends on the unfinished assistant passage", () => {
 test("requested continuation remains a new user turn", () => {
   const messages = rendered(continuationPlan(
     "Write vivid prose.",
+    null,
     null,
     [part("Open the door.", "The latch clicked.")],
     "A stranger enters.",
@@ -45,12 +46,12 @@ test("structural empty endpoints never become empty assistant messages", () => {
   const empty = { ...part("", ""), id: "empty", parentId: "prior" };
   const parts = [{ ...part("Set the scene.", "Prior prose."), id: "prior", activeChildId: "empty" }, empty];
 
-  const requested = continuationPlan("Write.", null, parts, "Go elsewhere.", false, true, "ct-empty", [], parts);
+  const requested = continuationPlan("Write.", null, null, parts, "Go elsewhere.", false, true, "ct-empty", [], parts);
   const requestedMessages = rendered(requested);
   assert.equal(requestedMessages.some(({ role, content }) => role === "assistant" && content.trim().length === 0), false);
   assert.deepEqual(requestedMessages.at(-1), { role: "user", content: "Go elsewhere." });
 
-  const appended = continuationPlan("Write.", null, [empty], "Continue the story.", true, true, "ct-empty", [], [empty]);
+  const appended = continuationPlan("Write.", null, null, [empty], "Continue the story.", true, true, "ct-empty", [], [empty]);
   const appendedMessages = rendered(appended);
   assert.equal(appendedMessages.some(({ role }) => role === "assistant"), false);
   assert.deepEqual(appendedMessages.at(-1), { role: "user", content: "Continue the story." });
@@ -191,6 +192,7 @@ test("new Claude models use required boundary echoes instead of rejected prefill
   const plan = continuationPlan(
     settings.systemPrompt,
     null,
+    null,
     [part("Open the door.", "The latch was unlo")],
     "Continue the story.",
     true,
@@ -264,7 +266,7 @@ test("continuation context resets at the last summary and keeps its instruction 
   const summary = { ...part("Use this recap", "Continuity recap"), id: "summary", role: "summary" as const };
   const after = { ...part("Continue onward", "Fresh prose"), id: "after" };
   const parts = [before, summary, after];
-  const plan = continuationPlan("Write.", null, parts, "Continue.", false, true, "ct-summary", [], parts);
+  const plan = continuationPlan("Write.", null, null, parts, "Continue.", false, true, "ct-summary", [], parts);
   const content = rendered(plan).map((message) => message.content).join("\n");
   assert.doesNotMatch(content, /Old prose|Old direction/);
   assert.match(content, /Use this recap[\s\S]*Continuity recap[\s\S]*Fresh prose/);
