@@ -109,11 +109,16 @@ export function settingsRows(
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
   const providerChoice = settingsProviderChoice(settings);
+  // Where the account-ownership proof does not exist, a plaintext endpoint is
+  // still reachable — it just needs the opt-in one row below. Name that,
+  // instead of calling the provider unavailable and leaving the writer to
+  // guess which of the two settings is the obstacle.
   const providerLabel =
     providerChoice.plaintextDefaultRequiresOwnedLoopback === true
     && !localProviderPresetsSupported()
     && isPlainHttp(settings.baseUrl)
-    ? `${providerChoice.label} · unavailable`
+    && settings.allowInsecureHttp !== true
+    ? `${providerChoice.label} · needs insecure HTTP`
     : providerChoice.label;
   return [
     { id: "theme", label: "theme", value: `‹ ${config.theme} ›` },
@@ -126,7 +131,7 @@ export function settingsRows(
     { id: "base-url", label: "base URL", value: settings.baseUrl || "—" },
     {
       id: "allow-insecure-http",
-      label: "insecure HTTP (LAN)",
+      label: "insecure HTTP",
       value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
     },
     { id: "model", label: "model", value: modelRowValue(overlay) },

@@ -46,7 +46,8 @@ export interface DerivedChapter<Node extends ChapterPartLike> {
 export function deriveChapters<Node extends ChapterPartLike>(
   path: readonly Node[],
   chapterBreaks: readonly ChapterBreak[],
-  nodes: readonly Node[]
+  nodes: readonly Node[],
+  firstChapterTitle = ""
 ): DerivedChapter<Node>[] {
   const visiblePath = path.filter((node) => !isChapterSummary(node));
   if (visiblePath.length === 0) return [];
@@ -63,7 +64,8 @@ export function deriveChapters<Node extends ChapterPartLike>(
   }
 
   const chapters: DerivedChapter<Node>[] = [];
-  let title = "";
+  // Chapter one is opened by no break, so its name arrives from the story.
+  let title = firstChapterTitle;
   let parts: Node[] = [];
   for (const part of visiblePath) {
     parts.push(part);

@@ -752,7 +752,7 @@ describe("hit map clickable chrome", () => {
     expect(widest).toBeGreaterThan(0);
   });
 
-  test("story model, local provider, and context hint open their exact Settings rows", async () => {
+  test("story model and context hint open their exact Settings rows", async () => {
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: null };
     const state = initialState(source, false);
@@ -760,10 +760,8 @@ describe("hit map clickable chrome", () => {
     const frame = render(state, 140, 36);
 
     const model = clickText(frame, state, state.model);
-    const provider = clickText(frame, state, "local ✓");
     const context = clickText(frame, state, "set context window · settings (,)");
     expect(model).toEqual({ action: "open-settings", settingsRow: "model" });
-    expect(provider).toEqual({ action: "open-settings", settingsRow: "provider" });
     expect(context).toEqual({ action: "open-settings", settingsRow: "context-window" });
 
     await dispatch(
@@ -788,7 +786,6 @@ describe("hit map clickable chrome", () => {
     const frame = render(state, 140, 36);
 
     expect(clickText(frame, state, state.model)).toBe(null);
-    expect(clickText(frame, state, "local ✓")).toBe(null);
     expect(clickText(frame, state, "set context window · settings (,)"))
       .toEqual({ action: "toggle-context-meter" });
   });

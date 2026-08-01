@@ -68,7 +68,7 @@ test(
         }
       });
 
-      assert.equal(measurement.value, 2);
+      assert.equal(measurement.value, 3);
       const migratedModel = (await readSettingsState(dataDir))
         .documents["1"]?.models["migrated:model"];
       assert.equal(migratedModel?.remoteId, settings.model);
@@ -95,7 +95,7 @@ test(
         }
       });
 
-      assert.equal(measurement.value, 2);
+      assert.equal(measurement.value, 3);
       assertPerformanceBound(context, "absent-default migration", measurement, ABSENT_DEFAULT_BUDGET);
     });
 
@@ -132,18 +132,18 @@ test(
         }
       });
 
-      assert.equal(measurement.value, 2);
+      assert.equal(measurement.value, 3);
       assertPerformanceBound(context, "post-crash migration retry", measurement, RETRY_BUDGET);
     });
 
-    await t.test("already-format2 startup no-op", async (context) => {
+    await t.test("already-current-format startup no-op", async (context) => {
       const dataDir = await makeDataDirectory(
         context,
         "1667-settings-migration-noop-"
       );
       const lock = new DataDirectoryLock(dataDir);
       await lock.acquire();
-      assert.equal(lock.dataFormat, 2);
+      assert.equal(lock.dataFormat, 3);
       const iterations = 10_000;
 
       const measurement = await measure(async () => {
@@ -158,10 +158,10 @@ test(
         }
       });
 
-      assert.equal(measurement.value, iterations * 2);
+      assert.equal(measurement.value, iterations * 3);
       assertPerformanceBound(
         context,
-        `${iterations.toLocaleString()} format-2 no-ops`,
+        `${iterations.toLocaleString()} format-3 no-ops`,
         measurement,
         NO_OP_BUDGET
       );

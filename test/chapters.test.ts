@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleChapterContext, deriveChapters, isChapterSummaryStale } from "../shared/chapters.js";
+import { parseWorkerMutation } from "../server/worker-mutations.js";
+import { StoryServiceChapters } from "../server/story-service-chapters.js";
 import { activePath, childrenOf, computeRollups, contextSlice, switchToNode, takeIndex } from "../shared/story-tree.js";
 import type { ChapterBreak, StoryNode } from "../shared/types.js";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
@@ -155,3 +157,87 @@ function chapterSummary(
     text: `Summary ${id}`
   };
 }
+
+test("chapter one takes its name from the story, because no break opens it", () => {
+  const a = node("a", null, "b");
+  const b = node("b", "a");
+  const closing = seam("closing", "a", "Second");
+  const nodes = [a, b];
+  const path = activePath({ nodes, activeRootId: "a" } as never);
+
+  // Every other chapter is named by the break that opens it. Chapter one has
+  // no opening break, so an unnamed one has no title at all — which is what
+  // lets the export omit a heading the document title already supplies.
+  const unnamed = deriveChapters(path, [closing], nodes);
+  assert.equal(unnamed[0]!.title, "");
+  assert.equal(unnamed[1]!.title, "Second");
+
+  const named = deriveChapters(path, [closing], nodes, "Arrival");
+  assert.equal(named[0]!.title, "Arrival");
+  assert.equal(named[1]!.title, "Second", "a later chapter still answers to its own break");
+
+  // The seed reaches only chapter one; it is not a default for the rest.
+  const noBreaks = deriveChapters(path, [], nodes, "Arrival");
+  assert.equal(noBreaks.length, 1);
+  assert.equal(noBreaks[0]!.title, "Arrival");
+});
+
+test("renaming a chapter accepts the null break of chapter one and an empty name", () => {
+  // A null break id names chapter one, which no break opens.
+  assert.deepEqual(
+    parseWorkerMutation("renameChapterBreak", {
+      storyId: "story", breakId: null, title: "Arrival"
+    }),
+    { storyId: "story", breakId: null, title: "Arrival" }
+  );
+
+  // Creating a break defaults its title to "", so rename has to be able to
+  // reach the same state. Clearing chapter one's name restores the story's.
+  assert.deepEqual(
+    parseWorkerMutation("renameChapterBreak", {
+      storyId: "story", breakId: null, title: ""
+    }),
+    { storyId: "story", breakId: null, title: "" }
+  );
+  assert.equal(
+    parseWorkerMutation("renameChapterBreak", {
+      storyId: "story", breakId: "break", title: ""
+    }).title,
+    ""
+  );
+
+  // A break id is still an identifier when one is given at all.
+  assert.throws(() => parseWorkerMutation("renameChapterBreak", {
+    storyId: "story", breakId: "", title: "Arrival"
+  }), /breakId/u);
+});
+
+test("naming chapter one is refused where the directory never took the fence", async () => {
+  const refusals: unknown[] = [];
+  const chapters = new StoryServiceChapters({
+    stories: {} as never,
+    storyMutations: {} as never,
+    ensureOpen: () => undefined,
+    // A legacy-preview directory keeps format 1 by design, so it is the one
+    // place a story write could carry a format-3 shape past the marker.
+    dataFormat: () => 1
+  });
+
+  await chapters.renameChapterBreak("story", null, "Arrival").catch((error: unknown) => {
+    refusals.push(error);
+  });
+  assert.equal(refusals.length, 1);
+  assert.match(String((refusals[0] as Error).message), /data format 3/u);
+
+  // A break rename carries no new shape, so it is not fenced.
+  const unfenced = new StoryServiceChapters({
+    stories: { mutate: async () => { throw new Error("reached the store"); } } as never,
+    storyMutations: {} as never,
+    ensureOpen: () => undefined,
+    dataFormat: () => 1
+  });
+  await assert.rejects(
+    () => unfenced.renameChapterBreak("story", "break", "Two"),
+    /reached the store/u
+  );
+});

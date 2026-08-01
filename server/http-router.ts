@@ -412,6 +412,14 @@ async function handleApi(
         title
       }));
     }
+    if (subId === undefined && action === undefined && method === "PATCH") {
+      const title = requireStringValue((await jsonBody()).title, "title");
+      return sendJson(response, 200, await mutate("renameChapterBreak", {
+        storyId: id,
+        breakId: null,
+        title
+      }));
+    }
     if (subId !== undefined && action === undefined && method === "DELETE") {
       const removedFingerprint = requireString(
         (await jsonBody()).removedFingerprint,

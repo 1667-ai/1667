@@ -80,6 +80,19 @@ async function providerFetchInternal(
   ) {
     return await pinnedPrivateHttpFetch(url, init, { allowPresetQuery });
   }
+  // A model server on this machine must not be harder to reach than the same
+  // server on the network. Where the account-ownership proof exists it still
+  // runs, unchanged and without asking; where it does not, this endpoint falls
+  // back to the same explicit opt-in a private LAN address already takes.
+  // Neither path may carry credentials, so the opt-in covers exactly one thing:
+  // plaintext traffic to a listener the program cannot attribute.
+  if (
+    hostClass === "loopback"
+    && !ownedLoopbackHttpSupported()
+    && policy.allowInsecurePrivateHttp === true
+  ) {
+    return await pinnedPrivateHttpFetch(url, init, { allowPresetQuery });
+  }
   if (url.protocol !== "http:" || hostClass !== "loopback") {
     throw new ProviderError("Plain HTTP provider requests require a loopback endpoint.");
   }
@@ -130,7 +143,7 @@ async function ownedLoopbackFetchInternal(
   }
   if (!ownedLoopbackHttpSupported() && resolveOwner === resolveLinuxLoopbackServerUid) {
     throw new ProviderError(
-      "Plain HTTP provider requests are unavailable on this release target; configure an authenticated HTTPS endpoint."
+      "This release target cannot prove that a plain HTTP loopback server belongs to your account; turn on insecure HTTP in Settings to reach it anyway, or configure an authenticated HTTPS endpoint."
     );
   }
 

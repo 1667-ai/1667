@@ -19,7 +19,8 @@ import type { OverlayState, StoryScreenState, StreamView } from "../state.js";
 import { currentPartActions } from "../story-actions.js";
 import { generationBusy } from "../generation-action.js";
 import { deriveSummaryProgress } from "../summary-model.js";
-import { chapterListModel, chapterWindow } from "../chapter-model.js";
+import { chapterDisplayTitle,
+  chapterListModel, chapterWindow } from "../chapter-model.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../model.js";
 import { formatTokensScaled, formatTokensEstimate } from "../rail.js";
 import type { NextRequestEstimate } from "../request-projection.js";
@@ -163,6 +164,7 @@ function renderChapters(
   estimate: NextRequestEstimate
 ): FrameComposition {
   const overlay = state.chapters!;
+  const storyTitle = state.payload.title;
   const model = chapterListModel(state.payload, state.contextWindow ?? null, estimate);
   const contentWidth = panelHorizontalGeometry(width).contentWidth;
   // Chapter numbers are contiguous and one-based, so the final row owns the
@@ -193,7 +195,7 @@ function renderChapters(
   for (const [offset, row] of model.rows.slice(window.start, window.end).entries()) {
     const index = window.start + offset;
     const selected = index === overlay.cursor;
-    const title = row.chapter.title === "" ? "(untitled)" : row.chapter.title;
+    const title = chapterDisplayTitle(row.chapter, storyTitle);
     const role = !row.sent ? "dimmed page" : row.stale ? "focus / accent" : selected ? "prose" : "prose · dim";
     content.push([
       raisedSegment(cellPad(selected ? "  ▸ " : "", columns.lead), selected ? "focus / accent" : "chrome"),

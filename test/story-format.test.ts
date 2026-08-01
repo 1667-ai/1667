@@ -383,3 +383,31 @@ function v4Manifest(): StoryManifestV4 {
     recentNodeIds: ["other-root"]
   };
 }
+
+test("story format: chapter one's name survives the bundle, and absence stays absent", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-first-chapter-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const base: Story = {
+    id: "story-first-chapter", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [node("root", null, "Opening")],
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
+  };
+
+  // A story written before chapter one could be named carries no such field,
+  // and must round-trip without acquiring one.
+  const objects = new StoryObjectStore(dir);
+  const plain = await encodeStoryBundle(base, objects);
+  assert.equal("firstChapterTitle" in plain, false);
+  assert.deepEqual((await decodeStoryBundle(plain, dir)).story, base);
+
+  const named: Story = { ...base, firstChapterTitle: "Arrival" };
+  const manifest = await encodeStoryBundle(named, objects);
+  assert.equal(manifest.firstChapterTitle, "Arrival");
+  assert.deepEqual((await decodeStoryBundle(manifest, dir)).story, named);
+  assert.equal(buildStoryPayload(named).firstChapterTitle, "Arrival");
+
+  // An empty name is an absent one, on the wire and on disk alike.
+  const cleared = await encodeStoryBundle({ ...base, firstChapterTitle: "" }, objects);
+  assert.equal("firstChapterTitle" in cleared, false);
+  assert.equal(buildStoryPayload({ ...base, firstChapterTitle: "" }).firstChapterTitle, undefined);
+});

@@ -69,3 +69,46 @@ test("an incompatible downgrade leaves migrated v1 and v2 evidence unchanged", a
     before
   );
 });
+
+test("a format-2 reader refuses a format-3 directory before opening its state", async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-3-compat-"));
+  t.after(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const markerPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER);
+  const marker = dataDirectoryOwnerMarkerText(3);
+  await writeFile(markerPath, marker, { mode: 0o600 });
+
+  // Format 3 holds shapes format 2 never allowed: a name for chapter one, and
+  // the plaintext opt-in on a loopback connection. An executable that predates
+  // them has to stop here, at the marker, rather than reach a story or a
+  // settings state it would refuse for reasons it could not explain.
+  await assert.rejects(
+    readDataDirectoryFormat(dataDir, { supportedFormats: [1, 2] }),
+    (error: unknown) => error instanceof ServiceError
+      && error.code === "data_directory_version_unsupported"
+  );
+  assert.equal(await readFile(markerPath, "utf8"), marker);
+});
+
+test("opening a format-2 project upgrades it to the fence its writes need", async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-3-upgrade-"));
+  t.after(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const existing = new DataDirectoryLock(dataDir, { initializeDataFormat: 2 });
+  await existing.acquire();
+  assert.equal(existing.dataFormat, 2);
+  await existing.release();
+
+  // The upgrade happens at acquisition, before any store is opened, so no
+  // write of a format-3 shape can land in a directory still marked 2.
+  const opened = new DataDirectoryLock(dataDir);
+  await opened.acquire();
+  try {
+    assert.equal(await opened.migrateSettingsFormat(), 3);
+    assert.equal(await readDataDirectoryFormat(dataDir), 3);
+  } finally {
+    await opened.release();
+  }
+});
