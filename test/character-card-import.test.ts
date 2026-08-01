@@ -1,0 +1,130 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { promisify } from "node:util";
+import { initializeProject } from "../server/project-discovery.js";
+import { StoryService } from "../server/story-service.js";
+
+const execFileAsync = promisify(execFile);
+const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-e2e-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const story = await service.createStory("Card target");
+  await service.dispose();
+
+  const jsonFile = path.join(root, "mira.json");
+  const pngFile = path.join(root, "sable.png");
+  const v3File = path.join(root, "v3.json");
+  await writeFile(jsonFile, JSON.stringify(v2Card({
+    name: "Mira",
+    description: "A map of the glass coast.",
+    personality: "Exacting.",
+    scenario: ""
+  })), "utf8");
+  await writeFile(pngFile, png(textChunk("chara", Buffer.from(JSON.stringify(v2Card({
+    name: "Sable",
+    description: "A quiet harbor.",
+    personality: "",
+    scenario: "At the last tide."
+  })), "utf8").toString("base64"))));
+  await writeFile(v3File, JSON.stringify({
+    spec: "chara_card_v3",
+    data: { name: "Unsupported", description: "Not imported." }
+  }), "utf8");
+
+  const jsonResult = await runCardImport(root, story.id, jsonFile);
+  assert.match(
+    jsonResult.stdout,
+    /imported 1 fact for "Mira" into "Card target" — used description, personality; skipped scenario/u
+  );
+
+  const pngResult = await runCardImport(root, story.id, pngFile);
+  assert.match(
+    pngResult.stdout,
+    /imported 1 fact for "Sable" into "Card target" — used description, scenario; skipped personality/u
+  );
+
+  const failure = await runCardImport(root, story.id, v3File).catch((error: unknown) => error);
+  assert.ok(failure instanceof Error);
+  assert.equal((failure as { code?: number }).code, 1);
+  assert.match(
+    String((failure as { stderr?: string }).stderr),
+    /Character Card V3 is not supported yet/u
+  );
+
+  const verification = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await verification.init();
+  const payload = await verification.loadStory(story.id);
+  await verification.dispose();
+  assert.equal(payload.facts.length, 2);
+  assert.ok(payload.facts.every((fact) => fact.tag === "Character"));
+  assert.match(payload.facts[0]!.text, /Mira/u);
+  assert.match(payload.facts[1]!.text, /Sable/u);
+});
+
+async function runCardImport(
+  root: string,
+  storyId: string,
+  file: string
+): Promise<{ readonly stdout: string; readonly stderr: string }> {
+  const bun = process.execPath.includes("bun") ? process.execPath : "bun";
+  const entrypoint = path.resolve("tui/src/standalone.ts");
+  return await execFileAsync(
+    bun,
+    [entrypoint, "import-card", "--data", root, "--story", storyId, file],
+    { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
+  );
+}
+
+function v2Card(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    spec: "chara_card_v2",
+    spec_version: "2.0",
+    data: {
+      name: "Mira",
+      description: "A cartographer.",
+      personality: "Exacting but kind.",
+      scenario: "At the glass coast.",
+      ...overrides
+    }
+  };
+}
+
+function textChunk(keyword: string, value: string): Uint8Array {
+  return chunk("tEXt", asciiBytes(`${keyword}\0${value}`));
+}
+
+function png(...chunks: Uint8Array[]): Uint8Array {
+  return concat(PNG_SIGNATURE, ...chunks, chunk("IEND", new Uint8Array()));
+}
+
+function chunk(type: string, data: Uint8Array): Uint8Array {
+  const output = new Uint8Array(12 + data.length);
+  new DataView(output.buffer).setUint32(0, data.length, false);
+  output.set(asciiBytes(type), 4);
+  output.set(data, 8);
+  return output;
+}
+
+function asciiBytes(value: string): Uint8Array {
+  return Uint8Array.from(value, (character) => character.charCodeAt(0));
+}
+
+function concat(...arrays: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(arrays.reduce((sum, value) => sum + value.length, 0));
+  let offset = 0;
+  for (const value of arrays) {
+    result.set(value, offset);
+    offset += value.length;
+  }
+  return result;
+}

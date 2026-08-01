@@ -120,6 +120,9 @@ it.
 
 ## Related commands
 
+The `1667 import-card` command adds character card Facts to an existing story.
+It does not make a new story.
+
 The `1667 export` command writes one story to a Markdown file. The `1667 import`
 command reads that file again as a new story. It does not write to the story
 that made the file.

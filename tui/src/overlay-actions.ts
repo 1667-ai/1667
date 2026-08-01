@@ -20,6 +20,7 @@ import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
 import { openSearch } from "./search-actions.js";
+import { cardImportAction, openCardImport } from "./card-import-actions.js";
 import { publishStories } from "./overlay-publication.js";
 import { retryBackendState } from "./recovery-orchestration.js";
 import {
@@ -104,6 +105,7 @@ export async function handleOverlayAction(
   }
   if (state.mode === "FACTS" && state.facts !== null) return await factsAction(resolved, state, source, context);
   if (state.mode === "COMMANDS" && state.commands !== null) return await commandsAction(resolved, state, source, context);
+  if (state.mode === "CARD" && state.card !== null) return await cardImportAction(resolved, state, source, context);
   if (state.mode === "SETTINGS" && state.settings !== null) {
     const handled = await settingsOverlayAction(
       resolved,
@@ -341,6 +343,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
   else if (command.id === "reconnect") await reconnect(state, source, context);
   else if (command.id === "folder") state.toast = source.storyFolder;
+  else if (command.id === "import-card") openCardImport(state, returnMode);
   else if (command.id === "disconnect" && state.demo) {
     state.connection = connectionFailed(connectionSucceeded(), new Error("demo disconnect"), state.now);
     state.toast = "simulated connection loss";

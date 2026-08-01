@@ -27,6 +27,7 @@ import { createBackgroundUpdateStarter } from "./update-runtime.js";
 import { attachHttpServer } from "./http-attach.js";
 import { runStoryExport } from "./export-cli.js";
 import { runStoryImport } from "./import-cli.js";
+import { runCardImport } from "./card-import-cli.js";
 import { runHttpCommand } from "./http-commands.js";
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
@@ -78,6 +79,7 @@ Usage: 1667 [options]
        1667 init [--adopt [--from <legacy-data-dir>]]
        1667 export [--story <id>|--all] [--format story|scenario|lorebook] [--force] [--data <path>|--global]
        1667 import [--data <path>|--global] <file...>
+       1667 import-card --story <id-or-title> [--data <path>|--global] <file...>
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
        1667 serve --legacy-v1 --data <path> [--print-logs] (Linux only)
@@ -106,9 +108,18 @@ Import:
   One unreadable file does not stop the others: the command reports each
   failure and exits non-zero at the end.
 
+Character card import:
+  The command palette command 'import character card' adds card Facts to the
+  current story.
+  The import-card command adds Facts from one or more V1 or V2 JSON or PNG
+  files to an existing story. It does not make a new story.
+  One unreadable file does not stop the others: the command reports each
+  failure and exits non-zero at the end.
+
 Options:
-  --story <id>       Open a story, or name the one to export; both default
-                     to the most recently updated
+  --story <id>       Open a story, name the one to export, or name the one that
+                     receives card Facts; open and export default to the most
+                     recently updated, import-card has no default
   --all              Export every story in the project
   --format <format>  Export a NovelAI story, scenario, or lorebook archive
   --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
@@ -142,6 +153,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (argv[0] === "import") {
     await runStoryImport(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "import-card") {
+    await runCardImport(argv.slice(1));
     return;
   }
   const parsed = parseArguments(argv);

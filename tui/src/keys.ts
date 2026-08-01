@@ -20,6 +20,7 @@ import type {
   PendingGenerationDraft,
   RetakePromptSession,
   RuntimeState,
+  CardImportPrompt,
   SettingsInlineEditState,
   SettingsRowId
 } from "./state.js";
@@ -50,11 +51,11 @@ export type KeyAction =
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
-  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request";
+  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request" | "complete";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST";
+  | "SEARCH" | "REQUEST" | "CARD";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -198,6 +199,7 @@ export function pasteInto(
       sampling?: { edit: { composer: ComposerState } | null } | null;
       conflict: { armed: boolean } | null;
     } | null;
+    card: CardImportPrompt | null;
     prune: unknown | null;
     chapterDeleteArmedId: string | null;
     actions: unknown | null;
@@ -230,6 +232,12 @@ export function pasteInto(
   if (state.mode === "COMPOSE") { insertComposerText(state.composer, clean); return true; }
   if (state.mode === "TAG" && state.tag !== null && !state.tag.choosingStatus) {
     state.tag.name += line;
+    return true;
+  }
+  if (state.mode === "CARD" && state.card !== null) {
+    state.card.path += line;
+    state.card.error = null;
+    state.card.candidates = [];
     return true;
   }
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
@@ -302,7 +310,7 @@ export interface ResolveOptions {
 
 type OverlayTextInputState = Pick<
   RuntimeState,
-  "mode" | "library" | "facts" | "chapters" | "settings"
+  "mode" | "library" | "facts" | "card" | "chapters" | "settings"
 >;
 
 /** One ownership check shared by key routing and chrome that advertises
@@ -310,6 +318,7 @@ type OverlayTextInputState = Pick<
 export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "LIBRARY") return state.library?.prompt != null;
   if (state.mode === "FACTS") return state.facts?.filtering === true;
+  if (state.mode === "CARD") return state.card != null;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
   if (state.mode === "SETTINGS") {
     return state.settings?.edit != null || state.settings?.sampling?.edit != null;
@@ -323,7 +332,8 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
   return mode === "COMPOSE" || mode === "EDITOR" || mode === "SEARCH"
     || options.overlayTyping === true
     || mode === "COMMANDS" && options.commandsTags !== true
-    || mode === "TAG" && options.tagChoosingStatus !== true;
+    || mode === "TAG" && options.tagChoosingStatus !== true
+    || mode === "CARD";
 }
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
@@ -488,6 +498,12 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "d") return { action: "delete-item" };
     if (key.name === "n") return { action: "new-item" };
     return { action: "none" };
+  }
+  if (mode === "CARD") {
+    if (key.name === "return") return { action: "apply" };
+    if (key.name === "tab") return { action: "complete" };
+    if (key.name === "backspace") return { action: "backspace" };
+    return textInput(key) ?? { action: "none" };
   }
   if (mode === "LIBRARY" || mode === "FACTS" || mode === "COMMANDS") {
     if (key.name === "return") {

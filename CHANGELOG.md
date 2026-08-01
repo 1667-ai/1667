@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 can now import character cards into an existing story.** The command
+  palette opens a path prompt with `Tab` completion. The `1667 import-card`
+  command accepts one or more JSON or PNG files. It adds their Facts to the
+  story that `--story` names. Thanks @10fra for the request.
+
 - **Facts can now activate only when request context matches their keys.** The
   default `always` mode keeps the existing behavior. The `keyed` mode scans the
   recent assembled story context and the current instruction. The Fact editor

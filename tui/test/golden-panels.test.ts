@@ -91,6 +91,43 @@ describe("run C overlay frames", () => {
     expect(lineContaining(activationFrame, "· keyed")).toContain("Ashe");
   });
 
+  test("card import panel keeps its field, candidates, and error in the panel surface", () => {
+    const state = initialState(demoAppSource(), true);
+    state.mode = "CARD";
+    state.card = {
+      path: "~/cards/mira",
+      storyId: state.payload.id,
+      candidates: [],
+      error: null,
+      returnMode: "NAV"
+    };
+    const card = state.card;
+    const rest = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache()
+    }).lines);
+    expect(rest).toContain("┏━ import character card ━");
+    expect(rest).toContain("card    ~/cards/mira█");
+    expect(rest).toContain("tab completes · ↵ imports · esc closes");
+    expect(rest).toContain(" CARD ");
+
+    card.candidates = ["mira-notes/", "mira-one.json", "mira-two.json"];
+    const candidates = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache()
+    }).lines);
+    expect(candidates).toContain("mira-notes/");
+    expect(candidates).toContain("mira-one.json");
+    expect(candidates).toContain("mira-two.json");
+
+    card.candidates = [];
+    card.error = "Character Card V3 is not supported yet; export a V2 PNG or JSON card.";
+    const error = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache()
+    }).lines);
+    expect(error).toContain("· Character Card V3 is not supported yet;");
+    expect(error).toContain("export a V2 PNG");
+    expect(error).toContain("or JSON card.");
+  });
+
   test("long library, facts, and tag lists keep the selected row visible", () => {
     const selected = 20;
     const render = (state: ReturnType<typeof initialState>) => {

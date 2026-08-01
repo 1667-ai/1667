@@ -97,6 +97,14 @@ const DECLARED_DIVERGENCES = [
 }[];
 
 describe("arrow-first key routing", () => {
+  test("CARD owns its path field and reserves tab for completion", () => {
+    expect(resolveKey(key("return"), "CARD").action).toBe("apply");
+    expect(resolveKey(key("tab"), "CARD").action).toBe("complete");
+    expect(resolveKey(key("backspace"), "CARD").action).toBe("backspace");
+    expect(resolveKey(key("d"), "CARD")).toEqual({ action: "input", text: "d" });
+    expect(resolveKey(key("escape"), "CARD").action).toBe("cancel");
+  });
+
   test("NAV uses arrows for parts and takes; h/j/k/l are unbound", () => {
     expect(resolveKey(key("down"), "NAV").action).toBe("focus-next");
     expect(resolveKey(key("up"), "NAV").action).toBe("focus-previous");
