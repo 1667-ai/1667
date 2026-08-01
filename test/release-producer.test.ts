@@ -42,13 +42,17 @@ import {
   stageReleasePackage,
   type StagedReleasePackage
 } from "../scripts/release-stage-packages.js";
+import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
 import {
   assertMissing,
   tarModificationTimes
 } from "./release-producer-fixture.js";
 
-const VERSION = "0.1.2";
+// Release identity refuses a version the repository's own manifests disagree
+// with, so this has to be the product version rather than a literal that goes
+// stale at every bump.
+const VERSION = AI_1667_PRODUCT_VERSION;
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
 const execFileAsync = promisify(execFile);

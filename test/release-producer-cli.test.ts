@@ -11,12 +11,14 @@ import {
   releaseTargetForArtifact
 } from "../shared/release-targets.js";
 import { npmPackInvocationFromEnvironment } from "../scripts/release-pack.js";
+import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import { releaseIdentityForTarget } from "../scripts/release-identity.js";
 import { releaseIdentitiesForSource } from "../scripts/release-source-facts.js";
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(import.meta.filename));
 const FACTS = Object.freeze({
-  version: "0.1.2",
+  // Release identity refuses a version the checkout's manifests disagree with.
+  version: AI_1667_PRODUCT_VERSION,
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-28T10:20:30.000Z"
 });
