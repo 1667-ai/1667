@@ -11,7 +11,6 @@ import {
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
-import { samplingSummary } from "./sampling-model.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
@@ -75,6 +74,8 @@ export {
   settleSettingsOverlaySave
 } from "./settings-overlay-reconciliation.js";
 
+type SettingsInlineRow = Exclude<SettingsRowId, "system-prompt" | "sampling">;
+
 export function initialSettingsOverlay(
   view: SettingsView,
   config: UserConfig,
@@ -106,7 +107,7 @@ export function initialSettingsOverlay(
 export function settingsRowEditValue(
   overlay: SettingsOverlayState,
   config: UserConfig,
-  row: SettingsRowId
+  row: SettingsInlineRow
 ): string {
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
@@ -120,7 +121,6 @@ export function settingsRowEditValue(
       ? "legacy profile"
       : document.profiles[profileId]?.name ?? "unavailable";
   }
-  if (row === "sampling") return samplingSummary(overlay.draft.sampling);
   return draftRowEditValue(overlay.draft, row);
 }
 
@@ -167,7 +167,7 @@ export function beginSettingsPasteEdit(
 ): boolean {
   if (overlay.edit !== null) return true;
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "system-prompt") return false;
+  if (row === "system-prompt" || row === "sampling") return false;
   // Closed choices cycle in place; paste must not open their row editor.
   if (settingsRowCycles(row)) return false;
   if (settingsRowUsesServer(row) && !overlay.view.editable) {

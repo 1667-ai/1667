@@ -3,7 +3,8 @@ import {
 } from "../../shared/settings-basic-draft.js";
 import {
   SAMPLING_KNOB_V2_VALUES,
-  type SamplingKnobV2,
+  SAMPLING_SCALAR_KNOB_V2_VALUES,
+  type SamplingScalarKnobV2,
   type SamplingSettingsV2
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
@@ -15,7 +16,6 @@ import {
 } from "../../shared/sampling-capabilities.js";
 import {
   SAMPLING_LOGIT_BIAS_POLICY,
-  SAMPLING_SCALAR_KNOBS as SAMPLING_POLICY_SCALAR_KNOBS,
   SAMPLING_STOP_POLICY,
   validateSamplingLogitBiasEntry,
   validateSamplingSettings
@@ -23,8 +23,8 @@ import {
 import type { SettingsOverlayState, SamplingPanelId } from "./state.js";
 import { createComposer, type ComposerState } from "./composer-model.js";
 
-export type SamplingScalarKnob = Exclude<SamplingKnobV2, "stop" | "logitBias">;
-export const SAMPLING_SCALAR_KNOBS = SAMPLING_POLICY_SCALAR_KNOBS;
+export type SamplingScalarKnob = SamplingScalarKnobV2;
+export const SAMPLING_SCALAR_KNOBS = SAMPLING_SCALAR_KNOB_V2_VALUES;
 
 export interface SamplingScalarRow {
   readonly label: string;

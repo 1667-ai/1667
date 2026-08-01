@@ -73,10 +73,10 @@ export function reconcileSettingsOverlay(
   }
 
   const draftWasClean = !settingsDraftChanged(overlay);
-  const editRow = edit?.row ?? null;
-  const editAffectsServer = edit !== null
-    && editRow !== "theme"
-    && editRow !== "compose-focus";
+  const editAffectsServer = edit !== null && (
+    edit.kind === "sampling"
+    || edit.row !== "theme" && edit.row !== "compose-focus"
+  );
   const editWasClean = !editAffectsServer
     || edit.composer.text === edit.initialText();
   const activeEditBase = draftWasClean ? nextBase : overlay.draft;
@@ -87,13 +87,11 @@ export function reconcileSettingsOverlay(
   if (draftWasClean || converged) overlay.draft = nextBase;
   overlay.base = nextBase;
 
-  if (edit !== null && (draftWasClean || converged) && editWasClean
-    && editRow !== null
-  ) {
-    if (editRow === "sampling") {
-      edit.close?.();
-    } else if (settingsDraftTextRow(editRow)) {
-      const refreshed = draftRowEditValue(overlay.draft, editRow);
+  if (edit !== null && (draftWasClean || converged) && editWasClean) {
+    if (edit.kind === "sampling") {
+      edit.close();
+    } else if (settingsDraftTextRow(edit.row)) {
+      const refreshed = draftRowEditValue(overlay.draft, edit.row);
       setComposerText(edit.composer, refreshed);
       if (refreshed.length > 0) edit.composer.anchor = 0;
       edit.setInitialText(refreshed);
@@ -180,6 +178,9 @@ function draftWithActiveEdit(
   draft: SettingsTextDraft,
   edit: ActiveSettingsEdit
 ): SettingsTextDraft | null {
+  if (edit.kind === "sampling") {
+    return edit.composer.text === edit.initialText() ? draft : null;
+  }
   const row = edit.row;
   if (row === "theme" || row === "compose-focus") return draft;
   if (row === "profile") {
@@ -194,9 +195,6 @@ function draftWithActiveEdit(
       : settingsTextDraftForDocument(renamed, draft.selectedProfileId);
   }
   if (row === "api-key" || row === "allow-insecure-http") {
-    return edit.composer.text === edit.initialText() ? draft : null;
-  }
-  if (row === "sampling") {
     return edit.composer.text === edit.initialText() ? draft : null;
   }
   if (row === "system-prompt") {

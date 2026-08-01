@@ -20,7 +20,7 @@ import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
   SaveSettingsCommand,
-  SamplingKnobV2,
+  SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type {
@@ -158,7 +158,7 @@ export type SamplingInlineEditState =
   | (SettingsEditBufferState & {
       kind: "scalar";
       index: number;
-      knob: Exclude<SamplingKnobV2, "stop" | "logitBias">;
+      knob: SamplingScalarKnobV2;
     })
   | (SettingsEditBufferState & { kind: "stop"; index: number })
   | (SettingsEditBufferState & { kind: "logit-bias"; index: number });

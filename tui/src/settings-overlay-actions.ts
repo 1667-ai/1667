@@ -9,11 +9,10 @@ import {
 } from "../../shared/prompt-cache-capabilities.js";
 import {
   applySamplingSettings,
-  SAMPLING_KNOB_V2_VALUES,
-  resolveSamplingKnob,
+  resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
-  samplingKnobPresentation,
-  samplingKnobValueIsSet
+  samplingKnobLabel,
+  type SamplingUnavailableReason
 } from "../../shared/sampling-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
@@ -484,15 +483,24 @@ function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: s
   const route = resolveSettingsProfile(document, profileId);
   const context = samplingContextForRoute(route);
   const sampling = route.profile.sampling ?? EMPTY_SAMPLING_V2;
-  for (const knob of SAMPLING_KNOB_V2_VALUES) {
-    if (!samplingKnobValueIsSet(sampling, knob)) continue;
-    const resolution = resolveSamplingKnob(context, knob);
+  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
     if (resolution.kind === "unavailable") {
-      const presentation = samplingKnobPresentation(context, knob);
-      throw new Error(`${presentation.label} is unavailable · ${presentation.reasonCompact}`);
+      throw new Error(
+        `${samplingKnobLabel(knob)} is unavailable · ${SAMPLING_UNAVAILABLE_REASON_COMPACT[resolution.reason]}`
+      );
     }
   }
 }
+
+const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableReason, string>> = {
+  "legacy-v1": "read-only",
+  "dry-run": "dry run",
+  protocol: "not in protocol",
+  "preset-unsupported": "not in preset",
+  "preset-unknown": "unknown endpoint",
+  "model-unsupported": "model unsupported",
+  "model-unknown": "model unknown"
+};
 
 /** A credential-touching save activates inside the save request, so the
  * mutation result itself reports this save's activation outcome. */

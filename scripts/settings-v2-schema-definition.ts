@@ -27,13 +27,14 @@ import {
   SETTINGS_ACTIVATION_OUTCOME_RESULT_V2_VALUES,
   SETTINGS_ACTIVATION_STATE_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
-  SETTINGS_PROTOCOL_V2_VALUES
+  SETTINGS_PROTOCOL_V2_VALUES,
+  SAMPLING_SCALAR_KNOB_V2_VALUES,
+  type SamplingScalarKnobV2
 } from "../shared/settings-v2-types.js";
 import {
   SAMPLING_LOGIT_BIAS_POLICY,
   SAMPLING_SCALAR_DESCRIPTORS,
-  SAMPLING_STOP_POLICY,
-  type SamplingScalarKnob
+  SAMPLING_STOP_POLICY
 } from "../shared/sampling-validation-policy.js";
 
 type Schema = Record<string, unknown>;
@@ -125,12 +126,9 @@ export function settingsV2Schema(): Schema {
       sampling: ref("Sampling")
     }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
     Sampling: closed({
-      topP: samplingScalar("topP"),
-      topK: samplingScalar("topK"),
-      minP: samplingScalar("minP"),
-      frequencyPenalty: samplingScalar("frequencyPenalty"),
-      presencePenalty: samplingScalar("presencePenalty"),
-      repeatPenalty: samplingScalar("repeatPenalty"),
+      ...Object.fromEntries(
+        SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => [knob, samplingScalar(knob)])
+      ),
       stop: {
         type: "array",
         maxItems: SAMPLING_STOP_POLICY.maxSequences,
@@ -271,7 +269,7 @@ function number(minimum: number, maximum: number): Schema {
   return { type: "number", minimum, maximum };
 }
 
-function samplingScalar(knob: SamplingScalarKnob): Schema {
+function samplingScalar(knob: SamplingScalarKnobV2): Schema {
   const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
   return nullable(
     descriptor.integer

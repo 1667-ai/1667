@@ -85,28 +85,29 @@ export type GenerationEffortV2 = (typeof GENERATION_EFFORT_V2_VALUES)[number];
 export const PROMPT_CACHE_POLICY_V2_VALUES = ["off", "auto", "long"] as const;
 export type PromptCachePolicyV2 = (typeof PROMPT_CACHE_POLICY_V2_VALUES)[number];
 
-export const SAMPLING_KNOB_V2_VALUES = [
+export const SAMPLING_SCALAR_KNOB_V2_VALUES = [
   "topP",
   "topK",
   "minP",
   "frequencyPenalty",
   "presencePenalty",
-  "repeatPenalty",
+  "repeatPenalty"
+] as const;
+export type SamplingScalarKnobV2 = (typeof SAMPLING_SCALAR_KNOB_V2_VALUES)[number];
+
+export const SAMPLING_KNOB_V2_VALUES = [
+  ...SAMPLING_SCALAR_KNOB_V2_VALUES,
   "stop",
   "logitBias"
 ] as const;
 export type SamplingKnobV2 = (typeof SAMPLING_KNOB_V2_VALUES)[number];
 
-export interface SamplingSettingsV2 {
-  readonly topP: number | null;
-  readonly topK: number | null;
-  readonly minP: number | null;
-  readonly frequencyPenalty: number | null;
-  readonly presencePenalty: number | null;
-  readonly repeatPenalty: number | null;
+export type SamplingSettingsV2 = {
+  readonly [Knob in SamplingScalarKnobV2]: number | null;
+} & {
   readonly stop: readonly string[];
   readonly logitBias: Readonly<Record<string, number>>;
-}
+};
 
 export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
   topP: null,

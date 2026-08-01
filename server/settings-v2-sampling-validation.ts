@@ -7,7 +7,7 @@ import {
   type SamplingSettingsV2
 } from "../shared/settings-v2-types.js";
 import {
-  resolveSamplingKnob,
+  resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
   samplingKnobValueIsSet,
   samplingKnobWireName
@@ -24,16 +24,7 @@ import {
 import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
 
-const SAMPLING = closedShape([
-  "topP",
-  "topK",
-  "minP",
-  "frequencyPenalty",
-  "presencePenalty",
-  "repeatPenalty",
-  "stop",
-  "logitBias"
-]);
+const SAMPLING = closedShape(SAMPLING_KNOB_V2_VALUES);
 
 export function parseSampling(value: unknown, label: string): SamplingSettingsV2 | undefined {
   if (value === undefined) return undefined;
@@ -93,9 +84,7 @@ export function validateSamplingRoute(
   if (profile.sampling === undefined) return;
   const route: SelectedSettingsRouteV2 = { profileId, profile, model, connection };
   const context = samplingContextForRoute(route);
-  for (const knob of SAMPLING_KNOB_V2_VALUES) {
-    if (!samplingKnobValueIsSet(profile.sampling, knob)) continue;
-    const resolution = resolveSamplingKnob(context, knob);
+  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, profile.sampling)) {
     if (resolution.kind === "unavailable") {
       throw new SettingsFormatError(samplingValidationMessage(profileId, knob, resolution.reason));
     }

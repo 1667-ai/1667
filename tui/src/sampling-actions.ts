@@ -34,6 +34,7 @@ export async function samplingOverlayAction(
   if (resolved.action === "cancel") {
     if (nested.edit !== null) {
       nested.edit = null;
+      nested.cursor = boundedSamplingCursor(settings, nested.panel, nested.cursor);
       nested.result = "edit cancelled · draft kept";
     } else if (nested.panel !== "sampling") {
       nested.panel = "sampling";

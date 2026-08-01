@@ -282,7 +282,11 @@ interface SamplingFooter {
   readonly actions: ReadonlyArray<{ token: string; action: "focus-previous" | "focus-next" | "open-selected" | "new-item" | "delete-item" | "take-previous" | "take-next" | "cursor-left" | "cursor-right" | "cancel" | "commit-field" }>;
 }
 
-function samplingFooter(panel: string, editing: boolean, width: number): SamplingFooter {
+function samplingFooter(
+  panel: "sampling" | "stop" | "logit-bias",
+  editing: boolean,
+  width: number
+): SamplingFooter {
   if (editing) return footerFit([
     { text: "←→ cursor · ↵ keep · esc cancel", actions: [
       { token: "←", action: "cursor-left" }, { token: "→", action: "cursor-right" },
@@ -306,19 +310,45 @@ function samplingFooter(panel: string, editing: boolean, width: number): Samplin
       { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
     ] }
   ], width);
+  const actions = [
+    { token: "↑", action: "focus-previous" as const },
+    { token: "↓", action: "focus-next" as const },
+    { token: "↵ edit", action: "open-selected" as const },
+    { token: "n add", action: "new-item" as const },
+    { token: "d delete", action: "delete-item" as const },
+    ...(panel === "stop"
+      ? [
+          { token: "←", action: "take-previous" as const },
+          { token: "→", action: "take-next" as const }
+        ]
+      : []),
+    { token: "esc back", action: "cancel" as const }
+  ];
+  const compactActions = [
+    { token: "↑", action: "focus-previous" as const },
+    { token: "↓", action: "focus-next" as const },
+    { token: "↵", action: "open-selected" as const },
+    { token: "n", action: "new-item" as const },
+    { token: "d", action: "delete-item" as const },
+    ...(panel === "stop"
+      ? [
+          { token: "←", action: "take-previous" as const },
+          { token: "→", action: "take-next" as const }
+        ]
+      : []),
+    { token: "esc", action: "cancel" as const }
+  ];
   return footerFit([
-    { text: "↑↓ move · ↵ edit · n add · d delete · ←→ reorder · esc back", actions: [
-      { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-      { token: "↵ edit", action: "open-selected" }, { token: "n add", action: "new-item" },
-      { token: "d delete", action: "delete-item" }, { token: "←", action: "take-previous" },
-      { token: "→", action: "take-next" }, { token: "esc back", action: "cancel" }
-    ] },
-    { text: "↑↓ ↵ n d ←→ esc", actions: [
-      { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-      { token: "↵", action: "open-selected" }, { token: "n", action: "new-item" },
-      { token: "d", action: "delete-item" }, { token: "←", action: "take-previous" },
-      { token: "→", action: "take-next" }, { token: "esc", action: "cancel" }
-    ] }
+    {
+      text: panel === "stop"
+        ? "↑↓ move · ↵ edit · n add · d delete · ←→ reorder · esc back"
+        : "↑↓ move · ↵ edit · n add · d delete · esc back",
+      actions
+    },
+    {
+      text: panel === "stop" ? "↑↓ ↵ n d ←→ esc" : "↑↓ ↵ n d esc",
+      actions: compactActions
+    }
   ], width);
 }
 

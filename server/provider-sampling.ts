@@ -1,10 +1,8 @@
 import {
-  SAMPLING_KNOB_V2_VALUES,
-  resolveSamplingKnob,
+  resolveConfiguredSamplingKnobs,
   samplingKnobWireName,
-  samplingKnobPresentation,
-  samplingKnobValueIsSet,
-  type SamplingContext
+  type SamplingContext,
+  type SamplingUnavailableReason
 } from "../shared/sampling-capabilities.js";
 import type {
   SamplingKnobV2,
@@ -27,18 +25,27 @@ export function applySamplingFields(
     remoteModelId: settings.model,
     temperatureSupport: runtime.capabilities.temperature
   };
-  for (const knob of SAMPLING_KNOB_V2_VALUES) {
-    if (!samplingKnobValueIsSet(sampling, knob)) continue;
-    const resolution = resolveSamplingKnob(context, knob);
+  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
     if (resolution.kind === "unavailable") {
-      const presentation = samplingKnobPresentation(context, knob);
       throw new ProviderError(
-        `Configured sampling parameter ${samplingKnobWireName(knob)} is unavailable: ${presentation.reason}`
+        `Configured sampling parameter ${samplingKnobWireName(knob)} is unavailable: ${
+          PROVIDER_UNAVAILABLE_REASON[resolution.reason]
+        }`
       );
     }
     body[resolution.wireField] = encodeSamplingValue(knob, sampling);
   }
 }
+
+const PROVIDER_UNAVAILABLE_REASON: Readonly<Record<SamplingUnavailableReason, string>> = {
+  "legacy-v1": "Format 1 settings are read-only.",
+  "dry-run": "Dry run does not send provider requests.",
+  protocol: "This protocol does not document this parameter.",
+  "preset-unsupported": "This preset does not document this parameter.",
+  "preset-unknown": "This endpoint does not document extension parameters.",
+  "model-unsupported": "This model does not declare sampling support.",
+  "model-unknown": "This model has no documented support for this parameter."
+};
 
 function encodeSamplingValue(
   knob: SamplingKnobV2,

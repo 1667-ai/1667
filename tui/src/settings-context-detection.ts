@@ -123,7 +123,7 @@ export async function checkSettings(
       const edit = activeSettingsEdit(state, overlay);
       if (task.owns() && state.settings === overlay
         && (edit === null
-          || !settingsRowUsesServer(edit.row))
+          || edit.kind === "row" && !settingsRowUsesServer(edit.row))
         && overlay.draft.selectedProfileId === checkedProfileId
         && sameConnectionSecrets(checkedSecrets, overlay.connectionSecrets)
         && sameGenerationSettings(checked, current)) {

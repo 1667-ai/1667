@@ -211,6 +211,20 @@ export function samplingKnobValueIsSet(
   return Object.keys(value).length > 0;
 }
 
+export interface ConfiguredSamplingKnob {
+  readonly knob: SamplingKnobV2;
+  readonly resolution: SamplingResolution;
+}
+
+export function resolveConfiguredSamplingKnobs(
+  context: SamplingContext,
+  sampling: SamplingSettingsV2
+): readonly ConfiguredSamplingKnob[] {
+  return SAMPLING_KNOB_V2_VALUES
+    .filter((knob) => samplingKnobValueIsSet(sampling, knob))
+    .map((knob) => ({ knob, resolution: resolveSamplingKnob(context, knob) }));
+}
+
 export function applySamplingSettings(
   document: SettingsDocumentV2,
   sampling: SamplingSettingsV2,

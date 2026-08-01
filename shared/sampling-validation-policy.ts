@@ -1,10 +1,11 @@
-import type {
-  SamplingKnobV2,
-  SamplingSettingsV2
+import {
+  SAMPLING_SCALAR_KNOB_V2_VALUES,
+  type SamplingScalarKnobV2,
+  type SamplingSettingsV2
 } from "./settings-v2-types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 
-export type SamplingScalarKnob = Exclude<SamplingKnobV2, "stop" | "logitBias">;
+export type SamplingScalarKnob = SamplingScalarKnobV2;
 
 export interface SamplingScalarDescriptor {
   readonly minimum: number;
@@ -12,14 +13,7 @@ export interface SamplingScalarDescriptor {
   readonly integer: boolean;
 }
 
-export const SAMPLING_SCALAR_KNOBS = [
-  "topP",
-  "topK",
-  "minP",
-  "frequencyPenalty",
-  "presencePenalty",
-  "repeatPenalty"
-] as const satisfies readonly SamplingScalarKnob[];
+export const SAMPLING_SCALAR_KNOBS = SAMPLING_SCALAR_KNOB_V2_VALUES;
 
 export const SAMPLING_SCALAR_DESCRIPTORS = {
   topP: { minimum: 0, maximum: 1, integer: false },
