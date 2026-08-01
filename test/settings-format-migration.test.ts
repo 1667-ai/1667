@@ -83,8 +83,8 @@ test("Release B migrates a canonical file-present format-1 directory exactly onc
 
   await lock.acquire();
   assert.equal(lock.dataFormat, 1);
-  assert.equal(await lock.migrateSettingsFormat({ now: () => FIXED_TIME }), 2);
-  assert.equal(await lock.migrateSettingsFormat({ now: () => FIXED_TIME }), 2);
+  assert.equal(await lock.migrateSettingsFormat({ now: () => FIXED_TIME }), 3);
+  assert.equal(await lock.migrateSettingsFormat({ now: () => FIXED_TIME }), 3);
   await lock.release();
 
   await assertConvergedMigration(dataDir, FILE_SETTINGS, "file");
@@ -100,7 +100,7 @@ test("Release B materializes the frozen absent-default vector without a v1 file"
   const lock = new DataDirectoryLock(dataDir);
 
   await lock.acquire();
-  assert.equal(await lock.migrateSettingsFormat({ now: () => FIXED_TIME }), 2);
+  assert.equal(await lock.migrateSettingsFormat({ now: () => FIXED_TIME }), 3);
   await lock.release();
 
   await assertConvergedMigration(dataDir, ABSENT_SETTINGS_V1, "absent-default");
@@ -184,7 +184,7 @@ test("every Release B crash boundary converges under a fresh lock", {
       try {
         assert.equal(
           await recovery.migrateSettingsFormat({ now: () => FIXED_TIME }),
-          2
+          3
         );
       } finally {
         await recovery.release();
@@ -324,6 +324,8 @@ test("StoryService startup automatically finishes Release B before opening store
   try {
     await service.init();
     const view = await service.settings.loadView();
+    // The settings representation is still v2; only the directory's fence
+    // moved. This field names the former, so format 3 reports 2 here.
     assert.equal(view.dataFormat, 2);
     assert.equal(view.editable, true);
     assert.deepEqual(view.effective, FILE_SETTINGS);
@@ -339,10 +341,10 @@ async function assertConvergedMigration(
   expectedSettings: GenerationSettings,
   sourceTag: "file" | "absent-default"
 ): Promise<void> {
-  assert.equal(await readDataDirectoryFormat(dataDir), 2);
+  assert.equal(await readDataDirectoryFormat(dataDir), 3);
   assert.equal(
     await readFile(path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER), "utf8"),
-    dataDirectoryOwnerMarkerText(2)
+    dataDirectoryOwnerMarkerText(3)
   );
   const source = await loadGenerationSettingsV1Source(dataDir);
   assert.equal(source.sourceTag, sourceTag);

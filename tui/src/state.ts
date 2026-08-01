@@ -114,7 +114,7 @@ export interface CommandsOverlayState {
 }
 export interface ChaptersOverlayState {
   cursor: number;
-  rename: { breakId: string; value: string } | null;
+  rename: { breakId: string | null; value: string } | null;
   deleteArmedId: string | null;
 }
 export type SettingsRowId =

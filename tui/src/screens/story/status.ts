@@ -72,8 +72,11 @@ export function renderStatus(
   const requestValue = `${formatTokensEstimate(usedTokens)}${window === null ? "" : `/${formatTokensScaled(window.size)}`}`;
   const requestMeter = `next ${requestValue}`;
   const chapterPrefix = `ch ${focusedChapter?.number ?? view.chapters.at(-1)?.number ?? 1} · `;
+  // Only work in flight earns a cell. The backend is local unless someone went
+  // out of their way to point it elsewhere for debugging, so saying so on every
+  // frame reports the default back to the writer and nothing more.
   const backendStatus = state.backendTask === null
-    ? "local ✓"
+    ? null
     : `working · ${truncate(state.backendTask.label, narrow ? 18 : 28)}`;
   let narrowRight = state.backendTask === null
     ? `${chapterPrefix}${requestMeter}${centered}`
@@ -101,14 +104,9 @@ export function renderStatus(
   const wideRight = (buildTag: boolean): FrameLine => [
     segment(" ", "chrome"),
     segment(state.model, "chrome", { kind: "settings-row", row: "model" }),
-    segment(" · ", "chrome"),
-    segment(
-      backendStatus,
-      "chrome",
-      state.backendTask === null
-        ? { kind: "settings-row", row: "provider" }
-        : undefined
-    ),
+    ...(backendStatus === null
+      ? []
+      : [segment(" · ", "chrome"), segment(backendStatus, "chrome")]),
     segment(`${centered}${buildTag ? ` · ${AI_1667_VERSION_TAG}` : ""} `, "chrome")
   ];
   const tagged = wideRight(true);

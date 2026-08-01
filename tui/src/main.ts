@@ -92,9 +92,15 @@ Export:
   file (story.md, story-2.md, …) unless --force.
 
 Import:
-  Imports a Markdown file or SillyTavern chat JSONL file as a new story.
-  Markdown '##' headings become chapter boundaries. Prose blocks become story
-  parts.
+  Imports a Markdown file or a SillyTavern chat file (.jsonl) as a new story,
+  one new story per file.
+  In Markdown, '##' headings become chapter boundaries. Prose blocks become
+  story parts.
+  In a chat file, each character message becomes a story part; the user
+  messages before it become that part's direction, and unanswered ones at the
+  end are dropped. Import never writes back to the file it read.
+  One unreadable file does not stop the others: the command reports each
+  failure and exits non-zero at the end.
 
 Options:
   --story <id>       Open a story, or name the one to export; both default

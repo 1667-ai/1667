@@ -112,6 +112,9 @@ export async function encodeStoryBundle(
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
     ...(storyAutonameId(story) === undefined ? {} : { autonameId: storyAutonameId(story) }),
+    ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
+      ? {}
+      : { firstChapterTitle: story.firstChapterTitle }),
     activeWordCount: activePath(story).reduce((sum, node) => sum + nodeStubWords(node), 0),
     nodes,
     facts,
@@ -193,6 +196,9 @@ export async function decodeStoryBundle(
     createdAt: manifest.createdAt,
     updatedAt: manifest.updatedAt,
     ...(manifest.origin === undefined ? {} : { origin: { ...manifest.origin } }),
+    ...(manifest.firstChapterTitle === undefined
+      ? {}
+      : { firstChapterTitle: manifest.firstChapterTitle }),
     nodes,
     activeRootId: manifest.activeRootId,
     tags: manifest.bookmarks.map((stored) => ({

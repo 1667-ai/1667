@@ -28,7 +28,9 @@ export async function pinnedPrivateHttpFetch(
   const hostClass = classifyHttpHost(url.href);
   if (
     url.protocol !== "http:"
-    || (hostClass !== "private-literal" && hostClass !== "lan-hostname")
+    || (hostClass !== "private-literal"
+      && hostClass !== "lan-hostname"
+      && hostClass !== "loopback")
     || url.username !== ""
     || url.password !== ""
     || (policy.allowPresetQuery !== true && url.href.includes("?"))
@@ -52,8 +54,36 @@ export async function pinnedPrivateHttpFetch(
   if (body !== null && !headers.has("content-length")) {
     headers.set("content-length", String(body.byteLength));
   }
-  const pinnedAddress = await resolvePinnedLanAddress(url, hostClass);
-  const agent = new PinnedAddressAgent(pinnedAddress);
+  const addresses = await resolvePinnedLanAddresses(url, hostClass);
+  // A name can answer with more than one family. A model server bound to only
+  // one of them is reachable at the endpoint the writer configured, so the
+  // first answer must not decide the outcome for all of them. The address that
+  // connects is the address that stays pinned.
+  let lastError: unknown = null;
+  for (const address of addresses) {
+    const agent = new PinnedAddressAgent(address);
+    try {
+      return await pinnedRequest(url, init, headers, body, agent);
+    } catch (error) {
+      lastError = error;
+      // Only an address that never connected is safe to move on from. Once a
+      // socket is up the provider may already have acted on this request, and
+      // a generation is not something to send twice.
+      if (agent.connected) throw error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new ProviderError("LAN HTTP provider could not be reached.");
+}
+
+async function pinnedRequest(
+  url: URL,
+  init: RequestInit,
+  headers: Headers,
+  body: Buffer | null,
+  agent: PinnedAddressAgent
+): Promise<Response> {
   return await new Promise<Response>((resolve, reject) => {
     const outgoing = request(url, {
       method: init.method ?? "GET",
@@ -100,6 +130,13 @@ export async function pinnedPrivateHttpFetch(
 
 export class PinnedAddressAgent extends Agent {
   private readonly pending = new Map<Socket, (error: Error | null) => void>();
+  /** Whether a socket to the pinned peer was ever established. A caller that
+   * is trying several addresses must not retry past this point. */
+  private established = false;
+
+  get connected(): boolean {
+    return this.established;
+  }
 
   constructor(
     private readonly expectedAddress: string,
@@ -132,6 +169,7 @@ export class PinnedAddressAgent extends Agent {
         finish(new ProviderError("Private HTTP provider connected to an unexpected peer address."));
         return;
       }
+      this.established = true;
       finish(null);
     });
     return null;
@@ -145,17 +183,24 @@ export class PinnedAddressAgent extends Agent {
   }
 }
 
-async function resolvePinnedLanAddress(
+async function resolvePinnedLanAddresses(
   url: URL,
-  hostClass: "private-literal" | "lan-hostname"
-): Promise<string> {
+  hostClass: "private-literal" | "lan-hostname" | "loopback"
+): Promise<readonly string[]> {
   const host = unbracketed(url.hostname);
-  if (hostClass === "private-literal") return host;
+  // A loopback literal is already the peer. `localhost` is a name, so it takes
+  // the same resolve-and-check path as a LAN hostname; isLanPeerAddress admits
+  // loopback answers, and a name that resolves off the private network is
+  // refused there rather than here.
+  if (hostClass === "private-literal" || (hostClass === "loopback" && isIP(host) !== 0)) {
+    return [host];
+  }
   const answers = await lookup(host, { all: true, verbatim: true });
   if (answers.length === 0 || answers.some(({ address }) => !isLanPeerAddress(address))) {
     throw new ProviderError("LAN HTTP provider resolved outside the private network.");
   }
-  return answers[0]!.address;
+  // Every answer was validated, so every answer is a legitimate peer to try.
+  return answers.map(({ address }) => address);
 }
 
 export function isLanPeerAddress(address: string): boolean {

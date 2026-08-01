@@ -311,9 +311,14 @@ describe("inline settings menu", () => {
         model: ""
       }
     ]);
+    // A target without the account-ownership proof still offers these presets.
+    // They are reachable there through the insecure HTTP (local) opt-in, and
+    // hiding them said nothing about why a local model server had vanished.
+    expect(selectableSettingsProviderChoices(false).map((choice) => choice.label))
+      .toEqual(selectableSettingsProviderChoices(true).map((choice) => choice.label));
     expect(selectableSettingsProviderChoices(false).some(
       (choice) => choice.plaintextDefaultRequiresOwnedLoopback === true
-    )).toBeFalse();
+    )).toBeTrue();
 
     const { state, cache, press } = harness();
     await openSettings(press);
@@ -322,30 +327,6 @@ describe("inline settings menu", () => {
     await press(key("right"));
     await press(key("right"));
     await press(key("right"));
-    if (!localProviderPresetsSupported()) {
-      expect(state.settings?.draft.generation).toMatchObject({
-        provider: "anthropic",
-        baseUrl: "https://api.anthropic.com"
-      });
-      expect(frameText(renderStoryScreen(
-        state,
-        { width: 80, height: 24, wrapCache: cache }
-      ).lines)).not.toContain("‹ LM Studio ›");
-      state.settings!.draft = {
-        ...state.settings!.draft,
-        generation: {
-          ...state.settings!.draft.generation,
-          provider: "openai-compatible",
-          baseUrl: "https://127.0.0.1:1234/v1",
-          model: "loaded-model"
-        }
-      };
-      expect(frameText(renderStoryScreen(
-        state,
-        { width: 80, height: 24, wrapCache: cache }
-      ).lines)).toContain("‹ LM Studio ›");
-      return;
-    }
 
     expect(state.settings?.draft.generation).toMatchObject({
       provider: "openai-compatible",
@@ -358,7 +339,7 @@ describe("inline settings menu", () => {
       state,
       { width: 80, height: 24, wrapCache: cache }
     ).lines);
-    expect(rendered).toContain("‹ LM Studio ›");
+    expect(rendered).toContain("‹ LM Studio");
 
     await press(key("left"));
     expect(state.settings?.draft.generation).toMatchObject({

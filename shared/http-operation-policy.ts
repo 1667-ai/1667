@@ -174,6 +174,9 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
   }
   if (sub === "chapter-breaks") {
     if (subId === undefined && httpMethod === "POST") return "createChapterBreak";
+    // Chapter one is opened by no break, so its rename addresses the
+    // collection rather than a member of it.
+    if (subId === undefined && httpMethod === "PATCH") return "renameChapterBreak";
     if (subId !== undefined && action === undefined) {
       if (httpMethod === "PATCH") return "renameChapterBreak";
       if (httpMethod === "DELETE") return "removeChapterBreak";

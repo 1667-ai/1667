@@ -224,10 +224,17 @@ function jumpToChapter(
 }
 
 function beginRename(state: RuntimeState, chapter: StoryChapter): void {
+  if (state.chapters === null) return;
   const breakId = chapter.openingBreakId;
-  if (breakId === null) return void (state.toast = "Chapter One uses the story title");
+  // Chapter one has no opening break, so its current name comes from the
+  // story rather than from a break. It is nameable all the same.
+  if (breakId === null) {
+    state.chapters.rename = { breakId: null, value: state.payload.firstChapterTitle ?? "" };
+    state.chapters.deleteArmedId = null;
+    return;
+  }
   const chapterBreak = state.payload.chapterBreaks.find((candidate) => candidate.id === breakId);
-  if (chapterBreak === undefined || state.chapters === null) return;
+  if (chapterBreak === undefined) return;
   state.chapters.rename = { breakId, value: chapterBreak.title };
   state.chapters.deleteArmedId = null;
 }

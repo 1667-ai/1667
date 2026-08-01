@@ -131,13 +131,16 @@ export function localProviderPresetsSupported(): boolean {
   );
 }
 
+/** Every preset is offered on every target. A plaintext loopback default used
+ * to be hidden where the account-ownership proof does not exist, which removed
+ * LM Studio, Ollama, llama.cpp, and KoboldCpp from the picker on macOS and
+ * Windows and said nothing about why. Those endpoints are reachable there now
+ * through the same insecure-HTTP opt-in a LAN address takes, so the choice
+ * belongs to the writer rather than to the platform. */
 export function selectableSettingsProviderChoices(
-  localSupported = localProviderPresetsSupported()
+  _localSupported = localProviderPresetsSupported()
 ): readonly SettingsProviderChoice[] {
-  return SETTINGS_PROVIDER_CHOICES.filter(
-    (choice) =>
-      choice.plaintextDefaultRequiresOwnedLoopback !== true || localSupported
-  );
+  return SETTINGS_PROVIDER_CHOICES;
 }
 
 export function settingsProviderChoice(

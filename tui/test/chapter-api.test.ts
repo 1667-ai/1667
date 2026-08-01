@@ -32,7 +32,9 @@ test("HTTP chapter transport covers create, rename, remove, restore, summarize, 
     }
     const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
     calls.push({ url, method: init?.method ?? "GET", body });
-    const response = url.endsWith("/chapter-breaks")
+    // The collection serves two methods now: POST creates a break, PATCH
+    // names chapter one, which has no break to address.
+    const response = url.endsWith("/chapter-breaks") && init?.method === "POST"
       ? { payload, breakId: "break" }
       : init?.method === "DELETE" ? { payload, removed } : payload;
     return new Response(JSON.stringify(response), { status: 200, headers: { "content-type": "application/json" } });
@@ -43,6 +45,9 @@ test("HTTP chapter transport covers create, rename, remove, restore, summarize, 
     calls.length = 0;
     expect((await api.createChapterBreak("story", "part", "Two")).breakId).toBe("break");
     await api.renameChapterBreak("story", "break", "Renamed");
+    // Chapter one has no break to address, so its rename targets the
+    // collection rather than a member of it.
+    await api.renameChapterBreak("story", null, "Arrival");
     expect((await api.removeChapterBreak("story", "break")).removed.break.id).toBe("break");
     await api.restoreChapterBreak("story", "break", removed);
     await api.summarizeChapter("story", "break");
@@ -53,6 +58,7 @@ test("HTTP chapter transport covers create, rename, remove, restore, summarize, 
   expect(calls.map((call) => [call.method, call.url])).toEqual([
     ["POST", "http://127.0.0.1:7373/api/stories/story/chapter-breaks"],
     ["PATCH", "http://127.0.0.1:7373/api/stories/story/chapter-breaks/break"],
+    ["PATCH", "http://127.0.0.1:7373/api/stories/story/chapter-breaks"],
     ["GET", "http://127.0.0.1:7373/api/stories/story/chapter-breaks/break/preview"],
     ["DELETE", "http://127.0.0.1:7373/api/stories/story/chapter-breaks/break"],
     ["POST", "http://127.0.0.1:7373/api/stories/story/chapter-breaks/break/restore"],
@@ -60,10 +66,11 @@ test("HTTP chapter transport covers create, rename, remove, restore, summarize, 
     ["PATCH", "http://127.0.0.1:7373/api/stories/story/nodes/summary"]
   ]);
   expect(calls[0]?.body).toEqual({ parentPartId: "part", title: "Two" });
-  expect(calls[3]?.body).toEqual({ removedFingerprint: "f".repeat(64) });
-  expect(calls[4]?.body).toEqual(removed);
-  expect(calls[6]?.body).toMatchObject({ text: "Edited recap" });
-  expect(typeof (calls[6]?.body as { expectedTextHash?: unknown }).expectedTextHash).toBe("string");
+  expect(calls[2]?.body).toEqual({ title: "Arrival" });
+  expect(calls[4]?.body).toEqual({ removedFingerprint: "f".repeat(64) });
+  expect(calls[5]?.body).toEqual(removed);
+  expect(calls[7]?.body).toMatchObject({ text: "Edited recap" });
+  expect(typeof (calls[7]?.body as { expectedTextHash?: unknown }).expectedTextHash).toBe("string");
 });
 
 function emptyPayload(): StoryPayload {

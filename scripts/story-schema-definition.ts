@@ -152,6 +152,11 @@ function strictV5Schema(): Schema {
     updatedAt: ref("V5Timestamp"),
     origin: ref("Origin"),
     autonameId: ref("Identifier"),
+    // Every other chapter is named by the break that opens it. The first
+    // chapter has no such break, so its name lives here. Absent on every
+    // manifest written before chapter one could be named, and absent again
+    // whenever the name is cleared.
+    firstChapterTitle: boundedString(MAX_STORY_TITLE_CHARS),
     activeWordCount: unsignedInteger(),
     nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredNodeV5") },
     facts: { type: "array", maxItems: MAX_FACTS, items: ref("StoredFactV5") },

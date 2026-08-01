@@ -54,6 +54,17 @@ export function chapterListModel(
   return { rows, totalTokens, contextWindow, over, biggestUnsummarized };
 }
 
+/** What a chapter is called on screen.
+ *
+ * Chapter one is opened by no break, so before it is named it has no title of
+ * its own and reads as the story — which is exactly what the export does, where
+ * an unnamed chapter one takes no heading because the document title already
+ * names it. Calling it "(untitled)" said the opposite of that. */
+export function chapterDisplayTitle(chapter: StoryChapter, storyTitle: string): string {
+  if (chapter.title !== "") return chapter.title;
+  return chapter.number === 1 && storyTitle !== "" ? storyTitle : "(untitled)";
+}
+
 export function chapterStatus(projection: RequestChapterProjection | undefined): string {
   if (projection?.included !== true) return "not sent";
   const tokens = formatTokensScaled(projection.tokens);

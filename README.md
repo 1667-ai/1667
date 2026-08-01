@@ -109,6 +109,7 @@ policy.
 - [Run 1667 from source](docs/run-from-source.md)
 - [Story storage](docs/story-storage.md)
 - [Facts, context, and model providers](docs/model-providers.md)
+- [SillyTavern import](docs/sillytavern-import.md)
 - [Platforms and standalone builds](docs/platforms-and-builds.md)
 - [Development reference](docs/development.md)
 - [Technical terms](docs/technical-terms.md)

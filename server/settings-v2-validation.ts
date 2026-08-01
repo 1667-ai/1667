@@ -184,7 +184,9 @@ function parseNetworkConnection(
     throw new SettingsFormatError(`connection ${id} plain HTTP cannot carry authentication or secret headers`);
   }
   const hostClass = classifyHttpHost(baseUrl);
-  if (hostClass === "loopback" && allowInsecureHttp === undefined) return baseUrl;
+  // Loopback needs no opt-in where the account-ownership proof exists, and
+  // carries one where it does not. Both are valid documents.
+  if (hostClass === "loopback") return baseUrl;
   if (
     (hostClass === "private-literal" || hostClass === "lan-hostname")
     && allowInsecureHttp === true

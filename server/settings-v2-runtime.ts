@@ -112,7 +112,9 @@ export function providerRequestTransportAvailable(
       url.protocol === "http:"
       && keyless
       && hostClass === "loopback"
-      && ownedLoopbackHttpSupported()
+      // The proof runs where it exists. Where it does not, the explicit
+      // opt-in stands in for it, exactly as it does for a LAN address.
+      && (ownedLoopbackHttpSupported() || runtime.allowInsecureHttp)
     )
     || (
       url.protocol === "http:"
