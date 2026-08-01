@@ -61,6 +61,11 @@ Use the arrow keys to move between story parts and sibling takes. Press
 `Ctrl+P` or `:` to open the command palette. Press `?` for the complete key
 reference.
 
+Press `Ctrl+R` to open the request viewer. The request viewer shows the next
+request plan in provider order. It shows each message and its estimated token
+count. It also shows chapter summary replacements and the latest summary take
+that resets the raw context.
+
 ## Run the gates
 
 ```sh

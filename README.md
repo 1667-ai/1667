@@ -25,6 +25,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - View Facts and estimated request context in the side rail.
 - Keep one Author's Note for the next continuation or prompted retake.
 - Use keys to include a Fact only when the request context matches it.
+- Inspect the next provider request in the request viewer.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
 - Use the embedded backend worker without a network port.
@@ -83,6 +84,7 @@ Git manages this installation.
 | Undo an added or removed chapter break | `u` |
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
 | Open commands | `Ctrl+P` or `:` |
+| Open the request viewer | `Ctrl+R` |
 | Open settings or the key reference | `,` or `?` |
 | Quit | `q` |
 
@@ -107,6 +109,9 @@ context can contain:
 1667 sends the selected credential in the authentication header when a
 connection requires a credential. Select a provider with an acceptable data
 policy.
+
+Press `Ctrl+R` to open the request viewer. The request viewer shows the next
+request plan. It does not show the authentication header or its credential.
 
 ## Documentation
 

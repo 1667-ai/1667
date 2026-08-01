@@ -8,7 +8,7 @@ import {
 } from "../facts-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
-import type { NextRequestEstimate } from "../request-projection.js";
+import type { RequestTokenEstimate } from "../request-projection.js";
 import type { OverlayState } from "../state.js";
 import {
   boundedContent,
@@ -49,7 +49,7 @@ export function renderFactsPanel(
   state: OverlayState & { payload: StoryPayload; hitRows: HitRows },
   width: number,
   height: number,
-  estimate: NextRequestEstimate
+  estimate: RequestTokenEstimate
 ): FrameComposition {
   const overlay = state.facts!;
   const tags = factTags(state.payload.facts);

@@ -10,6 +10,8 @@ export type HitTarget =
   | {
       kind: "list";
       index: number;
+      /** Stable identity for rows whose live projection can change order. */
+      rowId?: string;
       /** Paint-time selection truth for live-reordered lists. */
       selected?: boolean;
       /** A tree row's activation semantics: nodes reroute, cold rows unfold. */

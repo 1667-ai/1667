@@ -212,6 +212,24 @@ test("new Claude models use required boundary echoes instead of rejected prefill
   assert.equal(filter.matchedPrefix, true);
 });
 
+test("continuation boundary tags stay stable when derived from the left anchor", () => {
+  const parts = [part("Open the door.", "The latch was unlo")];
+  const first = continuationPlan(
+    "Write vivid prose.", null, null, parts, "Continue the story.", true, false, null, [], parts
+  );
+  const second = continuationPlan(
+    "Write vivid prose.", null, null, parts, "Continue the story.", true, false, null, [], parts
+  );
+  const firstBoundary = rendered(first).filter((message) => message.content.includes("LEFT BOUNDARY"));
+  const secondBoundary = rendered(second).filter((message) => message.content.includes("LEFT BOUNDARY"));
+
+  assert.equal(first.requiresEcho, true);
+  assert.equal(second.requiresEcho, true);
+  assert.equal(firstBoundary.length, 1);
+  assert.deepEqual(firstBoundary, secondBoundary);
+  assert.match(firstBoundary[0]!.content, /<ct-[0-9a-f]{8}-left>The latch was unlo<\/ct-[0-9a-f]{8}-left>/);
+});
+
 test("legacy Anthropic prefill defaults cannot override official Claude incompatibility", () => {
   const settings = {
     provider: "anthropic" as const,

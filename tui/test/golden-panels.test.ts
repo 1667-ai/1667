@@ -132,7 +132,9 @@ describe("run C overlay frames", () => {
       ...tag, name: `mark ${String(index + 1).padStart(2, "0")}`
     }));
     tagsState.mode = "COMMANDS";
-    tagsState.commands = { cursor: selected, selectedId: null, query: "", view: "tags" };
+    tagsState.commands = {
+      cursor: selected, selectedId: null, query: "", view: "tags", returnMode: "NAV"
+    };
     const tags = render(tagsState);
     expect(tags.text).toContain("8–21/25");
     expect(tags.text).toContain("▸ mark 21");
@@ -167,7 +169,8 @@ describe("run C overlay frames", () => {
     const state = initialState(demoAppSource(), true);
     state.mode = "COMMANDS";
     state.commands = {
-      query: `${"0123456789".repeat(20)}TAIL`, cursor: 0, selectedId: null, view: "commands"
+      query: `${"0123456789".repeat(20)}TAIL`, cursor: 0, selectedId: null,
+      view: "commands", returnMode: "NAV"
     };
     const rendered = renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() });
     const text = frameText(rendered.lines);
@@ -463,7 +466,9 @@ describe("run C overlay frames", () => {
       { ...tag, name: "summary mark", status: "Summary" }
     ];
     state.mode = "COMMANDS";
-    state.commands = { cursor: 0, selectedId: null, query: "", view: "tags" };
+    state.commands = {
+      cursor: 0, selectedId: null, query: "", view: "tags", returnMode: "NAV"
+    };
     const rendered = renderStoryScreen(state, { width: 80, height: 24, wrapCache: createWrapCache() });
     const text = frameText(rendered.lines);
     const cjk = lineContaining(text, "Canon");

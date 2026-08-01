@@ -22,7 +22,7 @@ import { chapterDisplayTitle,
   chapterListModel, chapterWindow } from "../chapter-model.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../model.js";
 import { formatTokensScaled, formatTokensEstimate } from "../rail.js";
-import type { NextRequestEstimate } from "../request-projection.js";
+import type { RequestTokenEstimate } from "../request-projection.js";
 import {
   dimPage,
   panelContentRows,
@@ -97,7 +97,7 @@ export function renderPanels(
   hitRows: HitRows,
   width: number,
   height: number,
-  estimate: NextRequestEstimate,
+  estimate: RequestTokenEstimate,
   deadlines?: FrameDeadlineCollector
 ): FrameComposition {
   const local: PanelRenderState = {
@@ -156,7 +156,7 @@ function renderChapters(
   state: OverlayState & { payload: StoryPayload; hitRows: HitRows; contextWindow?: number | null },
   width: number,
   height: number,
-  estimate: NextRequestEstimate
+  estimate: RequestTokenEstimate
 ): FrameComposition {
   const overlay = state.chapters!;
   const storyTitle = state.payload.title;

@@ -668,6 +668,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     composer: createComposer(),
     editor: null,
     retakePrompt: null,
+    request: null,
     toast: null,
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,
     freshLandedAt: new Map(),

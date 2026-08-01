@@ -132,7 +132,10 @@ function expandedMeter(
     legendRow(CATEGORIES.slice(2, 4), model),
     ...model.breakdown.note > 0 ? [legendRow(CATEGORIES.slice(4), model)] : [],
     rule(),
-    ...totalsLines(model, forecast, severity)
+    ...totalsLines(model, forecast, severity),
+    [segment("view next request · ⌃r", "focus / accent", {
+      kind: "inline-action", action: "open-request"
+    })]
   ];
 }
 

@@ -23,6 +23,7 @@ read_when:
 | Author's Note | One short instruction that 1667 sends near the end of each provider request |
 | Fact tag | A category name for a Fact |
 | context meter | The side-rail view of the next provider request size |
+| request viewer | The read-only view of the next provider request plan |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

@@ -5,10 +5,11 @@ import {
   type ChapterPartLike,
   type PromptPart
 } from "../../shared/chapters.js";
-import { continuationPlan } from "../../shared/continuation-plan.js";
+import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
 import { selectActiveFacts } from "../../shared/fact-activation.js";
-import { renderPromptPlan } from "../../shared/prompt-plan.js";
+import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
 import { formatFactsMessage } from "../../shared/story-facts.js";
+import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "./continuation-intent.js";
@@ -21,12 +22,30 @@ export interface ContextBreakdown {
   note: number;
 }
 
-export interface NextRequestEstimate {
+export interface RequestTokenEstimate {
   tokens: number;
   breakdown: ContextBreakdown;
   chapters: RequestChapterProjection[];
   activeFactIds: string[];
 }
+
+export interface NextRequestEstimate extends RequestTokenEstimate {
+  readonly plan: ContinuationPlan;
+  readonly messages: readonly ChatMessage[];
+  /** Token estimates aligned one-to-one with messages and plan entries. */
+  readonly messageTokenCounts: readonly number[];
+  readonly substitutions: readonly RequestSubstitutionProjection[];
+}
+
+export type RequestSubstitutionProjection =
+  | { kind: "legacy-summary"; summaryId: string; omittedPartCount: number }
+  | {
+      kind: "chapter-summary";
+      chapterNumber: number;
+      summaryId: string;
+      tokens: number;
+      replacedPartIds: readonly string[];
+    };
 
 /** Chapter state scoped to the exact structural context in this request. */
 export interface RequestChapterProjection {
@@ -62,7 +81,7 @@ export type NextRequestContext = NextRequestBaseContext & (
 );
 
 /** Build the same shared continuation plan the server sends, then explain its
- * exact estimate as voice/facts/recent/summary slices. */
+ * exact estimate as voice/facts/note/recent/summary slices. */
 export function nextRequestEstimate(payload: StoryPayload, request: NextRequestContext): NextRequestEstimate {
   const regenerateNode = request.operation === "continue"
     ? null
@@ -82,16 +101,17 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     intent.instruction,
     intent.appendLast,
     request.assistantPrefill,
-    "ct-00000000",
+    null,
     payload.chapterBreaks,
     promptNodes(payload)
   );
   const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
   const tokensByPart = new Map<string, number>();
   const messages = renderPromptPlan(plan.prompt);
+  const messageTokenCounts = messages.map((message) => messageTokens(message.content));
   for (let index = 0; index < plan.entries.length; index += 1) {
     const entry = plan.entries[index]!;
-    const tokens = messageTokens(messages[index]!.content);
+    const tokens = messageTokenCounts[index]!;
     breakdown[entry.category] += tokens;
     if (entry.category !== "recent" && entry.category !== "summary") continue;
     tokensByPart.set(entry.partId, (tokensByPart.get(entry.partId) ?? 0) + tokens);
@@ -100,8 +120,10 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   const stubById = new Map(payload.nodes.map((node) => [node.id, node] as const));
   const chapterPath = payload.path.map((node) => ({ ...node, tokens: stubById.get(node.id)?.tokens }));
   const summaryRequestTokens = messageTokens(summaryNodeInstruction(payload.title)) + SUMMARY_TARGET_TOKENS + 4;
-  const chapters = deriveChapters<ChapterPartLike>(chapterPath, payload.chapterBreaks, payload.nodes)
-    .map((chapter): RequestChapterProjection => {
+  const derivedChapters = deriveChapters<ChapterPartLike>(
+    chapterPath, payload.chapterBreaks, payload.nodes
+  );
+  const chapters = derivedChapters.map((chapter): RequestChapterProjection => {
       const rawTokens = chapter.parts.reduce((sum, part) => sum + (tokensByPart.get(part.id) ?? 0), 0);
       const summaryTokens = chapter.summary === null ? 0 : tokensByPart.get(chapter.summary.id) ?? 0;
       const tokens = rawTokens + summaryTokens;
@@ -118,7 +140,34 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
         savings: closed && !summaryIncluded ? Math.max(0, rawTokens - summaryRequestTokens) : 0
       };
     });
+  const substitutions: RequestSubstitutionProjection[] = [];
+  const reset = payload.path.findLastIndex(
+    (node) => node.role === "summary" && !isChapterSummary(node)
+      && structuralPartIds.has(node.id)
+  );
+  if (reset >= 0) {
+    substitutions.push({
+      kind: "legacy-summary",
+      summaryId: payload.path[reset]!.id,
+      omittedPartCount: reset
+    });
+  }
+  for (const [index, chapter] of derivedChapters.entries()) {
+    const projection = chapters[index]!;
+    if (!projection.summarized || chapter.summary === null) continue;
+    substitutions.push({
+      kind: "chapter-summary",
+      chapterNumber: chapter.number,
+      summaryId: chapter.summary.id,
+      tokens: projection.tokens,
+      replacedPartIds: chapter.parts.map((part) => part.id)
+    });
+  }
   return {
+    plan,
+    messages,
+    messageTokenCounts,
+    substitutions,
     tokens: Object.values(breakdown).reduce((sum, tokens) => sum + tokens, 0),
     breakdown,
     chapters,

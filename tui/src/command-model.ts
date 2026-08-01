@@ -9,6 +9,7 @@ export type CommandId =
   | "authors-note"
   | "direct-take" | "retake" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
+  | "next-request"
   | "settings" | "reconnect" | "disconnect" | "theme";
 
 export type CommandSelectionId = Exclude<CommandId, "theme"> | `theme:${ThemeName}`;
@@ -91,6 +92,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "chapters", section: "view", name: "chapters", description: "open the chapter table and context meter", shortcut: "c" },
   { id: "chapter", section: "view", name: "chapter: end here", description: "end the current chapter after this leaf", shortcut: "C", mutating: true },
   { id: "prompts", section: "view", name: "toggle directions", description: "show or hide directions above each part", shortcut: "p" },
+  { id: "next-request", section: "view", name: "next request", description: "inspect the exact next model request", shortcut: "⌃r" },
 
   { id: "settings", section: "system", name: "generation settings", description: "inspect and edit provider, model, and context", shortcut: "," },
   { id: "reconnect", section: "system", name: "reconnect", description: "reload this story and its library", shortcut: "R" },

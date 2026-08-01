@@ -93,6 +93,8 @@ const DEFINITIONS = {
   navOpenSettings: route("nav", ",", "NAV", "open-settings"),
   navToggleContext: route("nav-chord", "g", "NAV", "toggle-context-meter", { ctrl: true }),
   composeToggleContext: route("compose-chord", "g", "COMPOSE", "toggle-context-meter", { ctrl: true }),
+  navOpenRequest: route("nav-chord", "r", "NAV", "open-request", { ctrl: true }),
+  composeOpenRequest: route("compose-chord", "r", "COMPOSE", "open-request", { ctrl: true }),
   navOpenSearch: route("nav", "/", "NAV", "open-search", { sequence: "/" }),
   navOpenKeysQuestion: route("nav", "?", "NAV", "open-keys"),
   navOpenKeysShiftSlash: route("nav", "/", "NAV", "open-keys", {

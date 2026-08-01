@@ -192,7 +192,7 @@ export async function continueStory(
     instruction,
     appendTo !== null,
     supportsAssistantPrefill(settings),
-    `ct-${randomUUID().slice(0, 8)}`,
+    null,
     story.chapterBreaks,
     story.nodes
   );

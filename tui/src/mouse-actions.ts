@@ -19,6 +19,7 @@ export type MouseActionState = Pick<RuntimeState,
   | "connection"
   | "actions" | "library" | "facts" | "commands" | "chapters" | "settings"
   | "search"
+  | "request"
 > & {
   /** Derived exactly as the panel renderer derives it, since the palette's
    *  rows — and therefore their indexes — depend on it. Optional so live
@@ -209,7 +210,8 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     commands: state.commands === null ? null : { ...state.commands },
     chapters: state.chapters === null ? null : { ...state.chapters },
     settings: state.settings === null ? null : { ...state.settings },
-    search: state.search === null ? null : { ...state.search }
+    search: state.search === null ? null : { ...state.search },
+    request: state.request === null ? null : { ...state.request }
   };
 }
 
@@ -233,6 +235,7 @@ export function mouseToAction(
   if (event.modifiers.shift) return null;
   if (event.type === "scroll") {
     const down = event.scroll?.direction === "down";
+    if (state.mode === "REQUEST") return { action: down ? "scroll-line-down" : "scroll-line-up" };
     if (overlayOpen(state)) return { action: down ? "focus-next" : "focus-previous" };
     return { action: down ? "scroll-down" : "scroll-up" };
   }
@@ -266,7 +269,9 @@ export function mouseToAction(
   }
   if (target.kind === "inline-action" && event.button === 0) {
     if (target.action === "cancel" || target.action === "retry") return { action: target.action };
-    if (state.mode === "NAV") return { action: target.action };
+    if (state.mode === "NAV" || state.mode === "COMPOSE" && target.action === "open-request") {
+      return { action: target.action };
+    }
   }
   if (target.kind === "fact" && event.button === 0 && state.mode === "NAV") {
     return { action: "open-facts", index: target.index };
@@ -293,15 +298,17 @@ export function mouseToAction(
     return { action: "take-at", take: target.take };
   }
   if (target.kind === "list" && event.button === 0) {
+    const identity = target.rowId === undefined ? {} : { rowId: target.rowId };
     return (target.selected ?? listCursor(state) === target.index)
-      ? { action: "open-selected" }
-      : { action: "focus-index", index: target.index };
+      ? { action: "open-selected", ...identity }
+      : { action: "focus-index", index: target.index, ...identity };
   }
   return null;
 }
 
 /** Where the open overlay's cursor sits, for click-again-to-run. */
 function listCursor(state: MouseActionState): number | null {
+  if (state.request !== null) return state.request.cursor;
   if (state.actions !== null) return state.actions.cursor;
   if (state.library !== null) return state.library.cursor;
   if (state.facts !== null) return state.facts.cursor;

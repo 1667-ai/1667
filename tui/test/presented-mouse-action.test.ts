@@ -398,7 +398,9 @@ describe("presented mouse reconciliation", () => {
     const state = initialState(demoAppSource(), false);
     state.stream = null;
     state.mode = "COMMANDS";
-    state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" };
+    state.commands = {
+      query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV"
+    };
     state.hitRows = [{ target: { kind: "list", index: 3 }, left: 0, right: 20 }];
     const resolved = mouseToAction(click, state, false)!;
     expect(resolved).toEqual({ action: "focus-index", index: 3 });

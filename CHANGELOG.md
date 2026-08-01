@@ -21,6 +21,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   context meter and warns above 300 estimated tokens. Thanks @10fra for the
   request.
 
+- **The TUI now shows the next request plan.** Press `Ctrl+R` to open the
+  request viewer. It shows each message, the estimated token counts, chapter
+  summary replacements, the routed model, and the context window. It does not
+  show credentials. Thanks @10fra for the request and the design.
+
 ## 0.2.1 - 2026-08-01
 
 - **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2

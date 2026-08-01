@@ -3,6 +3,7 @@ summary: Facts, request context, model providers, credentials, and connections
 read_when:
   - configuring a model provider
   - changing Facts or the context meter
+  - changing the request viewer
   - changing connection credentials, deadlines, or transport rules
 ---
 
@@ -46,6 +47,18 @@ The context meter shows the estimated next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
 output remains the upper limit. The segment changes between two visible
 colors.
+
+## Request viewer
+
+Press `Ctrl+R` to open the request viewer. You can also select **Next request**
+in the command palette. The request viewer shows the next request plan in
+provider order. It shows the routed model and the context window. It shows each
+message and its estimated token count.
+
+The request viewer identifies chapter summaries that replace raw story parts.
+It also identifies the latest summary take that resets the raw context. The
+request viewer does not show provider wire data. It cannot show a credential
+because the request plan does not contain credentials.
 
 ## Author's Note
 

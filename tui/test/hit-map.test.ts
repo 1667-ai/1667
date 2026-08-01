@@ -81,10 +81,10 @@ const footerCases: FooterCase[] = [
     setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("return"), key("up"), key("down"), key("escape")],
-    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
+    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
   { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("x"), key("escape")], options: { commandsTags: true },
-    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags" }; } },
+    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
   { name: "settings", mode: "SETTINGS", actions: SETTINGS_FOOTER_ACTIONS,
     keys: [
       key("up"), key("down"), key("left"), key("right"),
@@ -158,7 +158,10 @@ describe("hit map from rendered frames", () => {
     const active = commandMatches("", state.demo, commandContext(state.payload, false, true));
     const staleCursor = active.findIndex(({ command }) => command.id === "switch-story");
     state.mode = "COMMANDS";
-    state.commands = { query: "", cursor: staleCursor, selectedId: "switch-story", view: "commands" };
+    state.commands = {
+      query: "", cursor: staleCursor, selectedId: "switch-story", view: "commands",
+      returnMode: "NAV"
+    };
 
     state.stream = null;
     state.abort = null;
@@ -193,7 +196,8 @@ describe("hit map from rendered frames", () => {
       query: "",
       cursor: ready.findIndex(({ command }) => command.id === "summary"),
       selectedId: "summary",
-      view: "commands"
+      view: "commands",
+      returnMode: "NAV"
     };
 
     const frame = render(state);

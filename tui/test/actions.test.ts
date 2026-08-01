@@ -672,7 +672,8 @@ describe("demo action pipeline", () => {
       query: "direct",
       cursor: 0,
       selectedId: "direct-take",
-      view: "commands"
+      view: "commands",
+      returnMode: "COMPOSE"
     };
 
     expect(restorePendingGenerationDraft(state, draft)).toBeTrue();
@@ -746,7 +747,9 @@ describe("demo action pipeline", () => {
     state.pendingGenerationDraft = draft;
     suspendRetakeComposer(state, retakePrompt);
     state.mode = "COMMANDS";
-    state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" };
+    state.commands = {
+      query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "COMPOSE"
+    };
 
     adoptReconciliationSnapshot(state, {
       ...state.payload,

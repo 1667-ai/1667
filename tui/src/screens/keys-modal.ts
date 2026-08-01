@@ -174,6 +174,10 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navToggleContext"),
         binding("composeToggleContext")
       ]),
+      entry("inspect the next request", [
+        binding("navOpenRequest"),
+        binding("composeOpenRequest")
+      ]),
       entry("this key reference", [
         binding("navOpenKeysQuestion"),
         binding("navOpenKeysShiftSlash")

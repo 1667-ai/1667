@@ -10,6 +10,8 @@ import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import type { RuntimeState, StreamView } from "../src/state.js";
+import { renderPromptPlan } from "../../shared/prompt-plan.js";
+import { estimateTokens } from "../../shared/tokens.js";
 import { assertPromptReadyStoryPayload, type StoryPayload } from "../../shared/types.js";
 
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
@@ -30,6 +32,15 @@ function landedEstimate(state: RuntimeState, payload: StoryPayload) {
   };
   const request = projectNextRequest(landed);
   return nextRequestEstimate(request.payload, request.context);
+}
+
+function expectEstimateTotals(
+  actual: ReturnType<typeof nextRequestEstimate>,
+  expected: ReturnType<typeof nextRequestEstimate>
+): void {
+  expect(actual.tokens).toBe(expected.tokens);
+  expect(actual.breakdown).toEqual(expected.breakdown);
+  expect(actual.chapters).toEqual(expected.chapters);
 }
 
 function expectRenderedEstimate(state: RuntimeState, tokens: number): void {
@@ -81,7 +92,7 @@ describe("stream-aware next-request projection", () => {
       nextRequestContext(state, createStoryViewModel(payload, state.stream))
     );
 
-    expect(actual).toEqual(expected);
+    expectEstimateTotals(actual, expected);
     expect(formatTokensEstimate(actual.tokens)).not.toBe(formatTokensEstimate(stale.tokens));
     expectRenderedEstimate(state, actual.tokens);
   });
@@ -128,7 +139,7 @@ describe("stream-aware next-request projection", () => {
         nextRequestContext(state, createStoryViewModel(payload, stream))
       );
 
-      expect(actual).toEqual(expected);
+      expectEstimateTotals(actual, expected);
       expect(formatTokensEstimate(actual.tokens)).not.toBe(formatTokensEstimate(stale.tokens));
       expectRenderedEstimate(state, actual.tokens);
     }
@@ -170,6 +181,49 @@ describe("stream-aware next-request projection", () => {
         retakeNodeId: target.id
       };
       expect(projectNextRequest(state).context.operation).toBe("continue");
+    }
+  });
+
+  test("exposes rendered entries in wire order without changing continue or retake totals", () => {
+    const payload = createDemoController().payload();
+    const continueState = stateWith(payload);
+    const continueProjection = projectNextRequest(continueState);
+    expect(continueProjection.context.operation).toBe("continue");
+    const estimates = [
+      nextRequestEstimate(continueProjection.payload, continueProjection.context)
+    ];
+
+    const retakeState = stateWith(payload);
+    const target = payload.path.at(-1)!;
+    openRetakeComposer(retakeState, target.id, "Make the lantern answer Maren.");
+    const retakeProjection = projectNextRequest(retakeState);
+    expect(retakeProjection.context.operation).toBe("retake");
+    estimates.push(nextRequestEstimate(retakeProjection.payload, retakeProjection.context));
+
+    for (const estimate of estimates) {
+      const rendered = renderPromptPlan(estimate.plan.prompt);
+      expect(estimate.messages).toEqual(rendered);
+      expect(estimate.messages).toHaveLength(estimate.plan.entries.length);
+
+      const breakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
+      let total = 0;
+      for (let index = 0; index < estimate.plan.entries.length; index += 1) {
+        const entry = estimate.plan.entries[index]!;
+        const message = estimate.messages[index]!;
+        expect(message).toEqual(rendered[index]);
+        expect(message).toEqual({
+          role: entry.turn.role,
+          content: entry.turn.blocks.map((block) => block.text).join("")
+        });
+        const tokens = estimateTokens(message.content) + 4;
+        expect(estimate.messageTokenCounts[index]).toBe(tokens);
+        breakdown[entry.category] += tokens;
+        total += tokens;
+      }
+
+      expect(estimate.breakdown).toEqual(breakdown);
+      expect(estimate.messageTokenCounts).toHaveLength(estimate.messages.length);
+      expect(estimate.tokens).toBe(total);
     }
   });
 
@@ -244,8 +298,10 @@ describe("stream-aware next-request projection", () => {
 
       expect(projected.context.targetId).toBe(stream.targetId);
       expect(afterLanding.context.targetId).toBe(landed.path.at(-1)?.id);
-      expect(nextRequestEstimate(projected.payload, projected.context))
-        .toEqual(nextRequestEstimate(afterLanding.payload, afterLanding.context));
+      expectEstimateTotals(
+        nextRequestEstimate(projected.payload, projected.context),
+        nextRequestEstimate(afterLanding.payload, afterLanding.context)
+      );
     }
   });
 

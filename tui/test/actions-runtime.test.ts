@@ -589,7 +589,9 @@ describe("demo action runtime and input", () => {
     const cursor = active.findIndex(({ command }) => command.id === "switch-story");
     expect(cursor).toBeGreaterThan(-1);
     state.mode = "COMMANDS";
-    state.commands = { query: "", cursor, selectedId: "switch-story", view: "commands" };
+    state.commands = {
+      query: "", cursor, selectedId: "switch-story", view: "commands", returnMode: "NAV"
+    };
     source.api.exportMarkdown = async () => { throw new Error("stale cursor executed export"); };
 
     state.stream = null;

@@ -1,6 +1,6 @@
 import type { StoryPayload } from "../../shared/types.js";
 import { formatTokensScaled } from "./rail.js";
-import type { NextRequestEstimate, RequestChapterProjection } from "./request-projection.js";
+import type { RequestChapterProjection, RequestTokenEstimate } from "./request-projection.js";
 import { createStoryViewModel, type StoryChapter, type StoryViewModel } from "./model.js";
 
 export interface ChapterListRow {
@@ -24,7 +24,7 @@ export interface ChapterListModel {
 export function chapterListModel(
   payload: StoryPayload,
   contextWindow: number | null,
-  estimate: NextRequestEstimate,
+  estimate: RequestTokenEstimate,
   view: StoryViewModel = createStoryViewModel(payload)
 ): ChapterListModel {
   const totalTokens = estimate.tokens;

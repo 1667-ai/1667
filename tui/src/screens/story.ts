@@ -32,6 +32,7 @@ import { dimPage, panelHorizontalGeometry, placePanel, raisedSegment } from "./o
 import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
 import { renderSearchScreen } from "./search.js";
+import { renderRequestViewerScreen } from "./request-viewer.js";
 import { renderPanels } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import {
@@ -90,6 +91,7 @@ export interface StoryScreenDerived {
   composerSelectionProjection: ComposerSelectionProjection | null;
   storySelectionProjection: StorySelectionProjection | null;
   map: StoryScreenState["map"];
+  request: StoryScreenState["request"];
 }
 
 export interface StoryScreenFrame extends FrameComposition {
@@ -111,6 +113,12 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
+  if (state.mode === "REQUEST" && state.request !== null) {
+    return renderRequestViewerScreen(
+      state, state.request, projectedRequest.context,
+      estimate, options.width, height, options.deadlines
+    );
+  }
   const editor = state.mode === "EDITOR" ? state.editor : null;
   if (editor !== null) {
     return renderInlineEditor(
@@ -310,7 +318,8 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
       storySelectionProjection: state.mode === "NAV"
         ? buildStorySelectionProjection(pageSelectionLines, frameLayout.pageWidth)
         : null,
-      map: state.map
+      map: state.map,
+      request: state.request
     }
   };
 }
@@ -334,7 +343,8 @@ function fullBleedDerived(
     keysScrollTop: state.keysScrollTop,
     composerSelectionProjection: null,
     storySelectionProjection: null,
-    map
+    map,
+    request: state.request
   };
 }
 
@@ -599,7 +609,8 @@ function renderFullscreenComposer(
       keysScrollTop: state.keysScrollTop,
       composerSelectionProjection: buildComposerSelectionProjection(presentedLines, width),
       storySelectionProjection: null,
-      map: state.map
+      map: state.map,
+      request: state.request
     }
   };
 }
@@ -710,7 +721,8 @@ function renderEditorLayoutFrame(
       keysScrollTop: state.keysScrollTop,
       composerSelectionProjection: buildComposerSelectionProjection(lines, width),
       storySelectionProjection: null,
-      map: state.map
+      map: state.map,
+      request: state.request
     }
   };
 }

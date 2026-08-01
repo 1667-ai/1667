@@ -258,7 +258,7 @@ describe("honest next-request context meter", () => {
     for (const item of cases) {
       const messages = renderPromptPlan(continuationPlan(
         systemPrompt, facts, null, item.parts, item.instruction, item.appendLast,
-        item.assistantPrefill, "ct-00000000", payload.chapterBreaks, promptNodes
+        item.assistantPrefill, null, payload.chapterBreaks, promptNodes
       ).prompt);
       const expected = messages.reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
       const estimate = nextRequestEstimate(payload, item.request);

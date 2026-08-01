@@ -332,6 +332,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   state.composer = createComposer();
   state.editor = null;
   state.retakePrompt = null;
+  state.request = null;
   state.stream = null;
   state.abort = null;
   state.undo = [];

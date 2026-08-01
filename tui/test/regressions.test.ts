@@ -729,7 +729,10 @@ describe("review regressions", () => {
         massSort: "size"
       },
       library: { stories: [], cursor: 0, query: "old", prompt: null },
-      commands: { query: "old", cursor: 0, selectedId: null, view: "commands" as const }
+      commands: {
+        query: "old", cursor: 0, selectedId: null, view: "commands" as const,
+        returnMode: "NAV" as const
+      }
     } as RuntimeState;
     const replacement = { ...demo.payload(), id: "replacement-story" };
 

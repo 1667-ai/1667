@@ -78,10 +78,10 @@ const footerCases: FooterCase[] = [
     setup: (state) => { state.mode = "CHAPTERS"; state.chapters = { cursor: 0, rename: null, deleteArmedId: null }; } },
   { name: "commands", mode: "COMMANDS", actions: COMMANDS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
-    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
+    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
   { name: "tag manager", mode: "COMMANDS", actions: TAGS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("d"), key("escape")], options: { commandsTags: true },
-    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags" }; } },
+    setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
   { name: "part actions", mode: "ACTIONS", actions: ACTIONS_FOOTER_ACTIONS,
     keys: [key("up"), key("down"), key("return"), key("escape")],
     setup: (state) => {
@@ -934,9 +934,9 @@ describe("hit map clickable chrome", () => {
         : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
-        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands" }; } },
+        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },
       { name: "tag manager", expected: "↑↓ move · d delete · esc commands",
-        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags" }; } },
+        setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "tags", returnMode: "NAV" }; } },
       // Context status moved into the panel, so the footer is actions only and
       // no longer grows with `over`/`fix`.
       { name: "chapters", expected: (width) => width < 100

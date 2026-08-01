@@ -121,7 +121,7 @@ function rebaseByStableIdentity(
     ).findIndex((fact) => fact.id === action.rowId);
     return index < 0 ? null : { ...action, index };
   }
-  if (action.action === "focus-index" && action.rowId !== undefined) {
+  if (action.action === "focus-index" && action.rowId !== undefined && state.mode !== "REQUEST") {
     const index = createStoryViewModel(state.payload, state.stream).rows
       .findIndex((row) => row.id === action.rowId);
     return index < 0 ? null : { ...action, index };
@@ -219,6 +219,7 @@ function mapRowId(state: MouseActionState, index: number | undefined): string | 
  *  Null means the row cannot be named, which reconciliation refuses. */
 function listRowIdentity(state: MouseActionState, index: number | undefined): string | null {
   if (index === undefined) return null;
+  if (state.request !== null) return requestRowIdentity(state, index);
   if (state.mode === "MAP" && state.map !== null) return mapRowId(state, index);
   if (state.search !== null) {
     return searchRowIdentity(state, index);
@@ -288,10 +289,11 @@ const NO_SELECTION = "none";
 function selectableRowsOpen(state: MouseActionState): boolean {
   return state.map !== null || state.actions !== null || state.library !== null
     || state.facts !== null || state.commands !== null || state.chapters !== null
-    || state.settings !== null || state.search !== null;
+    || state.settings !== null || state.search !== null || state.request !== null;
 }
 
 function selectedListIdentity(state: MouseActionState): string | null {
+  if (state.request !== null) return requestRowIdentity(state, state.request.cursor);
   if (state.search !== null) {
     return searchRowIdentity(state, state.search.cursor);
   }
@@ -342,7 +344,25 @@ function selectedListIdentity(state: MouseActionState): string | null {
   return null;
 }
 
+function requestRowIdentity(state: MouseActionState, index: number): string | null {
+  for (const row of state.hitRows) {
+    if (row?.target.kind === "list"
+      && row.target.index === index
+      && row.target.rowId !== undefined) {
+      return row.target.rowId;
+    }
+    const override = row?.overrides?.find((hit) =>
+      hit.target.kind === "list"
+      && hit.target.index === index
+      && hit.target.rowId !== undefined
+    );
+    if (override?.target.kind === "list") return override.target.rowId ?? null;
+  }
+  return null;
+}
+
 function relativeMouseAction(action: ResolvedKey): boolean {
   return action.action === "scroll-down" || action.action === "scroll-up"
+    || action.action === "scroll-line-down" || action.action === "scroll-line-up"
     || action.action === "focus-next" || action.action === "focus-previous";
 }

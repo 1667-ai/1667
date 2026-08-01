@@ -28,6 +28,10 @@ import {
 } from "./settings-overlay-actions.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
+import {
+  openRequestViewer,
+  requestViewerAction
+} from "./request-viewer-actions.js";
 
 import type { AppSource } from "./app.js";
 import type { RuntimeState } from "./state.js";
@@ -46,6 +50,11 @@ export async function handleOverlayAction(
     openAuthorsNoteEditor(state);
     return true;
   }
+  if (resolved.action === "open-request") {
+    if (state.mode === "REQUEST") requestViewerAction(resolved, state, context.renderer?.height);
+    else if (state.mode === "NAV" || state.mode === "COMPOSE") openRequestViewer(state);
+    return true;
+  }
   if (resolved.action === "open-library") { await openLibrary(state, source, context); return true; }
   if (resolved.action === "open-facts") {
     state.facts = initialFacts();
@@ -60,7 +69,8 @@ export async function handleOverlayAction(
     state.commands = {
       query: "",
       ...retainCommandSelection(liveCommandMatches(state, ""), null, 0),
-      view: "commands"
+      view: "commands",
+      returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV"
     };
     state.mode = "COMMANDS";
     return true;
@@ -78,6 +88,10 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-chapters") { openChapters(state); return true; }
   if (resolved.action === "open-search") { openSearch(state, source); return true; }
+  if (state.mode === "REQUEST" && state.request !== null) {
+    requestViewerAction(resolved, state, context.renderer?.height);
+    return true;
+  }
   if (state.mode === "LIBRARY" && state.library !== null) {
     const prompt = state.library.prompt;
     const needsBackend = resolved.action === "new-item"
@@ -231,7 +245,10 @@ async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source
   }
   let matches = liveCommandMatches(state, overlay.query);
   Object.assign(overlay, retainCommandSelection(matches, overlay.selectedId, overlay.cursor));
-  if (resolved.action === "cancel") { state.commands = null; state.mode = "NAV"; }
+  if (resolved.action === "cancel") {
+    state.commands = null;
+    state.mode = overlay.returnMode;
+  }
   else if (resolved.action === "focus-next") selectCommand(overlay, matches, overlay.cursor + 1);
   else if (resolved.action === "focus-index") selectCommand(overlay, matches, resolved.index ?? overlay.cursor);
   else if (resolved.action === "focus-previous") selectCommand(overlay, matches, overlay.cursor - 1);
@@ -265,9 +282,11 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
     return;
   }
   if (command.id === "tags") { state.commands!.view = "tags"; state.commands!.cursor = 0; return; }
+  const returnMode = state.commands!.returnMode;
   state.commands = null;
   state.mode = "NAV";
-  if (command.id === "tag-line") openTag(state);
+  if (command.id === "next-request") openRequestViewer(state, returnMode);
+  else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {

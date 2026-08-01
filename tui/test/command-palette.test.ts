@@ -192,7 +192,9 @@ function renderCommands(
     storyFolder: source.storyFolder,
     library: null,
     facts: null,
-    commands: { query: "", cursor, selectedId, view: "commands" as const },
+    commands: {
+      query: "", cursor, selectedId, view: "commands" as const, returnMode: "NAV" as const
+    },
     chapters: null,
     settings: null,
     summary: null,

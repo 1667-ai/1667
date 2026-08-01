@@ -24,6 +24,7 @@ import type {
   SettingsRowId
 } from "./state.js";
 import { setLibraryQuery } from "./library-model.js";
+import { resolveRequestViewerKey } from "./request-viewer-actions.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -49,11 +50,11 @@ export type KeyAction =
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
-  | "toggle-context-meter" | "open-search" | "toggle-search-case";
+  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH";
+  | "SEARCH" | "REQUEST";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -333,6 +334,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (confirmingPrune) {
     return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
   }
+  if (mode === "REQUEST") return resolveRequestViewerKey(key);
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
   // Capital letters are distinct terminal commands. Declared reference routes

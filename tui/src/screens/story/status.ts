@@ -115,7 +115,11 @@ export function renderStatus(
   ];
   const tagged = wideRight(true);
   const right: FrameLine = narrow
-    ? [segment(` ${narrowRight} `, contextSeverity(window) === "over" ? "danger text" : "chrome")]
+    ? [segment(
+      ` ${narrowRight} `,
+      contextSeverity(window) === "over" ? "danger text" : "chrome",
+      { kind: "inline-action", action: "open-request" }
+    )]
     : visibleWidth(plainLine(left)) + visibleWidth(plainLine(tagged)) <= width
       ? tagged
       : wideRight(false);

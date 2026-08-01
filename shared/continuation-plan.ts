@@ -44,7 +44,7 @@ export function continuationPlan(
   instruction: string,
   appendLast: boolean,
   assistantPrefill: boolean,
-  tag: string,
+  tag: string | null,
   chapterBreaks: readonly ChapterBreak[],
   nodes: readonly PromptPart[]
 ): ContinuationPlan {
@@ -157,15 +157,17 @@ export function continuationPlan(
   }
 
   const leftAnchor = lastCharacters(context.at(-1)?.text.trimEnd() ?? "", BOUNDARY_ANCHOR_CHARACTERS);
-  const boundaryInstruction = leftAnchor.length > 0
-    ? [
-        "Continue the unfinished assistant passage from its exact final character.",
-        "Start your response by copying the LEFT BOUNDARY text below byte-for-byte, then write only the new continuation after it.",
-        "Do not restart, summarize, quote, or explain the passage.",
-        "",
-        `<${tag}-left>${leftAnchor}</${tag}-left>`
-      ].join("\n")
-    : "Continue the unfinished assistant passage directly. Return only new continuation text, with no preamble or explanation.";
+  let boundaryInstruction = "Continue the unfinished assistant passage directly. Return only new continuation text, with no preamble or explanation.";
+  if (leftAnchor.length > 0) {
+    const boundaryTag = tag ?? deriveBoundaryTag(leftAnchor);
+    boundaryInstruction = [
+      "Continue the unfinished assistant passage from its exact final character.",
+      "Start your response by copying the LEFT BOUNDARY text below byte-for-byte, then write only the new continuation after it.",
+      "Do not restart, summarize, quote, or explain the passage.",
+      "",
+      `<${boundaryTag}-left>${leftAnchor}</${boundaryTag}-left>`
+    ].join("\n");
+  }
   entries.push({
     category: "voice",
     turn: {
@@ -269,4 +271,12 @@ function isClaudeWithoutPrefill(model: string): boolean {
 
 function lastCharacters(value: string, count: number): string {
   return Array.from(value).slice(-count).join("");
+}
+
+function deriveBoundaryTag(value: string): string {
+  let hash = 0x811c9dc5;
+  for (const character of value) {
+    hash = Math.imul(hash ^ character.codePointAt(0)!, 0x01000193);
+  }
+  return `ct-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }

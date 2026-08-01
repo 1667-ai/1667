@@ -111,6 +111,8 @@ export interface CommandsOverlayState {
   /** Stable identity across live Suggested-section reordering. */
   selectedId: CommandSelectionId | null;
   view: "commands" | "tags";
+  /** Surface that owns the composer while the palette is open. */
+  returnMode: "NAV" | "COMPOSE";
 }
 export interface ChaptersOverlayState {
   cursor: number;
@@ -185,6 +187,13 @@ export interface SummaryOverlayState {
   totalParts: number;
   text: string;
   controller: AbortController;
+}
+
+export interface RequestViewerState {
+  cursor: number;
+  /** Negative means reveal the focused message on the next render. */
+  scrollTop: number;
+  returnMode: "NAV" | "COMPOSE";
 }
 
 export type InlineEditorTarget =
@@ -278,6 +287,8 @@ export interface StoryScreenState extends OverlayState {
   editor: DocumentEditorSession | null;
   /** Atomic edited-prompt owner; null means the persistent Direct composer. */
   retakePrompt: RetakePromptSession | null;
+  /** Read-only projection of the next provider request. */
+  request: RequestViewerState | null;
   toast: string | null;
   stream: StreamView | null;
   /** The cancellable operation whose backend owner is still settling. */
