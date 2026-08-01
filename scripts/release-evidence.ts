@@ -3,7 +3,7 @@
 import { execFile } from "node:child_process";
 import { realpathSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "../server/canonical-json.js";
@@ -152,9 +152,65 @@ async function collectWithTagAuthorization<T>(
   const verifier = resolveSignatureVerifier(request.sshKeygenPath);
   const repositoryRoot = realpathSync(request.repositoryRoot);
   const tagRef = `refs/tags/${tagName}`;
-  const environment = hermeticEnvironment(request.environment);
-  const git = (args: readonly string[]): Promise<CommandOutcome> =>
-    runGit(repositoryRoot, args, environment);
+  // One private scratch directory for the whole collection: the empty
+  // configuration the Git children are pinned to, and the signer policy below.
+  const scratchDirectory = await mkdtemp(
+    path.join(realpathSync(tmpdir()), "1667-release-evidence-")
+  );
+  try {
+    if (isInside(repositoryRoot, scratchDirectory)) {
+      throw new Error("Release evidence scratch directory must sit outside the repository");
+    }
+    // Git refuses `\\.\nul` as a configuration path on Windows, so the empty
+    // configuration is a real empty file rather than the null device. A missing
+    // path would also read as empty, but a real file in a private directory
+    // cannot be created underneath this process by anyone else.
+    const emptyConfig = path.join(scratchDirectory, "empty-gitconfig");
+    await writeFile(emptyConfig, "", { mode: 0o600 });
+    const environment = hermeticEnvironment(request.environment, emptyConfig);
+    const git = (args: readonly string[]): Promise<CommandOutcome> =>
+      runGit(repositoryRoot, args, environment);
+    return await collectTagAuthorization({
+      git,
+      repositoryRoot,
+      scratchDirectory,
+      tagName,
+      tagRef,
+      signerPolicyRef,
+      signerPolicyPath,
+      protectedRef,
+      verifier,
+      consume
+    });
+  } finally {
+    await rm(scratchDirectory, { recursive: true, force: true });
+  }
+}
+
+type TagAuthorizationConsumer<T> = (
+  observations: ReleaseTagAuthorizationObservations,
+  git: GitRunner,
+  sourceCommit: string
+) => Promise<T> | T;
+
+interface TagAuthorizationRun<T> {
+  readonly git: (args: readonly string[]) => Promise<CommandOutcome>;
+  readonly repositoryRoot: string;
+  readonly scratchDirectory: string;
+  readonly tagName: string;
+  readonly tagRef: string;
+  readonly signerPolicyRef: string;
+  readonly signerPolicyPath: string;
+  readonly protectedRef: string;
+  readonly verifier: string;
+  readonly consume: TagAuthorizationConsumer<T>;
+}
+
+async function collectTagAuthorization<T>(run: TagAuthorizationRun<T>): Promise<T> {
+  const {
+    git, repositoryRoot, scratchDirectory, tagName, tagRef,
+    signerPolicyRef, signerPolicyPath, protectedRef, verifier, consume
+  } = run;
 
   // Resolved once, then named explicitly by every read below. `HEAD` is
   // symbolic: re-resolving it per command lets a branch that moves mid-run
@@ -181,54 +237,44 @@ async function collectWithTagAuthorization<T>(
   // untrusted process touching `.git` in between.
   const signerPolicy = await git(["show", `${signerPolicyRef}:${signerPolicyPath}`]);
 
-  const signersDirectory = await mkdtemp(
-    path.join(realpathSync(tmpdir()), "1667-release-signers-")
-  );
-  try {
-    if (isInside(repositoryRoot, signersDirectory)) {
-      throw new Error("Release signer policy scratch directory must sit outside the repository");
-    }
-    // Git needs the policy as a file. It goes to a private scratch path outside
-    // the repository so verification never depends on, and never leaves, a file
-    // in the tree being released.
-    const signersFile = path.join(signersDirectory, "allowed-signers");
-    await writeFile(signersFile, signerPolicy.stdout, { mode: 0o600 });
+  // Git needs the policy as a file. It goes to the private scratch directory
+  // outside the repository so verification never depends on, and never leaves,
+  // a file in the tree being released.
+  const signersFile = path.join(scratchDirectory, "allowed-signers");
+  await writeFile(signersFile, signerPolicy.stdout, { mode: 0o600 });
 
-    const observations: ReleaseTagAuthorizationObservations = {
-      tagName,
-      signerPolicyRef,
-      signerPolicyPath,
-      protectedRef,
-      signerPolicy,
-      headCommit,
-      workingTreeStatus: await git(["status", "--porcelain=v1", "--untracked-files=all"]),
-      tagObjectType: await git(["cat-file", "-t", tagRef]),
-      tagObject: await git(["cat-file", "tag", tagRef]),
-      tagTargetCommit: await git(["rev-parse", "--verify", `${tagRef}^{commit}`]),
-      protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef]),
-      // `-c` outranks system, global and repository configuration, so no
-      // `.git/config` on the release runner can redirect the allowed-signers
-      // file. What `-c` does not do is decide which program `gpg.ssh.program`
-      // names: a bare `ssh-keygen` is resolved through `PATH` at spawn time, and
-      // a planted one that prints an accepting status line and exits zero is
-      // believed. `verifier` is therefore an absolute path this process checked.
-      // `--raw` keeps the tag message off the stream that is parsed.
-      tagVerification: await git([
-        "-c",
-        "gpg.format=ssh",
-        "-c",
-        `gpg.ssh.program=${verifier}`,
-        "-c",
-        `gpg.ssh.allowedSignersFile=${signersFile}`,
-        "verify-tag",
-        "--raw",
-        tagRef
-      ])
-    };
-    return await consume(observations, git, sourceCommit);
-  } finally {
-    await rm(signersDirectory, { recursive: true, force: true });
-  }
+  const observations: ReleaseTagAuthorizationObservations = {
+    tagName,
+    signerPolicyRef,
+    signerPolicyPath,
+    protectedRef,
+    signerPolicy,
+    headCommit,
+    workingTreeStatus: await git(["status", "--porcelain=v1", "--untracked-files=all"]),
+    tagObjectType: await git(["cat-file", "-t", tagRef]),
+    tagObject: await git(["cat-file", "tag", tagRef]),
+    tagTargetCommit: await git(["rev-parse", "--verify", `${tagRef}^{commit}`]),
+    protectedReachability: await git(["merge-base", "--is-ancestor", sourceCommit, protectedRef]),
+    // `-c` outranks system, global and repository configuration, so no
+    // `.git/config` on the release runner can redirect the allowed-signers
+    // file. What `-c` does not do is decide which program `gpg.ssh.program`
+    // names: a bare `ssh-keygen` is resolved through `PATH` at spawn time, and
+    // a planted one that prints an accepting status line and exits zero is
+    // believed. `verifier` is therefore an absolute path this process checked.
+    // `--raw` keeps the tag message off the stream that is parsed.
+    tagVerification: await git([
+      "-c",
+      "gpg.format=ssh",
+      "-c",
+      `gpg.ssh.program=${verifier}`,
+      "-c",
+      `gpg.ssh.allowedSignersFile=${signersFile}`,
+      "verify-tag",
+      "--raw",
+      tagRef
+    ])
+  };
+  return await consume(observations, git, sourceCommit);
 }
 
 /**
@@ -241,7 +287,10 @@ async function collectWithTagAuthorization<T>(
  * the appearance of it. Anything genuinely needed is listed here; anything a
  * caller needs on top is merged over it.
  */
-function hermeticEnvironment(extra: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+function hermeticEnvironment(
+  extra: NodeJS.ProcessEnv | undefined,
+  emptyConfig: string
+): NodeJS.ProcessEnv {
   return {
     // Git itself is still found on `PATH`; the signature verifier is not.
     PATH: process.env["PATH"] ?? "/usr/bin:/bin",
@@ -249,8 +298,8 @@ function hermeticEnvironment(extra: NodeJS.ProcessEnv | undefined): NodeJS.Proce
     LC_ALL: "C",
     GIT_TERMINAL_PROMPT: "0",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
-    GIT_CONFIG_SYSTEM: devNull,
+    GIT_CONFIG_GLOBAL: emptyConfig,
+    GIT_CONFIG_SYSTEM: emptyConfig,
     ...extra
   };
 }
