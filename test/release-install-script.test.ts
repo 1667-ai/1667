@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import {
   access,
   chmod,
@@ -33,6 +34,7 @@ import {
   digestsFor,
   execFileAsync,
   hostShellInstallerTarget,
+  ptyCommand,
   releaseStub,
   sha256File,
   writeFakeArchive,
@@ -91,6 +93,19 @@ test("generated install scripts embed exact digests and never resolve latest", (
     /http:\/\/127\.0\.0\.1:\*\|http:\/\/localhost:\*\)[\s\S]*?curl[\s\S]*?--connect-timeout "\$DOWNLOAD_CONNECT_TIMEOUT_SEC"[\s\S]*?--max-time "\$DOWNLOAD_MAX_TIME_SEC"[\s\S]*?;;/
   );
   assert.ok(loopbackBranch !== null, "loopback curl branch has connect and max-time bounds");
+  // The HTTPS branch must keep failing closed and must never follow a redirect
+  // off HTTPS. The digest check would catch wrong bytes, but not the correct
+  // bytes fetched over plaintext. Pin the flags so an edit to this line cannot
+  // drop them silently.
+  assert.match(httpsBranch![0], /curl -fSL /u);
+  assert.match(httpsBranch![0], /--proto '=https'/u);
+  assert.match(httpsBranch![0], /--proto-redir '=https'/u);
+  assert.match(loopbackBranch![0], /curl -fSL /u);
+  // The transfer bar is for a person at a terminal. A pipe or a log gets
+  // silence, so captured output keeps no carriage returns.
+  assert.match(body, /if \[ -t 2 \]; then\n\s+progress='--progress-bar'\n\s+else\n\s+progress='--silent'/u);
+  assert.match(httpsBranch![0], /"\$progress"/u);
+  assert.match(loopbackBranch![0], /"\$progress"/u);
   // Every accepted --prefix must be able to produce a canonical Ownership Record.
   assert.match(body, /prefix must not be the filesystem root/);
   for (const archive of archives) {
@@ -357,16 +372,102 @@ test("Shell Installer installs, probes identity, refuses existing binaries, reco
   const safePrefix = path.join(root, "safe-prefix");
   await mkdir(safePrefix, { mode: 0o755 });
   await chmod(safePrefix, 0o755);
-  const { stdout } = await execFileAsync("sh", [scriptPath, "--prefix", safePrefix], {
+  const { stdout, stderr } = await execFileAsync("sh", [scriptPath, "--prefix", safePrefix], {
     cwd: root
   });
   assert.match(stdout, new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`));
+
+  // The installer reports each slow stage. Without this the command is silent
+  // for the whole transfer, and a slow network looks the same as a stall.
+  const stages = [
+    `info: Downloading 1667 ${INSTALL_VERSION} for ${hostTarget}`,
+    "info: Checking the download",
+    "info: Unpacking",
+    "info: Starting 1667 once to confirm it runs"
+  ];
+  let searchedTo = -1;
+  for (const stage of stages) {
+    const at = stderr.indexOf(stage);
+    assert.ok(at !== -1, `progress is missing ${JSON.stringify(stage)}:\n${stderr}`);
+    assert.ok(at > searchedTo, `progress reports ${JSON.stringify(stage)} out of order:\n${stderr}`);
+    searchedTo = at;
+    assert.ok(!stdout.includes(stage), "progress must not reach stdout");
+  }
+  // 'die()' owns the '1667 install:' prefix. A successful run must not print it,
+  // because anything wrapping this script can use it as a failure signal.
+  assert.ok(
+    !stderr.includes("1667 install:"),
+    `a successful install printed the refusal prefix:\n${stderr}`
+  );
+  // stderr is a pipe here, so this run took the --silent branch and carries no
+  // transfer bar. The terminal branch is covered separately below.
+  assert.doesNotMatch(stderr, /\r/u);
+  assert.ok(!stderr.includes("#"), `pipe run drew a transfer bar:\n${stderr}`);
   const ownership = parseInstallOwnershipRecordText(
     await readFile(path.join(safePrefix, ".1667-install.json"), "utf8")
   );
   assert.equal(ownership.channel, "beta");
   assert.equal(ownership.method, "shell");
   assert.equal(ownership.artifactTarget, hostTarget);
+
+  // A terminal takes the --progress-bar branch, and every person who runs the
+  // published one-line command has stderr on a terminal. A pipe-only test would
+  // leave the branch that all of them use unexercised.
+  const ttyPrefix = path.join(root, "tty-prefix");
+  await mkdir(ttyPrefix, { mode: 0o755 });
+  await chmod(ttyPrefix, 0o755);
+  const pty = ptyCommand(["sh", scriptPath, "--prefix", ttyPrefix]);
+  if (pty === null) {
+    t.diagnostic("no pty runner on this platform; terminal progress branch not exercised");
+  } else {
+    const ttyRun = await execFileAsync(pty.file, pty.args, { cwd: root });
+    const ttyOutput = `${ttyRun.stdout}${ttyRun.stderr}`;
+    assert.match(ttyOutput, new RegExp(`Installed 1667 ${INSTALL_VERSION} \\(beta\\)`));
+    // A pty sets ONLCR, so every newline already arrives as CRLF. Only the bar
+    // itself distinguishes this branch from the --silent one, so assert on the
+    // bar: a run of '#' immediately before the completed percentage.
+    assert.match(ttyOutput, /#{2,}\s+100\.0%/u);
+    const ttyOwnership = parseInstallOwnershipRecordText(
+      await readFile(path.join(ttyPrefix, ".1667-install.json"), "utf8")
+    );
+    assert.equal(ttyOwnership.artifactTarget, hostTarget);
+  }
+
+  // Progress is cosmetic, and it is written between the Transaction Record and
+  // the activation. A reader that closes or stops early must not end an
+  // otherwise valid installation and leave recovery state behind.
+  for (const [label, command] of [
+    ["closed stderr", (script: string, prefix: string, status: string) =>
+      `sh ${script} --prefix ${prefix} 2>&-; printf %s $? > ${status}`],
+    // A pipeline reports the reader's status, so the installer's own status is
+    // captured before head can mask it. head closes the pipe after two lines,
+    // which is what makes the remaining writes hit a closed reader.
+    ["reader stops early", (script: string, prefix: string, status: string) =>
+      `{ sh ${script} --prefix ${prefix}; printf %s $? > ${status}; } 2>&1 | head -n 2`]
+  ] as const) {
+    const quietPrefix = path.join(root, `quiet-${label.replace(/\W+/gu, "-")}`);
+    await mkdir(quietPrefix, { mode: 0o755 });
+    await chmod(quietPrefix, 0o755);
+    const statusPath = path.join(root, `status-${label.replace(/\W+/gu, "-")}`);
+    await execFileAsync("sh", ["-c", command(scriptPath, quietPrefix, statusPath)], { cwd: root });
+    // 141 is 128 + SIGPIPE. Progress is cosmetic, so it must never end the
+    // installer, and the pipeline's own status cannot show that.
+    assert.equal(
+      await readFile(statusPath, "utf8"),
+      "0",
+      `${label} did not leave the installer with a zero status`
+    );
+    const installed = path.join(quietPrefix, "1667");
+    assert.ok(existsSync(installed), `${label} did not install the executable`);
+    assert.ok(
+      !existsSync(path.join(quietPrefix, ".1667-install-txn.json")),
+      `${label} left a Transaction Record behind`
+    );
+    const quietOwnership = parseInstallOwnershipRecordText(
+      await readFile(path.join(quietPrefix, ".1667-install.json"), "utf8")
+    );
+    assert.equal(quietOwnership.artifactTarget, hostTarget);
+  }
 
   // Candidate identity mismatch refuses activation.
   const badArchiveName = releaseArchiveFileName(INSTALL_VERSION, hostTarget);

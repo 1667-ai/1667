@@ -168,10 +168,14 @@ ${input.digestLines}
   RECOVER_STATUS=
   recover_install "\$prefix" "\$executable" "\$target" "\$digest" "\$archive" || exit 1
   if [ "\$RECOVER_STATUS" = completed ]; then
-    printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
-      "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
     trap - EXIT INT TERM
     release_lock "\$prefix"
+    (
+      exec 9>&-
+      trap '' PIPE
+      printf 'Recovered 1667 %s (%s) for %s at %s\\n' \\
+        "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+    ) || :
     return 0
   fi
 
@@ -196,11 +200,15 @@ ${input.digestLines}
   write_txn "\$prefix" "downloading" "\$target" "\$digest"
   archive_path="\$prefix/\$archive"
   rm -f "\$archive_path"
+  say "Downloading 1667 \$PRODUCT_VERSION for \$target"
   download_archive "\$url" "\$archive_path"
+  say "Checking the download"
   verify_sha256 "\$archive_path" "\$digest"
   write_txn "\$prefix" "extracted" "\$target" "\$digest"
+  say "Unpacking"
   extract_candidate "\$prefix" "\$archive_path" "\$archive"
   rm -f "\$archive_path"
+  say "Starting 1667 once to confirm it runs"
   probe_candidate "\$prefix/\$CANDIDATE_FILE" "\$target"
   # Candidate bytes must be durable before candidate-ready is published.
   # Power loss after a durable txn must not leave a missing or corrupt candidate.
@@ -221,14 +229,21 @@ ${input.digestLines}
   clear_txn "\$prefix"
   trap - EXIT INT TERM
   release_lock "\$prefix"
-  printf 'Installed 1667 %s (%s) for %s to %s\\n' \\
-    "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
-  case ":\$PATH:" in
-    *":\$prefix:"*) ;;
-    *)
-      printf 'Add this directory to PATH:\\n  export PATH="%s:\$PATH"\\n' "\$prefix"
-      ;;
-  esac
+  # The installation is complete and the lock is released. Reporting it must not
+  # turn a finished install into a signal death, so the result goes through the
+  # same guard the progress uses. 'head' on the output is enough to trigger it.
+  (
+    exec 9>&-
+    trap '' PIPE
+    printf 'Installed 1667 %s (%s) for %s to %s\\n' \\
+      "\$PRODUCT_VERSION" "\$INSTALL_CHANNEL" "\$target" "\$executable"
+    case ":\$PATH:" in
+      *":\$prefix:"*) ;;
+      *)
+        printf 'Add this directory to PATH:\\n  export PATH="%s:\$PATH"\\n' "\$prefix"
+        ;;
+    esac
+  ) || :
 }
 
 usage() {
@@ -304,6 +319,30 @@ on_install_signal() {
 die() {
   printf '1667 install: %s\\n' "\$*" >&2
   exit 1
+}
+
+# Progress goes to stderr so that stdout carries only the install result.
+# Without it the installer is silent for the whole transfer, and a slow network
+# is indistinguishable from a stall.
+#
+# The prefix is deliberately not the one die() uses. A successful install must
+# not print the string that marks a refusal, because that string is a usable
+# failure signal for anything wrapping this script.
+#
+# The write is best-effort. These calls happen between the transaction record
+# and the activation, so a closed, full, or unreadable stderr must not end the
+# installation under 'set -e'. Progress is cosmetic; the install is not.
+say() {
+  # The write happens in a subshell that ignores SIGPIPE, so a reader that stops
+  # early (for example '2>&1 | head') cannot signal the installer. The subshell
+  # takes the EPIPE instead, and '|| :' keeps its status away from 'set -e'.
+  # The subshell closes FD 9, like every other subshell here, so a stalled write
+  # can never hold the Install Root lock.
+  (
+    exec 9>&-
+    trap '' PIPE
+    printf 'info: %s\\n' "\$*" >&2
+  ) || :
 }
 
 # Refuse any prior managed path (regular file, directory, or symbolic link).

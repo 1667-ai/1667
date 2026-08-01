@@ -148,6 +148,26 @@ test("interruption emits exit 130 and one JSON envelope", async () => {
   expect(JSON.parse(result.stdout).command).toBe(null);
 });
 
+test("rollback refusal keeps its code and reaches JSON without internal names", async () => {
+  // failure.message reaches the JSON envelope as well as human stderr, so a
+  // wording change is visible to both. The code is the stable machine field.
+  const registry = fakeRegistry("2.0.0");
+  const json = await executeUpgradeCli(["--rollback", "--json"], { observation, registry });
+  expect(json.exitCode).toBe(1);
+  const envelope = JSON.parse(json.stdout);
+  expect(envelope.status).toBe("error");
+  expect(envelope.error.code).toBe("unsupported_target");
+  expect(envelope.error.retryable).toBe(false);
+  for (const internal of ["Managed Installation", "Shell Installer", "Candidate"]) {
+    expect(envelope.error.message).not.toContain(internal);
+  }
+
+  const human = await executeUpgradeCli(["--rollback"], { observation, registry });
+  expect(human.exitCode).toBe(1);
+  expect(human.stdout).toBe("");
+  expect(human.stderr).toContain("Rollback works only when you installed 1667");
+});
+
 test("human plan output uses only locally derived fixed instructions", async () => {
   const result = await executeUpgradeCli(["--version", "2.0.0"], {
     observation,
@@ -160,8 +180,19 @@ test("human plan output uses only locally derived fixed instructions", async () 
   );
   expect(result.stdout).not.toContain("%2f");
   expect(result.stdout).not.toContain("github");
-  expect(result.stdout).toContain("outside 1667's trust boundary");
+  expect(result.stdout).toContain("Start 1667 again after you update it.");
   expect(result.stdout).not.toContain("npm install");
+  // Output speaks to the person running the command. Internal vocabulary for
+  // the install and release model does not tell them what to do.
+  for (const internal of [
+    "Verified metadata source",
+    "Candidate",
+    "Managed Installation",
+    "trust boundary",
+    "Install method"
+  ]) {
+    expect(result.stdout).not.toContain(internal);
+  }
 });
 
 test("human checks defer exact instructions until a fresh plan", async () => {
@@ -320,8 +351,16 @@ test("help is local and performs no registry I/O", async () => {
   const registry = fakeRegistry("2.0.0");
   const result = await executeUpgradeCli(["--help"], { observation, registry });
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("Managed Installations apply a verified Candidate");
   expect(result.stdout).toContain("--rollback");
+  // Help speaks to the person running the command. Internal names for the
+  // install model do not tell them what to do. Assert the whole sentence: a
+  // substring still passes if the guidance loses a case or is reversed.
+  expect(result.stdout).toContain(
+    "If you installed 1667 with npm, or you built it from source, update it the same\nway you installed it."
+  );
+  for (const internal of ["Managed Installation", "Candidate", "External installation"]) {
+    expect(result.stdout).not.toContain(internal);
+  }
   expect(registry.calls).toEqual([]);
 });
 

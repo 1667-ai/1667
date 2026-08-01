@@ -4,7 +4,7 @@ import {
   mkdir,
   readFile
 } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
@@ -45,6 +45,42 @@ export function hostShellInstallerTarget(): BuiltArtifactTarget | null {
   const descriptor = releaseTargetForRuntime(process.platform, process.arch);
   if (descriptor === null || descriptor.heldFromPublication !== null) return null;
   return descriptor.artifactTarget;
+}
+
+/**
+ * Runs a command with a real terminal on its output, so a test can exercise a
+ * branch that only an interactive run reaches.
+ *
+ * `script(1)` cannot do this from a test: it reads terminal attributes from its
+ * own stdin, which a captured child process does not have. Python's `pty`
+ * module allocates the terminal itself, and needs no new dependency. The child
+ * writes both streams into the terminal, so the caller reads one merged stream.
+ */
+export const PTY_RUNNER =
+  "import os,pty,sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))";
+
+export function ptyCommand(
+  argv: readonly string[]
+): { readonly file: string; readonly args: readonly string[] } | null {
+  if (process.platform !== "darwin" && process.platform !== "linux") return null;
+  // A host without a working python3 reports the gap and skips. The terminal
+  // branch is worth covering, but it is not worth failing an unrelated suite
+  // with an error that points at a missing interpreter.
+  const python = pythonInterpreter();
+  if (python === null) return null;
+  return { file: python, args: ["-c", PTY_RUNNER, ...argv] };
+}
+
+function pythonInterpreter(): string | null {
+  // Probe everything PTY_RUNNER needs: os.waitstatus_to_exitcode arrived in
+  // 3.9, and a container without /dev/ptmx cannot allocate a terminal at all.
+  // A narrower probe would pass and then fail the suite inside the runner.
+  const found = spawnSync(
+    "python3",
+    ["-c", "import os,pty; os.waitstatus_to_exitcode; os.close(pty.openpty()[0])"],
+    { stdio: "ignore" }
+  );
+  return found.error === undefined && found.status === 0 ? "python3" : null;
 }
 
 export function digestsFor(version: string) {
