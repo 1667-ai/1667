@@ -60,6 +60,7 @@ This file records notable changes to 1667. Product terms use the definitions in
   `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a
   custom model name. Settings includes an OpenAI preset. The cache policy is
   not available in Settings. New profiles use the `off` cache policy.
+
 ## 0.1.2 - 2026-07-30
 
 - **The Fact editor now shows the Fact tag in a choice row.** Press `Tab` or
