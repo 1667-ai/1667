@@ -267,6 +267,7 @@ export function pasteInto(
   }
   const samplingEdit = state.mode === "SETTINGS" ? state.settings?.sampling?.edit : null;
   if (samplingEdit !== null && samplingEdit !== undefined) {
+    if (state.settings?.conflict != null) state.settings.conflict.armed = false;
     insertComposerText(samplingEdit.composer, line);
     return true;
   }

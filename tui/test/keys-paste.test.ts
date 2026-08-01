@@ -73,6 +73,22 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
   };
   expect(pasteInto(settings, "line one\r\nline two")).toBeTrue();
   expect(settingsComposer.text).toBe("aline one line twob");
+
+  const samplingComposer = createComposer("ab");
+  samplingComposer.cursor = 1;
+  const sampling = {
+    ...base,
+    mode: "SETTINGS" as const,
+    settings: {
+      edit: null,
+      sampling: { edit: { composer: samplingComposer } },
+      conflict: { armed: true }
+    }
+  };
+  expect(pasteInto(sampling, "X")).toBeTrue();
+  expect(samplingComposer.text).toBe("aXb");
+  expect(sampling.settings.conflict.armed).toBeFalse();
+
   const editorComposer = createComposer("ab");
   editorComposer.cursor = 1;
   const editor = {
