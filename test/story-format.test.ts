@@ -116,7 +116,7 @@ test("story format: V5 bundle round-trips nodes, attribution, tags, recents, and
     activeRootId: "root",
     tags: [{ nodeId: "child", name: "Canon line", status: "Canon", color: "#4b45c9", createdAt: NOW }],
     recentNodeIds: ["summary"],
-    facts: [{ id: "fact", tag: null, text: "Exact fact.", createdAt: NOW, updatedAt: NOW }],
+    facts: [{ id: "fact", tag: null, text: "Exact fact.", activation: "always", keys: [], createdAt: NOW, updatedAt: NOW }],
     chapterBreaks: []
   };
   const manifest = await encodeStoryBundle(story, new StoryObjectStore(dir));
@@ -358,6 +358,35 @@ test("story format: runtime attribution is bounded by its node text", async (t) 
     attribution: { source: "human", ranges: [{ start: 0, end: 99 }] }
   }]);
   await assert.rejects(() => encodeStoryBundle(story, new StoryObjectStore(dir)), /invalid human edit range/);
+});
+
+test("story format: default Fact metadata stays omitted and keys do not change its text hash", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-fact-metadata-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const fact = {
+    id: "fact",
+    tag: null,
+    text: "The red door is locked.",
+    activation: "always" as const,
+    keys: [] as string[],
+    createdAt: NOW,
+    updatedAt: NOW
+  };
+  const story = { ...runtimeStory([node("root", null, "Opening")]), facts: [fact] };
+  const objects = new StoryObjectStore(dir);
+  const plain = await encodeStoryBundle(story, objects);
+  assert.equal("activation" in plain.facts[0]!, false);
+  assert.equal("keys" in plain.facts[0]!, false);
+
+  const keyed = {
+    ...story,
+    facts: [{ ...fact, activation: "keyed" as const, keys: ["red door"] }]
+  };
+  const keyedManifest = await encodeStoryBundle(keyed, objects);
+  assert.equal(keyedManifest.facts[0]!.activation, "keyed");
+  assert.deepEqual(keyedManifest.facts[0]!.keys, ["red door"]);
+  assert.equal(keyedManifest.facts[0]!.revisionId, plain.facts[0]!.revisionId);
+  assert.deepEqual((await decodeStoryBundle(keyedManifest, dir)).story, keyed);
 });
 
 function node(id: string, parentId: string | null, text: string, activeChildId: string | null = null): StoryNode {

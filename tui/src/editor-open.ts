@@ -1,6 +1,9 @@
 import type { StoryFact } from "../../shared/types.js";
 import { createComposer } from "./composer-model.js";
-import { initializeFactEditorHistory } from "./fact-editor-policy.js";
+import {
+  formatFactKeys,
+  initializeFactEditorHistory
+} from "./fact-editor-policy.js";
 import { serializePart, stripGuidance } from "./editor.js";
 import { createStoryViewModel, rowPart } from "./model.js";
 import type {
@@ -43,14 +46,22 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     target: { kind: "fact", factId: fact?.id ?? null, base: fact },
     composer,
     tag: createComposer(fact?.tag ?? ""),
+    activation: fact?.activation ?? "always",
+    keys: createComposer(formatFactKeys(fact?.keys ?? [])),
     focus: "body",
-    initialFact: { tag: fact?.tag ?? null, text },
+    initialFact: {
+      tag: fact?.tag ?? null,
+      activation: fact?.activation ?? "always",
+      keys: [...(fact?.keys ?? [])],
+      text
+    },
     title: `${fact === null ? "new" : "edit"} fact`,
     placeholder: "fact text…",
     returnMode: "FACTS",
     conflict: null,
     cutConfirmation: null,
-    tagCutConfirmation: null
+    tagCutConfirmation: null,
+    keysCutConfirmation: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -63,15 +74,18 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     target: { kind: "fact", factId: null, base: null },
     composer,
     tag: createComposer(""),
+    activation: "always",
+    keys: createComposer(""),
     focus: "body",
     // This prefill is an unsaved draft, so Ctrl+S must create it unchanged.
-    initialFact: { tag: null, text: "" },
+    initialFact: { tag: null, activation: "always", keys: [], text: "" },
     title: "new fact from selection",
     placeholder: "fact text…",
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null,
-    tagCutConfirmation: null
+    tagCutConfirmation: null,
+    keysCutConfirmation: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);

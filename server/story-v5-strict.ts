@@ -19,6 +19,7 @@ import {
   optionalBoundedString,
   safeInteger
 } from "./story-wire-validation.js";
+import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
 
 export const MAX_STORY_MANIFEST_BYTES = 16 * 1024 * 1024;
 export const MAX_STORY_TITLE_CHARS = MAX_STORED_TITLE_CHARS;
@@ -46,7 +47,10 @@ const NODE = closedShape([
 const EXTENT = closedShape(["fromPartId", "toPartId"]);
 const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
 const RANGE = closedShape(["start", "end"]);
-const FACT = closedShape(["id", "tag", "revisionId", "createdAt", "updatedAt"], ["sourcePartId"]);
+const FACT = closedShape(
+  ["id", "tag", "revisionId", "createdAt", "updatedAt"],
+  ["sourcePartId", "activation", "keys"]
+);
 const TAG = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
 const CHAPTER_BREAK = closedShape(["id", "parentPartId", "title", "createdAt"]);
 
@@ -159,6 +163,12 @@ function assertFact(value: unknown, label: string): void {
   timestamp(fact.createdAt, `${label}.createdAt`);
   timestamp(fact.updatedAt, `${label}.updatedAt`);
   optionalIdentifier(fact.sourcePartId, `${label}.sourcePartId`);
+  try {
+    parseFactMetadata(fact.activation, fact.keys, label);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
+    throw error;
+  }
 }
 
 function assertTag(value: unknown, label: string): void {

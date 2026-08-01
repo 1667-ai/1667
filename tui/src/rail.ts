@@ -1,6 +1,5 @@
 import { countWords } from "../../shared/story-text.js";
 import type { StoryFact, StoryPayload } from "../../shared/types.js";
-import { cellWidth } from "./cell-width.js";
 import type { UserConfig } from "./config.js";
 import { factBody, factName } from "./facts-model.js";
 import type { AppMode } from "./keys.js";
@@ -21,8 +20,9 @@ export interface RailFact {
   index: number;
   name: string;
   tag: string;
-  /** Named in the focused part — shown expanded with a ▸. */
-  relevant: boolean;
+  activation: StoryFact["activation"];
+  /** Included in the next generation request. */
+  active: boolean;
   body: string;
 }
 
@@ -44,6 +44,8 @@ export function requestWindow(tokens: number, size: number | null): RequestWindo
 export interface RailModel {
   facts: RailFact[];
   factCount: number;
+  keyedFactCount: number;
+  activeKeyedCount: number;
   contextTokens: number;
   /** Likely response tokens that become context after this request. */
   growthTokens: number;
@@ -56,25 +58,24 @@ export interface RailModel {
   chapterNotice: string | null;
 }
 
-/** Read-only mirror of the facts store (spec §9): facts named in the focused
- *  part expand; everything else stays one line. */
+/** Read-only mirror of the facts store and the next request projection. */
 export function buildRailModel(
   payload: StoryPayload,
-  focusedText: string,
+  _focusedText: string,
   contextWindow: number | null = null,
   estimate: NextRequestEstimate,
   growthTokens = 0,
   maxOutputTokens = 0
 ): RailModel {
-  const focused = focusedText.toLowerCase();
+  const activeFactIds = new Set(estimate.activeFactIds);
   const facts = payload.facts.map((fact: StoryFact, index): RailFact => {
     const name = factName(fact);
-    const relevant = name.length > 0 && cellWidth(name) > 2 && focused.includes(name.toLowerCase());
     return {
       index,
       name,
       tag: fact.tag ?? "",
-      relevant,
+      activation: fact.activation,
+      active: activeFactIds.has(fact.id),
       body: factBody(fact)
     };
   });
@@ -91,6 +92,9 @@ export function buildRailModel(
   return {
     facts,
     factCount: payload.facts.length,
+    keyedFactCount: facts.filter(({ activation }) => activation === "keyed").length,
+    activeKeyedCount: facts.filter(({ activation, active }) =>
+      activation === "keyed" && active).length,
     contextTokens,
     growthTokens: responseGrowth,
     maxOutputTokens: Math.max(0, maxOutputTokens),

@@ -6,6 +6,7 @@ import {
   type StoryNode
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
 import {
@@ -103,6 +104,8 @@ export async function encodeStoryBundle(
   const facts: StoredFactV1[] = story.facts.map((fact, index) => ({
     id: fact.id,
     tag: fact.tag,
+    ...(fact.activation === "always" ? {} : { activation: fact.activation }),
+    ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
     revisionId: factRevisionIds[index]!,
     createdAt: fact.createdAt,
     updatedAt: fact.updatedAt,
@@ -190,6 +193,8 @@ export async function decodeStoryBundle(
   const facts: StoryFact[] = manifest.facts.map((stored) => ({
     id: stored.id,
     tag: stored.tag,
+    activation: stored.activation ?? "always",
+    keys: stored.keys === undefined ? [] : [...stored.keys],
     text: texts[cursor++]!,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
@@ -259,6 +264,12 @@ function requireEncodedRevision(value: ObjectHash | undefined, nodeId: string): 
 
 function validateFactBodies(facts: readonly StoryFact[]): void {
   for (const fact of facts) {
+    try {
+      parseFactMetadata(fact.activation, fact.keys, `Fact ${fact.id}`);
+    } catch (error) {
+      if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
+      throw error;
+    }
     if (fact.text.trim().length === 0) throw new StoryFormatError(`Fact ${fact.id} text must not be empty`);
     if (fact.text.length > MAX_FACT_TEXT_CHARS) {
       throw new StoryFormatError(`Fact ${fact.id} exceeds the ${MAX_FACT_TEXT_CHARS.toLocaleString()}-character limit`);

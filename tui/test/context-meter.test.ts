@@ -267,6 +267,25 @@ describe("honest next-request context meter", () => {
     }
   });
 
+  test("projects the selected Fact ids and meters only selected Facts", () => {
+    const payload = structuredClone(createDemoController().payload());
+    const [always, keyed, inactive] = payload.facts;
+    payload.facts = [
+      { ...always!, id: "always-fact", text: "Always fact.", activation: "always", keys: [] },
+      { ...keyed!, id: "green-door-fact", text: "Green door fact.", activation: "keyed", keys: ["green door"] },
+      { ...inactive!, id: "moon-fact", text: "Moon fact.", activation: "keyed", keys: ["moon"] }
+    ];
+    const estimate = nextRequestEstimate(
+      payload,
+      request("Keep the voice restrained.", payload.path.at(-1)!.id, "Mention the green door.")
+    );
+    const selected = formatFactsMessage(payload.facts.slice(0, 2))!;
+
+    expect(estimate.activeFactIds).toEqual(["always-fact", "green-door-fact"]);
+    expect(estimate.breakdown.facts).toBe(estimateTokens(selected) + 4);
+    expect(estimate.breakdown.facts).not.toBe(estimateTokens(formatFactsMessage(payload.facts)!)+4);
+  });
+
   test("models a chapter-boundary Continue as a new child with full prior context", () => {
     const payload = structuredClone(createDemoController().payload());
     const leaf = payload.path.at(-1)!;
@@ -745,17 +764,23 @@ describe("honest next-request context meter", () => {
     expect(unknown(2)).toEqual(["next request  ~953 tokens", "set context window · settings (,)"]);
   });
 
-  test("relevant CJK facts keep their cell-aligned tag at the rail edge", () => {
+  test("active keyed CJK facts keep their cell-aligned tag at the rail edge", () => {
     const source = demoAppSource();
     const payload = structuredClone(source.payload);
     payload.facts = [{
       id: "fact-cjk",
       tag: "人物界",
       text: "玲珑守望者守望者守望者守望者\nShe waits beside the eastern gate.",
+      activation: "keyed",
+      keys: ["玲珑"],
       createdAt: "1667-07-19T16:09:00.000Z",
       updatedAt: "1667-07-19T16:09:00.000Z"
     }];
-    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const next = request(
+      "Write vivid prose.",
+      payload.path.at(-1)!.id,
+      "玲珑 returns."
+    );
     const model = buildRailModel(
       payload, "玲珑守望者守望者守望者守望者 returns", 10_000,
       nextRequestEstimate(payload, next)
@@ -773,15 +798,25 @@ describe("honest next-request context meter", () => {
     );
     const fact = rail.find((line) => plainLine(line).includes("玲珑"))!;
 
-    expect(model.facts[0]?.relevant).toBeTrue();
+    expect(model.facts[0]?.active).toBeTrue();
     expect(visibleWidth(plainLine(fact))).toBe(35);
-    expect(plainLine(fact).startsWith("│ ▸ 玲珑")).toBeTrue();
+    expect(plainLine(fact).startsWith("│ ✓ 玲珑")).toBeTrue();
     expect(plainLine(fact).endsWith("人物界")).toBeTrue();
   });
 
-  test("demo facts expand a focused name while unrelated facts stay one line", () => {
+  test("rail marks active keyed facts from the next request projection", () => {
     const source = demoAppSource();
     const state = initialState(source, true);
+    state.payload = {
+      ...state.payload,
+      facts: state.payload.facts.map((fact, index) => index < 2
+        ? {
+            ...fact,
+            activation: "keyed" as const,
+            keys: [index === 0 ? "Maren" : "never-match-key"]
+          }
+        : fact)
+    };
     const layout = deriveStoryFrameLayout(140, state.config);
     const rail = splitFrame(
       renderStoryScreen(state, { width: 140, height: 36 }).lines,
@@ -789,9 +824,10 @@ describe("honest next-request context meter", () => {
     )[1];
     const text = frameText(rail);
 
-    expect(text).toContain("▸ Maren");
+    expect(text).toContain("facts · 5 · 1/2 keyed");
+    expect(text).toContain("✓ Maren");
     expect(text).toContain("Keeps the lantern-house and");
-    expect(text).toContain("  Ashe");
+    expect(text).toContain("· Ashe");
     expect(text).not.toContain("Carries a brass compass");
   });
 

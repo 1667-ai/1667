@@ -71,8 +71,24 @@ describe("run C overlay frames", () => {
     const maren = lineContaining(compact, "▸ Maren");
     // The closed frame spends two cells on its right edge and margin, so the
     // note column ends two characters earlier than it did open-sided.
-    expect(maren).toContain("Keeps the lantern-");
+    expect(maren).toContain("Keeps th…always");
     expect(maren.match(/Maren/g)).toHaveLength(1);
+
+    const activated = demoAppSource();
+    activated.payload = {
+      ...activated.payload,
+      facts: activated.payload.facts.map((fact, index) => index < 2
+        ? {
+            ...fact,
+            activation: "keyed" as const,
+            keys: [index === 0 ? "Maren" : "never-match-key"]
+          }
+        : fact)
+    };
+    const activationFrame = await renderWithKeys(activated, 120, 36, [key("f")]);
+    expect(activationFrame).toContain("facts · 5 notes · 1/2 keyed");
+    expect(lineContaining(activationFrame, "▸ Maren")).toContain("✓ keyed");
+    expect(lineContaining(activationFrame, "· keyed")).toContain("Ashe");
   });
 
   test("long library, facts, and tag lists keep the selected row visible", () => {
@@ -278,7 +294,7 @@ describe("run C overlay frames", () => {
   test("facts rail frames context honestly as the next request; F folds it", async () => {
     const frame = await renderOnce(demoAppSource(), 150, 30);
     expect(frame).toContain("│");
-    expect(frame).toContain("facts · 5 ───────── relevance-lit");
+    expect(frame).toContain("facts · 5 ───────────────────────");
     expect(frame).toContain("next request  ~884 / 32.8k");
     expect(frame).not.toContain("+≤");
     expect(frame).toContain(`▮${"▮".repeat(19)}   31.9k free`);
@@ -286,7 +302,7 @@ describe("run C overlay frames", () => {
     expect(/\d+%/.test(frame)).toBeFalse();
     expect(frame).not.toContain("1,667");
     const folded = await renderOnce(demoAppSource(), 150, 30, "F");
-    expect(folded).not.toContain("relevance-lit");
+    expect(folded).not.toContain("facts · 5");
   });
 
   test("facts rail never invents a percentage when the context window is unknown", async () => {

@@ -28,22 +28,30 @@ export function renderFactsRail(
   if (layout.factLeft === null) throw new Error("facts rail requires split frame layout");
   const factLeft = layout.factLeft;
   const railRight = layout.railRight ?? layout.fullWidth;
-  const rows: FrameLine[] = [railHeader(model.factCount), []];
+  const rows: FrameLine[] = [railHeader(model), []];
   const targets: Array<number | null> = [null, null];
   for (const fact of model.facts) {
     const tag = truncate(fact.tag, Math.max(0, RAIL_CONTENT_WIDTH - 3));
     const tagWidth = visibleWidth(tag);
     const tagGap = tagWidth > 0 ? 1 : 0;
     const name = truncate(fact.name, Math.max(0, RAIL_CONTENT_WIDTH - 2 - tagGap - tagWidth));
-    const namePart = fact.relevant
-      ? [segment("▸ ", "focus / accent"), segment(name, "prose")]
-      : [segment("  "), segment(name, "prose · dim")];
+    const marker = fact.activation === "always"
+      ? segment("  ")
+      : fact.active
+        ? segment("✓ ", "focus / accent")
+        : segment("· ", "chrome");
+    const namePart = [
+      marker,
+      segment(name, fact.activation === "keyed" && !fact.active
+        ? "prose · dim"
+        : "prose")
+    ];
     const gap = Math.max(tagGap, RAIL_CONTENT_WIDTH - 2 - visibleWidth(name) - tagWidth);
     rows.push([...namePart,
       segment(" ".repeat(gap)),
       segment(tag, "brass dim")]);
     targets.push(fact.index);
-    if (fact.relevant && fact.body.length > 0) {
+    if (fact.activation === "keyed" && fact.active && fact.body.length > 0) {
       for (const line of wrapText(fact.body, [], RAIL_CONTENT_WIDTH - 4).slice(0, 4)) {
         rows.push([segment("    "), segment(line.text, "prose · dim")]);
         targets.push(fact.index);
@@ -90,21 +98,18 @@ export function renderFactsRail(
     fitLine([...lines[row] ?? [], segment("│", "dimmed page"), segment(" "), ...railLine], layout.fullWidth));
 }
 
-/** Doc 12c: the rail names itself and its one behaviour — facts light up when
- * the focused part names them — and the rule spends whatever cells are left.
- *
- * The name carries no `▸`: that glyph marks a lit fact below, and a header
- * wearing it reads as one more row rather than as the column's title. */
-function railHeader(factCount: number): FrameLine {
+/** The rail names itself and reports keyed activation for the next request. */
+function railHeader(model: RailModel): FrameLine {
   const name = "facts";
-  const label = ` · ${factCount} `;
-  const trailer = " relevance-lit";
+  const keyed = model.keyedFactCount === 0
+    ? ""
+    : ` · ${model.activeKeyedCount}/${model.keyedFactCount} keyed`;
+  const label = ` · ${model.factCount}${keyed} `;
   const fill = Math.max(1,
-    RAIL_CONTENT_WIDTH - visibleWidth(name) - visibleWidth(label) - visibleWidth(trailer));
+    RAIL_CONTENT_WIDTH - visibleWidth(name) - visibleWidth(label));
   return [
     segment(name, "focus / accent"),
     segment(label, "chrome"),
-    segment("─".repeat(fill), "dimmed page"),
-    segment(trailer, "chrome")
+    segment("─".repeat(fill), "dimmed page")
   ];
 }

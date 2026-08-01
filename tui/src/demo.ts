@@ -5,7 +5,17 @@ import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { activePath, computeRollups, isChapterSummary, pathTo, subtreeIds, switchToNode, unusedTakePruneSelection } from "../../shared/story-tree.js";
-import type { TagStatus, FactInput, GenerationSettings, NodeStub, PruneUnusedTakesRequest, Story, StoryPayload, StorySummary } from "../../shared/types.js";
+import type {
+  FactInput,
+  FactPatch,
+  GenerationSettings,
+  NodeStub,
+  PruneUnusedTakesRequest,
+  Story,
+  StoryPayload,
+  StorySummary,
+  TagStatus
+} from "../../shared/types.js";
 import type {
   ModelDiscoveryResultV2,
   SettingsDocumentV2,
@@ -69,7 +79,7 @@ export interface DemoController {
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
-  patchFact(id: string, input: FactInput): StoryPayload;
+  patchFact(id: string, input: FactPatch): StoryPayload;
   deleteFact(id: string): StoryPayload;
   createChapterBreak(parentPartId: string, title?: string): { payload: StoryPayload; breakId: string };
   renameChapterBreak(breakId: string | null, title: string): StoryPayload;
@@ -248,14 +258,24 @@ export function createDemoController(dense = false): DemoController {
     },
     autonameStory() { story.title = "the compass at sorrow cliff"; return payloadFrom(story); },
     createFact(input) {
-      story.facts.push({ id: `fact-${story.facts.length + 1}`, tag: input.tag ?? null, text: input.text, createdAt: CREATED, updatedAt: CREATED });
+      story.facts.push({
+        id: `fact-${story.facts.length + 1}`,
+        tag: input.tag ?? null,
+        text: input.text,
+        activation: input.activation ?? "always",
+        keys: input.keys === undefined ? [] : [...input.keys],
+        createdAt: CREATED,
+        updatedAt: CREATED
+      });
       return payloadFrom(story);
     },
     patchFact(id, input) {
       const fact = story.facts.find((candidate) => candidate.id === id);
       if (fact === undefined) throw new Error(`Unknown demo fact: ${id}`);
-      fact.tag = input.tag ?? null;
-      fact.text = input.text;
+      if (input.tag !== undefined) fact.tag = input.tag;
+      if (input.text !== undefined) fact.text = input.text;
+      if (input.activation !== undefined) fact.activation = input.activation;
+      if (input.keys !== undefined) fact.keys = [...input.keys];
       fact.updatedAt = CREATED;
       return payloadFrom(story);
     },
@@ -481,7 +501,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       for (const fact of inputs) payload = demo.createFact(fact);
       return payload;
     },
-    patchFact: async (_storyId, factId, body) => demo.patchFact(factId, { tag: body.tag ?? null, text: body.text ?? "" }),
+    patchFact: async (_storyId, factId, body) => demo.patchFact(factId, body),
     deleteFact: async (_storyId, factId) => demo.deleteFact(factId),
     createChapterBreak: async (_storyId, parentPartId, title = "") => demo.createChapterBreak(parentPartId, title),
     renameChapterBreak: async (_storyId, breakId, title) => demo.renameChapterBreak(breakId, title),

@@ -41,6 +41,9 @@ describe("Fact editor", () => {
       base: null
     });
     setFactDraft(state, "Place", "Lantern room\nAlways warm.");
+    const draft = activeFactEditor(state);
+    draft.activation = "keyed";
+    setComposerText(draft.keys, "lantern, warm room");
     await press(key("s", { sequence: "\u0013", ctrl: true }));
 
     expect(state.mode).toBe("FACTS");
@@ -48,6 +51,8 @@ describe("Fact editor", () => {
       text.startsWith("Lantern room"));
     expect(created).toMatchObject({
       tag: "Place",
+      activation: "keyed",
+      keys: ["lantern", "warm room"],
       text: "Lantern room\nAlways warm."
     });
 
@@ -113,7 +118,7 @@ describe("Fact editor", () => {
     expect(frame).not.toContain(editor.tag.text);
   });
 
-  test("moves from the body first row into the typed tag field", async () => {
+  test("moves through keys and activation from the body first row", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
@@ -123,10 +128,16 @@ describe("Fact editor", () => {
 
     await press(key("up"));
 
-    expect(editor.focus).toBe("tag");
-    expect(composerPosition(editor.tag).column).toBe(2);
+    expect(editor.focus).toBe("keys");
+    expect(composerPosition(editor.keys).column).toBe(0);
     await press(key("X"));
-    expect(editor.tag.text).toBe("peXople");
+    expect(editor.keys.text).toBe("X");
+    await press(key("up"));
+    expect(editor.focus).toBe("activation");
+    await press(key("left"));
+    expect(editor.activation).toBe("keyed");
+    await press(key("up"));
+    expect(editor.focus).toBe("tag");
     expect(editor.composer.text)
       .toBe("Maren\nKeeps the lantern-house and distrusts old coin.");
   });
@@ -532,7 +543,11 @@ describe("Fact editor", () => {
     editor.tag.cursor = 3;
     editor.tagCutConfirmation = { start: 0, end: 3, text: "peo" };
 
-    // Move focus down to body
+    // Move focus through the activation and key fields to the body.
+    await press(key("down"));
+    expect(editor.focus).toBe("activation");
+    await press(key("down"));
+    expect(editor.focus).toBe("keys");
     await press(key("down"));
     expect(editor.focus).toBe("body");
     expect(editor.tag.anchor).toBe(null);
@@ -543,10 +558,28 @@ describe("Fact editor", () => {
     editor.composer.cursor = 5;
     editor.cutConfirmation = { start: 0, end: 5, text: "Maren" };
 
-    // Move focus up to tag
+    // Move focus to keys. The body selection ownership clears immediately.
     await press(key("up"));
-    expect(editor.focus).toBe("tag");
+    expect(editor.focus).toBe("keys");
     expect(editor.composer.anchor).toBe(null);
     expect(editor.cutConfirmation).toBe(null);
+  });
+
+  test("renders activation and keys and rejects duplicate normalized keys", async () => {
+    const { state, press } = editorHarness();
+    await press(key("f"));
+    await press(key("n"));
+    const editor = setFactDraft(state, null, "A keyed Fact.");
+    editor.activation = "keyed";
+    setComposerText(editor.keys, "Café, CAFÉ");
+
+    const frame = frameText(renderStoryScreen(state, { width: 80, height: 24 }).lines);
+    expect(frame).toContain("activation");
+    expect(frame).toContain("‹ keyed ›");
+    expect(frame).toContain("keys");
+
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("EDITOR");
+    expect(state.toast).toContain("duplicates another key");
   });
 });

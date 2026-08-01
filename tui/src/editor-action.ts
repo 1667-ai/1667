@@ -284,11 +284,18 @@ async function saveFactEditor(
     state.toast = "offline · draft kept until the connection returns";
     return;
   }
-  if (!confirmOverwrite(state, editor)) return;
   const validated = factEditorSavePayload(editor);
   if (!validated.ok) return void (state.toast = validated.toast);
-  const submitted = { tag: validated.tag, text: validated.text };
+  if (!confirmOverwrite(state, editor)) return;
+  const submitted = {
+    tag: validated.tag,
+    activation: validated.activation,
+    keys: validated.keys,
+    text: validated.text
+  };
   const submittedTagText = editor.tag.text;
+  const submittedActivation = editor.activation;
+  const submittedKeysText = editor.keys.text;
   const target = editor.target;
   const factId = target.factId;
   const creating = factId === null;
@@ -300,8 +307,13 @@ async function saveFactEditor(
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
     if (creating) {
-      const created = payload.facts.find(({ id, tag, text }) => !previousIds.has(id)
-        && tag === submitted.tag && text === submitted.text)
+      const created = payload.facts.find(({ id, tag, activation, keys, text }) =>
+        !previousIds.has(id)
+        && tag === submitted.tag
+        && activation === submitted.activation
+        && keys.length === submitted.keys.length
+        && keys.every((key, index) => key === submitted.keys[index])
+        && text === submitted.text)
         ?? payload.facts.find(({ id }) => !previousIds.has(id));
       if (created !== undefined) {
         target.factId = created.id;
@@ -314,6 +326,8 @@ async function saveFactEditor(
     context.cache.invalidate();
     if (state.editor !== editor) return;
     const unchanged = editor.tag.text === submittedTagText
+      && editor.activation === submittedActivation
+      && editor.keys.text === submittedKeysText
       && editor.composer.text === submitted.text;
     if (unchanged) {
       closeInlineEditor(state, editor, creating ? "fact created" : "fact saved");
@@ -329,7 +343,10 @@ function disarmEditorConfirmations(
 ): void {
   if (editor.conflict !== null) editor.conflict.armed = false;
   editor.cutConfirmation = null;
-  if (editor.kind === "fact") editor.tagCutConfirmation = null;
+  if (editor.kind === "fact") {
+    editor.tagCutConfirmation = null;
+    editor.keysCutConfirmation = null;
+  }
 }
 
 function confirmOverwrite(

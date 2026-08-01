@@ -48,6 +48,8 @@ export function demoFacts(): Story["facts"] {
     id: `fact-${index + 1}`,
     tag,
     text,
+    activation: "always" as const,
+    keys: [],
     createdAt: DEMO_CREATED_AT,
     updatedAt: DEMO_CREATED_AT
   }));

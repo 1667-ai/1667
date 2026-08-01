@@ -1,4 +1,5 @@
 import { BOUNDARY_ANCHOR_CHARACTERS } from "../shared/continuation-plan.js";
+import { assembleRewriteContext } from "../shared/fact-activation.js";
 import type { PromptPlan, PromptTurn } from "../shared/prompt-plan.js";
 export {
   continuationPlan,
@@ -9,7 +10,6 @@ export {
 } from "../shared/continuation-plan.js";
 import type { Story } from "../shared/types.js";
 import { activePath } from "../shared/story-tree.js";
-import { assembleChapterContext } from "./chapter-context.js";
 import { REWRITE_ECHO_CONTEXT_CHARACTERS } from "./rewrite-output.js";
 export {
   AnchoredOutputFilter,
@@ -127,11 +127,7 @@ export function rewritePlan(options: {
   } = options;
   const fullLine = activePath(story);
   const fullPartIndex = fullLine.findIndex((part) => part.id === partId);
-  const prefix = assembleChapterContext(
-    fullLine.slice(0, fullPartIndex + 1),
-    story.chapterBreaks.filter((chapterBreak) => chapterBreak.parentPartId !== partId),
-    story.nodes
-  );
+  const prefix = assembleRewriteContext(fullLine, partId, story.chapterBreaks, story.nodes);
   const line = [...prefix, ...fullLine.slice(fullPartIndex + 1)];
   const partIndex = prefix.findIndex((part) => part.id === partId);
   const part = line[partIndex];

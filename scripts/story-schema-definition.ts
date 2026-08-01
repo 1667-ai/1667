@@ -15,6 +15,7 @@ import {
   MAX_RECENT_LINES
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
@@ -36,6 +37,13 @@ export function storyManifestSchema(): Schema {
     },
     Identifier: { type: "string", minLength: 1, maxLength: MAX_STORY_IDENTIFIER_CHARS },
     Hash256: { type: "string", pattern: HASH_PATTERN.source },
+    FactActivation: { enum: ["always", "keyed"] },
+    FactKey: {
+      type: "string",
+      minLength: 1,
+      maxLength: MAX_FACT_KEY_SCALARS,
+      pattern: exactStringPatternSource("[^,\\r\\n\\u2028\\u2029]+")
+    },
     V5Timestamp: { type: "string", maxLength: MAX_STORY_TIMESTAMP_CHARS },
     TimeMs: { type: "string", pattern: exactStringPatternSource(TIME_MS_PATTERN_SOURCE) },
     UInt64String: { type: "string", pattern: fixedDecimalAtMost(UINT64_MAX_DECIMAL) },
@@ -64,7 +72,13 @@ export function storyManifestSchema(): Schema {
       revisionId: ref("Hash256"),
       createdAt: ref("V5Timestamp"),
       updatedAt: ref("V5Timestamp"),
-      sourcePartId: ref("Identifier")
+      sourcePartId: ref("Identifier"),
+      activation: ref("FactActivation"),
+      keys: {
+        type: "array",
+        maxItems: MAX_FACT_KEYS,
+        items: ref("FactKey")
+      }
     }, ["id", "tag", "revisionId", "createdAt", "updatedAt"]),
     StoredTagV5: closed({
       nodeId: ref("Identifier"),

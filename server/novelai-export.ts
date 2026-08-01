@@ -237,10 +237,10 @@ function lorebookEntry(fact: StoryFact, category: string): Record<string, unknow
     lastUpdatedAt: timestamp(fact.updatedAt),
     displayName: fact.tag ?? "",
     id: fact.id,
-    keys: [],
+    keys: [...fact.keys],
     searchRange: 1000,
     enabled: true,
-    forceActivation: true,
+    forceActivation: fact.activation === "always",
     keyRelative: false,
     nonStoryActivatable: false,
     category,
@@ -292,7 +292,7 @@ function exportFidelity(
       ];
     case "lorebook":
       return [
-        `${story.facts.length} ${countNoun(story.facts.length, "fact")} exported as always-on lorebook entries with no keys.`,
+        `${story.facts.length} ${countNoun(story.facts.length, "fact")} exported with activation modes and keys.`,
         `${prose.length} active prose ${countNoun(prose.length, "part")} omitted from the lorebook.`,
         ...omissions
       ];

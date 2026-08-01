@@ -398,14 +398,17 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag: createComposer(""),
+      activation: "always",
+      keys: createComposer(""),
       focus: "tag",
-      initialFact: { tag: null, text: composer.text },
+      initialFact: { tag: null, activation: "always", keys: [], text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 20, height: 12 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
@@ -443,14 +446,17 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag,
+      activation: "always",
+      keys: createComposer(""),
       focus: "tag",
-      initialFact: { tag: "people", text: composer.text },
+      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -486,14 +492,17 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag,
+      activation: "always",
+      keys: createComposer(""),
       focus: "body",
-      initialFact: { tag: "people", text: composer.text },
+      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -531,14 +540,17 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag,
+      activation: "always",
+      keys: createComposer(""),
       focus: "tag",
-      initialFact: { tag: "people", text: composer.text },
+      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -580,14 +592,17 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag,
+      activation: "always",
+      keys: createComposer(""),
       focus: "body",
-      initialFact: { tag: "people", text: composer.text },
+      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -610,7 +625,7 @@ describe("active selection copy", () => {
     });
 
     expect(result).toBe(null);
-    expect(state.toast).toBe("select either the Fact tag or its text");
+    expect(state.toast).toBe("select the Fact tag, keys, or text");
     expect(state.editor.focus).toBe("body");
     expect(selectedComposerText(composer)).toBe("Body");
     expect(selectedComposerText(tag)).toBe(null);
@@ -625,14 +640,19 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag: createComposer("weather\nurgent"),
+      activation: "always",
+      keys: createComposer(""),
       focus: "body",
-      initialFact: { tag: "weather\nurgent", text: composer.text },
+      initialFact: {
+        tag: "weather\nurgent", activation: "always", keys: [], text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const width = 50;
     const frame = renderStoryScreen(state, { width, height: 12 });
@@ -693,14 +713,17 @@ describe("active selection copy", () => {
       target: { kind: "fact", factId: null, base: null },
       composer,
       tag: createComposer(""),
+      activation: "always",
+      keys: createComposer(""),
       focus: "body",
-      initialFact: { tag: null, text: composer.text },
+      initialFact: { tag: null, activation: "always", keys: [], text: composer.text },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
-      tagCutConfirmation: null
+      tagCutConfirmation: null,
+      keysCutConfirmation: null
     };
     const width = 40;
     const frame = renderStoryScreen(state, { width, height: 12 });

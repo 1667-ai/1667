@@ -144,9 +144,9 @@ test("NovelAI lorebook export maps fact tags to categories", () => {
       text: "A clear fact.",
       displayName: "People",
       category: "category:People",
-      keys: [],
+      keys: ["clear fact"],
       enabled: true,
-      forceActivation: true,
+      forceActivation: false,
       lastUpdatedAt: 1_735_689_600_000
     },
     {
@@ -154,14 +154,14 @@ test("NovelAI lorebook export maps fact tags to categories", () => {
       text: "An uncategorized fact.",
       displayName: "",
       category: "",
-      keys: [],
+      keys: ["uncategorized"],
       enabled: true,
       forceActivation: true,
       lastUpdatedAt: 1_735_776_000_000
     }
   ]);
   assert.deepEqual(result.fidelity, [
-    "2 facts exported as always-on lorebook entries with no keys.",
+    "2 facts exported with activation modes and keys.",
     "2 active prose parts omitted from the lorebook.",
     "1 alternate take omitted.",
     "1 story line tag omitted.",
@@ -201,6 +201,8 @@ function fixtureStory(): StoryPayload {
         id: "fact-1",
         tag: "People",
         text: "A clear fact.",
+        activation: "keyed",
+        keys: ["clear fact"],
         createdAt: "2025-01-01T00:00:00.000Z",
         updatedAt: "2025-01-01T00:00:00.000Z"
       },
@@ -208,6 +210,8 @@ function fixtureStory(): StoryPayload {
         id: "fact-2",
         tag: null,
         text: "An uncategorized fact.",
+        activation: "always",
+        keys: ["uncategorized"],
         createdAt: "2025-01-02T00:00:00.000Z",
         updatedAt: "2025-01-02T00:00:00.000Z"
       }

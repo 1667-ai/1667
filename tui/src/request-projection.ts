@@ -6,6 +6,7 @@ import {
   type PromptPart
 } from "../../shared/chapters.js";
 import { continuationPlan } from "../../shared/continuation-plan.js";
+import { selectActiveFacts } from "../../shared/fact-activation.js";
 import { renderPromptPlan } from "../../shared/prompt-plan.js";
 import { formatFactsMessage } from "../../shared/story-facts.js";
 import { estimateTokens } from "../../shared/tokens.js";
@@ -24,6 +25,7 @@ export interface NextRequestEstimate {
   tokens: number;
   breakdown: ContextBreakdown;
   chapters: RequestChapterProjection[];
+  activeFactIds: string[];
 }
 
 /** Chapter state scoped to the exact structural context in this request. */
@@ -66,9 +68,15 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     ? null
     : payload.path.find((node) => node.id === request.targetId) ?? null;
   const intent = continuationIntent(payload, request.targetId, request.instruction, regenerateNode);
+  const activeFacts = selectActiveFacts(payload.facts, {
+    contextParts: intent.contextParts,
+    chapterBreaks: payload.chapterBreaks,
+    nodes: promptNodes(payload),
+    instruction: intent.instruction
+  });
   const plan = continuationPlan(
     request.systemPrompt,
-    formatFactsMessage(payload.facts),
+    formatFactsMessage(activeFacts),
     payload.authorsNote ?? null,
     intent.contextParts,
     intent.instruction,
@@ -113,7 +121,8 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   return {
     tokens: Object.values(breakdown).reduce((sum, tokens) => sum + tokens, 0),
     breakdown,
-    chapters
+    chapters,
+    activeFactIds: activeFacts.map((fact) => fact.id)
   };
 }
 

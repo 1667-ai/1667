@@ -1,10 +1,13 @@
 import { composerPosition } from "../../composer-model.js";
 import {
+  FACT_ACTIVATION_COMPOSER_SOURCE,
   FACT_EDITOR_FOOTER,
   FACT_BODY_COMPOSER_SOURCE,
+  FACT_KEYS_COMPOSER_SOURCE,
   FACT_TAG_COMPOSER_SOURCE,
   factEditorTagLabel
 } from "../../fact-editor-policy.js";
+import type { ComposerState } from "../../composer-model.js";
 import type { FactEditorSession } from "../../state.js";
 import {
   renderComposerInput,
@@ -34,7 +37,7 @@ export function renderFactEditorLayout(
     composer: editor.composer,
     fullscreen: true,
     terminalWidth: options.width,
-    terminalHeight: Math.max(4, options.height - 1),
+    terminalHeight: Math.max(4, options.height - 3),
     measure: options.width,
     title: editor.title,
     footerHints: FACT_EDITOR_FOOTER,
@@ -47,7 +50,8 @@ export function renderFactEditorLayout(
   });
   const tagLabel = factEditorTagLabel(editor);
   const tag = editor.focus === "tag"
-    ? renderTagInput(editor, body.fieldWidth)
+    ? renderTextInput(editor.tag, true, "tag", "none", body.fieldWidth,
+        FACT_TAG_COMPOSER_SOURCE)
     : renderComposerChoiceRow({
         indent: "",
         fieldWidth: body.fieldWidth,
@@ -56,53 +60,82 @@ export function renderFactEditorLayout(
         sourceId: FACT_TAG_COMPOSER_SOURCE,
         sourceStart: tagLabel === editor.tag.text ? 0 : null
       });
+  const activation = renderComposerChoiceRow({
+    indent: "",
+    fieldWidth: body.fieldWidth,
+    label: "activation",
+    value: editor.activation,
+    sourceId: FACT_ACTIVATION_COMPOSER_SOURCE,
+    sourceStart: null
+  });
+  const keys = renderTextInput(
+    editor.keys,
+    editor.focus === "keys",
+    "keys",
+    "none",
+    body.fieldWidth,
+    FACT_KEYS_COMPOSER_SOURCE
+  );
   return {
     ...body,
     lines: [
       body.lines[0]!,
       tag,
+      activation,
+      keys,
       ...body.lines.slice(1).map((line) =>
         composerSource(line, FACT_BODY_COMPOSER_SOURCE))
     ],
-    lineCount: body.lineCount + 1,
-    bodyRows: body.bodyRows + 1,
+    lineCount: body.lineCount + 3,
+    bodyRows: body.bodyRows + 3,
     cursorViewportRow: editor.focus === "tag"
       ? 0
-      : body.cursorViewportRow + 1
+      : editor.focus === "activation"
+        ? 1
+        : editor.focus === "keys"
+          ? 2
+          : body.cursorViewportRow + 3
   };
 }
 
-function renderTagInput(
-  editor: FactEditorSession,
-  fieldWidth: number
+function renderTextInput(
+  composer: ComposerState,
+  focused: boolean,
+  fieldName: string,
+  placeholder: string,
+  fieldWidth: number,
+  sourceId: string
 ): FrameLine {
   const prefix = "┃   ";
   const labelWidth = Math.max(
-    visibleWidth("tag") + 1,
+    visibleWidth(fieldName) + 1,
     Math.min(18, fieldWidth - visibleWidth(prefix) - 1)
   );
-  const label = `tag${" ".repeat(Math.max(1, labelWidth - 3))}`;
+  const label = `${fieldName}${" ".repeat(Math.max(
+    1,
+    labelWidth - visibleWidth(fieldName)
+  ))}`;
   const inputWidth = Math.max(
     1,
     fieldWidth - visibleWidth(prefix) - visibleWidth(label) - visibleWidth("[  ]")
   );
-  const position = composerPosition(editor.tag);
+  const position = composerPosition(composer);
   return composerSource(composerFieldLine("", fieldWidth, [
     segment("┃ ", "compose accent"),
     segment("  ", "compose accent"),
     segment(label, "chrome"),
-    segment("[ ", "focus / accent"),
+    segment("[ ", focused ? "focus / accent" : "chrome"),
     ...renderComposerInput(
-      editor.tag,
+      composer,
       position.line,
       position.column,
       inputWidth,
-      "focused",
-      editor.tag.text.length === 0,
-      "none"
+      focused ? "focused" : "unfocused",
+      composer.text.length === 0,
+      placeholder
     ),
-    segment(" ]", "focus / accent")
-  ]), FACT_TAG_COMPOSER_SOURCE);
+    segment(" ]", focused ? "focus / accent" : "chrome")
+  ]), sourceId);
 }
 
 function composerSource(

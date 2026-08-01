@@ -444,6 +444,7 @@ describe("hit map clickable chrome", () => {
     state.mode = "FACTS";
     state.payload = { ...state.payload, facts: Array.from({ length: 12 }, (_, index) => ({
       id: `f${index}`, tag: `a-very-long-tag-name-${index}`, text: `fact ${index}`,
+      activation: "always" as const, keys: [],
       createdAt: "2022-10-25T09:00:00.000Z", updatedAt: "2022-10-25T09:00:00.000Z"
     })) };
     state.facts = { cursor: 0, chip: 0, selectedTag: null, query: "", filtering: false, deleteArmedId: null, prompt: null } as never;

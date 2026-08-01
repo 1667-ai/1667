@@ -14,7 +14,7 @@ import { assertFixedContextFits, type GenerationAdmissionRegistry } from "./gene
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
-import { factsSystemMessage } from "./story-facts.js";
+import { factsSystemMessage, rewriteFactsSystemMessage } from "./story-facts.js";
 import {
   streamModel,
   type DeltaConsumer
@@ -169,7 +169,12 @@ export async function continueStory(
     }
     contextParts = parentId === null ? [] : pathTo(story, parentId);
   }
-  const facts = factsSystemMessage(story);
+  const facts = factsSystemMessage(story, {
+    contextParts,
+    chapterBreaks: story.chapterBreaks,
+    nodes: story.nodes,
+    instruction
+  });
   const authorsNote = story.authorsNote ?? null;
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
@@ -308,7 +313,7 @@ export async function rewriteNode(
     throw new HttpError(409, "The selection no longer matches the stored text — reload the story.");
   }
   const originalText = part.text;
-  const facts = factsSystemMessage(story);
+  const facts = rewriteFactsSystemMessage(story, partId, instruction, expected);
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return false;
   // A fresh nonce makes the rewrite markers and output terminator impossible to

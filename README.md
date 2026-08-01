@@ -24,6 +24,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Read a story as a story line, a tree, or a mass map.
 - View Facts and estimated request context in the side rail.
 - Keep one Author's Note for the next continuation or prompted retake.
+- Use keys to include a Fact only when the request context matches it.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
 - Use the embedded backend worker without a network port.

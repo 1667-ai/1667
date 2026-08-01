@@ -226,9 +226,12 @@ export interface FactEditorSession extends EditorSessionBase {
   returnMode: "NAV" | "FACTS";
   conflict: InlineEditorSession["conflict"];
   tag: ComposerState;
-  focus: "tag" | "body";
-  initialFact: { tag: string | null; text: string };
+  activation: StoryFact["activation"];
+  keys: ComposerState;
+  focus: "tag" | "activation" | "keys" | "body";
+  initialFact: Pick<StoryFact, "tag" | "activation" | "keys" | "text">;
   tagCutConfirmation: EditorSessionBase["cutConfirmation"];
+  keysCutConfirmation: EditorSessionBase["cutConfirmation"];
 }
 
 export type DocumentEditorSession =

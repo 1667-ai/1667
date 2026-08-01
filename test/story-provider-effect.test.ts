@@ -138,6 +138,8 @@ test("autoname changes only title metadata and rejects a concurrent rename", asy
     id: "fact",
     tag: null,
     text: "Keep",
+    activation: "always",
+    keys: [],
     createdAt: AT,
     updatedAt: AT
   }];

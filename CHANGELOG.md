@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Facts can now activate only when request context matches their keys.** The
+  default `always` mode keeps the existing behavior. The `keyed` mode scans the
+  recent assembled story context and the current instruction. The Fact editor
+  sets the mode and a comma-separated key list. The Facts panel and side rail
+  show the keyed activation state for the next request. Thanks @10fra for the
+  request.
+
 - **`1667 export` now writes NovelAI archives.** Use `--format story`,
   `--format scenario`, or `--format lorebook`. Use `--all` to export every
   story. The command reports content changes and omissions for each archive.

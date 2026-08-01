@@ -97,10 +97,23 @@ describe("embedded backend worker", () => {
       });
       expect(story.nodes.some(({ id }) => prune.nodeIds.includes(id))).toBeFalse();
 
-      story = await api.createFact(story.id, { tag: "Door", text: "The door is blue." });
+      story = await api.createFact(story.id, {
+        tag: "Door",
+        text: "The door is blue.",
+        activation: "keyed",
+        keys: ["blue door"]
+      });
       const factId = story.facts[0]!.id;
-      story = await api.patchFact(story.id, factId, { text: "The door is midnight blue." });
-      expect(story.facts[0]!.text).toContain("midnight");
+      story = await api.patchFact(story.id, factId, {
+        text: "The door is midnight blue.",
+        activation: "always",
+        keys: ["midnight door", "blue door"]
+      });
+      expect(story.facts[0]).toMatchObject({
+        text: "The door is midnight blue.",
+        activation: "always",
+        keys: ["midnight door", "blue door"]
+      });
       story = await api.deleteFact(story.id, factId);
       expect(story.facts).toHaveLength(0);
 

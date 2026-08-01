@@ -23,6 +23,7 @@ import type {
   CreateFactsRequest,
   CreateNodeRequest,
   DeleteNodeRequest,
+  FactPatch,
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
@@ -130,7 +131,7 @@ export interface StoryApi {
   putBookmark(storyId: string, nodeId: string, name: string, status: TagStatus): Promise<StoryPayload>;
   deleteBookmark(storyId: string, nodeId: string): Promise<StoryPayload>;
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
-  patchFact(storyId: string, factId: string, body: { tag?: string | null; text?: string }): Promise<StoryPayload>;
+  patchFact(storyId: string, factId: string, body: FactPatch): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */

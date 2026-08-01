@@ -370,7 +370,11 @@ const MUTATIONS: MutationRegistry = {
         const candidate = structuredClone(story);
         patchFact(candidate, input.factId, input.body);
         const desired = candidate.facts.find((fact) => fact.id === input.factId)!;
-        return current.tag === desired.tag && current.text === desired.text;
+        return current.tag === desired.tag
+          && current.text === desired.text
+          && current.activation === desired.activation
+          && current.keys.length === desired.keys.length
+          && current.keys.every((key, index) => key === desired.keys[index]);
       });
       return recovered ?? await service.patchFact(
         input.storyId,

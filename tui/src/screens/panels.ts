@@ -7,13 +7,12 @@ import {
   commandPaletteWindow,
   retainCommandSelection
 } from "../command-model.js";
-import { boundedFactSelection, factBody, factName, factRows, factTags } from "../facts-model.js";
 import {
   libraryAge,
   libraryRows,
   libraryTotals
 } from "../library-model.js";
-import { type HitRegion, type HitRows, type HitTarget } from "../hit.js";
+import { type HitRows, type HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
 import type { OverlayState, StoryScreenState, StreamView } from "../state.js";
 import { currentPartActions } from "../story-actions.js";
@@ -39,7 +38,6 @@ import {
   cellPad,
   cellPadStart,
   chapterColumns,
-  factColumns,
   libraryColumns,
   panelRange,
   panelRowWindow,
@@ -47,8 +45,10 @@ import {
 } from "./panel-table-layout.js";
 import { truncate, truncateTail, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { renderSettingsPanel } from "./settings-panel.js";
+import { renderFactsPanel } from "./facts-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
+export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
 
 export const CHAPTERS_FOOTER_ACTIONS = [
   { token: "↵", action: "open-selected" }, { token: "s sum", action: "summarize-chapter" },
@@ -63,13 +63,6 @@ export const LIBRARY_FOOTER_ACTIONS = [
   { token: "↵", action: "open-selected" }, { token: "n new", action: "new-item" },
   { token: "e rename", action: "rename-item" }, { token: "/ filter", action: "filter" },
   { token: "d delete", action: "delete-item" }, { token: "esc", action: "cancel" }
-] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
-export const FACTS_FOOTER_ACTIONS = [
-  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
-  { token: "tab", action: "cycle" }, { token: "↵", action: "edit" },
-  { token: "/ filter", action: "filter" }, { token: "e edit", action: "edit" },
-  { token: "n new", action: "new-item" }, { token: "d", action: "delete-item" },
-  { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const COMMANDS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
@@ -115,7 +108,9 @@ export function renderPanels(
   let composition: FrameComposition = { lines: base, selectable: null };
   if (state.actions != null) composition = renderActions(dimPage(base), local, width, height);
   else if (state.library !== null) composition = renderLibrary(dimPage(base), local, width, height, deadlines);
-  else if (state.facts !== null) composition = renderFacts(dimPage(base), local, width, height);
+  else if (state.facts !== null) {
+    composition = renderFactsPanel(dimPage(base), local, width, height, estimate);
+  }
   else if (state.commands !== null) composition = renderCommands(dimPage(base), local, width, height);
   else if (state.chapters !== null) composition = renderChapters(dimPage(base), local, width, height, estimate);
   else if (state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
@@ -318,86 +313,6 @@ function promptLine(kind: string, value: string, width: number): FrameLine {
     raisedSegment(truncateTail(value, valueWidth), "streaming"),
     raisedSegment("▌", "focus / accent")
   ];
-}
-
-function renderFacts(base: FrameLine[], state: OverlayState & { payload: StoryPayload; hitRows: HitRows }, width: number, height: number): FrameComposition {
-  const overlay = state.facts!;
-  const tags = factTags(state.payload.facts);
-  const selection = boundedFactSelection(state.payload.facts, overlay, overlay.query);
-  const activeChip = selection.chip;
-  const activeTag = selection.selectedTag;
-  const rows = factRows(state.payload.facts, activeTag, overlay.query);
-  const rowCursor = selection.cursor;
-  // Tags are user-written, so the row can outrun the panel. Overrides past the edge
-  // would still answer clicks — `hitAt` consults overrides before row bounds — but
-  // dropping the overflow would hide tags that `tab` still cycles through. So
-  // the chips wrap: every tag stays visible, clickable, and in bounds.
-  const contentWidth = panelHorizontalGeometry(width).contentWidth;
-  const columns = factColumns(contentWidth);
-  const chipLimit = contentWidth;
-  const chipLines: FrameLine[] = [[raisedSegment("  tags  ", "chrome")]];
-  const chipOverridesByLine: HitRegion[][] = [[]];
-  let chipLeft = 8;
-  for (const [index, tag] of tags.entries()) {
-    const rendered = chip(truncate(tag ?? "all", Math.max(1, chipLimit - 12)), index === activeChip);
-    const chipWidth = visibleWidth(rendered.text);
-    const gap = chipLeft > 8 ? 1 : 0;
-    if (chipLeft > 8 && chipLeft + gap + chipWidth > chipLimit) {
-      chipLines.push([raisedSegment("        ", "chrome")]);
-      chipOverridesByLine.push([]);
-      chipLeft = 8;
-    }
-    if (chipLeft > 8) {
-      chipLines.at(-1)!.push(raisedSegment(" "));
-      chipLeft += 1;
-    }
-    chipOverridesByLine.at(-1)!.push({ target: { kind: "chip", index }, left: chipLeft, right: chipLeft + chipWidth });
-    chipLines.at(-1)!.push(rendered);
-    chipLeft += chipWidth;
-  }
-  const content: FrameLine[] = [...chipLines];
-  if (overlay.filtering || overlay.query.length > 0) content.push(promptLine("filter", overlay.query, contentWidth));
-  content.push([
-    raisedSegment(cellPad("", columns.lead), "chrome"),
-    raisedSegment(cellPad("name", columns.name), "chrome"),
-    raisedSegment(cellPad("tag", columns.tag), "chrome"),
-    raisedSegment(cellPad("note", columns.note), "chrome")
-  ]);
-  const targets: Array<HitTarget | null> = content.map(() => null);
-  const window = panelRowWindow(
-    rows.map(() => 1),
-    rowCursor,
-    panelContentRows(height) - content.length
-  );
-  for (let index = window.start; index < window.end; index += 1) {
-    const fact = rows[index]!;
-    const body = factBody(fact);
-    content.push([
-      raisedSegment(cellPad(index === rowCursor ? "  ▸ " : "", columns.lead), index === rowCursor ? "focus / accent" : "chrome"),
-      raisedSegment(cellPad(truncate(factName(fact), Math.max(0, columns.name - 1)), columns.name), index === rowCursor ? "prose" : "prose · dim"),
-      raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag), "accent · deep"),
-      raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome")
-    ]);
-    targets.push({ kind: "list", index });
-  }
-  if (rows.length === 0) { content.push([raisedSegment("  no matching facts", "prose · dim")]); targets.push(null); }
-  const footer = overlay.filtering
-    ? "↵ done · esc done"
-    : overlay.deleteArmedId === null
-    ? "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
-    : width < 100
-      ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-      : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
-  return placePanel(base, `facts · ${state.payload.facts.length} notes${panelRange(rows.length, window)}`, boundedContent(content, contentWidth),
-    footer, width, height, 106,
-    { rows: state.hitRows, targets, overrides: chipOverridesByLine,
-      footerActions: overlay.filtering ? RENAME_FOOTER_ACTIONS : FACTS_FOOTER_ACTIONS });
-}
-
-function chip(label: string, active: boolean) {
-  return active
-    ? { text: `[ ${label} ]`, role: "background" as const, background: "accent · deep" as const, bold: true }
-    : raisedSegment(`[ ${label} ]`, "chrome");
 }
 
 function renderCommands(

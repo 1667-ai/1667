@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { ServiceError as HttpError } from "./errors.js";
+import {
+  FactActivationError,
+  parseFactActivation,
+  parseFactKeys,
+  parseFactMetadata,
+  selectActiveFacts,
+  selectActiveFactsForRewrite,
+  type FactScanContext
+} from "../shared/fact-activation.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
-import { isChapterSummary } from "../shared/story-tree.js";
+import { activePath, isChapterSummary } from "../shared/story-tree.js";
 import { hasUnpairedSurrogate } from "./story-format.js";
 import { hasDefinedProperty, requireRecord } from "./validation.js";
 import {
@@ -26,7 +35,8 @@ export function createFacts(
   const parsed = inputs.map((input) => ({
     tag: parseTag(input.tag),
     text: parseText(input.text),
-    sourcePartId: parseSourcePartId(story, input.sourcePartId)
+    sourcePartId: parseSourcePartId(story, input.sourcePartId),
+    ...parseMetadata(input.activation, input.keys)
   }));
   const ids = parsed.map((_, index) => idForIndex(index));
   const existingIds = new Set(story.facts.map((fact) => fact.id));
@@ -42,8 +52,8 @@ export function createFacts(
     throw new HttpError(409, `This story has room for ${remaining} more facts; the import contains ${inputs.length}.`);
   }
   const now = new Date().toISOString();
-  story.facts.push(...parsed.map(({ tag, text, sourcePartId }, index) => ({
-    id: ids[index]!, tag, text, createdAt: now, updatedAt: now,
+  story.facts.push(...parsed.map(({ tag, text, sourcePartId, activation, keys }, index) => ({
+    id: ids[index]!, tag, text, activation, keys, createdAt: now, updatedAt: now,
     ...(sourcePartId === undefined ? {} : { sourcePartId })
   })));
   return true;
@@ -52,7 +62,8 @@ export function createFacts(
 function factInputs(body: Body): Body[] {
   const hasBatch = hasDefinedProperty(body, "facts");
   const hasSingle = hasDefinedProperty(body, "tag") || hasDefinedProperty(body, "text")
-    || hasDefinedProperty(body, "sourcePartId");
+    || hasDefinedProperty(body, "sourcePartId") || hasDefinedProperty(body, "activation")
+    || hasDefinedProperty(body, "keys");
   if (!hasBatch) return [body];
   if (hasSingle) throw new HttpError(400, "Provide one fact or a facts batch, not both.");
   if (!Array.isArray(body.facts)) throw new HttpError(400, "Facts batch must be an array.");
@@ -73,9 +84,15 @@ export function patchFact(story: Story, factId: string, value: unknown): void {
   const fact = findFact(story, factId);
   const hasTag = hasDefinedProperty(body, "tag");
   const hasText = hasDefinedProperty(body, "text");
-  if (!hasTag && !hasText) throw new HttpError(400, "Provide tag and/or text to update the fact.");
+  const hasActivation = hasDefinedProperty(body, "activation");
+  const hasKeys = hasDefinedProperty(body, "keys");
+  if (!hasTag && !hasText && !hasActivation && !hasKeys) {
+    throw new HttpError(400, "Provide fact fields to update the fact.");
+  }
   if (hasTag) fact.tag = parseTag(body.tag);
   if (hasText) fact.text = parseText(body.text);
+  if (hasActivation) fact.activation = parseActivation(body.activation);
+  if (hasKeys) fact.keys = parseKeys(body.keys);
   fact.updatedAt = new Date().toISOString();
 }
 
@@ -85,8 +102,25 @@ export function deleteFact(story: Story, factId: string): void {
   story.facts.splice(index, 1);
 }
 
-export function factsSystemMessage(story: Story): string | null {
-  return formatFactsMessage(story.facts);
+export function factsSystemMessage(story: Story, context?: FactScanContext): string | null {
+  return formatFactsMessage(selectActiveFacts(story.facts, context));
+}
+
+export function rewriteFactsSystemMessage(
+  story: Story,
+  partId: string,
+  instruction: string,
+  selectedText: string
+): string | null {
+  return formatFactsMessage(selectActiveFactsForRewrite(
+    story.facts,
+    activePath(story),
+    partId,
+    story.chapterBreaks,
+    story.nodes,
+    instruction,
+    selectedText
+  ));
 }
 
 function findFact(story: Story, factId: string): StoryFact {
@@ -127,4 +161,31 @@ function parseSourcePartId(story: Story, value: unknown): string | undefined {
 
 function assertWellFormed(value: string, label: string): void {
   if (hasUnpairedSurrogate(value)) throw new HttpError(400, `${label} contains invalid Unicode.`);
+}
+
+function parseMetadata(activation: unknown, keys: unknown): { activation: StoryFact["activation"], keys: string[] } {
+  try {
+    return parseFactMetadata(activation, keys);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+function parseActivation(value: unknown): StoryFact["activation"] {
+  try {
+    return parseFactActivation(value);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+function parseKeys(value: unknown): string[] {
+  try {
+    return parseFactKeys(value);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
 }

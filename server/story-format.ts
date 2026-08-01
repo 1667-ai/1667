@@ -8,6 +8,7 @@ import {
   type StoryNode,
   type StoryOrigin,
 } from "../shared/types.js";
+import type { FactActivation } from "../shared/fact-activation.js";
 import { parseChapterBreaks, validateChapterRecords } from "./story-format-chapters.js";
 import { assertWellFormedUnicode } from "./story-format-unicode.js";
 import {
@@ -60,6 +61,10 @@ export interface StoredPartV2 {
 export interface StoredFactV1 {
   id: string;
   tag: string | null;
+  /** Optional in V5 manifests written before keyed activation existed. */
+  activation?: FactActivation;
+  /** Optional in V5 manifests written before fact keys existed. */
+  keys?: string[];
   revisionId: ObjectHash;
   createdAt: string;
   updatedAt: string;

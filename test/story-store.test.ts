@@ -672,9 +672,14 @@ test("story store: V2 bundles and legacy JSON load, then save as V5", async (t) 
   const old = await store.load("old-v2");
   assert.equal(old.nodes[0]!.text, "Old prose");
   assert.equal(old.facts[0]!.text, "Selected temporal fact");
+  assert.equal(old.facts[0]!.activation, "always");
+  assert.deepEqual(old.facts[0]!.keys, []);
   await store.mutate("old-v2", (story) => { story.title = "Migrated"; });
   await store.waitForMaintenance();
-  assert.equal((await manifest(dir, "old-v2")).schemaVersion, 5);
+  const migrated = await manifest(dir, "old-v2");
+  assert.equal(migrated.schemaVersion, 5);
+  assert.equal("activation" in migrated.facts[0]!, false);
+  assert.equal("keys" in migrated.facts[0]!, false);
   await assert.rejects(
     () => readFile(objects.objectPath("revisions", obsoleteFactRevision)),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT"

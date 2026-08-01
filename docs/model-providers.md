@@ -16,6 +16,27 @@ The Fact editor shows the Fact tag in a choice row. Press `Tab` or `Shift+Tab`
 to select a Fact tag. Press `Ctrl+T` to type a custom Fact tag. When you save
 the Fact, 1667 adds the custom Fact tag to the choice row.
 
+Each Fact has an activation mode. The default mode is `always`. An `always`
+Fact is in each continuation request and rewrite request. The `keyed` mode puts
+the Fact in a request only when a key matches.
+
+Use `Up Arrow` or `Down Arrow` to move to the activation row. Use `Left Arrow`
+or `Right Arrow` to select the activation mode. Put a comma-separated list in
+the keys row. A Fact can have a maximum of 32 keys. Each key can have a maximum
+of 64 Unicode characters. A key cannot contain a comma.
+
+1667 matches keys without case differences. It matches a complete word or a
+complete phrase. For languages that do not use spaces between words, it also
+matches a key inside adjacent text. 1667 scans the last three nonempty story
+parts in the assembled request context. It also scans the current instruction.
+
+An `always` Fact can keep keys. The keys do not control that Fact until you
+select `keyed`.
+
+The Facts panel shows `always`, `✓ keyed`, or `· keyed` for each Fact. The
+`✓ keyed` status means that the next request includes the Fact. The side rail
+uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
+
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
 

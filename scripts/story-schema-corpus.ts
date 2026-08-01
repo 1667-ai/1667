@@ -112,6 +112,9 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     invalidNestedV5("v5-unknown-fact-key", richV5, (copy) => {
       copy.facts[0]!.surprise = true;
     }),
+    invalidNestedV5("v5-comma-in-fact-key", richV5, (copy) => {
+      copy.facts[0]!.keys = ["red, blue"];
+    }),
     invalidNestedV5("v5-unknown-tag-key", richV5, (copy) => {
       copy.bookmarks[0]!.surprise = true;
     }),
@@ -303,6 +306,8 @@ function richV5Manifest(): RichV5Fixture {
     facts: [{
       id: "fact-one",
       tag: "Lore",
+      activation: "keyed",
+      keys: ["door", "green door"],
       revisionId: HASH,
       createdAt: NOW,
       updatedAt: NOW,

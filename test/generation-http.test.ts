@@ -66,6 +66,28 @@ providerTest("generation HTTP: append keeps provider wire context and commits in
   assert.equal(saved.nodes.length, 1);
 });
 
+providerTest("generation HTTP: continuation selects keyed Facts from the exact context and instruction", async (t) => {
+  const model = await fakeModel(t, (_body, response) => stream(response, [" The green door opened."]));
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  let story = await seededStory(base, "A narrow hall waited.");
+  story = await json(`${base}/api/stories/${story.id}/facts`, post({
+    text: "The green-door fact.", activation: "keyed", keys: ["green door"]
+  }));
+  await json(`${base}/api/stories/${story.id}/facts`, post({
+    text: "The moon fact.", activation: "keyed", keys: ["moon"]
+  }));
+
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/continue`, post({
+    parentId: story.path[0]!.id,
+    instruction: "Mention the green door.",
+    genId: "fact-selection-continuation"
+  }));
+  assert.match(await response.text(), /"type":"done"/);
+  const facts = factMessage(model.requests[0]!);
+  assert.match(facts, /The green-door fact\./);
+  assert.doesNotMatch(facts, /The moon fact\./);
+});
+
 providerTest("generation HTTP: append at a summarized chapter break creates a child from summary context", async (t) => {
   const model = await fakeModel(t, (body, response) => {
     const prompt = JSON.stringify(body.messages);
@@ -340,6 +362,32 @@ providerTest("generation HTTP: rewrite splices into the same node and keeps desc
   assert.ok(saved.path[0]!.updatedAt);
 });
 
+providerTest("generation HTTP: rewrite Fact selection scans through the target, not the active-line tail", async (t) => {
+  const model = await fakeModel(t, (_body, response) => stream(response, ["blue"]));
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  let story = await seededStory(base, "The red door opened.");
+  const root = story.path[0]!;
+  story = await json(`${base}/api/stories/${story.id}/nodes`, post({
+    parentId: root.id,
+    text: "Moonlight waited beyond the threshold."
+  }));
+  story = await json(`${base}/api/stories/${story.id}/facts`, post({
+    text: "The red-door fact.", activation: "keyed", keys: ["red door"]
+  }));
+  await json(`${base}/api/stories/${story.id}/facts`, post({
+    text: "The moonlight fact.", activation: "keyed", keys: ["moonlight"]
+  }));
+
+  const start = root.text.indexOf("red");
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${root.id}/rewrite`, post({
+    start, end: start + "red".length, instruction: "Change the color.", expected: "red"
+  }));
+  assert.match(await response.text(), /"type":"done"/);
+  const facts = factMessage(model.requests[0]!);
+  assert.match(facts, /The red-door fact\./);
+  assert.doesNotMatch(facts, /The moonlight fact\./);
+});
+
 providerTest("generation HTTP: instructed passage rewrite preserves both semantic seams", async (t) => {
   const model = await fakeModel(t, (body, response) => {
     const messages = body.messages as Array<{ role: string; content: string }>;
@@ -391,6 +439,26 @@ providerTest("generation HTTP: rewrite succeeds in place on a summary node", asy
   assert.equal(rewritten.role, "summary");
 });
 
+providerTest("generation HTTP: autoname selects only always Facts when no scan context exists", async (t) => {
+  const model = await fakeModel(t, (_body, response) => stream(response, ["The Green Door"]));
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  let story = await seededStory(base, "A quiet hall waited.");
+  story = await json(`${base}/api/stories/${story.id}/facts`, post({
+    text: "The always fact.", activation: "always", keys: []
+  }));
+  await json(`${base}/api/stories/${story.id}/facts`, post({
+    text: "The keyed fact.", activation: "keyed", keys: ["hall"]
+  }));
+
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/autoname`, post({
+    expectedTitle: story.title
+  }));
+  assert.equal(response.status, 200);
+  const facts = factMessage(model.requests[0]!);
+  assert.match(facts, /The always fact\./);
+  assert.doesNotMatch(facts, /The keyed fact\./);
+});
+
 providerTest("generation HTTP: an empty provider response remains an actionable provider error", async (t) => {
   const model = await fakeModel(t, (_body, response) => stream(response, []));
   const base = await testApp(t, modelSettings(model.baseUrl));
@@ -402,3 +470,8 @@ providerTest("generation HTTP: an empty provider response remains an actionable 
   assert.match(await response.text(), /model returned no text/i);
   assert.equal((await getStory(base, story.id)).nodes.length, 1);
 });
+
+function factMessage(request: Record<string, unknown>): string {
+  const messages = request.messages as Array<{ content: string }>;
+  return messages.find((message) => message.content.startsWith("CANONICAL STORY FACTS"))?.content ?? "";
+}

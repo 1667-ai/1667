@@ -261,14 +261,17 @@ test("copying an uneditable selection clears before the next key capture", () =>
     target: { kind: "fact", factId: null, base: null },
     composer: body,
     tag: createComposer("weather"),
+    activation: "always",
+    keys: createComposer(""),
     focus: "body",
-    initialFact: { tag: "weather", text: body.text },
+    initialFact: { tag: "weather", activation: "always", keys: [], text: body.text },
     title: "edit fact",
     placeholder: "fact text…",
     returnMode: "FACTS",
     conflict: null,
     cutConfirmation: null,
-    tagCutConfirmation: null
+    tagCutConfirmation: null,
+    keysCutConfirmation: null
   };
   const selected = nativeSelection("weather", 0, 7);
   let current: typeof selected | null = selected;

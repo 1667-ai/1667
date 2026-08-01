@@ -2,6 +2,7 @@ import type { StoryFact } from "../../shared/types.js";
 import { setComposerText } from "./composer-model.js";
 import {
   factEditorChanged,
+  formatFactKeys,
   factEditorPersistedTag,
   resetFactEditorHistory
 } from "./fact-editor-policy.js";
@@ -51,17 +52,21 @@ function reconcileFactDocument(
   message: string
 ): void {
   const draftMatches = factEditorPersistedTag(editor) === current.tag
+    && editor.activation === current.activation
+    && editor.keys.text === formatFactKeys(current.keys)
     && editor.composer.text === current.text;
   if (draftMatches) {
-    editor.initialFact = { tag: current.tag, text: current.text };
+    editor.initialFact = editableFact(current);
     editor.conflict = null;
     return;
   }
   if (!factEditorChanged(editor)) {
     setComposerText(editor.tag, current.tag ?? "");
+    editor.activation = current.activation;
+    setComposerText(editor.keys, formatFactKeys(current.keys));
     setComposerText(editor.composer, current.text);
     resetFactEditorHistory(editor);
-    editor.initialFact = { tag: current.tag, text: current.text };
+    editor.initialFact = editableFact(current);
     editor.conflict = null;
     state.toast = `${message} · editor refreshed`;
     return;
@@ -101,5 +106,22 @@ function reconcileEditorDocument(
 }
 
 function sameEditableFact(left: StoryFact | null, right: StoryFact): boolean {
-  return left !== null && left.id === right.id && left.tag === right.tag && left.text === right.text;
+  return left !== null
+    && left.id === right.id
+    && left.tag === right.tag
+    && left.activation === right.activation
+    && left.keys.length === right.keys.length
+    && left.keys.every((key, index) => key === right.keys[index])
+    && left.text === right.text;
+}
+
+function editableFact(
+  fact: StoryFact
+): Pick<StoryFact, "tag" | "activation" | "keys" | "text"> {
+  return {
+    tag: fact.tag,
+    activation: fact.activation,
+    keys: [...fact.keys],
+    text: fact.text
+  };
 }

@@ -109,6 +109,8 @@ for (const cachedKind of ["v5", "v6"] as const) {
           id: "fact-1",
           tag: null,
           text: "Written while the provider streamed",
+          activation: "always",
+          keys: [],
           createdAt: FIXED_NOW.toISOString(),
           updatedAt: FIXED_NOW.toISOString()
         });
@@ -481,6 +483,8 @@ test("Q a duplicate loser cannot revoke the active provider predecessor", async 
           id: "fact-after-duplicate",
           tag: null,
           text: "The winner still owns its predecessor proof",
+          activation: "always",
+          keys: [],
           createdAt: FIXED_NOW.toISOString(),
           updatedAt: FIXED_NOW.toISOString()
         });

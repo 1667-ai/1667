@@ -4,6 +4,11 @@ import {
   MAX_HUMAN_EDIT_RANGES,
   type HumanEditAttribution
 } from "../shared/types.js";
+import {
+  FactActivationError,
+  parseFactMetadata,
+  type FactActivation
+} from "../shared/fact-activation.js";
 import type { ObjectHash, StoredFactV1 } from "./story-format.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
@@ -47,6 +52,7 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
       throw new StoryFormatError(`facts[${factIndex}].tag exceeds the ${MAX_FACT_TAG_CHARS}-character limit`);
     }
     const createdAt = timestampField(fact, "createdAt", `facts[${factIndex}]`);
+    const metadata = parseStoredFactMetadata(fact, factIndex);
     const sourcePartId = optionalString(fact.sourcePartId, `facts[${factIndex}].sourcePartId`);
     if (sourcePartId !== undefined && !partPositions.has(sourcePartId)) {
       throw new StoryFormatError(`facts[${factIndex}].sourcePartId references an unknown part`);
@@ -58,6 +64,7 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
       return {
         id,
         tag,
+        ...metadata,
         revisionId: requireHash(fact.revisionId, `facts[${factIndex}].revisionId`),
         createdAt,
         updatedAt: timestampField(fact, "updatedAt", `facts[${factIndex}]`),
@@ -99,12 +106,29 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
     return {
       id,
       tag,
+      ...metadata,
       revisionId: latest.revisionId,
       createdAt,
       updatedAt: latest.updatedAt,
       ...(sourcePartId === undefined ? {} : { sourcePartId })
     };
   });
+}
+
+function parseStoredFactMetadata(
+  fact: Record<string, unknown>,
+  factIndex: number
+): { activation?: FactActivation; keys?: string[] } {
+  try {
+    const metadata = parseFactMetadata(fact.activation, fact.keys, `facts[${factIndex}]`);
+    return {
+      ...(fact.activation === undefined ? {} : { activation: metadata.activation }),
+      ...(fact.keys === undefined ? {} : { keys: metadata.keys })
+    };
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
+    throw error;
+  }
 }
 
 export function parseVersionAttributions(

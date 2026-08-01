@@ -42,11 +42,28 @@ export function libraryColumns(width: number): LibraryColumns {
   return { lead: values[0]!, title: values[1]!, words: values[2]!, structure: values[3]!, updated: values[4]! };
 }
 
-export interface FactColumns { lead: number; name: number; tag: number; note: number }
+export interface FactColumns {
+  lead: number;
+  name: number;
+  tag: number;
+  note: number;
+  status: number;
+}
 
 export function factColumns(width: number): FactColumns {
-  const values = fitColumnWidths([4, 31, 14, 42], [4, 7, 6, 1], width, [3, 1, 2, 0]);
-  return { lead: values[0]!, name: values[1]!, tag: values[2]!, note: values[3]! };
+  const values = fitColumnWidths(
+    [4, 31, 14, 32, 10],
+    [4, 7, 6, 1, 8],
+    width,
+    [3, 1, 2, 0, 4]
+  );
+  return {
+    lead: values[0]!,
+    name: values[1]!,
+    tag: values[2]!,
+    note: values[3]!,
+    status: values[4]!
+  };
 }
 
 export function cellPad(value: string, width: number): string {

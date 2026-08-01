@@ -1,6 +1,8 @@
 import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "./authors-note.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
+import { FactActivationError, parseFactMetadata } from "./fact-activation.js";
+import type { FactActivation } from "./fact-activation.js";
 
 export interface TextRange {
   /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
@@ -24,10 +26,21 @@ export const MAX_FACTS = 128;
 export const MAX_FACT_TEXT_CHARS = 4_000;
 export const MAX_FACT_TAG_CHARS = 48;
 
+export type { FactActivation };
+
 export interface FactInput {
   tag?: string | null;
   text: string;
+  activation?: FactActivation;
+  keys?: string[];
   sourcePartId?: string;
+}
+
+export interface FactPatch {
+  tag?: string | null;
+  text?: string;
+  activation?: FactActivation;
+  keys?: string[];
 }
 
 /** Wire body of POST /api/stories/:id/facts. */
@@ -37,6 +50,8 @@ export interface StoryFact {
   id: string;
   tag: string | null;
   text: string;
+  activation: FactActivation;
+  keys: string[];
   createdAt: string;
   updatedAt: string;
   sourcePartId?: string;
@@ -272,8 +287,16 @@ function assertTag(value: unknown): void {
 
 function assertStoryFact(value: unknown): void {
   const fact = requireRecord(value, "The server returned an invalid fact.");
-  requireStrings(fact, "fact", "id", "text", "createdAt", "updatedAt");
+  requireStrings(fact, "fact", "id", "text", "activation", "createdAt", "updatedAt");
   if (fact.tag !== null && typeof fact.tag !== "string") invalidField("fact", "tag");
+  if (fact.activation !== "always" && fact.activation !== "keyed") invalidField("fact", "activation");
+  if (!Array.isArray(fact.keys)) invalidField("fact", "keys");
+  try {
+    parseFactMetadata(fact.activation, fact.keys, "fact");
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new Error(`The server returned an invalid fact.keys: ${error.message}`);
+    throw error;
+  }
   optionalString(fact, "sourcePartId", "fact");
 }
 
