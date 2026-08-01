@@ -6,6 +6,7 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { ConnectionState } from "./connection.js";
+import type { NoticeLog } from "./notice-log.js";
 import type { HitRows } from "./hit.js";
 import type { UserConfig } from "./config.js";
 import type { ReadingPositions } from "./reading-position.js";
@@ -290,6 +291,9 @@ export interface StoryScreenState extends OverlayState {
   /** Read-only projection of the next provider request. */
   request: RequestViewerState | null;
   toast: string | null;
+  /** C-37: every notice the session has shown, so a capped channel never
+   *  loses a message for good. `!` opens it. */
+  notices: NoticeLog;
   stream: StreamView | null;
   /** The cancellable operation whose backend owner is still settling. */
   abort:

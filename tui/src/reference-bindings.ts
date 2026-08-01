@@ -97,6 +97,15 @@ const DEFINITIONS = {
   composeOpenRequest: route("compose-chord", "r", "COMPOSE", "open-request", { ctrl: true }),
   navOpenSearch: route("nav", "/", "NAV", "open-search", { sequence: "/" }),
   navOpenKeysQuestion: route("nav", "?", "NAV", "open-keys"),
+  // Decision 24 gives global feedback a letter key of its own, unbound
+  // everywhere else. Terminals disagree on whether `!` arrives as its own
+  // name or as shifted `1`, so both spellings route here.
+  navOpenLog: route("nav", "!", "NAV", "open-log", { sequence: "!" }),
+  navOpenLogShifted: route("nav", "1", "NAV", "open-log", {
+    sequence: "!",
+    shift: true
+  }),
+  mapOpenLog: route("map", "!", "MAP", "open-log", { sequence: "!" }),
   navOpenKeysShiftSlash: route("nav", "/", "NAV", "open-keys", {
     sequence: "?",
     shift: true
@@ -104,6 +113,7 @@ const DEFINITIONS = {
   navClose: route("global", "escape", "NAV", "cancel"),
   mapClose: route("global", "escape", "MAP", "cancel"),
   keysClose: route("global", "escape", "KEYS", "cancel"),
+  logClose: route("global", "escape", "LOG", "cancel"),
   navQuit: route("nav", "q", "NAV", "quit"),
   mapCycleView: route("map", "m", "MAP", "cycle-map-view"),
   mapPathAllTakes: route("map", "a", "MAP", "toggle-path-takes", { mapView: "path" }),

@@ -29,6 +29,7 @@ import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
+import { createNoticeLog, recordSessionNotices } from "./notice-log.js";
 import { openSettingsPasteTarget } from "./editor-open.js";
 import { createPalette } from "./palette.js";
 import {
@@ -252,6 +253,9 @@ export async function runInteractive(source: AppSource): Promise<void> {
     profile: profileEnabled
   });
   const repaint = () => {
+    // A backend task can raise a notice long after the key that started it, so
+    // the log is filled here as well as at the end of `dispatch`.
+    recordSessionNotices(state);
     frames.invalidate();
   };
   const backend = new ActionRuntime(state, repaint);
@@ -646,6 +650,7 @@ export async function dispatch(
   if (state.mode !== previousMode && (previousTextSurface || currentTextSurface)) {
     renderer?.clearSelection();
   }
+  recordSessionNotices(state);
   repaint();
 }
 
@@ -670,6 +675,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     retakePrompt: null,
     request: null,
     toast: null,
+    notices: createNoticeLog(),
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,
     freshLandedAt: new Map(),
     now: 1_667_000_000_000,

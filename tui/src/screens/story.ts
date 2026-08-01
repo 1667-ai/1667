@@ -33,6 +33,8 @@ import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
 import { renderSearchScreen } from "./search.js";
 import { renderRequestViewerScreen } from "./request-viewer.js";
+import { renderLogScreen } from "./log.js";
+import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import {
@@ -103,6 +105,7 @@ const DEFAULT_CACHE = createWrapCache<ProseStyle>();
 
 export function renderStoryScreen(state: StoryScreenState, options: StoryScreenOptions): StoryScreenFrame {
   const { height } = options;
+  if (state.mode === "LOG") return renderLog(state, options.width, height, options.deadlines);
   if (state.search !== null && state.mode === "SEARCH") {
     return renderSearch(state, state.search, options.width, height, options.deadlines);
   }
@@ -351,6 +354,26 @@ function fullBleedDerived(
 
 /** Search takes the map's full-bleed shell: a query is answered by travelling
  *  somewhere, so it can never be a panel floating over the page it will leave. */
+/** C-37 is a full-bleed surface, so it takes the same shell the map and search
+ *  take — including the banner, which outranks every surface. */
+function renderLog(
+  state: StoryScreenState,
+  width: number,
+  height: number,
+  deadlines?: FrameDeadlineCollector
+): StoryScreenFrame {
+  const hitRows: HitRows = Array.from({ length: height }, () => null);
+  const frame = renderLogScreen(state, state.notices, width, height, hitRows);
+  const lines = state.connection.down
+    ? renderConnectionBanner(frame.lines, { ...state, hitRows }, width, deadlines)
+    : frame.lines;
+  return {
+    lines,
+    selectable: frame.selectable,
+    derived: fullBleedDerived(state, hitRows, state.map)
+  };
+}
+
 function renderSearch(
   state: StoryScreenState,
   search: StoryScreenState["search"] & {},
@@ -455,6 +478,23 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
   }
   if (state.mode !== "COMPOSE") {
     const hintBudget = Math.max(8, measure - 3);
+    // Decision 24: a toast wraps into a 2-col hanging indent under its own
+    // first character rather than clipping to one row, because the tail of a
+    // toast is the undo key. Everything else still gets exactly one line.
+    if (state.toast !== null) {
+      const wrapped = wrapFeedback(state.toast, hintBudget, TOAST_ROW_CAP, "! full");
+      return {
+        lines: wrapped.rows.map((row, index): FrameLine => [
+          segment(indent),
+          index === 0
+            ? segment("›", "accent · deep")
+            : segment(" "),
+          segment(index === 0 ? "  " : "    "),
+          ...fitLine([segment(row, "focus / accent")], hintBudget)
+        ]),
+        scrollTop: state.composerScrollTop
+      };
+    }
     const hint = navHint(state, view, hintBudget);
     // The hint shares the prose measure — long seam hints must clip, not bleed.
     return { lines: [[segment(indent), segment("›", "accent · deep"), segment("  "), ...fitLine(hint, hintBudget)]], scrollTop: state.composerScrollTop };
@@ -477,6 +517,11 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
   return { lines: composer.lines, scrollTop: composer.scrollTop };
 }
 
+/** Decision 24 caps a toast at four wrapped rows; the gutter gives 22 usable
+ * cells and the hint line is wider, but the cap is the message's, not the
+ * measure's. Past it the body truncates and `!` opens the whole thing. */
+const TOAST_ROW_CAP = 4;
+
 /** The contextual NAV hint under the story: what this focus can do next.
  *
  * A toast takes this line whatever the viewport is doing. The alternative was
@@ -489,11 +534,6 @@ function navHint(
   view: StoryViewModel,
   budget: number
 ): FrameLine {
-  if (state.toast !== null) {
-    // Every other branch here fits to the budget; a toast carrying a provider
-    // sentence has to as well, or one long message bleeds past the measure.
-    return fitLine([segment(state.toast, "focus / accent")], budget);
-  }
   if (state.connection.down) {
     const lead: FrameLine = [segment("connection offline · reading · overlays remain available", "chrome")];
     const suffix: FrameLine = [segment(" · ", "chrome"), actionHint("R retries", "retry")];

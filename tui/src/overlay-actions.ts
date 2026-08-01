@@ -28,6 +28,8 @@ import {
 } from "./settings-overlay-actions.js";
 import { synchronizeSettingsModelDiscovery } from "./settings-model-discovery.js";
 import { panelContentRows } from "./screens/overlay.js";
+import { boundedNoticeCursor, clearNoticeLog } from "./notice-log.js";
+import { copyToClipboard } from "./clipboard.js";
 import {
   openRequestViewer,
   requestViewerAction
@@ -55,6 +57,14 @@ export async function handleOverlayAction(
     else if (state.mode === "NAV" || state.mode === "COMPOSE") openRequestViewer(state);
     return true;
   }
+  if (resolved.action === "open-log") {
+    // The notice the writer came from is the newest one, and `recordNotices`
+    // already put the cursor on it.
+    state.notices.cursor = boundedNoticeCursor(state.notices, state.notices.cursor);
+    state.mode = "LOG";
+    return true;
+  }
+  if (state.mode === "LOG") { await logAction(resolved, state); return true; }
   if (resolved.action === "open-library") { await openLibrary(state, source, context); return true; }
   if (resolved.action === "open-facts") {
     state.facts = initialFacts();
@@ -129,6 +139,38 @@ export async function handleOverlayAction(
     return true;
   }
   return false;
+}
+
+/** C-37's keys: `↑↓` move · `↵` copies · `x` clears · `!` or `esc` closes.
+ *  Clearing is unceremonious — the log holds nothing the story needs. */
+async function logAction(resolved: ResolvedKey, state: RuntimeState): Promise<void> {
+  const log = state.notices;
+  if (resolved.action === "cancel") {
+    state.mode = "NAV";
+    return;
+  }
+  if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
+    log.cursor = boundedNoticeCursor(
+      log,
+      log.cursor + (resolved.action === "focus-next" ? 1 : -1)
+    );
+    return;
+  }
+  if (resolved.action === "focus-index" && resolved.index !== undefined) {
+    log.cursor = boundedNoticeCursor(log, resolved.index);
+    return;
+  }
+  if (resolved.action === "clear-log") {
+    clearNoticeLog(log);
+    return;
+  }
+  if (resolved.action === "copy-part") {
+    const notice = log.entries[boundedNoticeCursor(log, log.cursor)];
+    if (notice === undefined) return;
+    // The toast the copy raises would itself land in the log and push the
+    // notice the writer just copied off the top, so the log stays quiet here.
+    await copyToClipboard(notice.text);
+  }
 }
 
 /** The reference only reads and scrolls; `open-keys` owns the reset. Page

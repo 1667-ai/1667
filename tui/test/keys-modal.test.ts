@@ -63,7 +63,7 @@ describe("keys reference", () => {
   });
 
   test("the minimum-width panel wraps every meaning instead of clipping it", () => {
-    const frame = text(20, 210);
+    const frame = text(20, 240);
     // Read the interior of each row: the frame closes on both sides now, so a
     // leading-border-only strip would splice the right border into the prose.
     const rows = frame.split("\n")

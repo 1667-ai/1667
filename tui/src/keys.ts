@@ -50,11 +50,12 @@ export type KeyAction =
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
-  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request";
+  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
+  | "open-log" | "clear-log";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST";
+  | "SEARCH" | "REQUEST" | "LOG";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -338,6 +339,16 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
   }
   if (mode === "REQUEST") return resolveRequestViewerKey(key);
+  // C-37's own keys. `!` closes the log as well as opening it, so the surface
+  // toggles from wherever the writer pressed it.
+  if (mode === "LOG") {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "copy-part" };
+    if (key.name === "x") return { action: "clear-log" };
+    if (key.sequence === "!") return { action: "cancel" };
+    return { action: "none" };
+  }
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
   // Capital letters are distinct terminal commands. Declared reference routes
