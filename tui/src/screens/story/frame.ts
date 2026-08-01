@@ -2,6 +2,7 @@ import { StyledText, bg, fg, type ColorInput, type TextChunk } from "@opentui/co
 import type { Palette, PaletteRole } from "../../palette.js";
 import { cellWidth, graphemeCells, isPrintableAscii } from "../../cell-width.js";
 import type { HitTarget } from "../../hit.js";
+import { terminalLineText, terminalProseText } from "../../../../shared/terminal-text.js";
 
 export type LogoDisplayRole =
   | "logo red" | "logo orange" | "logo yellow" | "logo green"
@@ -21,6 +22,8 @@ export interface FrameSegment {
   background?: DisplayRole;
   bold?: boolean;
   hit?: HitTarget;
+  /** This segment is prose a wrapper laid out. Bidi controls and LF survive. */
+  prose?: true;
   /** Raw composer grapheme at the first cell of this rendered text. */
   composerStart?: number;
   /** Multi-buffer source identity and whether painted text maps to an edit. */
@@ -65,8 +68,16 @@ export function plainLine(line: FrameLine): string {
   return line.map((part) => part.text).join("");
 }
 
+/** The one place stored text becomes drawn text. Every terminal surface reaches
+ * the screen through `frameText` or `frameStyledText`, so a control character
+ * loses its power here and a new surface cannot forget to ask. The projection
+ * preserves length and cell width, which is why measurement can precede it. */
+function drawnText(part: FrameSegment): string {
+  return part.prose === true ? terminalProseText(part.text) : terminalLineText(part.text);
+}
+
 export function frameText(lines: readonly FrameLine[]): string {
-  return lines.map(plainLine).join("\n");
+  return lines.map((line) => line.map(drawnText).join("")).join("\n");
 }
 
 const FRESH_ROLES: ReadonlySet<DisplayRole> = new Set(["streaming", "fresh 1", "fresh 2"]);
@@ -94,7 +105,7 @@ export function frameStyledText(lines: readonly FrameLine[], palette: Palette): 
     for (const part of line) {
       // Light themes land fresh ink wet-dark and bold (spec §10 polarity rule).
       const bold = part.bold === true || (palette.freshBold && part.role !== undefined && FRESH_ROLES.has(part.role));
-      append(part.text, part.role ?? "prose · dim", part.background, bold);
+      append(drawnText(part), part.role ?? "prose · dim", part.background, bold);
     }
     if (lineIndex < lines.length - 1) append("\n", "chrome", undefined, false);
   }

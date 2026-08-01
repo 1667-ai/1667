@@ -211,7 +211,7 @@ function renderChapterSummary(
   const role = row.chapter.stale ? "focus / accent" : "summary";
   const lines: FrameLine[] = [prefixLine(narrow, focused ? [segment("▸ summary", "focus / accent")] : [], [segment(truncate(label, measure), role)])];
   if (expanded) {
-    for (const line of detail) lines.push(prefixLine(narrow, [], [segment("  "), segment(line.text, "summary")]));
+    for (const line of detail) lines.push(prefixLine(narrow, [], [segment("  "), { ...segment(line.text, "summary"), prose: true }]));
     lines.push(prefixLine(narrow, [], [segment("  prose untouched · summary only changes model context", "chrome")]));
   }
   if (focused) lines.push(prefixLine(narrow, [], [
@@ -721,7 +721,7 @@ function styledWrapped(
       sourceKey, part.node.text, sourceStart + line.start + cursor
     ));
   }
-  if (line.text.length === 0) output.push(segment("", defaultRole));
+  if (line.text.length === 0) output.push({ ...segment("", defaultRole), prose: true });
   return output;
 }
 
@@ -741,7 +741,8 @@ function storySegment(
 ): FrameSegment {
   return {
     ...segment(text, role, hit),
-    storySource: { key, text: sourceText, start }
+    storySource: { key, text: sourceText, start },
+    prose: true
   };
 }
 

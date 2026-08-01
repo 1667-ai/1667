@@ -53,7 +53,7 @@ export function renderFactsRail(
     targets.push(fact.index);
     if (fact.activation === "keyed" && fact.active && fact.body.length > 0) {
       for (const line of wrapText(fact.body, [], RAIL_CONTENT_WIDTH - 4).slice(0, 4)) {
-        rows.push([segment("    "), segment(line.text, "prose · dim")]);
+        rows.push([segment("    "), { ...segment(line.text, "prose · dim"), prose: true }]);
         targets.push(fact.index);
       }
     }

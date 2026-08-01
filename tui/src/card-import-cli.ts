@@ -2,7 +2,7 @@ import { inlineValue, resolveImportProject, separatedValue } from "./import-proj
 import type { StorySummary } from "../../shared/types.js";
 import { planCardImport } from "./card-import.js";
 import { readImportBytes } from "./import-file.js";
-import { plainTerminalText as plain } from "../../shared/terminal-text.js";
+import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";
 
 export interface CardImportCommand {
