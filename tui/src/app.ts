@@ -49,7 +49,7 @@ import { searchAction } from "./search-actions.js";
 import { abortPendingSearch } from "./search-request.js";
 import { actionsMenuAction, armPrune, tagAction, composeAction, generate, generationBusy, navAction, openTag, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
 import { createWrapCache, type ProseStyle } from "./wrap.js";
-import { deriveGenerationRuntime } from "./runtime-settings.js";
+import { deriveContinuationRuntime } from "./runtime-settings.js";
 import {
   ActionRuntime,
   beginInteraction,
@@ -672,7 +672,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     stream: renderMode && source.demo ? leafStreamView(source.payload) : null,
     freshLandedAt: new Map(),
     now: 1_667_000_000_000,
-    ...deriveGenerationRuntime(source.settings, source.demo),
+    ...deriveContinuationRuntime(source.settingsView, source.demo),
     map: null,
     search: null,
     contextMeterExpanded: false,

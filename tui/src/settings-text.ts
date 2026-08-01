@@ -1,6 +1,8 @@
 import {
   PROMPT_CACHE_POLICY_V2_VALUES,
   type PromptCachePolicyV2,
+  type ModelConnectionV2,
+  type SettingsDocumentV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
 import {
@@ -8,21 +10,139 @@ import {
   type GenerationSettings,
   type Provider
 } from "../../shared/types.js";
-import { basicSettingsForDisplay } from "../../shared/settings-basic-draft.js";
-import { promptCacheContextForDocument } from "../../shared/prompt-cache-capabilities.js";
+import {
+  applyBasicSettingsProbeDraft,
+  basicSettingsForDisplay,
+  basicSettingsFromDocument
+} from "../../shared/settings-basic-draft.js";
+import {
+  applyPromptCachePolicy,
+  promptCacheContextForProfile
+} from "../../shared/prompt-cache-capabilities.js";
+import {
+  prepareSettingsProfileGenerationEdit,
+  selectedSettingsProfileId
+} from "./settings-profile-draft.js";
+import { resolveSettingsProfile } from "../../shared/settings-route.js";
+import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
 
 export interface SettingsTextDraft {
+  /** Full editable document plus the selected profile's form projection.
+   * Dry-run retains endpoint text that its document shape cannot represent;
+   * save normalizes that inactive text away. */
+  readonly document: SettingsDocumentV2 | null;
+  readonly selectedProfileId: string | null;
   readonly generation: GenerationSettings;
   readonly cachePolicy: PromptCachePolicyV2;
 }
 
-export function settingsTextDraftForView(view: SettingsView): SettingsTextDraft {
+export function settingsTextDraftForView(
+  view: SettingsView,
+  selectedProfileId?: string | null
+): SettingsTextDraft {
+  if (view.editable) {
+    return settingsTextDraftForDocument(view.document, selectedProfileId);
+  }
   return {
+    document: null,
+    selectedProfileId: null,
     generation: basicSettingsForDisplay(view),
-    cachePolicy: view.editable
-      ? promptCacheContextForDocument(view.document).policy
-      : "off"
+    cachePolicy: "off"
   };
+}
+
+export function settingsTextDraftForDocument(
+  document: SettingsDocumentV2,
+  preferredProfileId?: string | null
+): SettingsTextDraft {
+  const selectedProfileId = selectedSettingsProfileId(document, preferredProfileId);
+  return {
+    document,
+    selectedProfileId,
+    generation: basicSettingsFromDocument(document, selectedProfileId),
+    cachePolicy: promptCacheContextForProfile(document, selectedProfileId).policy
+  };
+}
+
+export function settingsTextDraftWithGeneration(
+  draft: SettingsTextDraft,
+  generation: GenerationSettings
+): SettingsTextDraft {
+  if (draft.document === null || draft.selectedProfileId === null) {
+    return { ...draft, generation };
+  }
+  const document = prepareSettingsProfileGenerationEdit(
+    draft.document,
+    draft.selectedProfileId,
+    draft.generation,
+    generation
+  );
+  const projected = settingsTextDraftForDocument(
+    applySettingsGenerationDraft(document, generation, draft.selectedProfileId),
+    draft.selectedProfileId
+  );
+  if (generation.provider !== "dry-run") return projected;
+  return {
+    ...projected,
+    generation: {
+      ...projected.generation,
+      baseUrl: generation.baseUrl.trim().replace(/\/+$/u, ""),
+      apiKeyEnv: generation.apiKeyEnv
+    }
+  };
+}
+
+export function settingsTextDraftWithCachePolicy(
+  draft: SettingsTextDraft,
+  cachePolicy: PromptCachePolicyV2
+): SettingsTextDraft {
+  if (draft.document === null || draft.selectedProfileId === null) {
+    return { ...draft, cachePolicy };
+  }
+  return settingsTextDraftForDocument(
+    applyPromptCachePolicy(draft.document, cachePolicy, draft.selectedProfileId),
+    draft.selectedProfileId
+  );
+}
+
+/** Apply an explicit context probe after the provider/model identity has
+ * reached the document. This keeps an equal numeric limit from being mistaken
+ * for stale metadata that must reset with the old model identity. */
+export function settingsTextDraftWithDetectedContext(
+  draft: SettingsTextDraft,
+  contextWindow: number
+): SettingsTextDraft {
+  const synchronized = settingsTextDraftWithGeneration(draft, {
+    ...draft.generation,
+    contextWindow: null
+  });
+  return settingsTextDraftWithGeneration(synchronized, {
+    ...synchronized.generation,
+    contextWindow
+  });
+}
+
+/** Identify only form values that the selected document cannot project. This
+ * keeps a profile switch clean while an inactive dry-run endpoint stays dirty. */
+export function settingsTextDraftProjectionIdentity(
+  draft: SettingsTextDraft
+): string {
+  if (draft.document === null || draft.selectedProfileId === null) return "[]";
+  const current = draft.generation;
+  const projected = basicSettingsFromDocument(draft.document, draft.selectedProfileId);
+  const difference = <T>(left: T, right: T): readonly [false] | readonly [true, T] =>
+    Object.is(left, right) ? [false] : [true, left];
+  return JSON.stringify([
+    difference(current.provider, projected.provider),
+    difference(current.baseUrl, projected.baseUrl),
+    difference(current.model, projected.model),
+    difference(current.apiKeyEnv, projected.apiKeyEnv),
+    difference(current.allowInsecureHttp === true, projected.allowInsecureHttp === true),
+    difference(current.temperature, projected.temperature),
+    difference(current.maxTokens, projected.maxTokens),
+    difference(current.contextWindow, projected.contextWindow),
+    difference(current.systemPrompt, projected.systemPrompt)
+  ]);
 }
 
 /** Draft serialization contract for generation settings: `key: value` lines, ≻ guidance
@@ -98,5 +218,112 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
       cachePolicy = text as PromptCachePolicyV2;
     } else return { error: `unknown setting "${key}"` };
   }
-  return { generation: next, cachePolicy };
+  return { ...base, generation: next, cachePolicy };
+}
+
+/** The document stays authoritative while a writer is between fields. The
+ * shared reducer intentionally refuses an incomplete network configuration;
+ * this editor must retain it long enough for the next row edit to complete it.
+ * Save remains the validation boundary. */
+function applySettingsGenerationDraft(
+  document: SettingsDocumentV2,
+  generation: GenerationSettings,
+  profileId: string
+): SettingsDocumentV2 {
+  try {
+    return applyBasicSettingsProbeDraft(document, generation, profileId);
+  } catch {
+    return applyIncompleteGenerationDraft(document, generation, profileId);
+  }
+}
+
+function applyIncompleteGenerationDraft(
+  document: SettingsDocumentV2,
+  generation: GenerationSettings,
+  profileId: string
+): SettingsDocumentV2 {
+  const route = resolveSettingsProfile(document, profileId);
+  const provider = generation.provider;
+  const protocol = provider === "dry-run"
+    ? "dry-run"
+    : provider === "anthropic"
+      ? "anthropic-messages"
+      : "openai-chat-completions";
+  const baseUrl = provider === "dry-run"
+    ? null
+    : generation.baseUrl.trim().replace(/\/+$/u, "");
+  const existingSecretId = storedCredentialSecretId(route.connection.auth);
+  const auth = incompleteDraftAuth(provider, generation.apiKeyEnv, existingSecretId);
+  const modelId = provider === "dry-run" && generation.model.trim().length === 0
+    ? "dry-run"
+    : generation.model.trim();
+  const protocolChanged = route.connection.protocol !== protocol;
+  const modelChanged = route.model.remoteId !== modelId || protocolChanged || route.connection.baseUrl !== baseUrl;
+  const overrides = { ...route.model.overrides };
+  if (generation.contextWindow === null) delete overrides.contextWindow;
+  else overrides.contextWindow = generation.contextWindow;
+  const { allowInsecureHttp: _currentAllowInsecureHttp, ...connectionBase } = route.connection;
+  return {
+    ...document,
+    connections: {
+      ...document.connections,
+      [route.model.connectionId]: {
+        ...connectionBase,
+        name: provider === "dry-run" ? "Dry Run" : "Custom",
+        preset: provider === "dry-run" ? "dry-run" : "custom",
+        protocol,
+        baseUrl,
+        auth,
+        ...(protocolChanged ? { headers: [] } : {}),
+        ...(generation.allowInsecureHttp === true && provider !== "dry-run"
+          ? { allowInsecureHttp: true as const }
+          : {})
+      }
+    },
+    models: {
+      ...document.models,
+      [route.profile.modelId]: {
+        ...route.model,
+        ...(modelChanged
+          ? {
+              remoteId: modelId,
+              name: provider === "dry-run" ? "Dry Run" : modelId,
+              discovered: {},
+              capabilities: {
+                ...route.model.capabilities,
+                promptCaching: provider === "dry-run" ? "unsupported" : "unknown",
+                reasoningEffort: provider === "dry-run" ? "unsupported" : "unknown"
+              }
+            }
+          : {}),
+        overrides
+      }
+    },
+    profiles: {
+      ...document.profiles,
+      [profileId]: {
+        ...route.profile,
+        temperature: generation.temperature,
+        maxOutputTokens: generation.maxTokens
+      }
+    },
+    writing: { ...document.writing, defaultAuthorBrief: generation.systemPrompt }
+  };
+}
+
+function incompleteDraftAuth(
+  provider: Provider,
+  apiKeyEnv: string | null,
+  storedSecretId: string | null
+): ModelConnectionV2["auth"] {
+  if (provider === "dry-run") return { type: "none" };
+  if (apiKeyEnv !== null) {
+    return provider === "anthropic"
+      ? { type: "header-env", name: "x-api-key", env: apiKeyEnv }
+      : { type: "bearer-env", env: apiKeyEnv };
+  }
+  if (storedSecretId === null) return { type: "none" };
+  return provider === "anthropic"
+    ? { type: "header-stored", name: "x-api-key", secretId: storedSecretId }
+    : { type: "bearer-stored", secretId: storedSecretId };
 }

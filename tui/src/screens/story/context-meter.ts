@@ -259,7 +259,7 @@ function contextWindowHint(): FrameSegment {
   return segment(
     WINDOW_HINT,
     "chrome",
-    { kind: "settings-row", row: "context-window" }
+    { kind: "settings-row", row: "context-window", profilePurpose: "prose" }
   );
 }
 

@@ -140,6 +140,107 @@ export const SETTINGS_MODEL_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+export const SETTINGS_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · e rename · d delete · s save · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ profile", action: "take-next" },
+      { token: "n new", action: "new-item" },
+      { token: "⇧n copy", action: "duplicate-item" },
+      { token: "e rename", action: "edit" },
+      { token: "d delete", action: "delete-item" },
+      { token: "s save", action: "save-edit" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ←→ profile · n new · ⇧n copy · e rename · d delete · s · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ profile", action: "take-next" },
+      { token: "n new", action: "new-item" },
+      { token: "⇧n copy", action: "duplicate-item" },
+      { token: "e rename", action: "edit" },
+      { token: "d delete", action: "delete-item" },
+      { token: "s", action: "save-edit" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ n N e d s esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "n", action: "new-item" },
+      { token: "N", action: "duplicate-item" },
+      { token: "e", action: "edit" },
+      { token: "d", action: "delete-item" },
+      { token: "s", action: "save-edit" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+/** A pending candidate does not remove profile management. Keep its discard
+ * command visible with the profile verbs, because both affect the same draft. */
+export const SETTINGS_PENDING_PROFILE_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ profile · n new · ⇧n copy · e rename · d delete · s save · x discard · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ profile", action: "take-next" },
+      { token: "n new", action: "new-item" },
+      { token: "⇧n copy", action: "duplicate-item" },
+      { token: "e rename", action: "edit" },
+      { token: "d delete", action: "delete-item" },
+      { token: "s save", action: "save-edit" },
+      { token: "x discard", action: "discard-pending" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ←→ profile · n new · ⇧n copy · e rename · d delete · s · x · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ profile", action: "take-next" },
+      { token: "n new", action: "new-item" },
+      { token: "⇧n copy", action: "duplicate-item" },
+      { token: "e rename", action: "edit" },
+      { token: "d delete", action: "delete-item" },
+      { token: "s", action: "save-edit" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ n N e d s x esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "n", action: "new-item" },
+      { token: "N", action: "duplicate-item" },
+      { token: "e", action: "edit" },
+      { token: "d", action: "delete-item" },
+      { token: "s", action: "save-edit" },
+      { token: "x", action: "discard-pending" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
 export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   {
     text: "↑↓ move · ↵ edit · s save · c check · esc close",

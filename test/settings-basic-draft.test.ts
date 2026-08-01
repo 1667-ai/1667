@@ -413,6 +413,7 @@ test("pending views display the candidate while retaining the active effective p
     pendingRevision: 2,
     document: candidate,
     effective: active,
+    effectiveProse: active,
     lastActivationOutcome: null
   };
 
@@ -433,6 +434,7 @@ test("clean editable views display their document while format-1 views display e
     pendingRevision: null,
     document: DOCUMENT,
     effective,
+    effectiveProse: effective,
     lastActivationOutcome: null
   };
   const legacy = {
@@ -443,6 +445,7 @@ test("clean editable views display their document while format-1 views display e
     pendingRevision: null,
     document: null,
     effective,
+    effectiveProse: effective,
     lastActivationOutcome: null
   };
 

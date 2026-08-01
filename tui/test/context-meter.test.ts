@@ -85,6 +85,83 @@ describe("honest next-request context meter", () => {
     }
   });
 
+  test("uses the active prose route for the meter and defaults when it is absent", () => {
+    const source = demoAppSource();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const defaultSettings = {
+      ...source.settings,
+      model: "default-model",
+      contextWindow: 32_768,
+      maxTokens: 2_048
+    };
+    const activeProse = {
+      ...defaultSettings,
+      model: "active-prose-model",
+      contextWindow: 16_384,
+      maxTokens: 768
+    };
+    const document = source.settingsView.document;
+    const defaultProfile = document.profiles[document.routing.default]!;
+    const defaultModel = document.models[defaultProfile.modelId]!;
+    source.settings = defaultSettings;
+    source.settingsView = {
+      ...source.settingsView,
+      effective: defaultSettings,
+      effectiveProse: activeProse,
+      pendingRevision: 2,
+      document: {
+        ...document,
+        models: {
+          ...document.models,
+          "prose:model": {
+            ...defaultModel,
+            remoteId: "prose-model",
+            name: "Prose model",
+            discovered: { contextWindow: 1_024 },
+            capabilities: {
+              ...defaultModel.capabilities,
+              assistantPrefill: "supported"
+            }
+          }
+        },
+        profiles: {
+          ...document.profiles,
+          prose: {
+            ...defaultProfile,
+            name: "Prose",
+            modelId: "prose:model",
+            maxOutputTokens: 512
+          }
+        },
+        routing: { ...document.routing, prose: "prose" }
+      }
+    };
+
+    const prose = initialState(source, false);
+    expect(prose.model).toBe("active-prose-model");
+    expect(prose.contextWindow).toBe(16_384);
+    expect(prose.maxTokens).toBe(768);
+    expect(prose.assistantPrefill).toBeTrue();
+    const proseMeter = frameText(renderStoryScreen(prose, { width: 140, height: 36 }).lines);
+    expect(proseMeter).toContain(" / 16.4k");
+    expect(proseMeter).not.toContain(" / 1k");
+
+    const fallbackSource = demoAppSource();
+    if (!fallbackSource.settingsView.editable) throw new Error("demo settings must be editable");
+    fallbackSource.settings = defaultSettings;
+    fallbackSource.settingsView = {
+      ...fallbackSource.settingsView,
+      effective: defaultSettings,
+      effectiveProse: defaultSettings
+    };
+    const fallback = initialState(fallbackSource, false);
+    expect(fallback.model).toBe("default-model");
+    expect(fallback.contextWindow).toBe(32_768);
+    expect(fallback.maxTokens).toBe(2_048);
+    expect(frameText(renderStoryScreen(fallback, { width: 140, height: 36 }).lines))
+      .toContain(" / 32.8k");
+  });
+
   test("reports free space and a breakdown whose categories equal the estimate", () => {
     const payload = createDemoController().payload();
     const systemPrompt = "Keep voice close, concrete, and restrained.";
@@ -790,6 +867,11 @@ describe("honest next-request context meter", () => {
   test("unknown windows omit both collapsed and expanded gauges", () => {
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: null };
+    source.settingsView = {
+      ...source.settingsView,
+      effective: source.settings,
+      effectiveProse: source.settings
+    };
     const state = initialState(source, true);
     state.contextMeterExpanded = true;
     const text = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);

@@ -1,3 +1,4 @@
+import type { SettingsRoutePurpose } from "../../shared/settings-v2-types.js";
 import type { KeyAction } from "./keys.js";
 import type { MapView } from "./map-state.js";
 import type { SettingsRowId } from "./state.js";
@@ -21,7 +22,7 @@ export type HitTarget =
   /** Exact sibling control in the focused story-part gutter. */
   | { kind: "story-take"; take: number }
   /** Shortcut from story chrome into one exact Settings row. */
-  | { kind: "settings-row"; row: SettingsRowId }
+  | { kind: "settings-row"; row: SettingsRowId; profilePurpose?: SettingsRoutePurpose }
   | { kind: "action"; action: KeyAction; index?: number }
   /** Row control whose non-left clicks deliberately fall through to its row. */
   | { kind: "inline-action"; action: KeyAction }

@@ -3,6 +3,7 @@ import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-s
 import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
+import { selectSettingsRoute } from "../../shared/settings-route.js";
 import { activePath, computeRollups, isChapterSummary, pathTo, subtreeIds, switchToNode, unusedTakePruneSelection } from "../../shared/story-tree.js";
 import type { TagStatus, FactInput, GenerationSettings, NodeStub, PruneUnusedTakesRequest, Story, StoryPayload, StorySummary } from "../../shared/types.js";
 import type {
@@ -431,6 +432,7 @@ export const DEMO_SETTINGS_VIEW: SettingsView = {
   pendingRevision: null,
   document: DEMO_SETTINGS_DOCUMENT,
   effective: DEMO_SETTINGS,
+  effectiveProse: DEMO_SETTINGS,
   lastActivationOutcome: null
 };
 
@@ -490,6 +492,10 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     getSettings: async () => structuredClone(settingsView),
     saveSettings: async (command) => {
       const effective = basicSettingsFromDocument(command.document);
+      const effectiveProse = basicSettingsFromDocument(
+        command.document,
+        selectSettingsRoute(command.document, "prose").profileId
+      );
       settingsView = {
         dataFormat: 2,
         editable: true,
@@ -498,6 +504,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         pendingRevision: null,
         document: command.document,
         effective,
+        effectiveProse,
         lastActivationOutcome: null
       };
       return settingsMutationResult(settingsView);

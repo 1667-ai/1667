@@ -265,6 +265,38 @@ test("mid-activation states keep the old document effective until the commit edg
   assert.equal(committedView.effective.provider, "openai-compatible");
 });
 
+test("a pending prose route cannot replace the active prose projection", () => {
+  const active = proseRouteDocument("active-prose-model", 16_384, 768);
+  const candidateBase = proseRouteDocument("candidate-prose-model", 1_024, 512);
+  const defaultProfile = candidateBase.profiles[candidateBase.routing.default]!;
+  const defaultModel = candidateBase.models[defaultProfile.modelId]!;
+  const candidate = {
+    ...candidateBase,
+    connections: {
+      ...candidateBase.connections,
+      [defaultModel.connectionId]: {
+        ...candidateBase.connections[defaultModel.connectionId]!,
+        preset: "openai" as const,
+        protocol: "openai-chat-completions" as const,
+        baseUrl: "https://candidate.example/v1",
+        auth: { type: "bearer-env" as const, env: "AI_1667_CANDIDATE_KEY" }
+      }
+    }
+  };
+  const staged = changedState(MUTATION_A, candidate);
+  const state = {
+    ...staged,
+    documents: { ...staged.documents, "1": active }
+  };
+
+  const view = settingsViewFromState(state);
+  assert.equal(view.pendingRevision, 2);
+  assert.equal(view.document.models["prose:model"]?.remoteId, "candidate-prose-model");
+  assert.equal(view.effectiveProse.model, "active-prose-model");
+  assert.equal(view.effectiveProse.contextWindow, 16_384);
+  assert.equal(view.effectiveProse.maxTokens, 768);
+});
+
 test("generation snapshots stay coherent while an activation replaces a stored credential", async (t) => {
   const dataDir = await initializedFormat2Directory(t, "1667-inprocess-snapshot-");
   const store = new SettingsStore(dataDir, {
@@ -850,6 +882,38 @@ function twoConnectionDocument(defaultEnv: string, proseEnv: string): SettingsDo
     profiles: {
       ...base.profiles,
       prose: { ...defaultProfile, name: "Prose", modelId: "prose:model" }
+    },
+    routing: { ...base.routing, prose: "prose" }
+  };
+}
+
+function proseRouteDocument(
+  remoteId: string,
+  contextWindow: number,
+  maxOutputTokens: number
+): SettingsDocumentV2 {
+  const base = INITIAL_SETTINGS_DOCUMENT_V2;
+  const defaultProfile = base.profiles[base.routing.default]!;
+  const defaultModel = base.models[defaultProfile.modelId]!;
+  return {
+    ...base,
+    models: {
+      ...base.models,
+      "prose:model": {
+        ...defaultModel,
+        remoteId,
+        name: "Prose model",
+        discovered: { contextWindow }
+      }
+    },
+    profiles: {
+      ...base.profiles,
+      prose: {
+        ...defaultProfile,
+        name: "Prose",
+        modelId: "prose:model",
+        maxOutputTokens
+      }
     },
     routing: { ...base.routing, prose: "prose" }
   };

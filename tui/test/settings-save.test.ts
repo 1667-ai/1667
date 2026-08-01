@@ -170,6 +170,7 @@ describe("Settings save lifecycle", () => {
         pendingRevision: null,
         document: command.document,
         effective: basicSettingsFromDocument(command.document),
+        effectiveProse: basicSettingsFromDocument(command.document),
         lastActivationOutcome: outcome
       };
       return {
@@ -203,7 +204,8 @@ describe("Settings save lifecycle", () => {
       stateGeneration: original.stateGeneration + 1,
       activeRevision: original.activeRevision + 1,
       document: applyBasicSettingsDraft(original.document, refreshedSettings),
-      effective: refreshedSettings
+      effective: refreshedSettings,
+      effectiveProse: refreshedSettings
     };
     const commands: SaveSettingsCommand[] = [];
     let current: SettingsView = original;
@@ -283,7 +285,8 @@ describe("Settings save lifecycle", () => {
       stateGeneration: current.stateGeneration + 1,
       activeRevision: current.activeRevision + 1,
       document,
-      effective: basicSettingsFromDocument(document)
+      effective: basicSettingsFromDocument(document),
+      effectiveProse: basicSettingsFromDocument(document)
     };
 
     publishSettingsView(state, source, converged);

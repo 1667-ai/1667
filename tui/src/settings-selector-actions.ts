@@ -8,6 +8,12 @@ import {
   settingsModelDisplayText,
   settingsRowUsesServer
 } from "./settings-overlay-model.js";
+import {
+  cycleCachePolicyControl,
+  cycleEffortControl,
+  cycleProfileControl,
+  cycleRouteControl
+} from "./settings-profile-controls.js";
 import type {
   RuntimeState,
   SettingsOverlayState,
@@ -26,32 +32,54 @@ export async function cycleSettingsRow(
     state.toast = "legacy settings are read-only";
     return;
   }
-  if (row === "theme") {
-    const index = THEME_NAMES.indexOf(state.config.theme);
-    applySettingsTheme(
-      state,
-      context,
-      THEME_NAMES[(index + step + THEME_NAMES.length) % THEME_NAMES.length]!
-    );
-  } else if (row === "compose-focus") {
-    applySettingsComposeFocus(
-      state,
-      source,
-      state.config.composeFocus === "on" ? "off" : "on"
-    );
-  } else if (row === "provider") {
-    const choice = cycleSettingsProvider(overlay, step);
-    state.toast = `provider · ${choice.label} · s saves settings`;
-  } else if (row === "allow-insecure-http") {
-    const enabled = cycleAllowInsecureHttp(overlay);
-    state.toast =
-      `insecure HTTP (LAN) · ${enabled ? "on" : "off"} · s saves settings`;
-  } else if (row === "model") {
-    const model = cycleSettingsModel(overlay, step);
-    if (model !== null) {
+  try {
+    if (row === "theme") {
+      const index = THEME_NAMES.indexOf(state.config.theme);
+      applySettingsTheme(
+        state,
+        context,
+        THEME_NAMES[(index + step + THEME_NAMES.length) % THEME_NAMES.length]!
+      );
+    } else if (row === "compose-focus") {
+      applySettingsComposeFocus(
+        state,
+        source,
+        state.config.composeFocus === "on" ? "off" : "on"
+      );
+    } else if (row === "provider") {
+      const choice = cycleSettingsProvider(overlay, step);
+      state.toast = `provider · ${choice.label} · s saves settings`;
+    } else if (row === "allow-insecure-http") {
+      const enabled = cycleAllowInsecureHttp(overlay);
       state.toast =
-        `model · ${settingsModelDisplayText(model)} · s saves settings`;
+        `insecure HTTP (LAN) · ${enabled ? "on" : "off"} · s saves settings`;
+    } else if (row === "model") {
+      const model = cycleSettingsModel(overlay, step);
+      if (model !== null) {
+        state.toast =
+          `model · ${settingsModelDisplayText(model)} · s saves settings`;
+      }
+    } else if (row === "profile") {
+      const profile = cycleProfileControl(overlay, step);
+      if (profile !== null) state.toast = `profile · ${profile}`;
+    } else if (row === "effort") {
+      const effort = cycleEffortControl(overlay, step);
+      if (effort !== null) state.toast = `effort · ${effort} · s saves settings`;
+    } else if (row === "cache-policy") {
+      const policy = cycleCachePolicyControl(overlay, step);
+      if (policy !== null) state.toast = `cache · ${policy} · s saves settings`;
+    } else if (row === "default-route") {
+      const value = cycleRouteControl(overlay, "default", step);
+      if (value !== null) state.toast = `default route · ${value} · s saves settings`;
+    } else if (row === "prose-route") {
+      const value = cycleRouteControl(overlay, "prose", step);
+      if (value !== null) state.toast = `prose route · ${value} · s saves settings`;
+    } else if (row === "utility-route") {
+      const value = cycleRouteControl(overlay, "utility", step);
+      if (value !== null) state.toast = `utility route · ${value} · s saves settings`;
     }
+  } catch (error) {
+    state.toast = `settings kept · ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 

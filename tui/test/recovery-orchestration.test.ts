@@ -237,7 +237,8 @@ describe("backend recovery orchestration", () => {
       settingsLoads += 1;
       return {
         ...source.settingsView,
-        effective: settingsLoads === 1 ? staleSettings : freshSettings
+        effective: settingsLoads === 1 ? staleSettings : freshSettings,
+        effectiveProse: settingsLoads === 1 ? staleSettings : freshSettings
       };
     };
     raw.loadStory = async () => {
@@ -441,7 +442,8 @@ describe("backend recovery orchestration", () => {
     const recoveredView = {
       ...source.settingsView,
       document: applyBasicSettingsDraft(source.settingsView.document, recoveredSettings),
-      effective: recoveredSettings
+      effective: recoveredSettings,
+      effectiveProse: recoveredSettings
     };
     let settingsLoads = 0;
     const discoveryEntered = deferred<void>();
@@ -510,7 +512,8 @@ describe("backend recovery orchestration", () => {
       settingsLoads += 1;
       return {
         ...source.settingsView,
-        effective: settingsLoads === 1 ? staleSettings : freshSettings
+        effective: settingsLoads === 1 ? staleSettings : freshSettings,
+        effectiveProse: settingsLoads === 1 ? staleSettings : freshSettings
       };
     };
     source.api.loadStory = async () => {
@@ -723,7 +726,8 @@ describe("backend recovery orchestration", () => {
       settingsLoads += 1;
       return {
         ...source.settingsView,
-        effective: settingsLoads === 1 ? staleSettings : freshSettings
+        effective: settingsLoads === 1 ? staleSettings : freshSettings,
+        effectiveProse: settingsLoads === 1 ? staleSettings : freshSettings
       };
     };
     source.api.loadStory = async () => {

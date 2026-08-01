@@ -126,6 +126,7 @@ test("format-1 facade is read-only before command parsing or receipt allocation"
   assert.equal(view.editable, false);
   assert.equal(view.document, null);
   assert.deepEqual(view.effective, SAVED_SETTINGS);
+  assert.deepEqual(view.effectiveProse, SAVED_SETTINGS);
   assert.doesNotThrow(() => store.assertProviderRequestSupported({
     ...SAVED_SETTINGS,
     baseUrl: "http://127.0.0.1:4567/v1",

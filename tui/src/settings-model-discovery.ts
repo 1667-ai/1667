@@ -1,6 +1,7 @@
 import type {
   DiscoveredModelV2,
   ModelDiscoveryResultV2,
+  SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
@@ -75,6 +76,8 @@ interface ModelDiscoveryRequest {
   identity: string;
   settings: GenerationSettings;
   view: SettingsView;
+  document: SettingsDocumentV2 | null;
+  profileId: string | null;
   signal: AbortSignal;
 }
 
@@ -97,6 +100,8 @@ export async function discoverSettingsModels(
     identity,
     settings,
     view: overlay.view,
+    document: overlay.draft.document,
+    profileId: overlay.draft.selectedProfileId,
     signal: controller.signal
   };
   overlay.discoveringModels = true;
@@ -135,7 +140,9 @@ async function runModelDiscoveryRequest(
         settingsProviderProbeTarget(
           request.view,
           request.settings,
-          overlay.connectionSecrets
+          overlay.connectionSecrets,
+          request.document,
+          request.profileId
         ),
         request.signal
       );
@@ -205,7 +212,9 @@ function settingsModelDiscoveryTargetIdentity(
     const target = settingsProviderProbeTarget(
       overlay.view,
       settings,
-      overlay.connectionSecrets
+      overlay.connectionSecrets,
+      overlay.draft.document,
+      overlay.draft.selectedProfileId
     );
     if ("kind" in target) {
       connection = selectSettingsRoute(
@@ -221,6 +230,7 @@ function settingsModelDiscoveryTargetIdentity(
     .map(([id, value]) => [id, value === null ? "delete" : "replace"]);
   return JSON.stringify([
     settingsModelDiscoveryIdentity(settings),
+    overlay.draft.selectedProfileId,
     overlay.view.stateGeneration,
     connection,
     secretIntent
@@ -237,6 +247,7 @@ function ownsCurrentRequest(
     : overlay.view.effective;
   return state.settings === overlay
     && overlay.modelDiscoveryGeneration === request.generation
+    && overlay.draft.selectedProfileId === request.profileId
     && settingsModelDiscoveryIdentity(current) === request.identity;
 }
 

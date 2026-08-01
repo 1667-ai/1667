@@ -41,6 +41,14 @@ describe("Settings model picker", () => {
         model: "novelist-a",
         apiKeyEnv: "OPENAI_API_KEY",
         contextWindow: 32_768
+      },
+      effectiveProse: {
+        ...source.settings,
+        provider: "openai-compatible",
+        baseUrl: "https://api.openai.com/v1",
+        model: "novelist-a",
+        apiKeyEnv: "OPENAI_API_KEY",
+        contextWindow: 32_768
       }
     };
     source.settingsView = view;
@@ -216,7 +224,8 @@ describe("Settings model picker", () => {
         source.settingsView.document,
         source.settings
       ),
-      effective: source.settings
+      effective: source.settings,
+      effectiveProse: source.settings
     };
     source.api.getSettings = async () => source.settingsView;
     source.api.discoverModels = async () => discovery("novelist-a");
@@ -278,7 +287,8 @@ function configureNetworkSource(
   const view: SettingsView = {
     ...source.settingsView,
     document,
-    effective: settings
+    effective: settings,
+    effectiveProse: settings
   };
   source.settingsView = view;
   source.settings = settings;

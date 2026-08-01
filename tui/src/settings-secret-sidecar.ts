@@ -1,70 +1,63 @@
 import type {
   ModelConnectionV2,
-  SettingsDocumentV2,
-  SettingsView
+  SettingsDocumentV2
 } from "../../shared/settings-v2-types.js";
 import { validateProviderSecretValue } from "../../shared/provider-secret-value.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
 import { MAX_SETTINGS_ID_SCALARS } from "../../server/settings-v2-scalars.js";
 import type { SettingsOverlayState } from "./state.js";
-
-/** Apply the write-only sidecar intent to auth references, never key material. */
-export function applyStoredApiKeyIntent(
-  document: SettingsDocumentV2,
-  connectionSecrets: Readonly<Record<string, string | null>>
-): SettingsDocumentV2 {
-  const entries = Object.entries(connectionSecrets);
-  if (entries.length === 0) return document;
-  const selected = defaultConnectionInDocument(document);
-  const stored = entries.find((entry): entry is [string, string] =>
-    typeof entry[1] === "string"
-  );
-  const auth = stored === undefined
-    ? { type: "none" as const }
-    : selected.connection.protocol === "anthropic-messages"
-      ? {
-          type: "header-stored" as const,
-          name: "x-api-key",
-          secretId: stored[0]
-        }
-      : { type: "bearer-stored" as const, secretId: stored[0] };
-  return {
-    ...document,
-    connections: {
-      ...document.connections,
-      [selected.connectionId]: { ...selected.connection, auth }
-    }
-  };
-}
+import { isolateSettingsProfileConnection } from "./settings-profile-draft.js";
+import {
+  settingsTextDraftForDocument,
+  settingsTextDraftWithGeneration
+} from "./settings-text.js";
 
 export function applyStoredApiKeyEdit(
   overlay: SettingsOverlayState,
   value: string
 ): string | null {
-  const selected = defaultConnection(overlay.view);
-  if (selected === null) {
+  if (overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
     return "Stored API keys require editable format-2 settings";
   }
-  const existingSecretId = storedCredentialSecretId(selected.connection.auth);
-  if (value.length === 0) {
-    overlay.connectionSecrets = existingSecretId === null
-      ? {}
-      : { [existingSecretId]: null };
-    return null;
-  }
   try {
-    validateProviderSecretValue(value);
+    if (value.length > 0) validateProviderSecretValue(value);
   } catch (error) {
     return (error instanceof Error ? error.message : "Stored API key is invalid")
       .replace(/^Stored API key/u, "API key");
   }
-  const secretId = mintStoredSecretId(selected.connectionId);
-  overlay.connectionSecrets = { [secretId]: value };
-  overlay.draft = {
-    ...overlay.draft,
-    generation: { ...overlay.draft.generation, apiKeyEnv: null }
-  };
+  try {
+    // An untouched blank field is a no-op. Do not replace the document object:
+    // model discovery keys its result to the selected connection identity.
+    if (value.length === 0
+      && storedCredentialSecretId(selectedConnection(overlay).connection.auth) === null) {
+      discardUnreferencedConnectionSecretWrites(overlay);
+      return null;
+    }
+    const document = isolateSettingsProfileConnection(
+      overlay.draft.document,
+      overlay.draft.selectedProfileId
+    );
+    overlay.draft = settingsTextDraftForDocument(document, overlay.draft.selectedProfileId);
+    overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
+      ...overlay.draft.generation,
+      apiKeyEnv: null
+    });
+    const selected = selectedConnection(overlay);
+    const existingSecretId = storedCredentialSecretId(selected.connection.auth);
+    if (value.length === 0) {
+      replaceSelectedConnectionAuth(overlay, { type: "none" });
+      if (existingSecretId !== null) queueDeletionIfUnreferenced(overlay, existingSecretId);
+      discardUnreferencedConnectionSecretWrites(overlay);
+      return null;
+    }
+    const secretId = mintStoredSecretId(selected.connectionId);
+    overlay.connectionSecrets = { ...overlay.connectionSecrets, [secretId]: value };
+    replaceSelectedConnectionAuth(overlay, storedAuthFor(selected.connection, secretId));
+    discardUnreferencedConnectionSecretWrites(overlay);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   return null;
 }
 
@@ -74,32 +67,38 @@ export function storedApiKeyPresentation(
   return hasStoredApiKey(overlay) ? "•••••••• · stored" : "—";
 }
 
-/** One stored-presence signal for provider changes and the masked UI. Pending
- * writes/deletes override the saved default-route credential. */
+/** One stored-presence signal for the selected connection. Pending changes to
+ * other profiles must not change this row. */
 export function hasStoredApiKey(
   overlay: SettingsOverlayState
 ): boolean {
-  const pending = Object.values(overlay.connectionSecrets);
-  if (pending.some((value) => typeof value === "string")) {
-    return true;
+  try {
+    const secretId = storedCredentialSecretId(selectedConnection(overlay).connection.auth);
+    if (secretId === null) return false;
+    const pending = overlay.connectionSecrets[secretId];
+    return pending === undefined ? true : typeof pending === "string";
+  } catch {
+    return false;
   }
-  if (pending.some((value) => value === null)) return false;
-  const connection = defaultConnection(overlay.view)?.connection;
-  return connection !== undefined
-    && storedCredentialSecretId(connection.auth) !== null;
 }
 
 export function rekeyPendingStoredSecret(
   overlay: SettingsOverlayState
 ): void {
-  const pending = Object.values(overlay.connectionSecrets).find(
-    (value): value is string => typeof value === "string"
-  );
-  if (pending === undefined) return;
-  const selected = defaultConnection(overlay.view);
-  if (selected === null) return;
-  const secretId = mintStoredSecretId(selected.connectionId);
-  overlay.connectionSecrets = { [secretId]: pending };
+  try {
+    const selected = selectedConnection(overlay);
+    const previousId = storedCredentialSecretId(selected.connection.auth);
+    if (previousId === null) return;
+    const pending = overlay.connectionSecrets[previousId];
+    if (typeof pending !== "string") return;
+    const secretId = mintStoredSecretId(selected.connectionId);
+    overlay.connectionSecrets = { ...overlay.connectionSecrets, [secretId]: pending };
+    replaceSelectedConnectionAuth(overlay, storedAuthFor(selected.connection, secretId));
+    discardUnreferencedConnectionSecretWrites(overlay);
+  } catch {
+    // The active edit/save path reports invalid draft structure. A provider
+    // cycler never redirects a pending secret to an unrelated default route.
+  }
 }
 
 export function sameConnectionSecrets(
@@ -113,22 +112,97 @@ export function sameConnectionSecrets(
       key === rightKeys[index] && left[key] === right[key]);
 }
 
-function defaultConnection(view: SettingsView): {
-  readonly connectionId: string;
-  readonly connection: ModelConnectionV2;
-} | null {
-  return view.editable ? defaultConnectionInDocument(view.document) : null;
-}
-
-function defaultConnectionInDocument(document: SettingsDocumentV2): {
+function selectedConnection(overlay: SettingsOverlayState): {
   readonly connectionId: string;
   readonly connection: ModelConnectionV2;
 } {
-  const route = selectSettingsRoute(document, "default");
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) {
+    throw new Error("Stored API keys require editable format-2 settings");
+  }
+  return profileConnectionInDocument(document, profileId);
+}
+
+function profileConnectionInDocument(
+  document: SettingsDocumentV2,
+  profileId: string
+): {
+  readonly connectionId: string;
+  readonly connection: ModelConnectionV2;
+} {
+  const route = resolveSettingsProfile(document, profileId);
   return {
     connectionId: route.model.connectionId,
     connection: route.connection
   };
+}
+
+function replaceSelectedConnectionAuth(
+  overlay: SettingsOverlayState,
+  auth: ModelConnectionV2["auth"]
+): void {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) {
+    throw new Error("Stored API keys require editable format-2 settings");
+  }
+  const selected = profileConnectionInDocument(document, profileId);
+  overlay.draft = settingsTextDraftForDocument({
+    ...document,
+    connections: {
+      ...document.connections,
+      [selected.connectionId]: { ...selected.connection, auth }
+    }
+  }, profileId);
+}
+
+function storedAuthFor(
+  connection: ModelConnectionV2,
+  secretId: string
+): ModelConnectionV2["auth"] {
+  return connection.protocol === "anthropic-messages"
+    ? { type: "header-stored", name: "x-api-key", secretId }
+    : { type: "bearer-stored", secretId };
+}
+
+/** Keep a write only while the current draft still references it. A deletion
+ * remains even though its reference has gone, because the save must remove the
+ * old persisted value. */
+export function discardUnreferencedConnectionSecretWrites(overlay: SettingsOverlayState): void {
+  const referenced = storedSecretIdsInDraft(overlay);
+  overlay.connectionSecrets = Object.fromEntries(
+    Object.entries(overlay.connectionSecrets).filter(
+      ([secretId, value]) => value === null || referenced.has(secretId)
+    )
+  );
+}
+
+/** Delete only after every profile stopped referencing the credential. A key
+ * entered and then cleared before save has no stored value, so drop its write. */
+function queueDeletionIfUnreferenced(
+  overlay: SettingsOverlayState,
+  secretId: string
+): void {
+  if (storedSecretIdsInDraft(overlay).has(secretId)) return;
+  if (typeof overlay.connectionSecrets[secretId] === "string") {
+    const connectionSecrets = { ...overlay.connectionSecrets };
+    delete connectionSecrets[secretId];
+    overlay.connectionSecrets = connectionSecrets;
+    return;
+  }
+  overlay.connectionSecrets = { ...overlay.connectionSecrets, [secretId]: null };
+}
+
+function storedSecretIdsInDraft(overlay: SettingsOverlayState): ReadonlySet<string> {
+  const document = overlay.draft.document;
+  const referenced = new Set<string>();
+  if (document === null) return referenced;
+  for (const connection of Object.values(document.connections)) {
+    const secretId = storedCredentialSecretId(connection.auth);
+    if (secretId !== null) referenced.add(secretId);
+  }
+  return referenced;
 }
 
 /** Every entered key gets a fresh ID. The server treats a stored secret ID

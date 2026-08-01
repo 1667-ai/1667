@@ -27,6 +27,8 @@ import {
   SETTINGS_EDIT_FOOTERS,
   SETTINGS_MODEL_FOOTERS,
   SETTINGS_PENDING_FOOTERS,
+  SETTINGS_PENDING_PROFILE_FOOTERS,
+  SETTINGS_PROFILE_FOOTERS,
   SETTINGS_TEXT_FOOTERS
 } from "./settings-panel-footers.js";
 import { renderComposerInput } from "./story/composer.js";
@@ -177,9 +179,13 @@ export function renderSettingsPanel(
   const detecting = !editing && rows[overlay.cursor]?.id === "context-window";
   const footerVariants = editing
     ? SETTINGS_EDIT_FOOTERS
-    : pending
-      ? SETTINGS_PENDING_FOOTERS
-      : choosing && selectedRow === "model"
+    : pending && selectedRow === "profile"
+      ? SETTINGS_PENDING_PROFILE_FOOTERS
+      : pending
+        ? SETTINGS_PENDING_FOOTERS
+        : selectedRow === "profile"
+        ? SETTINGS_PROFILE_FOOTERS
+        : choosing && selectedRow === "model"
         ? SETTINGS_MODEL_FOOTERS
         : choosing
           ? SETTINGS_CHOICE_FOOTERS

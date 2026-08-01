@@ -123,12 +123,18 @@ export type SettingsRowId =
   | "provider"
   | "base-url"
   | "allow-insecure-http"
-  | "model"
   | "api-key"
   | "api-key-env"
+  | "profile"
+  | "model"
   | "temperature"
   | "max-tokens"
   | "context-window"
+  | "effort"
+  | "cache-policy"
+  | "default-route"
+  | "prose-route"
+  | "utility-route"
   | "system-prompt";
 
 export interface SettingsEditBufferState {
@@ -169,6 +175,8 @@ export interface SettingsOverlayState {
   modelDiscoveryAbortController: AbortController | null;
   modelDiscoveryTargetIdentity: string | null;
   result: ModelServerCheckResult | null;
+  /** Profile deletion is draft-only, so a second `d` is enough consent. */
+  deleteArmedProfileId: string | null;
   discardIntent?: Omit<DiscardPendingSettingsCommand, "transportOperationId">;
 }
 export interface SummaryOverlayState {

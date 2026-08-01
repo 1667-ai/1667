@@ -37,9 +37,10 @@ export function decodeSettingsViewResponse(
 ): SettingsView {
   const response = closedRecord(value, "settings view", [
     "dataFormat", "editable", "stateGeneration", "activeRevision",
-    "pendingRevision", "document", "effective", "lastActivationOutcome"
+    "pendingRevision", "document", "effective", "effectiveProse", "lastActivationOutcome"
   ]);
   const effective = decodeGenerationSettingsResponse(response.effective);
+  const effectiveProse = decodeGenerationSettingsResponse(response.effectiveProse);
   if (response.dataFormat === 1) {
     if (response.editable !== false || response.stateGeneration !== null
       || response.activeRevision !== null || response.pendingRevision !== null
@@ -54,6 +55,7 @@ export function decodeSettingsViewResponse(
       pendingRevision: null,
       document: null,
       effective,
+      effectiveProse,
       lastActivationOutcome: null
     };
   }
@@ -69,6 +71,7 @@ export function decodeSettingsViewResponse(
     ),
     document: decodeDocument(response.document),
     effective,
+    effectiveProse,
     lastActivationOutcome: response.lastActivationOutcome === null
       ? null
       : decodeActivationOutcome(response.lastActivationOutcome)
