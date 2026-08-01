@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { open, unlink, type FileHandle } from "node:fs/promises";
+import { link, open, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
@@ -71,6 +71,30 @@ test("current settings read remains valid across atomic replacement", {
   publishResolve();
   await publishing;
   assert.deepEqual(await readSettingsState(dataDir), replacement);
+});
+
+test("current settings read waits through an extended replacement link window", {
+  timeout: 5_000,
+  skip: process.platform === "win32"
+}, async (t) => {
+  const dataDir = await initializedFormat2Directory(
+    t,
+    "1667-settings-extended-link-window-"
+  );
+  const stateFile = path.join(dataDir, SETTINGS_STATE_V2_FILE);
+  const replacementLink = path.join(dataDir, "settings.v2.state.replacement-link");
+  await link(stateFile, replacementLink);
+
+  const reading = readSettingsState(dataDir).then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  await unlink(replacementLink);
+
+  const outcome = await reading;
+  if ("error" in outcome) throw outcome.error;
+  assert.deepEqual(outcome.value, INITIAL_SETTINGS_STATE_V2);
 });
 
 test("a contender reports contention, never invalid state", {
