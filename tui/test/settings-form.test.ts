@@ -185,6 +185,12 @@ describe("C-15 · the model option column", () => {
     expect(rendered).toContain("9 of 9");
     expect(rendered).toContain("↑↓ move · type to narrow · ↵ choose · esc back");
 
+    // Esc peels exactly one layer: the column, not the whole panel.
+    await press(key("escape"));
+    expect(state.settings!.modelPicker).toBe(null);
+    expect(state.mode).toBe("SETTINGS");
+
+    await press(key("return"));
     await press(key("down"));
     await press(key("return"));
     expect(state.settings!.modelPicker).toBe(null);

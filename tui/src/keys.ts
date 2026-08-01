@@ -420,6 +420,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "up") return { action: "focus-previous" };
     if (key.name === "return") return { action: "open-selected" };
     if (key.name === "backspace") return { action: "backspace" };
+    // Tab is structural everywhere else on this surface; it is not a character
+    // the column's filter should swallow.
+    if (key.name === "tab") return { action: "none" };
     return textInput(key) ?? { action: "none" };
   }
   if (mode === "SETTINGS" && overlayTyping) {

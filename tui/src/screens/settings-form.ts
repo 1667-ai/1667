@@ -85,12 +85,6 @@ export function settingsFormRows(options: SettingsFormOptions): SettingsFormRow[
   return painted;
 }
 
-/** How many rows the form paints, so the panel can budget for its notices. */
-export function settingsFormHeight(rows: readonly SettingsRowPresentation[]): number {
-  const sections = new Set(rows.map((row) => row.section));
-  return rows.length + sections.size;
-}
-
 /** Which painted row a settings row landed on, for cursor-centred windowing. */
 export function settingsFormRowOffset(
   rows: readonly SettingsRowPresentation[],

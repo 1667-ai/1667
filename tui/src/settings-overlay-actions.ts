@@ -122,7 +122,10 @@ export async function settingsOverlayAction(
     overlay.deleteArmedProfileId = null;
   }
   if (resolved.action === "cancel") {
-    if (overlay.edit !== null) {
+    // Esc peels exactly one layer: the option column is a layer of its own.
+    if (overlay.modelPicker !== null) {
+      overlay.modelPicker = null;
+    } else if (overlay.edit !== null) {
       overlay.edit = null;
       state.toast = settingsDraftChanged(overlay) ? "row edit cancelled · draft kept" : null;
     } else if (overlay.deleteArmedProfileId !== null) {
