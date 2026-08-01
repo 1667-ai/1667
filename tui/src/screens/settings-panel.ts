@@ -26,15 +26,25 @@ import {
   SETTINGS_PENDING_FOOTERS,
   SETTINGS_PENDING_PROFILE_FOOTERS,
   SETTINGS_PROFILE_FOOTERS,
+  SETTINGS_PICKER_FOOTERS,
   SETTINGS_SCALAR_FOOTERS,
   SETTINGS_TEXT_FOOTERS
 } from "./settings-panel-footers.js";
 import { isSettingsScalarRow } from "../settings-scalar.js";
 import {
   settingsFormRowOffset,
-  settingsFormRows
+  settingsFormRows,
+  type SettingsFormRow
 } from "./settings-form.js";
 import {
+  boundedModelPickerCursor,
+  modelPickerRows
+} from "../settings-model-picker.js";
+import { settingsModelChoices } from "../settings-model-discovery.js";
+import { settingsModelDisplayText } from "../settings-profile-controls.js";
+import {
+  truncate,
+  TYPING_CARET,
   visibleWidth,
   type FrameComposition,
   type FrameLine
@@ -61,7 +71,10 @@ export function renderSettingsPanel(
   const contentCapacity = panelContentRows(height);
   const status = settingsStatusLines(overlay);
   const resultLines = settingsResultLines(overlay, horizontal.contentWidth);
-  const painted = settingsFormRows({
+  const picker = overlay.modelPicker === null
+    ? null
+    : modelPickerColumn(overlay, overlay.modelPicker, horizontal.contentWidth);
+  const painted = picker ?? settingsFormRows({
     rows,
     cursor: boundedSettingsCursor(overlay.cursor),
     edit: overlay.edit,
@@ -79,7 +92,13 @@ export function renderSettingsPanel(
     : (() => {
       const window = panelRowWindow(
         painted.map(() => 1),
-        settingsFormRowOffset(rows, boundedSettingsCursor(overlay.cursor)),
+        // The option column has its own cursor, one row below its filter line.
+        picker === null
+          ? settingsFormRowOffset(rows, boundedSettingsCursor(overlay.cursor))
+          : boundedModelPickerCursor(
+            overlay.modelPicker!.cursor,
+            modelPickerRows(overlay, overlay.modelPicker!.query).length
+          ) + 1,
         Math.max(1, contentCapacity - fixedRows)
       );
       return painted.slice(window.start, window.end);
@@ -108,7 +127,9 @@ export function renderSettingsPanel(
   const editing = overlay.edit !== null;
   const selectedRow = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
   const choosing = !editing && settingsRowHasArrows(overlay, selectedRow);
-  const footerVariants = editing
+  const footerVariants = picker !== null
+    ? SETTINGS_PICKER_FOOTERS
+    : editing
     ? SETTINGS_EDIT_FOOTERS
     : pending && selectedRow === "profile"
       ? SETTINGS_PENDING_PROFILE_FOOTERS
@@ -143,6 +164,55 @@ export function renderSettingsPanel(
       footerActions: footer.actions
     }
   );
+}
+
+/** C-15 · option column: more than eight options, each with a description, so
+ *  it owns `↑↓` and replaces the field list rather than sharing a surface with
+ *  it. Typing narrows it live, the way the palette narrows commands. */
+function modelPickerColumn(
+  overlay: NonNullable<OverlayState["settings"]>,
+  picker: NonNullable<NonNullable<OverlayState["settings"]>["modelPicker"]>,
+  contentWidth: number
+): SettingsFormRow[] {
+  const rows = modelPickerRows(overlay, picker.query);
+  const cursor = boundedModelPickerCursor(picker.cursor, rows.length);
+  const nameWidth = Math.min(32, Math.max(8, Math.floor(contentWidth / 2)));
+  const painted: SettingsFormRow[] = [{
+    line: [
+      raisedSegment("  › model: ", "accent · deep"),
+      raisedSegment(picker.query, "streaming"),
+      raisedSegment(TYPING_CARET, "focus / accent"),
+      raisedSegment(`  ${rows.length} of ${settingsModelChoices(overlay).length}`, "chrome")
+    ],
+    target: null,
+    overrides: []
+  }];
+  for (const [index, choice] of rows.entries()) {
+    const selected = index === cursor;
+    painted.push({
+      line: [
+        raisedSegment(selected ? "  ▸ " : "    ", selected ? "focus / accent" : "chrome"),
+        raisedSegment(pad(truncate(settingsModelDisplayText(choice.name), nameWidth), nameWidth),
+          selected ? "prose" : "prose · dim"),
+        raisedSegment(truncate(settingsModelDisplayText(choice.remoteId),
+          Math.max(0, contentWidth - nameWidth - 6)), "chrome")
+      ],
+      target: { kind: "list", index },
+      overrides: []
+    });
+  }
+  if (rows.length === 0) {
+    painted.push({
+      line: [raisedSegment("    no model matches · ↵ uses what you typed", "prose · dim")],
+      target: null,
+      overrides: []
+    });
+  }
+  return painted;
+}
+
+function pad(value: string, width: number): string {
+  return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
 }
 
 /** A notice taller than the panel keeps the rows that fit rather than

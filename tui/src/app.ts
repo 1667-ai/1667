@@ -583,6 +583,7 @@ export async function handleKey(
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
     commandsTags: state.commands?.view === "tags",
+    settingsPicker: state.settings?.modelPicker != null,
     factEditor: state.editor?.kind === "fact",
     mapView: state.map?.view
   });

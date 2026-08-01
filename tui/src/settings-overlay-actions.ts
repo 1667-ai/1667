@@ -19,7 +19,7 @@ import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { readFromClipboard } from "./clipboard.js";
-import { sanitizePastedText, type ResolvedKey } from "./keys.js";
+import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
 import {
@@ -56,7 +56,12 @@ import {
   isolateSettingsProfileModel
 } from "./settings-profile-draft.js";
 import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
-import { settingsTextDraftForDocument } from "./settings-text.js";
+import { settingsTextDraftForDocument, settingsTextDraftWithGeneration } from "./settings-text.js";
+import {
+  boundedModelPickerCursor,
+  modelPickerRequired,
+  modelPickerRows
+} from "./settings-model-picker.js";
 import {
   applySettingsComposeFocus,
   applySettingsTheme,
@@ -144,6 +149,8 @@ export async function settingsOverlayAction(
         state.toast = "legacy settings are read-only";
       }
     }
+  } else if (overlay.modelPicker !== null) {
+    settingsModelPickerAction(resolved, state, overlay);
   } else if (overlay.edit !== null) {
     await settingsInlineEditAction(resolved, state, source, context, overlay);
   } else if (resolved.action === "focus-next") {
@@ -164,7 +171,10 @@ export async function settingsOverlayAction(
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
     } else if (row === "model") {
-      beginSettingsRowEdit(overlay, state.config);
+      // C-15: past eight options the list is a column, not a cycler. Below
+      // that the row keeps opening for a typed identifier.
+      if (modelPickerRequired(overlay)) overlay.modelPicker = { query: "", cursor: 0 };
+      else beginSettingsRowEdit(overlay, state.config);
     } else if (settingsRowCycles(row)) {
       await cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (row === "system-prompt") {
@@ -247,6 +257,51 @@ function manageSettingsProfile(
   overlay.result = null;
   overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
   state.toast = "profile deleted · routes repaired · s saves settings";
+}
+
+/** C-15's own keys. Typing narrows the column live; `↵` takes the focused
+ *  option, or the text itself when nothing matches, so a model the provider
+ *  never listed is still reachable from here. */
+function settingsModelPickerAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  overlay: SettingsOverlayState
+): void {
+  const picker = overlay.modelPicker!;
+  const rows = modelPickerRows(overlay, picker.query);
+  if (resolved.action === "cancel") {
+    overlay.modelPicker = null;
+    return;
+  }
+  if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
+    picker.cursor = boundedModelPickerCursor(
+      picker.cursor + (resolved.action === "focus-next" ? 1 : -1),
+      rows.length
+    );
+    return;
+  }
+  if (resolved.action === "focus-index" && resolved.index !== undefined) {
+    picker.cursor = boundedModelPickerCursor(resolved.index, rows.length);
+    return;
+  }
+  if (resolved.action === "input" || resolved.action === "backspace") {
+    picker.query = applyTextKey(picker.query, resolved) ?? picker.query;
+    picker.cursor = 0;
+    return;
+  }
+  if (resolved.action !== "open-selected") return;
+  const chosen = rows[boundedModelPickerCursor(picker.cursor, rows.length)];
+  const model = chosen?.remoteId ?? picker.query.trim();
+  overlay.modelPicker = null;
+  if (model.length === 0) return;
+  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
+    ...overlay.draft.generation,
+    model,
+    contextWindow: chosen?.contextWindow ?? null
+  });
+  overlay.result = null;
+  disarmSettingsConflict(overlay);
+  state.toast = `model · ${model} · s saves settings`;
 }
 
 async function settingsInlineEditAction(

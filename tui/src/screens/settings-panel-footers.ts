@@ -268,6 +268,29 @@ export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+/** C-15 owns `↑↓` and every letter, so the column advertises only what it
+ *  actually answers. */
+export const SETTINGS_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · type to narrow · ↵ choose · esc back",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ choose", action: "open-selected" },
+      { token: "esc back", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ↵ choose · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ choose", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
 /** A C-08 scalar owns `←→`, `⇧` and `↵`, so its keyline says so rather than
  *  borrowing the cycler's `choose`. */
 export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [

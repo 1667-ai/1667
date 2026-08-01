@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
 import {
   key,
   openSettings,
@@ -138,5 +139,74 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(rendered).toContain("✓ ready");
     // The provider's own sentence keeps its wrapped block, where it has room.
     expect(rendered).toContain("Server is reachable.");
+  });
+});
+
+describe("C-15 · the model option column", () => {
+  /** Nine discovered models: one past the cap C-09 puts on a cycler. */
+  function withDiscoveredModels(
+    state: ReturnType<typeof settingsHarness>["state"],
+    count: number
+  ): void {
+    const overlay = state.settings!;
+    overlay.draft = {
+      ...overlay.draft,
+      generation: { ...overlay.draft.generation, model: "model-01" }
+    };
+    overlay.modelDiscovery = {
+      observedAt: "2026-01-01T00:00:00.000Z",
+      models: Array.from({ length: count }, (_, index) => ({
+        remoteId: `model-${String(index + 1).padStart(2, "0")}`,
+        name: `Model ${String(index + 1).padStart(2, "0")}`,
+        contextWindow: 32_768,
+        maxOutputTokens: null,
+        source: "openai-models" as const
+      }))
+    };
+    overlay.modelDiscoveryIdentity =
+      settingsModelDiscoveryIdentity(overlay.draft.generation);
+  }
+
+  test("a long list opens as a column that owns the arrows", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    withDiscoveredModels(state, 9);
+    await selectRow(press, state, "model");
+
+    // C-09 caps a cycler at eight, so `←→` no longer steps the list.
+    const before = state.settings!.draft.generation.model;
+    await press(key("right"));
+    expect(state.settings!.draft.generation.model).toBe(before);
+
+    await press(key("return"));
+    expect(state.settings!.modelPicker).not.toBe(null);
+    const rendered = screen(state);
+    expect(rendered).toContain("Model 01");
+    expect(rendered).toContain("9 of 9");
+    expect(rendered).toContain("↑↓ move · type to narrow · ↵ choose · esc back");
+
+    await press(key("down"));
+    await press(key("return"));
+    expect(state.settings!.modelPicker).toBe(null);
+    expect(state.settings!.draft.generation.model).toBe("model-02");
+  });
+
+  test("typing narrows the column and an unmatched name is still usable", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    withDiscoveredModels(state, 9);
+    await selectRow(press, state, "model");
+    await press(key("return"));
+
+    for (const character of "07") await press(key(character, { sequence: character }));
+    expect(screen(state)).toContain("1 of 9");
+    await press(key("return"));
+    expect(state.settings!.draft.generation.model).toBe("model-07");
+
+    await press(key("return"));
+    for (const character of "zzz") await press(key(character, { sequence: character }));
+    expect(screen(state)).toContain("no model matches · ↵ uses what you typed");
+    await press(key("return"));
+    expect(state.settings!.draft.generation.model).toBe("zzz");
   });
 });

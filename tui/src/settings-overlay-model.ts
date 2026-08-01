@@ -12,6 +12,7 @@ import {
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
+import { modelPickerRequired } from "./settings-model-picker.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
@@ -100,7 +101,8 @@ export function initialSettingsOverlay(
     modelDiscoveryAbortController: null,
     modelDiscoveryTargetIdentity: null,
     result: null,
-    deleteArmedProfileId: null
+    deleteArmedProfileId: null,
+    modelPicker: null
   };
 }
 
@@ -322,7 +324,9 @@ export function settingsRowHasArrows(
 ): boolean {
   return settingsRowCycles(row)
     || isSettingsScalarRow(row)
-    || row === "model" && settingsModelChoices(overlay).length > 0;
+    // A cycler stops at eight; past that the option column owns the choice.
+    || row === "model" && settingsModelChoices(overlay).length > 0
+      && !modelPickerRequired(overlay);
 }
 
 /** Local-only rows live in the user config; every other row edits a

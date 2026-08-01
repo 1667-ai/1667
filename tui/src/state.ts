@@ -29,6 +29,7 @@ import type {
   StorySelectionSpan
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
+import type { SettingsModelPicker } from "./settings-model-picker.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -180,6 +181,9 @@ export interface SettingsOverlayState {
   result: ModelServerCheckResult | null;
   /** Profile deletion is draft-only, so a second `d` is enough consent. */
   deleteArmedProfileId: string | null;
+  /** C-15 option column, open over the form while a long model list is
+   *  chosen. Null whenever the field list owns the arrows. */
+  modelPicker: SettingsModelPicker | null;
   discardIntent?: Omit<DiscardPendingSettingsCommand, "transportOperationId">;
 }
 export interface SummaryOverlayState {

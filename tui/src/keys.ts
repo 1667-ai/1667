@@ -290,6 +290,8 @@ export interface ResolveOptions {
   overlayTyping?: boolean;
   /** The command palette is showing its tags sub-view. */
   commandsTags?: boolean;
+  /** Settings has its C-15 option column open, which owns `↑↓` and letters. */
+  settingsPicker?: boolean;
   /** The full-screen editor owns a Fact tag slider above its text body. */
   factEditor?: boolean;
   mapView?: MapView;
@@ -306,7 +308,9 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "LIBRARY") return state.library?.prompt != null;
   if (state.mode === "FACTS") return state.facts?.filtering === true;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
-  if (state.mode === "SETTINGS") return state.settings?.edit != null;
+  if (state.mode === "SETTINGS") {
+    return state.settings?.edit != null || state.settings?.modelPicker != null;
+  }
   return false;
 }
 
@@ -322,7 +326,7 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, commandsTags = false, factEditor = false,
-    mapView = "path" } = options;
+    settingsPicker = false, mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
@@ -408,6 +412,15 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     }
     if (key.ctrl && name === "d") return { action: "delete-forward" };
     return composerBackedInput(key);
+  }
+  // C-15 owns `↑↓` and every plain letter while it is open, so it is resolved
+  // ahead of the row editor and ahead of the field list.
+  if (mode === "SETTINGS" && settingsPicker) {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "open-selected" };
+    if (key.name === "backspace") return { action: "backspace" };
+    return textInput(key) ?? { action: "none" };
   }
   if (mode === "SETTINGS" && overlayTyping) {
     const name = key.name.toLowerCase();
