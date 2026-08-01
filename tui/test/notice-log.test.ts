@@ -3,8 +3,9 @@ import type { KeyEvent } from "@opentui/core";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { hitAt } from "../src/hit.js";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { frameText } from "../src/screens/story/frame.js";
+import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 /** `F` pins or unpins the facts rail and always reports what it did, so it is
@@ -87,6 +88,24 @@ describe("C-37 · the session log", () => {
     const rendered = screen(state);
     expect(rendered).toContain("connection lost");
     expect(rendered).toContain("R retries now");
+  });
+
+  test("the keyline's clear glyph runs the same action the key does", async () => {
+    const { state, press } = harness();
+    await press(RAIL);
+    await press(key("!", "!"));
+    const rendered = renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache<ProseStyle>()
+    });
+    Object.assign(state, rendered.derived);
+    const rows = rendered.lines;
+    const row = rows.length - 1;
+    const line = plainLine(rows[row]!);
+    const column = visibleWidth(line.slice(0, line.indexOf("x clears")));
+
+    // The keyline advertises `x`, so the glyph has to run what `x` runs.
+    expect(hitAt(state.hitRows, column, row))
+      .toEqual({ kind: "action", action: "clear-log" });
   });
 });
 
