@@ -53,13 +53,21 @@ export function modelPickerColumn(
       overrides: []
     });
   }
-  if (rows.length === 0) {
-    painted.push({
-      line: [raisedSegment("    no model matches · ↵ uses what you typed", "prose · dim")],
-      target: null,
-      overrides: []
-    });
-  }
+  // The last stop is always the typed identifier, so a name the provider never
+  // listed — or one that merely prefixes a name it did — stays reachable.
+  const typed = picker.query.trim();
+  const selected = cursor === rows.length;
+  painted.push({
+    line: [
+      raisedSegment(selected ? "  ▸ " : "    ", selected ? "focus / accent" : "chrome"),
+      raisedSegment(typed.length === 0
+        ? "type an identifier this provider did not list"
+        : `use “${settingsModelDisplayText(typed)}” as typed`,
+      selected ? "prose" : "prose · dim")
+    ],
+    target: { kind: "list", index: rows.length, selected },
+    overrides: []
+  });
   return { filter, choices: painted };
 }
 

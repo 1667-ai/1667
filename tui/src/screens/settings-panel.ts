@@ -1,4 +1,3 @@
-import { graphemeCells } from "../cell-width.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import {
   boundedSettingsCursor,
@@ -31,6 +30,7 @@ import {
   boundedModelPickerCursor,
   modelPickerRows
 } from "../settings-model-picker.js";
+import { wrapFeedback } from "./feedback-wrap.js";
 import {
   visibleWidth,
   type FrameComposition,
@@ -41,6 +41,10 @@ import {
  * form. The panel is wider than the other overlays because the rail, the field
  * grid and a C-08 track have to fit beside one another. */
 const SETTINGS_PANEL_WIDTH = 96;
+/** Decision 24's cap for a result line. */
+const RESULT_ROW_CAP = 3;
+/** `!` is a page key, so the route out of Settings names both presses. */
+const RESULT_OVERFLOW = "esc then ! for all of it";
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -97,7 +101,18 @@ export function renderSettingsPanel(
       const filter: SettingsFormRow[] = picker === null
         ? []
         : [{ line: picker.filter, target: null, overrides: [] }];
-      return [...filter, ...painted.slice(window.start, window.end)];
+      // A field's note line is part of the field. Extend the window over the
+      // rows that belong to the cursor so a refusal reason cannot fall off it.
+      let end = window.end;
+      const cursorRow = boundedSettingsCursor(overlay.cursor);
+      const belongsToCursor = (row: SettingsFormRow | undefined): boolean => {
+        const target = row?.target;
+        return target !== undefined && target !== null
+          && target.kind === "list" && target.index === cursorRow;
+      };
+      while (end < painted.length && belongsToCursor(painted[end])) end += 1;
+      const start = Math.max(0, window.start + (end - window.end));
+      return [...filter, ...painted.slice(start, end)];
     })();
   const leading = shown.length === 0
     ? shortPanelNotices([resultLines, status.top, status.bottom], contentCapacity)
@@ -201,11 +216,10 @@ function inPlaceActionReport(
  *
  * Each `bottom` variant leads with a blank so the strip stands off the fields.
  */
-/** A probe reports what the provider said, and a provider says whatever it
- * likes. Clipping that to the panel width used to cut the sentence mid-word —
- * often exactly where the reason was — so the notice wraps instead, aligned
- * under its own glyph. Its rows are counted as fixed panel rows, so the fields
- * yield to it rather than the frame overflowing. */
+/** A provider says whatever it likes, and decision 24's cap applies to it like
+ * every other result line: three rows, the body truncating with `…`, and the
+ * last row keeping the way out. The whole message is in the log, which `!`
+ * opens once Settings has been closed. */
 function settingsResultLines(
   overlay: NonNullable<OverlayState["settings"]>,
   contentWidth: number
@@ -223,50 +237,15 @@ function settingsResultLines(
   if (overlay.result === null) return [];
   const ready = overlay.result.state === "ready";
   const role = ready ? "focus / accent" : "danger text";
-  const lead = "  ";
   const glyph = ready ? "✓" : "▲";
+  const lead = "  ";
   // The continuation indent clears the glyph so the wrapped sentence reads as
   // one block rather than as several notices.
   const indent = `${lead}${" ".repeat(visibleWidth(glyph) + 1)}`;
   const budget = Math.max(1, contentWidth - visibleWidth(indent));
-  const words = overlay.result.message.split(/\s+/u).filter((word) => word.length > 0);
-  const rows: string[] = [];
-  let row = "";
-  for (const word of words) {
-    const candidate = row.length === 0 ? word : `${row} ${word}`;
-    if (visibleWidth(candidate) <= budget) {
-      row = candidate;
-      continue;
-    }
-    if (row.length > 0) rows.push(row);
-    // A single token longer than the panel — a URL, a model ID — is broken
-    // across rows rather than dropped.
-    row = word;
-    while (visibleWidth(row) > budget) {
-      // Take exactly the cells this row renders, then continue from the next
-      // one. Ellipsizing here would both mark a break that is not an end and
-      // drop the character it replaced.
-      const taken = cutPoint(row, budget);
-      rows.push(row.slice(0, taken));
-      row = row.slice(taken);
-    }
-  }
-  if (row.length > 0) rows.push(row);
-  return (rows.length === 0 ? [""] : rows).map((text, index) =>
+  const wrapped = wrapFeedback(overlay.result.message, budget, RESULT_ROW_CAP, RESULT_OVERFLOW);
+  return wrapped.rows.map((text, index) =>
     [raisedSegment(`${index === 0 ? `${lead}${glyph} ` : indent}${text}`, role)]);
-}
-
-/** How many characters of an oversized token fit, leaving room for nothing —
- * the row is continued rather than marked, because the rest follows. */
-function cutPoint(value: string, budget: number): number {
-  let used = 0;
-  let index = 0;
-  for (const cell of graphemeCells(value)) {
-    if (used + cell.width > budget) break;
-    used += cell.width;
-    index += cell.text.length;
-  }
-  return Math.max(1, index);
 }
 
 function settingsStatusLines(

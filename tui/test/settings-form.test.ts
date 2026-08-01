@@ -220,11 +220,15 @@ describe("C-15 · the model option column", () => {
     await press(key("return"));
     expect(state.settings!.draft.generation.model).toBe("model-07");
 
+    // The typed identifier is always the last stop, so a name that merely
+    // prefixes a discovered one is still reachable.
     await press(key("return"));
-    for (const character of "zzz") await press(key(character, { sequence: character }));
-    expect(screen(state)).toContain("no model matches · ↵ uses what you typed");
+    for (const character of "model-0") await press(key(character, { sequence: character }));
+    expect(screen(state)).toContain("use “model-0” as typed");
+    // Nine discovered names still match, and the typed one is the stop past them.
+    for (let step = 0; step < 9; step += 1) await press(key("down"));
     await press(key("return"));
-    expect(state.settings!.draft.generation.model).toBe("zzz");
+    expect(state.settings!.draft.generation.model).toBe("model-0");
   });
 });
 

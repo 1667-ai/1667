@@ -746,7 +746,11 @@ describe("hit map clickable chrome", () => {
       let arrows = 0;
       for (const [rowIndex, row] of state.hitRows.entries()) {
         for (const region of row?.overrides ?? []) {
+          // The selector arrows, not every indexed action — the C-03 rail's
+          // jump cells are indexed too and sit on a label, not a glyph.
           if (region.target.kind !== "action" || region.target.index === undefined) continue;
+          if (region.target.action !== "take-previous"
+            && region.target.action !== "take-next") continue;
           arrows += 1;
           const line = [...plainLine(frame[rowIndex]!)];
           // The whole region, not just its first cell, has to be on the glyph.

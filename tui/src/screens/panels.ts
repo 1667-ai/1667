@@ -296,7 +296,9 @@ function renderLibrary(
     // sentence from a filter that matched nothing.
     content.push([raisedSegment(overlay.stories.length === 0
       ? "  no stories yet · n starts one"
-      : "  no story matches · backspace widens the filter", "prose · dim")]);
+      : overlay.prompt?.kind === "filter"
+        ? "  no story matches · backspace widens the filter"
+        : "  no story matches · / reopens the filter", "prose · dim")]);
     targets.push(null);
   }
   const title = `library${folder} · ${totals.stories} stories · ${totals.words.toLocaleString("en-US")} words${panelRange(rows.length, window)}`;

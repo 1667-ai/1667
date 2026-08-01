@@ -79,8 +79,16 @@ export function settingsFormRows(options: SettingsFormOptions): SettingsFormRow[
     if (fields.length === 0) continue;
     painted.push({
       line: sectionRule(section.id, section.label, cursorSection, options.contentWidth, rail),
+      // The rail jumps — it is not a second focus ring — so its cell lands the
+      // cursor on this section's first field and nothing else.
       target: null,
-      overrides: []
+      overrides: rail
+        ? [{
+          target: { kind: "action", action: "focus-index", index: fields[0]!.index },
+          left: 0,
+          right: RAIL_WIDTH
+        }]
+        : []
     });
     for (const { row, index } of fields) {
       painted.push(fieldRow(row, index, options, rail));

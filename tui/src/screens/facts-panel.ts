@@ -131,7 +131,8 @@ export function renderFactsPanel(
     // C-27: an empty state names the key that fixes it. An unfiltered store
     // with nothing in it is a different sentence from a filter that matched
     // nothing, and `no matching facts` used to be printed for both.
-    content.push([raisedSegment(`  ${factsEmptyState(overlay.query, state.payload.facts.length)}`,
+    content.push([raisedSegment(
+      `  ${factsEmptyState(overlay.query, overlay.filtering, state.payload.facts.length)}`,
       "prose · dim")]);
     targets.push(null);
   }
@@ -183,9 +184,15 @@ function filterLine(value: string, width: number, count: string): FrameLine {
   ];
 }
 
-function factsEmptyState(query: string, total: number): string {
+function factsEmptyState(query: string, filtering: boolean, total: number): string {
   if (total === 0) return "no facts yet · n writes one";
-  if (query.length > 0) return "no fact matches · backspace widens the filter";
+  // A committed filter still narrows the list, but the editor that backspace
+  // belongs to is closed — `/` is what reopens it.
+  if (query.length > 0) {
+    return filtering
+      ? "no fact matches · backspace widens the filter"
+      : "no fact matches · / reopens the filter";
+  }
   return "no facts under this tag · tab picks another";
 }
 
