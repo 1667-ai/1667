@@ -21,6 +21,7 @@ import type {
   RetakePromptSession,
   RuntimeState,
   CardImportPrompt,
+  ArchiveImportPrompt,
   SettingsInlineEditState,
   SettingsRowId
 } from "./state.js";
@@ -55,7 +56,7 @@ export type KeyAction =
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST" | "CARD";
+  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -199,6 +200,7 @@ export function pasteInto(
       conflict: { armed: boolean } | null;
     } | null;
     card: CardImportPrompt | null;
+    archive: ArchiveImportPrompt | null;
     prune: unknown | null;
     chapterDeleteArmedId: string | null;
     actions: unknown | null;
@@ -237,6 +239,12 @@ export function pasteInto(
     state.card.path += line;
     state.card.error = null;
     state.card.candidates = [];
+    return true;
+  }
+  if (state.mode === "ARCHIVE" && state.archive !== null) {
+    state.archive.path += line;
+    state.archive.error = null;
+    state.archive.candidates = [];
     return true;
   }
   if (state.mode === "LIBRARY" && state.library?.prompt != null) {
@@ -301,7 +309,7 @@ export interface ResolveOptions {
 
 type OverlayTextInputState = Pick<
   RuntimeState,
-  "mode" | "library" | "facts" | "card" | "chapters" | "settings"
+  "mode" | "library" | "facts" | "card" | "archive" | "chapters" | "settings"
 >;
 
 /** One ownership check shared by key routing and chrome that advertises
@@ -310,6 +318,7 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "LIBRARY") return state.library?.prompt != null;
   if (state.mode === "FACTS") return state.facts?.filtering === true;
   if (state.mode === "CARD") return state.card != null;
+  if (state.mode === "ARCHIVE") return state.archive != null;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
   if (state.mode === "SETTINGS") return state.settings?.edit != null;
   return false;
@@ -322,7 +331,7 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
     || options.overlayTyping === true
     || mode === "COMMANDS" && options.commandsTags !== true
     || mode === "TAG" && options.tagChoosingStatus !== true
-    || mode === "CARD";
+    || mode === "CARD" || mode === "ARCHIVE";
 }
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
@@ -475,7 +484,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "n") return { action: "new-item" };
     return { action: "none" };
   }
-  if (mode === "CARD") {
+  if (mode === "CARD" || mode === "ARCHIVE") {
     if (key.name === "return") return { action: "apply" };
     if (key.name === "tab") return { action: "complete" };
     if (key.name === "backspace") return { action: "backspace" };

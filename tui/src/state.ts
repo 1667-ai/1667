@@ -85,6 +85,16 @@ export interface CardImportPrompt {
   returnMode: "NAV" | "COMPOSE";
 }
 
+export interface ArchiveImportPrompt {
+  path: string;
+  /** Frozen at prompt-open so a file read cannot retarget a Lorebook import. */
+  storyId: string;
+  /** Candidates from the last tab press; display only, never a focus stop. */
+  candidates: string[];
+  error: string | null;
+  returnMode: "NAV" | "COMPOSE";
+}
+
 export type TextPrompt =
   | {
       kind: "filter";
@@ -281,6 +291,7 @@ export interface OverlayState {
   facts: FactsOverlayState | null;
   commands: CommandsOverlayState | null;
   card: CardImportPrompt | null;
+  archive: ArchiveImportPrompt | null;
   chapters: ChaptersOverlayState | null;
   settings: SettingsOverlayState | null;
   summary: SummaryOverlayState | null;

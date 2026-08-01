@@ -141,6 +141,10 @@ generation settings and retry history are not imported.
 `1667 import-card` adds Facts to a story that exists. `1667 import-lorebook`
 also adds Facts to a story that exists.
 
+Select `import archive` in the command palette to import an Archive in the TUI.
+A `.lorebook` file adds Facts to the open story. A `.scenario` file or a
+`.story` file creates a new story.
+
 Use this command to import a Container or a Scenario:
 
 ```sh

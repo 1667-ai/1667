@@ -699,6 +699,7 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     facts: null,
     commands: null,
     card: null,
+    archive: null,
     chapters: null,
     settings: null,
     summary: null,
