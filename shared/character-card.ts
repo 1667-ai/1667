@@ -4,6 +4,11 @@ import {
   MAX_IMPORT_BYTES,
   type FactInput
 } from "./types.js";
+import {
+  hasPngSignature,
+  hasPngTextKeyword,
+  readPngTextChunk
+} from "./png-text-chunk.js";
 
 export const MAX_CHARACTER_CARD_JSON_BYTES = 1_000_000;
 export const MAX_CHARACTER_CARD_NAME_CHARS = 200;
@@ -91,49 +96,14 @@ export function factImportRequestBytes(facts: readonly FactInput[]): number {
 }
 
 function parsePngCard(bytes: Uint8Array): CharacterCardCore {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let offset = PNG_SIGNATURE.length;
-  let payload: string | null = null;
-  let sawCcv3 = false;
-  let sawEnd = false;
-  while (offset < bytes.byteLength) {
-    if (bytes.byteLength - offset < 12) throw new Error("Character card PNG has a truncated chunk.");
-    const length = view.getUint32(offset, false);
-    const dataStart = offset + 8;
-    const dataEnd = dataStart + length;
-    const chunkEnd = dataEnd + 4;
-    if (dataEnd < dataStart || chunkEnd > bytes.byteLength) {
-      throw new Error("Character card PNG has an invalid chunk length.");
+  const jsonText = readPngTextChunk(bytes, "chara");
+  if (jsonText === null) {
+    if (hasPngTextKeyword(bytes, "ccv3")) {
+      throw new Error("Character Card V3 PNGs are not supported yet; export a V2 PNG or JSON card.");
     }
-    const type = ascii(bytes, offset + 4, offset + 8);
-    if (type === "tEXt") {
-      const separator = findByte(bytes, 0, dataStart, dataEnd);
-      if (separator !== -1) {
-        if (equalsAscii(bytes, dataStart, separator, "chara")) {
-          if (payload !== null) throw new Error("Character card PNG contains duplicate chara metadata.");
-          payload = ascii(bytes, separator + 1, dataEnd);
-        } else if (equalsAscii(bytes, dataStart, separator, "ccv3")) {
-          sawCcv3 = true;
-        }
-      }
-    } else if (type === "zTXt" || type === "iTXt") {
-      const separator = findByte(bytes, 0, dataStart, dataEnd);
-      if (separator !== -1 && equalsAscii(bytes, dataStart, separator, "chara")) {
-        throw new Error("Compressed character-card PNG metadata is not supported; export a V2 PNG or JSON card.");
-      }
-    } else if (type === "IEND") {
-      if (length !== 0) throw new Error("Character card PNG has an invalid IEND chunk.");
-      sawEnd = true;
-      break;
-    }
-    offset = chunkEnd;
-  }
-  if (!sawEnd) throw new Error("Character card PNG is missing its IEND chunk.");
-  if (payload === null) {
-    if (sawCcv3) throw new Error("Character Card V3 PNGs are not supported yet; export a V2 PNG or JSON card.");
     throw new Error("No character data found. This may be an ordinary image or its card metadata was stripped.");
   }
-  return parseJsonCard(decodeBase64(payload));
+  return parseJsonCardText(jsonText);
 }
 
 function parseJsonCard(bytes: Uint8Array): CharacterCardCore {
@@ -146,6 +116,10 @@ function parseJsonCard(bytes: Uint8Array): CharacterCardCore {
   } catch {
     throw new Error("Character card data is not valid UTF-8.");
   }
+  return parseJsonCardText(text);
+}
+
+function parseJsonCardText(text: string): CharacterCardCore {
   let value: unknown;
   try {
     value = JSON.parse(text.replace(/^\uFEFF/, ""));
@@ -154,6 +128,7 @@ function parseJsonCard(bytes: Uint8Array): CharacterCardCore {
   }
   return normalizeCard(value);
 }
+
 
 function normalizeCard(value: unknown): CharacterCardCore {
   if (!isRecord(value)) throw new Error("Character card JSON must be an object.");
@@ -278,11 +253,8 @@ function decodeBase64(source: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
-function hasPngSignature(bytes: Uint8Array): boolean {
-  return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
-}
-
 function rejectUnsupportedContainer(bytes: Uint8Array): void {
+
   if (equalsAscii(bytes, 0, 4, "RIFF") && equalsAscii(bytes, 8, 12, "WEBP")) {
     throw new Error("Character card WebP files are not supported yet; export a V2 PNG or JSON card.");
   }

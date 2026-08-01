@@ -3,11 +3,13 @@ import type { HttpAuthRecord } from "../shared/http-auth.js";
 import { resolveHttpApiRoute } from "../shared/http-operation-policy.js";
 import { ServiceError } from "./errors.js";
 import {
+  readBufferBody,
   readJsonBody,
   readTextBody,
   sendJson,
   waitForResponseSettlement
 } from "./http.js";
+
 import { MAX_IMPORT_BYTES } from "./import-model.js";
 import {
   decodeMarkdownHttpBody,
@@ -601,6 +603,18 @@ async function handleApi(
       }));
     }
   }
+  if (head === "stories" && id !== undefined && sub === "import-lorebook" && method === "POST") {
+    const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);
+    return sendJson(
+      response,
+      200,
+      await mutate("importLorebook", {
+        storyId: id,
+        archiveBytes: rawBuffer
+      })
+    );
+  }
+
   if (head === "stories" && id !== undefined && sub === "autoname" && method === "POST") {
     const expectedTitle = requireStringValue(
       (await jsonBody()).expectedTitle,

@@ -337,6 +337,16 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyContainerJson },
       { expectedAggregateVersion: { kind: "absent" } }
     )),
+    importLorebook: async (storyId, archiveBytes) => {
+      const result = await transport.call(
+        "importLorebook",
+        { storyId, archiveBytes },
+        { expectedAggregateVersion: await expectedVersion(storyId) }
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
+
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(

@@ -35,7 +35,9 @@ interface MutationEntityNamespaces {
   importSillyTavern: "story" | "import-node";
   importMarkdown: "story" | "import-node" | "chapter-break";
   importNovelAI: "story" | "import-node";
+  importLorebook: never;
   continueStory: never;
+
   rewriteNode: "rewrite";
   createSummaryTake: "summary-node" | "summary-cut";
 }

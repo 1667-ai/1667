@@ -48,6 +48,10 @@ import {
 import { partsFromSillyTavernJsonl } from "./import-st.js";
 import { partsFromMarkdown } from "./import-md.js";
 import { partsFromNovelAiStory } from "./import-nai.js";
+
+import { factsFromLorebook, parseLorebookArchive, type LorebookImport } from "../shared/novelai-lorebook.js";
+import { MAX_FACTS } from "../shared/types.js";
+
 import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
@@ -682,6 +686,29 @@ export class StoryService extends StoryServiceRuntime {
       )
     };
   }
+
+  async importLorebook(
+    storyId: string,
+    archiveBytes: Uint8Array,
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload; importResult: LorebookImport }> {
+    this.ensureOpen();
+    if (archiveBytes.byteLength > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    const lorebook = parseLorebookArchive(archiveBytes);
+    const story = await this.stories.load(storyId);
+    const room = MAX_FACTS - story.facts.length;
+    const importResult = factsFromLorebook(lorebook, room);
+    const payload = await this.createFact(
+      storyId,
+      { facts: [...importResult.facts] },
+      undefined,
+      mutationRequest
+    );
+    return { payload, importResult };
+  }
+
 
   async continueStory(
     id: string,

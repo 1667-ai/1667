@@ -20,7 +20,21 @@ export function validateWorkerRequestSize(
   protocolVersion?: number
 ): void {
   const input = requireRecord(value, `${method} input`);
-  if (method === "importSillyTavern" || method === "importMarkdown" || method === "importNovelAI") {
+  if (method === "importSillyTavern" || method === "importMarkdown" || method === "importNovelAI" || method === "importLorebook") {
+    if (method === "importLorebook") {
+      const bytes = input.archiveBytes;
+      const byteLength = bytes instanceof Uint8Array
+        ? bytes.byteLength
+        : typeof bytes === "string"
+          ? Buffer.byteLength(bytes)
+          : bytes !== null && typeof bytes === "object"
+            ? Object.keys(bytes).length
+            : 0;
+      if (byteLength > MAX_IMPORT_BYTES) {
+        throw new ServiceError(413, "Request body too large");
+      }
+      return;
+    }
     const text = method === "importSillyTavern"
       ? input.jsonl
       : method === "importMarkdown"
@@ -48,6 +62,7 @@ export function validateWorkerRequestSize(
     }
     return;
   }
+
   const body = logicalRequestBody(method, input, protocolVersion);
   if (body === undefined) return;
   const size = messageByteLength(body);
@@ -139,7 +154,9 @@ function logicalRequestBody(
     case "importSillyTavern":
     case "importMarkdown":
     case "importNovelAI":
+    case "importLorebook":
       return undefined;
+
   }
 }
 

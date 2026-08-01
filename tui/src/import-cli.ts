@@ -30,7 +30,13 @@ export function parseImportCommand(argv: readonly string[]): ImportCommand {
   if (files.length === 0) {
     throw new Error("import requires at least one file argument");
   }
+  for (const file of files) {
+    if (file.toLowerCase().endsWith(".lorebook")) {
+      throw new Error("1667 import creates stories, not Lorebooks (.lorebook); use 1667 import-lorebook");
+    }
+  }
   return { files, data, global };
+
 }
 
 

@@ -625,6 +625,31 @@ const MUTATIONS: MutationRegistry = {
       }, context.storyMutationRequest)).payload;
     }
   }),
+  importLorebook: define<"importLorebook">({
+    parse: (value) => {
+      const input = requireRecord(value, "importLorebook input");
+      const storyId = requireString(input.storyId, "storyId");
+      let archiveBytes: Uint8Array;
+      if (input.archiveBytes instanceof Uint8Array) {
+        archiveBytes = input.archiveBytes;
+      } else if (input.archiveBytes !== null && typeof input.archiveBytes === "object") {
+        const vals = Object.values(input.archiveBytes) as number[];
+        archiveBytes = Uint8Array.from(vals);
+      } else {
+        throw badInput("archiveBytes must be a Uint8Array");
+      }
+      return { storyId, archiveBytes };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, _plan, context) => {
+      return await service.importLorebook(
+        input.storyId,
+        input.archiveBytes,
+        context.storyMutationRequest
+      );
+    }
+  }),
+
   continueStory: define<"continueStory">({
     parse: (value) => {
       const input = requireRecord(value, "continueStory input");

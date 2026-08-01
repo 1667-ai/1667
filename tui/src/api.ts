@@ -17,6 +17,8 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
+import type { LorebookImport } from "../../shared/novelai-lorebook.js";
+
 import type {
   TagStatus,
   TagRequest,
@@ -152,6 +154,8 @@ export interface StoryApi {
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   importNovelAI(storyContainerJson: string): Promise<StoryPayload>;
+  importLorebook(storyId: string, archiveBytes: Uint8Array): Promise<{ payload: StoryPayload; importResult: LorebookImport }>;
+
   continueStory(
     storyId: string,
     instruction: string,
@@ -824,6 +828,26 @@ export function createApi(
         "application/json; charset=utf-8",
         storyContainerJson
     ),
+    importLorebook: async (storyId, archiveBytes) => {
+      const response = await request(
+        "POST",
+        `/api/stories/${storyId}/import-lorebook`,
+        (res) => {
+          const record = res as any;
+          return {
+            payload: decodeStoryResponse(record.payload),
+            importResult: record.importResult as LorebookImport
+          };
+        },
+        archiveBytes,
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(storyId)
+      );
+
+      versions.rememberPayload(response.payload);
+      return response;
+    },
+
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(
         storyId,

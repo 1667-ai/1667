@@ -1,2 +1,2 @@
 /** SHA-256 of the exact canonical Draft 2020-12 mutation ledger schema artifact. */
-export const MUTATION_LEDGER_SCHEMA_SHA256 = "4d037e189a5bc03fb5f6b3a254479e3adb6218aa891028ac2ad4bf4e525a426c" as const;
+export const MUTATION_LEDGER_SCHEMA_SHA256 = "ac1b62f3f6cd57e926dc764119f29a3effd4840e56e80d6b0adf8757139a8348" as const;

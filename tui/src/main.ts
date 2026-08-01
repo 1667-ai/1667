@@ -28,7 +28,9 @@ import { attachHttpServer } from "./http-attach.js";
 import { runStoryExport } from "./export-cli.js";
 import { runStoryImport } from "./import-cli.js";
 import { runCardImport } from "./card-import-cli.js";
+import { runLorebookImport } from "./lorebook-import-cli.js";
 import { runHttpCommand } from "./http-commands.js";
+
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
   createCompatibleHttpFailureEnvelope
@@ -80,7 +82,9 @@ Usage: 1667 [options]
        1667 export [--story <id>|--all] [--format story|scenario|lorebook] [--force] [--data <path>|--global]
        1667 import [--data <path>|--global] <file...>
        1667 import-card --story <id-or-title> [--data <path>|--global] <file...>
+       1667 import-lorebook --story <id-or-title> [--data <path>|--global] <file...>
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
+
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
        1667 serve --legacy-v1 --data <path> [--print-logs] (Linux only)
        1667 upgrade [options]
@@ -159,6 +163,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await runCardImport(argv.slice(1));
     return;
   }
+  if (argv[0] === "import-lorebook") {
+    await runLorebookImport(argv.slice(1));
+    return;
+  }
+
   const parsed = parseArguments(argv);
   if (parsed === null) return;
   if (parsed.diagnostic) {

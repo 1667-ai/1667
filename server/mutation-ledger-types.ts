@@ -42,10 +42,12 @@ export const STORY_MUTATION_METHODS = [
   "importSillyTavern",
   "importMarkdown",
   "importNovelAI",
+  "importLorebook",
   "continueStory",
   "rewriteNode",
   "createSummaryTake",
   "acknowledgeUnknownOutcomes"
+
 ] as const;
 
 export const SETTINGS_MUTATION_METHODS = ["saveSettings", "discardPendingSettings"] as const;
