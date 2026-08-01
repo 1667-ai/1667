@@ -312,6 +312,38 @@ test("partsFromNovelAiStory enforces strict base64 validation rules", () => {
   );
 });
 
+test("partsFromNovelAiStory rejects large binary section maps before enumeration", () => {
+  const binaryMap = Buffer.alloc(1_000_000);
+  const asRecord = binaryMap as unknown as Record<string, unknown>;
+  const documents = [
+    {
+      document: makeSyntheticNovelAiV2Base64(asRecord, []),
+      message: "Malformed sections map"
+    },
+    {
+      document: makeSyntheticNovelAiV2Base64(
+        new Map([[1, { type: 1, text: "Prose." }]]),
+        [1],
+        asRecord
+      ),
+      message: "Malformed dirty sections map"
+    }
+  ];
+
+  for (const { document, message } of documents) {
+    assert.throws(
+      () => partsFromNovelAiStory(JSON.stringify({
+        storyContainerVersion: 1,
+        metadata: { title: "Binary map" },
+        content: { document }
+      })),
+      (error: unknown) => error instanceof ServiceError
+        && error.status === 400
+        && error.message === message
+    );
+  }
+});
+
 test("partsFromNovelAiStory rejects missing references and malformed diffs", () => {
   const container = (docBase64: string) =>
     JSON.stringify({

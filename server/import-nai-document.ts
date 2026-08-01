@@ -65,12 +65,12 @@ export function partsFromNovelAiDocument(base64: string): ImportedPart[] {
   } catch {
     throw new ServiceError(400, "Malformed MessagePack document");
   }
-  if (!isRecord(decoded) || !Array.isArray(decoded.order)) {
+  if (!isPlainRecord(decoded) || !Array.isArray(decoded.order)) {
     throw new ServiceError(400, "Document missing sections or order");
   }
 
   const document = decoded as DecodedDocument;
-  if (!(document.sections instanceof Map) && !isRecord(document.sections)) {
+  if (!(document.sections instanceof Map) && !isPlainRecord(document.sections)) {
     throw new ServiceError(400, "Malformed sections map");
   }
   const sections = readSections(document.sections);
@@ -80,7 +80,7 @@ export function partsFromNovelAiDocument(base64: string): ImportedPart[] {
   }
   if (document.dirtySections !== undefined
     && !(document.dirtySections instanceof Map)
-    && !isRecord(document.dirtySections)) {
+    && !isPlainRecord(document.dirtySections)) {
     throw new ServiceError(400, "Malformed dirty sections map");
   }
   if (document.dirtySections !== undefined) {
@@ -166,7 +166,7 @@ function applyDirtySections(
   const orderedIds = new Set(order);
   for (const [rawId, rawStep] of boundedEntries(raw, "dirty sections")) {
     const id = sectionId(rawId, "dirty sections map");
-    if (!isRecord(rawStep)) {
+    if (!isPlainRecord(rawStep)) {
       throw new ServiceError(400, "Corrupt dirty section step");
     }
     switch (rawStep.type) {
@@ -273,11 +273,11 @@ function applyUpdate(
   if (existing === undefined || !orderedIds.has(id)) {
     throw new ServiceError(400, "Cannot update an absent section");
   }
-  if (!isRecord(step.diff)) {
+  if (!isPlainRecord(step.diff)) {
     throw new ServiceError(400, "Corrupt section diff");
   }
   const diff = Object.hasOwn(step.diff, "diff") ? step.diff.diff : step.diff;
-  if (!isRecord(diff)) {
+  if (!isPlainRecord(diff)) {
     throw new ServiceError(400, "Corrupt section diff");
   }
   if (Object.hasOwn(diff, "to")) {
@@ -318,7 +318,7 @@ function applyTextDiff(text: string, rawParts: unknown[]): string {
   let sourceCursor = 0;
   let projectedLength = text.length;
   for (const rawPart of rawParts) {
-    if (!isRecord(rawPart)
+    if (!isPlainRecord(rawPart)
       || !Number.isSafeInteger(rawPart.from)
       || (rawPart.from as number) < 0
       || typeof rawPart.delete !== "string"
@@ -386,7 +386,7 @@ function importedParts(
 }
 
 function readSection(value: unknown): NovelAiSection {
-  if (!isRecord(value)
+  if (!isPlainRecord(value)
     || !Number.isInteger(value.type)
     || (value.type !== 0 && value.type !== 1 && value.type !== 2)) {
     throw new ServiceError(400, "Malformed or unsupported document section");
@@ -404,20 +404,25 @@ function readSection(value: unknown): NovelAiSection {
   }
 }
 
-function boundedEntries(
+function* boundedEntries(
   value: Map<unknown, unknown> | Record<string, unknown>,
   label: string
-): [unknown, unknown][] {
+): Generator<[unknown, unknown]> {
   if (value instanceof Map) {
     assertRecordCount(value.size, label);
-    return [...value.entries()];
+    yield* value.entries();
+    return;
   }
-  if (!isRecord(value)) {
+  if (!isPlainRecord(value)) {
     throw new ServiceError(400, `Malformed ${label} map`);
   }
-  const entries = Object.entries(value);
-  assertRecordCount(entries.length, label);
-  return entries;
+  let count = 0;
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue;
+    count += 1;
+    assertRecordCount(count, label);
+    yield [key, value[key]];
+  }
 }
 
 function assertRecordCount(count: number, label: string): void {
@@ -442,8 +447,10 @@ function isSectionId(value: unknown): value is SectionId {
     : typeof value === "string" && value.length > 0 && value.length <= 256;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function importTextTooLarge(): ServiceError {
