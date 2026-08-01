@@ -76,7 +76,7 @@ current directory the way git finds .git.
 
 Usage: 1667 [options]
        1667 init [--adopt [--from <legacy-data-dir>]]
-       1667 export [--story <id>] [--force] [--data <path>|--global]
+       1667 export [--story <id>|--all] [--format story|scenario|lorebook] [--force] [--data <path>|--global]
        1667 import [--data <path>|--global] <file...>
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
@@ -84,12 +84,16 @@ Usage: 1667 [options]
        1667 upgrade [options]
 
 Export:
-  Writes one story's selected line — the take chosen at each part, as you
-  last left it — to the project root as markdown. Prose only: chapters
-  become '##' headings; directions and unchosen takes stay behind. No option
-  picks the line, so choose it in the app first.
-  Defaults to the most recently updated story. Never clobbers an existing
-  file (story.md, story-2.md, …) unless --force.
+  Writes Markdown by default. It contains one story's selected line — the
+  take chosen at each part, as you last left it. Prose only: chapters become
+  '##' headings; directions and unchosen takes stay behind. No option picks
+  the line, so choose it in the app first.
+  Use --format for a NovelAI archive: story, scenario, or lorebook. The
+  command reports archive fidelity limits on standard error. Use --all to
+  write every story. It writes newest stories first and adds numeric suffixes
+  for equal file names. Otherwise it defaults to the most recently updated
+  story. It never clobbers an existing file (story.md, story-2.md, …) unless
+  you use --force.
 
 Import:
   Imports a Markdown file or a SillyTavern chat file (.jsonl) as a new story,
@@ -105,6 +109,8 @@ Import:
 Options:
   --story <id>       Open a story, or name the one to export; both default
                      to the most recently updated
+  --all              Export every story in the project
+  --format <format>  Export a NovelAI story, scenario, or lorebook archive
   --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
   --auth-file <path> Use the canonical private auth record for --url
   --embedded         Use the embedded backend (default)
