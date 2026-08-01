@@ -16,9 +16,11 @@ describe("shared panel horizontal geometry", () => {
       contentInset: 2,
       contentLeft: 24,
       contentWidth: 72,
-      footerInset: 2,
-      footerLeft: 24,
-      footerWidth: 72,
+      // C-01 puts the keys in the bottom rule, so the footer is measured
+      // against that rule and matches the title's measures, not the body's.
+      footerInset: 3,
+      footerLeft: 25,
+      footerWidth: 70,
       titleOverhead: 6,
       titleWidth: 70
     });
@@ -27,7 +29,7 @@ describe("shared panel horizontal geometry", () => {
       right: 76,
       panelWidth: 72,
       contentWidth: 68,
-      footerWidth: 68,
+      footerWidth: 66,
       titleWidth: 66
     });
     expect(panelHorizontalGeometry(24, 76)).toMatchObject({
@@ -35,7 +37,7 @@ describe("shared panel horizontal geometry", () => {
       right: 22,
       panelWidth: 20,
       contentWidth: 16,
-      footerWidth: 16,
+      footerWidth: 14,
       titleWidth: 14
     });
   });
@@ -83,7 +85,8 @@ describe("shared panel horizontal geometry", () => {
     expect(bodyLine).toBe(`┃ ${body} ┃`);
     const bottomLine = plainLine(rendered.lines[rendered.selectable!.bottom - 1]!)
       .slice(horizontal.left, horizontal.right);
-    expect(bottomLine).toBe(`┗${"━".repeat(horizontal.panelWidth - 2)}┛`);
+    // The keys ride the closing rule the way the title rides the opening one.
+    expect(bottomLine).toBe(`┗━ ${footer} ━┛`);
     expect(visibleWidth(titleLine)).toBe(horizontal.panelWidth);
     expect(visibleWidth(bodyLine)).toBe(horizontal.panelWidth);
     expect(hitAt(hits, horizontal.contentLeft, top + 2))

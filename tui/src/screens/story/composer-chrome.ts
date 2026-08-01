@@ -1,11 +1,10 @@
 import type { KeyAction } from "../../keys.js";
-import { wrapText } from "../../wrap.js";
+import { wrapFeedback } from "../feedback-wrap.js";
 import {
   fitLine,
   hintItem,
   joinHints,
   segment,
-  truncate,
   visibleWidth,
   type FrameLine,
   type FrameSegment,
@@ -13,8 +12,12 @@ import {
   type DisplayRole
 } from "./frame.js";
 
-/** How much of the composer a notice may take before the draft loses room. */
+/** How much of the composer a notice may take before the draft loses room.
+ *  Decision 24's cap for a result line. */
 const MAX_NOTICE_ROWS = 3;
+/** `!` is a character in COMPOSE, so the route to the log names the two keys
+ *  it actually takes from here. */
+const NOTICE_OVERFLOW = "esc then ! for all of it";
 
 export interface ComposerStatus {
   text: string;
@@ -59,17 +62,14 @@ export function renderComposerFooter(
   const lead = segment("┗━ ", "compose accent");
   const budget = Math.max(0, width - visibleWidth("┗━ "));
   if (notice !== null) {
-    const wrapped = wrapText(notice, [], Math.max(1, budget));
     // A notice is the composer's footer, not a second panel. Provider errors
     // arrive at whatever length a provider chose, and an unbounded wrap pushes
-    // the draft itself down to a single row. Keep the last row readable rather
-    // than dropping the rows that would not fit without a mark.
-    const rows = wrapped.slice(0, MAX_NOTICE_ROWS).map((line, index) =>
-      index === MAX_NOTICE_ROWS - 1 && wrapped.length > MAX_NOTICE_ROWS
-        ? truncate(`${line.text} …`, Math.max(1, budget))
-        : line.text
-    );
-    return rows.map((text, index) =>
+    // the draft itself down to a single row. Decision 24's cap applies, and
+    // past it the body truncates while the last row keeps the way out — here
+    // that is the log, which COMPOSE reaches after `esc` because `!` is a
+    // character the writer may be typing.
+    const wrapped = wrapFeedback(notice, Math.max(1, budget), MAX_NOTICE_ROWS, NOTICE_OVERFLOW);
+    return wrapped.rows.map((text, index) =>
       composerFieldLine(
         indent,
         width,

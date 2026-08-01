@@ -6,6 +6,7 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { ConnectionState } from "./connection.js";
+import type { NoticeLog } from "./notice-log.js";
 import type { HitRows } from "./hit.js";
 import type { UserConfig } from "./config.js";
 import type { ReadingPositions } from "./reading-position.js";
@@ -29,6 +30,7 @@ import type {
   StorySelectionSpan
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
+import type { SettingsModelPicker } from "./settings-model-picker.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -211,8 +213,14 @@ export interface SettingsOverlayState {
   modelDiscoveryAbortController: AbortController | null;
   modelDiscoveryTargetIdentity: string | null;
   result: ModelServerCheckResult | null;
+  /** Which row's action produced `result`. C-18 reports in place, to the right
+   *  of what caused it — three different rows write this one slot. */
+  resultRow: SettingsRowId | null;
   /** Profile deletion is draft-only, so a second `d` is enough consent. */
   deleteArmedProfileId: string | null;
+  /** C-15 option column, open over the form while a long model list is
+   *  chosen. Null whenever the field list owns the arrows. */
+  modelPicker: SettingsModelPicker | null;
   discardIntent?: Omit<DiscardPendingSettingsCommand, "transportOperationId">;
 }
 export interface SummaryOverlayState {
@@ -325,6 +333,9 @@ export interface StoryScreenState extends OverlayState {
   /** Read-only projection of the next provider request. */
   request: RequestViewerState | null;
   toast: string | null;
+  /** C-37: every notice the session has shown, so a capped channel never
+   *  loses a message for good. `!` opens it. */
+  notices: NoticeLog;
   stream: StreamView | null;
   /** The cancellable operation whose backend owner is still settling. */
   abort:

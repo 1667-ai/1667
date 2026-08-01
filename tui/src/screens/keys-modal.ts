@@ -178,6 +178,12 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navOpenRequest"),
         binding("composeOpenRequest")
       ]),
+      entry("everything the app said", [
+        binding("navOpenLog"),
+        binding("navOpenLogShifted"),
+        binding("mapOpenLog"),
+        binding("mapOpenLogShifted")
+      ]),
       entry("this key reference", [
         binding("navOpenKeysQuestion"),
         binding("navOpenKeysShiftSlash")
@@ -186,6 +192,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navClose"),
         binding("mapClose"),
         binding("keysClose"),
+        binding("logClose"),
         binding("searchClose"),
         binding("cardClose")
       ]),
@@ -210,10 +217,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapTreeFollow"),
         binding("mapMassFollow")
       ]),
-      entry("tree→mass · mass sorts", [
-        binding("mapTreeSort"),
-        binding("mapMassSort")
-      ]),
+      entry("sort the mass view", [binding("mapMassSort")]),
       entry("prune · tag · path", [
         binding("mapPathPrune"),
         binding("mapPathTag")

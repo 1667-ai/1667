@@ -296,7 +296,9 @@ describe("Generation Profile settings", () => {
     state.settings!.draft = settingsTextDraftForDocument(unsupported);
     await selectRow(press, state, "effort");
     expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
-      .toContain("‹ high › · unavailable");
+      .toContain("‹ high ›");
+    expect(frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines))
+      .toContain("not on this model");
     await press(key("left"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
 

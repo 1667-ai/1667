@@ -69,23 +69,25 @@ describe("Sampling Settings review regressions", () => {
     });
     Object.assign(state, rendered.derived);
 
-    expect(frameText(rendered.lines)).toContain("utility route");
+    expect(frameText(rendered.lines)).toContain("utility");
     expect(rendered.lines).toHaveLength(height);
     expect(state.hitRows).toHaveLength(height);
     const selectable = rendered.selectable;
     if (selectable === null) throw new Error("Settings panel is not selectable");
-    expect(selectable).toMatchObject({ top: 3, bottom: 28 });
 
     const listHits = state.hitRows.flatMap((row, y) => row === null
       ? []
       : [row, ...(row.overrides ?? [])].flatMap((region) =>
           region.target.kind === "list" ? [{ y, index: region.target.index }] : []
         ));
-    expect(listHits).toHaveLength(SETTINGS_ROW_IDS.length);
-    expect(listHits.map((hit) => hit.index)).toEqual(
-      SETTINGS_ROW_IDS.map((_, index) => index)
-    );
-    expect(listHits.find((hit) => hit.index === utilityIndex)).toEqual({ y: 23, index: utilityIndex });
+    // The C-03 form groups the rows under section rules, so a short panel
+    // windows them. What has to hold is that the cursor's own row is painted
+    // and clickable, that the window is contiguous and in order, and that no
+    // row answers a click outside the panel.
+    const shown = [...new Set(listHits.map((hit) => hit.index))];
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown).toEqual(shown.map((_, offset) => shown[0]! + offset));
+    expect(shown).toContain(utilityIndex);
     expect(listHits.every((hit) => hit.y >= selectable.top && hit.y < selectable.bottom)).toBeTrue();
     expect(state.hitRows.slice(selectable.bottom).every((row) =>
       ![row, ...(row?.overrides ?? [])].some((region) => region?.target.kind === "list")

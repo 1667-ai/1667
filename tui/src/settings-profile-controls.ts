@@ -4,9 +4,23 @@ import {
   type SettingsRoutePurpose,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
-import type { UserConfig } from "./config.js";
+import type { GenerationSettings } from "../../shared/types.js";
+import { THEME_NAMES, type UserConfig } from "./config.js";
+import type { KeyAction } from "./keys.js";
+import {
+  scalarChipText,
+  scalarInvalidReason,
+  settingsScalar,
+  steppedScalarValue,
+  type ScalarMagnitude,
+  type SettingsScalar,
+  type SettingsScalarRow
+} from "./settings-scalar.js";
+
+export type { ScalarMagnitude };
 import {
   localProviderPresetsSupported,
+  selectableSettingsProviderChoices,
   settingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
@@ -21,14 +35,41 @@ import {
 import { storedApiKeyPresentation } from "./settings-secret-sidecar.js";
 import {
   settingsTextDraftForDocument,
-  settingsTextDraftWithCachePolicy
+  settingsTextDraftWithCachePolicy,
+  settingsTextDraftWithGeneration
 } from "./settings-text.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
+/** C-03 groups the form under `── light ──` section rules, and the 13-col rail
+ * jumps between them. One list, named once, read by the rail and the rows. */
+export const SETTINGS_SECTIONS = [
+  { id: "app", label: "app" },
+  { id: "connection", label: "connection" },
+  { id: "model", label: "model" },
+  { id: "generation", label: "generation" },
+  { id: "routing", label: "routing" },
+  { id: "prompt", label: "prompt" }
+] as const;
+
+export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
+
+/** C-07's field row: label, value, and a hint that truncates rather than
+ * wrapping. Detail used to be glued onto the value string, so a narrow panel
+ * clipped the value and the detail together. */
 export interface SettingsRowPresentation {
   readonly id: SettingsRowId;
+  readonly section: SettingsSectionId;
   readonly label: string;
   readonly value: string;
+  readonly hint: string;
+  /** F-2: why this value is refused. Ember in the value, reason in the hint. */
+  readonly invalid?: string;
+  /** C-09 position dots for a cycler, drawn after the chip. */
+  readonly dots?: string;
+  /** Present on a C-08 scalar; the panel paints its track. */
+  readonly scalar?: SettingsScalar;
+  /** C-18 secondary action in the value column, reached with `tab`. */
+  readonly action?: { readonly label: string; readonly key: KeyAction };
 }
 
 /** All profile-aware row presentation stays together. The overlay model owns
@@ -39,53 +80,169 @@ export function settingsRows(
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
   const providerChoice = settingsProviderChoice(settings);
-  const providerLabel = providerChoice.plaintextDefaultRequiresOwnedLoopback === true
+  const insecureNeeded = providerChoice.plaintextDefaultRequiresOwnedLoopback === true
     && !localProviderPresetsSupported()
     && isPlainHttp(settings.baseUrl)
-    && settings.allowInsecureHttp !== true
-    ? `${providerChoice.label} · needs insecure HTTP`
-    : providerChoice.label;
+    && settings.allowInsecureHttp !== true;
+  const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
   return [
-    { id: "theme", label: "theme", value: `‹ ${config.theme} ›` },
-    { id: "compose-focus", label: "compose focus", value: `[ ${config.composeFocus} ]` },
-    { id: "provider", label: "provider", value: `‹ ${providerLabel} ›` },
-    { id: "base-url", label: "base URL", value: settings.baseUrl || "—" },
     {
-      id: "allow-insecure-http",
-      label: "insecure HTTP",
-      value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
-    },
-    { id: "api-key", label: "API key", value: storedApiKeyPresentation(overlay) },
-    { id: "api-key-env", label: "API key env", value: settings.apiKeyEnv ?? "—" },
-    { id: "profile", label: "profile", value: profileRowValue(overlay) },
-    { id: "model", label: "model", value: modelRowValue(overlay) },
-    {
-      id: "temperature",
-      label: "temperature",
-      value: settings.temperature?.toString() ?? "default"
+      id: "theme", section: "app", label: "theme",
+      value: `‹ ${config.theme} ›`,
+      dots: positionDots(THEME_NAMES, config.theme),
+      hint: "the whole palette, remapped"
     },
     {
-      id: "max-tokens",
-      label: "max tokens",
-      value: settings.maxTokens.toLocaleString("en-US")
+      id: "compose-focus", section: "app", label: "focus",
+      value: `[ ${config.composeFocus} ]`,
+      hint: "dim the page while you type"
     },
-    { id: "sampling", label: "sampling", value: samplingRowValue(overlay) },
     {
-      id: "context-window",
-      label: "context window",
-      value: settings.contextWindow?.toLocaleString("en-US") ?? "unknown"
+      id: "provider", section: "connection", label: "provider",
+      value: `‹ ${providerChoice.label} ›`,
+      dots: providerPositionDots(settings),
+      hint: insecureNeeded ? "" : "who answers a request",
+      ...(insecureNeeded ? { invalid: "plain HTTP needs insecure HTTP on" } : {})
     },
-    { id: "effort", label: "effort", value: effortRowValue(overlay) },
-    { id: "cache-policy", label: "cache", value: promptCacheRowValue(overlay.view, overlay.draft) },
-    { id: "default-route", label: "default route", value: routeRowValue(overlay, "default") },
-    { id: "prose-route", label: "prose route", value: routeRowValue(overlay, "prose") },
-    { id: "utility-route", label: "utility route", value: routeRowValue(overlay, "utility") },
     {
-      id: "system-prompt",
-      label: "system prompt",
-      value: settings.systemPrompt.replace(/\s+/g, " ")
+      id: "base-url", section: "connection", label: "base URL",
+      value: settings.baseUrl || "—",
+      hint: "the endpoint requests go to",
+      action: { label: "check connection", key: "check" }
+    },
+    {
+      id: "allow-insecure-http", section: "connection", label: "insecure",
+      value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`,
+      hint: "plain HTTP to a machine you own"
+    },
+    // C-14 prefers the env-var form, so it leads: the app holding a key is the
+    // fallback, and the row below says so.
+    {
+      id: "api-key-env", section: "connection", label: "key env",
+      value: settings.apiKeyEnv ?? "—",
+      hint: envVarHint(settings.apiKeyEnv)
+    },
+    {
+      id: "api-key", section: "connection", label: "stored key",
+      value: storedApiKeyPresentation(overlay),
+      hint: "kept in ~/.config/1667/keys, never in the vault"
+    },
+    {
+      id: "profile", section: "model", label: "profile",
+      value: profileRowValue(overlay),
+      dots: profilePositionDots(overlay),
+      hint: profileRowHint(overlay)
+    },
+    {
+      id: "model", section: "model", label: "model",
+      value: modelRowValue(overlay),
+      hint: modelRowHint(overlay)
+    },
+    scalarRow("temperature", "temperature", overlay, "how far it strays"),
+    scalarRow("max-tokens", "max tokens", overlay, "longest reply"),
+    {
+      id: "sampling", section: "generation", label: "sampling",
+      value: samplingRowValue(overlay),
+      hint: "↵ opens the sampling panel"
+    },
+    scalarRow("context-window", "context", overlay, "what the meter sizes"),
+    {
+      id: "effort", section: "generation", label: "effort",
+      value: effortRowValue(overlay),
+      dots: effortPositionDots(overlay),
+      hint: effortRowHint(overlay)
+    },
+    {
+      id: "cache-policy", section: "generation", label: "cache",
+      value: `‹ ${cache.policy} ›`,
+      dots: positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy),
+      hint: cache.kind === "available" ? cache.detail : `unavailable · ${cache.reason}`
+    },
+    routeRow("default-route", "default", overlay, "default"),
+    routeRow("prose-route", "prose", overlay, "prose"),
+    routeRow("utility-route", "utility", overlay, "utility"),
+    {
+      id: "system-prompt", section: "prompt", label: "system",
+      value: settings.systemPrompt.replace(/\s+/g, " "),
+      hint: "↵ opens it in the editor"
     }
   ];
+}
+
+function scalarRow(
+  id: SettingsScalarRow,
+  label: string,
+  overlay: SettingsOverlayState,
+  hint: string
+): SettingsRowPresentation {
+  const scalar = settingsScalar(id, overlay.draft.generation);
+  const invalid = scalarInvalidReason(scalar);
+  return {
+    id,
+    section: "generation",
+    label,
+    value: `‹ ${scalarChipText(scalar)} ›`,
+    scalar,
+    hint,
+    ...(invalid === null ? {} : { invalid })
+  };
+}
+
+function routeRow(
+  id: SettingsRowId,
+  label: string,
+  overlay: SettingsOverlayState,
+  purpose: SettingsRoutePurpose
+): SettingsRowPresentation {
+  return {
+    id,
+    section: "routing",
+    label,
+    value: routeRowValue(overlay, purpose),
+    hint: purpose === "default"
+      ? "used when no route claims the request"
+      : `profile for ${purpose} requests`
+  };
+}
+
+/** C-08 stepping, applied to the draft. Only a row with a sentinel can reach
+ *  `null`, and `steppedScalarValue` guarantees that, so max tokens — which has
+ *  no sentinel — never needs a fallback here. */
+export function stepSettingsScalar(
+  overlay: SettingsOverlayState,
+  row: SettingsScalarRow,
+  step: -1 | 1,
+  magnitude: ScalarMagnitude
+): void {
+  const scalar = settingsScalar(row, overlay.draft.generation);
+  const next = steppedScalarValue(scalar, step, magnitude);
+  if (next === scalar.value) return;
+  const generation = { ...overlay.draft.generation };
+  if (row === "temperature") generation.temperature = next;
+  else if (row === "context-window") generation.contextWindow = next;
+  else if (next === null) throw new Error("max tokens has no sentinel to step to");
+  else generation.maxTokens = next;
+  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, generation);
+  markControlMutation(overlay);
+}
+
+/** C-09 position dots. A cycler over more than eight options is a C-15 option
+ *  column instead, and draws no dots. */
+function positionDots<T>(choices: readonly T[], current: T | undefined): string {
+  const index = current === undefined ? -1 : choices.indexOf(current);
+  if (choices.length <= 1 || choices.length > 8 || index < 0) return "";
+  return choices.map((_, at) => at === index ? "●" : "○").join("");
+}
+
+/** C-14's `⚑ found in shell`: the row says whether the name it holds actually
+ *  resolves, so a typo does not wait until the next request to show itself.
+ *  The shell is the only place that answer exists, and it is one lookup. */
+function envVarHint(name: string | null): string {
+  if (name === null || name.length === 0) return "name an environment variable";
+  const value = process.env[name];
+  return value !== undefined && value.length > 0
+    ? "⚑ found in shell"
+    : "not set in this shell";
 }
 
 export function cycleProfileControl(
@@ -161,10 +318,67 @@ function effortRowValue(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return "‹ default ›";
+  return `‹ ${document.profiles[profileId]?.effort ?? "default"} ›`;
+}
+
+function effortRowHint(overlay: SettingsOverlayState): string {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return "how hard it thinks first";
   const effort = document.profiles[profileId]?.effort ?? "default";
   return generationEffortChoices(document, profileId).includes(effort)
-    ? `‹ ${effort} ›`
-    : `‹ ${effort} › · unavailable`;
+    ? "how hard it thinks first"
+    : "not on this model";
+}
+
+function effortPositionDots(overlay: SettingsOverlayState): string {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return "";
+  return positionDots(
+    generationEffortChoices(document, profileId),
+    document.profiles[profileId]?.effort ?? "default"
+  );
+}
+
+function providerPositionDots(settings: GenerationSettings): string {
+  const choices = selectableSettingsProviderChoices();
+  const current = settingsProviderChoice(settings);
+  return positionDots(choices.map((choice) => choice.id), current.id);
+}
+
+function profilePositionDots(overlay: SettingsOverlayState): string {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return "";
+  return positionDots(settingsProfileIds(document), profileId);
+}
+
+function profileRowHint(overlay: SettingsOverlayState): string {
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) return "legacy settings are read-only";
+  return profileRouteState(document, profileId) === "unrouted"
+    ? "no route sends requests here"
+    : "n new · ⇧n duplicate · d delete";
+}
+
+/** The chosen model's own identifier, kept out of the chip so the chip holds
+ *  one name. C-15 owns the list itself once there are more than eight. */
+function modelRowHint(overlay: SettingsOverlayState): string {
+  const model = overlay.draft.generation.model;
+  const choices = settingsModelChoices(overlay);
+  if (choices.length === 0) return "↵ types a model identifier";
+  const selected = choices.find((choice) => choice.remoteId === model);
+  if (selected === undefined) {
+    return model.length === 0
+      ? "↵ types a model identifier"
+      : `${settingsModelDisplayText(model)} · custom`;
+  }
+  const count = `${choices.indexOf(selected) + 1} of ${choices.length}`;
+  return selected.name === selected.remoteId
+    ? count
+    : `${settingsModelDisplayText(selected.remoteId)} · ${count}`;
 }
 
 /** Runtime validation permits an explicit effort only with a supported model.
@@ -189,12 +403,7 @@ function profileRowValue(overlay: SettingsOverlayState): string {
   if (document === null || profileId === null) return "‹ legacy profile ›";
   const profile = document.profiles[profileId];
   if (profile === undefined) return "‹ unavailable ›";
-  const ids = settingsProfileIds(document);
-  const dots = ids.length <= 8
-    ? `  ${ids.map((id) => id === profileId ? "●" : "○").join("")}`
-    : "";
-  const route = profileRouteState(document, profileId);
-  return `‹ ${profile.name} ›${dots}${route === "unrouted" ? " · unrouted" : ""}`;
+  return `‹ ${profile.name} ›`;
 }
 
 function routeRowValue(overlay: SettingsOverlayState, purpose: SettingsRoutePurpose): string {
@@ -214,10 +423,8 @@ function modelRowValue(overlay: SettingsOverlayState): string {
   if (choices.length === 0) return model || "—";
   const selected = choices.find((choice) => choice.remoteId === model);
   const label = selected === undefined
-    ? model.length === 0 ? "choose model" : `${settingsModelDisplayText(model)} · custom`
-    : selected.name === selected.remoteId
-      ? settingsModelDisplayText(selected.remoteId)
-      : `${settingsModelDisplayText(selected.name)} · ${settingsModelDisplayText(selected.remoteId)}`;
+    ? model.length === 0 ? "choose model" : settingsModelDisplayText(model)
+    : settingsModelDisplayText(selected.name);
   return `‹ ${label} ›`;
 }
 

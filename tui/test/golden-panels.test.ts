@@ -147,7 +147,7 @@ describe("run C overlay frames", () => {
     libraryState.mode = "LIBRARY";
     libraryState.library = { stories, cursor: selected, query: "", prompt: null };
     const library = render(libraryState);
-    expect(library.text).toContain("8–21/25");
+    expect(library.text).toContain("7–21/25");
     expect(library.text).toContain("▸ story 21");
     expect(hasSelectedHit(library.hits)).toBeTrue();
 
@@ -159,7 +159,7 @@ describe("run C overlay frames", () => {
     factsState.mode = "FACTS";
     factsState.facts = { cursor: selected, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
     const facts = render(factsState);
-    expect(facts.text).toContain("9–21/25");
+    expect(facts.text).toContain("8–21/25");
     expect(facts.text).toContain("▸ Fact 21");
     expect(hasSelectedHit(facts.hits)).toBeTrue();
 
@@ -173,7 +173,7 @@ describe("run C overlay frames", () => {
       cursor: selected, selectedId: null, query: "", view: "tags", returnMode: "NAV"
     };
     const tags = render(tagsState);
-    expect(tags.text).toContain("8–21/25");
+    expect(tags.text).toContain("7–21/25");
     expect(tags.text).toContain("▸ mark 21");
     expect(hasSelectedHit(tags.hits)).toBeTrue();
   });
@@ -274,7 +274,7 @@ describe("run C overlay frames", () => {
       source.api.getSettings = async () => view as typeof source.settingsView;
       const lines = (await renderOnce(source, 120, 36, ",")).split("\n");
       const rowOf = (text: string): number => lines.findIndex((line) => line.includes(text));
-      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system prompt") };
+      return { theme: rowOf("theme"), provider: rowOf("provider"), prompt: rowOf("system ") };
     };
 
     const active = await rowsFor(null);

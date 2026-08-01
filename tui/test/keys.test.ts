@@ -150,7 +150,9 @@ describe("arrow-first key routing", () => {
       expect(resolveKey(key("l"), "MAP", options).action).toBe("map-follow");
       expect(resolveKey(key("left"), "MAP", options).action).toBe("none");
       expect(resolveKey(key("right"), "MAP", options).action).toBe("none");
-      expect(resolveKey(key("s"), "MAP", options).action).toBe("map-cycle-sort");
+      // Only mass has an order to cycle; the tree is the graph order itself.
+      expect(resolveKey(key("s"), "MAP", options).action)
+        .toBe(mapView === "mass" ? "map-cycle-sort" : "none");
       for (const dead of ["h", "j", "k"]) {
         expect(resolveKey(key(dead), "MAP", options).action).toBe("none");
       }

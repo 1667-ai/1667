@@ -97,6 +97,19 @@ const DEFINITIONS = {
   composeOpenRequest: route("compose-chord", "r", "COMPOSE", "open-request", { ctrl: true }),
   navOpenSearch: route("nav", "/", "NAV", "open-search", { sequence: "/" }),
   navOpenKeysQuestion: route("nav", "?", "NAV", "open-keys"),
+  // Decision 24 gives global feedback a letter key of its own, unbound
+  // everywhere else. Terminals disagree on whether `!` arrives as its own
+  // name or as shifted `1`, so both spellings route here.
+  navOpenLog: route("nav", "!", "NAV", "open-log", { sequence: "!" }),
+  navOpenLogShifted: route("nav", "1", "NAV", "open-log", {
+    sequence: "!",
+    shift: true
+  }),
+  mapOpenLog: route("map", "!", "MAP", "open-log", { sequence: "!" }),
+  mapOpenLogShifted: route("map", "1", "MAP", "open-log", {
+    sequence: "!",
+    shift: true
+  }),
   navOpenKeysShiftSlash: route("nav", "/", "NAV", "open-keys", {
     sequence: "?",
     shift: true
@@ -104,6 +117,7 @@ const DEFINITIONS = {
   navClose: route("global", "escape", "NAV", "cancel"),
   mapClose: route("global", "escape", "MAP", "cancel"),
   keysClose: route("global", "escape", "KEYS", "cancel"),
+  logClose: route("global", "escape", "LOG", "cancel"),
   navQuit: route("nav", "q", "NAV", "quit"),
   mapCycleView: route("map", "m", "MAP", "cycle-map-view"),
   mapPathAllTakes: route("map", "a", "MAP", "toggle-path-takes", { mapView: "path" }),
@@ -112,7 +126,9 @@ const DEFINITIONS = {
   mapApply: route("map", "return", "MAP", "apply"),
   mapTreeFollow: route("map", "l", "MAP", "map-follow", { mapView: "tree" }),
   mapMassFollow: route("map", "l", "MAP", "map-follow", { mapView: "mass" }),
-  mapTreeSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "tree" }),
+  // Only mass sorts. The tree is the graph order itself, so there is nothing
+  // for `s` to reorder there; it used to teleport to mass under a `s sort`
+  // label, which advertised a verb the view does not have (C-06).
   mapMassSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "mass" }),
   mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
   mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" }),

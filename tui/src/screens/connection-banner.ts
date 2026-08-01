@@ -5,6 +5,17 @@ import { overlayTextInputActive, textOwnsKeyboard } from "../keys.js";
 import type { OverlayState, StoryScreenState } from "../state.js";
 import { fitLine, visibleWidth, type FrameLine } from "./story/frame.js";
 
+/** The banner's own sentence, without the countdown that changes every second.
+ *  C-29 and C-37 have to say the same thing, so they read it from here — the
+ *  log used to carry a hand-written second copy that had already drifted. */
+export function connectionNoticeText(
+  connection: { down: boolean; attempt: number }
+): string | null {
+  if (!connection.down) return null;
+  return `▲ connection lost — attempt ${connection.attempt}/5`
+    + " · everything is saved on disk · R retries now";
+}
+
 export function renderConnectionBanner(
   base: FrameLine[],
   state: OverlayState & Pick<StoryScreenState, "mode" | "tag"> & { now: number },

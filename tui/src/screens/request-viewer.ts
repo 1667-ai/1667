@@ -13,6 +13,9 @@ import {
   type FrameLine
 } from "./story/frame.js";
 import { renderConnectionBanner } from "./connection-banner.js";
+import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
+import { addInlineHits } from "./story/hits.js";
+import { tagGlyph, tagRole } from "../tag-presentation.js";
 
 export interface RequestViewerFrame extends FrameComposition {
   hitRows: HitRows;
@@ -34,9 +37,7 @@ export function renderRequestViewerScreen(
   height: number,
   deadlines?: FrameDeadlineCollector
 ) {
-  const frame = renderRequestViewer(
-    context, estimate, request, state.model, state.contextWindow, width, height
-  );
+  const frame = renderRequestViewer(state, context, estimate, request, width, height);
   return {
     lines: state.connection.down
       ? renderConnectionBanner(frame.lines, { ...state, hitRows: frame.hitRows }, width, deadlines)
@@ -58,17 +59,19 @@ export function renderRequestViewerScreen(
   };
 }
 
+export type RequestViewerStory =
+  Pick<StoryScreenState, "payload" | "model" | "contextWindow">;
+
 /** Render the provider-neutral request plan as one terminal document. */
 export function renderRequestViewer(
+  story: RequestViewerStory,
   context: NextRequestContext,
   estimate: NextRequestEstimate,
   request: RequestViewerState,
-  model: string,
-  contextWindow: number | null,
   width: number,
   height: number
 ): RequestViewerFrame {
-  const header = requestHeader(context, estimate, model, contextWindow, width);
+  const header = requestHeader(context, estimate, story.model, story.contextWindow, width);
   const cursor = Math.max(0, Math.min(Math.max(0, estimate.messages.length - 1), request.cursor));
   const body = requestBody(estimate, width, cursor);
   const bodyHeight = Math.max(0, height - header.length - 2);
@@ -87,27 +90,59 @@ export function renderRequestViewer(
   ];
   const footer: FrameLine[] = [
     [segment("─".repeat(Math.max(0, width)), "chrome")],
-    [
-      segment(" ↑↓ messages", "chrome"),
-      segment(" · ⇧↑↓ scroll", "chrome"),
-      segment(" · pgup/pgdn page", "chrome"),
-      segment(" · g/G ends", "chrome"),
-      segment(" · ⌃r/esc close", "focus / accent")
-    ]
+    requestBreadcrumb(story, estimate, cursor, width)
   ];
   const rows = [
     ...header.map((line): BodyRow => ({ line, target: null })),
     ...padded,
     ...footer.map((line): BodyRow => ({ line, target: null }))
   ].slice(0, height);
-  return {
-    lines: rows.map(({ line }) => fitLine(line, width)),
-    selectable: null,
-    hitRows: rows.map(({ target }) => target === null
-      ? null
-      : { target, left: 0, right: width }),
-    request: { ...request, cursor, scrollTop }
-  };
+  const lines = rows.map(({ line }) => fitLine(line, width));
+  const hitRows: HitRows = rows.map(({ target }) => target === null
+    ? null
+    : { target, left: 0, right: width });
+  // The breadcrumb's keys carry their actions on their own segments, the way
+  // the map's and search's do; without this they are painted text.
+  const breadcrumb = lines.length - 1;
+  if (lines[breadcrumb] !== undefined) {
+    addInlineHits([lines[breadcrumb]!], hitRows, () => true, breadcrumb);
+  }
+  return { lines, selectable: null, hitRows, request: { ...request, cursor, scrollTop } };
+}
+
+/** C-02: the surface keeps its mode cell and its tether back to the story.
+ *  The viewer used to end on a bare keyline, so `REQUEST` never named itself
+ *  and nothing on screen said which story you were inspecting. */
+function requestBreadcrumb(
+  story: RequestViewerStory,
+  estimate: NextRequestEstimate,
+  cursor: number,
+  width: number
+): FrameLine {
+  const leafId = story.payload.path.at(-1)?.id ?? null;
+  const tag = story.payload.tags.find((item) => item.nodeId === leafId) ?? null;
+  const total = estimate.messages.length;
+  const narrow = width < 100;
+  const keys: FrameLine = [
+    segment("↑", "chrome", { kind: "action", action: "focus-previous" }),
+    segment("↓", "chrome", { kind: "action", action: "focus-next" }),
+    segment(" message", "chrome"),
+    segment(" · ", "chrome"),
+    segment("⇧↑↓ scroll", "chrome"),
+    ...(narrow ? [] : [segment(" · ", "chrome"), segment("g/G ends", "chrome")]),
+    segment(" · ", "chrome"),
+    segment("esc close", "focus / accent", { kind: "action", action: "cancel" })
+  ];
+  return renderSurfaceBreadcrumb({
+    mode: "REQUEST",
+    scope: narrow ? "next" : "next request",
+    title: story.payload.title,
+    identity: tag === null ? "" : `${tagGlyph(tag.status)} ${tag.name}`,
+    identityRole: tagRole(tag),
+    crumb: total === 0 ? "no messages" : `message ${cursor + 1}/${total}`,
+    keys,
+    width
+  });
 }
 
 function requestHeader(

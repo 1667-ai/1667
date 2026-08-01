@@ -87,7 +87,9 @@ describe("Settings model picker", () => {
       state,
       { width: 100, height: 30, wrapCache: cache }
     ).lines);
-    expect(rendered).toContain("‹ Novelist A · novelist-a ›");
+    expect(rendered).toContain("‹ Novelist A ›");
+    // C-07 keeps the identifier in the hint column, not inside the chip.
+    expect(rendered).toContain("novelist-a · 1 of 2");
     expect(rendered).toContain("←→ choose · ↵ custom");
     expect(rendered).not.toContain("cache policy");
 
@@ -114,7 +116,7 @@ describe("Settings model picker", () => {
       state,
       { width: 100, height: 30, wrapCache: cache }
     ).lines);
-    expect(rendered).toContain("‹ private-preview-model · custom ›");
+    expect(rendered).toContain("private-preview-model · custom");
 
     await press(key("left"));
     expect(state.settings?.draft.generation).toMatchObject({

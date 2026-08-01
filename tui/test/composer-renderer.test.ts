@@ -110,11 +110,13 @@ describe("composer renderer", () => {
     expect(noticeRows <= 3).toBe(true);
     expect(flood.bodyRows).toBeGreaterThan(0);
     expect(flood.lines.every((line) => lineWidth(line) <= 80)).toBe(true);
-    // The last row continues the sentence and marks where it stops. Keeping the
-    // row's tail instead would drop the words that follow row two.
+    // Decision 24: the *body* truncates with `…`, and the final row survives —
+    // it is where a real provider error puts the way out.
+    const body = plainLine(flood.lines.at(-2)!).trimEnd();
     const last = plainLine(flood.lines.at(-1)!).trimEnd();
-    expect(last.endsWith("…")).toBe(true);
-    expect(last.replace(/^\s+/u, "").startsWith("…")).toBe(false);
+    expect(body.endsWith("…")).toBe(true);
+    expect(body.replace(/^\s+/u, "").startsWith("…")).toBe(false);
+    expect(last.endsWith("…")).toBe(false);
   });
 
   test("grows per newline, reports headroom, then scrolls around the cursor", () => {

@@ -28,7 +28,7 @@ import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { samplingOverlayAction } from "./sampling-actions.js";
 import { readFromClipboard } from "./clipboard.js";
-import { sanitizePastedText, type ResolvedKey } from "./keys.js";
+import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
 import { publishSettingsView } from "./overlay-publication.js";
 import {
@@ -55,6 +55,7 @@ import {
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRowCycles,
+  settingsRows,
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
@@ -65,7 +66,13 @@ import {
   isolateSettingsProfileModel
 } from "./settings-profile-draft.js";
 import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
-import { settingsTextDraftForDocument } from "./settings-text.js";
+import { settingsTextDraftForDocument, settingsTextDraftWithGeneration } from "./settings-text.js";
+import { modelPickerRequired } from "./settings-model-picker.js";
+import {
+  pasteIntoModelPicker,
+  settingsInlineEditAction,
+  settingsModelPickerAction
+} from "./settings-field-actions.js";
 import {
   applySettingsComposeFocus,
   applySettingsTheme,
@@ -117,6 +124,12 @@ export async function settingsOverlayAction(
   context: ActionContext
 ): Promise<boolean> {
   const overlay = state.settings!;
+  // C-18: an action's in-place report keeps reporting "until the next
+  // keypress". The wrapped block below the fields is a C-32 result line and
+  // outlives it; only the row attribution is bounded here.
+  if (resolved.action !== "check" && resolved.action !== "detect-context") {
+    overlay.resultRow = null;
+  }
   // A profile delete requires two consecutive delete commands. Any intervening
   // action starts a different interaction, so it must not retain consent.
   // Cancel handles its own armed state below so Esc remains a harmless abort.
@@ -130,7 +143,10 @@ export async function settingsOverlayAction(
     return true;
   }
   if (resolved.action === "cancel") {
-    if (overlay.edit !== null) {
+    // Esc peels exactly one layer: the option column is a layer of its own.
+    if (overlay.modelPicker !== null) {
+      overlay.modelPicker = null;
+    } else if (overlay.edit !== null) {
       overlay.edit = null;
       state.toast = settingsDraftChanged(overlay) ? "row edit cancelled · draft kept" : null;
     } else if (overlay.deleteArmedProfileId !== null) {
@@ -140,6 +156,10 @@ export async function settingsOverlayAction(
       state.settings = null;
       state.mode = "NAV";
     }
+  } else if (resolved.action === "paste-clipboard" && overlay.modelPicker !== null) {
+    // The column is what the writer can see, so paste narrows it rather than
+    // filling a row editor hidden behind it.
+    await pasteIntoModelPicker(state, overlay);
   } else if (resolved.action === "paste-clipboard") {
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
     const target = openSettingsPasteTarget(state);
@@ -157,6 +177,8 @@ export async function settingsOverlayAction(
         state.toast = "legacy settings are read-only";
       }
     }
+  } else if (overlay.modelPicker !== null) {
+    settingsModelPickerAction(resolved, state, overlay);
   } else if (overlay.edit !== null) {
     await settingsInlineEditAction(resolved, state, source, context, overlay);
   } else if (resolved.action === "focus-next") {
@@ -177,7 +199,10 @@ export async function settingsOverlayAction(
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
       state.toast = "legacy settings are read-only";
     } else if (row === "model") {
-      beginSettingsRowEdit(overlay, state.config);
+      // C-15: past eight options the list is a column, not a cycler. Below
+      // that the row keeps opening for a typed identifier.
+      if (modelPickerRequired(overlay)) overlay.modelPicker = { query: "", cursor: 0 };
+      else beginSettingsRowEdit(overlay, state.config);
     } else if (settingsRowCycles(row)) {
       await cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (row === "system-prompt") {
@@ -193,6 +218,15 @@ export async function settingsOverlayAction(
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
+  } else if (resolved.action === "row-action") {
+    // C-18: `tab` runs whatever this row declares, and nothing where a row
+    // declares none.
+    const action = settingsRows(overlay, state.config)[
+      boundedSettingsCursor(overlay.cursor)
+    ]?.action;
+    if (action !== undefined) {
+      await settingsOverlayAction({ action: action.key }, state, source, context);
+    }
   } else if (resolved.action === "save-edit") {
     await saveSettingsDraft(state, source, context, overlay);
   } else if (resolved.action === "new-item" || resolved.action === "duplicate-item"
@@ -205,7 +239,9 @@ export async function settingsOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
     if (settingsRowHasArrows(overlay, row)) {
-      await cycleSettingsRow(row, step, state, source, context, overlay);
+      await cycleSettingsRow(
+        row, step, state, source, context, overlay, resolved.magnitude ?? "step"
+      );
     }
   } else if (resolved.action === "discard-pending") {
     await discardPendingSettings(state, source, context, overlay);
@@ -266,86 +302,6 @@ function manageSettingsProfile(
   overlay.result = null;
   overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
   state.toast = "profile deleted · routes repaired · s saves settings";
-}
-
-async function settingsInlineEditAction(
-  resolved: ResolvedKey,
-  state: RuntimeState,
-  source: AppSource,
-  context: ActionContext,
-  overlay: SettingsOverlayState
-): Promise<void> {
-  const edit = overlay.edit;
-  if (edit?.kind !== "inline") return;
-  if (resolved.action === "paste-clipboard") {
-    const inputClaim = {
-      interactionVersion: state.interactionVersion,
-      text: edit.composer.text,
-      cursor: edit.composer.cursor,
-      anchor: edit.composer.anchor
-    };
-    const text = await readFromClipboard();
-    if (state.settings !== overlay || overlay.edit !== edit) return;
-    if (state.interactionVersion !== inputClaim.interactionVersion
-      || edit.composer.text !== inputClaim.text
-      || edit.composer.cursor !== inputClaim.cursor
-      || edit.composer.anchor !== inputClaim.anchor) {
-      return;
-    }
-    if (text === null) {
-      state.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
-    } else if (!pasteSettingsInlineEdit(overlay, text)) {
-      state.toast = "clipboard has no insertable text";
-    }
-    return;
-  }
-  if (resolved.action === "commit-field") {
-    const applied = applySettingsRowEdit(overlay, state.config);
-    if (applied.kind === "error") {
-      state.toast = `row kept · ${applied.message}`;
-      return;
-    }
-    if (applied.kind === "theme") {
-      applySettingsTheme(state, context, applied.value);
-      return;
-    }
-    if (applied.kind === "compose-focus") {
-      applySettingsComposeFocus(state, source, applied.value);
-      return;
-    }
-    disarmSettingsConflict(overlay);
-    if (settingsDraftChanged(overlay)) {
-      state.toast = "draft updated · s saves settings";
-    }
-    return;
-  }
-  if (resolved.action === "input") {
-    disarmSettingsConflict(overlay);
-    insertComposerText(edit.composer, resolved.text ?? "");
-    return;
-  }
-  const kind = applyComposerEdit(
-    edit.composer,
-    resolved.action,
-    resolved.extendSelection
-  );
-  if (kind !== null) {
-    if (kind === "delete") disarmSettingsConflict(overlay);
-    return;
-  }
-}
-
-function pasteSettingsInlineEdit(
-  overlay: SettingsOverlayState,
-  raw: string
-): boolean {
-  const edit = overlay.edit;
-  if (edit?.kind !== "inline") return false;
-  const clean = sanitizePastedText(raw);
-  if (clean.length === 0) return false;
-  disarmSettingsConflict(overlay);
-  insertComposerText(edit.composer, clean.replace(/\n+/g, " "));
-  return true;
 }
 
 async function saveSettingsDraft(

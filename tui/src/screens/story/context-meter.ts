@@ -32,6 +32,8 @@ const LEGEND_HALF = 15;
 const LEGEND_GAP = RAIL_CONTENT_WIDTH - LEGEND_HALF * 2;
 const REQUEST_LABEL = "next request  ";
 const WINDOW_HINT = "set context window · settings (,)";
+/** The half of C-22's over-window statement that says what to do about it. */
+const OVER_REMEDY = "summarize or drop a fact";
 
 type Category = readonly [keyof RailModel["breakdown"], DisplayRole];
 
@@ -74,12 +76,21 @@ export function contextMeterLines(
     [request, gauge],
     [request]
   ];
-  const notice = model.chapterNotice === null ? []
-    : [[segment(truncate(model.chapterNotice, RAIL_CONTENT_WIDTH), "focus / accent")] as FrameLine];
-  const form = forms.find((candidate) => candidate.length + notice.length <= rows);
+  // What to do about it, in the two cases the meter can answer: the request
+  // does not fit, or a chapter is worth summarizing. Both outrank decoration
+  // and both yield to the request line itself.
+  const tail: FrameLine[] = [
+    ...severity === "over"
+      ? [[segment(OVER_REMEDY, "danger text")] as FrameLine]
+      : [],
+    ...model.chapterNotice === null
+      ? []
+      : [[segment(truncate(model.chapterNotice, RAIL_CONTENT_WIDTH), "focus / accent")] as FrameLine]
+  ];
+  const form = forms.find((candidate) => candidate.length + tail.length <= rows);
   // A single row left: the request outranks even the notice.
   const lines = form !== undefined
-    ? [...form, ...notice]
+    ? [...form, ...tail]
     : rows >= 1 ? [request] : [];
   // Pulse only when a growth segment actually lands and phases can change pixels.
   if (pulse && deadlines !== undefined && linesShowGrowthPulse(lines)) {
@@ -217,10 +228,13 @@ function linesShowGrowthPulse(lines: readonly FrameLine[]): boolean {
 function forecastWindow(model: RailModel): RequestWindow | null {
   const window = model.window;
   if (window === null) return null;
-  const used = window.size - window.free + Math.max(0, model.growthTokens);
+  // `free` clamps at zero, so an already-over request has to add its overage
+  // back before the forecast can say how far past the window it runs.
+  const used = window.size - window.free + window.over + Math.max(0, model.growthTokens);
   return {
     size: window.size,
     free: Math.max(0, window.size - used),
+    over: Math.max(0, used - window.size),
     fill: window.size <= 0 ? 0 : used / window.size
   };
 }
@@ -279,7 +293,12 @@ function freeReadout(
   maxWidth = RAIL_CONTENT_WIDTH
 ): FrameSegment {
   const role = severity === "normal" ? "chrome" : valueRole(severity);
-  if (severity === "over") return segment("near full", role);
+  // C-22 states what happens next. `near full` dropped both useful halves: how
+  // far past the window the request runs, and what shortens it. The overage
+  // stays here beside the bar; the remedy takes its own row (see OVER_REMEDY).
+  if (severity === "over") {
+    return segment(window.over > 0 ? `over by ${formatTokensScaled(window.over)}` : "full", role);
+  }
   const free = `${formatTokensScaled(window.free)} free`;
   if (model.growthTokens <= 0 || model.maxOutputTokens <= 0) return segment(free, role);
   const cap = `≤${formatTokensScaled(model.maxOutputTokens)}`;

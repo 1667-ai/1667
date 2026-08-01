@@ -86,7 +86,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "a", mutating: true },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
-  { id: "retake", section: "take", name: "retake", description: "regenerate the focused part as a sibling", shortcut: "r", mutating: true },
+  { id: "retake", section: "take", name: "retake", description: "retake the focused part as a sibling", shortcut: "r", mutating: true },
   { id: "prune", section: "take", name: "prune drafts & discarded", description: "review unused leaf takes before removal", shortcut: "d", mutating: true },
 
   { id: "tags", section: "view", name: "tag manager", description: "inspect or delete remembered leaves" },

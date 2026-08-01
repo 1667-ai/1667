@@ -12,8 +12,11 @@ import {
   cycleCachePolicyControl,
   cycleEffortControl,
   cycleProfileControl,
-  cycleRouteControl
+  cycleRouteControl,
+  stepSettingsScalar,
+  type ScalarMagnitude
 } from "./settings-profile-controls.js";
+import { isSettingsScalarRow } from "./settings-scalar.js";
 import type {
   RuntimeState,
   SettingsOverlayState,
@@ -26,14 +29,17 @@ export async function cycleSettingsRow(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  overlay: SettingsOverlayState
+  overlay: SettingsOverlayState,
+  magnitude: ScalarMagnitude = "step"
 ): Promise<void> {
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
     state.toast = "legacy settings are read-only";
     return;
   }
   try {
-    if (row === "theme") {
+    if (isSettingsScalarRow(row)) {
+      stepSettingsScalar(overlay, row, step, magnitude);
+    } else if (row === "theme") {
       const index = THEME_NAMES.indexOf(state.config.theme);
       applySettingsTheme(
         state,

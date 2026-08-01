@@ -62,8 +62,11 @@ const PANEL_TOP: PanelEdges = {
 const PANEL_BODY: PanelEdges = {
   prefix: "┃ ", suffix: " ┃", fill: " ", fillRole: "prose"
 };
+/** C-01: title in the top rule, keys in the bottom rule — never a separate
+ *  legend line. The keyline used to be a body row above a bare `┗━━┛`, which
+ *  spent a content row on chrome and read as one more list entry. */
 const PANEL_BOTTOM: PanelEdges = {
-  prefix: "┗", suffix: "┛", fill: "━", fillRole: "brass dim"
+  prefix: "┗━ ", suffix: "━┛", fill: "━", fillRole: "brass dim"
 };
 
 function interiorWidth(edges: PanelEdges, panelWidth: number): number {
@@ -100,10 +103,12 @@ export function panelHorizontalGeometry(
 ): PanelHorizontalGeometry {
   const panelWidth = panelWidthFor(width, maxWidth);
   const left = Math.max(2, Math.floor((width - panelWidth) / 2));
-  // The footer is a body row, so its measures are the content's. They keep
-  // their own names because callers reason about the two separately.
   const contentInset = visibleWidth(PANEL_BODY.prefix);
   const contentWidth = interiorWidth(PANEL_BODY, panelWidth);
+  // The footer lives in the bottom rule, so its measures are that rule's: it
+  // begins after `┗━ ` and reserves one cell for the space before the rule
+  // that runs to the corner, exactly as the title does above.
+  const footerInset = visibleWidth(PANEL_BOTTOM.prefix);
   return {
     left,
     right: left + panelWidth,
@@ -111,16 +116,17 @@ export function panelHorizontalGeometry(
     contentInset,
     contentLeft: left + contentInset,
     contentWidth,
-    footerInset: contentInset,
-    footerLeft: left + contentInset,
-    footerWidth: contentWidth,
+    footerInset,
+    footerLeft: left + footerInset,
+    footerWidth: Math.max(0, interiorWidth(PANEL_BOTTOM, panelWidth) - 1),
     // One cell over the glyphs for the space that separates title from rule.
     titleOverhead: visibleWidth(PANEL_TOP.prefix) + visibleWidth(PANEL_TOP.suffix) + 1,
     titleWidth: Math.max(0, interiorWidth(PANEL_TOP, panelWidth) - 1)
   };
 }
 
-const PANEL_FRAME_ROWS = 4;
+/** Title rule, one blank, and the bottom rule that carries the keys. */
+const PANEL_FRAME_ROWS = 3;
 const PANEL_MIN_HEIGHT = 6;
 const PANEL_SCREEN_MARGIN_ROWS = 5;
 const PANEL_CONTENT_PADDING_ROWS = 1;
@@ -197,10 +203,11 @@ export function placePanel(
   // footer outgrows its panel — the failure plan 013 §8b describes, caught here
   // instead of only by a test.
   const shownFooter = truncate(footer, horizontal.footerWidth);
-  const footerIndex = panel.push(
-    panelRow(PANEL_BODY, [raisedSegment(shownFooter, "chrome")], panelWidth)
-  ) - 1;
-  panel.push(panelRow(PANEL_BOTTOM, [], panelWidth));
+  // The trailing space is the gap between the keys and the rule that runs to
+  // the corner; `footerWidth` reserves it.
+  const footerIndex = panel.push(panelRow(
+    PANEL_BOTTOM, [raisedSegment(`${shownFooter} `, "chrome")], panelWidth
+  )) - 1;
   const output = [...base];
   // A cleared gap floats the panel: without it, dimmed page text cut mid-word
   // sits flush against the raised surface and reads as panel content.

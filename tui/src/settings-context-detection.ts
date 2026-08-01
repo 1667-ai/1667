@@ -65,6 +65,7 @@ export async function detectSettingsContext(
           state: "warning",
           message: "context window unavailable · enter it here"
         };
+        overlay.resultRow = "context-window";
         return;
       }
       if (editable) {
@@ -82,6 +83,7 @@ export async function detectSettingsContext(
         state: "ready",
         message: `context window · ${contextWindow.toLocaleString("en-US")} tokens${suffix}`
       };
+      overlay.resultRow = "context-window";
     } finally {
       if (task.owns() && state.settings === overlay) {
         overlay.probing = false;
@@ -128,6 +130,7 @@ export async function checkSettings(
         && sameConnectionSecrets(checkedSecrets, overlay.connectionSecrets)
         && sameGenerationSettings(checked, current)) {
         overlay.result = result;
+        overlay.resultRow = "base-url";
       }
     } finally {
       if (task.owns() && state.settings === overlay) {

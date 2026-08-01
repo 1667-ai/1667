@@ -47,14 +47,18 @@ export function renderMapTreeRow(
 
 /** Doc 20c fuses what used to be two dense footnote lines into one: how many
  *  subtrees are folded away cold, how many lone sketches hang off the forks,
- *  and — in the same right gutter as every row above — what they weigh. */
+ *  and — in the same right gutter as every row above — what they weigh.
+ *
+ *  The footnote states what the fold holds and nothing else. Decision 21 took
+ *  in-canvas key hints out of mass for the same reason: the keyline is where a
+ *  key is advertised (C-06), so `a` rides there instead. */
 export function mapTreeFoldFootnote(layout: AtlasLayout, showSketches: boolean): string {
   const pieces = [
     layout.coldSubtrees > 0
       ? `${layout.coldSubtrees} cold ${layout.coldSubtrees === 1 ? "subtree" : "subtrees"}` : "",
     layout.sketchCount === 0 ? ""
-      : showSketches ? `${layout.sketchCount} sketches revealed · a hides`
-        : `${layout.sketchCount} sketches · a reveals`
+      : showSketches ? `${layout.sketchCount} sketches revealed`
+        : `${layout.sketchCount} sketches`
   ].filter((piece) => piece.length > 0);
   return pieces.join(" · ");
 }
