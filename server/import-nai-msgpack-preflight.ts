@@ -15,6 +15,12 @@ interface RecordShape {
   readonly highByte: number | undefined;
 }
 
+function twoByteRecordId(firstId: number, highByte: number): number {
+  return firstId < 32
+    ? -((highByte << 5) + firstId)
+    : (highByte << 5) + firstId;
+}
+
 /** Bound attacker-controlled MessagePack before msgpackr materializes it. */
 export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
   let offset = 0;
@@ -122,9 +128,7 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
       const highByte = length === 2 ? bytes[payloadStart + 1]! : undefined;
       const id = highByte === undefined
         ? firstId
-        : firstId < 32
-          ? -((highByte << 5) + firstId)
-          : (highByte << 5) + firstId;
+        : twoByteRecordId(firstId, highByte);
       const fields = arrayLengthAt(offset);
       records.set(id, { fields, highByte });
       return fields + 1;
@@ -183,7 +187,7 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
       let record = records.get(firstId);
       if (record?.highByte === 0) {
         const highByte = readByte();
-        record = records.get((highByte << 5) + firstId);
+        record = records.get(twoByteRecordId(firstId, highByte));
         if (record === undefined) throw malformedMessagePack();
       }
       children = record?.fields ?? 0;

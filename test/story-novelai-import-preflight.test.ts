@@ -63,6 +63,28 @@ test("NovelAI MessagePack preflight bounds containers, depth, and values", () =>
   );
 });
 
+test("NovelAI MessagePack preflight follows signed two-byte record references", () => {
+  const nestedNegativeRecord = Buffer.from([
+    0xd4, 20, 0,
+    0x93,
+    // Record 0 dispatches references with a second byte.
+    0xd5, 0x72, 0x40, 0x00, 0x90,
+    // A zero-field +32 decoy must not supply the -32 record's shape.
+    0xd5, 0x72, 0x60, 0x00, 0x90,
+    // Define -32 with one field, then recursively reference it.
+    0xd5, 0x72, 0x40, 0x01, 0x91, 0xa1, 0x78,
+    ...Array.from({ length: 129 }, () => [0x40, 0x01]).flat(),
+    0xc0
+  ]);
+
+  assert.throws(
+    () => partsFromNovelAiStory(container(nestedNegativeRecord)),
+    (error: unknown) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("nested too deeply")
+  );
+});
+
 test("NovelAI MessagePack preflight bounds repeated bundled-string decoding", () => {
   const references = 50_000;
   const textBytes = 400;
