@@ -21,6 +21,7 @@ import {
 } from "../shared/release-targets.js";
 import {
   exactRecord,
+  isExecutableFile,
   sha256Digest
 } from "./release-boundary-validation.js";
 import { MAX_RELEASE_TARBALL_FILE_BYTES } from "./release-package-policy.js";
@@ -136,7 +137,8 @@ function boundedExecutable(value: string): string {
   const file = realpathSync(value);
   const stat = lstatSync(file);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0
-    || stat.size > MAX_RELEASE_TARBALL_FILE_BYTES || (stat.mode & 0o111) === 0) {
+    || stat.size > MAX_RELEASE_TARBALL_FILE_BYTES
+    || !isExecutableFile(file, stat.mode)) {
     throw new Error("Release executable must be a bounded executable file");
   }
   return file;

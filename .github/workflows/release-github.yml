@@ -290,9 +290,9 @@ jobs:
             exit 1
           fi
 
-      # Render install-beta.sh from the same archive digests. This path always
-      # publishes a prerelease SemVer, so install-stable.sh is not produced.
-      - name: Render the beta Shell Installer
+      # Render both beta Installers from the same archive digests. This path
+      # publishes a prerelease SemVer, so stable Installers are absent.
+      - name: Render the beta Installers
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -312,8 +312,21 @@ jobs:
           )"
           node --import tsx scripts/release-install-script.ts render \
             "$VERSION" "$GITHUB_REPOSITORY" "$digests" dist/assets
-          test -f dist/assets/install-beta.sh
+          # Ask policy which Installers this version produces. A held target
+          # empties its kind, and naming the files here would then demand an
+          # asset the renderer intentionally did not write.
+          expected="$(
+            node --import tsx --input-type=module -e '
+              import { expectedInstallerNames } from "./scripts/release-publication-assets.ts";
+              process.stdout.write(expectedInstallerNames(process.argv[1]).join("\n"));
+            ' "$VERSION"
+          )"
+          printf '%s\n' "$expected" | while read -r name; do
+            test -n "$name" || continue
+            test -f "dist/assets/$name"
+          done
           test ! -e dist/assets/install-stable.sh
+          test ! -e dist/assets/install-stable.ps1
 
       # The redirection creates checksums.txt before the command reads the
       # directory, which is why the command never lists a file by that name.
@@ -329,7 +342,7 @@ jobs:
         with:
           subject-path: |
             dist/assets/*.tar.gz
-            dist/assets/install-beta.sh
+            dist/assets/install-beta.*
             dist/assets/checksums.txt
 
       - name: Publish the pre-release
@@ -347,5 +360,5 @@ jobs:
             --title "1667 v$VERSION" \
             --notes-file dist/release-notes.md \
             dist/assets/*.tar.gz \
-            dist/assets/install-beta.sh \
+            dist/assets/install-beta.* \
             dist/assets/checksums.txt

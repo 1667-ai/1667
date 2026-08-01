@@ -1,6 +1,7 @@
 /** Canonical file and physical member inventory for GitHub Release Archives. */
 import {
   PUBLISHED_ARTIFACT_TARGETS,
+  releaseTargetForArtifact,
   type BuiltArtifactTarget
 } from "../shared/release-targets.js";
 import {
@@ -57,14 +58,17 @@ export function releaseArchiveMemberPaths(
   );
 }
 
-/** The uniform member layout embedded into the portable Shell Installer. */
-export function publishedReleaseArchiveMemberRelLayout(
+/** The uniform member layout embedded into the POSIX Shell Installer. */
+export function publishedShellArchiveMemberRelLayout(
   version: string
 ): readonly string[] {
-  const firstTarget = PUBLISHED_ARTIFACT_TARGETS[0];
-  if (firstTarget === undefined) throw new Error("No published release targets");
+  const targets = PUBLISHED_ARTIFACT_TARGETS.filter((target) => {
+    return releaseTargetForArtifact(target).platform !== "win32";
+  });
+  const firstTarget = targets[0];
+  if (firstTarget === undefined) throw new Error("No published Shell Installer targets");
   const expected = releaseArchiveMemberRelPaths(firstTarget, version);
-  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
+  for (const target of targets) {
     const layout = releaseArchiveMemberRelPaths(target, version);
     if (
       layout.length !== expected.length

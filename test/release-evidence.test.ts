@@ -11,6 +11,7 @@ import { canonicalJson } from "../server/canonical-json.js";
 import {
   collectReleaseEvidence,
   collectReleaseTagAuthorization,
+  defaultSignatureVerifiers,
   type ReleaseEvidenceRequest
 } from "../scripts/release-evidence.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
@@ -483,4 +484,18 @@ test("the evidence collector reads no file", () => {
       `scripts/release-evidence.ts must learn nothing from ${reader}; ask Git instead`
     );
   }
+});
+
+// POSIX system paths are constants. Windows paths depend on mutable runner
+// environment, so the release workflow must pass its independently pinned
+// verifier explicitly rather than this collector deriving one.
+test("signature verifier defaults are fixed on POSIX and fail closed on Windows", () => {
+  for (const candidate of defaultSignatureVerifiers("linux")) {
+    assert.match(candidate, /^\/(?:usr\/)?bin\/ssh-keygen$/u);
+  }
+  assert.deepEqual(defaultSignatureVerifiers("darwin"), [
+    "/usr/bin/ssh-keygen",
+    "/bin/ssh-keygen"
+  ]);
+  assert.deepEqual(defaultSignatureVerifiers("win32"), []);
 });

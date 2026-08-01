@@ -9,6 +9,10 @@ import {
   waitForResponseSettlement
 } from "./http.js";
 import { MAX_IMPORT_BYTES } from "./import-st.js";
+import {
+  decodeMarkdownHttpBody,
+  MAX_MARKDOWN_HTTP_BODY_BYTES
+} from "../shared/import-markdown-wire.js";
 import type { StoryService } from "./story-service.js";
 import { streamResponse } from "./stream-response.js";
 import { optionalString, requireString, requireStringValue } from "./validation.js";
@@ -310,6 +314,28 @@ async function handleApi(
       201,
       await mutate("importSillyTavern", {
         jsonl: await textBody(MAX_IMPORT_BYTES)
+      })
+    );
+  }
+
+  if (head === "import" && id === "markdown" && sub === undefined && method === "POST") {
+    const framedBody = await textBody(MAX_MARKDOWN_HTTP_BODY_BYTES);
+    let decoded: ReturnType<typeof decodeMarkdownHttpBody>;
+    try {
+      decoded = decodeMarkdownHttpBody(framedBody);
+    } catch (error) {
+      throw new ServiceError(400, error instanceof Error ? error.message : "Invalid Markdown import");
+    }
+    const { markdown, defaultTitle } = decoded;
+    if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    return sendJson(
+      response,
+      201,
+      await mutate("importMarkdown", {
+        markdown,
+        ...(defaultTitle !== undefined ? { defaultTitle } : {})
       })
     );
   }

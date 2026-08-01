@@ -52,8 +52,8 @@ The build checks the root, TUI, and lockfile versions. It also checks the
 embedded worker and the prompt tokenizer. The output is a development
 candidate. The command does not sign, archive, or publish it.
 
-The release publishes macOS and Linux packages. The Windows x64 package is
-held. See [Platforms and standalone builds](../docs/platforms-and-builds.md).
+The release publishes packages for macOS, Linux, and Windows x64. See
+[Platforms and standalone builds](../docs/platforms-and-builds.md).
 
 ## Use the TUI
 

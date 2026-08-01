@@ -159,24 +159,16 @@ jobs:
   # CPU time. test/performance-budget.ts holds the measured figures. Gating every
   # merge on it bought latency and flakes, not signal.
   #
-  # windows-x64 is not built here at all at present, on either event. The
-  # compiled prompt-tokenizer smoke hit its fixed 90s timeout and failed the
-  # whole job, repeatedly, on commits that touch nothing near it and that pass on
-  # re-run unchanged — a hang rather than contention, a freshly compiled
-  # executable held by a scanner being the usual cause on these runners. It is
-  # also held from publication, so nothing installs it, and its hold now says
-  # plainly that it is unverified rather than promising a verification this
-  # matrix is not performing. Its runner label stays in the map below, ready for
-  # the commit that returns it to the matrix. Run the Windows native tests and
-  # the package smoke before Windows release work resumes.
+  # Windows runs native contracts and the packaged product. The full runtime
+  # and TUI suites have POSIX-only fixtures, so the Linux gate runs them.
   packaged-platform:
     name: packaged-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
         target: ${{ fromJSON(github.event_name == 'pull_request'
-          && '["darwin-arm64","linux-arm64","linux-x64"]'
-          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64"]') }}
+          && '["darwin-arm64","linux-arm64","linux-x64","windows-x64"]'
+          || '["darwin-arm64","darwin-x64","linux-arm64","linux-x64","windows-x64"]') }}
     runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
     timeout-minutes: 15
     steps:
@@ -205,17 +197,31 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run native platform tests
-        if: matrix.target != 'darwin-x64'
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         run: npm test
+
+      - name: Run Windows platform and Installer tests
+        if: matrix.target == 'windows-x64'
+        run: >-
+          node --import tsx --import ./test/setup.ts --test
+          test/windows-platform-contract.test.ts
+          test/windows-platform-acl-edge-cases.test.ts
+          test/release-install-script.test.ts
+          test/release-install-powershell.test.ts
 
       - name: Run Intel macOS platform tests without benchmark contention
         if: matrix.target == 'darwin-x64'
         run: npm test -- --test-concurrency=1
 
       - name: Run native TUI tests
-        if: matrix.target != 'darwin-x64'
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         working-directory: tui
         run: bun test
+
+      - name: Run Windows upgrade contract tests
+        if: matrix.target == 'windows-x64'
+        working-directory: tui
+        run: bun test test/upgrade-cli.test.ts test/install-ownership-authority.test.ts
 
       - name: Run Intel macOS TUI tests without filesystem contention
         if: matrix.target == 'darwin-x64'
@@ -225,8 +231,5 @@ jobs:
       - name: Build and execute packaged candidate
         working-directory: tui
         env:
-          # No target in this matrix is Windows today. The variable stays, set
-          # off, so returning windows-x64 is a matrix edit rather than a hunt
-          # for the smoke this job used to arm.
           AI_1667_WINDOWS_DEFAULT_STATE_SMOKE: ${{ matrix.target == 'windows-x64' && '1' || '0' }}
         run: bun run build:standalone

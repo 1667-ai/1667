@@ -34,8 +34,10 @@ This document uses these Technical Names:
 | launcher package | The JavaScript package named `@1667-ai/cli` |
 | platform package | A package that contains one native executable |
 | candidate | A possible release package that has not received publication approval |
+| Installer | A Shell Installer or a PowerShell Installer |
 | Shell Installer | A channel-specific release script that installs one native executable |
-| Managed Installation | An installation that the Shell Installer creates and registers |
+| PowerShell Installer | A Windows release script that installs one native executable |
+| Managed Installation | An installation that an Installer creates and registers |
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
 | Release Archive | The target-specific native archive in an immutable GitHub release |
 | POSIX ustar | The archive format that the release workflows use |
@@ -85,11 +87,11 @@ release. The launcher therefore never names a held target's package. It refuses
 that target by name. Its platform is supported, and a developer can build its
 executable from source. The package is withheld.
 
-`windows-x64` is currently held.
+No release target is currently held.
 
 ## Release package matrix
 
-The release matrix contains exactly five release packages:
+The release matrix contains exactly six release packages:
 
 | Release target | Package name | `buildIdentity` |
 | --- | --- | --- |
@@ -98,14 +100,12 @@ The release matrix contains exactly five release packages:
 | macOS x64 | `@1667-ai/darwin-x64` | Trusted native identity |
 | Linux arm64 | `@1667-ai/linux-arm64` | Trusted native identity |
 | Linux x64 | `@1667-ai/linux-x64` | Trusted native identity |
+| Windows x64 | `@1667-ai/windows-x64` | Trusted native identity |
 
-The matrix contains one launcher package and four platform packages.
+The matrix contains one launcher package and five platform packages.
 
-Routine CI does not build `windows-x64`. Its package,
-`@1667-ai/windows-x64`, is not in this matrix, is not in the launcher's optional
-dependencies, is not packed by the release pack step, and is not published.
-Run the Windows native tests and package smoke before Windows release work
-resumes.
+Routine CI builds and tests `windows-x64`. It runs the PowerShell Installer
+end-to-end tests. It also runs the Windows package smoke through the launcher.
 
 All release packages declare the canonical Git repository. The Linux platform
 packages declare `libc: ["glibc"]`. The launcher package and the macOS platform
@@ -129,7 +129,7 @@ The HTTP server checks this requirement when it starts.
 
 ## Package contents
 
-Each of the five release packages contains these files:
+Each of the six release packages contains these files:
 
 - `package.json`, which declares `"license": "Apache-2.0"`
 - The executable for the package, which is `bin/1667.js` in the launcher
@@ -140,13 +140,13 @@ Each of the five release packages contains these files:
 - `NOTICE`
 
 The pack step copies `LICENSE` and `NOTICE` from the repository root. Do not
-change these two files for one package. All five packages must contain the same
+change these two files for one package. All six packages must contain the same
 bytes.
 
 Preflight pins both files to reviewed digests held in
 `scripts/release-package-manifests.ts`, and rejects any package whose `LICENSE`
-or `NOTICE` entry does not match. Comparing the five packages with each other
-would only prove they agree, which staging the same wrong or truncated file five
+or `NOTICE` entry does not match. Comparing the six packages with each other
+would only prove they agree, which staging the same wrong or truncated file six
 times also satisfies. Editing either file therefore requires updating the pinned
 digests in the same commit; a test compares the pins against the repository
 files, so a stale pin fails the build.
@@ -167,8 +167,8 @@ Collect these inputs before preflight:
 3. Run trusted signature verification with `git verify-tag <tag>`.
 4. Select one millisecond-precision UTC build timestamp for all targets.
 5. Use the same version in the root package, TUI package, and root lockfile.
-6. Run `--version --json` on each of the four published native executables.
-7. Pack the launcher package and the four published platform packages.
+6. Run `--version --json` on each of the five published native executables.
+7. Pack the launcher package and the five published platform packages.
 
 If you verify a held target, its identity has no slot in the release plan. The
 release plan has one entry per release package.
@@ -191,7 +191,7 @@ Put each native executable in this directory structure:
 <builds>/<release-target>/<executable>
 ```
 
-Stage the five published release packages:
+Stage the six published release packages:
 
 ```sh
 npm run release:stage -- \
@@ -205,10 +205,10 @@ package manifest to each directory.
 The stage command sets each file modification time to the release build
 timestamp. It also sets each directory modification time to that timestamp.
 This action makes repeated pack operations reproducible for the same inputs.
-The stage command moves the staging directory into place only after all five
+The stage command moves the staging directory into place only after all six
 packages pass validation.
 
-Pack the five directories:
+Pack the six directories:
 
 ```sh
 npm run release:pack -- <version> <staging> <tarballs>
@@ -221,7 +221,7 @@ paths.
 The pack command disables lifecycle scripts. It validates each output tarball
 against the release package policy. It writes the tarball path, SHA-256, and
 size to standard output as canonical JSON.
-The pack command moves the tarball directory into place only after all five
+The pack command moves the tarball directory into place only after all six
 tarballs pass validation.
 
 The batch commands exclude each held target. Use `stageReleasePackage` and
@@ -254,7 +254,7 @@ The SHA-256 value covers the exact standard-output bytes.
 ## Release plan
 
 The release plan must use strict JSON. The `artifacts` array must contain
-exactly one entry per release package, and therefore exactly five entries.
+exactly one entry per release package, and therefore exactly six entries.
 
 This excerpt shows the source evidence and one launcher entry. The excerpt is
 not a complete release plan.
@@ -297,7 +297,7 @@ rejects package identities that do not agree with the source evidence.
 ## Hosted npm publication
 
 `.github/workflows/release-npm.yml` is the hosted npm publication workflow. npm
-Trusted Publishing trusts this exact workflow path for the five release
+Trusted Publishing trusts this exact workflow path for the six release
 packages.
 
 The workflow accepts a manual dispatch on the signed `v<version>` tag. The input
@@ -318,10 +318,10 @@ records also bind to that one commit.
 The workflow has these jobs:
 
 1. `authorize` verifies the dispatcher before it starts release work.
-2. `build` builds and observes the four published native executables.
-3. `launcher` stages and packs the five release packages.
+2. `build` builds and observes the five published native executables.
+3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
-5. `publish` publishes the four platform packages before the launcher package.
+5. `publish` publishes the five platform packages before the launcher package.
 6. `release` verifies publication and publishes the GitHub pre-release.
 
 The publication workflow and the manual operation holder use one non-cancelling
@@ -362,7 +362,7 @@ No procedure updates or deletes an operation marker.
 The workflow publishes with the npm `next` tag. It waits for the platform
 packages before it publishes the launcher package. It creates
 `released/v<version>` only after npm and GitHub publication are complete.
-The final registry check requires `next` to name this version for all five
+The final registry check requires `next` to name this version for all six
 packages.
 The workflow fully verifies each package before it writes the next package.
 
@@ -436,20 +436,19 @@ default-port publication, and lock guidance.
 
 The Windows candidate also verifies the protected machine-tier DACL. It rejects
 reparse points. It stages the exact npm package layout, packs it, validates both
-tarballs against release package policy, and installs them. Because
-`windows-x64` is held, it then verifies that the installed launcher refuses the
-target by naming the hold, and executes the installed executable directly.
-Clearing the hold restores the launcher run without another change to the
-smoke.
+tarballs against release package policy, and installs them. It then executes
+the installed package through the launcher.
 
 ## Managed installation and upgrades
 
-The Shell Installer and `1667 upgrade` follow ADR 010.
+The Installers and `1667 upgrade` follow ADR 010.
 
-The release produces channel-specific install scripts:
+The release produces channel-specific Installers:
 
 - `install-beta.sh` for every valid release version
 - `install-stable.sh` only for a non-prerelease SemVer
+- `install-beta.ps1` for every valid release version
+- `install-stable.ps1` only for a non-prerelease SemVer
 
 Each script embeds these values:
 
@@ -457,8 +456,8 @@ Each script embeds these values:
 - one exact channel;
 - one GitHub repository;
 - one immutable release tag URL base;
-- each published archive name;
-- each archive SHA-256 digest.
+- each applicable Release Archive name;
+- each applicable Release Archive SHA-256 digest.
 
 The script never resolves the latest GitHub release. The script never reads npm
 tags.
@@ -468,29 +467,30 @@ Both release workflows call that generator. They do not keep a second target
 list or a second script template.
 
 The release workflows write each Release Archive in POSIX ustar format. They
-disable macOS metadata copies. The Shell Installer bounds the compressed
-archive. It also bounds the complete decompressed archive. It validates each
-physical member against the canonical Release Archive layout. It rejects
-extension headers, links, special files, duplicate paths, unknown paths, and
-malformed headers. It extracts only the `1667` executable after validation.
+disable macOS metadata copies. Each Installer bounds the compressed archive.
+The Shell Installer also bounds the complete decompressed archive. Each
+Installer validates the Release Archive layout. Each Installer rejects links,
+special files, duplicate paths, and unknown paths. The Shell Installer extracts
+`1667`. The PowerShell Installer extracts `1667.exe`.
 
 The canonical hosted path is `.github/workflows/release-npm.yml`:
 
 1. The matrix build jobs build and observe each native executable.
 2. The launcher job stages Release Archives from those same executable bytes.
-3. The launcher job renders the install scripts from the archive digests.
-4. The release job retains npm packages, archives, install scripts, checksums,
+3. The launcher job renders the Shell and PowerShell Installers from the archive
+   digests.
+4. The release job retains npm packages, archives, Installers, checksums,
    and attestations in the immutable GitHub release.
 
 The launcher job does not rebuild native executables. The release job does not
 rebuild them either.
 
 `.github/workflows/release-github.yml` reuses the same generator and archive
-policy. That path always publishes a prerelease SemVer, so it includes
-`install-beta.sh` only.
+policy. That path always publishes a prerelease SemVer. It includes
+`install-beta.sh` and `install-beta.ps1` only.
 
 A Managed Installation writes `.1667-install.json` next to the executable. Only
-a valid Ownership Record grants replacement authority. npm, source, and copied
+a valid Ownership Record grants installation authority. npm, source, and copied
 installations stay read-only to `1667 upgrade`.
 
 `1667 upgrade` downloads the Platform Package from the canonical npm registry.
@@ -500,16 +500,28 @@ executable. The transaction stays in the Install Root.
 
 `1667 upgrade --rollback` works offline.
 
+Windows does not replace the running `1667.exe` file. On Windows, `1667 upgrade`
+verifies the available release and shows the applicable PowerShell Installer
+command. The command downloads `install-stable.ps1` from the exact, immutable
+`v<version>` GitHub release that the plan selected; it does not re-resolve the
+moving homepage route. Exit 1667 before you run that command. Run the same
+command again for an upgrade. The PowerShell Installer keeps the Installation
+ID. Windows does not support `1667 upgrade --rollback`.
+
 Background update checks stay notify-only. They never install a Candidate.
 
-Do not advertise the homepage one-line install command until the end-to-end
-release gate in ADR 010 passes. The homepage must serve bytes that match one
-attested channel install script for the promoted release.
+The homepage must serve bytes that match one attested channel Installer for the
+promoted release.
+
+Do not advertise an Installer command before the homepage serves that route.
+`https://1667.ai/install.ps1` stays absent until a promotion sets
+`powershellInstallerSha256`. Complete the release and the promotion first. Then
+advertise the PowerShell Installer command.
 
 ## End-to-end release gate
 
-Verify the Shell Installer and `1667 upgrade` behavior before you advertise the
-homepage install command.
+Verify both Installers and the applicable upgrade path before you change the
+homepage install commands.
 
 Run this command:
 
@@ -563,6 +575,26 @@ The command does these checks:
 10. It executes the check and apply paths from the source checkout. It verifies
     that the source installation stays externally managed.
 
+On Windows x64, run this command:
+
+```powershell
+node --import tsx --import ./test/setup.ts --test test/release-install-powershell.test.ts
+```
+
+The test downloads `install.ps1` through a loopback HTTP server. It pipes the
+downloaded script to PowerShell. It verifies these cases:
+
+1. A fresh installation succeeds.
+2. The same installation command succeeds again.
+3. A running `1667.exe` blocks replacement and gives the retry instruction.
+4. The same installation command upgrades the executable after 1667 exits.
+5. The Installer keeps the `installationId` value during an upgrade.
+6. The Installer does not replace an unmanaged executable.
+7. The Installer rejects an incorrect SHA-256 digest.
+8. A new attempt succeeds in a root where an attempt failed before.
+9. The Installer refuses a root that holds a file it does not own.
+10. The Installer rejects an incorrect build identity.
+
 ## GitHub pre-release of native archives
 
 `.github/workflows/release-github.yml` publishes one archive per published
@@ -571,10 +603,8 @@ the version. The version must include a prerelease identifier. The workflow
 refuses every other ref, and refuses a dirty checkout.
 
 `shared/release-targets.ts` decides which targets the GitHub workflow
-publishes. The `heldFromPublication` field contains this decision.
-`windows-x64` is held, and routine CI does not build it. Its hold reason says
-that it is not verified. The release notes tell a reader to treat a source
-build as untested.
+publishes. The `heldFromPublication` field contains this decision. The current
+release publishes `windows-x64`. Routine CI builds and tests this target.
 
 Clearing the field returns a target to the GitHub build matrix, notes table,
 held-target paragraph, and archive set. The npm workflow has a separate,

@@ -53,7 +53,27 @@ export const UPGRADE_HELP = `Usage:
   1667 upgrade --rollback [--json]
 
 If you installed 1667 with npm, or you built it from source, update it the same
-way you installed it.`;
+way you installed it.
+On Windows, exit 1667 and run the PowerShell Installer again.`;
+
+export function windowsInstallCommand(
+  installRoot: string,
+  targetVersion?: string
+): string {
+  if (targetVersion !== undefined && !isSemVer(targetVersion)) {
+    throw new TypeError("Windows Installer target version must be SemVer");
+  }
+  const root = installRoot.replaceAll("'", "''");
+  const installerUrl = targetVersion === undefined
+    ? "https://1667.ai/install.ps1"
+    : `https://github.com/1667-ai/1667/releases/download/v${
+      encodeURIComponent(targetVersion)
+    }/install-stable.ps1`;
+  const script = `& ([scriptblock]::Create((irm ${installerUrl}))) `
+    + "-InstallRoot '" + root + "'";
+  return "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand "
+    + Buffer.from(script, "utf16le").toString("base64");
+}
 
 const INSTRUCTIONS_ORIGIN =
   `https://www.npmjs.com/package/${RELEASE_LAUNCHER_PACKAGE}/v`;
@@ -89,7 +109,9 @@ export async function executeUpgradeCli(
   const configChannel = dependencies.defaultChannel ?? "stable";
   const defaultChannel: UpgradeChannel = authority.kind === "shell"
     ? authority.record.channel
-    : configChannel;
+    : authority.kind === "powershell"
+      ? authority.channel
+      : configChannel;
   let parsed: ParsedUpgradeArguments | null;
   try {
     parsed = parseUpgradeArguments(argv, defaultChannel);
@@ -100,7 +122,7 @@ export async function executeUpgradeCli(
       argv.includes("--json"),
       { currentVersion: AI_1667_PRODUCT_VERSION },
       partialChannel(argv, defaultChannel),
-      authority.kind === "shell" ? "shell" : "manual",
+      authorityMethod(authority),
       failure.code === "invalid_arguments" ? 2 : failure.code === "interrupted" ? 130 : 1
     );
   }
@@ -117,11 +139,11 @@ export async function executeUpgradeCli(
       parsed.json,
       { currentVersion: AI_1667_PRODUCT_VERSION },
       upgradeCommandChannel(parsed.command, defaultChannel),
-      authority.kind === "shell" ? "shell" : "manual",
+      authorityMethod(authority),
       1
     );
   }
-  const method: UpgradeMethod = authority.kind === "shell" ? "shell" : "manual";
+  const method = authorityMethod(authority);
   const registry = dependencies.registry ?? new NpmUpgradeRegistry(dependencies.fetcher);
   try {
     const envelope = await dispatchUpgradeCommand(
@@ -164,6 +186,14 @@ async function dispatchUpgradeCommand(
 ): Promise<UpgradeSuccessEnvelope> {
   switch (command.kind) {
     case "rollback": {
+      if (authority.kind === "powershell") {
+        requireServableWindowsChannel(authority.channel);
+        throw new UpgradeFailure(
+          "unsupported_target",
+          "Windows rollback is unavailable. Exit 1667, then run: "
+          + windowsInstallCommand(authority.installRoot)
+        );
+      }
       if (authority.kind !== "shell") {
         throw new UpgradeFailure(
           "unsupported_target",
@@ -183,7 +213,10 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      return publicEnvelopeFromPlan(plan, method);
+      if (method === "powershell" && plan.status !== "up-to-date") {
+        requireServableWindowsChannel(plan.channel);
+      }
+      return publicEnvelopeFromPlan(plan, authority);
     }
     case "apply": {
       if (authority.kind === "shell") {
@@ -202,7 +235,12 @@ async function dispatchUpgradeCommand(
         registry,
         dependencies.signal
       );
-      return publicEnvelopeFromPlan(plan, "manual");
+      const channelSwitch = authority.kind === "powershell"
+        && command.channel !== authority.channel;
+      if (method === "powershell" && (plan.status !== "up-to-date" || channelSwitch)) {
+        requireServableWindowsChannel(plan.channel);
+      }
+      return publicEnvelopeFromPlan(plan, authority, channelSwitch);
     }
   }
 }
@@ -213,8 +251,21 @@ async function dispatchUpgradeCommand(
  */
 export function publicEnvelopeFromPlan(
   plan: UpgradeCorePlan,
-  method: UpgradeMethod
+  authority: InstallationAuthority,
+  forcePowerShellInstall = false
 ): UpgradeSuccessEnvelope {
+  const method = authorityMethod(authority);
+  if (forcePowerShellInstall && authority.kind === "powershell") {
+    return upgradeEnvelope({
+      status: "manual",
+      current: plan.current,
+      latest: plan.latest,
+      target: plan.latest,
+      channel: plan.channel,
+      method: "powershell",
+      command: windowsInstallCommand(authority.installRoot, plan.latest)
+    });
+  }
   if (plan.status === "up-to-date") {
     return upgradeEnvelope({
       status: "up-to-date",
@@ -234,13 +285,42 @@ export function publicEnvelopeFromPlan(
       channel: plan.channel
     });
   }
+  if (authority.kind === "powershell") {
+    return upgradeEnvelope({
+      status: "manual",
+      current: plan.current,
+      latest: plan.latest,
+      target: plan.target,
+      channel: plan.channel,
+      method: "powershell",
+      command: windowsInstallCommand(authority.installRoot, plan.target)
+    });
+  }
   return upgradeEnvelope({
     status: "manual",
     current: plan.current,
     latest: plan.latest,
     target: plan.target,
-    channel: plan.channel
+    channel: plan.channel,
+    method: "manual"
   });
+}
+
+/**
+ * `https://1667.ai/install.ps1` serves the one promoted release, which is the
+ * stable channel. A beta PowerShell Installation therefore cannot be pointed at
+ * it: the plan would verify a beta version and the command would install the
+ * stable one, then rewrite the Ownership Record to `stable`. Refuse instead, and
+ * name the attested asset that does carry the requested channel.
+ */
+function requireServableWindowsChannel(channel: UpgradeChannel): void {
+  if (channel === "stable") return;
+  throw new UpgradeFailure(
+    "unsupported_target",
+    `The Windows Installer route serves the stable channel only. `
+    + `Download and attest install-${channel}.ps1 from the GitHub release, `
+    + "then run it."
+  );
 }
 
 export async function runProcessUpgrade(
@@ -309,7 +389,11 @@ function renderUpgrade(
   }
   if (command.kind === "check") {
     if (envelope.status === "manual") {
-      lines.push("Run '1667 upgrade' to see how to update.");
+      if (envelope.method === "powershell") {
+        lines.push("Exit 1667, then run:", envelope.command);
+      } else {
+        lines.push("Run '1667 upgrade' to see how to update.");
+      }
     } else if (envelope.status === "available") {
       lines.push("Run '1667 upgrade' to install it.");
     }
@@ -319,10 +403,23 @@ function renderUpgrade(
     return `${lines.join("\n")}\n`;
   }
   if (envelope.status === "manual") {
+    if (envelope.method === "powershell") {
+      lines.push("Exit 1667, then run:");
+      lines.push(envelope.command);
+      return `${lines.join("\n")}\n`;
+    }
     lines.push(`Instructions: ${instructionsUrl(envelope.target)}`);
     lines.push("Start 1667 again after you update it.");
   }
   return `${lines.join("\n")}\n`;
+}
+
+function authorityMethod(authority: InstallationAuthority): UpgradeMethod {
+  return authority.kind === "shell"
+    ? "shell"
+    : authority.kind === "powershell"
+      ? "powershell"
+      : "manual";
 }
 
 function instructionsUrl(version: string): string {

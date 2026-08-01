@@ -323,7 +323,7 @@ function assertEntryPolicy(
 /**
  * Binds the staged licence files to the exact bytes the project publishes under.
  * Every package stages the same repository-root LICENSE and NOTICE, so a
- * substituted or truncated copy applied to all five leaves the packages in
+ * substituted or truncated copy applied to all packages leaves the packages in
  * agreement with each other and with themselves; only a pinned digest rejects
  * it, and shipping an invalid licence to a registry is not reversible.
  */

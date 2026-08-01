@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 import` now imports 1667-exported Markdown files as new stories.**
+  Markdown `#` headings set the story title. `##` headings become chapter
+  boundaries. Prose blocks separated by blank lines become story parts.
+  Thanks @10fra for the request.
+- **1667 now publishes a native Windows x64 package.** The PowerShell Installer
+  verifies the Release Archive and manages upgrades. CI tests the Windows
+  package, private state DACLs, and Installer on Windows. Thanks @10fra for the
+  request.
 - **The install command now shows its progress.** It names each stage. It also
   shows the transfer while it downloads. The command was silent until it
   stopped. You could not see the difference between a slow network and a stopped

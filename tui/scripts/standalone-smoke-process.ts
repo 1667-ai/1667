@@ -3,6 +3,14 @@ import { rm } from "node:fs/promises";
 const REMOVE_ATTEMPTS = 50;
 const REMOVE_RETRY_MS = 100;
 
+/** A smoke that never reported an exit, as opposed to one that failed. */
+export class StandaloneSmokeTimeout extends Error {
+  constructor(executable: string, timeoutMs: number) {
+    super(`Standalone smoke timed out after ${timeoutMs}ms: ${executable}`);
+    this.name = "StandaloneSmokeTimeout";
+  }
+}
+
 export async function runStandalone(
   executable: string,
   args: readonly string[],
@@ -38,9 +46,7 @@ export async function runStandalone(
     clearTimeout(timeout);
   }
   if (timedOut) {
-    throw new Error(
-      `Standalone smoke timed out after ${timeoutMs}ms: ${executable}`
-    );
+    throw new StandaloneSmokeTimeout(executable, timeoutMs);
   }
   return {
     exitCode,

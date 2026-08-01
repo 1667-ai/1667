@@ -86,7 +86,7 @@ It then sends an unconditional delete request.
 The npm registry does not give this command a compare-and-swap condition.
 The operation lease and the sole-writer rule prevent a concurrent tag change.
 The helper reads the package again immediately before each npm write.
-It verifies the access lists for all five packages immediately before each write.
+It verifies the access lists for all six packages immediately before each write.
 It verifies the immutable writer after it verifies the access lists.
 It then starts the npm child without another operation.
 It stops before `npm dist-tag rm` when the tag no longer names `VERSION`.

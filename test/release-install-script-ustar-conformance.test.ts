@@ -21,7 +21,7 @@ import type { BuiltArtifactTarget } from "../shared/release-targets.js";
 import {
   INSTALL_VERSION,
   canonicalReleaseArchiveEntries,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   releaseStub,
   ustarArchive,
   type UstarFixtureEntry
@@ -39,9 +39,9 @@ test(
   "TypeScript and Shell Installer ustar parsers accept and reject one physical corpus",
   { timeout: 60_000 },
   async (t) => {
-    const detectedTarget = hostPublishedTarget();
+    const detectedTarget = hostShellInstallerTarget();
     if (detectedTarget === null) {
-      t.skip("Host is not a published release target");
+      t.skip("Host cannot run the POSIX Shell Installer");
       return;
     }
     const target: BuiltArtifactTarget = detectedTarget;
