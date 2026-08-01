@@ -24,7 +24,7 @@ import {
   canonicalReleaseArchiveEntries,
   digestsFor,
   execFileAsync,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   releaseStub,
   ustarArchive,
   writeFakeArchive,
@@ -88,9 +88,9 @@ test(
   "Shell Installer rejects oversized expanded executable and unsafe archive layouts",
   { timeout: 60_000 },
   async (t) => {
-    const detectedTarget = hostPublishedTarget();
+    const detectedTarget = hostShellInstallerTarget();
     if (detectedTarget === null) {
-      t.skip("Host is not a published release target");
+      t.skip("Host cannot run the POSIX Shell Installer");
       return;
     }
     const hostTarget: BuiltArtifactTarget = detectedTarget;
@@ -236,9 +236,9 @@ test(
   "Shell Installer accepts host system tar packed with workflow ustar flags",
   { timeout: 60_000 },
   async (t) => {
-    const detectedTarget = hostPublishedTarget();
+    const detectedTarget = hostShellInstallerTarget();
     if (detectedTarget === null) {
-      t.skip("Host is not a published release target");
+      t.skip("Host cannot run the POSIX Shell Installer");
       return;
     }
     const hostTarget: BuiltArtifactTarget = detectedTarget;
@@ -284,9 +284,9 @@ test(
   "Shell Installer rejects huge declared ustar size before extraction",
   { timeout: 60_000 },
   async (t) => {
-    const detectedTarget = hostPublishedTarget();
+    const detectedTarget = hostShellInstallerTarget();
     if (detectedTarget === null) {
-      t.skip("Host is not a published release target");
+      t.skip("Host cannot run the POSIX Shell Installer");
       return;
     }
     const hostTarget: BuiltArtifactTarget = detectedTarget;

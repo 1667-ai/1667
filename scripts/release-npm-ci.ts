@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { isExecutableFile } from "./release-boundary-validation.js";
 import { RELEASE_TAG_REF } from "./release-evidence-inspection.js";
 
 const execFileAsync = promisify(execFile);
@@ -145,7 +146,8 @@ async function runGh(
     throw new Error("GitHub CLI must use an absolute path");
   }
   const stat = lstatSync(executable);
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) {
+  if (!stat.isFile() || stat.isSymbolicLink()
+    || !isExecutableFile(executable, stat.mode)) {
     throw new Error("GitHub CLI must be an absolute executable file");
   }
   const gh = realpathSync(executable);

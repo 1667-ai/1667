@@ -2,7 +2,8 @@ import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
   MAX_HUMAN_EDIT_RANGES,
-  MAX_RECENT_LINES
+  MAX_RECENT_LINES,
+  MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
@@ -19,7 +20,7 @@ import {
 } from "./story-wire-validation.js";
 
 export const MAX_STORY_MANIFEST_BYTES = 16 * 1024 * 1024;
-export const MAX_STORY_TITLE_CHARS = 4_096;
+export const MAX_STORY_TITLE_CHARS = MAX_STORED_TITLE_CHARS;
 export const MAX_STORY_COLLECTION_ITEMS = 65_536;
 export const MAX_STORY_IDENTIFIER_CHARS = 1_024;
 export const MAX_STORY_INSTRUCTION_CHARS = 1024 * 1024;

@@ -160,11 +160,11 @@ npm run release:publish -- verify \
   "$OPERATIONS_DIR/publication/tarballs"
 ```
 
-This command verifies all five exact versions.
+This command verifies all six exact versions.
 It verifies each tarball digest and package identity.
 It verifies npm provenance for the workflow, source ref, and source commit.
 It verifies that no release package is deprecated.
-It verifies that `next` names `VERSION` for all five release packages.
+It verifies that `next` names `VERSION` for all six release packages.
 
 Do not continue when this command fails.
 
@@ -211,10 +211,10 @@ gh run watch "$LEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
 ```
 
 The command reads the package order from the canonical release policy.
-It verifies all five package states before its first write.
-It verifies authenticated read-write access on all five package names.
+It verifies all six package states before its first write.
+It verifies authenticated read-write access on all six package names.
 It permits only `1667.ai` to have read-write access.
-It moves the four platform destination tags before it moves the launcher tag.
+It moves the five platform destination tags before it moves the launcher tag.
 It verifies each write before it starts the next write.
 It keeps `next` on `VERSION`.
 It skips a destination tag that already names `VERSION`.
@@ -374,10 +374,10 @@ npm run release:tags -- quarantine "$VERSION" \
 The command reads the package order from the canonical release policy.
 It requires an immutable completion ref for `SUPERSEDING_VERSION`.
 It stops when a quarantine ref exists for `SUPERSEDING_VERSION`.
-It verifies that all five packages for `SUPERSEDING_VERSION` exist.
+It verifies that all six packages for `SUPERSEDING_VERSION` exist.
 It verifies that none of those packages is deprecated.
-It verifies all five package states before its first write.
-It verifies authenticated read-write access on all five package names.
+It verifies all six package states before its first write.
+It verifies authenticated read-write access on all six package names.
 It permits only `1667.ai` to have read-write access.
 It removes every launcher tag that names `VERSION`.
 It then removes every platform tag that names `VERSION`.
@@ -423,7 +423,7 @@ The command reads the incident reference and superseding version from the
 completed operation journal.
 It verifies the successful writer acknowledgment before it changes the notes.
 It verifies the completion ref and quarantine ref for the superseding version.
-It verifies all five superseding package versions again.
+It verifies all six superseding package versions again.
 It stops when a superseding package is absent or deprecated.
 It changes only the release notes.
 It verifies that the release assets and immutable identity do not change.

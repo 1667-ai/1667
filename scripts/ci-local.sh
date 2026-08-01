@@ -6,8 +6,8 @@
 # suites: ownedLoopbackHttpSupportedOn is Linux-only, so roughly thirty tests
 # skip silently on macOS and Windows and are never otherwise executed.
 #
-# Routine CI does not reach darwin-x64 or windows-x64. Test these targets before
-# their release work resumes.
+# This local script does not reach darwin-x64 or windows-x64. Hosted CI tests
+# these targets on their native runners.
 set -uo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -54,7 +54,7 @@ export {
   releaseArchiveFileSet,
   releaseArchiveMemberPaths,
   releaseArchiveMemberRelPaths,
-  publishedReleaseArchiveMemberRelLayout
+  publishedShellArchiveMemberRelLayout
 } from "./release-archive-layout.js";
 
 export interface ReleaseAssetDigest {

@@ -30,7 +30,7 @@ import {
   INSTALL_REPO,
   INSTALL_VERSION,
   canonicalTxnBytes,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   writePublishedArchives
 } from "./release-install-script-fixture.js";
 
@@ -41,9 +41,9 @@ test("SIGTERM during recovery probe exits 143, kills probe, keeps txn, no owners
   const root = await mkdtemp(path.join(homeScratch, "install-recover-signal-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 

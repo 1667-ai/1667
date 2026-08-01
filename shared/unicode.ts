@@ -21,6 +21,26 @@ export function unicodeScalarLength(value: string, stopAfter = Number.POSITIVE_I
   return length;
 }
 
+export function sliceUnicodeScalarPrefix(value: string, maxScalars: number): string {
+  if (!Number.isSafeInteger(maxScalars) || maxScalars < 0) {
+    throw new RangeError("Unicode scalar prefix bound must be a non-negative safe integer");
+  }
+  let scalars = 0;
+  let end = 0;
+  while (end < value.length && scalars < maxScalars) {
+    const unit = value.charCodeAt(end);
+    end += unit >= 0xd800
+      && unit <= 0xdbff
+      && end + 1 < value.length
+      && value.charCodeAt(end + 1) >= 0xdc00
+      && value.charCodeAt(end + 1) <= 0xdfff
+      ? 2
+      : 1;
+    scalars += 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
+}
+
 export function alignUtf16Boundary(value: string, index: number): number {
   const bounded = Math.max(0, Math.min(value.length, index));
   if (bounded > 0 && bounded < value.length) {
@@ -42,4 +62,3 @@ export function sliceWellFormedUtf16Prefix(value: string, maxCodeUnits: number):
   if (value.length <= maxCodeUnits) return value;
   return value.slice(0, alignUtf16Boundary(value, maxCodeUnits));
 }
-

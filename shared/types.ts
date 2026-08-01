@@ -439,6 +439,9 @@ export interface RewriteRequest {
 /** The largest imported file any entry point will read before format-specific validation. */
 export const MAX_IMPORT_BYTES = 20_000_000;
 
+/** Canonical stored story and chapter title character limit (matching manifest schema maxLength). */
+export const MAX_STORED_TITLE_CHARS = 4096;
+
 /** Shared ceiling for JSON API bodies, measured as received UTF-8 bytes. */
 export const MAX_JSON_BODY_BYTES = 1_000_000;
 

@@ -83,6 +83,7 @@ import {
   apiHttpErrorFromPayload
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
+import { encodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -145,6 +146,7 @@ export interface StoryApi {
     signal?: AbortSignal
   ): Promise<ModelDiscoveryResultV2>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
+  importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   continueStory(
     storyId: string,
     instruction: string,
@@ -376,6 +378,69 @@ export function createApi(
     timeoutMs,
     await expectedVersion(storyId)
   ));
+
+  const runAbsentImportMutation = async (
+    workerMethod: "importSillyTavern" | "importMarkdown",
+    intentKey: string,
+    path: string,
+    contentType: string,
+    body: string
+  ): Promise<StoryPayload> => {
+    const intent = await mutationIntents.claim(workerMethod, intentKey);
+    try {
+      const payload = await compatible(
+        async (binding) => {
+          const signal = AbortSignal.timeout(
+            HTTP_OPERATION_LIFETIME_MS.transfer
+          );
+          const entryRecoveryEpoch = connection.recoveryEpoch;
+          return await runOperation({
+            method: "POST",
+            path,
+            binding,
+            mutationId: intent.mutationId,
+            requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
+            expectedAggregateVersion: { kind: "absent" },
+            callerSignal: signal,
+            beforeSend: () => {
+              if (connection.recoveryEpoch !== entryRecoveryEpoch) {
+                throw new ApiRecoveryRequiredError();
+              }
+            },
+            execute: async (lease) => {
+              const response = await lease.fetch(url(path), {
+                method: "POST",
+                headers: {
+                  ...lease.headers,
+                  "content-type": contentType
+                },
+                body,
+                redirect: "error",
+                signal: lease.signal
+              });
+              const payload: unknown = await response.json().catch(() => null);
+              if (!response.ok) {
+                throw apiHttpErrorFromPayload(
+                  payload,
+                  `Import failed (${response.status})`,
+                  response.status
+                );
+              }
+              return versions.rememberPayload(decodeStoryResponse(payload));
+            },
+            shouldRetry: (error) => !(error instanceof ApiError)
+          });
+        },
+        true,
+        undefined,
+        true
+      );
+      await intent.complete();
+      return payload;
+    } catch (error) {
+      return await settleAbsentMutationFailure(intent, error);
+    }
+  };
 
   return {
     listStories: async () => {
@@ -718,65 +783,23 @@ export function createApi(
       undefined,
       signal
     ),
-    importSillyTavern: async (jsonl) => {
-      const intent = await mutationIntents.claim(
+    importSillyTavern: async (jsonl) =>
+      await runAbsentImportMutation(
         "importSillyTavern",
+        jsonl,
+        "/api/import/sillytavern",
+        "text/plain; charset=utf-8",
         jsonl
+    ),
+    importMarkdown: async (markdown, defaultTitle) => {
+      const payloadBody = encodeMarkdownHttpBody(markdown, defaultTitle);
+      return await runAbsentImportMutation(
+        "importMarkdown",
+        payloadBody,
+        "/api/import/markdown",
+        "application/vnd.1667.markdown; charset=utf-8",
+        payloadBody
       );
-      try {
-        const payload = await compatible(
-          async (binding) => {
-            const path = "/api/import/sillytavern";
-            const signal = AbortSignal.timeout(
-              HTTP_OPERATION_LIFETIME_MS.transfer
-            );
-            const entryRecoveryEpoch = connection.recoveryEpoch;
-            return await runOperation({
-              method: "POST",
-              path,
-              binding,
-              mutationId: intent.mutationId,
-              requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
-              expectedAggregateVersion: { kind: "absent" },
-              callerSignal: signal,
-              beforeSend: () => {
-                if (connection.recoveryEpoch !== entryRecoveryEpoch) {
-                  throw new ApiRecoveryRequiredError();
-                }
-              },
-              execute: async (lease) => {
-                const response = await lease.fetch(url(path), {
-                  method: "POST",
-                  headers: {
-                    ...lease.headers,
-                    "content-type": "text/plain; charset=utf-8"
-                  },
-                  body: jsonl,
-                  redirect: "error",
-                  signal: lease.signal
-                });
-                const payload: unknown = await response.json().catch(() => null);
-                if (!response.ok) {
-                  throw apiHttpErrorFromPayload(
-                    payload,
-                    `Import failed (${response.status})`,
-                    response.status
-                  );
-                }
-                return versions.rememberPayload(decodeStoryResponse(payload));
-              },
-              shouldRetry: (error) => !(error instanceof ApiError)
-            });
-          },
-          true,
-          undefined,
-          true
-        );
-        await intent.complete();
-        return payload;
-      } catch (error) {
-        return await settleAbsentMutationFailure(intent, error);
-      }
     },
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(

@@ -346,7 +346,7 @@ test("settings user, receipt-only, and internal Fm1 recovery cover both commit s
 });
 
 test("absent create/import prepared evidence discards before commit and completes after commit", () => {
-  for (const method of ["createStory", "importSillyTavern"] as const) {
+  for (const method of ["createStory", "importSillyTavern", "importMarkdown"] as const) {
     const prepared = createPrepared(method);
     let plan = planMutationLedgerRecovery(evidence({
       aggregateKey: prepared.aggregateKey,

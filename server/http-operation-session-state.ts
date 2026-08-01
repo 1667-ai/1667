@@ -13,6 +13,7 @@ import {
 import { isWorkerMutationMethod } from "../shared/worker-protocol.js";
 import { ServiceError } from "./errors.js";
 import { requireMutationId as requireLedgerMutationId } from "./mutation-ledger-scalars.js";
+import { isAbsentStoryMutationMethod } from "./mutation-ledger-types.js";
 
 export interface HttpOperationSessionRecord {
   readonly id: string;
@@ -137,8 +138,7 @@ export function requireHttpOperationExpectedStoryVersion(
       value,
       "expectedAggregateVersion"
     );
-    const createsStory = method === "createStory"
-      || method === "importSillyTavern";
+    const createsStory = isAbsentStoryMutationMethod(method);
     if (createsStory !== (version.kind === "absent")) {
       throw new Error(
         createsStory

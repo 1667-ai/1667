@@ -53,10 +53,23 @@ export const DEFAULT_PROTECTED_REF = "refs/remotes/origin/main";
  * Git and then by this module, so the one program whose verdict is trusted here
  * is named by absolute path or the release is refused.
  */
-export const DEFAULT_SIGNATURE_VERIFIERS: readonly string[] = Object.freeze([
-  "/usr/bin/ssh-keygen",
-  "/bin/ssh-keygen"
-]);
+export const DEFAULT_SIGNATURE_VERIFIERS: readonly string[] =
+  Object.freeze(defaultSignatureVerifiers(process.platform));
+
+/**
+ * The absolute paths this module will accept without `--ssh-keygen`. POSIX
+ * system locations are fixed independently of the caller's environment.
+ * Windows has no equivalent trusted constant: `SystemRoot` and `ProgramFiles`
+ * are ambient input, so Windows callers must name the workflow-pinned verifier
+ * explicitly.
+ */
+export function defaultSignatureVerifiers(
+  platform: string
+): readonly string[] {
+  return platform === "win32"
+    ? []
+    : ["/usr/bin/ssh-keygen", "/bin/ssh-keygen"];
+}
 
 const GIT_REF_NAME = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}$/;
 const REPOSITORY_PATH = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}$/;
@@ -70,7 +83,8 @@ export interface ReleaseTagAuthorizationRequest {
   readonly signerPolicyPath?: string;
   readonly protectedRef?: string;
   /** Absolute path to the `ssh-keygen` that verifies the tag signature.
-   *  Defaults to the first of `DEFAULT_SIGNATURE_VERIFIERS` that exists. */
+   *  POSIX defaults to the first fixed system verifier that exists; Windows
+   *  callers must provide this explicitly. */
   readonly sshKeygenPath?: string;
   /** Extra variables merged over the hermetic environment below. Callers extend
    *  it; nothing that matters has to be subtracted from it. */
@@ -250,6 +264,11 @@ function resolveSignatureVerifier(requested: string | undefined): string {
     );
   }
   const candidates = requested === undefined ? DEFAULT_SIGNATURE_VERIFIERS : [requested];
+  if (candidates.length === 0) {
+    throw new Error(
+      "Release signature verifier must be named with --ssh-keygen on Windows"
+    );
+  }
   for (const candidate of candidates) {
     try {
       if (statSync(candidate).isFile()) return candidate;

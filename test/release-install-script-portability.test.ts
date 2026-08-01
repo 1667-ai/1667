@@ -20,7 +20,7 @@ import {
   INSTALL_VERSION,
   digestsFor,
   execFileAsync,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   writePublishedArchives
 } from "./release-install-script-fixture.js";
 
@@ -31,9 +31,9 @@ test("generated installer accepts SemVer build metadata with literal version pro
   const root = await mkdtemp(path.join(homeScratch, "install-buildmeta-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -97,9 +97,9 @@ test("Shell Installer extraction passes --no-same-owner through the external tar
     /tar --no-same-owner -xf "\$tar_path" -C "\$stage" "\$member"/
   );
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 

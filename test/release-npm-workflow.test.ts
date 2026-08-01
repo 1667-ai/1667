@@ -103,9 +103,9 @@ test("every retained release input is attested and verified before use", () => {
   assert.match(job("preflight"), /Attest the preflight result/u);
   assert.match(job("publish"), /Verify every retained input before publication/u);
   assert.match(job("release"), /Verify every retained input/u);
-  // Native matrix results stay a fixed 8-file handoff. Later jobs derive the
+  // Native matrix results stay a fixed 10-file handoff. Later jobs derive the
   // exact retained count from the version and canonical release policy.
-  assert.match(job("launcher"), /verify-attestations dist\/native 8/u);
+  assert.match(job("launcher"), /verify-attestations dist\/native 10/u);
   for (const name of ["preflight", "publish", "release"] as const) {
     assert.match(job(name), /expected(?:LauncherPackage|Publication)FileCount/u);
     assert.match(
@@ -116,9 +116,9 @@ test("every retained release input is attested and verified before use", () => {
   }
   assert.match(job("launcher"), /release-install-script\.ts render/u);
   assert.match(job("launcher"), /dist\/archives\/\*\.tar\.gz/u);
-  assert.match(job("launcher"), /dist\/installers\/\*\.sh/u);
+  assert.match(job("launcher"), /dist\/installers\/\*/u);
   assert.match(job("release"), /dist\/publication\/archives\/\*\.tar\.gz/u);
-  assert.match(job("release"), /dist\/publication\/installers\/\*\.sh/u);
+  assert.match(job("release"), /dist\/publication\/installers\/\*/u);
   assert.match(CI_HELPER, /"--signer-workflow"/u);
   assert.match(CI_HELPER, /"--source-digest"/u);
   assert.match(CI_HELPER, /"--deny-self-hosted-runners"/u);
@@ -130,7 +130,7 @@ test("every retained release input is attested and verified before use", () => {
   );
   assert.match(
     nativeAttestation,
-    /^            dist\/builds\/\$\{\{ matrix\.target \}\}\/1667$/mu
+    /^            dist\/builds\/\$\{\{ matrix\.target \}\}\/\*$/mu
   );
   assert.match(
     nativeAttestation,
@@ -288,6 +288,15 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
     const install = body.indexOf("npm ci");
     assert.ok(pin !== -1 && pin < install, `${name} pins gh after project install`);
   }
+  assert.match(
+    job("build"),
+    /if \[ "\$RUNNER_OS" = Windows \]; then\s+gh_path="\$\(cygpath -w "\$posix_gh_path"\)"/u
+  );
+  assert.match(job("build"), /ssh_keygen_path="\$\(cygpath -w "\$posix_ssh_keygen_path"\)"/u);
+  assert.match(
+    job("build"),
+    /--ssh-keygen "\$RELEASE_SSH_KEYGEN_PATH"/u
+  );
 });
 
 test("publication grants the publish job immutable-attempt authority", () => {

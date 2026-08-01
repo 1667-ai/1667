@@ -24,7 +24,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     minimumCpuFeature: null,
     minimumMacosVersion: "13.0",
     minimumGlibcVersion: null,
-    heldFromPublication: null
+    heldFromPublication: null,
+    heldAlternative: null
   }),
   "darwin-x64": Object.freeze({
     packageName: "@1667-ai/darwin-x64",
@@ -35,7 +36,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     minimumCpuFeature: "sse4.2",
     minimumMacosVersion: "13.0",
     minimumGlibcVersion: null,
-    heldFromPublication: null
+    heldFromPublication: null,
+    heldAlternative: null
   }),
   "linux-arm64": Object.freeze({
     packageName: "@1667-ai/linux-arm64",
@@ -46,7 +48,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     minimumCpuFeature: null,
     minimumMacosVersion: null,
     minimumGlibcVersion: "2.17",
-    heldFromPublication: null
+    heldFromPublication: null,
+    heldAlternative: null
   }),
   "linux-x64": Object.freeze({
     packageName: "@1667-ai/linux-x64",
@@ -57,7 +60,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     minimumCpuFeature: "sse4.2",
     minimumMacosVersion: null,
     minimumGlibcVersion: "2.17",
-    heldFromPublication: null
+    heldFromPublication: null,
+    heldAlternative: null
   }),
   "windows-x64": Object.freeze({
     packageName: "@1667-ai/windows-x64",
@@ -68,8 +72,8 @@ export const LAUNCHER_RELEASE_TARGETS = Object.freeze({
     minimumCpuFeature: null,
     minimumMacosVersion: null,
     minimumGlibcVersion: null,
-    heldFromPublication: "CI does not build the Windows platform work at present, "
-      + "so it is unverified, and maintainers have not approved it for publication"
+    heldFromPublication: null,
+    heldAlternative: null
   })
 });
 const BUILD_MANIFEST_KEYS = new Set([
@@ -222,7 +226,11 @@ export function selectTarget(platform, arch) {
  * test asserts the two produce the same string for the same target.
  */
 export function heldTargetRefusal(target, policy) {
+  const alternative = policy.heldAlternative === null
+    ? ""
+    : `${policy.heldAlternative} `;
   return `${policy.packageName} is not published yet: ${policy.heldFromPublication}. `
+    + alternative
     + `The ${target} target is supported and builds from source: ${LAUNCHER_SOURCE_URL}`;
 }
 
