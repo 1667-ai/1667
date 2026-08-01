@@ -63,6 +63,47 @@ test("pending receipts recover committed entity creation without duplicates afte
   }
 });
 
+test("pending Markdown import replay re-enters canonical creation recovery", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-markdown-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const mutationIdValue = mutationId("d");
+  const input = {
+    markdown: "# Replayed\n\nFirst.\n\n## Later\n\nSecond."
+  };
+  let service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  const first = await leavePendingAfterCommit(
+    service,
+    mutationIdValue,
+    "importMarkdown",
+    input
+  );
+  await service.dispose();
+
+  service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    const replayed = await runWorkerMutation(
+      service,
+      mutationIdValue,
+      "importMarkdown",
+      input
+    );
+    assert.equal(replayed.id, first.id);
+    assert.deepEqual(
+      replayed.nodes.map(({ id }) => id),
+      first.nodes.map(({ id }) => id)
+    );
+    assert.deepEqual(
+      replayed.chapterBreaks.map(({ id }) => id),
+      first.chapterBreaks.map(({ id }) => id)
+    );
+    assert.equal((await service.listStories()).length, 1);
+  } finally {
+    await service.dispose();
+  }
+});
+
 test("deterministic fact recovery wins before the capacity guard", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-capacity-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));

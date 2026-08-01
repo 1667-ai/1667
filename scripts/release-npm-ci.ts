@@ -9,12 +9,13 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { isExecutableFile } from "./release-boundary-validation.js";
+import { RELEASE_TAG_REF } from "./release-evidence-inspection.js";
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const RUN_ID = /^[1-9][0-9]*$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
-const SOURCE_REF = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
 const SIGNER_WORKFLOW =
   /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/u;
 const MAX_GH_OUTPUT_BYTES = 1024 * 1024;
@@ -68,7 +69,7 @@ export async function verifyReleaseAttestations(
     REPOSITORY,
     "GITHUB_REPOSITORY"
   );
-  const sourceRef = requiredMatch(environment.GITHUB_REF, SOURCE_REF, "GITHUB_REF");
+  const sourceRef = requiredMatch(environment.GITHUB_REF, RELEASE_TAG_REF, "GITHUB_REF");
   const sourceCommit = requiredMatch(environment.GITHUB_SHA, COMMIT, "GITHUB_SHA");
   const signerWorkflow = requiredMatch(
     environment.SIGNER_WORKFLOW,
@@ -145,7 +146,8 @@ async function runGh(
     throw new Error("GitHub CLI must use an absolute path");
   }
   const stat = lstatSync(executable);
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) {
+  if (!stat.isFile() || stat.isSymbolicLink()
+    || !isExecutableFile(executable, stat.mode)) {
     throw new Error("GitHub CLI must be an absolute executable file");
   }
   const gh = realpathSync(executable);

@@ -54,7 +54,31 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
   assert.match(job("publish"), /^      id-token: write$/mu);
   assert.match(job("release"), /refs\/tags\/released\/v\$VERSION/u);
   for (const name of ["build", "publish"] as const) {
-    assert.match(job(name), /GITHUB_REF.*refs\/heads\/\$DEFAULT_BRANCH/u);
+    assert.match(job(name), /GITHUB_REF.*refs\/tags\/v\$VERSION/u);
+  }
+});
+
+test("the npm release dispatch binds to the signed tag commit", () => {
+  // A dispatch on the default branch takes GITHUB_SHA from the branch tip, so a
+  // merge after the maintainer signs the tag moves the source commit. The
+  // dispatch ref is the signed tag, which no later merge can move.
+  assert.match(WORKFLOW, /The dispatch ref must be the\n\s+signed v<version> tag\./u);
+  for (const name of ["build", "publish"] as const) {
+    const body = job(name);
+    assert.match(body, /VERSION: \$\{\{ inputs\.version \}\}/u);
+    assert.match(body, /if \[ "\$GITHUB_REF" != "refs\/tags\/v\$VERSION" \]; then/u);
+  }
+  assert.doesNotMatch(WORKFLOW, /"\$GITHUB_REF" != "refs\/heads\//u);
+  // Reachability from the protected default branch is now the only control that
+  // keeps an unmerged tag out of a release, so every job that collects source
+  // evidence must fetch that branch.
+  for (const name of ["build", "launcher", "preflight", "publish", "release"] as const) {
+    const body = job(name);
+    assert.match(body, /release-evidence\.ts/u);
+    assert.match(
+      body,
+      /\+refs\/heads\/\$DEFAULT_BRANCH:refs\/remotes\/origin\/\$DEFAULT_BRANCH/u
+    );
   }
 });
 
@@ -79,9 +103,9 @@ test("every retained release input is attested and verified before use", () => {
   assert.match(job("preflight"), /Attest the preflight result/u);
   assert.match(job("publish"), /Verify every retained input before publication/u);
   assert.match(job("release"), /Verify every retained input/u);
-  // Native matrix results stay a fixed 8-file handoff. Later jobs derive the
+  // Native matrix results stay a fixed 10-file handoff. Later jobs derive the
   // exact retained count from the version and canonical release policy.
-  assert.match(job("launcher"), /verify-attestations dist\/native 8/u);
+  assert.match(job("launcher"), /verify-attestations dist\/native 10/u);
   for (const name of ["preflight", "publish", "release"] as const) {
     assert.match(job(name), /expected(?:LauncherPackage|Publication)FileCount/u);
     assert.match(
@@ -92,9 +116,9 @@ test("every retained release input is attested and verified before use", () => {
   }
   assert.match(job("launcher"), /release-install-script\.ts render/u);
   assert.match(job("launcher"), /dist\/archives\/\*\.tar\.gz/u);
-  assert.match(job("launcher"), /dist\/installers\/\*\.sh/u);
+  assert.match(job("launcher"), /dist\/installers\/\*/u);
   assert.match(job("release"), /dist\/publication\/archives\/\*\.tar\.gz/u);
-  assert.match(job("release"), /dist\/publication\/installers\/\*\.sh/u);
+  assert.match(job("release"), /dist\/publication\/installers\/\*/u);
   assert.match(CI_HELPER, /"--signer-workflow"/u);
   assert.match(CI_HELPER, /"--source-digest"/u);
   assert.match(CI_HELPER, /"--deny-self-hosted-runners"/u);
@@ -106,7 +130,7 @@ test("every retained release input is attested and verified before use", () => {
   );
   assert.match(
     nativeAttestation,
-    /^            dist\/builds\/\$\{\{ matrix\.target \}\}\/1667$/mu
+    /^            dist\/builds\/\$\{\{ matrix\.target \}\}\/\*$/mu
   );
   assert.match(
     nativeAttestation,
@@ -264,6 +288,15 @@ test("the workflow pins the hosted GitHub CLI before project installs", () => {
     const install = body.indexOf("npm ci");
     assert.ok(pin !== -1 && pin < install, `${name} pins gh after project install`);
   }
+  assert.match(
+    job("build"),
+    /if \[ "\$RUNNER_OS" = Windows \]; then\s+gh_path="\$\(cygpath -w "\$posix_gh_path"\)"/u
+  );
+  assert.match(job("build"), /ssh_keygen_path="\$\(cygpath -w "\$posix_ssh_keygen_path"\)"/u);
+  assert.match(
+    job("build"),
+    /--ssh-keygen "\$RELEASE_SSH_KEYGEN_PATH"/u
+  );
 });
 
 test("publication grants the publish job immutable-attempt authority", () => {

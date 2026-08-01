@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { MAX_IMPORT_BYTES } from "./import-st.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
@@ -7,7 +8,7 @@ import { StoryService } from "./story-service.js";
 const files = process.argv.slice(2);
 
 if (files.length === 0) {
-  console.error("Usage: npm run import -- <chat.jsonl> [more.jsonl...]");
+  console.error("Usage: npm run import -- <file...>");
   process.exit(1);
 }
 
@@ -30,12 +31,37 @@ try {
     try {
       const { size } = await stat(file);
       if (size > MAX_IMPORT_BYTES) {
-        throw new Error(`file is ${Math.round(size / 1e6)}MB — larger than the ${MAX_IMPORT_BYTES / 1e6}MB import limit`);
+        throw new Error(
+          `file is ${Math.round(size / 1e6)}MB — larger than the `
+            + `${MAX_IMPORT_BYTES / 1e6}MB import limit`
+        );
       }
-      const imported = await service.importSillyTavernWithReport(await readFile(file, "utf8"));
-      const dropped = imported.droppedTrailingUserMessages;
+      const content = await readFile(file, "utf8");
+      const lowerFile = file.toLowerCase();
+      const isMarkdown = lowerFile.endsWith(".md")
+        || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#"));
+
+      let title: string;
+      let partsCount: number;
+      let id: string;
+      let dropped = 0;
+
+      if (isMarkdown) {
+        const defaultTitle = path.basename(file, path.extname(file));
+        const imported = await service.importMarkdownWithReport(content, { defaultTitle });
+        title = imported.payload.title;
+        partsCount = imported.payload.nodes.length;
+        id = imported.payload.id;
+      } else {
+        const imported = await service.importSillyTavernWithReport(content);
+        title = imported.payload.title;
+        partsCount = imported.payload.nodes.length;
+        id = imported.payload.id;
+        dropped = imported.droppedTrailingUserMessages;
+      }
+
       console.log(
-        `${plain(file)}: imported "${plain(imported.payload.title)}" (${imported.payload.nodes.length} parts) as ${imported.payload.id}` +
+        `${plain(file)}: imported "${plain(title)}" (${partsCount} parts) as ${id}` +
           (dropped > 0 ? ` — dropped ${dropped} trailing user message${dropped === 1 ? "" : "s"}` : "")
       );
     } catch (error) {

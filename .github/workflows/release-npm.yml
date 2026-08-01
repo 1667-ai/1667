@@ -1,14 +1,14 @@
 name: Release (npm)
 
-# Produces and preflights the five release packages. Publication uses npm
+# Produces and preflights all release packages. Publication uses npm
 # Trusted Publishing. No npm token is stored or accepted.
 on:
   workflow_dispatch:
     inputs:
       version:
         description: >-
-          Version to publish without a leading v. The signed v<version> tag
-          must point at the dispatch commit.
+          Version to publish without a leading v. The dispatch ref must be the
+          signed v<version> tag.
         required: true
         type: string
 
@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [darwin-arm64, darwin-x64, linux-arm64, linux-x64]
+        target: [darwin-arm64, darwin-x64, linux-arm64, linux-x64, windows-x64]
         include:
           - target: darwin-arm64
             runner: macos-15
@@ -72,6 +72,8 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: linux-x64
             runner: ubuntu-24.04
+          - target: windows-x64
+            runner: windows-2025
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     permissions:
@@ -80,13 +82,17 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Refuse a dispatch outside the default branch
+      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
+      # commit. A merge to the default branch cannot move it after a maintainer
+      # signs the tag. release-evidence.ts still refuses a commit that is not
+      # reachable from the protected default branch.
+      - name: Refuse a dispatch that is not the signed release tag
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
-            echo "::error::npm release dispatch must use refs/heads/$DEFAULT_BRANCH"
+          if [ "$GITHUB_REF" != "refs/tags/v$VERSION" ]; then
+            echo "::error::npm release dispatch must use refs/tags/v$VERSION"
             exit 1
           fi
 
@@ -97,10 +103,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -117,12 +127,24 @@ jobs:
       - name: Pin the hosted GitHub CLI
         run: |
           set -euo pipefail
-          gh_path="$(realpath "$(command -v gh)")"
-          if [ ! -f "$gh_path" ] || [ ! -x "$gh_path" ] || [ -L "$gh_path" ]; then
+          posix_gh_path="$(realpath "$(command -v gh)")"
+          if [ ! -f "$posix_gh_path" ] || [ ! -x "$posix_gh_path" ] || [ -L "$posix_gh_path" ]; then
             echo "::error::GitHub CLI is not a regular executable"
             exit 1
           fi
+          posix_ssh_keygen_path="$(realpath "$(command -v ssh-keygen)")"
+          if [ ! -f "$posix_ssh_keygen_path" ] || [ ! -x "$posix_ssh_keygen_path" ] || [ -L "$posix_ssh_keygen_path" ]; then
+            echo "::error::ssh-keygen is not a regular executable"
+            exit 1
+          fi
+          gh_path="$posix_gh_path"
+          ssh_keygen_path="$posix_ssh_keygen_path"
+          if [ "$RUNNER_OS" = Windows ]; then
+            gh_path="$(cygpath -w "$posix_gh_path")"
+            ssh_keygen_path="$(cygpath -w "$posix_ssh_keygen_path")"
+          fi
           printf 'RELEASE_GH_PATH=%s\n' "$gh_path" >> "$GITHUB_ENV"
+          printf 'RELEASE_SSH_KEYGEN_PATH=%s\n' "$ssh_keygen_path" >> "$GITHUB_ENV"
 
       # This job can mint native provenance. It does not run dependency
       # lifecycle scripts and has no publication environment.
@@ -143,7 +165,8 @@ jobs:
           timestamp="$(node --import tsx scripts/release-npm-ci.ts timestamp)"
           node --import tsx scripts/release-completion.ts gate "$VERSION" "$GITHUB_SHA"
           node --import tsx scripts/release-evidence.ts \
-            --tag "v$VERSION" --build-timestamp "$timestamp" > /dev/null
+            --tag "v$VERSION" --build-timestamp "$timestamp" \
+            --ssh-keygen "$RELEASE_SSH_KEYGEN_PATH" > /dev/null
           identity="$(node --import tsx scripts/release-github-assets.ts identity \
             "$VERSION" "$GITHUB_SHA" "$timestamp" "$TARGET")"
           printf 'AI_1667_BUILD_IDENTITY_JSON=%s\n' "$identity" >> "$GITHUB_ENV"
@@ -162,17 +185,22 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          executable="$(node --import tsx --input-type=module -e '
+            import { basename } from "node:path";
+            import { releaseTargetForArtifact } from "./shared/release-targets.ts";
+            process.stdout.write(basename(releaseTargetForArtifact(process.argv[1]).executable));
+          ' "$TARGET")"
           mkdir -p "dist/builds/$TARGET" dist/observations
-          cp tui/dist/1667 "dist/builds/$TARGET/1667"
-          chmod 0755 "dist/builds/$TARGET/1667"
+          cp "tui/dist/$executable" "dist/builds/$TARGET/$executable"
+          chmod 0755 "dist/builds/$TARGET/$executable"
           node --import tsx scripts/release-npm-observation.ts \
-            "$TARGET" "dist/builds/$TARGET/1667" > "dist/observations/$TARGET.json"
+            "$TARGET" "dist/builds/$TARGET/$executable" > "dist/observations/$TARGET.json"
 
       - name: Attest the native result before upload
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: |
-            dist/builds/${{ matrix.target }}/1667
+            dist/builds/${{ matrix.target }}/*
             dist/observations/${{ matrix.target }}.json
 
       - name: Upload the native result
@@ -180,7 +208,7 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: |
-            dist/builds/${{ matrix.target }}/1667
+            dist/builds/${{ matrix.target }}/*
             dist/observations/${{ matrix.target }}.json
           if-no-files-found: error
           retention-days: 90
@@ -202,10 +230,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -259,7 +291,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           node --import tsx scripts/release-npm-ci.ts
-          verify-attestations dist/native 8
+          verify-attestations dist/native 10
 
       - name: Stage the packages
         env:
@@ -305,7 +337,7 @@ jobs:
             tar -tzf "dist/archives/$stem.tar.gz"
           done
 
-      - name: Render channel-specific Shell Installers
+      - name: Render channel-specific Installers
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -335,7 +367,7 @@ jobs:
             dist/observations/*.json
             dist/sboms/*.spdx.json
             dist/archives/*.tar.gz
-            dist/installers/*.sh
+            dist/installers/*
 
       - name: Upload the release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -346,7 +378,7 @@ jobs:
             dist/observations/*.json
             dist/sboms/*.spdx.json
             dist/archives/*.tar.gz
-            dist/installers/*.sh
+            dist/installers/*
           if-no-files-found: error
           retention-days: 90
 
@@ -367,10 +399,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -467,7 +503,7 @@ jobs:
             dist/publication/observations/*.json
             dist/publication/sboms/*.spdx.json
             dist/publication/archives/*.tar.gz
-            dist/publication/installers/*.sh
+            dist/publication/installers/*
 
       - name: Upload the retained publication inputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -488,13 +524,17 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - name: Refuse a dispatch outside the default branch
+      # The dispatch ref is the signed tag, so GITHUB_SHA is the immutable tag
+      # commit. A merge to the default branch cannot move it after a maintainer
+      # signs the tag. release-evidence.ts still refuses a commit that is not
+      # reachable from the protected default branch.
+      - name: Refuse a dispatch that is not the signed release tag
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
-            echo "::error::npm release dispatch must use refs/heads/$DEFAULT_BRANCH"
+          if [ "$GITHUB_REF" != "refs/tags/v$VERSION" ]; then
+            echo "::error::npm release dispatch must use refs/tags/v$VERSION"
             exit 1
           fi
 
@@ -505,10 +545,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -619,10 +663,14 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the protected signer policy and completion tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             '+refs/heads/release-policy:refs/remotes/origin/release-policy'
+          git fetch --no-tags origin \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           git fetch origin '+refs/tags/released/*:refs/tags/released/*'
 
       - name: Set up Node
@@ -713,17 +761,17 @@ jobs:
           cp dist/publication/observations/*.json dist/assets/
           cp dist/publication/sboms/*.spdx.json dist/assets/
           cp dist/publication/archives/*.tar.gz dist/assets/
-          cp dist/publication/installers/*.sh dist/assets/
+          cp dist/publication/installers/* dist/assets/
           cp dist/publication/artifact-manifest.json dist/assets/
           cp dist/publication/artifact-manifest.sha256 dist/assets/
           node --import tsx scripts/release-github-assets.ts checksums dist/assets \
             > dist/assets/checksums.txt
           {
             printf '# 1667 v%s\n\n' "$VERSION"
-            printf 'This release retains the five npm packages, native Release Archives,\n'
-            printf 'and channel-specific Shell Installers.\n\n'
+            printf 'This release retains all npm packages and native Release Archives.\n'
+            printf 'It also retains the channel-specific Shell and PowerShell Installers.\n\n'
             printf 'npm publication uses the `next` tag. Promotion is a separate maintainer action.\n'
-            printf 'The homepage serves one selected install script after a separate promotion gate.\n'
+            printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
           } > dist/release-notes.md
 
       - name: Publish or verify the immutable GitHub release

@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { canonicalJson } from "../server/canonical-json.js";
 import {
+  PUBLISHED_PACKAGE_COUNT,
   PUBLISHED_PLATFORM_PACKAGES,
   RELEASE_LAUNCHER_PACKAGE
 } from "../shared/release-targets.js";
@@ -309,8 +310,11 @@ test("quarantine reconciliation includes absent exact versions as complete", asy
     new StaticRegistry(input)
   );
   assert.equal(result.verdict, "complete");
-  assert.equal(result.observed.length, 5);
-  assert.equal(result.observed.filter((state) => !state.present).length, 3);
+  assert.equal(result.observed.length, PUBLISHED_PACKAGE_COUNT);
+  assert.equal(
+    result.observed.filter((state) => !state.present).length,
+    PUBLISHED_PACKAGE_COUNT - 2
+  );
 
   input.get(RELEASE_LAUNCHER_PACKAGE)!.tags.latest = VERSION;
   const unsafe = await reconcileNpmTagOperation(

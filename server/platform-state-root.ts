@@ -293,8 +293,22 @@ function requirePrivatePosixDirectory(
     );
   }
   if ((info.mode & 0o777) !== 0o700) {
+    // Some filesystems report a mode they did not keep: a Windows drive mounted
+    // under WSL without the metadata option, a FAT volume, some network mounts.
+    // A chmod there succeeds and changes nothing, so a user can repeat it
+    // forever. That silent success is the whole signature, and it is what the
+    // advice below is conditional on. A chmod that fails loudly means something
+    // else — a directory this user does not own, or a read-only mount — and
+    // says so itself, so it must not be read as a verdict on the filesystem.
+    // Which case applies is not knowable here: this branch has only the mode,
+    // DrvFs does honour chmod when it is mounted with metadata, and any
+    // filesystem can be mounted anywhere. So give the test, not a cause.
     throw new PlatformStateRootError(
-      `${label} permissions are not 0700: ${directory}`
+      `${label} permissions are not 0700: ${directory}.`
+        + " Set the directory to 0700."
+        + " If that command succeeds and the mode does not change, this"
+        + " filesystem does not store POSIX permissions. Move the application"
+        + " state to a filesystem that does."
     );
   }
   if (

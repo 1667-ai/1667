@@ -32,6 +32,7 @@ interface MutationEntityNamespaces {
   summarizeChapter: "chapter-summary" | "chapter-summary-rewrite";
   saveSettings: never;
   importSillyTavern: "story" | "import-node";
+  importMarkdown: "story" | "import-node" | "chapter-break";
   continueStory: never;
   rewriteNode: "rewrite";
   createSummaryTake: "summary-node" | "summary-cut";

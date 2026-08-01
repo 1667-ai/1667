@@ -81,6 +81,44 @@ test("Linux accepts only an absolute private XDG state override", {
   );
 });
 
+test("a permission refusal states the repair and what its failure means", {
+  skip: process.platform === "win32"
+}, async (t) => {
+  // A filesystem that does not store POSIX permissions accepts a chmod and
+  // keeps the old mode, so a user can repeat the repair forever. The refusal
+  // has to give both the repair and the meaning of its silent failure, or a
+  // user on such a filesystem — a Windows drive mounted under WSL is one — has
+  // no way to tell a wrong mode apart from a filesystem that cannot hold one.
+  // The advice turns on that silence: a chmod that fails loudly reports its own
+  // reason, and must not be read here as a verdict on the filesystem.
+  const home = await temporaryDirectory(t, "1667-state-home-");
+  const permissive = await temporaryDirectory(t, "1667-xdg-open-");
+  await chmod(permissive, 0o755);
+
+  await assert.rejects(
+    resolvePrivatePlatformStateRoot({
+      platform: "linux",
+      environment: { XDG_STATE_HOME: permissive },
+      accountHomeDirectory: () => home
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /permissions are not 0700: /);
+      assert.match(error.message, /Set the directory to 0700/);
+      assert.match(
+        error.message,
+        /If that command succeeds and the mode does not change/
+      );
+      assert.match(
+        error.message,
+        /this filesystem does not store POSIX permissions/
+      );
+      assert.match(error.message, /Move the application state to a filesystem/);
+      return true;
+    }
+  );
+});
+
 test("Linux rejects a symlinked state override", {
   skip: process.platform === "win32"
 }, async (t) => {

@@ -521,6 +521,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       ]
     }),
     importSillyTavern: async () => unavailable("SillyTavern import"),
+    importMarkdown: async () => unavailable("Markdown import"),
     exportMarkdown: async () => demo.exportMarkdown(),
     searchStories: async (search, signal) => {
       // The fixture answers instantly, so the only cancellation it can honour

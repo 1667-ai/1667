@@ -36,12 +36,13 @@ export function privateAcl(
   sids: WindowsSecuritySids,
   kind: WindowsPrivateObjectKind
 ): Buffer {
-  const userLength = Number(libraries.advapi.symbols.GetLengthSid!(sids.user));
-  const systemLength = Number(
-    libraries.advapi.symbols.GetLengthSid!(sids.system)
+  const principals = privatePrincipals(libraries, sids);
+  const size = principals.reduce(
+    (total, sid) => total + alignDword(
+      8 + Number(libraries.advapi.symbols.GetLengthSid!(sid))
+    ),
+    8
   );
-  const size = 8 + alignDword(8 + userLength)
-    + alignDword(8 + systemLength);
   const acl = Buffer.alloc(size);
   if (Number(libraries.advapi.symbols.InitializeAcl!(
     ffi.ptr(acl),
@@ -50,7 +51,7 @@ export function privateAcl(
   )) === 0) {
     throw lastWindowsError(libraries, "Could not initialize a private DACL");
   }
-  for (const sid of [sids.user, sids.system]) {
+  for (const sid of principals) {
     if (Number(libraries.advapi.symbols.AddAccessAllowedAceEx!(
       ffi.ptr(acl),
       ACL_REVISION,
@@ -207,6 +208,7 @@ function requireExactPrivateAcl(
   sids: WindowsSecuritySids,
   kind: WindowsPrivateObjectKind
 ): void {
+  const principals = privatePrincipals(libraries, sids);
   const info = Buffer.alloc(12);
   if (Number(libraries.advapi.symbols.GetAclInformation!(
     dacl,
@@ -216,14 +218,14 @@ function requireExactPrivateAcl(
   )) === 0) {
     throw lastWindowsError(libraries, `Could not read ${directory} DACL`);
   }
-  if (info.readUInt32LE() !== 2) {
+  if (info.readUInt32LE() !== principals.length) {
     throw new WindowsPrivateSecurityMismatch(
       `Windows private state DACL has unexpected entries: ${directory}`
     );
   }
   let userSeen = false;
   let systemSeen = false;
-  for (let index = 0; index < 2; index += 1) {
+  for (let index = 0; index < principals.length; index += 1) {
     const aceOut = Buffer.alloc(8);
     if (Number(libraries.advapi.symbols.GetAce!(
       dacl,
@@ -252,6 +254,7 @@ function requireExactPrivateAcl(
         );
       }
       userSeen = true;
+      if (principals.length === 1) systemSeen = true;
     } else if (
       Number(libraries.advapi.symbols.EqualSid!(sid, sids.system)) !== 0
     ) {
@@ -275,6 +278,18 @@ function requireExactPrivateAcl(
 }
 
 class WindowsPrivateSecurityMismatch extends Error {}
+
+function privatePrincipals(
+  libraries: WindowsSecurityLibraries,
+  sids: WindowsSecuritySids
+): readonly number[] {
+  return Number(libraries.advapi.symbols.EqualSid!(
+    sids.user,
+    sids.system
+  )) === 0
+    ? [sids.user, sids.system]
+    : [sids.user];
+}
 
 function expectedInheritanceFlags(kind: WindowsPrivateObjectKind): number {
   return kind === "directory" ? INHERITANCE_FLAGS : 0;

@@ -19,7 +19,9 @@ import {
  */
 
 const COMMIT = /^[0-9a-f]{40}$/;
-const RELEASE_TAG_NAME = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const RELEASE_TAG_NAME_PATTERN =
+  "v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?";
+const RELEASE_TAG_NAME = new RegExp(`^${RELEASE_TAG_NAME_PATTERN}$`);
 const SIGNATURE_BLOCK = /^-----BEGIN [A-Z0-9 ]{0,32}SIGNATURE-----$/m;
 const ALLOWED_SIGNER_KEY_DATA = /^[A-Za-z0-9+/]{32,}={0,2}$/;
 /**
@@ -287,6 +289,22 @@ export function parseReleasePackageVersions(
 export function requireReleaseTagName(value: string): string {
   if (!RELEASE_TAG_NAME.test(value)) {
     throw new Error(`Release tag name ${JSON.stringify(value)} must be v<semver>`);
+  }
+  return value;
+}
+
+/**
+ * The npm release runs on the signed tag, so every provenance record names that
+ * tag ref. A branch ref moves when a maintainer merges work after the tag
+ * signature, which is why a branch is not accepted here.
+ */
+export const RELEASE_TAG_REF = new RegExp(`^refs/tags/${RELEASE_TAG_NAME_PATTERN}$`);
+
+export function requireReleaseTagRef(value: string): string {
+  if (!RELEASE_TAG_REF.test(value)) {
+    throw new Error(
+      `Release source ref ${JSON.stringify(value)} must be refs/tags/v<semver>`
+    );
   }
   return value;
 }

@@ -25,6 +25,8 @@ import {
 import { parseStoryManifestBytes } from "../server/story-v6-codec.js";
 import { StoryStore } from "../server/stories.js";
 import { MAX_STORY_MANIFEST_BYTES } from "../server/story-v5-strict.js";
+import { partsFromMarkdown } from "../server/import-md.js";
+import { storyFromImport } from "../server/import-st.js";
 
 const MUTATION_ID = "m1.1767225600000.0123456789abcdef0123456789abcdef";
 const STORY_ID = storyIdForMutation(MUTATION_ID);
@@ -82,6 +84,63 @@ for (const point of [
     assert.equal(parsed.kind, "v6-live");
     await assert.rejects(access(fixture.residue), hasFsCode("ENOENT"));
     await assert.rejects(access(fixture.identity), hasFsCode("ENOENT"));
+  });
+}
+
+for (const point of ["prepared", "publish", "completed"] as const) {
+  test(`Markdown import retains one story and stable child IDs after ${point} crash`, async (t) => {
+    const fixture = await setup(t);
+    let injected = false;
+    const crashing = new StoryCreationMutationStore(
+      fixture.stories,
+      createMutationCoordinator(),
+      fixture.dataDir,
+      {
+        now: () => FIXED_NOW,
+        hooks: {
+          [`after${capitalize(point)}`]: () => {
+            if (injected) return;
+            injected = true;
+            throw new InjectedStoryCreationCrash(point);
+          }
+        }
+      }
+    );
+    await crashing.init();
+    await assert.rejects(
+      crashing.run(request(), "importMarkdown", markdownStoryFixture),
+      (error: unknown) => error instanceof InjectedStoryCreationCrash
+    );
+
+    const recovered = new StoryCreationMutationStore(
+      fixture.stories,
+      createMutationCoordinator(),
+      fixture.dataDir,
+      { now: () => FIXED_NOW }
+    );
+    await recovered.init();
+    const committed = await recovered.run(
+      request(),
+      "importMarkdown",
+      markdownStoryFixture
+    );
+    assert.equal(committed.story.id, STORY_ID);
+    assert.deepEqual(committed.story.nodes.map(({ id }) => id), [
+      "import-node-0",
+      "import-node-1"
+    ]);
+    assert.deepEqual(committed.story.chapterBreaks.map(({ id }) => id), [
+      "chapter-break-0"
+    ]);
+    assert.deepEqual((await fixture.stories.list()).map(({ id }) => id), [STORY_ID]);
+    const loaded = await fixture.stories.load(STORY_ID);
+    assert.deepEqual(loaded.nodes.map(({ id }) => id), [
+      "import-node-0",
+      "import-node-1"
+    ]);
+    assert.deepEqual(loaded.chapterBreaks.map(({ id }) => id), [
+      "chapter-break-0"
+    ]);
   });
 }
 
@@ -212,6 +271,17 @@ function storyFixture(): Story {
     facts: [],
     chapterBreaks: []
   };
+}
+
+function markdownStoryFixture(deterministicStoryId = STORY_ID): Story {
+  return storyFromImport(
+    partsFromMarkdown("# Imported\n\nFirst.\n\n## Later\n\nSecond."),
+    {
+      storyId: deterministicStoryId,
+      nodeId: (index) => `import-node-${index}`,
+      chapterBreakId: (index) => `chapter-break-${index}`
+    }
+  );
 }
 
 function capitalize(value: string): string {

@@ -14,9 +14,7 @@
 1667 also provides a direct connection to a selected model provider. This
 repository contains the terminal user interface (TUI) and its backend runtime.
 
-[![The 1667 starter onboarding story](docs/assets/starter-onboarding.png)](https://1667.ai)
-
-Install 1667 with the Shell Installer, npm, or source.
+[![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-2.gif)](https://1667.ai)
 
 ## Features
 
@@ -33,15 +31,25 @@ Install 1667 with the Shell Installer, npm, or source.
 
 ## Install
 
-Install with the Shell Installer:
+On macOS or Linux, use the Shell Installer:
 
 ```sh
 curl -fsSL https://1667.ai/install.sh | sh
 ```
 
-The Shell Installer verifies the downloaded archive checksum. It supports
-macOS arm64, macOS x64, Linux arm64, and Linux x64. Run `1667 upgrade` to
-install a later managed release.
+On Windows x64, use the PowerShell Installer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://1667.ai/install.ps1 | iex"
+```
+
+Each Installer verifies the downloaded Release Archive checksum. The Shell
+Installer supports macOS and Linux. The PowerShell Installer supports Windows
+x64.
+
+Run `1667 upgrade` to update a Managed Installation that the Shell Installer
+created. On Windows, exit 1667 and run the PowerShell Installer again. `1667
+upgrade` shows the required command.
 
 Install with npm:
 

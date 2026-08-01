@@ -77,7 +77,7 @@ current directory the way git finds .git.
 Usage: 1667 [options]
        1667 init [--adopt [--from <legacy-data-dir>]]
        1667 export [--story <id>] [--force] [--data <path>|--global]
-       1667 import sillytavern <file>... [--data <path>|--global]
+       1667 import [--data <path>|--global] <file...>
        1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
        1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
        1667 serve --legacy-v1 --data <path> [--print-logs] (Linux only)
@@ -89,14 +89,16 @@ Export:
   become '##' headings; directions and unchosen takes stay behind. No option
   picks the line, so choose it in the app first.
   Defaults to the most recently updated story. Never clobbers an existing
-  file (story.md, story-2.md, …) unless --force. 1667 never reads an
-  exported file back.
+  file (story.md, story-2.md, …) unless --force.
 
 Import:
-  Reads SillyTavern chat files (.jsonl) into this project, one new story per
-  file. Each character message becomes a story part; the user messages
-  before it become that part's direction, and unanswered ones at the end
-  are dropped. Import never writes back to the file it read.
+  Imports a Markdown file or a SillyTavern chat file (.jsonl) as a new story,
+  one new story per file.
+  In Markdown, '##' headings become chapter boundaries. Prose blocks become
+  story parts.
+  In a chat file, each character message becomes a story part; the user
+  messages before it become that part's direction, and unanswered ones at the
+  end are dropped. Import never writes back to the file it read.
   One unreadable file does not stop the others: the command reports each
   failure and exits non-zero at the end.
 

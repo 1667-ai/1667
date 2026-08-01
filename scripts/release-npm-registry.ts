@@ -10,6 +10,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { canonicalJson } from "../server/canonical-json.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
+import { requireReleaseTagRef } from "./release-evidence-inspection.js";
 import {
   NpmRegistryPendingError,
   validateNpmAuditProvenance
@@ -67,9 +68,7 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
     if (!COMMIT.test(options.sourceCommit)) {
       throw new Error("npm provenance source commit is not canonical");
     }
-    if (!options.sourceRef.startsWith("refs/heads/")) {
-      throw new Error("npm provenance source ref must be a branch");
-    }
+    requireReleaseTagRef(options.sourceRef);
     this.#npm = validateNpmInvocation(options.npm);
     this.#sourceCommit = options.sourceCommit;
     this.#sourceRef = options.sourceRef;

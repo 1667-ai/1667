@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   chmodSync,
   mkdirSync,
+  realpathSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -66,6 +67,37 @@ test("missing Ownership Record grants no replacement authority", () => {
     writeManagedStub(active, "1.0.0", TARGET);
     const authority = resolveInstallationAuthority(active);
     expect(authority.kind).toBe("manual");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("PowerShell Ownership Record grants read-only Windows authority", () => {
+  if (process.platform !== "win32") return;
+  const root = managedScratchRoot("authority-powershell-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot);
+    const canonicalRoot = realpathSync(installRoot);
+    const active = path.join(canonicalRoot, "1667.exe");
+    writeFileSync(active, "fixture\n");
+    writeFileSync(path.join(canonicalRoot, INSTALL_OWNERSHIP_FILE), `${JSON.stringify({
+      schemaVersion: 1,
+      product: "1667",
+      installationId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      method: "powershell",
+      channel: "beta",
+      installRoot: canonicalRoot,
+      executable: active,
+      artifactTarget: "windows-x64"
+    })}\n`);
+    expect(resolveInstallationAuthority(active, "windows-x64")).toEqual({
+      kind: "powershell",
+      channel: "beta",
+      installRoot: canonicalRoot,
+      executable: active
+    });
+    expect(resolveInstallationAuthority(active, "source").kind).toBe("manual");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

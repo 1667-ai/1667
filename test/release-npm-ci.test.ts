@@ -42,7 +42,7 @@ const PRE_VERSION = "1.2.3-rc.1";
 const REPOSITORY = "1667-ai/1667";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const TIMESTAMP = "2026-07-28T10:20:30.000Z";
-const SOURCE_REF = "refs/heads/main";
+const SOURCE_REF = `refs/tags/v${VERSION}`;
 const execFileAsync = promisify(execFile);
 const GITHUB_RELEASE_CLI = fileURLToPath(
   new URL("../scripts/release-npm-github.ts", import.meta.url)
@@ -201,6 +201,8 @@ test("GitHub release verification binds installers to channel digests and reject
   const verified = verifyNpmReleaseAssetDirectory(releaseAssets, VERSION, REPOSITORY);
   assert.ok(verified.some((file) => path.basename(file) === "install-stable.sh"));
   assert.ok(verified.some((file) => path.basename(file) === "install-beta.sh"));
+  assert.ok(verified.some((file) => path.basename(file) === "install-stable.ps1"));
+  assert.ok(verified.some((file) => path.basename(file) === "install-beta.ps1"));
 
   const wrongRepo = path.join(root, "wrong-repo");
   await mkdir(wrongRepo);
@@ -215,9 +217,10 @@ test("GitHub release verification binds installers to channel digests and reject
   await writeReleaseAssetFixture(preAssets, PRE_VERSION, REPOSITORY);
   assert.deepEqual(
     expectedInstallerNames(PRE_VERSION),
-    ["install-beta.sh"]
+    ["install-beta.sh", "install-beta.ps1"]
   );
   assert.ok(!expectedGitHubReleaseAssetNames(PRE_VERSION).includes("install-stable.sh"));
+  assert.ok(!expectedGitHubReleaseAssetNames(PRE_VERSION).includes("install-stable.ps1"));
   verifyNpmReleaseAssetDirectory(preAssets, PRE_VERSION, REPOSITORY);
   await writeFile(path.join(preAssets, "install-stable.sh"), "not a real installer\n");
   await writeFile(

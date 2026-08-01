@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { initializeProject } from "../../server/project-discovery.js";
-import { parseImportCommand, runStoryImport } from "../src/import-cli.js";
+import { runStoryImport } from "../src/import-cli.js";
 
 /** A SillyTavern export: one metadata line, then one line per message. The
  * message fields are the snake_case ones the parser actually reads. */
@@ -21,28 +21,6 @@ afterEach(async () => {
   }
 });
 
-test("import parsing names its source and refuses to guess one", () => {
-  expect(parseImportCommand(["sillytavern", "chat.jsonl"])).toEqual({
-    source: "sillytavern",
-    files: ["chat.jsonl"],
-    data: null,
-    global: false
-  });
-  expect(parseImportCommand([
-    "sillytavern", "a.jsonl", "b.jsonl", "--data", "/tmp/p"
-  ]).files).toEqual(["a.jsonl", "b.jsonl"]);
-
-  // The source is named, never inferred from the file, so a file cannot be
-  // read as a format it is not.
-  expect(() => parseImportCommand([])).toThrow(/needs a source/u);
-  expect(() => parseImportCommand(["chat.jsonl"])).toThrow(/unknown import source/u);
-  expect(() => parseImportCommand(["sillytavern"])).toThrow(/needs a file/u);
-  expect(() => parseImportCommand(["sillytavern", "a.jsonl", "--nope"]))
-    .toThrow(/unknown import option/u);
-  expect(() => parseImportCommand(["sillytavern", "a.jsonl", "--global", "--data=/tmp/p"]))
-    .toThrow(/select different projects/u);
-});
-
 test("import refuses a directory that is not a project rather than making one", async () => {
   const root = await project(false);
   const file = path.join(root, "chat.jsonl");
@@ -51,7 +29,7 @@ test("import refuses a directory that is not a project rather than making one", 
   // Importing into a directory with no project would create one, import into
   // it, and leave the starter stories it had just invented beside the result.
   expect(await failure(() => runStoryImport(
-    ["sillytavern", file, "--data", root],
+    [file, "--data", root],
     sink(),
     sink()
   ))).toMatch(/not a 1667 story project yet/u);
@@ -63,7 +41,7 @@ test("import reads a SillyTavern chat into one new story", async () => {
   await writeFile(file, CHAT, "utf8");
   const out = collector();
 
-  await runStoryImport(["sillytavern", file, "--data", root], out.stream, sink());
+  await withExitCode(() => runStoryImport([file, "--data", root], out.stream, sink()));
 
   // Two character messages become two story parts; the user message between
   // them becomes the direction for the second, not a part of its own.
@@ -78,13 +56,14 @@ test("one unreadable file does not stop the others, and the batch still fails", 
   const out = collector();
   const errors = collector();
 
-  expect(await failure(() => runStoryImport(
-    ["sillytavern", missing, good, "--data", root],
+  const exitCode = await withExitCode(() => runStoryImport(
+    [missing, good, "--data", root],
     out.stream,
     errors.stream
-  ))).toMatch(/did not read every file/u);
+  ));
 
   // The reachable file still became a story. A failure is reported, not fatal.
+  expect(exitCode).toBe(1);
   expect(out.text()).toMatch(/imported "/u);
   expect(errors.text()).toMatch(/missing\.jsonl/u);
 });
@@ -94,6 +73,22 @@ async function project(initialize: boolean): Promise<string> {
   created.push(root);
   if (initialize) await initializeProject(root);
   return root;
+}
+
+/** Import reports a partial batch through the exit status. Read that status,
+ * then put back the status this test run started with, so a failure reported
+ * here cannot fail the whole test process. */
+async function withExitCode(
+  run: () => Promise<unknown>
+): Promise<number | string | undefined> {
+  const before = process.exitCode;
+  process.exitCode = undefined;
+  try {
+    await run();
+    return process.exitCode;
+  } finally {
+    process.exitCode = before;
+  }
 }
 
 function collector(): {

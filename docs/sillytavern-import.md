@@ -11,6 +11,10 @@ read_when:
 The `1667 import` command reads SillyTavern chat files into a project. It makes
 one new story for each file. It does not write to the file that it reads.
 
+The command also reads Markdown files. It selects the format from the file. A
+`.jsonl` file is a SillyTavern chat. For Markdown import, refer to
+[Story storage](story-storage.md).
+
 ## Before you start
 
 The command needs a project. Make one first:
@@ -21,10 +25,10 @@ The command needs a project. Make one first:
 
 ## Import one file
 
-Give the source name and the file path:
+Give the file path:
 
 ```
-1667 import sillytavern chat.jsonl
+1667 import chat.jsonl
 ```
 
 The command prints one line for each file:
@@ -44,7 +48,7 @@ The last value is the story ID. Use it to open the story:
 Give more than one path. The command makes one story for each file:
 
 ```
-1667 import sillytavern first.jsonl second.jsonl
+1667 import first.jsonl second.jsonl
 ```
 
 If the command cannot read one file, it continues with the other files. It
@@ -57,13 +61,13 @@ The command uses the project that it finds from the current directory. To use a
 different project, give its root:
 
 ```
-1667 import sillytavern chat.jsonl --data /path/to/project
+1667 import chat.jsonl --data /path/to/project
 ```
 
 To use the machine-wide project, use `--global`:
 
 ```
-1667 import sillytavern chat.jsonl --global
+1667 import chat.jsonl --global
 ```
 
 Do not use `--data` and `--global` together. They select different projects.
@@ -116,5 +120,6 @@ it.
 
 ## Related commands
 
-The `1667 export` command writes one story to a Markdown file. It is not the
-opposite of this command: 1667 does not read an exported file again.
+The `1667 export` command writes one story to a Markdown file. The `1667 import`
+command reads that file again as a new story. It does not write to the story
+that made the file.

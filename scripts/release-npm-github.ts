@@ -16,6 +16,7 @@ import { isSemVer } from "../shared/semver.js";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import { releaseArchiveFileName } from "./release-archive.js";
+import { isExecutableFile } from "./release-boundary-validation.js";
 import {
   directoryAssetDigests,
   formatReleaseChecksums
@@ -297,7 +298,7 @@ function isMissingRelease(error: unknown): boolean {
 function boundedExecutable(value: string): string {
   if (!path.isAbsolute(value)) throw new Error("GitHub CLI path must be absolute");
   const stat = lstatSync(value);
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) {
+  if (!stat.isFile() || stat.isSymbolicLink() || !isExecutableFile(value, stat.mode)) {
     throw new Error("GitHub CLI must be an executable regular file");
   }
   return boundedFile(value, "GitHub CLI", Number.MAX_SAFE_INTEGER, true);

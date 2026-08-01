@@ -30,7 +30,7 @@ import {
   INSTALL_REPO,
   INSTALL_VERSION,
   execFileAsync,
-  hostPublishedTarget,
+  hostShellInstallerTarget,
   writePublishedArchives
 } from "./release-install-script-fixture.js";
 import { acquireInstallationLock } from "../tui/src/install-lock.js";
@@ -42,9 +42,9 @@ test("fresh install refuses stale previous before download and preserves bytes",
   const root = await mkdtemp(path.join(homeScratch, "install-prior-state-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -114,9 +114,9 @@ test("fresh install refuses Ownership Record and previous.next residue", async (
   const root = await mkdtemp(path.join(homeScratch, "install-prior-own-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 
@@ -183,9 +183,9 @@ test("no-txn preserves reserved staging and refuses before download", async (t) 
   const root = await mkdtemp(path.join(homeScratch, "install-no-txn-stage-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const hostTarget = hostPublishedTarget();
+  const hostTarget = hostShellInstallerTarget();
   if (hostTarget === null) {
-    t.skip("Host is not a published release target");
+    t.skip("Host cannot run the POSIX Shell Installer");
     return;
   }
 

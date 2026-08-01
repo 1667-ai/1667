@@ -16,6 +16,7 @@
     "release:stage": "node --import tsx scripts/release-stage-packages.ts",
     "release:tags": "node --import tsx scripts/release-npm-operations-cli.ts",
     "release:quarantine-note": "node --import tsx scripts/release-npm-quarantine-note-cli.ts",
+    "release:verify-install-upgrade": "node --import tsx scripts/release-install-upgrade-e2e.ts",
     "test": "node --import tsx --import ./test/setup.ts --test test/*.test.ts",
     "typecheck": "npm run schema:check && tsc --noEmit",
     "schema:check": "tsx scripts/story-schema.ts --check && tsx scripts/mutation-ledger-schema.ts --check && tsx scripts/settings-v2-schema.ts --check",

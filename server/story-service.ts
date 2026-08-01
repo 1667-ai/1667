@@ -1,4 +1,11 @@
 import { deriveChapters } from "../shared/chapters.js";
+import {
+  escapeStoryMarkdownProse,
+  markdownChapterMarker,
+  markdownDisplayTitle,
+  markdownStoryTitleMarker,
+  STORY_MARKDOWN_EXPORT_MARKER
+} from "../shared/story-markdown-codec.js";
 import { activePath } from "../shared/story-tree.js";
 import type {
   SettingsMutationResult,
@@ -34,6 +41,7 @@ import { probeContextWindow } from "./context-probe.js";
 import { ServiceError } from "./errors.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import { MAX_IMPORT_BYTES, partsFromSillyTavernJsonl, storyFromImport } from "./import-st.js";
+import { partsFromMarkdown } from "./import-md.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import { seedStarterVault } from "./starter-vault.js";
@@ -323,9 +331,13 @@ export class StoryService extends StoryServiceRuntime {
   async exportStory(id: string): Promise<{ filename: string; markdown: string }> {
     this.ensureOpen();
     const story = await this.stories.load(id);
-    const comment = (value: string) => value.replace(/--!?>/g, "→");
+    const comment = (value: string) => value
+      .replace(/\r\n?|\n/g, " ")
+      .replace(/--!?>/g, "→");
     const header = story.origin === undefined ? "" :
       `<!-- derived from "${comment(story.origin.storyTitle)}" (story ${story.origin.storyId}, node ${story.origin.partId}${story.origin.offset === null ? "" : ` @ ${story.origin.offset}`}) -->\n\n`;
+    const displayStoryTitle = markdownDisplayTitle(story.title, "Untitled story");
+    const exactStoryTitle = markdownStoryTitleMarker(story.title, displayStoryTitle);
     const chapters = deriveChapters(
       activePath(story),
       story.chapterBreaks,
@@ -333,11 +345,14 @@ export class StoryService extends StoryServiceRuntime {
       story.firstChapterTitle ?? ""
     );
     const sections = chapters.map((chapter) => {
-      const prose = chapter.parts.map((part) => part.text).join("\n\n");
+      const prose = chapter.parts
+        .map((part) => escapeStoryMarkdownProse(part.text))
+        .join("\n\n");
       // The document title already names the opening chapter when nothing
       // renamed it, so an untitled first chapter gets no heading of its own.
       if (chapter.number === 1 && chapter.title === "") return prose;
-      return `## ${chapter.title === "" ? `Chapter ${chapter.number}` : chapter.title}\n\n${prose}`;
+      const displayTitle = markdownDisplayTitle(chapter.title, `Chapter ${chapter.number}`);
+      return `${markdownChapterMarker(chapter.title, displayTitle)}\n\n## ${displayTitle}\n\n${prose}`;
     });
     // Deliberately narrower than the on-disk name (`exportFileBase`): this one
     // goes into a Content-Disposition quoted-string, so it stays ASCII and
@@ -345,7 +360,13 @@ export class StoryService extends StoryServiceRuntime {
     const filename = `${story.title.replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "story"}.md`;
     return {
       filename,
-      markdown: `# ${story.title}\n\n${header}${sections.join("\n\n")}\n`
+      markdown: [
+        `# ${displayStoryTitle}`,
+        STORY_MARKDOWN_EXPORT_MARKER,
+        ...(exactStoryTitle === null ? [] : [exactStoryTitle]),
+        ...(header.length === 0 ? [] : [header.trimEnd()]),
+        sections.join("\n\n")
+      ].join("\n\n") + "\n"
     };
   }
 
@@ -555,6 +576,64 @@ export class StoryService extends StoryServiceRuntime {
     return {
       payload: buildStoryPayload(story),
       droppedTrailingUserMessages: imported.droppedTrailingUserMessages
+    };
+  }
+
+  async importMarkdown(
+    markdown: string,
+    options: {
+      defaultTitle?: string;
+      storyId?: string;
+      nodeId?: (index: number) => string;
+      chapterBreakId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return (await this.importMarkdownWithReport(
+      markdown,
+      options,
+      mutationRequest
+    )).payload;
+  }
+
+  async importMarkdownWithReport(
+    markdown: string,
+    options: {
+      defaultTitle?: string;
+      storyId?: string;
+      nodeId?: (index: number) => string;
+      chapterBreakId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload }> {
+    this.ensureOpen();
+    if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) throw new ServiceError(413, "Request body too large");
+    const imported = partsFromMarkdown(markdown, options.defaultTitle);
+    if (mutationRequest !== undefined) {
+      const committed = await this.storyCreations.run(
+        mutationRequest,
+        "importMarkdown",
+        (deterministicId) => storyFromImport(imported, {
+          storyId: deterministicId,
+          nodeId: options.nodeId,
+          chapterBreakId: options.chapterBreakId
+        })
+      );
+      return {
+        payload: buildStoryPayload(committed.story, {
+          kind: "v6",
+          revision: committed.result.storyRevision
+        })
+      };
+    }
+    const story = storyFromImport(imported, {
+      storyId: options.storyId,
+      nodeId: options.nodeId,
+      chapterBreakId: options.chapterBreakId
+    });
+    await this.stories.save(story);
+    return {
+      payload: buildStoryPayload(story)
     };
   }
 
