@@ -9,6 +9,7 @@ import { demoAppSource } from "../src/demo.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
+import { mouseToAction } from "../src/mouse-actions.js";
 import { samplingLogitBiasEntries } from "../src/sampling-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
@@ -157,6 +158,12 @@ describe("Sampling Settings user flow", () => {
     await press(key("return"));
 
     await press(key("n"));
+    setSamplingEdit(state, "1:");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    expect(state.settings?.draft.sampling.logitBias).toEqual({});
+    await press(key("escape"));
+    await press(key("n"));
     setSamplingEdit(state, "42:7");
     await press(key("return"));
     await press(key("n"));
@@ -186,6 +193,18 @@ describe("Sampling Settings user flow", () => {
     ]);
     expect(state.settings?.sampling?.cursor).toBe(0);
     await press(key("escape"));
+  });
+
+  test("selected nested rows open with a mouse click", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+
+    render(state, 80, 24);
+    const hit = selectedNestedHit(state, 0);
+    expect(hit).not.toBe(null);
+    if (hit === null) throw new Error("selected Sampling row has no hit target");
+    expect(mouseToAction(click(hit.x, hit.y), state)).toEqual({ action: "open-selected" });
   });
 
   test("renders the exact empty list states", async () => {
@@ -310,9 +329,36 @@ function render(
   width: number,
   height: number
 ): string {
-  return frameText(renderStoryScreen(state, {
+  const rendered = renderStoryScreen(state, {
     width,
     height,
     wrapCache: createWrapCache()
-  }).lines);
+  });
+  Object.assign(state, rendered.derived);
+  return frameText(rendered.lines);
+}
+
+function click(x: number, y: number) {
+  return {
+    type: "down",
+    button: 0,
+    x,
+    y,
+    modifiers: { shift: false, alt: false, ctrl: false }
+  } as never;
+}
+
+function selectedNestedHit(
+  state: ReturnType<typeof initialState>,
+  index: number
+): { x: number; y: number } | null {
+  for (const [y, row] of state.hitRows.entries()) {
+    if (row === null) continue;
+    const region = [row, ...row.overrides ?? []].find((candidate) =>
+      candidate.target.kind === "list"
+        && candidate.target.index === index
+        && candidate.target.selected === true);
+    if (region !== undefined) return { x: region.left, y };
+  }
+  return null;
 }

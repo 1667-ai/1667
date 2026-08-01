@@ -79,7 +79,7 @@ function renderSamplingLayer(
   for (const [offset, row] of rows.slice(window.start, window.end).entries()) {
     const index = window.start + offset;
     lines.push(renderSamplingRow(row, index === cursor, settings, width));
-    targets.push({ kind: "list", index });
+    targets.push({ kind: "list", index, selected: index === cursor });
   }
   return { lines, targets };
 }
@@ -140,7 +140,7 @@ function renderStopLayer(
       rows.push(edit === null
         ? listValueRow(index, value, cursor === index, width)
         : inlineListValueRow(index, edit.composer, width));
-      targets.push({ kind: "list", index });
+      targets.push({ kind: "list", index, selected: index === cursor });
     }
   }
   return { lines: [...status, header, ...rows], targets };
@@ -175,7 +175,7 @@ function renderLogitBiasLayer(
       rows.push(edit === null
         ? logitValueRow(token, weight, cursor === index, width)
         : inlineListValueRow(index, edit.composer, width));
-      targets.push({ kind: "list", index });
+      targets.push({ kind: "list", index, selected: index === cursor });
     }
   }
   return { lines: [...status, header, ...rows], targets };

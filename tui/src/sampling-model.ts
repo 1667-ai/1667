@@ -232,6 +232,7 @@ export function setLogitBias(
   if (!/^\d+$/u.test(token) || !Number.isSafeInteger(Number(token))) {
     return "token ID must be a non-negative integer";
   }
+  if (!/^-?\d+$/u.test(weightText)) return "bias must be an integer";
   const weight = Number(weightText);
   if (!Number.isSafeInteger(weight)) return "bias must be an integer";
   const entries = samplingLogitBiasEntries(overlay);
