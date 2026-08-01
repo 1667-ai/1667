@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,15 +64,10 @@ test("1667 import routes a .story file to a project", async (t) => {
 
   const project = await initializeProject(root);
   const sampleStory = path.join(root, "sample.story");
-  const document = makeSyntheticNovelAiV2Base64(
-    new Map([[1, { type: 1, text: "TUI imported NovelAI prose." }]]),
-    [1]
+  await copyFile(
+    path.join(import.meta.dirname, "fixtures", "novelai-v2-editor-2024-sanitized.story"),
+    sampleStory
   );
-  await writeFile(sampleStory, JSON.stringify({
-    storyContainerVersion: 1,
-    metadata: { title: "TUI NovelAI Story" },
-    content: { document }
-  }), "utf8");
 
   const bun = process.execPath.includes("bun") ? process.execPath : "bun";
   const imported = await execFileAsync(
@@ -80,13 +75,18 @@ test("1667 import routes a .story file to a project", async (t) => {
     [path.resolve("tui/src/standalone.ts"), "import", "--data", project.root, sampleStory],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );
-  assert.match(imported.stdout, /imported "TUI NovelAI Story"/u);
+  assert.match(imported.stdout, /imported "Sanitized NovelAI V2 export"/u);
 
   const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
   await service.init();
-  assert.ok((await service.listStories()).some(
-    ({ title }) => title === "TUI NovelAI Story"
-  ));
+  const importedSummary = (await service.listStories()).find(
+    ({ title }) => title === "Sanitized NovelAI V2 export"
+  );
+  assert.ok(importedSummary);
+  const loaded = await service.loadStory(importedSummary.id);
+  assert.equal(loaded.nodes.length, 101);
+  assert.equal(loaded.path.reduce((sum, { text }) => sum + text.length, 0), 11_054);
+  assert.ok(loaded.path.every(({ text }) => /^[x●é]+$/u.test(text)));
   await service.dispose();
 });
 
