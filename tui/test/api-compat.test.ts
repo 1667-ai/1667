@@ -1479,7 +1479,7 @@ test("HTTP StoryApi sends a lorebook archive as bytes, not as a JSON index objec
 
   const result = await api.importLorebook("story", archive);
 
-  expect(sent).not.toBeNull();
+  expect(sent !== null).toBeTrue();
   expect(sent!.contentType).toBe("application/octet-stream");
   expect(typeof sent!.body).not.toBe("string");
   expect(new Uint8Array(sent!.body as ArrayBuffer)).toEqual(archive);
@@ -1497,6 +1497,11 @@ test("HTTP StoryApi refuses a lorebook import result that is missing its fact li
   }) as typeof fetch;
   const api = createApi("http://127.0.0.1:7373");
 
-  await expect(api.importLorebook("story", new Uint8Array([1, 2, 3])))
-    .rejects.toThrow("invalid lorebook import fact list");
+  let message = "";
+  try {
+    await api.importLorebook("story", new Uint8Array([1, 2, 3]));
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  expect(message).toContain("invalid lorebook import fact list");
 });

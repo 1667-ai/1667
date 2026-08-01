@@ -96,7 +96,7 @@ test("import creates a complete story from a NovelAI Container", async () => {
   ));
 
   expect(out.text()).toContain('imported "Complete Container" (2 parts, 3 facts) as ');
-  expect(errors.text()).toStartWith(`${file}: `);
+  expect(errors.text().startsWith(`${file}: `)).toBeTrue();
   const story = await loadImportedStory(root, "Complete Container");
   expect(story.path.map(({ text }) => text)).toEqual([
     "First imported part.",
@@ -128,7 +128,7 @@ test("import creates a complete story from a NovelAI Scenario", async () => {
   ));
 
   expect(out.text()).toContain('imported "Complete Scenario" (2 parts, 2 facts) as ');
-  expect(errors.text()).toStartWith(`${file}: `);
+  expect(errors.text().startsWith(`${file}: `)).toBeTrue();
   const story = await loadImportedStory(root, "Complete Scenario");
   expect(story.path.map(({ text }) => text)).toEqual([
     "# ${traveler} waits.\nThe marker is prose.",
