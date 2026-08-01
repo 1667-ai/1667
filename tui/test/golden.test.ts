@@ -174,6 +174,6 @@ describe("deterministic demo frames", () => {
 
   test("--keys toggles persistent typewriter status", async () => {
     const frame = await renderOnce(demoSource(), 120, 36, "z");
-    expect(frame).toContain("local ✓ · z centered");
+    expect(frame).toContain("qwen3-32b · z centered");
   });
 });

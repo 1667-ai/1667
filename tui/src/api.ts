@@ -131,7 +131,8 @@ export interface StoryApi {
   patchFact(storyId: string, factId: string, body: { tag?: string | null; text?: string }): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
-  renameChapterBreak(storyId: string, breakId: string, title: string): Promise<StoryPayload>;
+  /** A null break id names chapter one, which no break opens. */
+  renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
   removeChapterBreak(storyId: string, breakId: string): Promise<{ payload: StoryPayload; removed: RemovedChapterBreak }>;
   restoreChapterBreak(storyId: string, breakId: string, removed: RemovedChapterBreak): Promise<StoryPayload>;
   summarizeChapter(storyId: string, breakId: string): Promise<StoryPayload>;
@@ -699,7 +700,9 @@ export function createApi(
       mutateStoryPayload(
         storyId,
         "PATCH",
-        `/api/stories/${storyId}/chapter-breaks/${breakId}`,
+        breakId === null
+          ? `/api/stories/${storyId}/chapter-breaks`
+          : `/api/stories/${storyId}/chapter-breaks/${breakId}`,
         { title }
       ),
     removeChapterBreak: async (storyId, breakId) => {
@@ -710,7 +713,9 @@ export function createApi(
       );
       const result = await request(
         "DELETE",
-        `/api/stories/${storyId}/chapter-breaks/${breakId}`,
+        breakId === null
+          ? `/api/stories/${storyId}/chapter-breaks`
+          : `/api/stories/${storyId}/chapter-breaks/${breakId}`,
         decodeChapterBreakRemovedResponse,
         { removedFingerprint: preview.removedFingerprint },
         HTTP_REQUEST_TIMEOUT_MS,

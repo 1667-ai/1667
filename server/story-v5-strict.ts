@@ -34,7 +34,7 @@ export const STORY_ID_PATTERN = exactStringPattern(STORY_ID_PATTERN_SOURCE);
 const ROOT = closedShape([
   "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount",
   "nodes", "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
-], ["origin", "autonameId"]);
+], ["origin", "autonameId", "firstChapterTitle"]);
 const ORIGIN = closedShape(["storyId", "storyTitle", "partId", "offset", "createdAt"]);
 const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
@@ -77,6 +77,9 @@ export function assertStrictV5Manifest(
   safeInteger(manifest.activeWordCount, "manifest.activeWordCount", { min: 0 });
   if (manifest.origin !== undefined) assertOrigin(manifest.origin);
   optionalIdentifier(manifest.autonameId, "manifest.autonameId");
+  if (manifest.firstChapterTitle !== undefined) {
+    boundedString(manifest.firstChapterTitle, "manifest.firstChapterTitle", MAX_STORY_TITLE_CHARS);
+  }
   boundedArray(manifest.nodes, "manifest.nodes", MAX_STORY_COLLECTION_ITEMS)
     .forEach((entry, index) => assertNode(entry, `manifest.nodes[${index}]`));
   boundedArray(manifest.facts, "manifest.facts", MAX_FACTS)

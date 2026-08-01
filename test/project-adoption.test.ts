@@ -52,7 +52,7 @@ test("adoption moves stories in and lands the secret in the machine tier", async
   // The project carries the current marker, not the legacy one.
   assert.equal(
     await readFile(path.join(adoption.project.directory, DATA_DIRECTORY_OWNER_MARKER), "utf8"),
-    dataDirectoryOwnerMarkerText(2)
+    dataDirectoryOwnerMarkerText(3)
   );
   assert.equal(
     (await readdir(adoption.project.directory)).includes(LEGACY_DATA_OWNER_MARKER),
@@ -139,7 +139,7 @@ async function fixture(t: TestContext): Promise<{
   const source = await temporaryDirectory(t, "1667-adopt-source-");
   await writeFile(
     path.join(source, LEGACY_DATA_OWNER_MARKER),
-    dataDirectoryOwnerMarkerText(2),
+    dataDirectoryOwnerMarkerText(3),
     { mode: 0o600 }
   );
   await writeFile(

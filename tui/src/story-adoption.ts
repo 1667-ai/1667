@@ -278,7 +278,9 @@ function reconcileStoryBoundIntent(
   }
   if (state.chapters !== null) {
     const rename = state.chapters.rename;
-    if (rename !== null && !breakIds.has(rename.breakId)) {
+    // Chapter one's rename targets no break, so no break can disappear from
+    // under it. Only a break-backed rename is dropped when its break goes.
+    if (rename !== null && rename.breakId !== null && !breakIds.has(rename.breakId)) {
       state.chapters.rename = null;
     }
     if (state.chapters.deleteArmedId !== null && !breakIds.has(state.chapters.deleteArmedId)) {

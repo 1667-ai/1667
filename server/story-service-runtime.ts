@@ -404,7 +404,8 @@ export abstract class StoryServiceRuntime {
     this.storyChapters = new StoryServiceChapters({
       stories: this.stories,
       storyMutations: this.storyMutations,
-      ensureOpen: () => this.ensureOpen()
+      ensureOpen: () => this.ensureOpen(),
+      dataFormat: () => this.settings.dataFormat
     });
     this.storyReaper = new StoryReaper(storageRoot, this.mutationCoordinator);
     this.storyCatalog = new StoryCatalog(storageRoot, {

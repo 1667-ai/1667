@@ -248,3 +248,47 @@ async function removedSummaryFixture(base: string, title: string): Promise<{
   } }>(`${base}/api/stories/${payload.id}/chapter-breaks/${created.breakId}`, { method: "DELETE" });
   return { storyId: payload.id, root, removed: deleted.removed };
 }
+
+linuxTest("chapter one is nameable through the collection it has no member of", async (t) => {
+  const base = await testApp(t, "1667-first-chapter-http-");
+  let payload = await createStory(base, "The lantern keeper");
+  payload = await addNode(base, payload.id, null, "Root prose");
+
+  // Every other chapter is named by the break that opens it. Chapter one has
+  // no such break, so it addresses the collection instead of a member.
+  assert.equal(payload.firstChapterTitle, undefined);
+  assert.equal(
+    deriveChapters(payload.path, payload.chapterBreaks, payload.path, payload.firstChapterTitle ?? "")[0]!.title,
+    "",
+    "an unnamed chapter one has no title of its own"
+  );
+
+  payload = await json(
+    `${base}/api/stories/${payload.id}/chapter-breaks`,
+    patch({ title: "Arrival" })
+  );
+  assert.equal(payload.firstChapterTitle, "Arrival");
+  assert.equal(
+    deriveChapters(payload.path, payload.chapterBreaks, payload.path, payload.firstChapterTitle ?? "")[0]!.title,
+    "Arrival"
+  );
+
+  // A named chapter one earns the heading an unnamed one never took, because
+  // an unnamed one is already named by the document title.
+  const named = await (await fetchWithApiProtocol(
+    `${base}/api/stories/${payload.id}/export`,
+    { headers: API_PROTOCOL_HEADERS }
+  )).text();
+  assert.ok(named.includes("## Arrival"), named.slice(0, 200));
+
+  payload = await json(
+    `${base}/api/stories/${payload.id}/chapter-breaks`,
+    patch({ title: "" })
+  );
+  assert.equal(payload.firstChapterTitle, undefined, "clearing the name restores the story's own");
+  const unnamed = await (await fetchWithApiProtocol(
+    `${base}/api/stories/${payload.id}/export`,
+    { headers: API_PROTOCOL_HEADERS }
+  )).text();
+  assert.equal(unnamed.includes("## "), false, unnamed.slice(0, 200));
+});

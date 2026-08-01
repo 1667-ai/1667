@@ -869,7 +869,7 @@ describe("honest next-request context meter", () => {
     state.contextWindow = 1;
 
     const wide = renderStoryScreen(state, { width: 120, height: 36 }).lines.at(-1)!;
-    expect(wide.find((part) => part.text.includes("local ✓"))?.role).toBe("chrome");
+    expect(wide.find((part) => part.text.includes("qwen3-32b"))?.role).toBe("chrome");
 
     const compact = renderStoryScreen(state, { width: 80, height: 24 }).lines.at(-1)!;
     expect(compact.find((part) => part.text.includes("next "))?.role).toBe("danger text");
@@ -909,9 +909,9 @@ describe("honest next-request context meter", () => {
     state.composer.fullscreen = true;
     const expected = new Map([
       [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~884/32.8k"],
-      [100, " COMPOSE · fullscreen   the lantern ke… · ⚑ canon-storm · part 12/13 · take 3/5 qwen3-32b · local ✓"],
-      [110, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5        qwen3-32b · local ✓"],
-      [120, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words      qwen3-32b · local ✓"]
+      [100, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5        qwen3-32b"],
+      [110, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words      qwen3-32b"],
+      [120, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words       qwen3-32b · v0.1.2"]
     ]);
 
     for (const [width, text] of expected) {
@@ -919,8 +919,9 @@ describe("honest next-request context meter", () => {
       expect(visibleWidth(status)).toBe(width);
       expect(status.trimEnd()).toBe(text);
       expect(/(?:part |take |¶ )?\d+\/…/.test(status)).toBeFalse();
-      // This story fills the line, so the build tag has no slack to take.
-      expect(status).not.toContain(AI_1667_VERSION_TAG);
+      // The build tag takes slack and never a cell of the story's own
+      // identity: only the widest frame here has room left for it.
+      expect(status.includes(AI_1667_VERSION_TAG)).toBe(width === 120);
     }
   });
 
@@ -930,18 +931,24 @@ describe("honest next-request context meter", () => {
     state.payload = { ...state.payload, title: "untitled", tags: [] };
 
     const roomy = plainLine(renderStoryScreen(state, { width: 120, height: 24 }).lines.at(-1)!);
-    expect(roomy.trimEnd().endsWith(`local ✓ · ${AI_1667_VERSION_TAG}`)).toBeTrue();
+    expect(roomy.trimEnd().endsWith(`qwen3-32b · ${AI_1667_VERSION_TAG}`)).toBeTrue();
     expect(roomy).toContain("untitled");
     expect(visibleWidth(roomy)).toBe(120);
 
     // The story's own identity outranks it: the tag goes before a title does.
     const tight = plainLine(renderStoryScreen(
-      { ...state, payload: { ...state.payload, title: "a title long enough to fill this line completely" } },
+      {
+        ...state,
+        payload: {
+          ...state.payload,
+          title: "a title long enough to fill this whole line all by itself and then some"
+        }
+      },
       { width: 120, height: 24 }
     ).lines.at(-1)!);
     expect(tight).not.toContain(AI_1667_VERSION_TAG);
-    expect(tight).toContain("a title long enough to fill this line");
-    expect(tight.trimEnd().endsWith("local ✓")).toBeTrue();
+    expect(tight).toContain("a title long enough to fill this whole line");
+    expect(tight.trimEnd().endsWith("qwen3-32b")).toBeTrue();
 
     // Narrow keeps the request meter; the key reference carries the tag there.
     const narrow = plainLine(renderStoryScreen(state, { width: 80, height: 24 }).lines.at(-1)!);
