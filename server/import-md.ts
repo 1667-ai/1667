@@ -18,7 +18,7 @@ import {
   MAX_PARTS,
   MAX_TOTAL_CHARS,
   type ImportedPart
-} from "./import-st.js";
+} from "./import-model.js";
 
 export interface MarkdownImportBreak {
   parentPartIndex: number;

@@ -104,6 +104,54 @@ test("pending Markdown import replay re-enters canonical creation recovery", asy
   }
 });
 
+test("pending NovelAI import replay re-enters canonical creation recovery", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-novelai-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const mutationIdValue = mutationId("e");
+  const input = {
+    storyContainerJson: JSON.stringify({
+      storyContainerVersion: 1,
+      metadata: { title: "Replayed NovelAI story" },
+      content: {
+        story: {
+          fragments: [
+            { data: "First legacy line.\n" },
+            { data: "Second legacy line." }
+          ]
+        }
+      }
+    })
+  };
+  let service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  const first = await leavePendingAfterCommit(
+    service,
+    mutationIdValue,
+    "importNovelAI",
+    input
+  );
+  await service.dispose();
+
+  service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    const replayed = await runWorkerMutation(
+      service,
+      mutationIdValue,
+      "importNovelAI",
+      input
+    );
+    assert.equal(replayed.id, first.id);
+    assert.deepEqual(
+      replayed.nodes.map(({ id }) => id),
+      first.nodes.map(({ id }) => id)
+    );
+    assert.equal((await service.listStories()).length, 1);
+  } finally {
+    await service.dispose();
+  }
+});
+
 test("deterministic fact recovery wins before the capacity guard", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-capacity-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));

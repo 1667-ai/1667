@@ -8,7 +8,7 @@ import {
   sendJson,
   waitForResponseSettlement
 } from "./http.js";
-import { MAX_IMPORT_BYTES } from "./import-st.js";
+import { MAX_IMPORT_BYTES } from "./import-model.js";
 import {
   decodeMarkdownHttpBody,
   MAX_MARKDOWN_HTTP_BODY_BYTES
@@ -314,6 +314,16 @@ async function handleApi(
       201,
       await mutate("importSillyTavern", {
         jsonl: await textBody(MAX_IMPORT_BYTES)
+      })
+    );
+  }
+
+  if (head === "import" && id === "novelai" && sub === undefined && method === "POST") {
+    return sendJson(
+      response,
+      201,
+      await mutate("importNovelAI", {
+        storyContainerJson: await textBody(MAX_IMPORT_BYTES)
       })
     );
   }

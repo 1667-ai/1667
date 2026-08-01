@@ -223,7 +223,8 @@ async function expectedStoryVersion(
   }
   if (policy.method === "createStory"
     || policy.method === "importSillyTavern"
-    || policy.method === "importMarkdown") {
+    || policy.method === "importMarkdown"
+    || policy.method === "importNovelAI") {
     return { kind: "absent" };
   }
   const storyId = path.split("/")[3];

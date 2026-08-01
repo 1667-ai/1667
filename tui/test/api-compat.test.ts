@@ -1029,6 +1029,9 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
       importBodies.push(decodeMarkdownHttpBody(String(init?.body)));
       return Response.json(storyPayload("markdown-imported"));
     }
+    if (path === "/api/import/novelai") {
+      return Response.json(storyPayload("novelai-imported"));
+    }
     throw new Error(`Unexpected API path: ${path}`);
   }) as typeof fetch;
   const api = createApi(
@@ -1045,6 +1048,7 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   await api.exportMarkdown("story");
   await api.importSillyTavern("{}");
   await api.importMarkdown("Opening prose.", "Draft title");
+  await api.importNovelAI("{}");
 
   expect(importBodies).toEqual([{
     markdown: "Opening prose.",
@@ -1056,6 +1060,7 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
     HTTP_OPERATION_LIFETIME_MS.generation,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+    HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer,
     HTTP_OPERATION_LIFETIME_MS.transfer

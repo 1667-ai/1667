@@ -1,10 +1,17 @@
 const MAX_JSON_NESTING = 128;
 
+export interface StrictJsonLimits {
+  readonly maxValues?: number;
+}
+
 /** JSON.parse-compatible value parsing with duplicate object keys rejected
  * after escape decoding (`"a"` and `"\u0061"` are the same key). */
-export function parseJsonRejectingDuplicateKeys(text: string): unknown {
+export function parseJsonRejectingDuplicateKeys(
+  text: string,
+  limits: StrictJsonLimits = {}
+): unknown {
   try {
-    return new StrictJsonParser(text).parse();
+    return new StrictJsonParser(text, limits.maxValues ?? Number.POSITIVE_INFINITY).parse();
   } catch (error) {
     if (error instanceof StrictJsonError) throw error;
     throw new StrictJsonError("invalid JSON", { cause: error });
@@ -20,8 +27,12 @@ export class StrictJsonError extends Error {
 
 class StrictJsonParser {
   private index = 0;
+  private values = 0;
 
-  constructor(private readonly text: string) {}
+  constructor(
+    private readonly text: string,
+    private readonly maxValues: number
+  ) {}
 
   parse(): unknown {
     this.skipWhitespace();
@@ -33,6 +44,10 @@ class StrictJsonParser {
 
   private parseValue(depth: number): unknown {
     if (depth > MAX_JSON_NESTING) this.fail(`nesting exceeds ${MAX_JSON_NESTING}`);
+    this.values += 1;
+    if (this.values > this.maxValues) {
+      this.fail(`value count exceeds ${this.maxValues}`);
+    }
     switch (this.text[this.index]) {
       case "{": return this.parseObject(depth + 1);
       case "[": return this.parseArray(depth + 1);

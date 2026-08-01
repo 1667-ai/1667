@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2
+  MessagePack documents and Editor V1 legacy stories. Story title and section
+  prose are converted to 1667 story parts. Container settings, Memory, Author's
+  Note, Lorebook, and retry history are not imported. Thanks @10fra for the
+  request.
 - **`1667 import` now imports 1667-exported Markdown files as new stories.**
   Markdown `#` headings set the story title. `##` headings become chapter
   boundaries. Prose blocks separated by blank lines become story parts.

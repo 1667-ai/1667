@@ -567,6 +567,24 @@ const MUTATIONS: MutationRegistry = {
       }, context.storyMutationRequest);
     }
   }),
+  importNovelAI: define<"importNovelAI">({
+    parse: (value) => requiredStrings<"importNovelAI">(value, "importNovelAI", "storyContainerJson"),
+    storyId: (_input, plan) => plan.entityId("story"),
+    execute: async (service, input, plan, context) => {
+      const storyId = plan.entityId("story");
+      if (plan.recoveryMode !== "new") {
+        try {
+          return await loadMutationPayload(service, storyId);
+        } catch (error) {
+          if (!(error instanceof ServiceError) || error.status !== 404) throw error;
+        }
+      }
+      return (await service.importNovelAIWithReport(input.storyContainerJson, {
+        storyId,
+        nodeId: (index) => plan.entityId("import-node", index)
+      }, context.storyMutationRequest)).payload;
+    }
+  }),
   continueStory: define<"continueStory">({
     parse: (value) => {
       const input = requireRecord(value, "continueStory input");

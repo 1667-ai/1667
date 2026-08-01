@@ -264,6 +264,7 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "@opentui/core-linux-x64-musl",
     "bun",
     "fs-ext-extra-prebuilt",
+    "msgpackr",
     "tiktoken",
     "web-tree-sitter"
   ]);
@@ -285,6 +286,9 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     ["fs-ext-extra-prebuilt", ["2.2.9", "MIT",
       "34e2ff059d3f15dd0ca9bf0fb0680567d4d9a9b62ede54df7d2d2e70681d27cc"
       + "6d124033f872e4bb526edf4121769be0ed7339905d4f7c9605ff06cee47af8d9"]],
+    ["msgpackr", ["2.0.5", "MIT",
+      "71e7f4e47fdd498a4ba6aa77b23feac99879be151809a96768b3bb8f5c8e9a9b"
+      + "11d32fd7c0b56d2bbaf9827f94fc5ec24c47cca307068655102432dc2dfee370"]],
     ["@opentui/core", ["0.4.5", "MIT",
       "26c8114cf900e9ef95c66ba6c5a8ba48494e4a545091bccd2879427de9a502b4"
       + "622e17c2d4867d457268d901f8c52bbeb8139600cf74bacb3bdffa4f9647448a"]],
@@ -373,6 +377,7 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
     "bun",
     "tiktoken",
     "fs-ext-extra-prebuilt",
+    "msgpackr",
     "@opentui/core",
     "@opentui/core-linux-x64",
     "@opentui/core-linux-x64-musl",
@@ -383,7 +388,7 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
       `1667 must contain ${name}`
     );
   }
-  for (const name of ["tiktoken", "fs-ext-extra-prebuilt", "@opentui/core"]) {
+  for (const name of ["tiktoken", "fs-ext-extra-prebuilt", "msgpackr", "@opentui/core"]) {
     assert.ok(relationshipExists(document, "1667", "DEPENDS_ON", name));
   }
   for (const name of [
@@ -622,7 +627,7 @@ test("the pinned runtime and TUI inventory stay bound to the repository's own in
   const lockfile = parseJsonRejectingDuplicateKeys(
     readFileSync(path.join(REPOSITORY_ROOT, "package-lock.json"), "utf8")
   ) as { packages: Record<string, { version: string; license: string; integrity: string }> };
-  for (const name of ["tiktoken", "fs-ext-extra-prebuilt"]) {
+  for (const name of ["tiktoken", "fs-ext-extra-prebuilt", "msgpackr"]) {
     const component = components.find((entry) => entry.name === name);
     const locked = lockfile.packages[`node_modules/${name}`];
     assert.ok(component !== undefined && locked !== undefined);

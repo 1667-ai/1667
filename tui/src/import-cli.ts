@@ -77,14 +77,20 @@ export async function runStoryImport(
       try {
         const content = await readImportFile(file);
         const lowerFile = file.toLowerCase();
-        const isMarkdown = lowerFile.endsWith(".md")
-          || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#"));
+        const isStory = lowerFile.endsWith(".story");
+        const isMarkdown = !isStory && (lowerFile.endsWith(".md")
+          || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#")));
 
         let title: string;
         let partsCount: number;
         let id: string;
 
-        if (isMarkdown) {
+        if (isStory) {
+          const payload = await backend.api.importNovelAI(content);
+          title = payload.title;
+          partsCount = payload.nodes.length;
+          id = payload.id;
+        } else if (isMarkdown) {
           const defaultTitle = path.basename(file, path.extname(file));
           const payload = await backend.api.importMarkdown(content, defaultTitle);
           title = payload.title;

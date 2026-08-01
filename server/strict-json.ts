@@ -1,12 +1,17 @@
 import {
   StrictJsonError,
-  parseJsonRejectingDuplicateKeys as parseStrictJson
+  parseJsonRejectingDuplicateKeys as parseStrictJson,
+  type StrictJsonLimits
 } from "../shared/strict-json.js";
 import { StoryFormatError } from "./story-format-facts.js";
 
-export function parseJsonRejectingDuplicateKeys(text: string, label: string): unknown {
+export function parseJsonRejectingDuplicateKeys(
+  text: string,
+  label: string,
+  limits?: StrictJsonLimits
+): unknown {
   try {
-    return parseStrictJson(text);
+    return parseStrictJson(text, limits);
   } catch (error) {
     if (error instanceof StrictJsonError) {
       throw new StoryFormatError(

@@ -59,6 +59,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   discoverModels: "provider-check",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
+  importNovelAI: "transfer",
   continueStory: "generation",
   rewriteNode: "generation",
   createSummaryTake: "generation"
@@ -139,6 +140,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "importSillyTavern";
   if (path === "/api/import/markdown"
     && httpMethod === "POST") return "importMarkdown";
+  if (path === "/api/import/novelai"
+    && httpMethod === "POST") return "importNovelAI";
 
   const parts = path.split("/");
   if (parts[0] !== "" || parts[1] !== "api" || parts[2] !== "stories"

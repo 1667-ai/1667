@@ -40,8 +40,15 @@ import type { RemovedChapterBreak } from "./chapter-breaks.js";
 import { probeContextWindow } from "./context-probe.js";
 import { ServiceError } from "./errors.js";
 import type { DeltaConsumer } from "./generation-stream.js";
-import { MAX_IMPORT_BYTES, partsFromSillyTavernJsonl, storyFromImport } from "./import-st.js";
+import {
+  MAX_IMPORT_BYTES,
+  storyFromImport,
+  type GenericImport
+} from "./import-model.js";
+import { partsFromSillyTavernJsonl } from "./import-st.js";
 import { partsFromMarkdown } from "./import-md.js";
+import { partsFromNovelAiStory } from "./import-nai.js";
+import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import { seedStarterVault } from "./starter-vault.js";
@@ -57,6 +64,9 @@ import {
 
 export type { GenerationMutationHooks } from "./story-service-generation.js";
 export type { StoryServiceOptions } from "./story-service-runtime.js";
+
+type ImportCreationMethod = Exclude<CreationMethod, "createStory">;
+type ImportStoryIds = NonNullable<Parameters<typeof storyFromImport>[1]>;
 
 /** Canonical application boundary shared by HTTP and the embedded worker. */
 export class StoryService extends StoryServiceRuntime {
@@ -531,6 +541,31 @@ export class StoryService extends StoryServiceRuntime {
     return await discoverProviderModels(settings, undefined, signal);
   }
 
+  private async persistImportedStory(
+    imported: GenericImport,
+    method: ImportCreationMethod,
+    ids: ImportStoryIds,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    if (mutationRequest !== undefined) {
+      const committed = await this.storyCreations.run(
+        mutationRequest,
+        method,
+        (deterministicId) => storyFromImport(imported, {
+          ...ids,
+          storyId: deterministicId
+        })
+      );
+      return buildStoryPayload(committed.story, {
+        kind: "v6",
+        revision: committed.result.storyRevision
+      });
+    }
+    const story = storyFromImport(imported, ids);
+    await this.stories.save(story);
+    return buildStoryPayload(story);
+  }
+
   async importSillyTavern(
     jsonl: string,
     ids: { storyId?: string; nodeId?: (index: number) => string } = {},
@@ -551,30 +586,13 @@ export class StoryService extends StoryServiceRuntime {
     this.ensureOpen();
     if (Buffer.byteLength(jsonl) > MAX_IMPORT_BYTES) throw new ServiceError(413, "Request body too large");
     const imported = partsFromSillyTavernJsonl(jsonl);
-    if (mutationRequest !== undefined) {
-      const committed = await this.storyCreations.run(
-        mutationRequest,
-        "importSillyTavern",
-        (deterministicId) => storyFromImport(imported, {
-          storyId: deterministicId,
-          nodeId: ids.nodeId
-        })
-      );
-      return {
-        payload: buildStoryPayload(committed.story, {
-          kind: "v6",
-          revision: committed.result.storyRevision
-        }),
-        droppedTrailingUserMessages: imported.droppedTrailingUserMessages
-      };
-    }
-    const story = storyFromImport(imported, {
-      storyId: ids.storyId,
-      nodeId: ids.nodeId
-    });
-    await this.stories.save(story);
     return {
-      payload: buildStoryPayload(story),
+      payload: await this.persistImportedStory(
+        imported,
+        "importSillyTavern",
+        ids,
+        mutationRequest
+      ),
       droppedTrailingUserMessages: imported.droppedTrailingUserMessages
     };
   }
@@ -609,31 +627,51 @@ export class StoryService extends StoryServiceRuntime {
     this.ensureOpen();
     if (Buffer.byteLength(markdown) > MAX_IMPORT_BYTES) throw new ServiceError(413, "Request body too large");
     const imported = partsFromMarkdown(markdown, options.defaultTitle);
-    if (mutationRequest !== undefined) {
-      const committed = await this.storyCreations.run(
-        mutationRequest,
-        "importMarkdown",
-        (deterministicId) => storyFromImport(imported, {
-          storyId: deterministicId,
-          nodeId: options.nodeId,
-          chapterBreakId: options.chapterBreakId
-        })
-      );
-      return {
-        payload: buildStoryPayload(committed.story, {
-          kind: "v6",
-          revision: committed.result.storyRevision
-        })
-      };
-    }
-    const story = storyFromImport(imported, {
-      storyId: options.storyId,
-      nodeId: options.nodeId,
-      chapterBreakId: options.chapterBreakId
-    });
-    await this.stories.save(story);
     return {
-      payload: buildStoryPayload(story)
+      payload: await this.persistImportedStory(
+        imported,
+        "importMarkdown",
+        options,
+        mutationRequest
+      )
+    };
+  }
+
+  async importNovelAI(
+    storyContainerJson: string,
+    options: {
+      storyId?: string;
+      nodeId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return (await this.importNovelAIWithReport(
+      storyContainerJson,
+      options,
+      mutationRequest
+    )).payload;
+  }
+
+  async importNovelAIWithReport(
+    storyContainerJson: string,
+    options: {
+      storyId?: string;
+      nodeId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload }> {
+    this.ensureOpen();
+    if (Buffer.byteLength(storyContainerJson) > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    const imported = partsFromNovelAiStory(storyContainerJson);
+    return {
+      payload: await this.persistImportedStory(
+        imported,
+        "importNovelAI",
+        options,
+        mutationRequest
+      )
     };
   }
 
