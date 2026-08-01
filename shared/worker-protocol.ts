@@ -112,6 +112,7 @@ export interface WorkerMethodContract {
     };
   };
   renameStory: { input: { id: string; title: string }; output: StoryPayload };
+  setAuthorsNote: { input: { storyId: string; note: string }; output: StoryPayload };
   autonameStory: { input: { id: string; expectedTitle: string }; output: StoryPayload };
   acknowledgeUnknownOutcomes: {
     input: {
@@ -180,7 +181,7 @@ export type WorkerInput<M extends WorkerMethod> = WorkerMethodContract[M]["input
 export type WorkerOutput<M extends WorkerMethod> = WorkerMethodContract[M]["output"];
 
 export type MutatingWorkerMethod =
-  | "createStory" | "renameStory" | "autonameStory" | "acknowledgeUnknownOutcomes"
+  | "createStory" | "renameStory" | "setAuthorsNote" | "autonameStory" | "acknowledgeUnknownOutcomes"
   | "deleteStory" | "switchLine"
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact"
@@ -205,7 +206,7 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
-  "createStory", "renameStory", "autonameStory", "acknowledgeUnknownOutcomes",
+  "createStory", "renameStory", "setAuthorsNote", "autonameStory", "acknowledgeUnknownOutcomes",
   "deleteStory", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
@@ -229,7 +230,7 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
  * reaper tombstones, and the provider-fence protocol in the ledger.
  */
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
-  "renameStory", "switchLine",
+  "renameStory", "setAuthorsNote", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak"
@@ -429,7 +430,7 @@ export type WorkerToMainMessage =
 const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "listStories", "listStoriesPage", "searchStories", "createStory", "loadStory",
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
-  "renameStory", "autonameStory",
+  "renameStory", "setAuthorsNote", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
   "exportMarkdown", "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "getSettings",

@@ -52,7 +52,7 @@ test("adoption moves stories in and lands the secret in the machine tier", async
   // The project carries the current marker, not the legacy one.
   assert.equal(
     await readFile(path.join(adoption.project.directory, DATA_DIRECTORY_OWNER_MARKER), "utf8"),
-    dataDirectoryOwnerMarkerText(3)
+    dataDirectoryOwnerMarkerText(4)
   );
   assert.equal(
     (await readdir(adoption.project.directory)).includes(LEGACY_DATA_OWNER_MARKER),

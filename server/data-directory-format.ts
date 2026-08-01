@@ -129,7 +129,7 @@ export async function discardOwnerMarkerNextResidue(dataDir: string): Promise<vo
   const nextPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER_NEXT);
   await inspectTypedPrivatePublicationResidue(
     nextPath,
-    ([1, 2, 3] as const).map((dataFormat) =>
+    ([1, 2, 3, 4] as const).map((dataFormat) =>
       Buffer.from(dataDirectoryOwnerMarkerText(dataFormat), "utf8")),
     OWNER_MARKER_POLICY,
     (detail, cause) => invalidMarkerError(nextPath, detail, cause)
@@ -177,8 +177,8 @@ export function parseDataDirectoryOwnerMarkerBytes(
     literal(marker.product, "1667", "data-directory owner marker.product");
     literal(marker.markerSchema, 1, "data-directory owner marker.markerSchema");
     literal(marker.lockProtocol, 1, "data-directory owner marker.lockProtocol");
-    if (marker.dataFormat !== 1 && marker.dataFormat !== 2 && marker.dataFormat !== 3) {
-      throw new Error("data-directory owner marker.dataFormat must be 1, 2, or 3");
+    if (marker.dataFormat !== 1 && marker.dataFormat !== 2 && marker.dataFormat !== 3 && marker.dataFormat !== 4) {
+      throw new Error("data-directory owner marker.dataFormat must be 1, 2, 3, or 4");
     }
     assertNfcJsonStrings(value, "data-directory owner marker");
     if (canonicalJson(value) !== text) {

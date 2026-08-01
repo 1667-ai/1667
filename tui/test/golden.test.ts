@@ -5,6 +5,31 @@ import { demoAppSource } from "../src/demo.js";
 const demoSource = demoAppSource;
 
 describe("deterministic demo frames", () => {
+  test("Author's Note editor keeps its component grammar at 120 and 80 columns", async () => {
+    for (const width of [120, 80]) {
+      const shortSource = demoSource();
+      shortSource.payload = await shortSource.api.setAuthorsNote(
+        shortSource.payload.id,
+        "Keep the prose spare."
+      );
+      const shortFrame = await renderOnce(shortSource, width, 24, "\u001ba");
+      expect(shortFrame.startsWith("┏━ author's note ")).toBeTrue();
+      expect(shortFrame).toContain("Keep the prose spare.");
+      expect(shortFrame).not.toContain("tokens — long");
+      expect(shortFrame).toContain("ctrl+s save · esc cancel");
+
+      const warningSource = demoSource();
+      warningSource.payload = await warningSource.api.setAuthorsNote(
+        warningSource.payload.id,
+        "x".repeat(1_204)
+      );
+      const warningFrame = await renderOnce(warningSource, width, 24, "\u001ba");
+      expect(warningFrame.startsWith("┏━ author's note ")).toBeTrue();
+      expect(warningFrame).toContain("· 301 tokens — a long note crowds the prose it steers");
+      expect(warningFrame.split("\n").every((line) => line.length <= width)).toBeTrue();
+    }
+  });
+
   test("120x36 keeps the broadside gutter and status landmarks", async () => {
     const frame = await renderOnce(demoSource(), 120, 36);
     expect(frame).toContain("                     ×2 Maren counted");

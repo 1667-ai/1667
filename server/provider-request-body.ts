@@ -3,6 +3,7 @@ import {
   type PromptBlock,
   type PromptPlan
 } from "../shared/prompt-plan.js";
+import { promptCacheAdapter } from "./provider-cache-policy.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type {
   PromptBlockLocation
@@ -21,23 +22,30 @@ export function buildOpenAiChatRequestBody(
   prompt: PromptPlan,
   cache: PromptCacheWirePlan
 ): Record<string, unknown> {
+  const loweredPrompt = promptCacheAdapter(
+    "openai-chat-completions",
+    providerRuntimeFor(settings).preset,
+    settings.baseUrl
+  ) === "openai-official"
+    ? prompt
+    : foldAuthorsNote(prompt);
   let messages: unknown;
   const cacheFields: Record<string, unknown> = {};
   switch (cache.kind) {
     case "omit":
-      messages = stringMessages(prompt);
+      messages = stringMessages(loweredPrompt);
       break;
     case "openai-automatic":
-      messages = stringMessages(prompt);
+      messages = stringMessages(loweredPrompt);
       cacheFields.prompt_cache_key = cache.key;
       if (cache.retention !== null) cacheFields.prompt_cache_retention = cache.retention;
       break;
     case "openai-explicit-off":
-      messages = stringMessages(prompt);
+      messages = stringMessages(loweredPrompt);
       cacheFields.prompt_cache_options = { mode: "explicit" };
       break;
     case "openai-explicit":
-      messages = structuredMessages(prompt, cacheableLocationKeys(prompt, cache.breakpoints), (block) => ({
+      messages = structuredMessages(loweredPrompt, cacheableLocationKeys(loweredPrompt, cache.breakpoints), (block) => ({
         ...block,
         prompt_cache_breakpoint: { mode: "explicit" }
       }));
@@ -73,11 +81,12 @@ export function buildAnthropicMessagesRequestBody(
   prompt: PromptPlan,
   cache: PromptCacheWirePlan
 ): Record<string, unknown> {
+  const loweredPrompt = foldAuthorsNote(prompt);
   let system: string | readonly TextContentBlock[];
   let messages: unknown;
   switch (cache.kind) {
     case "omit": {
-      const rendered = renderPromptPlan(prompt);
+      const rendered = renderPromptPlan(loweredPrompt);
       system = rendered
         .filter((message) => message.role === "system")
         .map((message) => message.content)
@@ -88,7 +97,7 @@ export function buildAnthropicMessagesRequestBody(
       break;
     }
     case "anthropic-explicit": {
-      const selected = [...cacheableLocationKeys(prompt, [cache.breakpoint])][0]!;
+      const selected = [...cacheableLocationKeys(loweredPrompt, [cache.breakpoint])][0]!;
       const annotate = (location: PromptBlockLocation, block: TextContentBlock): TextContentBlock =>
         locationKey(location) !== selected
           ? block
@@ -98,8 +107,8 @@ export function buildAnthropicMessagesRequestBody(
                 ? { type: "ephemeral", ttl: "1h" }
                 : { type: "ephemeral" }
             };
-      system = structuredAnthropicSystem(prompt, annotate);
-      messages = prompt.turns.flatMap((turn, turnIndex) =>
+      system = structuredAnthropicSystem(loweredPrompt, annotate);
+      messages = loweredPrompt.turns.flatMap((turn, turnIndex) =>
         turn.role === "system"
           ? []
           : [{
@@ -126,6 +135,36 @@ export function buildAnthropicMessagesRequestBody(
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
   applyGenerationEffort(body, settings, "anthropic");
   return body;
+}
+
+/** Fold the late note when the protocol has no in-conversation system turn. */
+function foldAuthorsNote(plan: PromptPlan): PromptPlan {
+  const noteIndex = plan.turns.findIndex((turn) =>
+    turn.blocks.some((block) => block.kind === "authors-note")
+  );
+  if (noteIndex === -1) return plan;
+  const noteTurn = plan.turns[noteIndex]!;
+  const noteText = noteTurn.blocks
+    .filter((block) => block.kind === "authors-note")
+    .map((block) => block.text)
+    .join("");
+  const following = plan.turns[noteIndex + 1];
+  if (following === undefined || following.role !== "user") {
+    throw new Error("Author's Note must be followed by a user turn");
+  }
+  return {
+    ...plan,
+    turns: plan.turns.flatMap((turn, index) => {
+      if (index === noteIndex) return [];
+      if (index !== noteIndex + 1) return [turn];
+      const first = turn.blocks[0];
+      if (first === undefined) throw new Error("Prompt turns cannot be empty");
+      return [{
+        ...turn,
+        blocks: [{ ...first, text: `${noteText}\n\n${first.text}` }, ...turn.blocks.slice(1)]
+      }];
+    })
+  };
 }
 
 function applyGenerationEffort(

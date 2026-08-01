@@ -61,6 +61,84 @@ const PROMPT: PromptPlan = {
   ]
 };
 
+const AUTHORS_NOTE_PROMPT: PromptPlan = {
+  operation: "continue",
+  turns: [
+    {
+      role: "system",
+      blocks: [{
+        stability: "stable",
+        kind: "author-brief",
+        text: "Write with restraint.",
+        boundaryAfter: "candidate"
+      }]
+    },
+    {
+      role: "system",
+      blocks: [{
+        stability: "stable",
+        kind: "facts",
+        text: "The lantern is blue.",
+        boundaryAfter: "candidate"
+      }]
+    },
+    {
+      role: "user",
+      blocks: [{
+        stability: "stable",
+        kind: "source",
+        text: "Open the door.",
+        boundaryAfter: "none"
+      }]
+    },
+    {
+      role: "assistant",
+      blocks: [{
+        stability: "stable",
+        kind: "source",
+        text: "The latch clicked.",
+        boundaryAfter: "candidate"
+      }]
+    },
+    {
+      role: "system",
+      blocks: [{
+        stability: "stable",
+        kind: "authors-note",
+        text: "Keep the danger quiet.",
+        boundaryAfter: "none"
+      }]
+    },
+    {
+      role: "user",
+      blocks: [{
+        stability: "stable",
+        kind: "source",
+        text: "A stranger enters.",
+        boundaryAfter: "none"
+      }]
+    },
+    {
+      role: "assistant",
+      blocks: [{
+        stability: "stable",
+        kind: "source",
+        text: "The room held its breath.",
+        boundaryAfter: "none"
+      }]
+    },
+    {
+      role: "user",
+      blocks: [{
+        stability: "volatile",
+        kind: "request",
+        text: "Continue.",
+        boundaryAfter: "none"
+      }]
+    }
+  ]
+};
+
 const OMIT_PLANS: readonly Extract<PromptCacheWirePlan, { kind: "omit" }>[] = [
   { kind: "omit", reason: "policy-off" },
   { kind: "omit", reason: "legacy-v1" },
@@ -81,6 +159,40 @@ test("Anthropic request lowering preserves exact current system and message byte
   assert.equal(
     JSON.stringify(body),
     "{\"model\":\"model-fixture\",\"max_tokens\":321,\"messages\":[{\"role\":\"user\",\"content\":\"Rain crossed the window.\\nContinue.\"}],\"stream\":true,\"system\":\"Write with restraint.\\n\\nThe lantern is blue.\",\"temperature\":0.25}"
+  );
+});
+
+test("compatible OpenAI and Anthropic endpoints fold the note into the next user turn", () => {
+  const openAi = buildOpenAiChatRequestBody(
+    settings("openai-compatible"),
+    AUTHORS_NOTE_PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal(
+    JSON.stringify(openAi),
+    "{\"model\":\"model-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"Write with restraint.\"},{\"role\":\"system\",\"content\":\"The lantern is blue.\"},{\"role\":\"user\",\"content\":\"Open the door.\"},{\"role\":\"assistant\",\"content\":\"The latch clicked.\"},{\"role\":\"user\",\"content\":\"Keep the danger quiet.\\n\\nA stranger enters.\"},{\"role\":\"assistant\",\"content\":\"The room held its breath.\"},{\"role\":\"user\",\"content\":\"Continue.\"}],\"max_tokens\":321,\"stream\":true,\"temperature\":0.25}"
+  );
+
+  const anthropic = buildAnthropicMessagesRequestBody(
+    settings("anthropic"),
+    AUTHORS_NOTE_PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal(
+    JSON.stringify(anthropic),
+    "{\"model\":\"model-fixture\",\"max_tokens\":321,\"messages\":[{\"role\":\"user\",\"content\":\"Open the door.\"},{\"role\":\"assistant\",\"content\":\"The latch clicked.\"},{\"role\":\"user\",\"content\":\"Keep the danger quiet.\\n\\nA stranger enters.\"},{\"role\":\"assistant\",\"content\":\"The room held its breath.\"},{\"role\":\"user\",\"content\":\"Continue.\"}],\"stream\":true,\"system\":\"Write with restraint.\\n\\nThe lantern is blue.\",\"temperature\":0.25}"
+  );
+});
+
+test("official OpenAI Chat Completions keeps the late system note", () => {
+  const body = buildOpenAiChatRequestBody(
+    { ...settings("openai-compatible"), baseUrl: "https://api.openai.com/v1" },
+    AUTHORS_NOTE_PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal(
+    JSON.stringify(body),
+    "{\"model\":\"model-fixture\",\"messages\":[{\"role\":\"system\",\"content\":\"Write with restraint.\"},{\"role\":\"system\",\"content\":\"The lantern is blue.\"},{\"role\":\"user\",\"content\":\"Open the door.\"},{\"role\":\"assistant\",\"content\":\"The latch clicked.\"},{\"role\":\"system\",\"content\":\"Keep the danger quiet.\"},{\"role\":\"user\",\"content\":\"A stranger enters.\"},{\"role\":\"assistant\",\"content\":\"The room held its breath.\"},{\"role\":\"user\",\"content\":\"Continue.\"}],\"max_tokens\":321,\"stream\":true,\"temperature\":0.25}"
   );
 });
 
@@ -158,6 +270,23 @@ test("Anthropic auto and long put the only cache control on the stable boundary"
     false,
     "the volatile request block can never receive a cache control"
   );
+});
+
+test("Anthropic note folding preserves the explicit cache boundary", () => {
+  const body = buildAnthropicMessagesRequestBody(settings("anthropic"), AUTHORS_NOTE_PROMPT, {
+    kind: "anthropic-explicit",
+    ttl: "5m",
+    breakpoint: { turn: 3, block: 0 }
+  });
+  const serialized = JSON.stringify(body);
+
+  assert.equal(countOccurrences(serialized, "\"cache_control\""), 1);
+  assert.match(
+    serialized,
+    /"text":"The latch clicked\.","cache_control":\{"type":"ephemeral"\}/
+  );
+  assert.match(serialized, /"text":"Keep the danger quiet\.\\n\\nA stranger enters\."/);
+  assert.equal(JSON.stringify(body.system).includes("Keep the danger quiet."), false);
 });
 
 test("provider serializers reject cache markers outside stable candidate blocks", () => {

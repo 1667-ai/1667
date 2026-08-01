@@ -6,7 +6,9 @@ import {
   planRollingOpenAiBreakpoints,
   promptCacheBoundaries
 } from "../server/prompt-cache-breakpoints.js";
+import { continuationPlan } from "../shared/continuation-plan.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
+import type { StoryNode } from "../shared/types.js";
 
 test("o200k tokenizer uses exact model tokens", () => {
   assert.equal(countO200kPromptTextTokens(["hello world"]), 2);
@@ -66,6 +68,35 @@ test("rolling OpenAI breakpoints preserve the prior readable prefix", () => {
       newestBoundaryHash: null
     },
     "a model limit that cannot preserve the prior read never evicts it"
+  );
+});
+
+test("a moving Author's Note preserves request k's newest boundary in request k+1", () => {
+  const parts = Array.from({ length: 4 }, (_, index) => cacheNode(index + 1));
+  const requestK = continuationPlan(
+    "Voice.", null, "Keep the danger quiet.", parts.slice(0, 3),
+    "Continue.", false, true, "ct-k", [], parts.slice(0, 3)
+  ).prompt;
+  const requestK1 = continuationPlan(
+    "Voice.", null, "Keep the danger quiet.", parts,
+    "Continue.", false, true, "ct-k1", [], parts
+  ).prompt;
+  const prior = promptCacheBoundaries(requestK).at(-1)!;
+  const grown = promptCacheBoundaries(requestK1);
+
+  assert.deepEqual(
+    grown.find((boundary) => boundary.hash === prior.hash)?.location,
+    prior.location
+  );
+  assert.ok(grown.every((boundary) =>
+    requestK1.turns[boundary.location.turn]!.blocks[boundary.location.block]!.kind !== "authors-note"
+  ));
+  assert.deepEqual(
+    planRollingOpenAiBreakpoints(requestK1, prior.hash, 1, 4, () => 1),
+    {
+      locations: [prior.location, grown.at(-1)!.location],
+      newestBoundaryHash: grown.at(-1)!.hash
+    }
   );
 });
 
@@ -184,5 +215,17 @@ function fixture(): PromptPlan {
         }
       ]
     }]
+  };
+}
+
+function cacheNode(index: number): StoryNode {
+  return {
+    id: `part-${index}`,
+    parentId: index === 1 ? null : `part-${index - 1}`,
+    instruction: `Direction ${index}.`,
+    text: `Passage ${index}.`,
+    model: "test",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    activeChildId: null
   };
 }

@@ -411,3 +411,37 @@ test("story format: chapter one's name survives the bundle, and absence stays ab
   assert.equal("firstChapterTitle" in cleared, false);
   assert.equal(buildStoryPayload({ ...base, firstChapterTitle: "" }).firstChapterTitle, undefined);
 });
+
+test("story format: author note round-trips, omits empty values, and enforces scalar bounds", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-authors-note-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const base: Story = {
+    id: "story-authors-note", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [node("root", null, "Opening")],
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+
+  const absent = await encodeStoryBundle({ ...base, authorsNote: "" }, objects);
+  assert.equal("authorsNote" in absent, false);
+  assert.equal("authorsNote" in buildStoryPayload({ ...base, authorsNote: "" }), false);
+
+  const note = "😀 Author note";
+  const stored = await encodeStoryBundle({ ...base, authorsNote: note }, objects);
+  assert.equal(stored.authorsNote, note);
+  assert.deepEqual((await decodeStoryBundle(stored, dir)).story, { ...base, authorsNote: note });
+  assert.equal(buildStoryPayload({ ...base, authorsNote: note }).authorsNote, note);
+
+  await assert.rejects(
+    () => encodeStoryBundle({ ...base, authorsNote: "😀".repeat(4_001) }, objects),
+    /4,000 Unicode scalar values/
+  );
+  await assert.rejects(
+    () => encodeStoryBundle({ ...base, authorsNote: "broken \ud800" }, objects),
+    /unpaired Unicode surrogate/
+  );
+  assert.throws(
+    () => buildStoryPayload({ ...base, authorsNote: "😀".repeat(4_001) }),
+    /4,000 Unicode scalar values/
+  );
+});

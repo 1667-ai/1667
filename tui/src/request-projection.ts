@@ -17,6 +17,7 @@ export interface ContextBreakdown {
   facts: number;
   recent: number;
   summary: number;
+  note: number;
 }
 
 export interface NextRequestEstimate {
@@ -68,6 +69,7 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   const plan = continuationPlan(
     request.systemPrompt,
     formatFactsMessage(payload.facts),
+    payload.authorsNote ?? null,
     intent.contextParts,
     intent.instruction,
     intent.appendLast,
@@ -76,7 +78,7 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     payload.chapterBreaks,
     promptNodes(payload)
   );
-  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0 };
+  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
   const tokensByPart = new Map<string, number>();
   const messages = renderPromptPlan(plan.prompt);
   for (let index = 0; index < plan.entries.length; index += 1) {

@@ -5,6 +5,7 @@ import {
   type StoryFact,
   type StoryNode
 } from "../shared/types.js";
+import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
 import {
@@ -34,6 +35,7 @@ import {
 } from "./story-node-text.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
+import { boundedString } from "./story-wire-validation.js";
 
 export interface DecodedStoryBundle {
   story: Story;
@@ -60,6 +62,9 @@ export async function encodeStoryBundle(
   reuseFrom?: StoryObjectStore,
   snapshot?: StoryRevisionSnapshot
 ): Promise<StoryManifestV5> {
+  const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
+    ? undefined
+    : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
   validateFactBodies(story.facts);
   for (const node of story.nodes) if (isNodeTextHydrated(node)) validateNodeAttribution(node);
   await objects.init();
@@ -111,6 +116,7 @@ export async function encodeStoryBundle(
     createdAt: story.createdAt,
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
+    ...(authorsNote === undefined ? {} : { authorsNote }),
     ...(storyAutonameId(story) === undefined ? {} : { autonameId: storyAutonameId(story) }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
@@ -196,6 +202,9 @@ export async function decodeStoryBundle(
     createdAt: manifest.createdAt,
     updatedAt: manifest.updatedAt,
     ...(manifest.origin === undefined ? {} : { origin: { ...manifest.origin } }),
+    ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
+      ? {}
+      : { authorsNote: manifest.authorsNote }),
     ...(manifest.firstChapterTitle === undefined
       ? {}
       : { firstChapterTitle: manifest.firstChapterTitle }),

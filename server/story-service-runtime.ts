@@ -388,6 +388,7 @@ export abstract class StoryServiceRuntime {
       settings: this.settings,
       generationAdmission: this.generationAdmission,
       storyMutations: this.storyMutations,
+      dataFormat: () => this.settings.dataFormat,
       ensureOpen: () => this.ensureOpen()
     });
     this.storyGeneration = new StoryServiceGeneration({

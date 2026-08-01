@@ -39,7 +39,8 @@ const CATEGORIES: readonly Category[] = [
   ["voice", "context voice"],
   ["facts", "context facts"],
   ["recent", "context recent"],
-  ["summary", "context summary"]
+  ["summary", "context summary"],
+  ["note", "context note"]
 ];
 
 /** The rail footer, doc 12a collapsed and doc 12b expanded. The breakdown
@@ -128,7 +129,8 @@ function expandedMeter(
     [],
     ...window === null ? [] : [breakdownBar(model, window, growthRole), []],
     legendRow(CATEGORIES.slice(0, 2), model),
-    legendRow(CATEGORIES.slice(2), model),
+    legendRow(CATEGORIES.slice(2, 4), model),
+    ...model.breakdown.note > 0 ? [legendRow(CATEGORIES.slice(4), model)] : [],
     rule(),
     ...totalsLines(model, forecast, severity)
   ];

@@ -91,6 +91,23 @@ test("a format-2 reader refuses a format-3 directory before opening its state", 
   assert.equal(await readFile(markerPath, "utf8"), marker);
 });
 
+test("a format-3 reader refuses a format-4 directory before opening its state", async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-4-compat-"));
+  t.after(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const markerPath = path.join(dataDir, DATA_DIRECTORY_OWNER_MARKER);
+  const marker = dataDirectoryOwnerMarkerText(4);
+  await writeFile(markerPath, marker, { mode: 0o600 });
+
+  await assert.rejects(
+    readDataDirectoryFormat(dataDir, { supportedFormats: [1, 2, 3] }),
+    (error: unknown) => error instanceof ServiceError
+      && error.code === "data_directory_version_unsupported"
+  );
+  assert.equal(await readFile(markerPath, "utf8"), marker);
+});
+
 test("opening a format-2 project upgrades it to the fence its writes need", async (t) => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-3-upgrade-"));
   t.after(async () => {
@@ -106,8 +123,29 @@ test("opening a format-2 project upgrades it to the fence its writes need", asyn
   const opened = new DataDirectoryLock(dataDir);
   await opened.acquire();
   try {
-    assert.equal(await opened.migrateSettingsFormat(), 3);
-    assert.equal(await readDataDirectoryFormat(dataDir), 3);
+    assert.equal(await opened.migrateSettingsFormat(), 4);
+    assert.equal(await readDataDirectoryFormat(dataDir), 4);
+  } finally {
+    await opened.release();
+  }
+});
+
+test("opening a format-3 project performs the no-op format-4 fence", async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "1667-format-4-upgrade-"));
+  t.after(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+  const existing = new DataDirectoryLock(dataDir, { initializeDataFormat: 3 });
+  await existing.acquire();
+  await existing.release();
+
+  const opened = new DataDirectoryLock(dataDir);
+  await opened.acquire();
+  try {
+    assert.equal(opened.dataFormat, 3);
+    assert.equal(await opened.migrateSettingsFormat(), 4);
+    assert.equal(await opened.migrateSettingsFormat(), 4);
+    assert.equal(await readDataDirectoryFormat(dataDir), 4);
   } finally {
     await opened.release();
   }

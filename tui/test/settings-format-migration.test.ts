@@ -34,11 +34,11 @@ test("embedded startup migrates format-1 settings before worker readiness", asyn
   try {
     backend = await createWorkerStoryApi({ dataDir });
     const view = await backend.api.getSettings();
-    // The settings representation is v2; the directory's own fence is 3.
+    // The settings representation is v2. The directory fence is 4.
     expect(view.dataFormat).toBe(2);
     expect(view.editable).toBe(true);
     expect(view.effective).toEqual(LEGACY_SETTINGS);
-    expect(await readDataDirectoryFormat(dataDir)).toBe(3);
+    expect(await readDataDirectoryFormat(dataDir)).toBe(4);
     expect(await readFile(path.join(dataDir, SETTINGS_STATE_V1_FILE), "utf8")).toBe(v1Bytes);
   } finally {
     await backend?.dispose();

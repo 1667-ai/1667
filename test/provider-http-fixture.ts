@@ -12,14 +12,19 @@ import path from "node:path";
 import test from "node:test";
 import {
   LEGACY_PREVIEW_DATA_MARKER,
-  LEGACY_PREVIEW_DATA_MARKER_TEXT
+  LEGACY_PREVIEW_DATA_MARKER_TEXT,
+  writeInitialDataDirectoryFormat
 } from "../server/data-directory-format.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { formatGenerationSettingsV1 } from "../server/settings-v1-codec.js";
+import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
+import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 import type {
   GenerationSettings,
   StoryPayload
 } from "../shared/types.js";
+import { createApi } from "../tui/src/api.js";
+import { attachHttpServer } from "../tui/src/http-attach.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol,
@@ -52,6 +57,10 @@ export async function fakeModel(
   const sockets = new Set<Socket>();
   const server = createServer(async (request, response) => {
     try {
+      if (request.method === "GET" && request.url?.endsWith("/models") === true) {
+        response.writeHead(404).end();
+        return;
+      }
       const body = JSON.parse(
         await requestText(request)
       ) as Record<string, unknown>;
@@ -172,17 +181,39 @@ export async function testApp(
   settings: GenerationSettings,
   temporaryPrefix: string
 ): Promise<string> {
+  return await startTestApp(t, settings, temporaryPrefix, false);
+}
+
+/** Start a provider fixture whose story writes use the current data format. */
+export async function currentDataFormatTestApp(
+  t: test.TestContext,
+  settings: GenerationSettings,
+  temporaryPrefix: string
+): Promise<string> {
+  return await startTestApp(t, settings, temporaryPrefix, true);
+}
+
+async function startTestApp(
+  t: test.TestContext,
+  settings: GenerationSettings,
+  temporaryPrefix: string,
+  currentDataFormat: boolean
+): Promise<string> {
   const dataDir = await mkdtemp(path.join(tmpdir(), temporaryPrefix));
-  await writeFile(
-    path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
-    LEGACY_PREVIEW_DATA_MARKER_TEXT,
-    { mode: 0o600 }
-  );
-  await writeFile(
-    path.join(dataDir, "settings.json"),
-    formatGenerationSettingsV1(settings),
-    { encoding: "utf8", mode: 0o600, flag: "wx" }
-  );
+  if (currentDataFormat) {
+    await writeInitialDataDirectoryFormat(dataDir, 2);
+  } else {
+    await writeFile(
+      path.join(dataDir, LEGACY_PREVIEW_DATA_MARKER),
+      LEGACY_PREVIEW_DATA_MARKER_TEXT,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      path.join(dataDir, "settings.json"),
+      formatGenerationSettingsV1(settings),
+      { encoding: "utf8", mode: 0o600, flag: "wx" }
+    );
+  }
   const port = await availablePort();
   const server = spawn(
     process.execPath,
@@ -206,7 +237,31 @@ export async function testApp(
   });
   const base = `http://127.0.0.1:${port}`;
   await waitForTestServer(server, base, () => output);
+  if (currentDataFormat) await saveFixtureSettings(t, base, settings);
   return base;
+}
+
+async function saveFixtureSettings(
+  t: test.TestContext,
+  base: string,
+  settings: GenerationSettings
+): Promise<void> {
+  const attach = await attachHttpServer(base);
+  t.after(() => attach.dispose());
+  const api = createApi(base, undefined, attach);
+  const view = await api.getSettings();
+  assert.equal(view.dataFormat, 2);
+  if (!view.editable) assert.fail("current provider fixture settings are not editable");
+  const mutationId = createDurableMutationId();
+  const result = await api.saveSettings({
+    transportOperationId: `fixture:${mutationId}`,
+    mutationId,
+    expectedStateGeneration: view.stateGeneration,
+    document: applyBasicSettingsDraft(view.document, settings)
+  });
+  assert.equal(result.pendingSettingsRevision, null);
+  const saved = await api.getSettings();
+  assert.deepEqual(saved.effective, settings);
 }
 
 async function availablePort(): Promise<number> {

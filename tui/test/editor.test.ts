@@ -203,6 +203,69 @@ describe("inline editor", () => {
       .toBe("A tighter human summary.");
   });
 
+  test("a opens the Author's Note editor, saves, clears, and reports save errors", async () => {
+    const { source, state, press } = editorHarness();
+
+    await press(key("a"));
+    expect(documentEditor(state).target.kind).toBe("authors-note");
+    setComposerText(state.editor!.composer, "Sparse prose. Keep the lantern unanswered.");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorsNote).toBe("Sparse prose. Keep the lantern unanswered.");
+    expect(state.toast).toBe("Author's Note saved");
+
+    await press(key("a"));
+    setComposerText(state.editor!.composer, " \n\t ");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorsNote).toBe(undefined);
+    expect(state.toast).toBe("Author's Note cleared");
+
+    source.api.setAuthorsNote = async () => { throw new Error("note endpoint unavailable"); };
+    await press(key("a"));
+    setComposerText(state.editor!.composer, "Keep this draft.");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.composer.text).toBe("Keep this draft.");
+    expect(state.toast).toBe("note endpoint unavailable");
+  });
+
+  test("Author's Note enforces the scalar limit on save and paints its status", async () => {
+    const { source, state, cache, press } = editorHarness();
+    await press(key("a"));
+    setComposerText(state.editor!.composer, "x".repeat(1_200));
+    const thresholdFrame = frameText(renderStoryScreen(state, {
+      width: 120, height: 24, wrapCache: cache
+    }).lines);
+    expect(thresholdFrame).not.toContain("tokens");
+
+    setComposerText(state.editor!.composer, "x".repeat(1_204));
+    const warningFrame = frameText(renderStoryScreen(state, {
+      width: 120, height: 24, wrapCache: cache
+    }).lines);
+    expect(warningFrame).toContain("· 301 tokens");
+    const warningLine = renderStoryScreen(state, {
+      width: 120, height: 24, wrapCache: cache
+    }).lines.find((line) => line.some((part) => part.role === "context warning"));
+    expect(warningLine).toBeDefined();
+
+    let saves = 0;
+    source.api.setAuthorsNote = async () => {
+      saves += 1;
+      throw new Error("must not reach the server");
+    };
+    setComposerText(state.editor!.composer, "🙂".repeat(4_001));
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(saves).toBe(0);
+    expect(state.mode).toBe("EDITOR");
+    expect(state.toast).toBe("Author's Note must contain at most 4,000 Unicode scalar values.");
+    const limitFrame = renderStoryScreen(state, {
+      width: 120, height: 24, wrapCache: cache
+    });
+    expect(limitFrame.lines.flat().some((part) => part.role === "danger text")).toBeTrue();
+  });
+
   test("keyboard selection replaces text and Alt+Backspace deletes the previous word", async () => {
     const { state, press } = editorHarness();
     state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), "p12");

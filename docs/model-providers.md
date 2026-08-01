@@ -26,6 +26,27 @@ estimates response growth from recent provider text. The configured maximum
 output remains the upper limit. The segment changes between two visible
 colors.
 
+## Author's Note
+
+Each story can hold one Author's Note. Press `a` to write it. 1667 sends the
+Author's Note with each continuation request. 1667 puts it immediately before
+the last story part.
+
+The Author's Note is not a Fact. A Fact is reference data. The Author's Note is
+an instruction for the next passage.
+
+The message form depends on the protocol. Official OpenAI Chat Completions
+receives a late `system` message. Anthropic Messages uses the fold form in the
+last `user` message. Compatible, custom, and local endpoints also use the fold
+form.
+
+This feature applies to continuation and prompted retake requests. It does not
+rewrite a story. It does not create a summary. It does not name a story.
+
+1667 shows a warning when the Author's Note is above 300 estimated tokens.
+1667 does not save an Author's Note that has more than 4,000 Unicode scalar
+values.
+
 ## Provider support
 
 1667 supports these provider protocols:

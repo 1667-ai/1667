@@ -168,6 +168,7 @@ export interface StoryManifestV4 {
 
 export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> {
   schemaVersion: typeof STORY_SCHEMA_VERSION;
+  authorsNote?: string;
   /** Internal idempotency marker for a committed generated title. */
   autonameId?: string;
   /** Chapter one's name. It has no opening break to carry one. */
@@ -355,6 +356,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   const firstChapterTitle = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalString(value.firstChapterTitle, "firstChapterTitle")
     : undefined;
+  const authorsNote = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    ? optionalString(value.authorsNote, "authorsNote")
+    : undefined;
   validateChapterRecords(chapterBreaks, stored.nodes);
   const parsed: StoryManifestV5 = {
     ...stored,
@@ -363,6 +367,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(firstChapterTitle === undefined || firstChapterTitle === ""
       ? {}
       : { firstChapterTitle }),
+    ...(authorsNote === undefined || authorsNote === ""
+      ? {}
+      : { authorsNote }),
     chapterBreaks
   };
   return {

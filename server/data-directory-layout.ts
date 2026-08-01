@@ -1,11 +1,10 @@
 import { privatePublicationScratchPath } from "./private-file-publication.js";
 
-/** Format 3 is format 2 plus two optional shapes it may now contain: a name
- * for chapter one, and the plaintext opt-in on a loopback connection. Nothing
+/** Format 4 is format 3 plus the optional author note on a story. Nothing
  * moved on disk, so the number is the whole fence — an older executable
  * refuses the directory at the marker rather than failing later on data it
  * believed it understood. */
-export type DataDirectoryFormat = 1 | 2 | 3;
+export type DataDirectoryFormat = 1 | 2 | 3 | 4;
 
 /**
  * Project-tier names. The product prefix these once carried existed to

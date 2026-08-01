@@ -1,2 +1,2 @@
 /** SHA-256 of the exact canonical Draft 2020-12 story manifest schema artifact. */
-export const STORY_SCHEMA_SHA256 = "72450f5b5c83d653267bfe4af2558933de586632fe29ccdd74eb2046d59fa0d5" as const;
+export const STORY_SCHEMA_SHA256 = "3ad090aa3838f3fa417115ed8b57367e032e6afd1264254490c77267b1ec7432" as const;

@@ -1,19 +1,25 @@
 import { activePath, computeRollups } from "../shared/story-tree.js";
 import type { NodeStub, Story, StoryPayload } from "../shared/types.js";
+import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { nodeStubPreview, nodeStubTokens, nodeStubWords } from "./story-node-text.js";
+import { boundedString } from "./story-wire-validation.js";
 
 export function buildStoryPayload(
   story: Story,
   aggregateVersion?: StoryAggregateVersion
 ): StoryPayload {
   const rollups = computeRollups(story);
+  const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
+    ? undefined
+    : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
   return {
     id: story.id,
     title: story.title,
     createdAt: story.createdAt,
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
+    ...(authorsNote === undefined ? {} : { authorsNote }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),

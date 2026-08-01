@@ -23,6 +23,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Select a take for each story part.
 - Read a story as a story line, a tree, or a mass map.
 - View Facts and estimated request context in the side rail.
+- Keep one Author's Note for the next continuation or prompted retake.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
 - Use the embedded backend worker without a network port.
@@ -75,6 +76,7 @@ Git manages this installation.
 | Open the composer | `Enter` or `i` |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
+| Edit the Author's Note | `a` |
 | Generate a take with the same or a new prompt | `r` or `R` |
 | Copy the selected story part or story line | `y` or `Y` |
 | Undo an added or removed chapter break | `u` |
@@ -98,6 +100,7 @@ context can contain:
 - Story prose
 - Facts
 - Chapter summaries
+- Author's Note
 - User instructions
 
 1667 sends the selected credential in the authentication header when a

@@ -1,7 +1,7 @@
 import type { StoryPayload } from "../../shared/types.js";
 import { createComposer } from "./composer-model.js";
 import { capturePendingDirectDraft } from "./composer-ownership.js";
-import { reconcileFactEditor } from "./editor-reconciliation.js";
+import { reconcileAuthorsNoteEditor, reconcileFactEditor } from "./editor-reconciliation.js";
 import { globalEditor } from "./editor-scope.js";
 import { boundedFactSelection, factRows } from "./facts-model.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
@@ -238,6 +238,7 @@ function reconcileStoryBoundIntent(
   view: ReturnType<typeof createStoryViewModel>
 ): void {
   reconcileFactEditor(state);
+  reconcileAuthorsNoteEditor(state);
   const prune = state.prune;
   if (prune?.kind === "subtree") {
     const refreshed = createPrunePlan(state.payload, prune.nodeId);
@@ -306,7 +307,8 @@ function reconcileStoryBoundIntent(
         && state.payload.nodes.some(({ id }) =>
         id === (target.savedNode ?? target.node).id))
       || (target.kind === "chapter-summary"
-        && state.payload.nodes.some(({ id }) => id === target.summaryId));
+        && state.payload.nodes.some(({ id }) => id === target.summaryId))
+      || target.kind === "authors-note";
     if (!targetExists) {
       state.editor = null;
       state.editorScrollTop = 0;

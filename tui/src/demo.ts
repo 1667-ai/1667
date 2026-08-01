@@ -64,6 +64,7 @@ export interface DemoController {
   openStory(id: string): StoryPayload;
   createStory(): StoryPayload;
   renameStory(title: string): StoryPayload;
+  setAuthorsNote(authorsNote: string): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
@@ -232,6 +233,13 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     renameStory(title) { story.title = title; story.updatedAt = CREATED; return payloadFrom(story); },
+    setAuthorsNote(authorsNote) {
+      const normalized = authorsNote.trim().length === 0 ? undefined : authorsNote;
+      if (normalized === undefined) delete story.authorsNote;
+      else story.authorsNote = normalized;
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
     deleteStory() {
       story = { id: "demo-empty", title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
         nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
@@ -327,6 +335,9 @@ function payloadFrom(story: Story): StoryPayload {
     title: story.title,
     createdAt: story.createdAt,
     updatedAt: story.updatedAt,
+    ...(story.authorsNote === undefined || story.authorsNote.trim() === ""
+      ? {}
+      : { authorsNote: story.authorsNote }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
@@ -434,6 +445,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     createStory: async () => demo.createStory(),
     loadStory: async (id) => demo.openStory(id),
     renameStory: async (_id, title) => demo.renameStory(title),
+    setAuthorsNote: async (_storyId, authorsNote) => demo.setAuthorsNote(authorsNote),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },

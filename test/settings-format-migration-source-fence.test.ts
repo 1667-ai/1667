@@ -114,11 +114,11 @@ test("source drift after marker staging blocks activation and remains retryable"
       const retry = new DataDirectoryLock(dataDir);
       await retry.acquire();
       try {
-        assert.equal(await retry.migrateSettingsFormat(), 3);
+        assert.equal(await retry.migrateSettingsFormat(), 4);
       } finally {
         await retry.release();
       }
-      assert.equal(await readDataDirectoryFormat(dataDir), 3);
+      assert.equal(await readDataDirectoryFormat(dataDir), 4);
       const restored = await loadGenerationSettingsV1Source(dataDir);
       assert.equal(restored.sourceTag, originalSource.sourceTag);
       assert.equal(restored.canonicalV1Hash, originalSource.canonicalV1Hash);
@@ -230,11 +230,11 @@ async function assertRetryConverges(dataDir: string): Promise<void> {
   const retry = new DataDirectoryLock(dataDir);
   await retry.acquire();
   try {
-    assert.equal(await retry.migrateSettingsFormat(), 3);
+    assert.equal(await retry.migrateSettingsFormat(), 4);
   } finally {
     await retry.release();
   }
-  assert.equal(await readDataDirectoryFormat(dataDir), 3);
+  assert.equal(await readDataDirectoryFormat(dataDir), 4);
 }
 
 async function format1Directory(
