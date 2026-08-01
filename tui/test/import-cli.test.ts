@@ -77,12 +77,15 @@ async function project(initialize: boolean): Promise<string> {
 
 /** Import reports a partial batch through the exit status. Read that status,
  * then put back the status this test run started with, so a failure reported
- * here cannot fail the whole test process. */
+ * here cannot fail the whole test process.
+ *
+ * Put back 0, not `undefined`: an assignment of `undefined` keeps the value
+ * that is already there, which would leak this failure to the test run. */
 async function withExitCode(
   run: () => Promise<unknown>
 ): Promise<number | string | undefined> {
-  const before = process.exitCode;
-  process.exitCode = undefined;
+  const before = process.exitCode ?? 0;
+  process.exitCode = 0;
   try {
     await run();
     return process.exitCode;
