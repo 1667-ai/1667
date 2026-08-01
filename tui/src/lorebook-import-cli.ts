@@ -1,6 +1,7 @@
 import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
 import type { StorySummary } from "../../shared/types.js";
 import { readImportBytes } from "./import-file.js";
+import { selectStory } from "./story-selector.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";
 import { countNoun, fidelityReport } from "../../shared/fidelity.js";
@@ -99,24 +100,4 @@ export async function runLorebookImport(
   if (failed) process.exitCode = 1;
 }
 
-function selectStory(stories: readonly StorySummary[], value: string): StorySummary {
-  const byId = stories.find((story) => story.id === value);
-  if (byId !== undefined) return byId;
 
-  const exactTitles = stories.filter((story) => story.title === value);
-  if (exactTitles.length > 0) return oneStoryTitleMatch(value, exactTitles);
-
-  const foldedValue = value.toLowerCase();
-  const foldedTitles = stories.filter((story) => story.title.toLowerCase() === foldedValue);
-  if (foldedTitles.length > 0) return oneStoryTitleMatch(value, foldedTitles);
-
-  throw new Error(`unknown story: ${plain(value)}`);
-}
-
-function oneStoryTitleMatch(value: string, matches: readonly StorySummary[]): StorySummary {
-  if (matches.length === 1) return matches[0]!;
-  throw new Error(
-    `more than one story has the name "${plain(value)}"; use the story id `
-      + `(${matches.map((story) => story.id).join(", ")})`
-  );
-}

@@ -1,9 +1,7 @@
-import { readdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
 import { countNoun } from "../../shared/fidelity.js";
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
+import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { readImportBytes } from "./import-file.js";
 import type { ResolvedKey } from "./keys.js";
 import { publishStories } from "./overlay-publication.js";
@@ -41,36 +39,13 @@ export async function archiveImportAction(
     overlay.candidates = [];
     overlay.error = null;
   } else if (resolved.action === "complete") {
-    await completeArchiveImport(overlay);
+    await completeFilePath(overlay);
   } else if (resolved.action === "apply") {
     await applyArchiveImport(overlay, state, source, context);
   }
   return true;
 }
 
-async function completeArchiveImport(overlay: ArchiveImportPrompt): Promise<void> {
-  const target = completionTarget(overlay.path);
-  overlay.candidates = [];
-  overlay.error = null;
-  try {
-    const entries = await readdir(target.directory, { withFileTypes: true });
-    const wanted = target.base.toLowerCase();
-    const matches = entries
-      .filter((entry) => entry.name.toLowerCase().startsWith(wanted))
-      .sort((left, right) => left.name.localeCompare(right.name));
-    if (matches.length === 0) {
-      overlay.error = "no file matches that path";
-      return;
-    }
-    const names = matches.map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`);
-    const shared = longestCommonPrefix(names);
-    overlay.path = target.prefix
-      + ([...shared].length > [...target.base].length ? shared : target.base);
-    if (matches.length > 1) overlay.candidates = names;
-  } catch (error) {
-    overlay.error = errorMessage(error);
-  }
-}
 
 async function applyArchiveImport(
   overlay: ArchiveImportPrompt,
@@ -159,48 +134,6 @@ function archiveExtension(value: string): ".lorebook" | ".scenario" | ".story" |
   return null;
 }
 
-function completionTarget(typed: string): {
-  directory: string;
-  base: string;
-  prefix: string;
-} {
-  const directoryInput = typed === "~" || /[\\/]$/u.test(typed);
-  const expanded = typed === "~"
-    ? `${homedir()}${sep}`
-    : expandLeadingTilde(typed);
-  const base = directoryInput ? "" : basename(expanded);
-  const prefix = typed === "~"
-    ? `~${sep}`
-    : directoryInput
-      ? typed
-      : typed.slice(0, typed.length - base.length);
-  return {
-    directory: directoryInput ? expanded : dirname(expanded),
-    base,
-    prefix
-  };
-}
 
-function expandLeadingTilde(value: string): string {
-  if (value === "~") return homedir();
-  if (/^~[\\/]/u.test(value)) return join(homedir(), value.slice(2));
-  return value;
-}
 
-function longestCommonPrefix(values: readonly string[]): string {
-  const first = [...(values[0] ?? "")];
-  let length = first.length;
-  for (const value of values.slice(1)) {
-    const characters = [...value];
-    length = Math.min(length, characters.length);
-    let index = 0;
-    while (index < length && first[index] === characters[index]) index += 1;
-    length = index;
-    if (length === 0) break;
-  }
-  return first.slice(0, length).join("");
-}
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

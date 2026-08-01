@@ -1,8 +1,6 @@
-import { readdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
+import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { describeCardImport, planCardImport, type CardImportPlan } from "./card-import.js";
 import { readImportBytes } from "./import-file.js";
 import type { ResolvedKey } from "./keys.js";
@@ -40,40 +38,11 @@ export async function cardImportAction(
     overlay.candidates = [];
     overlay.error = null;
   } else if (resolved.action === "complete") {
-    await completeCardImport(overlay);
+    await completeFilePath(overlay);
   } else if (resolved.action === "apply") {
     await applyCardImport(overlay, state, source, context);
   }
   return true;
-}
-
-async function completeCardImport(overlay: CardImportPrompt): Promise<void> {
-  const target = completionTarget(overlay.path);
-  overlay.candidates = [];
-  overlay.error = null;
-  try {
-    const entries = await readdir(target.directory, { withFileTypes: true });
-    // macOS and Windows open `MIra.json` when the file is `mira.json`, so
-    // completion that only matched exact case would report no match for a path
-    // that imports fine.
-    const wanted = target.base.toLowerCase();
-    const matches = entries
-      .filter((entry) => entry.name.toLowerCase().startsWith(wanted))
-      .sort((left, right) => left.name.localeCompare(right.name));
-    if (matches.length === 0) {
-      overlay.error = "no file matches that path";
-      return;
-    }
-    const names = matches.map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`);
-    // Matches that differ only in case share no prefix. Completion extends what
-    // the writer typed; it never takes characters away.
-    const shared = longestCommonPrefix(names);
-    overlay.path = target.prefix
-      + ([...shared].length > [...target.base].length ? shared : target.base);
-    if (matches.length > 1) overlay.candidates = names;
-  } catch (error) {
-    overlay.error = errorMessage(error);
-  }
 }
 
 async function applyCardImport(
@@ -132,48 +101,6 @@ async function applyCardImport(
   }
 }
 
-function completionTarget(typed: string): {
-  directory: string;
-  base: string;
-  prefix: string;
-} {
-  const directoryInput = typed === "~" || /[\\/]$/u.test(typed);
-  const expanded = typed === "~"
-    ? `${homedir()}${sep}`
-    : expandLeadingTilde(typed);
-  const base = directoryInput ? "" : basename(expanded);
-  const prefix = typed === "~"
-    ? `~${sep}`
-    : directoryInput
-      ? typed
-      : typed.slice(0, typed.length - base.length);
-  return {
-    directory: directoryInput ? expanded : dirname(expanded),
-    base,
-    prefix
-  };
-}
 
-function expandLeadingTilde(value: string): string {
-  if (value === "~") return homedir();
-  if (/^~[\\/]/u.test(value)) return join(homedir(), value.slice(2));
-  return value;
-}
 
-function longestCommonPrefix(values: readonly string[]): string {
-  const first = [...(values[0] ?? "")];
-  let length = first.length;
-  for (const value of values.slice(1)) {
-    const characters = [...value];
-    length = Math.min(length, characters.length);
-    let index = 0;
-    while (index < length && first[index] === characters[index]) index += 1;
-    length = index;
-    if (length === 0) break;
-  }
-  return first.slice(0, length).join("");
-}
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

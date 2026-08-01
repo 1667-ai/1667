@@ -6,6 +6,7 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { ConnectionState } from "./connection.js";
+import type { FilePathPrompt } from "./path-completion.js";
 import type { HitRows } from "./hit.js";
 import type { UserConfig } from "./config.js";
 import type { ReadingPositions } from "./reading-position.js";
@@ -74,26 +75,10 @@ export interface TagPrompt {
   returnMode: "NAV" | "MAP";
 }
 
-export interface CardImportPrompt {
-  path: string;
-  /** Frozen at prompt-open so a story swap during the file read cannot
-   * retarget the import at whichever story became current. */
-  storyId: string;
-  /** Candidates from the last tab press; display only, never a focus stop. */
-  candidates: string[];
-  error: string | null;
-  returnMode: "NAV" | "COMPOSE";
-}
+/** Both import prompts ask for a file path and answer the same keys. */
+export type CardImportPrompt = FilePathPrompt;
 
-export interface ArchiveImportPrompt {
-  path: string;
-  /** Frozen at prompt-open so a file read cannot retarget a Lorebook import. */
-  storyId: string;
-  /** Candidates from the last tab press; display only, never a focus stop. */
-  candidates: string[];
-  error: string | null;
-  returnMode: "NAV" | "COMPOSE";
-}
+export type ArchiveImportPrompt = FilePathPrompt;
 
 export type TextPrompt =
   | {
