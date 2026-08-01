@@ -470,9 +470,9 @@ test("Anthropic lowering uses only its exact wire names", () => {
 
 test("serializers refuse configured sampling values that the selected route cannot lower", () => {
   const cases: readonly [string, SamplingSettingsV2][] = [
-    ["top_k", sampling({ topK: 32 })],
-    ["min_p", sampling({ minP: 0.05 })],
-    ["repeat_penalty", sampling({ repeatPenalty: 1.1 })]
+    ["top k", sampling({ topK: 32 })],
+    ["min p", sampling({ minP: 0.05 })],
+    ["repeat penalty", sampling({ repeatPenalty: 1.1 })]
   ];
   for (const [field, value] of cases) {
     const settingsValue = withSampling(settings("openai-compatible"), "custom", value);
@@ -487,7 +487,7 @@ test("serializers refuse configured sampling values that the selected route cann
       PROMPT,
       OMIT_PLANS[0]!
     ),
-    /Configured sampling parameter logit_bias/
+    /Configured sampling parameter logit bias/
   );
   assert.throws(
     () => buildAnthropicMessagesRequestBody(
@@ -495,7 +495,7 @@ test("serializers refuse configured sampling values that the selected route cann
       PROMPT,
       OMIT_PLANS[0]!
     ),
-    /Configured sampling parameter frequency_penalty/
+    /Configured sampling parameter frequency penalty/
   );
 });
 

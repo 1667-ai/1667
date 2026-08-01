@@ -1,7 +1,4 @@
 import {
-  applyBasicSettingsDraft
-} from "../../shared/settings-basic-draft.js";
-import {
   SAMPLING_KNOB_V2_VALUES,
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   type SamplingScalarKnobV2,
@@ -72,31 +69,12 @@ export function samplingContextForOverlay(
       temperatureSupport: "unknown"
     };
   }
-  try {
-    const profileId = overlay.draft.selectedProfileId;
-    const document = overlay.draft.document;
-    if (profileId === null || document === null) {
-      throw new Error("selected settings profile is unavailable");
-    }
-    const projected = applyBasicSettingsDraft(
-      document,
-      overlay.draft.generation,
-      profileId
-    );
-    return samplingContextForRoute(resolveSettingsProfile(projected, profileId));
-  } catch {
-    // The basic editor may contain an incomplete endpoint while it is being
-    // typed. Keep the route's central capability answer visible until save
-    // reports the endpoint error.
-    const document = overlay.draft.document;
-    if (document === null) throw new Error("editable settings document is unavailable");
-    const profileId = overlay.draft.selectedProfileId ?? document.routing.default;
-    const route = resolveSettingsProfile(document, profileId);
-    return {
-      ...samplingContextForRoute(route),
-      remoteModelId: overlay.draft.generation.model
-    };
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (document === null || profileId === null) {
+    throw new Error("editable settings draft is unavailable");
   }
+  return samplingContextForRoute(resolveSettingsProfile(document, profileId));
 }
 
 export function samplingScalarRows(
@@ -247,7 +225,7 @@ export function setSamplingScalar(
   const text = raw.trim();
   const value = text.length === 0 ? null : Number(text);
   if (value !== null && !Number.isFinite(value)) {
-    return `${labelFor(knob)} must be a number or blank`;
+    return `${samplingKnobLabel(knob)} must be a number or blank`;
   }
   const next = { ...overlay.draft.sampling, [knob]: value } as SamplingSettingsV2;
   const error = validateSampling(next);
@@ -432,16 +410,4 @@ function updateSamplingDraft(
   if (overlay.conflict !== null) overlay.conflict.armed = false;
   overlay.result = null;
   if (overlay.sampling !== null) overlay.sampling.result = "draft updated · save in Settings";
-}
-
-function labelFor(knob: SamplingScalarKnob): string {
-  return samplingKnobPresentation(
-    {
-      protocol: "openai-chat-completions",
-      preset: "openai",
-      remoteModelId: "",
-      temperatureSupport: "supported"
-    },
-    knob
-  ).label;
 }

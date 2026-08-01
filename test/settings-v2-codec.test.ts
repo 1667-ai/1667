@@ -223,7 +223,7 @@ test("save-time sampling validation refuses unavailable preset and model cells",
       }
     }
   };
-  assert.throws(() => parseSettingsDocumentV2(ollama), /logit_bias.*preset/);
+  assert.throws(() => parseSettingsDocumentV2(ollama), /logit bias.*preset/);
 
   const anthropic = convertGenerationSettingsV1(legacy(
     "anthropic",
@@ -249,7 +249,7 @@ test("save-time sampling validation refuses unavailable preset and model cells",
         }
       }
     }
-  }), /top_p.*model/);
+  }), /top p.*model/);
 });
 
 test("parsed settings documents and states are deeply immutable", () => {

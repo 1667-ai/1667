@@ -12,6 +12,11 @@ import { publishSettingsView } from "../src/overlay-publication.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
+import {
+  samplingContextForOverlay,
+  samplingScalarRows
+} from "../src/sampling-model.js";
+import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { SETTINGS_ROW_IDS } from "../src/settings-overlay-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
@@ -183,6 +188,40 @@ describe("Sampling Settings review regressions", () => {
     const document = saved[0]!.document;
     expect(document.profiles[selectedProfileId!]!.sampling?.topP).toBe(0.8);
     expect(document.profiles.default!.sampling).toBe(undefined);
+  });
+
+  test("keeps one projected Sampling route while an endpoint edit is incomplete", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+
+    await openSettings(press);
+    await selectRow(press, state, "base-url");
+    await press(key("return"));
+    const edit = state.settings?.edit;
+    if (edit?.kind !== "inline") throw new Error("base URL edit did not open");
+    setComposerText(edit.composer, "");
+    await press(key("return"));
+
+    const overlay = state.settings;
+    if (overlay === null || overlay.draft.document === null
+      || overlay.draft.selectedProfileId === null) {
+      throw new Error("editable Settings draft did not remain available");
+    }
+    const route = resolveSettingsProfile(
+      overlay.draft.document,
+      overlay.draft.selectedProfileId
+    );
+    const context = samplingContextForOverlay(overlay);
+    expect(context).toEqual({
+      protocol: route.connection.protocol,
+      preset: route.connection.preset,
+      remoteModelId: route.model.remoteId,
+      temperatureSupport: route.model.capabilities.temperature
+    });
+    expect(samplingScalarRows(overlay)[0]).toMatchObject({
+      label: "top p",
+      available: true
+    });
   });
 });
 

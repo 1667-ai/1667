@@ -1,6 +1,6 @@
 import {
   resolveConfiguredSamplingKnobs,
-  samplingKnobWireName,
+  samplingKnobLabel,
   type SamplingContext,
   type SamplingUnavailableReason
 } from "../shared/sampling-capabilities.js";
@@ -29,7 +29,7 @@ export function applySamplingFields(
   const plan = resolveConfiguredSamplingKnobs(context, sampling).map(({ knob, resolution }) => {
     if (resolution.kind === "unavailable") {
       throw new ProviderError(
-        `Configured sampling parameter ${samplingKnobWireName(knob)} is unavailable: ${
+        `Configured sampling parameter ${samplingKnobLabel(knob)} is unavailable: ${
           PROVIDER_UNAVAILABLE_REASON[resolution.reason]
         }`
       );
@@ -86,7 +86,7 @@ function configuredScalarValue(
   knob: SamplingScalarKnobV2
 ): number {
   if (value === null) {
-    throw new Error(`Configured sampling scalar ${samplingKnobWireName(knob)} is unexpectedly null`);
+    throw new Error(`Configured sampling scalar ${samplingKnobLabel(knob)} is unexpectedly null`);
   }
   return value;
 }

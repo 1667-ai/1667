@@ -135,7 +135,7 @@ test("Ollama rejects logit bias at save time without changing the active documen
   });
   await assert.rejects(
     () => store.save(saveCommand(MUTATION_C, 1, candidate)),
-    /logit_bias.*preset/u
+    /logit bias.*preset/u
   );
   assert.deepEqual((await store.loadView()).document, before);
 });

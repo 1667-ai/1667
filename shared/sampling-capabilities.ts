@@ -111,21 +111,6 @@ const KNOB_LABELS: Readonly<Record<SamplingKnobV2, string>> = {
   logitBias: "logit bias"
 };
 
-const SAMPLING_WIRE_NAMES: Readonly<Record<SamplingKnobV2, string>> = {
-  topP: "top_p",
-  topK: "top_k",
-  minP: "min_p",
-  frequencyPenalty: "frequency_penalty",
-  presencePenalty: "presence_penalty",
-  repeatPenalty: "repeat_penalty",
-  stop: "stop",
-  logitBias: "logit_bias"
-};
-
-export function samplingKnobWireName(knob: SamplingKnobV2): string {
-  return SAMPLING_WIRE_NAMES[knob];
-}
-
 export function samplingKnobLabel(knob: SamplingKnobV2): string {
   return KNOB_LABELS[knob];
 }

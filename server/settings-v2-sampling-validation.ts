@@ -10,7 +10,7 @@ import {
   resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
   samplingKnobValueIsSet,
-  samplingKnobWireName
+  samplingKnobLabel
 } from "../shared/sampling-capabilities.js";
 import type { SamplingUnavailableReason } from "../shared/sampling-capabilities.js";
 import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
@@ -105,5 +105,5 @@ function samplingValidationMessage(
     "model-unsupported": "for a model that does not declare sampling support",
     "model-unknown": "for a model without a documented sampling contract"
   };
-  return `profile ${profileId} sets ${samplingKnobWireName(knob)} ${details[reason]}`;
+  return `profile ${profileId} sets ${samplingKnobLabel(knob)} ${details[reason]}`;
 }

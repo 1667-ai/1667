@@ -39,7 +39,7 @@ test("sampling lowering does not partially mutate a body on resolution failure",
 
   assert.throws(
     () => applySamplingFields(body, settings, "openai-chat-completions"),
-    /Configured sampling parameter top_k/u
+    /Configured sampling parameter top k/u
   );
   assert.deepEqual(body, before);
 });

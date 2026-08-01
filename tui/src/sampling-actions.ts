@@ -17,6 +17,7 @@ import {
   setStopSequence,
   type SamplingScalarKnob
 } from "./sampling-model.js";
+import { disarmSettingsConflict } from "./settings-overlay-model.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import type { RuntimeState } from "./state.js";
@@ -203,9 +204,26 @@ function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
 }
 
 async function pasteSamplingEdit(state: RuntimeState): Promise<void> {
-  const edit = state.settings?.sampling?.edit;
-  if (edit === null || edit === undefined) return;
+  const settings = state.settings;
+  if (settings === null) return;
+  const nested = settings.sampling;
+  if (nested === null) return;
+  const edit = nested.edit;
+  if (edit === null) return;
+  const inputClaim = {
+    interactionVersion: state.interactionVersion,
+    text: edit.composer.text,
+    cursor: edit.composer.cursor,
+    anchor: edit.composer.anchor
+  };
   const text = await readFromClipboard();
+  if (state.settings !== settings || settings.sampling !== nested || nested.edit !== edit) return;
+  if (state.interactionVersion !== inputClaim.interactionVersion
+    || edit.composer.text !== inputClaim.text
+    || edit.composer.cursor !== inputClaim.cursor
+    || edit.composer.anchor !== inputClaim.anchor) {
+    return;
+  }
   if (text === null) {
     state.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
     return;
@@ -215,5 +233,6 @@ async function pasteSamplingEdit(state: RuntimeState): Promise<void> {
     state.toast = "clipboard has no insertable text";
     return;
   }
+  disarmSettingsConflict(settings);
   insertComposerText(edit.composer, clean);
 }
