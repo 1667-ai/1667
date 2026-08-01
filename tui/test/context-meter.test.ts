@@ -903,6 +903,20 @@ describe("honest next-request context meter", () => {
     }
   });
 
+  // The build tag is the only part of this row that moves with the product
+  // version, and the row must still measure exactly its terminal width. Derive
+  // the gap so a version of any length keeps the assertion meaningful.
+  function composeStatusWithBuildTag(width: number): string {
+    const left = " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm"
+      + " · part 12/13 · take 3/5 · 307 words";
+    const right = `qwen3-32b · ${AI_1667_VERSION_TAG}`;
+    // The row keeps one empty cell at the right edge, and the caller compares
+    // the trimmed line, so the visible text is one column short of the width.
+    const gap = width - 1 - visibleWidth(left) - visibleWidth(right);
+    if (gap < 1) throw new Error("compose status row does not fit its build tag");
+    return `${left}${" ".repeat(gap)}${right}`;
+  }
+
   test("fullscreen compose preserves complete location and request status before optional words", () => {
     const state = initialState(demoAppSource(), true);
     state.mode = "COMPOSE";
@@ -911,7 +925,7 @@ describe("honest next-request context meter", () => {
       [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~884/32.8k"],
       [100, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5        qwen3-32b"],
       [110, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words      qwen3-32b"],
-      [120, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words       qwen3-32b · v0.1.2"]
+      [120, composeStatusWithBuildTag(120)]
     ]);
 
     for (const [width, text] of expected) {

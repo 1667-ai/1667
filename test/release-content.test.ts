@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import {
   releasePackageContentFileSet,
   stageReleaseContent
@@ -21,7 +22,8 @@ import {
 } from "../scripts/release-source-facts.js";
 
 const FACTS = Object.freeze({
-  version: "0.1.2",
+  // Release identity refuses a version the checkout's manifests disagree with.
+  version: AI_1667_PRODUCT_VERSION,
   sourceCommit: "0123456789abcdef0123456789abcdef01234567",
   buildTimestamp: "2026-07-28T10:20:30.000Z"
 });

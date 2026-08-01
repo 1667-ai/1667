@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-01
+
 - **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2
   MessagePack documents and Editor V1 legacy stories. Story title and section
   prose are converted to 1667 story parts. Container settings, Memory, Author's
