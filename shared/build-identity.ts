@@ -11,12 +11,12 @@ export {
 } from "./release-targets.js";
 
 export const AI_1667_PRODUCT = "1667" as const;
-/** v11 added Markdown reimport and the collection PATCH that names chapter one.
- * A client one version ahead would otherwise pass preflight against an older
- * server and then take a 404 in the middle of a rename. */
-export const HTTP_API_PROTOCOL_VERSION = 11;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 11;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 11;
+/** v12 added NovelAI import. v11 added Markdown reimport and the collection
+ * PATCH that names chapter one. A client one version ahead would otherwise
+ * pass preflight against an older server and then take a 404 on the new route. */
+export const HTTP_API_PROTOCOL_VERSION = 12;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 12;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 12;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 
