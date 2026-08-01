@@ -52,8 +52,11 @@ export function renderSettingsPanel(
   const contentCapacity = panelContentRows(height);
   const status = settingsStatusLines(overlay);
   const resultLines = settingsResultLines(overlay, horizontal.contentWidth);
+  const bottomStatus = status.bottom.some((line) => line.length > 0)
+    ? status.bottom
+    : [];
   const fixedRows = 3 + status.top.length
-    + status.bottom.length + resultLines.length;
+    + bottomStatus.length + resultLines.length;
   const editableRows = rows.slice(2);
   const painted = rows.map((row, index) =>
     settingsFieldRow(row, index, overlay, horizontal.contentWidth)
@@ -67,7 +70,7 @@ export function renderSettingsPanel(
     const noticeBlocks = [
       ...(resultLines.length === 0 ? [] : [resultLines]),
       status.top.filter((line) => line.length > 0),
-      status.bottom.filter((line) => line.length > 0)
+      bottomStatus.filter((line) => line.length > 0)
     ];
     const notices: FrameLine[] = [];
     const noticeCapacity = contentCapacity;
@@ -110,7 +113,7 @@ export function renderSettingsPanel(
       [],
       ...status.top,
       ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
-      ...status.bottom,
+      ...bottomStatus,
       ...resultLines
     ];
     targets = [
@@ -121,7 +124,7 @@ export function renderSettingsPanel(
       ...editableRows
         .slice(rowWindow.start, rowWindow.end)
         .map((_, index) => listTarget(rowWindow.start + index + 2)),
-      ...status.bottom.map(() => null),
+      ...bottomStatus.map(() => null),
       ...resultLines.map(() => null)
     ];
   }

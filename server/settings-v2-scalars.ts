@@ -6,13 +6,6 @@ import {
   MAX_CREDENTIAL_NAMES_PER_DOCUMENT,
   isCredentialEnvironmentName
 } from "../shared/credential-slot-policy.js";
-import {
-  SamplingValidationError,
-  validateSamplingLogitBias,
-  validateSamplingNumber,
-  validateSamplingScalar,
-  validateSamplingStopSequences
-} from "../shared/sampling-validation-policy.js";
 export { classifyHttpHost } from "../shared/http-host-class.js";
 export {
   MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
@@ -119,48 +112,6 @@ export function requireFiniteTemperature(value: unknown, label: string): number 
     throw new SettingsFormatError(`${label} must be null or a finite number in -100..100`);
   }
   return value;
-}
-
-export function requireSamplingNumber(
-  value: unknown,
-  label: string,
-  minimum: number,
-  maximum: number
-): number {
-  return samplingPolicy(() => validateSamplingNumber(
-    value,
-    label,
-    { minimum, maximum, integer: false }
-  ));
-}
-
-export function requireSamplingTopK(value: unknown, label: string): number {
-  return samplingPolicy(() => validateSamplingScalar("topK", value, label));
-}
-
-export function requireSamplingStopSequences(
-  value: unknown,
-  label: string
-): readonly string[] {
-  return samplingPolicy(() => validateSamplingStopSequences(value, label));
-}
-
-export function requireSamplingLogitBias(
-  value: unknown,
-  label: string
-): Readonly<Record<string, number>> {
-  return samplingPolicy(() => validateSamplingLogitBias(value, label));
-}
-
-function samplingPolicy<T>(operation: () => T): T {
-  try {
-    return operation();
-  } catch (error) {
-    if (error instanceof SamplingValidationError) {
-      throw new SettingsFormatError(error.message, { cause: error });
-    }
-    throw error;
-  }
 }
 
 export function requireCredentialName(

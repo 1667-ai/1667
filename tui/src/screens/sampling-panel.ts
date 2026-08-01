@@ -3,7 +3,9 @@ import type { HitRows, HitTarget } from "../hit.js";
 import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
+  samplingLayerRowIdentity,
   samplingLogitBiasEntries,
+  samplingListItemIdentity,
   type SamplingListRow,
   type SamplingScalarRow,
   samplingListRows,
@@ -39,9 +41,13 @@ export function renderSamplingPanel(
   const status = nested.result === null ? [] : [samplingStatus(nested.result, contentWidth)];
   const content = nested.panel === "sampling"
     ? renderSamplingLayer(settings, contentWidth, height, status)
-    : nested.panel === "stop"
-      ? renderStopLayer(settings, contentWidth, height, status)
-      : renderLogitBiasLayer(settings, contentWidth, height, status);
+    : renderSamplingListLayer(
+        settings,
+        contentWidth,
+        height,
+        status,
+        nested.panel === "stop" ? "stop" : "logit-bias"
+      );
   const footer = samplingFooter(nested.panel, nested.edit !== null, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
@@ -79,7 +85,15 @@ function renderSamplingLayer(
   for (const [offset, row] of rows.slice(window.start, window.end).entries()) {
     const index = window.start + offset;
     lines.push(renderSamplingRow(row, index === cursor, settings, width));
-    targets.push({ kind: "list", index, selected: index === cursor });
+    const rowIdentity = row.kind === "scalar"
+      ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
+      : samplingLayerRowIdentity({ kind: "list", panel: row.row.panel });
+    targets.push({
+      kind: "list",
+      index,
+      rowId: rowIdentity,
+      selected: index === cursor
+    });
   }
   return { lines, targets };
 }
@@ -112,31 +126,42 @@ function renderSamplingRow(
   );
 }
 
-function renderStopLayer(
+type SamplingListValue = string | readonly [string, number];
+
+interface SamplingListDescriptor {
+  readonly panel: "stop" | "logit-bias";
+  readonly values: readonly SamplingListValue[];
+  readonly emptyCopy: readonly string[];
+  header(count: number): string;
+  formatValue(value: SamplingListValue, index: number, selected: boolean, width: number): FrameLine;
+}
+
+function renderSamplingListLayer(
   settings: NonNullable<OverlayState["settings"]>,
   width: number,
   height: number,
-  status: FrameLine[]
+  status: FrameLine[],
+  panel: "stop" | "logit-bias"
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const stopSummary = samplingListRows(settings)[0]!;
-  const values = settings.draft.sampling.stop;
-  const cursor = boundedSamplingCursor(settings, "stop");
+  const descriptor = samplingListDescriptor(settings, panel);
+  const values = descriptor.values;
+  const cursor = boundedSamplingCursor(settings, descriptor.panel);
   const activeEdit = settings.sampling?.edit;
-  const pendingEdit = activeEdit?.kind === "stop" && activeEdit.index === values.length
+  const pendingEdit = activeEdit?.kind === descriptor.panel && activeEdit.index === values.length
     ? activeEdit
     : null;
-  const header = [raisedSegment(truncate(`  #   stop sequence · ${values.length}/${stopSummary.maximum}`, width), "chrome")];
+  const header = [raisedSegment(truncate(descriptor.header(values.length), width), "chrome")];
   const rows: FrameLine[] = [];
   const targets: Array<HitTarget | null> = [...status.map(() => null), null];
   if (values.length === 0) {
-    rows.push([raisedSegment(truncate("  no stop sequences yet.", width), "prose · dim")]);
-    rows.push([raisedSegment(truncate("  n writes one · the model stops when it types one", width), "prose · dim")]);
-    targets.push(null);
-    targets.push(null);
+    for (const text of descriptor.emptyCopy) {
+      rows.push([raisedSegment(truncate(text, width), "prose · dim")]);
+      targets.push(null);
+    }
   }
   const rowCount = values.length + (pendingEdit === null ? 0 : 1);
   if (rowCount > 0) {
-    const emptyCopyRows = values.length === 0 ? 2 : 0;
+    const emptyCopyRows = values.length === 0 ? descriptor.emptyCopy.length : 0;
     const capacity = Math.max(1, panelContentRows(height) - status.length - 1 - emptyCopyRows);
     const window = panelRowWindow(Array.from({ length: rowCount }, () => 1), cursor, capacity);
     for (let index = window.start; index < window.end; index += 1) {
@@ -145,65 +170,62 @@ function renderStopLayer(
       } else {
         const value = values[index];
         if (value === undefined) continue;
-        const edit = index === cursor && activeEdit?.kind === "stop"
+        const edit = index === cursor && activeEdit?.kind === descriptor.panel
           ? activeEdit
           : null;
         rows.push(edit === null
-          ? listValueRow(index, value, cursor === index, width)
+          ? descriptor.formatValue(value, index, cursor === index, width)
           : inlineListValueRow(index, edit.composer, width));
       }
-      targets.push({ kind: "list", index, selected: index === cursor });
+      const rowId = samplingListItemIdentity(
+        descriptor.panel,
+        index === values.length ? undefined : values[index],
+        index === values.length && pendingEdit !== null
+      );
+      targets.push({
+        kind: "list",
+        index,
+        ...(rowId === null ? {} : { rowId }),
+        selected: index === cursor
+      });
     }
   }
   return { lines: [...status, header, ...rows], targets };
 }
 
-function renderLogitBiasLayer(
+function samplingListDescriptor(
   settings: NonNullable<OverlayState["settings"]>,
-  width: number,
-  height: number,
-  status: FrameLine[]
-): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const logitSummary = samplingListRows(settings)[1]!;
-  const values = samplingLogitBiasEntries(settings);
-  const cursor = boundedSamplingCursor(settings, "logit-bias");
-  const activeEdit = settings.sampling?.edit;
-  const pendingEdit = activeEdit?.kind === "logit-bias" && activeEdit.index === values.length
-    ? activeEdit
-    : null;
-  const headerText = `  token ID       integer bias · ${values.length}/${logitSummary.maximum}`;
-  const header = [raisedSegment(truncate(headerText, width), "chrome")];
-  const rows: FrameLine[] = [];
-  const targets: Array<HitTarget | null> = [...status.map(() => null), null];
-  if (values.length === 0) {
-    rows.push([raisedSegment(truncate("  no biased tokens yet.", width), "prose · dim")]);
-    rows.push([raisedSegment(truncate("  n writes one · token IDs come from the model's tokenizer.", width), "prose · dim")]);
-    targets.push(null);
-    targets.push(null);
-  }
-  const rowCount = values.length + (pendingEdit === null ? 0 : 1);
-  if (rowCount > 0) {
-    const emptyCopyRows = values.length === 0 ? 2 : 0;
-    const capacity = Math.max(1, panelContentRows(height) - status.length - 1 - emptyCopyRows);
-    const window = panelRowWindow(Array.from({ length: rowCount }, () => 1), cursor, capacity);
-    for (let index = window.start; index < window.end; index += 1) {
-      if (index === values.length && pendingEdit !== null) {
-        rows.push(inlineListValueRow(index, pendingEdit.composer, width));
-      } else {
-        const value = values[index];
-        if (value === undefined) continue;
-        const [token, weight] = value;
-        const edit = index === cursor && activeEdit?.kind === "logit-bias"
-          ? activeEdit
-          : null;
-        rows.push(edit === null
-          ? logitValueRow(token, weight, cursor === index, width)
-          : inlineListValueRow(index, edit.composer, width));
+  panel: "stop" | "logit-bias"
+): SamplingListDescriptor {
+  const summary = samplingListRows(settings).find((row) => row.panel === panel)!;
+  if (panel === "stop") {
+    return {
+      panel,
+      values: settings.draft.sampling.stop,
+      emptyCopy: [
+        "  no stop sequences yet.",
+        "  n writes one · the model stops when it types one"
+      ],
+      header: (count) => `  #   stop sequence · ${count}/${summary.maximum}`,
+      formatValue: (value, index, selected, width) => {
+        if (typeof value !== "string") throw new Error("stop sequence row has an invalid value");
+        return listValueRow(index, value, selected, width);
       }
-      targets.push({ kind: "list", index, selected: index === cursor });
-    }
+    };
   }
-  return { lines: [...status, header, ...rows], targets };
+  return {
+    panel,
+    values: samplingLogitBiasEntries(settings),
+    emptyCopy: [
+      "  no biased tokens yet.",
+      "  n writes one · token IDs come from the model's tokenizer."
+    ],
+    header: (count) => `  token ID       integer bias · ${count}/${summary.maximum}`,
+    formatValue: (value, _index, selected, width) => {
+      if (typeof value === "string") throw new Error("logit-bias row has an invalid value");
+      return logitValueRow(value[0], value[1], selected, width);
+    }
+  };
 }
 
 function listValueRow(index: number, value: string, selected: boolean, width: number): FrameLine {

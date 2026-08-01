@@ -72,6 +72,7 @@ export function reconcileSettingsOverlay(
     return null;
   }
 
+  const samplingWasOpen = overlay.sampling !== null;
   const draftWasClean = !settingsDraftChanged(overlay);
   const editAffectsServer = edit !== null && (
     edit.kind === "sampling"
@@ -96,6 +97,13 @@ export function reconcileSettingsOverlay(
       if (refreshed.length > 0) edit.composer.anchor = 0;
       edit.setInitialText(refreshed);
     }
+  }
+
+  // The nested panel is a separate owner from its optional field buffer. A
+  // clean authoritative refresh closes both owners; a dirty buffer keeps the
+  // panel open so the conflict remains actionable.
+  if (samplingWasOpen && (draftWasClean || converged) && editWasClean) {
+    overlay.sampling = null;
   }
 
   if (converged) {

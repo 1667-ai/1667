@@ -53,6 +53,14 @@ export const SAMPLING_LAYER_ROWS = [
   { kind: "list" as const, panel: "logit-bias" as const }
 ];
 
+export function samplingLayerRowIdentity(
+  row: (typeof SAMPLING_LAYER_ROWS)[number]
+): string {
+  return row.kind === "scalar"
+    ? `sampling:scalar:${row.knob}`
+    : `sampling:list:${row.panel}`;
+}
+
 export function samplingContextForOverlay(
   overlay: SettingsOverlayState
 ): SamplingContext {
@@ -153,6 +161,37 @@ export function samplingLogitBiasEntries(
     entries.push([token, weight]);
   }
   return entries;
+}
+
+export function samplingListItemIdentity(
+  panel: Exclude<SamplingPanelId, "sampling">,
+  value: string | readonly [string, number] | undefined,
+  pending = false
+): string | null {
+  if (pending) return `sampling:${panel}:pending`;
+  if (value === undefined) return null;
+  const key = typeof value === "string" ? value : value[0];
+  return `sampling:${panel}:${JSON.stringify(key)}`;
+}
+
+export function samplingSelectedRowIdentity(
+  overlay: SettingsOverlayState
+): string | null {
+  const nested = overlay.sampling;
+  if (nested === null) return null;
+  if (nested.panel === "sampling") {
+    return samplingLayerRowIdentity(SAMPLING_LAYER_ROWS[boundedSamplingCursor(overlay)]!);
+  }
+  const values = nested.panel === "stop"
+    ? overlay.draft.sampling.stop
+    : samplingLogitBiasEntries(overlay);
+  const cursor = boundedSamplingCursor(overlay, nested.panel, nested.cursor);
+  const value = values[cursor];
+  if (value !== undefined) return samplingListItemIdentity(nested.panel, value);
+  const edit = nested.edit;
+  return edit?.kind === nested.panel && edit.index === cursor
+    ? samplingListItemIdentity(nested.panel, undefined, true)
+    : null;
 }
 
 export function samplingSummary(sampling: SamplingSettingsV2): string {

@@ -88,7 +88,7 @@ describe("Sampling Settings user flow", () => {
     publishSamplingRefresh(source, state, 0.7);
 
     expect(state.settings?.draft.sampling.topP).toBe(0.7);
-    expect(state.settings?.sampling?.edit).toBe(null);
+    expect(state.settings?.sampling).toBe(null);
 
     await press(key("return"));
     expect(state.settings?.draft.sampling.topP).toBe(0.7);
@@ -242,7 +242,10 @@ describe("Sampling Settings user flow", () => {
     const hit = selectedNestedHit(state, 0);
     expect(hit).not.toBe(null);
     if (hit === null) throw new Error("selected Sampling row has no hit target");
-    expect(mouseToAction(click(hit.x, hit.y), state)).toEqual({ action: "open-selected" });
+    expect(mouseToAction(click(hit.x, hit.y), state)).toEqual({
+      action: "open-selected",
+      rowId: "sampling:scalar:topP"
+    });
   });
 
   test("renders the exact empty list states", async () => {

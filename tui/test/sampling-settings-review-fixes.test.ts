@@ -3,12 +3,16 @@ import {
   applyBasicSettingsDraft,
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
+import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { publishSettingsView } from "../src/overlay-publication.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
+import { SETTINGS_ROW_IDS } from "../src/settings-overlay-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   installSave,
@@ -19,6 +23,70 @@ import {
 } from "./settings-test-harness.js";
 
 describe("Sampling Settings review regressions", () => {
+  test("authoritative publish closes a clean Sampling panel before the next key", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+
+    const current = source.settingsView;
+    if (!current.editable) throw new Error("demo settings must be editable");
+    const profile = current.document.profiles[current.document.routing.default];
+    if (profile === undefined) throw new Error("default profile is missing");
+    const document = applySamplingSettings(current.document, {
+      ...(profile.sampling ?? EMPTY_SAMPLING_V2),
+      topP: 0.8
+    });
+    publishSettingsView(state, source, {
+      ...current,
+      stateGeneration: current.stateGeneration + 1,
+      activeRevision: current.activeRevision + 1,
+      document,
+      effective: basicSettingsFromDocument(document)
+    });
+
+    expect(state.settings?.sampling).toBe(null);
+    expect(state.settings?.draft.sampling.topP).toBe(0.8);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("sampling");
+  });
+
+  test("short Settings cursor window keeps utility route visible and nameable", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    const utilityIndex = SETTINGS_ROW_IDS.indexOf("utility-route");
+    state.settings!.cursor = utilityIndex;
+    const height = 32;
+
+    const rendered = renderStoryScreen(state, {
+      width: 120,
+      height,
+      wrapCache: createWrapCache()
+    });
+    Object.assign(state, rendered.derived);
+
+    expect(frameText(rendered.lines)).toContain("utility route");
+    expect(rendered.lines).toHaveLength(height);
+    expect(state.hitRows).toHaveLength(height);
+    const selectable = rendered.selectable;
+    if (selectable === null) throw new Error("Settings panel is not selectable");
+    expect(selectable).toMatchObject({ top: 3, bottom: 28 });
+
+    const listHits = state.hitRows.flatMap((row, y) => row === null
+      ? []
+      : [row, ...(row.overrides ?? [])].flatMap((region) =>
+          region.target.kind === "list" ? [{ y, index: region.target.index }] : []
+        ));
+    expect(listHits).toHaveLength(SETTINGS_ROW_IDS.length);
+    expect(listHits.map((hit) => hit.index)).toEqual(
+      SETTINGS_ROW_IDS.map((_, index) => index)
+    );
+    expect(listHits.find((hit) => hit.index === utilityIndex)).toEqual({ y: 23, index: utilityIndex });
+    expect(listHits.every((hit) => hit.y >= selectable.top && hit.y < selectable.bottom)).toBeTrue();
+    expect(state.hitRows.slice(selectable.bottom).every((row) =>
+      ![row, ...(row?.overrides ?? [])].some((region) => region?.target.kind === "list")
+    )).toBeTrue();
+  });
+
   test("cancelling a pending stop or logit row keeps the persisted row selected for the next action", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
