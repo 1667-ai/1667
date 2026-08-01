@@ -112,7 +112,9 @@ const DEFINITIONS = {
   mapApply: route("map", "return", "MAP", "apply"),
   mapTreeFollow: route("map", "l", "MAP", "map-follow", { mapView: "tree" }),
   mapMassFollow: route("map", "l", "MAP", "map-follow", { mapView: "mass" }),
-  mapTreeSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "tree" }),
+  // Only mass sorts. The tree is the graph order itself, so there is nothing
+  // for `s` to reorder there; it used to teleport to mass under a `s sort`
+  // label, which advertised a verb the view does not have (C-06).
   mapMassSort: route("map", "s", "MAP", "map-cycle-sort", { mapView: "mass" }),
   mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
   mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" }),

@@ -85,7 +85,7 @@ describe("keys reference", () => {
     // twenty-column panel is a fact about the version string, not about this
     // panel. `1667 v0.1.0-rc.1` does not fit, and the test below covers what
     // the panel does with an identity that long.
-    const identity = "1667 v1.2.3";
+    const identity = "1667 v1.2";
     const top = frameText(render(20, 10, 0, identity).composition.lines);
     const total = Number(top.match(/\? ↑↓1\/(\d+)/)?.[1]);
     expect(Number.isFinite(total)).toBeTrue();
@@ -150,7 +150,7 @@ describe("keys reference", () => {
     expect(top.scrollTop).toBe(0);
     expect(frame).toContain("● MOVE");
     // The range reads the way every other windowed panel's title does.
-    expect(frame).toContain("keys · and what they do · 1–15/32");
+    expect(frame).toContain("keys · and what they do · 1–16/32");
     expect(frame).toContain("↑↓ scrolls · esc closes");
 
     const scrolled = render(80, 24, 8);
@@ -169,11 +169,11 @@ describe("keys reference", () => {
     // would strand the final rows and overstate the footer's position.
     for (const height of [10, 11, 12, 13, 16]) {
       const bottom = render(80, height, 500);
-      // Bordered rows minus the blank under the title and the footer, both of
-      // which now sit inside the frame.
+      // Bordered rows minus the blank under the title. The keys ride the
+      // bottom rule (C-01), so they no longer take a bordered row of their own.
       const painted = frameText(bottom.composition.lines)
         .split("\n")
-        .filter((line) => line.includes("┃")).length - 2;
+        .filter((line) => line.includes("┃")).length - 1;
       // The final reference row is reachable: reaching it proves the bound.
       const shown = `${height}:${frameText(bottom.composition.lines).includes("chapter rows differ")}`;
       expect(shown).toBe(`${height}:true`);

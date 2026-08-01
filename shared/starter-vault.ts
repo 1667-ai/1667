@@ -95,7 +95,7 @@ const TOUR: StarterStory = {
           text: "Take two of three.\n\n"
             + "Same moment in the story, different words for it. That is all a take is: an "
             + "alternative for one beat, not a fork of the whole book. You will accumulate "
-            + "them without meaning to. Every regeneration lands here, beside its siblings, "
+            + "them without meaning to. Every retake lands here, beside its siblings, "
             + "rather than on top of them.\n\n"
             + "Nothing you have read so far was overwritten to show you this. Press [→] for "
             + "the last one, or [←] to go back."
@@ -121,7 +121,7 @@ const TOUR: StarterStory = {
           keys: ["focusNext", "focusPrevious", "scrollLineDown", "scrollLineUp", "top", "leaf"],
           text: "[↓] and [↑] move between parts.\n\n"
             + "The focused part is highlighted. It's the one every other key acts on. "
-            + "Tagging, regenerating, editing, deleting — they "
+            + "Tagging, retaking, editing, deleting — they "
             + "all aim at whatever is focused right now.\n\n"
             + "Reading is a separate motion. Hold shift and the view slides without dragging "
             + "focus along: [⇧↓] and [⇧↑] nudge it one line. To travel further, [g] jumps to "
@@ -143,8 +143,8 @@ const TOUR: StarterStory = {
             + "This install is wired to a dry-run model, so anything you generate comes back "
             + "as obvious placeholder text rather than a bill. Connect a "
             + "real model whenever you like. The tour tells you where, further down.\n\n"
-            + "When a result disappoints, [r] regenerates it as a new take beside the old "
-            + "one, and [R] regenerates with a fresh instruction. The disappointing version "
+            + "When a result disappoints, [r] retakes it as a new take beside the old "
+            + "one, and [R] retakes it with a fresh instruction. The disappointing version "
             + "does not vanish; it just stops being the one on screen.\n\n"
             + "To write in your own hand rather than the model's, press [w]."
         }

@@ -43,6 +43,7 @@ import {
   segment,
   splitFrame,
   truncateTail,
+  TYPING_CARET,
   visibleWidth,
   type DisplayRole,
   type FrameComposition,
@@ -448,7 +449,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
         : "enter chooses status · esc cancels";
     return { lines: [
       rule,
-      [segment(indent), segment(tagPrefix, "accent · deep"), segment(truncateTail(state.tag.name, nameWidth), "streaming"), segment(state.tag.choosingStatus ? "" : "▌", "focus / accent")],
+      [segment(indent), segment(tagPrefix, "accent · deep"), segment(truncateTail(state.tag.name, nameWidth), "streaming"), segment(state.tag.choosingStatus ? "" : TYPING_CARET, "focus / accent")],
       [segment(indent), segment(promptHint, state.toast !== null ? "focus / accent" : "chrome")]
     ], scrollTop: state.composerScrollTop };
   }

@@ -307,7 +307,7 @@ describe("review regressions", () => {
       const inlineName = inline.lines.find((line) => plainLine(line).includes("› tag"))!;
       expect(plainLine(inlineName)).toContain("…");
       expect(plainLine(inlineName)).toContain("-visible-tail");
-      expect(inlineName.some((part) => part.text === "▌" && part.role === "focus / accent")).toBeTrue();
+      expect(inlineName.some((part) => part.text === "█" && part.role === "focus / accent")).toBeTrue();
 
       const mapped = renderStoryScreen({
         ...baseState,

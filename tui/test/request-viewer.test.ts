@@ -105,11 +105,14 @@ describe("next request viewer", () => {
       : estimate.messages.at(-1)?.role === "assistant" ? "assistant prefill" : "new passage";
 
     const frame = renderRequestViewer(
+      {
+        payload: projected.payload,
+        model: `model-${"long-identifier-".repeat(20)}`,
+        contextWindow: 32_768
+      },
       projected.context,
       estimate,
       { cursor: 0, scrollTop: 0, returnMode: "NAV" },
-      `model-${"long-identifier-".repeat(20)}`,
-      32_768,
       80,
       1_000
     );

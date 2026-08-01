@@ -43,7 +43,7 @@ import {
   panelRowWindow,
   type LibraryColumns
 } from "./panel-table-layout.js";
-import { truncate, truncateTail, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
+import { truncate, truncateTail, visibleWidth, TYPING_CARET, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { renderSettingsPanel } from "./settings-panel.js";
 import { renderFactsPanel } from "./facts-panel.js";
 
@@ -247,14 +247,18 @@ function renderLibrary(
   const columns = libraryColumns(contentWidth);
   const folder = state.storyFolder.length === 0 ? "" : ` · ${state.storyFolder}`;
   const content: FrameLine[] = [];
+  // C-17: a filter always states `n of m`. Rename and delete prompts are not
+  // filters and carry no count.
+  const filterCount = `${rows.length} of ${overlay.stories.length}`;
   if (overlay.prompt !== null) {
     content.push(promptLine(
       overlay.prompt.kind,
       overlay.prompt.kind === "filter" ? overlay.query : overlay.prompt.value,
-      contentWidth
+      contentWidth,
+      overlay.prompt.kind === "filter" ? filterCount : ""
     ));
   }
-  else if (query.length > 0) content.push(promptLine("filter", query, contentWidth));
+  else if (query.length > 0) content.push(promptLine("filter", query, contentWidth, filterCount));
   content.push([
     raisedSegment(cellPad("", columns.lead), "chrome"),
     raisedSegment(cellPad("title", columns.title), "chrome"),
@@ -273,7 +277,14 @@ function renderLibrary(
     targets.push({ kind: "list", index });
     content.push(libraryLine(story, index === overlay.cursor, columns, state.now, deadlines));
   }
-  if (rows.length === 0) { content.push([raisedSegment("  no matching stories", "prose · dim")]); targets.push(null); }
+  if (rows.length === 0) {
+    // C-27 names the key that fixes it, and the empty store is a different
+    // sentence from a filter that matched nothing.
+    content.push([raisedSegment(overlay.stories.length === 0
+      ? "  no stories yet · n starts one"
+      : "  no story matches · backspace widens the filter", "prose · dim")]);
+    targets.push(null);
+  }
   const title = `library${folder} · ${totals.stories} stories · ${totals.words.toLocaleString("en-US")} words${panelRange(rows.length, window)}`;
   const prompting = overlay.prompt !== null;
   const footer = prompting ? "↵ apply · esc cancel" : "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc";
@@ -304,14 +315,16 @@ function libraryLine(
   ];
 }
 
-function promptLine(kind: string, value: string, width: number): FrameLine {
+function promptLine(kind: string, value: string, width: number, count = ""): FrameLine {
   const label = kind === "delete" ? "retype exact title" : kind;
   const prefix = truncate(`  › ${label}: `, Math.max(0, width - 1));
-  const valueWidth = Math.max(0, width - visibleWidth(prefix) - 1);
+  const suffix = count.length === 0 ? "" : `  ${count}`;
+  const valueWidth = Math.max(0, width - visibleWidth(prefix) - visibleWidth(suffix) - 1);
   return [
     raisedSegment(prefix, kind === "delete" ? "danger text" : "accent · deep"),
     raisedSegment(truncateTail(value, valueWidth), "streaming"),
-    raisedSegment("▌", "focus / accent")
+    raisedSegment(TYPING_CARET, "focus / accent"),
+    ...(suffix.length === 0 ? [] : [raisedSegment(suffix, "chrome")])
   ];
 }
 
@@ -340,7 +353,10 @@ function renderCommands(
       raisedSegment(cellPad(tag.name, 30), "prose"), raisedSegment(tag.status || "none", tagRole(tag))
       ]);
     }
-    if (tags.length === 0) { content.push([raisedSegment("  no tags", "prose · dim")]); targets.push(null); }
+    if (tags.length === 0) {
+      content.push([raisedSegment("  no tags yet · t names a line", "prose · dim")]);
+      targets.push(null);
+    }
     return placePanel(base, `tag manager${panelRange(tags.length, window)}`, content,
       "↑↓ move · d delete · esc commands", width, height, 72,
       { rows: state.hitRows, targets, footerActions: TAGS_FOOTER_ACTIONS });
@@ -365,7 +381,7 @@ function renderCommands(
     });
   }
   if (model.selectable.length === 0) {
-    content.push([raisedSegment("  no matching commands", "prose · dim")]);
+    content.push([raisedSegment("  no command matches · backspace widens the search", "prose · dim")]);
     targets.push(null);
   }
   return placePanel(base, "commands", content, "↑↓ move · ↵ run · esc close", width, height, 72,
@@ -385,12 +401,8 @@ function commandSearchLine(query: string, width: number): FrameLine {
 function renderSummary(base: FrameLine[], state: OverlayState & { hitRows: HitRows }, width: number, height: number): FrameComposition {
   const summary = state.summary!;
   const progress = deriveSummaryProgress(summary.text, summary.totalParts);
-  const label = progress.consumedParts === null
-    ? `${progress.words} words so far`
-    : `¶ ${progress.consumedParts} of ${progress.totalParts} · ${progress.words} words so far`;
-  const filled = progress.consumedParts === null ? Math.min(30, Math.floor(progress.words / 8)) : Math.round(30 * progress.consumedParts / Math.max(1, progress.totalParts));
   const content: FrameLine[] = [
-    [raisedSegment(`  ${"━".repeat(filled)}${"─".repeat(30 - filled)}  ${label}`, "focus / accent")],
+    summaryProgressLine(progress),
     [raisedSegment("  summarized stretch is locked while this writes", "summary")],
     [raisedSegment("  everything after it stays editable", "chrome")],
     [],
@@ -399,4 +411,29 @@ function renderSummary(base: FrameLine[], state: OverlayState & { hitRows: HitRo
   // Inert, not transparent — see renderKeysOverlay.
   return placePanel(base, `summary take ━ compressing ¶ ${summary.start}–${summary.end} into a continuity record`, content,
     "esc discards", width, height, 78, { rows: state.hitRows, targets: content.map(() => null) });
+}
+
+const SUMMARY_BAR_CELLS = 30;
+/** The same solid cell filled and dimmed the context meter uses: a hollow
+ *  track outshouts the fill it exists to measure. */
+const PROGRESS_INK = "▮";
+
+/** C-30 + C-22: a block bar only once the parts consumed are countable. Until
+ *  the draft marks a `¶ n of m`, there is no denominator — so this states the
+ *  indeterminate form rather than filling a bar against a guess. The old bar
+ *  divided the word count by a made-up 240-word total. */
+function summaryProgressLine(progress: ReturnType<typeof deriveSummaryProgress>): FrameLine {
+  const words = `${progress.words} words so far`;
+  if (progress.consumedParts === null) {
+    return [raisedSegment(`  ⟳ writing · ${words} · esc stops`, "focus / accent")];
+  }
+  const filled = Math.round(
+    SUMMARY_BAR_CELLS * progress.consumedParts / Math.max(1, progress.totalParts)
+  );
+  return [
+    raisedSegment("  "),
+    raisedSegment(PROGRESS_INK.repeat(filled), "focus / accent"),
+    raisedSegment(PROGRESS_INK.repeat(SUMMARY_BAR_CELLS - filled), "dimmed page"),
+    raisedSegment(`  ¶ ${progress.consumedParts} of ${progress.totalParts} · ${words}`, "focus / accent")
+  ];
 }

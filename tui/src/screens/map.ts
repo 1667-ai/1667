@@ -16,6 +16,7 @@ import { createMapMassScale, renderMapMassRow, renderMapSketchFold } from "./map
 import { createMapPathRow, renderMapPathRow, type MapPathRow } from "./map-path-row.js";
 import { tagGlyph, tagRole, formatMapWords, formatMapWordsBare } from "./map-row-labels.js";
 import { mapTreeFoldFootnote, renderMapTreeRow } from "./map-tree-row.js";
+import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
 import {
   fitLine,
   plainLine,
@@ -343,25 +344,16 @@ function renderBreadcrumb(state: StoryScreenState, map: MapState, crumb: string,
   const viewLabel = view === "path"
     ? `${view}/${map.pathShowAllTakes ? "all" : "branches"}`
     : view;
-  const separators = lineIdentity.length === 0 ? 1 : 2;
-  const fixed = visibleWidth(" MAP ") + visibleWidth(` ${viewLabel}  `)
-    + visibleWidth(" · ") * separators + visibleWidth(shownCrumb);
-  const [titleWidth, nameWidth] = saturatingIdentityWidths(
-    payload.title, lineIdentity, Math.max(0, available - fixed)
-  );
-  const shownName = truncate(lineIdentity, nameWidth);
-  const left: FrameLine = [
-    { text: " MAP ", role: "background", background: "focus / accent", bold: true },
-    segment(` ${viewLabel}  `, "focus / accent"),
-    segment(truncate(payload.title, titleWidth), "chrome"),
-    ...(shownName.length === 0
-      ? []
-      : [segment(" · ", "chrome"), segment(shownName, tagRole(tag))]),
-    segment(` · ${shownCrumb}`, "chrome")
-  ];
-  const shownLeft = fitLine(left, available);
-  const gap = Math.max(1, width - lineWidth(shownLeft) - hintWidth);
-  return [...shownLeft, segment(" ".repeat(gap), "chrome"), ...hintSegments];
+  return renderSurfaceBreadcrumb({
+    mode: "MAP",
+    scope: viewLabel,
+    title: payload.title,
+    identity: lineIdentity,
+    identityRole: tagRole(tag),
+    crumb: shownCrumb,
+    keys: hintSegments,
+    width
+  });
 }
 
 function renderMapNotice(text: string, width: number): FrameLine {
@@ -415,6 +407,11 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
   const escape = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "cancel" })];
   const sort: FrameLine = [segment("s sort", "chrome", { kind: "action", action: "map-cycle-sort" })];
   const follow = (text: string): FrameLine => [segment(text, "chrome", { kind: "action", action: "map-follow" })];
+  // The fold rows used to advertise `a` inside the canvas. Decision 21 took
+  // in-canvas hints out of mass; C-06 puts them here for both whole-tree views.
+  const sketches: FrameLine = [
+    segment("a sketches", "chrome", { kind: "action", action: "toggle-sketches" })
+  ];
 
   if (map.view === "path") {
     const wideToggle = map.pathShowAllTakes ? "a branches" : "a all";
@@ -432,17 +429,20 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
     if (density === "narrow") {
       appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(escape("esc"));
     } else if (density === "medium") {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(reroute("enter")); appendToken(escape("esc writes"));
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(sketches); appendToken(follow("l follow")); appendToken(reroute("enter")); appendToken(escape("esc writes"));
     } else {
-      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(follow("l follow")); appendToken(reroute("enter reroute")); appendToken(sort); appendToken(escape("esc writes"));
+      appendToken(cycle("m mass")); appendToken(rows("row")); appendToken(sketches); appendToken(follow("l follow")); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
     }
   } else {
     if (density === "narrow") {
       appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(follow("l open")); appendToken(escape("esc"));
     } else if (density === "medium") {
+      // Mass carries `s sort` that the tree does not, so it runs out of room
+      // one rung earlier: the breadcrumb keeps its cells before the keyline
+      // does (C-02 — the tether is never the thing that yields).
       appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(follow("l open")); appendToken(escape("esc writes"));
     } else {
-      appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(follow("l open line")); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
+      appendToken(cycle("m path")); appendToken(rows("row")); appendToken(sort); appendToken(sketches); appendToken(follow("l open line")); appendToken(reroute("enter reroute")); appendToken(escape("esc writes"));
     }
   }
   return line;
@@ -450,21 +450,6 @@ function mapHintSegments(map: MapState, density: MapHintDensity): FrameLine {
 
 function mapHintDensity(width: number): MapHintDensity {
   return width < 100 ? "narrow" : width < 136 ? "medium" : "wide";
-}
-
-/** Spend every identity cell. A short title or line yields its unused share to
- * the other instead of leaving both truncated by a rigid percentage split. */
-function saturatingIdentityWidths(title: string, name: string, room: number): [number, number] {
-  const titleCells = visibleWidth(title);
-  const nameCells = visibleWidth(name);
-  let titleWidth = Math.min(titleCells, Math.floor(room * 0.5));
-  let nameWidth = Math.min(nameCells, room - titleWidth);
-  let remaining = room - titleWidth - nameWidth;
-  const titleGrowth = Math.min(remaining, titleCells - titleWidth);
-  titleWidth += titleGrowth;
-  remaining -= titleGrowth;
-  nameWidth += Math.min(remaining, nameCells - nameWidth);
-  return [titleWidth, nameWidth];
 }
 
 function sortTitle(sort: MapState["massSort"]): string {

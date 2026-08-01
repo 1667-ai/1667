@@ -209,10 +209,7 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapTreeFollow"),
         binding("mapMassFollow")
       ]),
-      entry("tree→mass · mass sorts", [
-        binding("mapTreeSort"),
-        binding("mapMassSort")
-      ]),
+      entry("sort the mass view", [binding("mapMassSort")]),
       entry("prune · tag · path", [
         binding("mapPathPrune"),
         binding("mapPathTag")

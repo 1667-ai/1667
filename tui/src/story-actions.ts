@@ -271,7 +271,7 @@ export async function runPartAction(
   if (id === "continue") await context.backend.run("generating prose", (task) =>
     generate(state, source, context.cache, context.repaint, "", null, null, task));
   else if (id === "direct") openDirectComposer(state);
-  else if (id === "retake") await context.backend.run("regenerating prose", (task) =>
+  else if (id === "retake") await context.backend.run("retaking prose", (task) =>
     generate(state, source, context.cache, context.repaint, node.instruction, node, null, task));
   else if (id === "retake-with-prompt") openRetakeComposer(state, node.id, node.instruction);
   else if (id === "write") openPartEditor(state, true);
@@ -415,7 +415,7 @@ export async function composeAction(
       state.toast = "that part is no longer available to retake · draft kept";
       return;
     }
-    await context.backend.run(retakeNode === null ? "generating prose" : "regenerating prose", async (task) => {
+    await context.backend.run(retakeNode === null ? "generating prose" : "retaking prose", async (task) => {
       if (instruction.trim().length > 0) {
         state.history.push(instruction);
         if (!state.demo) {

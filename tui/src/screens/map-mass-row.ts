@@ -24,13 +24,25 @@ export interface MapMassScale {
 }
 
 const MARKER_WIDTH = 4;
+const COLUMN_GAP = 2;
 const SKETCH_STATE = "never continued";
+
+/** Decision 21 pins the grid itself, not only its shape: name 18 · track 46 ·
+ * words 6 · parts 8. Measuring the columns per frame made the same story draw a
+ * different chart at a different width, which is the comparison the view
+ * exists for. Terminals too narrow to hold the pinned grid fall back to the
+ * measured one — a clipped right edge would break the contract further. */
+const PINNED_COLUMNS = {
+  labelWidth: 18,
+  barWidth: 46,
+  wordsWidth: 6,
+  partsWidth: 8
+} as const;
 
 /** One presentation scale for the complete mass view. Metadata may vary by
  * row, but it must never change the field used to compare line mass. */
 export function createMapMassScale(layout: AtlasLayout, width: number): MapMassScale {
   const narrow = width < 100;
-  const labelWidth = narrow ? 16 : 20;
   const sketches = layout.sketchCount > 0;
   let wordsWidth = Math.max(6, sketches ? visibleWidth(formatMapWordsBare(layout.sketchWords)) : 0);
   let partsWidth = sketches ? visibleWidth(sketchParts(narrow)) : 0;
@@ -40,12 +52,25 @@ export function createMapMassScale(layout: AtlasLayout, width: number): MapMassS
     partsWidth = Math.max(partsWidth, visibleWidth(massParts(row, narrow)));
     stateWidth = Math.max(stateWidth, visibleWidth(massState(row, isActiveLine(row))?.text ?? ""));
   }
+  if (!narrow && width >= pinnedGridWidth(stateWidth)
+    && wordsWidth <= PINNED_COLUMNS.wordsWidth && partsWidth <= PINNED_COLUMNS.partsWidth) {
+    return { narrow, ...PINNED_COLUMNS, stateWidth, massMaximum: layout.massMaximum };
+  }
   // The bar track takes what the fixed columns leave, so no row can be cut off
   // at the right edge — the widest state word is reserved for even where a
   // given row has none.
-  const barWidth = Math.max(3,
-    width - MARKER_WIDTH - labelWidth - 2 - wordsWidth - 2 - partsWidth - 2 - stateWidth);
+  const labelWidth = narrow ? 16 : 20;
+  const barWidth = Math.max(3, width - MARKER_WIDTH - labelWidth
+    - COLUMN_GAP - wordsWidth - COLUMN_GAP - partsWidth - COLUMN_GAP - stateWidth);
   return { narrow, labelWidth, wordsWidth, partsWidth, stateWidth, barWidth, massMaximum: layout.massMaximum };
+}
+
+/** Cells the pinned grid needs, including the widest state word this story
+ *  actually draws. */
+function pinnedGridWidth(stateWidth: number): number {
+  return MARKER_WIDTH + PINNED_COLUMNS.labelWidth + PINNED_COLUMNS.barWidth
+    + COLUMN_GAP + PINNED_COLUMNS.wordsWidth + COLUMN_GAP + PINNED_COLUMNS.partsWidth
+    + COLUMN_GAP + stateWidth;
 }
 
 /** Full-bleed mass row, scaled against the largest complete line. */

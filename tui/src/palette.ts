@@ -12,6 +12,10 @@ interface ThemeExtras {
   humanEditDim: string;
   dangerText: string;
   contextWarning: string;
+  /** Decision 22's legibility pass: every search hit takes this low-contrast
+   *  wash, so only the focused row's match is solid accent. */
+  matchWash: string;
+  matchInk: string;
   logoOrange: string;
   logoGreen: string;
   logoCyan: string;
@@ -28,6 +32,8 @@ interface ThemeExtras256 {
   humanEditDim: number;
   dangerText: number;
   contextWarning: number;
+  matchWash: number;
+  matchInk: number;
   logoOrange: number;
   logoGreen: number;
   logoCyan: number;
@@ -49,6 +55,7 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "tag · draft": "#9FB6C4", "tag · discarded": "#7A7166",
     danger: "#E0603F", "dimmed page": "#5A4E3C",
     brassDim: "#8A7440", humanEditDim: "#7E9DBC", dangerText: "#FF8A65", contextWarning: "#D99028",
+    matchWash: "#3B2A10", matchInk: "#FFC97A",
     logoOrange: "#FF9A3C", logoGreen: "#70C985", logoCyan: "#36B8B2", logoBlue: "#5E8FD8",
     freshIntermediate: ["#F8EAD0", "#F0E4CC"], freshBold: false
   },
@@ -62,6 +69,7 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "tag · draft": "#8FB0C4", "tag · discarded": "#66707A",
     danger: "#E0603F", "dimmed page": "#3C4750",
     brassDim: "#54687C", humanEditDim: "#B08A5A", dangerText: "#FF8A65", contextWarning: "#D9A96C",
+    matchWash: "#17232E", matchInk: "#BCD6EC",
     logoOrange: "#D99A4A", logoGreen: "#78C995", logoCyan: "#4DB8C7", logoBlue: "#6EA8D8",
     freshIntermediate: ["#E2E9F0", "#DCE4EC"], freshBold: false
   },
@@ -75,6 +83,7 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "tag · draft": "#4A7086", "tag · discarded": "#948A7A",
     danger: "#A8331A", "dimmed page": "#B4A588",
     brassDim: "#7A6748", humanEditDim: "#466B89", dangerText: "#A8331A", contextWarning: "#8A4A00",
+    matchWash: "#E3D2AC", matchInk: "#4A3208",
     logoOrange: "#9A5108", logoGreen: "#327A45", logoCyan: "#126A70", logoBlue: "#2C5578",
     freshIntermediate: ["#241A0E", "#2A2013"], freshBold: true
   },
@@ -88,6 +97,7 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "tag · draft": "#3E6E8E", "tag · discarded": "#8E8A80",
     danger: "#8E1F10", "dimmed page": "#B8B4AA",
     brassDim: "#6C685E", humanEditDim: "#3C6994", dangerText: "#8E1F10", contextWarning: "#8A5A00",
+    matchWash: "#E7DCD6", matchInk: "#6B2114",
     logoOrange: "#A84D18", logoGreen: "#257A48", logoCyan: "#156B74", logoBlue: "#235A8C",
     freshIntermediate: ["#1A1C1E", "#212426"], freshBold: true
   },
@@ -101,6 +111,7 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "tag · draft": "#8FD8FF", "tag · discarded": "#C4C4C4",
     danger: "#FF5A45", "dimmed page": "#9A9A9A",
     brassDim: "#FFD84D", humanEditDim: "#9ACBFF", dangerText: "#FF8A7A", contextWarning: "#FF8C00",
+    matchWash: "#3A2E00", matchInk: "#FFE066",
     logoOrange: "#FF8C00", logoGreen: "#53E07A", logoCyan: "#55E5E5", logoBlue: "#4A9FFF",
     freshIntermediate: ["#FFFFFF", "#FFFFFF"], freshBold: false
   },
@@ -114,6 +125,7 @@ const THEMES: Record<ThemeName, ThemeTable> = {
     "tag · draft": "#164F73", "tag · discarded": "#4A4A4A",
     danger: "#A00000", "dimmed page": "#4A4A4A",
     brassDim: "#6A4A00", humanEditDim: "#144E86", dangerText: "#A00000", contextWarning: "#8A5200",
+    matchWash: "#FFE7C2", matchInk: "#5A2000",
     logoOrange: "#9A4600", logoGreen: "#007A2F", logoCyan: "#006A70", logoBlue: "#144E86",
     freshIntermediate: ["#000000", "#000000"], freshBold: true
   }
@@ -136,6 +148,7 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "tag · draft": 109, "tag · discarded": 243,
     danger: 166, "dimmed page": 240,
     brassDim: 137, humanEditDim: 109, dangerText: 209, contextWarning: 172,
+    matchWash: 236, matchInk: 222,
     logoOrange: 208, logoGreen: 114, logoCyan: 37, logoBlue: 68,
     freshIntermediate: [224, 223]
   },
@@ -149,6 +162,7 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "tag · draft": 110, "tag · discarded": 242,
     danger: 203, "dimmed page": 238,
     brassDim: 60, humanEditDim: 179, dangerText: 215, contextWarning: 179,
+    matchWash: 236, matchInk: 153,
     logoOrange: 179, logoGreen: 114, logoCyan: 44, logoBlue: 110,
     freshIntermediate: [254, 253]
   },
@@ -162,6 +176,7 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "tag · draft": 60, "tag · discarded": 245,
     danger: 124, "dimmed page": 144,
     brassDim: 59, humanEditDim: 61, dangerText: 124, contextWarning: 94,
+    matchWash: 187, matchInk: 94,
     logoOrange: 130, logoGreen: 29, logoCyan: 30, logoBlue: 24,
     freshIntermediate: [234, 235]
   },
@@ -175,6 +190,7 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "tag · draft": 61, "tag · discarded": 245,
     danger: 124, "dimmed page": 249,
     brassDim: 241, humanEditDim: 61, dangerText: 124, contextWarning: 94,
+    matchWash: 188, matchInk: 88,
     logoOrange: 130, logoGreen: 29, logoCyan: 30, logoBlue: 24,
     freshIntermediate: [234, 235]
   },
@@ -188,6 +204,7 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "tag · draft": 159, "tag · discarded": 251,
     danger: 203, "dimmed page": 247,
     brassDim: 227, humanEditDim: 153, dangerText: 216, contextWarning: 208,
+    matchWash: 58, matchInk: 227,
     logoOrange: 208, logoGreen: 84, logoCyan: 87, logoBlue: 75,
     freshIntermediate: [231, 231]
   },
@@ -201,6 +218,7 @@ const THEMES_256: Record<ThemeName, ThemeTable256> = {
     "tag · draft": 24, "tag · discarded": 239,
     danger: 124, "dimmed page": 239,
     brassDim: 58, humanEditDim: 24, dangerText: 124, contextWarning: 94,
+    matchWash: 230, matchInk: 52,
     logoOrange: 130, logoGreen: 28, logoCyan: 30, logoBlue: 24,
     freshIntermediate: [16, 16]
   }
@@ -216,6 +234,8 @@ export interface Palette {
   humanEditDim: ColorInput;
   dangerText: ColorInput;
   contextWarning: ColorInput;
+  matchWash: ColorInput;
+  matchInk: ColorInput;
   logoOrange: ColorInput;
   logoGreen: ColorInput;
   logoCyan: ColorInput;
@@ -224,11 +244,21 @@ export interface Palette {
   freshBold: boolean;
 }
 
+/** Spec §8/§10 name two sources, and a terminal that publishes only one still
+ *  deserves its colors: `COLORTERM` is what most emulators export, and the
+ *  terminfo direct-color entries (`xterm-direct`, `xterm-direct2`, …) are what
+ *  the rest describe themselves with. Reading `COLORTERM` alone dropped
+ *  `TERM=xterm-direct` sessions silently to the 256 table. */
 export function detectColorDepth(env: Record<string, string | undefined> = process.env): ColorDepth {
   const colorTerm = env.COLORTERM?.toLowerCase() ?? "";
   if (colorTerm.includes("truecolor") || colorTerm.includes("24bit")) return "truecolor";
+  if (TERMINFO_DIRECT_COLOR.test(env.TERM?.toLowerCase() ?? "")) return "truecolor";
   return "256";
 }
+
+/** A terminfo entry name whose capability set is direct color. The optional
+ *  digits are the channel width some databases append (`-direct2`). */
+const TERMINFO_DIRECT_COLOR = /(?:^|-)direct\d*$/;
 
 /** Nearest xterm-256 index for a hex color (6×6×6 cube + gray ramp). */
 export function nearest256(hex: string): number {
@@ -261,6 +291,8 @@ export function createPalette(theme: ThemeName = "lantern", depth = detectColorD
     humanEditDim: pick(table.humanEditDim, indexed.humanEditDim),
     dangerText: pick(table.dangerText, indexed.dangerText),
     contextWarning: pick(table.contextWarning, indexed.contextWarning),
+    matchWash: pick(table.matchWash, indexed.matchWash),
+    matchInk: pick(table.matchInk, indexed.matchInk),
     logoOrange: pick(table.logoOrange, indexed.logoOrange),
     logoGreen: pick(table.logoGreen, indexed.logoGreen),
     logoCyan: pick(table.logoCyan, indexed.logoCyan),
