@@ -209,9 +209,41 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     facts: state.facts === null ? null : { ...state.facts },
     commands: state.commands === null ? null : { ...state.commands },
     chapters: state.chapters === null ? null : { ...state.chapters },
-    settings: state.settings === null ? null : { ...state.settings },
+    settings: state.settings === null ? null : captureSettingsOverlay(state.settings),
     search: state.search === null ? null : { ...state.search },
     request: state.request === null ? null : { ...state.request }
+  };
+}
+
+function captureSettingsOverlay(
+  overlay: NonNullable<RuntimeState["settings"]>
+): NonNullable<RuntimeState["settings"]> {
+  const sampling = overlay.sampling;
+  return {
+    ...overlay,
+    draft: {
+      ...overlay.draft,
+      sampling: captureSamplingSettings(overlay.draft.sampling)
+    },
+    sampling: sampling === null
+      ? null
+      : {
+          ...sampling,
+          logitBiasOrder: [...sampling.logitBiasOrder],
+          edit: sampling.edit === null
+            ? null
+            : { ...sampling.edit, composer: { ...sampling.edit.composer } }
+        }
+  };
+}
+
+function captureSamplingSettings(
+  sampling: NonNullable<RuntimeState["settings"]>["draft"]["sampling"]
+): NonNullable<RuntimeState["settings"]>["draft"]["sampling"] {
+  return {
+    ...sampling,
+    stop: [...sampling.stop],
+    logitBias: { ...sampling.logitBias }
   };
 }
 

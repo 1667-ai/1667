@@ -7,6 +7,7 @@ import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { streamCompletion } from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 // Live-tested small-model habits the seam verification must survive: echoing
@@ -177,6 +178,7 @@ providerTest("openai-compatible retries never rewrite or remove explicit effort"
     },
     allowInsecureHttp: false,
     effort: "high",
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",

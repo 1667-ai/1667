@@ -1,15 +1,12 @@
 import { graphemeCells } from "../cell-width.js";
-import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import {
   boundedSettingsCursor,
   settingsActivationFailureText,
-  settingsEditDisplayComposer,
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRows,
-  SETTINGS_ROW_IDS,
-  type SettingsRowPresentation
+  SETTINGS_ROW_IDS
 } from "../settings-overlay-model.js";
 import type { OverlayState } from "../state.js";
 import {
@@ -20,6 +17,7 @@ import {
   raisedSegment
 } from "./overlay.js";
 import { panelRowWindow } from "./panel-table-layout.js";
+import { settingsFieldRow } from "./settings-field-row.js";
 import {
   fittingFooter,
   SETTINGS_CHOICE_FOOTERS,
@@ -31,31 +29,12 @@ import {
   SETTINGS_PROFILE_FOOTERS,
   SETTINGS_TEXT_FOOTERS
 } from "./settings-panel-footers.js";
-import { renderComposerInput } from "./story/composer.js";
 import {
   truncate,
   visibleWidth,
   type FrameComposition,
   type FrameLine
 } from "./story/frame.js";
-
-/** Settings rows wear the same `  ▸ ` cursor lead as every other list panel,
- * so `›` stays the prompt glyph it is everywhere else. */
-const SETTINGS_LEAD_WIDTH = 4;
-/** Wide enough for every label the panel has, so all the values start in one
- * column. A test holds the labels to it. */
-const SETTINGS_LABEL_WIDTH = 20;
-
-/** Column the value starts in, relative to the content line. Only
- * `settingsRow` reads this, because only `settingsRow` paints the value.
- *
- * A label too wide for the column pushes its own value right and keeps one
- * cell of air. That row alone leaves the column, which the test reports. The
- * arrows stay on the brackets, because they come from this same number. A
- * constant here put them on the label instead. */
-function settingsValueLeft(label: string): number {
-  return SETTINGS_LEAD_WIDTH + Math.max(SETTINGS_LABEL_WIDTH, visibleWidth(label) + 1);
-}
 
 type SettingsPanelState = Pick<OverlayState, "settings" | "config"> & {
   hitRows: HitRows;
@@ -73,11 +52,20 @@ export function renderSettingsPanel(
   const contentCapacity = panelContentRows(height);
   const status = settingsStatusLines(overlay);
   const resultLines = settingsResultLines(overlay, horizontal.contentWidth);
-  const fixedRows = 3 + status.top.length
-    + status.bottom.length + resultLines.length;
   const editableRows = rows.slice(2);
+  const fullRows = 3 + status.top.length + status.bottom.length
+    + editableRows.length + resultLines.length;
+  // Keep the padded strip for normal panel geometry. The short-panel branch
+  // below filters blank rows when it builds compact notices. If a clean panel
+  // has no spare content row, omit its blank strip so fields stay available.
+  const bottomStatus = status.bottom.some((line) => line.length > 0)
+    || contentCapacity > fullRows
+    ? status.bottom
+    : [];
+  const fixedRows = 3 + status.top.length
+    + bottomStatus.length + resultLines.length;
   const painted = rows.map((row, index) =>
-    settingsRow(row, index, overlay, horizontal.contentWidth)
+    settingsFieldRow(row, index, overlay, horizontal.contentWidth)
   );
   const renderedRows = painted.map((row) => row.line);
   // At short heights, notices become compact chrome and the cursor-centered
@@ -88,7 +76,7 @@ export function renderSettingsPanel(
     const noticeBlocks = [
       ...(resultLines.length === 0 ? [] : [resultLines]),
       status.top.filter((line) => line.length > 0),
-      status.bottom.filter((line) => line.length > 0)
+      bottomStatus.filter((line) => line.length > 0)
     ];
     const notices: FrameLine[] = [];
     const noticeCapacity = contentCapacity;
@@ -131,7 +119,7 @@ export function renderSettingsPanel(
       [],
       ...status.top,
       ...renderedRows.slice(rowWindow.start + 2, rowWindow.end + 2),
-      ...status.bottom,
+      ...bottomStatus,
       ...resultLines
     ];
     targets = [
@@ -142,7 +130,7 @@ export function renderSettingsPanel(
       ...editableRows
         .slice(rowWindow.start, rowWindow.end)
         .map((_, index) => listTarget(rowWindow.start + index + 2)),
-      ...status.bottom.map(() => null),
+      ...bottomStatus.map(() => null),
       ...resultLines.map(() => null)
     ];
   }
@@ -380,85 +368,6 @@ const BOTTOM_STATUS_ROWS = 3;
 function bottomStatus(lines: FrameLine[]): FrameLine[] {
   const padding = Array.from({ length: BOTTOM_STATUS_ROWS - lines.length }, (): FrameLine => []);
   return [...padding, ...lines];
-}
-
-/** A painted row, and where it put the arrows of a closed choice.
- *
- * `arrows` is `null` when the row is not a closed choice, when the composer
- * owns it, or when the panel is too narrow to paint the closing bracket. The
- * caller must not place a hit region then: `hitAt` consults overrides before
- * row bounds, so an override past the painted glyph would stay clickable. */
-interface PaintedSettingsRow {
-  readonly line: FrameLine;
-  readonly arrows: { readonly previous: number; readonly next: number } | null;
-}
-
-function settingsRow(
-  row: SettingsRowPresentation,
-  index: number,
-  overlay: NonNullable<OverlayState["settings"]>,
-  contentWidth: number
-): PaintedSettingsRow {
-  const selected = index === overlay.cursor;
-  const edit = selected && overlay.edit?.kind === "inline"
-    ? overlay.edit
-    : null;
-  const valueLeft = settingsValueLeft(row.label);
-  const valueWidth = Math.max(1, contentWidth - valueLeft);
-  const lead = `${selected ? "  ▸ " : "    "}${row.label}`;
-  const prefix = raisedSegment(
-    lead + " ".repeat(valueLeft - visibleWidth(lead)),
-    selected ? "focus / accent" : "chrome"
-  );
-  if (edit === null) {
-    const drawn = truncate(row.value, valueWidth);
-    return {
-      line: [
-        prefix,
-        raisedSegment(drawn, selected ? "focus / accent" : "prose")
-      ],
-      arrows: settingsRowHasArrows(overlay, row.id)
-        ? bracketArrows(drawn, valueLeft)
-        : null
-    };
-  }
-  const displayComposer = settingsEditDisplayComposer(edit);
-  return {
-    line: [
-      prefix,
-      raisedSegment("[", "chrome"),
-      ...renderComposerInput(
-        displayComposer,
-        0,
-        composerPosition(displayComposer).column,
-        Math.max(1, valueWidth - 2),
-        "streaming",
-        false,
-        ""
-      ),
-      raisedSegment("]", "chrome")
-    ],
-    arrows: null
-  };
-}
-
-/** A closed choice opens on its first cell and closes on its bracket. The
- * detail a row may add after that bracket is not part of the choice. */
-function bracketArrows(
-  drawn: string,
-  valueLeft: number
-): PaintedSettingsRow["arrows"] {
-  const cells = graphemeCells(drawn);
-  const opening = cells[0]?.text;
-  if (opening !== "‹" && opening !== "[") return null;
-  let column = 0;
-  for (const cell of cells) {
-    if (column > 0 && (cell.text === "›" || cell.text === "]")) {
-      return { previous: valueLeft, next: valueLeft + column };
-    }
-    column += cell.width;
-  }
-  return null;
 }
 
 function listTarget(index: number): HitTarget {

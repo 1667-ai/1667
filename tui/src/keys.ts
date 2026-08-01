@@ -196,6 +196,7 @@ export function pasteInto(
     chapters?: { rename: { value: string } | null } | null;
     settings: {
       edit: SettingsInlineEditState | null;
+      sampling?: { edit: { composer: ComposerState } | null } | null;
       conflict: { armed: boolean } | null;
     } | null;
     card: CardImportPrompt | null;
@@ -272,6 +273,12 @@ export function pasteInto(
     insertComposerText(settingsEdit.composer, line);
     return true;
   }
+  const samplingEdit = state.mode === "SETTINGS" ? state.settings?.sampling?.edit : null;
+  if (samplingEdit !== null && samplingEdit !== undefined) {
+    if (state.settings?.conflict != null) state.settings.conflict.armed = false;
+    insertComposerText(samplingEdit.composer, line);
+    return true;
+  }
   if (isPlainNavigation(state)) {
     openDirectComposer(state);
     insertComposerText(state.composer, clean);
@@ -292,6 +299,8 @@ export interface ResolveOptions {
   connectionDown?: boolean;
   /** A text prompt/filter owns the keyboard: letters are input, not hotkeys. */
   overlayTyping?: boolean;
+  /** A nested Sampling panel owns list navigation and scalar controls. */
+  settingsSampling?: boolean;
   /** The command palette is showing its tags sub-view. */
   commandsTags?: boolean;
   /** The full-screen editor owns a Fact tag slider above its text body. */
@@ -311,7 +320,9 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "FACTS") return state.facts?.filtering === true;
   if (state.mode === "CARD") return state.card != null;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
-  if (state.mode === "SETTINGS") return state.settings?.edit != null;
+  if (state.mode === "SETTINGS") {
+    return state.settings?.edit != null || state.settings?.sampling?.edit != null;
+  }
   return false;
 }
 
@@ -327,7 +338,7 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
-    overlayTyping = false, commandsTags = false, factEditor = false,
+    overlayTyping = false, settingsSampling = false, commandsTags = false, factEditor = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
@@ -417,6 +428,19 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     && (key.ctrl || key.super)
     && key.name.toLowerCase() === "v") {
     return { action: "paste-clipboard" };
+  }
+  if (mode === "SETTINGS" && settingsSampling) {
+    // A modified key is a chord, never a plain Sampling hotkey. The Settings
+    // paste chord is handled immediately above.
+    if (key.ctrl || key.meta || key.super) return { action: "none" };
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "open-selected" };
+    if (key.name === "left") return { action: "take-previous" };
+    if (key.name === "right") return { action: "take-next" };
+    if (key.name === "n") return { action: "new-item" };
+    if (key.name === "d") return { action: "delete-item" };
+    return { action: "none" };
   }
   if (mode === "SEARCH") {
     const searchReference = resolveReferenceBinding("search", key, mode, mapView);

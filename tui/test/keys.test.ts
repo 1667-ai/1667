@@ -336,6 +336,32 @@ describe("text surfaces and palette", () => {
       .toBe("paste-clipboard");
   });
 
+  test("nested Sampling keeps modified verbs and navigation inert", () => {
+    const sampling = { settingsSampling: true };
+    const modified = [
+      { ctrl: true },
+      { meta: true },
+      { super: true }
+    ] as const;
+    for (const modifiers of modified) {
+      for (const name of ["n", "d", "up", "down", "left", "right"]) {
+        expect(resolveKey(key(name, modifiers), "SETTINGS", sampling).action)
+          .toBe("none");
+      }
+    }
+
+    expect(resolveKey(key("n"), "SETTINGS", sampling).action).toBe("new-item");
+    expect(resolveKey(key("d"), "SETTINGS", sampling).action).toBe("delete-item");
+    expect(resolveKey(key("up"), "SETTINGS", sampling).action).toBe("focus-previous");
+    expect(resolveKey(key("down"), "SETTINGS", sampling).action).toBe("focus-next");
+    expect(resolveKey(key("left"), "SETTINGS", sampling).action).toBe("take-previous");
+    expect(resolveKey(key("right"), "SETTINGS", sampling).action).toBe("take-next");
+    expect(resolveKey(key("v", { ctrl: true }), "SETTINGS", sampling).action)
+      .toBe("paste-clipboard");
+    expect(resolveKey(key("v", { super: true }), "SETTINGS", sampling).action)
+      .toBe("paste-clipboard");
+  });
+
   test("inline editor exposes selection, word navigation, clipboard, and deletion chords", () => {
     expect(resolveKey(key("left", { shift: true }), "EDITOR"))
       .toEqual({ action: "cursor-left", extendSelection: true });

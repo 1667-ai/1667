@@ -20,6 +20,7 @@ import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
   SaveSettingsCommand,
+  SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type {
@@ -142,6 +143,7 @@ export type SettingsRowId =
   | "model"
   | "temperature"
   | "max-tokens"
+  | "sampling"
   | "context-window"
   | "effort"
   | "cache-policy"
@@ -157,8 +159,27 @@ export interface SettingsEditBufferState {
 
 export interface SettingsInlineEditState extends SettingsEditBufferState {
   kind: "inline";
-  row: Exclude<SettingsRowId, "system-prompt">;
+  row: Exclude<SettingsRowId, "system-prompt" | "sampling">;
   mode: "text" | "secret";
+}
+
+export type SamplingPanelId = "sampling" | "stop" | "logit-bias";
+
+export type SamplingInlineEditState =
+  | (SettingsEditBufferState & {
+      kind: "scalar";
+      index: number;
+      knob: SamplingScalarKnobV2;
+    })
+  | (SettingsEditBufferState & { kind: "stop"; index: number })
+  | (SettingsEditBufferState & { kind: "logit-bias"; index: number });
+
+export interface SamplingOverlayState {
+  panel: SamplingPanelId;
+  cursor: number;
+  logitBiasOrder: string[];
+  edit: SamplingInlineEditState | null;
+  result: string | null;
 }
 
 export interface SettingsOverlaySaveIntent {
@@ -177,6 +198,8 @@ export interface SettingsOverlayState {
   cursor: number;
   /** Settings-menu row editor. Full-screen prompts use `RuntimeState.editor`. */
   edit: SettingsInlineEditState | null;
+  /** Nested three-layer sampling editor. */
+  sampling: SamplingOverlayState | null;
   conflict: { message: string; armed: boolean } | null;
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;

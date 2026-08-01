@@ -7,8 +7,16 @@ import {
   promptCacheContextForProfile,
   promptCachePolicyPresentation
 } from "../../shared/prompt-cache-capabilities.js";
+import {
+  applySamplingSettings,
+  resolveConfiguredSamplingKnobs,
+  samplingContextForRoute,
+  samplingKnobLabel,
+  type SamplingUnavailableReason
+} from "../../shared/sampling-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type {
   SettingsDocumentV2,
   SettingsMutationResult,
@@ -18,6 +26,7 @@ import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
+import { samplingOverlayAction } from "./sampling-actions.js";
 import { readFromClipboard } from "./clipboard.js";
 import { sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -116,6 +125,10 @@ export async function settingsOverlayAction(
     && resolved.action !== "cancel") {
     overlay.deleteArmedProfileId = null;
   }
+  if (overlay.sampling !== null) {
+    await samplingOverlayAction(resolved, state, source, context);
+    return true;
+  }
   if (resolved.action === "cancel") {
     if (overlay.edit !== null) {
       overlay.edit = null;
@@ -169,6 +182,14 @@ export async function settingsOverlayAction(
       await cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (row === "system-prompt") {
       openSystemPromptEditor(state);
+    } else if (row === "sampling") {
+      overlay.sampling = {
+        panel: "sampling",
+        cursor: 0,
+        logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
+        edit: null,
+        result: null
+      };
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -383,6 +404,12 @@ async function saveSettingsDraft(
         draft.generation.contextWindow,
         draft.selectedProfileId
       );
+      document = applySamplingSettings(
+        document,
+        draft.sampling,
+        draft.selectedProfileId
+      );
+      assertSamplingDraftAvailable(document, draft.selectedProfileId);
       const cacheContext = promptCacheContextForProfile(document, draft.selectedProfileId);
       const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
       if (!presentation.available) {
@@ -451,6 +478,29 @@ async function saveSettingsDraft(
     state.toast = newerEdits ? `${message} · newer edits kept` : message;
   });
 }
+
+function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: string): void {
+  const route = resolveSettingsProfile(document, profileId);
+  const context = samplingContextForRoute(route);
+  const sampling = route.profile.sampling ?? EMPTY_SAMPLING_V2;
+  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
+    if (resolution.kind === "unavailable") {
+      throw new Error(
+        `${samplingKnobLabel(knob)} is unavailable · ${SAMPLING_UNAVAILABLE_REASON_COMPACT[resolution.reason]}`
+      );
+    }
+  }
+}
+
+const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableReason, string>> = {
+  "legacy-v1": "read-only",
+  "dry-run": "dry run",
+  protocol: "not in protocol",
+  "preset-unsupported": "not in preset",
+  "preset-unknown": "unknown endpoint",
+  "model-unsupported": "model unsupported",
+  "model-unknown": "model unknown"
+};
 
 /** A credential-touching save activates inside the save request, so the
  * mutation result itself reports this save's activation outcome. */

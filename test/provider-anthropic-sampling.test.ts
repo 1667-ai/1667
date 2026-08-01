@@ -6,6 +6,10 @@ import {
   providerErrorSummary
 } from "../server/provider-runtime.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type SamplingSettingsV2
+} from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 /** The body api.anthropic.com returns for a model that dropped sampling. */
@@ -159,6 +163,42 @@ test("a rejected parameter this request did not send is not retried", async (t) 
   assert.equal(requests, 1);
 });
 
+test("a rejected sampling parameter is never removed for an Anthropic retry", async (t) => {
+  const originalFetch = globalThis.fetch;
+  forgetRefusedSampling();
+  t.after(() => { forgetRefusedSampling(); });
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    bodies.push(JSON.parse(await input.text()) as Record<string, unknown>);
+    return new Response(
+      JSON.stringify({
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          message: "`top_p` is not supported for this model."
+        }
+      }),
+      { status: 400, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(async () => {
+    for await (const _ of streamCompletion(
+      anthropicSettings({
+        ...EMPTY_SAMPLING_V2,
+        topP: 0.8
+      }, "claude-opus-4-5"),
+      PROMPT,
+      new AbortController().signal
+    )) { /* the first response never yields */ }
+  }, /top_p.*not supported/u);
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0]?.top_p, 0.8);
+  assert.equal("temperature" in (bodies[0] ?? {}), false);
+});
+
 test("a provider error reads as its own sentence, not as its envelope", () => {
   assert.equal(
     providerErrorSummary(DEPRECATED_TEMPERATURE),
@@ -182,11 +222,14 @@ test("a provider error reads as its own sentence, not as its envelope", () => {
   assert.ok(wall.length <= 160);
 });
 
-function anthropicSettings(): GenerationSettings {
+function anthropicSettings(
+  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
+  model = "claude-fixture"
+): GenerationSettings {
   return attachProviderRuntime({
     provider: "anthropic",
     baseUrl: "https://api.anthropic.com",
-    model: "claude-fixture",
+    model,
     apiKeyEnv: null,
     temperature: 0.8,
     maxTokens: 256,
@@ -204,6 +247,7 @@ function anthropicSettings(): GenerationSettings {
     },
     allowInsecureHttp: false,
     effort: "default",
+    sampling,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",

@@ -10,6 +10,7 @@ import type {
 } from "./prompt-cache-breakpoints.js";
 import type { PromptCacheWirePlan } from "./provider-cache-policy.js";
 import { ProviderError } from "./errors.js";
+import { applySamplingFields } from "./provider-sampling.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 
 type TextContentBlock = Record<string, unknown> & {
@@ -65,6 +66,7 @@ export function buildOpenAiChatRequestBody(
     ...cacheFields
   };
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
+  applySamplingFields(body, settings, "openai-chat-completions");
   applyGenerationEffort(body, settings, "openai");
   return body;
 }
@@ -133,6 +135,8 @@ export function buildAnthropicMessagesRequestBody(
   };
   if (system.length > 0) body.system = system;
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
+  applySamplingFields(body, settings, "anthropic-messages");
+  if ("top_p" in body) delete body.temperature;
   applyGenerationEffort(body, settings, "anthropic");
   return body;
 }

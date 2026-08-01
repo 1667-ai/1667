@@ -27,8 +27,15 @@ import {
   SETTINGS_ACTIVATION_OUTCOME_RESULT_V2_VALUES,
   SETTINGS_ACTIVATION_STATE_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
-  SETTINGS_PROTOCOL_V2_VALUES
+  SETTINGS_PROTOCOL_V2_VALUES,
+  SAMPLING_SCALAR_KNOB_V2_VALUES,
+  type SamplingScalarKnobV2
 } from "../shared/settings-v2-types.js";
+import {
+  SAMPLING_LOGIT_BIAS_POLICY,
+  SAMPLING_SCALAR_DESCRIPTORS,
+  SAMPLING_STOP_POLICY
+} from "../shared/sampling-validation-policy.js";
 
 type Schema = Record<string, unknown>;
 
@@ -115,7 +122,30 @@ export function settingsV2Schema(): Schema {
       },
       maxOutputTokens: ref("TokenCount"),
       effort: { enum: GENERATION_EFFORT_V2_VALUES },
-      cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES }
+      cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES },
+      sampling: ref("Sampling")
+    }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
+    Sampling: closed({
+      ...Object.fromEntries(
+        SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => [knob, samplingScalar(knob)])
+      ),
+      stop: {
+        type: "array",
+        maxItems: SAMPLING_STOP_POLICY.maxSequences,
+        uniqueItems: true,
+        items: boundedString(SAMPLING_STOP_POLICY.maxScalars, 1)
+      },
+      logitBias: {
+        type: "object",
+        maxProperties: SAMPLING_LOGIT_BIAS_POLICY.maxEntries,
+        propertyNames: {
+          pattern: exactStringPatternSource(SAMPLING_LOGIT_BIAS_POLICY.keyPatternSource)
+        },
+        additionalProperties: integer(
+          SAMPLING_LOGIT_BIAS_POLICY.minimum,
+          SAMPLING_LOGIT_BIAS_POLICY.maximum
+        )
+      }
     }),
     Connections: settingsMap("Connection"),
     Models: settingsMap("Model"),
@@ -233,6 +263,19 @@ function boundedString(maxLength: number, minLength = 0): Schema {
 
 function integer(minimum: number, maximum: number): Schema {
   return { type: "integer", minimum, maximum };
+}
+
+function number(minimum: number, maximum: number): Schema {
+  return { type: "number", minimum, maximum };
+}
+
+function samplingScalar(knob: SamplingScalarKnobV2): Schema {
+  const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
+  return nullable(
+    descriptor.integer
+      ? integer(descriptor.minimum, descriptor.maximum)
+      : number(descriptor.minimum, descriptor.maximum)
+  );
 }
 
 function stringPattern(source: string, maxLength?: number): Schema {

@@ -9,6 +9,9 @@ import { currentPartActions } from "./story-actions.js";
 import { createStoryIndex } from "../../shared/story-model.js";
 import { childrenOf, nodeById } from "../../shared/story-tree.js";
 import { createStoryViewModel, rowPart } from "./model.js";
+import {
+  samplingSelectedRowIdentity
+} from "./sampling-model.js";
 import { SETTINGS_ROW_IDS } from "./settings-overlay-model.js";
 import {
   mouseToAction,
@@ -338,6 +341,8 @@ function selectedListIdentity(state: MouseActionState): string | null {
       : `chapters:${chapter.openingBreakId ?? "first"}`;
   }
   if (state.settings !== null) {
+    const sampling = samplingSelectedRowIdentity(state.settings);
+    if (sampling !== null) return sampling;
     const row = SETTINGS_ROW_IDS[state.settings.cursor];
     return row === undefined ? null : `settings:${row}`;
   }
