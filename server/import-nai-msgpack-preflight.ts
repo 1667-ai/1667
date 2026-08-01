@@ -10,8 +10,13 @@ const MAX_SCALAR_BYTES = MAX_TOTAL_CHARS * 4;
 // value as a child keeps extension chains inside the same depth budget.
 const FOLLOWED_BY_VALUE_EXTENSIONS = new Set([
   20, 30, 31, 40, 41, 42,
-  0x62, 0x65, 0x69, 0x72, 0x73, 0x78
+  0x62, 0x65, 0x69, 0x73, 0x78
 ]);
+
+interface RecordShape {
+  readonly fields: number;
+  readonly highByte: number | undefined;
+}
 
 /** Bound attacker-controlled MessagePack before msgpackr materializes it. */
 export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
@@ -19,6 +24,7 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
   let tokens = 0;
   let bundledStringBytes = 0;
   const pendingChildren: number[] = [];
+  const records = new Map<number, RecordShape>();
 
   const requireBytes = (length: number): void => {
     if (!Number.isSafeInteger(length)
@@ -52,6 +58,10 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
       + bytes[start + 1]! * 0x10000
       + bytes[start + 2]! * 0x100
       + bytes[start + 3]!;
+  };
+  const readUint16At = (start: number): number => {
+    if (start < 0 || start + 2 > bytes.length) throw malformedMessagePack();
+    return bytes[start]! * 0x100 + bytes[start + 1]!;
   };
   const skip = (length: number, scalar = false): void => {
     if (scalar && length > MAX_SCALAR_BYTES) {
@@ -97,10 +107,31 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
     }
     return { end: start + headerBytes + stringBytes, bytes: stringBytes };
   };
-  const extension = (length: number): number => {
+  const arrayLengthAt = (start: number): number => {
+    if (start < 0 || start >= bytes.length) throw malformedMessagePack();
+    const marker = bytes[start]!;
+    if (marker >= 0x90 && marker <= 0x9f) return marker & 0x0f;
+    if (marker === 0xdc) return containerChildren(readUint16At(start + 1), false);
+    if (marker === 0xdd) return containerChildren(readUint32At(start + 1), false);
+    throw malformedMessagePack();
+  };
+  const extension = (length: number, canDefineRecord = false): number => {
     const type = readByte();
     const payloadStart = offset;
     skip(length, true);
+    if (type === 0x72 && canDefineRecord) {
+      if (length !== 1 && length !== 2) throw malformedMessagePack();
+      const firstId = bytes[payloadStart]! & 0x3f;
+      const highByte = length === 2 ? bytes[payloadStart + 1]! : undefined;
+      const id = highByte === undefined
+        ? firstId
+        : firstId < 32
+          ? -((highByte << 5) + firstId)
+          : (highByte << 5) + firstId;
+      const fields = arrayLengthAt(offset);
+      records.set(id, { fields, highByte });
+      return fields + 1;
+    }
     if (type === 0x62) {
       if (length < 4) throw malformedMessagePack();
       const bundleDistance = readUint32At(payloadStart);
@@ -130,8 +161,17 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
 
     const marker = readByte();
     let children = 0;
-    if (marker <= 0x7f || marker >= 0xe0) {
-      // Positive and negative fixed integers.
+    if (marker <= 0x3f || marker >= 0xe0) {
+      // Positive and negative fixed integers outside msgpackr's record range.
+    } else if (marker <= 0x7f) {
+      const firstId = marker & 0x3f;
+      let record = records.get(firstId);
+      if (record?.highByte === 0) {
+        const highByte = readByte();
+        record = records.get((highByte << 5) + firstId);
+        if (record === undefined) throw malformedMessagePack();
+      }
+      children = record?.fields ?? 0;
     } else if (marker <= 0x8f) {
       children = containerChildren(marker & 0x0f, true);
     } else if (marker <= 0x9f) {
@@ -188,10 +228,10 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
           skip(8);
           break;
         case 0xd4:
-          children = extension(1);
+          children = extension(1, true);
           break;
         case 0xd5:
-          children = extension(2);
+          children = extension(2, true);
           break;
         case 0xd6:
           children = extension(4);

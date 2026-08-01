@@ -36,6 +36,20 @@ test("NovelAI MessagePack preflight bounds containers, depth, and values", () =>
       && error.message.includes("nested too deeply")
   );
 
+  const nestedRecord = Buffer.from([
+    0xd4, 20, 0,
+    0xd4, 0x72, 0x40,
+    0x91, 0xa1, 0x78,
+    ...Array.from({ length: 129 }, () => 0x40),
+    0xc0
+  ]);
+  assert.throws(
+    () => partsFromNovelAiStory(container(nestedRecord)),
+    (error: unknown) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("nested too deeply")
+  );
+
   const manyValues = Buffer.alloc(8 + 50_000 * 11, 0xc0);
   manyValues.set([0xd4, 20, 0, 0xdd, 0, 0, 0xc3, 0x50]);
   for (let offset = 8; offset < manyValues.length; offset += 11) {
