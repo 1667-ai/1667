@@ -14,10 +14,10 @@ import {
 export { MAX_NOVELAI_RECORDS };
 
 type SectionId = string | number;
-type NovelAiSection = Record<string, unknown> & {
-  type: 0 | 1 | 2;
-  text?: string;
-};
+type NovelAiSection =
+  | { readonly type: 0 }
+  | { readonly type: 1; readonly text: string }
+  | { readonly type: 2 };
 
 interface PendingCreate {
   readonly id: SectionId;
@@ -29,11 +29,6 @@ interface DecodedDocument {
   sections?: Map<unknown, unknown> | Record<string, unknown>;
   order?: unknown[];
   dirtySections?: Map<unknown, unknown> | Record<string, unknown>;
-}
-
-interface OrderNode {
-  readonly id: SectionId;
-  next?: OrderNode;
 }
 
 // NovelAI's classes use msgpackr's structured extension form: a fixext marker
@@ -80,7 +75,7 @@ export function partsFromNovelAiDocument(base64: string): ImportedPart[] {
   }
   const sections = readSections(document.sections);
   let order = readOrder(decoded.order, sections);
-  if (sections.size !== order.size) {
+  if (sections.size !== order.length) {
     throw new ServiceError(400, "Document contains an unordered section");
   }
   if (document.dirtySections !== undefined
@@ -143,7 +138,7 @@ function readSections(
 function readOrder(
   raw: unknown[],
   sections: ReadonlyMap<SectionId, NovelAiSection>
-): SectionOrder {
+): readonly SectionId[] {
   assertRecordCount(raw.length, "records");
   const ids: SectionId[] = [];
   const seen = new Set<SectionId>();
@@ -158,16 +153,17 @@ function readOrder(
     seen.add(id);
     ids.push(id);
   }
-  return new SectionOrder(ids);
+  return ids;
 }
 
 function applyDirtySections(
   sections: Map<SectionId, NovelAiSection>,
-  order: SectionOrder,
+  order: readonly SectionId[],
   raw: Map<unknown, unknown> | Record<string, unknown>
-): SectionOrder {
+): readonly SectionId[] {
   const creates: PendingCreate[] = [];
   const removed = new Set<SectionId>();
+  const orderedIds = new Set(order);
   for (const [rawId, rawStep] of boundedEntries(raw, "dirty sections")) {
     const id = sectionId(rawId, "dirty sections map");
     if (!isRecord(rawStep)) {
@@ -178,16 +174,16 @@ function applyDirtySections(
         creates.push(readCreate(sections, id, rawStep));
         break;
       case 1:
-        applyUpdate(sections, order, id, rawStep);
+        applyUpdate(sections, orderedIds, id, rawStep);
         break;
       case 2:
-        applyRemove(sections, order, removed, id, rawStep);
+        applyRemove(sections, orderedIds, removed, id, rawStep);
         break;
       default:
         throw new ServiceError(400, "Unknown dirty section step type");
     }
   }
-  const resolvedOrder = resolveDirtyOrder(order, creates, removed);
+  const resolvedOrder = resolveDirtyOrder(order, orderedIds, creates, removed);
   for (const create of creates) sections.set(create.id, create.section);
   return resolvedOrder;
 }
@@ -210,10 +206,11 @@ function readCreate(
 }
 
 function resolveDirtyOrder(
-  order: SectionOrder,
+  order: readonly SectionId[],
+  orderedIds: ReadonlySet<SectionId>,
   creates: PendingCreate[],
   removed: ReadonlySet<SectionId>
-): SectionOrder {
+): readonly SectionId[] {
   const createIds = new Set(creates.map(({ id }) => id));
   const children = new Map<SectionId, PendingCreate[]>();
   const prepended: PendingCreate[] = [];
@@ -225,7 +222,7 @@ function resolveDirtyOrder(
     } else if (create.after === 0) {
       prepended.push(create);
     } else {
-      if (!order.has(create.after) && !createIds.has(create.after)) {
+      if (!orderedIds.has(create.after) && !createIds.has(create.after)) {
         throw new ServiceError(400, "Dirty create specifies an absent anchor");
       }
       const anchored = children.get(create.after) ?? [];
@@ -255,7 +252,7 @@ function resolveDirtyOrder(
   };
 
   emitReverseForest(prepended);
-  for (const id of order.values()) {
+  for (const id of order) {
     if (!removed.has(id)) output.push(id);
     emitReverseForest(children.get(id) ?? []);
   }
@@ -263,17 +260,17 @@ function resolveDirtyOrder(
   if (emitted.size !== creates.length) {
     throw new ServiceError(400, "Dirty create anchors contain a cycle");
   }
-  return new SectionOrder(output);
+  return output;
 }
 
 function applyUpdate(
   sections: Map<SectionId, NovelAiSection>,
-  order: SectionOrder,
+  orderedIds: ReadonlySet<SectionId>,
   id: SectionId,
   step: Record<string, unknown>
 ): void {
   const existing = sections.get(id);
-  if (existing === undefined || !order.has(id)) {
+  if (existing === undefined || !orderedIds.has(id)) {
     throw new ServiceError(400, "Cannot update an absent section");
   }
   if (!isRecord(step.diff)) {
@@ -290,17 +287,17 @@ function applyUpdate(
   if (existing.type !== 1 || !Array.isArray(diff.parts)) {
     throw new ServiceError(400, "Unrecognized section diff");
   }
-  sections.set(id, { ...existing, text: applyTextDiff(existing.text!, diff.parts) });
+  sections.set(id, { type: 1, text: applyTextDiff(existing.text, diff.parts) });
 }
 
 function applyRemove(
   sections: Map<SectionId, NovelAiSection>,
-  order: SectionOrder,
+  orderedIds: ReadonlySet<SectionId>,
   removed: Set<SectionId>,
   id: SectionId,
   step: Record<string, unknown>
 ): void {
-  if (!sections.has(id) || !order.has(id)) {
+  if (!sections.has(id) || !orderedIds.has(id)) {
     throw new ServiceError(400, "Cannot remove an absent section");
   }
   if (step.previous !== undefined) readSection(step.previous);
@@ -357,18 +354,18 @@ function applyTextDiff(text: string, rawParts: unknown[]): string {
 
 function importedParts(
   sections: ReadonlyMap<SectionId, NovelAiSection>,
-  order: SectionOrder
+  order: readonly SectionId[]
 ): ImportedPart[] {
   const parts: ImportedPart[] = [];
   const createdAt = new Date().toISOString();
   let totalChars = 0;
-  for (const id of order.values()) {
+  for (const id of order) {
     const section = sections.get(id);
     if (section === undefined) {
       throw new ServiceError(400, "Document order contains an absent section");
     }
     if (section.type !== 1) continue;
-    const text = section.text!.normalize("NFC")
+    const text = section.text.normalize("NFC")
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n");
     if (text.trim().length === 0) continue;
@@ -394,11 +391,17 @@ function readSection(value: unknown): NovelAiSection {
     || (value.type !== 0 && value.type !== 1 && value.type !== 2)) {
     throw new ServiceError(400, "Malformed or unsupported document section");
   }
-  if (value.type === 1
-    && (typeof value.text !== "string" || hasUnpairedSurrogate(value.text))) {
-    throw new ServiceError(400, "Malformed text section");
+  switch (value.type) {
+    case 0:
+      return { type: 0 };
+    case 1:
+      if (typeof value.text !== "string" || hasUnpairedSurrogate(value.text)) {
+        throw new ServiceError(400, "Malformed text section");
+      }
+      return { type: 1, text: value.text };
+    case 2:
+      return { type: 2 };
   }
-  return value as NovelAiSection;
 }
 
 function boundedEntries(
@@ -445,39 +448,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function importTextTooLarge(): ServiceError {
   return new ServiceError(400, "Story expands to more text than can be imported");
-}
-
-class SectionOrder {
-  readonly nodes = new Map<SectionId, OrderNode>();
-  head?: OrderNode;
-  tail?: OrderNode;
-
-  constructor(ids: SectionId[]) {
-    for (const id of ids) {
-      if (this.nodes.has(id)) {
-        throw new ServiceError(400, "Duplicate section ID in document order");
-      }
-      const node: OrderNode = { id };
-      if (this.tail) this.tail.next = node;
-      else this.head = node;
-      this.tail = node;
-      this.nodes.set(id, node);
-    }
-  }
-
-  get size(): number {
-    return this.nodes.size;
-  }
-
-  has(id: SectionId): boolean {
-    return this.nodes.has(id);
-  }
-
-  *values(): IterableIterator<SectionId> {
-    let node = this.head;
-    while (node) {
-      yield node.id;
-      node = node.next;
-    }
-  }
 }
