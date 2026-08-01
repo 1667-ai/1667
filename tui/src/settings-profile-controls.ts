@@ -76,8 +76,7 @@ export interface SettingsRowPresentation {
  * text editing and reconciliation; this module owns closed profile controls. */
 export function settingsRows(
   overlay: SettingsOverlayState,
-  config: UserConfig,
-  env: Record<string, string | undefined> = process.env
+  config: UserConfig
 ): readonly SettingsRowPresentation[] {
   const settings = overlay.draft.generation;
   const providerChoice = settingsProviderChoice(settings);
@@ -121,7 +120,7 @@ export function settingsRows(
     {
       id: "api-key-env", section: "connection", label: "key env",
       value: settings.apiKeyEnv ?? "—",
-      hint: envVarHint(settings.apiKeyEnv, env)
+      hint: envVarHint(settings.apiKeyEnv)
     },
     {
       id: "api-key", section: "connection", label: "stored key",
@@ -236,10 +235,11 @@ function positionDots<T>(choices: readonly T[], current: T | undefined): string 
 }
 
 /** C-14's `⚑ found in shell`: the row says whether the name it holds actually
- *  resolves, so a typo does not wait until the next request to show itself. */
-function envVarHint(name: string | null, env: Record<string, string | undefined>): string {
+ *  resolves, so a typo does not wait until the next request to show itself.
+ *  The shell is the only place that answer exists, and it is one lookup. */
+function envVarHint(name: string | null): string {
   if (name === null || name.length === 0) return "name an environment variable";
-  const value = env[name];
+  const value = process.env[name];
   return value !== undefined && value.length > 0
     ? "⚑ found in shell"
     : "not set in this shell";

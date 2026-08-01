@@ -82,7 +82,7 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
   }
   // The log is the surface with no cap, so the expanded notice wraps as far as
   // it needs to and keeps its recovery keys on the last row.
-  const wrapped = wrapFeedback(notice.text, measure, Number.MAX_SAFE_INTEGER);
+  const wrapped = wrapFeedback(notice.text, measure, null);
   return wrapped.rows.map((row, index): FrameLine => index === 0
     ? [...head, segment(row, "prose")]
     : [segment(" ".repeat(BODY_COLUMN)), segment(row, "prose")]);

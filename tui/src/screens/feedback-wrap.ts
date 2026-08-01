@@ -20,7 +20,9 @@ export interface WrappedFeedback {
 export function wrapFeedback(
   text: string,
   measure: number,
-  cap: number,
+  /** Rows the channel may spend, or null where it has no cap — the log is the
+   *  one surface that never truncates, which is what makes the caps honest. */
+  cap: number | null,
   /** How to reach the whole message — `! full`, or null where `!` is not
    *  live. Rides the last row, ahead of the recovery keys it already holds. */
   overflow: string | null = null
@@ -29,7 +31,7 @@ export function wrapFeedback(
   const clean = text.replace(/\s+/gu, " ").trim();
   const rows = wrapRows(clean, room);
   if (rows.length === 0) return { rows: [], truncated: false };
-  if (rows.length <= cap) return { rows, truncated: false };
+  if (cap === null || rows.length <= cap) return { rows, truncated: false };
   // Feedback names its recovery keys in the trailing `·` clauses. Keeping the
   // whole run of them is the point of the law: taking only the last would drop
   // `R retries` from `R retries · , opens settings`, and wrapping alone would
