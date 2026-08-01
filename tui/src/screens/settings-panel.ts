@@ -17,34 +17,21 @@ import {
   raisedSegment
 } from "./overlay.js";
 import { panelRowWindow } from "./panel-table-layout.js";
+import { settingsFieldRow } from "./settings-field-row.js";
 import {
   fittingFooter,
-  SETTINGS_CHOICE_FOOTERS,
-  SETTINGS_CONTEXT_FOOTERS,
-  SETTINGS_EDIT_FOOTERS,
-  SETTINGS_MODEL_FOOTERS,
-  SETTINGS_PENDING_FOOTERS,
-  SETTINGS_PENDING_PROFILE_FOOTERS,
-  SETTINGS_PROFILE_FOOTERS,
-  SETTINGS_PICKER_FOOTERS,
-  SETTINGS_SCALAR_FOOTERS,
-  SETTINGS_TEXT_FOOTERS
+  settingsFooterVariants
 } from "./settings-panel-footers.js";
-import { isSettingsScalarRow } from "../settings-scalar.js";
 import {
-  settingsFormRowOffset,
   settingsFormRows,
   type SettingsFormRow
 } from "./settings-form.js";
+import { modelPickerColumn } from "./settings-model-column.js";
 import {
   boundedModelPickerCursor,
   modelPickerRows
 } from "../settings-model-picker.js";
-import { settingsModelChoices } from "../settings-model-discovery.js";
-import { settingsModelDisplayText } from "../settings-profile-controls.js";
 import {
-  truncate,
-  TYPING_CARET,
   visibleWidth,
   type FrameComposition,
   type FrameLine
@@ -74,7 +61,7 @@ export function renderSettingsPanel(
   const picker = overlay.modelPicker === null
     ? null
     : modelPickerColumn(overlay, overlay.modelPicker, horizontal.contentWidth);
-  const painted = picker ?? settingsFormRows({
+  const painted = picker?.choices ?? settingsFormRows({
     rows,
     cursor: boundedSettingsCursor(overlay.cursor),
     edit: overlay.edit,
@@ -83,6 +70,11 @@ export function renderSettingsPanel(
     hasArrows: (row) => settingsRowHasArrows(overlay, row.id),
     actionReport: inPlaceActionReport(overlay)
   });
+  // The bottom strip keeps its padded height whatever it says, so a pending
+  // restart cannot lift the panel and move every field with it. The sectioned
+  // form always fills the panel, so trading the strip for one more field row
+  // would make that lift happen on exactly the frame the notice appears.
+  //
   // Complete notices outrank fields: a selected row can scroll away for a
   // moment, but an error must not lose its final wrapped rows. On a panel too
   // short for both, the fields yield entirely — no error reads as no problem.
@@ -92,16 +84,20 @@ export function renderSettingsPanel(
     : (() => {
       const window = panelRowWindow(
         painted.map(() => 1),
-        // The option column has its own cursor, one row below its filter line.
         picker === null
-          ? settingsFormRowOffset(rows, boundedSettingsCursor(overlay.cursor))
+          ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor))
           : boundedModelPickerCursor(
             overlay.modelPicker!.cursor,
             modelPickerRows(overlay, overlay.modelPicker!.query).length
-          ) + 1,
-        Math.max(1, contentCapacity - fixedRows)
+          ),
+        Math.max(1, contentCapacity - fixedRows - (picker === null ? 0 : 1))
       );
-      return painted.slice(window.start, window.end);
+      // The filter row holds the live query and the count; it is chrome above
+      // the column, not the first option, so it never scrolls away.
+      const filter: SettingsFormRow[] = picker === null
+        ? []
+        : [{ line: picker.filter, target: null, overrides: [] }];
+      return [...filter, ...painted.slice(window.start, window.end)];
     })();
   const leading = shown.length === 0
     ? shortPanelNotices([resultLines, status.top, status.bottom], contentCapacity)
@@ -123,31 +119,7 @@ export function renderSettingsPanel(
     ...trailing.map((): HitRegion[] => [])
   ];
 
-  const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
-  const editing = overlay.edit !== null;
-  const selectedRow = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  const choosing = !editing && settingsRowHasArrows(overlay, selectedRow);
-  const footerVariants = picker !== null
-    ? SETTINGS_PICKER_FOOTERS
-    : editing
-    ? SETTINGS_EDIT_FOOTERS
-    : pending && selectedRow === "profile"
-      ? SETTINGS_PENDING_PROFILE_FOOTERS
-      : pending
-        ? SETTINGS_PENDING_FOOTERS
-        : selectedRow === "profile"
-        ? SETTINGS_PROFILE_FOOTERS
-        // The context window is a scalar that can also be probed, so it keeps
-        // its own keyline rather than the plain scalar one.
-        : selectedRow === "context-window"
-        ? SETTINGS_CONTEXT_FOOTERS
-        : isSettingsScalarRow(selectedRow)
-        ? SETTINGS_SCALAR_FOOTERS
-        : choosing && selectedRow === "model"
-        ? SETTINGS_MODEL_FOOTERS
-        : choosing
-          ? SETTINGS_CHOICE_FOOTERS
-          : SETTINGS_TEXT_FOOTERS;
+  const footerVariants = settingsFooterVariants(overlay, picker !== null);
   const footer = fittingFooter(footerVariants, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
@@ -166,54 +138,14 @@ export function renderSettingsPanel(
   );
 }
 
-/** C-15 · option column: more than eight options, each with a description, so
- *  it owns `↑↓` and replaces the field list rather than sharing a surface with
- *  it. Typing narrows it live, the way the palette narrows commands. */
-function modelPickerColumn(
-  overlay: NonNullable<OverlayState["settings"]>,
-  picker: NonNullable<NonNullable<OverlayState["settings"]>["modelPicker"]>,
-  contentWidth: number
-): SettingsFormRow[] {
-  const rows = modelPickerRows(overlay, picker.query);
-  const cursor = boundedModelPickerCursor(picker.cursor, rows.length);
-  const nameWidth = Math.min(32, Math.max(8, Math.floor(contentWidth / 2)));
-  const painted: SettingsFormRow[] = [{
-    line: [
-      raisedSegment("  › model: ", "accent · deep"),
-      raisedSegment(picker.query, "streaming"),
-      raisedSegment(TYPING_CARET, "focus / accent"),
-      raisedSegment(`  ${rows.length} of ${settingsModelChoices(overlay).length}`, "chrome")
-    ],
-    target: null,
-    overrides: []
-  }];
-  for (const [index, choice] of rows.entries()) {
-    const selected = index === cursor;
-    painted.push({
-      line: [
-        raisedSegment(selected ? "  ▸ " : "    ", selected ? "focus / accent" : "chrome"),
-        raisedSegment(pad(truncate(settingsModelDisplayText(choice.name), nameWidth), nameWidth),
-          selected ? "prose" : "prose · dim"),
-        raisedSegment(truncate(settingsModelDisplayText(choice.remoteId),
-          Math.max(0, contentWidth - nameWidth - 6)), "chrome")
-      ],
-      target: { kind: "list", index },
-      overrides: []
-    });
-  }
-  if (rows.length === 0) {
-    painted.push({
-      line: [raisedSegment("    no model matches · ↵ uses what you typed", "prose · dim")],
-      target: null,
-      overrides: []
-    });
-  }
-  return painted;
+/** Where a settings row landed among the painted rows. The form already knows
+ *  — it tagged each row with its own index — so nothing re-walks the grouping. */
+function paintedRowOffset(painted: readonly SettingsFormRow[], index: number): number {
+  const at = painted.findIndex((row) =>
+    row.target?.kind === "list" && row.target.index === index);
+  return at < 0 ? 0 : at;
 }
 
-function pad(value: string, width: number): string {
-  return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
-}
 
 /** A notice taller than the panel keeps the rows that fit rather than
  *  vanishing: a wrapped provider error is several rows, and dropping the block
@@ -241,10 +173,19 @@ function shortPanelNotices(
 function inPlaceActionReport(
   overlay: NonNullable<OverlayState["settings"]>
 ): { row: SettingsRowId; text: string; ok: boolean } | null {
+  // Three rows write the one result slot, so each names itself: reporting a
+  // failed context probe beside the base URL tells the writer the endpoint is
+  // broken when the probe was.
   if (overlay.checking) return { row: "base-url", text: "⟳ checking…", ok: true };
-  if (overlay.result === null) return null;
+  if (overlay.probing) return { row: "context-window", text: "⟳ probing…", ok: true };
+  if (overlay.discoveringModels) return { row: "model", text: "⟳ reading…", ok: true };
+  if (overlay.result === null || overlay.resultRow === null) return null;
   const ready = overlay.result.state === "ready";
-  return { row: "base-url", text: ready ? "✓ ready" : "▲ check failed", ok: ready };
+  return {
+    row: overlay.resultRow,
+    text: ready ? "✓ ready" : "▲ failed",
+    ok: ready
+  };
 }
 
 /** The panel's two notice positions.

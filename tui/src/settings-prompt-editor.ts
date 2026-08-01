@@ -35,6 +35,9 @@ export function openSettingsPasteTarget(
 ): "editor" | "inline" | null {
   const overlay = state.settings;
   if (overlay === null) return null;
+  if (overlay.sampling !== null) {
+    return overlay.sampling.edit === null ? null : "inline";
+  }
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
   if (row === "system-prompt") {
     if (!overlay.view.editable) return null;

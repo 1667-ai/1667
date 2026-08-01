@@ -4,6 +4,11 @@ import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
 import {
+  initialSettingsOverlay,
+  settingsRows,
+  SETTINGS_ROW_IDS
+} from "../src/settings-overlay-model.js";
+import {
   key,
   openSettings,
   selectRow,
@@ -86,7 +91,10 @@ describe("the settings form follows C-03 and C-08", () => {
     await press(key("home"));
     await press(key("left"));
     expect(state.settings!.draft.generation.temperature).toBe(null);
-    expect(screen(state)).toContain("‹ ◇ default ›");
+    // C-08's sentinel keeps the track: `◇` takes the low-bound slot so the
+    // range the default sits in is still readable while the row is unset.
+    expect(screen(state)).toContain("‹ default ›");
+    expect(screen(state)).toContain("◇ ");
 
     await press(key("right"));
     expect(state.settings!.draft.generation.temperature).toBe(0.9);
@@ -135,9 +143,12 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(screen(state)).toContain("[ check connection ]");
 
     state.settings!.result = { state: "ready", message: "Server is reachable." };
+    state.settings!.resultRow = "base-url";
     const rendered = screen(state);
-    expect(rendered).toContain("✓ ready");
-    // The provider's own sentence keeps its wrapped block, where it has room.
+    // C-18 reports in place: the verdict rides C-07's note line under the row
+    // that ran the action, and the provider's own sentence keeps the wrapped
+    // block below, where it has room to say why.
+    expect(rendered).toContain("· ✓ ready");
     expect(rendered).toContain("Server is reachable.");
   });
 });
@@ -214,5 +225,33 @@ describe("C-15 · the model option column", () => {
     expect(screen(state)).toContain("no model matches · ↵ uses what you typed");
     await press(key("return"));
     expect(state.settings!.draft.generation.model).toBe("zzz");
+  });
+});
+
+describe("the settings row model stays one list", () => {
+  test("SETTINGS_ROW_IDS and settingsRows agree, in order", () => {
+    const { source, state } = settingsHarness();
+    const overlay = initialSettingsOverlay(source.settingsView, state.config);
+    // The cursor indexes both: one walks the ids, the other paints the rows.
+    // Nothing but this test stops a reorder in one from silently retargeting
+    // every key in the panel.
+    expect(settingsRows(overlay, state.config).map((row) => row.id))
+      .toEqual([...SETTINGS_ROW_IDS]);
+  });
+
+  test("tab runs only the action the focused row declares", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+
+    await selectRow(press, state, "temperature");
+    await press(key("tab"));
+    expect(state.settings!.checking).toBe(false);
+    expect(state.settings!.result).toBe(null);
+
+    await selectRow(press, state, "base-url");
+    await press(key("tab"));
+    // The base-URL row is the one that declares `[ check connection ]`.
+    expect(state.settings!.resultRow === null || state.settings!.resultRow === "base-url")
+      .toBe(true);
   });
 });

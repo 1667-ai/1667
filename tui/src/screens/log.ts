@@ -16,10 +16,9 @@ import {
 
 /** Title rule, blank, closing rule, breadcrumb. */
 const SHELL_ROWS = 4;
-const STAMP_WIDTH = 8;
-const CHANNEL_WIDTH = 8;
+const STAMP_WIDTH = 10;
 /** Cells the expanded notice indents its wrapped rows by. */
-const BODY_COLUMN = 2 + STAMP_WIDTH + CHANNEL_WIDTH;
+const BODY_COLUMN = 2 + STAMP_WIDTH;
 
 /** C-37 · log: a C-02 surface holding the session's notices, newest first, the
  *  one you came from expanded. The only surface with no cap — it is what makes
@@ -76,8 +75,7 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
   const measure = Math.max(8, width - BODY_COLUMN - 2);
   const head: FrameLine = [
     segment(lead, focused ? "focus / accent" : "chrome"),
-    segment(stamp(notice.at).padEnd(STAMP_WIDTH), "chrome"),
-    segment(notice.channel.padEnd(CHANNEL_WIDTH), channelRole(notice.channel))
+    segment(stamp(notice.at).padEnd(STAMP_WIDTH), "chrome")
   ];
   if (!focused) {
     return [[...head, segment(truncate(oneLine(notice.text), measure), "prose · dim")]];
@@ -135,7 +133,7 @@ function renderBreadcrumb(
     segment(" · ", "chrome"),
     segment("↵ copies", "chrome", { kind: "action", action: "copy-part" }),
     segment(" · ", "chrome"),
-    segment("x clears", "chrome", { kind: "action", action: "delete-item" }),
+    segment("x clears", "chrome", { kind: "action", action: "clear-log" }),
     segment(" · ", "chrome"),
     segment("esc closes", "focus / accent", { kind: "action", action: "cancel" })
   ];
@@ -151,10 +149,6 @@ function renderBreadcrumb(
     keys,
     width
   });
-}
-
-function channelRole(channel: SessionNotice["channel"]) {
-  return channel === "banner" ? "danger text" : "accent · deep";
 }
 
 function oneLine(text: string): string {

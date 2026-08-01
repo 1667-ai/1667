@@ -9,6 +9,7 @@ import {
   type SettingsSectionId
 } from "../settings-overlay-model.js";
 import type { SettingsInlineEditState } from "../state.js";
+import { wrapText } from "../wrap.js";
 import { raisedSegment } from "./overlay.js";
 import { renderComposerInput } from "./story/composer.js";
 import {
@@ -28,10 +29,13 @@ const RAIL_INSET = RAIL_WIDTH + visibleWidth(DIVIDER) + 1;
  *  rail is an affordance, not information — nothing is lost by dropping it. */
 const RAIL_MIN_WIDTH = 100;
 
-/** C-07's field row, widened by the four cells the longest label here needs:
- *  label 16 · value 22 · hint flex. The hint truncates; it never wraps. */
-const LABEL_WIDTH = 16;
+/** F-3's shared column budget, which is not a per-surface decision: label 12,
+ *  so the value column starts at 14 on every surface and stacked components
+ *  line up without anyone measuring. The hint truncates; it never wraps. */
+const LABEL_WIDTH = 12;
 const VALUE_WIDTH = 22;
+/** The `▸ ` cursor lead every row carries, which the note line clears. */
+const NOTE_LEAD = 2;
 /** A C-08 chip is short and its track needs the cells the value column would
  *  otherwise reserve, so scalars align on a narrower column of their own. */
 const SCALAR_CHIP_WIDTH = 13;
@@ -80,29 +84,47 @@ export function settingsFormRows(options: SettingsFormOptions): SettingsFormRow[
     });
     for (const { row, index } of fields) {
       painted.push(fieldRow(row, index, options, rail));
+      painted.push(...noteRows(row, index, options, rail));
     }
   }
   return painted;
 }
 
-/** Which painted row a settings row landed on, for cursor-centred windowing. */
-export function settingsFormRowOffset(
-  rows: readonly SettingsRowPresentation[],
-  index: number
-): number {
-  const target = rows[index];
-  if (target === undefined) return 0;
-  let offset = 0;
-  for (const section of SETTINGS_SECTIONS) {
-    const fields = rows.filter((row) => row.section === section.id);
-    if (fields.length === 0) continue;
-    offset += 1;
-    for (const row of fields) {
-      if (row === target) return offset;
-      offset += 1;
-    }
-  }
-  return offset;
+/** C-07's note line: the sentence a row sometimes has to say, indented to the
+ *  value column and wrapped there.
+ *
+ *  Without it the hint slot held four things at once — a standing hint, a
+ *  refusal reason, an action label and an action's result — resolved by
+ *  ranking, which is how a refusal reason could lose its row. Now the hint
+ *  keeps the one-liner and the note takes whatever needs a sentence. */
+function noteRows(
+  row: SettingsRowPresentation,
+  index: number,
+  options: SettingsFormOptions,
+  rail: boolean
+): SettingsFormRow[] {
+  if (index !== options.cursor || options.edit !== null) return [];
+  const report = options.actionReport?.row === row.id ? options.actionReport : null;
+  const note = row.invalid !== undefined
+    ? { text: row.invalid, role: "danger text" as DisplayRole }
+    : report !== null
+      ? {
+        text: report.text,
+        role: (report.ok ? "focus / accent" : "danger text") as DisplayRole
+      }
+      : null;
+  if (note === null) return [];
+  const inset = bodyInset(rail) + NOTE_LEAD + LABEL_WIDTH;
+  const measure = Math.max(8, options.contentWidth - inset);
+  return wrapText(note.text, [], measure).map((line): SettingsFormRow => ({
+    line: [
+      ...railGutter("", false, rail),
+      raisedSegment(" ".repeat(NOTE_LEAD + LABEL_WIDTH), "chrome"),
+      raisedSegment(`· ${line.text}`, note.role)
+    ],
+    target: { kind: "list", index },
+    overrides: []
+  }));
 }
 
 function sectionRule(
@@ -191,32 +213,23 @@ function fieldRow(
     line.push(raisedSegment(`${dots}  `, selected ? "accent · deep" : "chrome"));
     used += visibleWidth(dots) + 2;
   }
-  const hint = invalid ? row.invalid! : row.hint;
-  const candidate = row.scalar === undefined
+  const track = row.scalar === undefined
     || options.terminalWidth < TRACK_MIN_PANEL_WIDTH
     ? null
     : trackSegments(row.scalar, Math.max(0, valueRoom - used));
-  // F-2: the reason a value is refused must survive. It shares the row with a
-  // pinned track where both fit, and takes the track's cells where they do not.
-  const track = candidate !== null && invalid
-    && valueRoom - used - candidate.width - 2 < visibleWidth(hint)
-    ? null
-    : candidate;
   if (track !== null) {
     line.push(...track.segments);
     used += track.width;
   }
   const hintRoom = Math.max(0, valueRoom - used - 2);
-  const report = options.actionReport?.row === row.id ? options.actionReport : null;
-  // C-18 reports in place, to the right of what caused it, and keeps reporting
-  // until the next keypress — so a result outranks the row's standing hint.
-  const trailing = report !== null
-    ? { text: report.text, role: (report.ok ? "focus / accent" : "danger text") as DisplayRole }
-    : row.action !== undefined && selected
-      ? { text: `[ ${row.action.label} ]  tab`, role: "accent · deep" as DisplayRole }
-      : { text: hint, role: (invalid ? "danger text" : "chrome") as DisplayRole };
-  if (hintRoom >= HINT_MIN_WIDTH && trailing.text.length > 0) {
-    line.push(raisedSegment("  "), raisedSegment(truncate(trailing.text, hintRoom), trailing.role));
+  // C-18's action label sits in the value column, where `tab` reaches it. Its
+  // result, and F-2's refusal reason, take the note line below instead — the
+  // hint slot holds one one-liner and never has to rank four claimants.
+  const hint: { text: string; role: DisplayRole } = row.action !== undefined && selected
+    ? { text: `[ ${row.action.label} ]  tab`, role: "accent · deep" }
+    : { text: row.hint, role: "chrome" };
+  if (hintRoom >= HINT_MIN_WIDTH && hint.text.length > 0) {
+    line.push(raisedSegment("  "), raisedSegment(truncate(hint.text, hintRoom), hint.role));
   }
   return {
     line,
@@ -240,7 +253,9 @@ function trackSegments(
   const segments: FrameLine = [
     raisedSegment(lead, "chrome"),
     raisedSegment(withTick(filled, labels.tick, 0), "focus / accent"),
-    raisedSegment(labels.handle, "focus / accent"),
+    ...(labels.handle === null
+      ? []
+      : [raisedSegment(labels.handle, "focus / accent")]),
     raisedSegment(withTick(rest, labels.tick, labels.filled + 1), "dimmed page"),
     raisedSegment(tail, "chrome")
   ];

@@ -17,7 +17,12 @@ import {
   reduceSettingsStateV2
 } from "../server/settings-v2-reducer.js";
 import type { GenerationSettings } from "../shared/types.js";
-import type { SettingsDocumentV2, SettingsStateV2 } from "../shared/settings-v2-types.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type SamplingSettingsV2,
+  type SettingsDocumentV2,
+  type SettingsStateV2
+} from "../shared/settings-v2-types.js";
 
 export interface SettingsV2CorpusCase {
   readonly name: string;
@@ -42,6 +47,17 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   const convertedOpenAi = convertGenerationSettingsV1(openAi);
   const convertedAnthropic = convertGenerationSettingsV1(anthropic);
   const convertedLocal = convertGenerationSettingsV1(local);
+  const sampledOpenAi = withSampling(convertedOpenAi, {
+    topP: 0.9,
+    topK: null,
+    minP: null,
+    frequencyPenalty: 0.2,
+    presencePenalty: -0.1,
+    repeatPenalty: null,
+    stop: ["END", "DONE"],
+    logitBias: { "15043": 1 }
+  });
+  const emptySampling = withSampling(sampledOpenAi, EMPTY_SAMPLING_V2);
   const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
   const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
     kind: "save-document",
@@ -125,6 +141,8 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     validText("initial-document", "document", INITIAL_SETTINGS_DOCUMENT_V2_TEXT),
     validText("initial-state", "state", INITIAL_SETTINGS_STATE_V2_TEXT),
     valid("converted-openai", "document", convertedOpenAi),
+    valid("document-with-sampling", "document", sampledOpenAi),
+    validText("document-empty-sampling", "document", canonicalJson(emptySampling)),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
     valid("stored-bearer", "document", storedBearer),
@@ -169,6 +187,14 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
         }
       }
     }, false),
+    invalid("document-sampling-out-of-bounds", "document", withSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      topP: 2
+    }), false),
+    invalid("document-sampling-logit-bias-limit", "document", withSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+    }), false),
     invalid("document-nfd-string", "document", {
       ...INITIAL_SETTINGS_DOCUMENT_V2,
       writing: { defaultAuthorBrief: "Cafe\u0301" }
@@ -196,6 +222,22 @@ function withDefaultModelId(modelId: string): SettingsDocumentV2 {
         ...defaultProfile,
         modelId
       }
+    }
+  };
+}
+
+function withSampling(
+  document: SettingsDocumentV2,
+  sampling: SamplingSettingsV2
+): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
+  return {
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: { ...profile, sampling }
     }
   };
 }

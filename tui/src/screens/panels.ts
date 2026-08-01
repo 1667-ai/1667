@@ -46,6 +46,8 @@ import {
 import { truncate, truncateTail, visibleWidth, TYPING_CARET, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { renderSettingsPanel } from "./settings-panel.js";
 import { renderFactsPanel } from "./facts-panel.js";
+import { renderSamplingPanel } from "./sampling-panel.js";
+import { renderCardImportPanel } from "./card-import-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
@@ -78,6 +80,10 @@ export const TAGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "d delete", action: "delete-item" }, { token: "esc commands", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const CARD_IMPORT_FOOTER_ACTIONS = [
+  { token: "tab", action: "complete" }, { token: "↵", action: "apply" },
+  { token: "esc", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 type PanelState = Omit<OverlayState, "hitRows"> & {
   mode: StoryScreenState["mode"];
   tag: StoryScreenState["tag"];
@@ -106,13 +112,21 @@ export function renderPanels(
     requestActive: generationBusy(state) || state.summary !== null
   };
   let composition: FrameComposition = { lines: base, selectable: null };
-  if (state.actions != null) composition = renderActions(dimPage(base), local, width, height);
+  if (state.card !== null) {
+    composition = renderCardImportPanel(
+      dimPage(base), local, width, height, CARD_IMPORT_FOOTER_ACTIONS
+    );
+  }
+  else if (state.actions != null) composition = renderActions(dimPage(base), local, width, height);
   else if (state.library !== null) composition = renderLibrary(dimPage(base), local, width, height, deadlines);
   else if (state.facts !== null) {
     composition = renderFactsPanel(dimPage(base), local, width, height, estimate);
   }
   else if (state.commands !== null) composition = renderCommands(dimPage(base), local, width, height);
   else if (state.chapters !== null) composition = renderChapters(dimPage(base), local, width, height, estimate);
+  else if (state.settings?.sampling !== null && state.settings !== null) {
+    composition = renderSamplingPanel(base, local, width, height);
+  }
   else if (state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
   else if (state.summary !== null) composition = renderSummary(dimPage(base), local, width, height);
   if (state.connection.down) {

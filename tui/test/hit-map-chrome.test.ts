@@ -687,7 +687,8 @@ describe("hit map clickable chrome", () => {
     const state = initialState(source, false);
     state.stream = null;
     footerCases.at(-1)!.setup(state, source);
-    const frame = render(state, 120, 30);
+    // Tall enough to paint the whole sectioned form, so every choice is sampled.
+    const frame = render(state, 120, 48);
 
     // Each closed choice opens on the first cell of its value, so the opening
     // arrows share a column exactly when the labels all fit theirs.
@@ -701,8 +702,10 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // Four existing choices plus profile, effort, cache, and three routes.
-    expect(opens.size).toBe(10);
+    // Theme, compose focus, provider, insecure HTTP, profile, effort, cache,
+    // sampling and three routes — plus the three C-08 scalars, whose chips
+    // open on the same column.
+    expect(opens.size).toBe(13);
     expect(new Set(opens.values()).size).toBe(1);
   });
 

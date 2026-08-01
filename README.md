@@ -119,6 +119,7 @@ request plan. It does not show the authentication header or its credential.
 - [Story storage](docs/story-storage.md)
 - [Facts, context, and model providers](docs/model-providers.md)
 - [SillyTavern import](docs/sillytavern-import.md)
+- [Character card import](docs/character-card-import.md)
 - [Platforms and standalone builds](docs/platforms-and-builds.md)
 - [Development reference](docs/development.md)
 - [Technical terms](docs/technical-terms.md)

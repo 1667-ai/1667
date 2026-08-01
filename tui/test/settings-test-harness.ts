@@ -1,7 +1,10 @@
 import { expect } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
-import type { ProviderProbeTarget } from "../../shared/settings-v2-types.js";
+import type {
+  ProviderProbeTarget,
+  SaveSettingsCommand
+} from "../../shared/settings-v2-types.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
@@ -59,6 +62,32 @@ export function settingsHarness() {
     backend
   );
   return { source, state, cache, backend, press };
+}
+
+export function installSave(
+  source: ReturnType<typeof demoAppSource>,
+  saved: SaveSettingsCommand[]
+): void {
+  source.api.saveSettings = async (command) => {
+    saved.push(command);
+    const current = source.settingsView;
+    if (!current.editable) throw new Error("demo settings must be editable");
+    const effective = basicSettingsFromDocument(command.document);
+    source.settingsView = {
+      ...current,
+      stateGeneration: current.stateGeneration + 1,
+      activeRevision: current.activeRevision + 1,
+      document: command.document,
+      effective
+    };
+    return {
+      kind: "settings" as const,
+      settingsStateGeneration: source.settingsView.stateGeneration,
+      activeSettingsRevision: source.settingsView.activeRevision,
+      pendingSettingsRevision: null,
+      activationOutcome: null
+    };
+  };
 }
 
 export async function openSettings(

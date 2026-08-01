@@ -134,6 +134,30 @@ Select the **cache** row to set the cache policy. Use `Left Arrow` or
 `Right Arrow` to select `off`, `auto`, or `long`. Settings shows an unavailable
 message when the selected model cannot use the cache policy.
 
+## Sampling settings
+
+Sampling is an Advanced Settings group. The group starts collapsed.
+
+Press `,` to open Settings. Select `sampling`. Press `Enter` to open the
+sampling panel.
+
+The sampling panel shows scalar values, stop sequences, and logit bias rows.
+Select a scalar value. Press `Enter` to edit it. Press `Enter` again to keep
+the value.
+
+Select `stop sequences`. Press `n` to add a stop string. Press `Enter` to edit
+a stop string. Press `d` to delete a stop string. Press `Left Arrow` or
+`Right Arrow` to reorder stop strings.
+
+Select `logit bias`. Press `n` to add a token-ID and integer-bias row. Press
+`Enter` to edit a row. Press `d` to delete a row.
+
+Press `Esc` to return to Settings. Press `s` to save the Settings draft.
+
+The TUI checks each value against the selected protocol, preset, and model.
+The TUI renders an unavailable scalar row as `‹ — ›`. The TUI shows a short
+reason. The TUI keeps the draft when a save cannot use a configured value.
+
 ## Credentials and deadlines
 
 A connection can refer to a stored credential or an environment variable.

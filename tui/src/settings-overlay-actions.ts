@@ -7,8 +7,16 @@ import {
   promptCacheContextForProfile,
   promptCachePolicyPresentation
 } from "../../shared/prompt-cache-capabilities.js";
+import {
+  applySamplingSettings,
+  resolveConfiguredSamplingKnobs,
+  samplingContextForRoute,
+  samplingKnobLabel,
+  type SamplingUnavailableReason
+} from "../../shared/sampling-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type {
   SettingsDocumentV2,
   SettingsMutationResult,
@@ -18,6 +26,7 @@ import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
+import { samplingOverlayAction } from "./sampling-actions.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -46,6 +55,7 @@ import {
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRowCycles,
+  settingsRows,
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
@@ -57,11 +67,11 @@ import {
 } from "./settings-profile-draft.js";
 import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
 import { settingsTextDraftForDocument, settingsTextDraftWithGeneration } from "./settings-text.js";
+import { modelPickerRequired } from "./settings-model-picker.js";
 import {
-  boundedModelPickerCursor,
-  modelPickerRequired,
-  modelPickerRows
-} from "./settings-model-picker.js";
+  settingsInlineEditAction,
+  settingsModelPickerAction
+} from "./settings-field-actions.js";
 import {
   applySettingsComposeFocus,
   applySettingsTheme,
@@ -120,6 +130,10 @@ export async function settingsOverlayAction(
     && resolved.action !== "delete-item"
     && resolved.action !== "cancel") {
     overlay.deleteArmedProfileId = null;
+  }
+  if (overlay.sampling !== null) {
+    await samplingOverlayAction(resolved, state, source, context);
+    return true;
   }
   if (resolved.action === "cancel") {
     // Esc peels exactly one layer: the option column is a layer of its own.
@@ -182,8 +196,25 @@ export async function settingsOverlayAction(
       await cycleSettingsRow(row, 1, state, source, context, overlay);
     } else if (row === "system-prompt") {
       openSystemPromptEditor(state);
+    } else if (row === "sampling") {
+      overlay.sampling = {
+        panel: "sampling",
+        cursor: 0,
+        logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
+        edit: null,
+        result: null
+      };
     } else {
       beginSettingsRowEdit(overlay, state.config);
+    }
+  } else if (resolved.action === "row-action") {
+    // C-18: `tab` runs whatever this row declares, and nothing where a row
+    // declares none.
+    const action = settingsRows(overlay, state.config)[
+      boundedSettingsCursor(overlay.cursor)
+    ]?.action;
+    if (action !== undefined) {
+      await settingsOverlayAction({ action: action.key }, state, source, context);
     }
   } else if (resolved.action === "save-edit") {
     await saveSettingsDraft(state, source, context, overlay);
@@ -262,131 +293,6 @@ function manageSettingsProfile(
   state.toast = "profile deleted · routes repaired · s saves settings";
 }
 
-/** C-15's own keys. Typing narrows the column live; `↵` takes the focused
- *  option, or the text itself when nothing matches, so a model the provider
- *  never listed is still reachable from here. */
-function settingsModelPickerAction(
-  resolved: ResolvedKey,
-  state: RuntimeState,
-  overlay: SettingsOverlayState
-): void {
-  const picker = overlay.modelPicker!;
-  const rows = modelPickerRows(overlay, picker.query);
-  if (resolved.action === "cancel") {
-    overlay.modelPicker = null;
-    return;
-  }
-  if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
-    picker.cursor = boundedModelPickerCursor(
-      picker.cursor + (resolved.action === "focus-next" ? 1 : -1),
-      rows.length
-    );
-    return;
-  }
-  if (resolved.action === "focus-index" && resolved.index !== undefined) {
-    picker.cursor = boundedModelPickerCursor(resolved.index, rows.length);
-    return;
-  }
-  if (resolved.action === "input" || resolved.action === "backspace") {
-    picker.query = applyTextKey(picker.query, resolved) ?? picker.query;
-    picker.cursor = 0;
-    return;
-  }
-  if (resolved.action !== "open-selected") return;
-  const chosen = rows[boundedModelPickerCursor(picker.cursor, rows.length)];
-  const model = chosen?.remoteId ?? picker.query.trim();
-  overlay.modelPicker = null;
-  if (model.length === 0) return;
-  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
-    ...overlay.draft.generation,
-    model,
-    contextWindow: chosen?.contextWindow ?? null
-  });
-  overlay.result = null;
-  disarmSettingsConflict(overlay);
-  state.toast = `model · ${model} · s saves settings`;
-}
-
-async function settingsInlineEditAction(
-  resolved: ResolvedKey,
-  state: RuntimeState,
-  source: AppSource,
-  context: ActionContext,
-  overlay: SettingsOverlayState
-): Promise<void> {
-  const edit = overlay.edit;
-  if (edit?.kind !== "inline") return;
-  if (resolved.action === "paste-clipboard") {
-    const inputClaim = {
-      interactionVersion: state.interactionVersion,
-      text: edit.composer.text,
-      cursor: edit.composer.cursor,
-      anchor: edit.composer.anchor
-    };
-    const text = await readFromClipboard();
-    if (state.settings !== overlay || overlay.edit !== edit) return;
-    if (state.interactionVersion !== inputClaim.interactionVersion
-      || edit.composer.text !== inputClaim.text
-      || edit.composer.cursor !== inputClaim.cursor
-      || edit.composer.anchor !== inputClaim.anchor) {
-      return;
-    }
-    if (text === null) {
-      state.toast = "clipboard unreadable · paste with ⌘V or ctrl+shift+v";
-    } else if (!pasteSettingsInlineEdit(overlay, text)) {
-      state.toast = "clipboard has no insertable text";
-    }
-    return;
-  }
-  if (resolved.action === "commit-field") {
-    const applied = applySettingsRowEdit(overlay, state.config);
-    if (applied.kind === "error") {
-      state.toast = `row kept · ${applied.message}`;
-      return;
-    }
-    if (applied.kind === "theme") {
-      applySettingsTheme(state, context, applied.value);
-      return;
-    }
-    if (applied.kind === "compose-focus") {
-      applySettingsComposeFocus(state, source, applied.value);
-      return;
-    }
-    disarmSettingsConflict(overlay);
-    if (settingsDraftChanged(overlay)) {
-      state.toast = "draft updated · s saves settings";
-    }
-    return;
-  }
-  if (resolved.action === "input") {
-    disarmSettingsConflict(overlay);
-    insertComposerText(edit.composer, resolved.text ?? "");
-    return;
-  }
-  const kind = applyComposerEdit(
-    edit.composer,
-    resolved.action,
-    resolved.extendSelection
-  );
-  if (kind !== null) {
-    if (kind === "delete") disarmSettingsConflict(overlay);
-    return;
-  }
-}
-
-function pasteSettingsInlineEdit(
-  overlay: SettingsOverlayState,
-  raw: string
-): boolean {
-  const edit = overlay.edit;
-  if (edit?.kind !== "inline") return false;
-  const clean = sanitizePastedText(raw);
-  if (clean.length === 0) return false;
-  disarmSettingsConflict(overlay);
-  insertComposerText(edit.composer, clean.replace(/\n+/g, " "));
-  return true;
-}
-
 async function saveSettingsDraft(
   state: RuntimeState,
   source: AppSource,
@@ -443,6 +349,12 @@ async function saveSettingsDraft(
         draft.generation.contextWindow,
         draft.selectedProfileId
       );
+      document = applySamplingSettings(
+        document,
+        draft.sampling,
+        draft.selectedProfileId
+      );
+      assertSamplingDraftAvailable(document, draft.selectedProfileId);
       const cacheContext = promptCacheContextForProfile(document, draft.selectedProfileId);
       const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
       if (!presentation.available) {
@@ -511,6 +423,29 @@ async function saveSettingsDraft(
     state.toast = newerEdits ? `${message} · newer edits kept` : message;
   });
 }
+
+function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: string): void {
+  const route = resolveSettingsProfile(document, profileId);
+  const context = samplingContextForRoute(route);
+  const sampling = route.profile.sampling ?? EMPTY_SAMPLING_V2;
+  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
+    if (resolution.kind === "unavailable") {
+      throw new Error(
+        `${samplingKnobLabel(knob)} is unavailable · ${SAMPLING_UNAVAILABLE_REASON_COMPACT[resolution.reason]}`
+      );
+    }
+  }
+}
+
+const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableReason, string>> = {
+  "legacy-v1": "read-only",
+  "dry-run": "dry run",
+  protocol: "not in protocol",
+  "preset-unsupported": "not in preset",
+  "preset-unknown": "unknown endpoint",
+  "model-unsupported": "model unsupported",
+  "model-unknown": "model unknown"
+};
 
 /** A credential-touching save activates inside the save request, so the
  * mutation result itself reports this save's activation outcome. */

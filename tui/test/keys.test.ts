@@ -97,6 +97,14 @@ const DECLARED_DIVERGENCES = [
 }[];
 
 describe("arrow-first key routing", () => {
+  test("CARD owns its path field and reserves tab for completion", () => {
+    expect(resolveKey(key("return"), "CARD").action).toBe("apply");
+    expect(resolveKey(key("tab"), "CARD").action).toBe("complete");
+    expect(resolveKey(key("backspace"), "CARD").action).toBe("backspace");
+    expect(resolveKey(key("d"), "CARD")).toEqual({ action: "input", text: "d" });
+    expect(resolveKey(key("escape"), "CARD").action).toBe("cancel");
+  });
+
   test("NAV uses arrows for parts and takes; h/j/k/l are unbound", () => {
     expect(resolveKey(key("down"), "NAV").action).toBe("focus-next");
     expect(resolveKey(key("up"), "NAV").action).toBe("focus-previous");
@@ -327,6 +335,32 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("v", { ctrl: true }), "SETTINGS").action)
       .toBe("paste-clipboard");
     expect(resolveKey(key("v", { super: true }), "SETTINGS").action)
+      .toBe("paste-clipboard");
+  });
+
+  test("nested Sampling keeps modified verbs and navigation inert", () => {
+    const sampling = { settingsSampling: true };
+    const modified = [
+      { ctrl: true },
+      { meta: true },
+      { super: true }
+    ] as const;
+    for (const modifiers of modified) {
+      for (const name of ["n", "d", "up", "down", "left", "right"]) {
+        expect(resolveKey(key(name, modifiers), "SETTINGS", sampling).action)
+          .toBe("none");
+      }
+    }
+
+    expect(resolveKey(key("n"), "SETTINGS", sampling).action).toBe("new-item");
+    expect(resolveKey(key("d"), "SETTINGS", sampling).action).toBe("delete-item");
+    expect(resolveKey(key("up"), "SETTINGS", sampling).action).toBe("focus-previous");
+    expect(resolveKey(key("down"), "SETTINGS", sampling).action).toBe("focus-next");
+    expect(resolveKey(key("left"), "SETTINGS", sampling).action).toBe("take-previous");
+    expect(resolveKey(key("right"), "SETTINGS", sampling).action).toBe("take-next");
+    expect(resolveKey(key("v", { ctrl: true }), "SETTINGS", sampling).action)
+      .toBe("paste-clipboard");
+    expect(resolveKey(key("v", { super: true }), "SETTINGS", sampling).action)
       .toBe("paste-clipboard");
   });
 

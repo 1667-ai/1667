@@ -14,6 +14,7 @@ import {
 } from "./story/frame.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
+import { addInlineHits } from "./story/hits.js";
 import { tagGlyph, tagRole } from "../tag-presentation.js";
 
 export interface RequestViewerFrame extends FrameComposition {
@@ -96,14 +97,17 @@ export function renderRequestViewer(
     ...padded,
     ...footer.map((line): BodyRow => ({ line, target: null }))
   ].slice(0, height);
-  return {
-    lines: rows.map(({ line }) => fitLine(line, width)),
-    selectable: null,
-    hitRows: rows.map(({ target }) => target === null
-      ? null
-      : { target, left: 0, right: width }),
-    request: { ...request, cursor, scrollTop }
-  };
+  const lines = rows.map(({ line }) => fitLine(line, width));
+  const hitRows: HitRows = rows.map(({ target }) => target === null
+    ? null
+    : { target, left: 0, right: width });
+  // The breadcrumb's keys carry their actions on their own segments, the way
+  // the map's and search's do; without this they are painted text.
+  const breadcrumb = lines.length - 1;
+  if (lines[breadcrumb] !== undefined) {
+    addInlineHits([lines[breadcrumb]!], hitRows, () => true, breadcrumb);
+  }
+  return { lines, selectable: null, hitRows, request: { ...request, cursor, scrollTop } };
 }
 
 /** C-02: the surface keeps its mode cell and its tether back to the story.

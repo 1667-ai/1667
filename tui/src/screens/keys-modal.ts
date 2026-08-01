@@ -181,7 +181,8 @@ const SECTIONS: readonly KeysModalSection[] = [
       entry("everything the app said", [
         binding("navOpenLog"),
         binding("navOpenLogShifted"),
-        binding("mapOpenLog")
+        binding("mapOpenLog"),
+        binding("mapOpenLogShifted")
       ]),
       entry("this key reference", [
         binding("navOpenKeysQuestion"),
@@ -192,7 +193,8 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("mapClose"),
         binding("keysClose"),
         binding("logClose"),
-        binding("searchClose")
+        binding("searchClose"),
+        binding("cardClose")
       ]),
       entry("quit 1667", [binding("navQuit")])
     ]

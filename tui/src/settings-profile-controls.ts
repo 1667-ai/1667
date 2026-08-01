@@ -12,9 +12,12 @@ import {
   scalarInvalidReason,
   settingsScalar,
   steppedScalarValue,
+  type ScalarMagnitude,
   type SettingsScalar,
   type SettingsScalarRow
 } from "./settings-scalar.js";
+
+export type { ScalarMagnitude };
 import {
   localProviderPresetsSupported,
   selectableSettingsProviderChoices,
@@ -22,6 +25,7 @@ import {
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
+import { samplingRowValue } from "./sampling-model.js";
 import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
@@ -86,11 +90,11 @@ export function settingsRows(
     {
       id: "theme", section: "app", label: "theme",
       value: `‹ ${config.theme} ›`,
-      dots: positionDots(THEME_NAMES.length, THEME_NAMES.indexOf(config.theme)),
+      dots: positionDots(THEME_NAMES, config.theme),
       hint: "the whole palette, remapped"
     },
     {
-      id: "compose-focus", section: "app", label: "compose focus",
+      id: "compose-focus", section: "app", label: "focus",
       value: `[ ${config.composeFocus} ]`,
       hint: "dim the page while you type"
     },
@@ -108,14 +112,14 @@ export function settingsRows(
       action: { label: "check connection", key: "check" }
     },
     {
-      id: "allow-insecure-http", section: "connection", label: "insecure HTTP",
+      id: "allow-insecure-http", section: "connection", label: "insecure",
       value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`,
       hint: "plain HTTP to a machine you own"
     },
     // C-14 prefers the env-var form, so it leads: the app holding a key is the
     // fallback, and the row below says so.
     {
-      id: "api-key-env", section: "connection", label: "API key env",
+      id: "api-key-env", section: "connection", label: "key env",
       value: settings.apiKeyEnv ?? "—",
       hint: envVarHint(settings.apiKeyEnv, env)
     },
@@ -137,7 +141,12 @@ export function settingsRows(
     },
     scalarRow("temperature", "temperature", overlay, "how far it strays"),
     scalarRow("max-tokens", "max tokens", overlay, "longest reply"),
-    scalarRow("context-window", "context window", overlay, "what the meter sizes"),
+    {
+      id: "sampling", section: "generation", label: "sampling",
+      value: samplingRowValue(overlay),
+      hint: "↵ opens the sampling panel"
+    },
+    scalarRow("context-window", "context", overlay, "what the meter sizes"),
     {
       id: "effort", section: "generation", label: "effort",
       value: effortRowValue(overlay),
@@ -147,17 +156,14 @@ export function settingsRows(
     {
       id: "cache-policy", section: "generation", label: "cache",
       value: `‹ ${cache.policy} ›`,
-      dots: positionDots(
-        PROMPT_CACHE_POLICY_V2_VALUES.length,
-        PROMPT_CACHE_POLICY_V2_VALUES.indexOf(overlay.draft.cachePolicy)
-      ),
+      dots: positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy),
       hint: cache.kind === "available" ? cache.detail : `unavailable · ${cache.reason}`
     },
-    routeRow("default-route", "default route", overlay, "default"),
-    routeRow("prose-route", "prose route", overlay, "prose"),
-    routeRow("utility-route", "utility route", overlay, "utility"),
+    routeRow("default-route", "default", overlay, "default"),
+    routeRow("prose-route", "prose", overlay, "prose"),
+    routeRow("utility-route", "utility", overlay, "utility"),
     {
-      id: "system-prompt", section: "prompt", label: "system prompt",
+      id: "system-prompt", section: "prompt", label: "system",
       value: settings.systemPrompt.replace(/\s+/g, " "),
       hint: "↵ opens it in the editor"
     }
@@ -200,9 +206,9 @@ function routeRow(
   };
 }
 
-/** C-08 stepping, applied to the draft. */
-export type ScalarMagnitude = "step" | "coarse" | "end";
-
+/** C-08 stepping, applied to the draft. Only a row with a sentinel can reach
+ *  `null`, and `steppedScalarValue` guarantees that, so max tokens — which has
+ *  no sentinel — never needs a fallback here. */
 export function stepSettingsScalar(
   overlay: SettingsOverlayState,
   row: SettingsScalarRow,
@@ -215,16 +221,18 @@ export function stepSettingsScalar(
   const generation = { ...overlay.draft.generation };
   if (row === "temperature") generation.temperature = next;
   else if (row === "context-window") generation.contextWindow = next;
-  else if (next !== null) generation.maxTokens = next;
+  else if (next === null) throw new Error("max tokens has no sentinel to step to");
+  else generation.maxTokens = next;
   overlay.draft = settingsTextDraftWithGeneration(overlay.draft, generation);
   markControlMutation(overlay);
 }
 
 /** C-09 position dots. A cycler over more than eight options is a C-15 option
  *  column instead, and draws no dots. */
-function positionDots(count: number, index: number): string {
-  if (count <= 1 || count > 8 || index < 0) return "";
-  return Array.from({ length: count }, (_, at) => at === index ? "●" : "○").join("");
+function positionDots<T>(choices: readonly T[], current: T | undefined): string {
+  const index = current === undefined ? -1 : choices.indexOf(current);
+  if (choices.length <= 1 || choices.length > 8 || index < 0) return "";
+  return choices.map((_, at) => at === index ? "●" : "○").join("");
 }
 
 /** C-14's `⚑ found in shell`: the row says whether the name it holds actually
@@ -327,28 +335,23 @@ function effortPositionDots(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return "";
-  const choices = generationEffortChoices(document, profileId);
   return positionDots(
-    choices.length,
-    choices.indexOf(document.profiles[profileId]?.effort ?? "default")
+    generationEffortChoices(document, profileId),
+    document.profiles[profileId]?.effort ?? "default"
   );
 }
 
 function providerPositionDots(settings: GenerationSettings): string {
   const choices = selectableSettingsProviderChoices();
   const current = settingsProviderChoice(settings);
-  return positionDots(
-    choices.length,
-    choices.findIndex((choice) => choice.id === current.id)
-  );
+  return positionDots(choices.map((choice) => choice.id), current.id);
 }
 
 function profilePositionDots(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return "";
-  const ids = settingsProfileIds(document);
-  return positionDots(ids.length, ids.indexOf(profileId));
+  return positionDots(settingsProfileIds(document), profileId);
 }
 
 function profileRowHint(overlay: SettingsOverlayState): string {

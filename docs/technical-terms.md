@@ -14,6 +14,7 @@ read_when:
 | --- | --- |
 | TUI | The terminal user interface |
 | backend | The service that stores stories and sends provider requests |
+| character card | A V1 or V2 character card file that another tool wrote |
 | project | A project root and its `.1667/` directory |
 | story part | One unit of story prose |
 | take | One alternative version of a story part |
@@ -24,6 +25,10 @@ read_when:
 | Fact tag | A category name for a Fact |
 | context meter | The side-rail view of the next provider request size |
 | request viewer | The read-only view of the next provider request plan |
+| Sampling group | The Settings group for sampling parameters |
+| sampling parameter | One provider request field that changes how the model selects tokens |
+| stop sequence | One text sequence that stops generation |
+| logit bias | A token identifier and a weight that changes token probability |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

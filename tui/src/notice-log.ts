@@ -1,3 +1,7 @@
+import type { KeyEvent } from "@opentui/core";
+import { connectionNoticeText } from "./screens/connection-banner.js";
+import type { ResolvedKey } from "./keys.js";
+
 /** C-37 · log — the session's notices, so nothing the app said is
  *  unrecoverable.
  *
@@ -22,6 +26,9 @@ export interface NoticeLog {
   seen: Record<NoticeChannel, string | null>;
   /** Row the log surface opens on: the notice you came from. */
   cursor: number;
+  /** Where `esc` returns to. The log is reachable from the map as well as the
+   *  page, and closing it must not drop the writer out of the map. */
+  returnMode: "NAV" | "MAP";
 }
 
 export function createNoticeLog(): NoticeLog {
@@ -29,7 +36,8 @@ export function createNoticeLog(): NoticeLog {
     entries: [],
     nextId: 1,
     seen: { toast: null, banner: null, check: null },
-    cursor: 0
+    cursor: 0,
+    returnMode: "NAV"
   };
 }
 
@@ -49,6 +57,9 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
     const text = sources[channel];
     if (text === log.seen[channel]) continue;
     log.seen[channel] = text;
+    // A cleared channel is recorded as cleared, so raising the same message
+    // again is a second event rather than a repeat this pass never sees: the
+    // dispatcher nulls a toast before the reducer can set the same one back.
     if (text === null || text.trim().length === 0) continue;
     // Newest first, and the cursor stays on the notice the writer came from.
     log.entries.unshift({ id: log.nextId, at: sources.now, channel, text });
@@ -62,17 +73,14 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
  *  so a notice raised by a backend task lands here too. */
 export function recordSessionNotices(state: {
   toast: string | null;
-  connection: { down: boolean; attempt: number };
+  connection: Parameters<typeof connectionNoticeText>[0];
   settings: { result: { message: string } | null } | null;
   notices: NoticeLog;
   now: number;
 }): void {
   recordNotices(state.notices, {
     toast: state.toast,
-    banner: state.connection.down
-      ? `▲ connection lost · attempt ${state.connection.attempt}/5 ·`
-        + " everything is saved on disk · R retries now"
-      : null,
+    banner: connectionNoticeText(state.connection),
     check: state.settings?.result?.message ?? null,
     now: state.now
   });
@@ -81,6 +89,18 @@ export function recordSessionNotices(state: {
 export function clearNoticeLog(log: NoticeLog): void {
   log.entries = [];
   log.cursor = 0;
+}
+
+/** C-37's keys, in one place the way the request viewer keeps its own: `↑↓`
+ *  move · `↵` copies · `x` clears · `!` or `esc` closes. `!` toggles, so the
+ *  surface closes from wherever the writer opened it. */
+export function resolveLogKey(key: KeyEvent): ResolvedKey {
+  if (key.name === "down") return { action: "focus-next" };
+  if (key.name === "up") return { action: "focus-previous" };
+  if (key.name === "return") return { action: "copy-part" };
+  if (key.name === "x") return { action: "clear-log" };
+  if (key.sequence === "!") return { action: "cancel" };
+  return { action: "none" };
 }
 
 export function boundedNoticeCursor(log: NoticeLog, value: number): number {

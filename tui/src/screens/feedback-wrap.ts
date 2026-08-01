@@ -30,15 +30,18 @@ export function wrapFeedback(
   const rows = wrapRows(clean, room);
   if (rows.length === 0) return { rows: [], truncated: false };
   if (rows.length <= cap) return { rows, truncated: false };
-  // Feedback names its recovery keys in a final `·` clause. Keeping that clause
-  // whole is the point of the law: wrapping alone would let the cap fall in the
-  // middle of `R retries · , opens settings`.
-  const split = clean.lastIndexOf(SEPARATOR);
+  // Feedback names its recovery keys in the trailing `·` clauses. Keeping the
+  // whole run of them is the point of the law: taking only the last would drop
+  // `R retries` from `R retries · , opens settings`, and wrapping alone would
+  // let the cap fall in the middle of it.
+  const split = recoveryStart(clean, room);
   const tail = split === -1 ? "" : clean.slice(split + SEPARATOR.length);
   const body = split === -1 ? clean : clean.slice(0, split);
   const last = lastRow(tail, overflow, room);
   const kept = wrapRows(last === null ? clean : body, room)
     .slice(0, Math.max(1, cap - 1));
+  // A message that is nothing but its recovery run leaves no body to mark.
+  if (kept.length === 0) return { rows: [last ?? rows.at(-1)!], truncated: true };
   kept[kept.length - 1] = truncate(`${kept.at(-1)!} …`, room);
   return {
     rows: [...kept, last ?? truncate(rows.at(-1)!, room)],
@@ -47,6 +50,18 @@ export function wrapFeedback(
 }
 
 const SEPARATOR = " · ";
+
+/** Where the trailing run of recovery clauses begins: the earliest `·` split
+ *  whose whole tail still fits one row. A clause names a key, so once the run
+ *  no longer fits, the clauses nearest the end are the ones that survive. */
+function recoveryStart(text: string, room: number): number {
+  let split = -1;
+  for (let at = text.lastIndexOf(SEPARATOR); at !== -1; at = text.lastIndexOf(SEPARATOR, at - 1)) {
+    if (visibleWidth(text.slice(at + SEPARATOR.length)) > room) break;
+    split = at;
+  }
+  return split;
+}
 
 function wrapRows(text: string, room: number): string[] {
   return wrapText(text, [], room)

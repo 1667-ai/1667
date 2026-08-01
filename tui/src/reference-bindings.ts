@@ -106,6 +106,10 @@ const DEFINITIONS = {
     shift: true
   }),
   mapOpenLog: route("map", "!", "MAP", "open-log", { sequence: "!" }),
+  mapOpenLogShifted: route("map", "1", "MAP", "open-log", {
+    sequence: "!",
+    shift: true
+  }),
   navOpenKeysShiftSlash: route("nav", "/", "NAV", "open-keys", {
     sequence: "?",
     shift: true
@@ -129,6 +133,7 @@ const DEFINITIONS = {
   mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
   mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" }),
   searchClose: route("global", "escape", "SEARCH", "cancel"),
+  cardClose: route("global", "escape", "CARD", "cancel"),
   searchFocusPrevious: route("search", "up", "SEARCH", "focus-previous"),
   searchFocusNext: route("search", "down", "SEARCH", "focus-next"),
   searchFold: route("search", "left", "SEARCH", "take-previous"),

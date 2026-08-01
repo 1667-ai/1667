@@ -21,6 +21,7 @@ import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
   SaveSettingsCommand,
+  SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import type {
@@ -74,6 +75,17 @@ export interface TagPrompt {
   choosingStatus: boolean;
   existing: boolean;
   returnMode: "NAV" | "MAP";
+}
+
+export interface CardImportPrompt {
+  path: string;
+  /** Frozen at prompt-open so a story swap during the file read cannot
+   * retarget the import at whichever story became current. */
+  storyId: string;
+  /** Candidates from the last tab press; display only, never a focus stop. */
+  candidates: string[];
+  error: string | null;
+  returnMode: "NAV" | "COMPOSE";
 }
 
 export type TextPrompt =
@@ -133,6 +145,7 @@ export type SettingsRowId =
   | "model"
   | "temperature"
   | "max-tokens"
+  | "sampling"
   | "context-window"
   | "effort"
   | "cache-policy"
@@ -148,8 +161,27 @@ export interface SettingsEditBufferState {
 
 export interface SettingsInlineEditState extends SettingsEditBufferState {
   kind: "inline";
-  row: Exclude<SettingsRowId, "system-prompt">;
+  row: Exclude<SettingsRowId, "system-prompt" | "sampling">;
   mode: "text" | "secret";
+}
+
+export type SamplingPanelId = "sampling" | "stop" | "logit-bias";
+
+export type SamplingInlineEditState =
+  | (SettingsEditBufferState & {
+      kind: "scalar";
+      index: number;
+      knob: SamplingScalarKnobV2;
+    })
+  | (SettingsEditBufferState & { kind: "stop"; index: number })
+  | (SettingsEditBufferState & { kind: "logit-bias"; index: number });
+
+export interface SamplingOverlayState {
+  panel: SamplingPanelId;
+  cursor: number;
+  logitBiasOrder: string[];
+  edit: SamplingInlineEditState | null;
+  result: string | null;
 }
 
 export interface SettingsOverlaySaveIntent {
@@ -168,6 +200,8 @@ export interface SettingsOverlayState {
   cursor: number;
   /** Settings-menu row editor. Full-screen prompts use `RuntimeState.editor`. */
   edit: SettingsInlineEditState | null;
+  /** Nested three-layer sampling editor. */
+  sampling: SamplingOverlayState | null;
   conflict: { message: string; armed: boolean } | null;
   saveIntent?: SettingsOverlaySaveIntent;
   checking: boolean;
@@ -179,6 +213,9 @@ export interface SettingsOverlayState {
   modelDiscoveryAbortController: AbortController | null;
   modelDiscoveryTargetIdentity: string | null;
   result: ModelServerCheckResult | null;
+  /** Which row's action produced `result`. C-18 reports in place, to the right
+   *  of what caused it — three different rows write this one slot. */
+  resultRow: SettingsRowId | null;
   /** Profile deletion is draft-only, so a second `d` is enough consent. */
   deleteArmedProfileId: string | null;
   /** C-15 option column, open over the form while a long model list is
@@ -274,6 +311,7 @@ export interface OverlayState {
   library: LibraryOverlayState | null;
   facts: FactsOverlayState | null;
   commands: CommandsOverlayState | null;
+  card: CardImportPrompt | null;
   chapters: ChaptersOverlayState | null;
   settings: SettingsOverlayState | null;
   summary: SummaryOverlayState | null;

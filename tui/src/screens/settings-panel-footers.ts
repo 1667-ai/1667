@@ -1,4 +1,11 @@
 import type { KeyAction } from "../keys.js";
+import {
+  boundedSettingsCursor,
+  settingsRowHasArrows,
+  SETTINGS_ROW_IDS
+} from "../settings-overlay-model.js";
+import { isSettingsScalarRow } from "../settings-scalar.js";
+import type { SettingsOverlayState } from "../state.js";
 import { visibleWidth } from "./story/frame.js";
 
 /** Footer variants for the settings panel, widest first.
@@ -428,3 +435,25 @@ export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   }
 ];
+
+/** Which keyline this panel shows. Footer policy follows the row model, so it
+ *  lives with the footers rather than as a ternary chain in the renderer. */
+export function settingsFooterVariants(
+  overlay: SettingsOverlayState,
+  pickerOpen: boolean
+): ReadonlyArray<SettingsFooter> {
+  if (pickerOpen) return SETTINGS_PICKER_FOOTERS;
+  if (overlay.edit !== null) return SETTINGS_EDIT_FOOTERS;
+  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
+  if (row === "profile") {
+    return pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
+  }
+  if (pending) return SETTINGS_PENDING_FOOTERS;
+  // The context window is a scalar that can also be probed, so it keeps its
+  // own keyline rather than the plain scalar one.
+  if (row === "context-window") return SETTINGS_CONTEXT_FOOTERS;
+  if (isSettingsScalarRow(row)) return SETTINGS_SCALAR_FOOTERS;
+  if (!settingsRowHasArrows(overlay, row)) return SETTINGS_TEXT_FOOTERS;
+  return row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
+}

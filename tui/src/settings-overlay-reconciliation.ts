@@ -1,5 +1,6 @@
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
+import { samplingSettingsEqual } from "../../shared/sampling-capabilities.js";
 import { setComposerText } from "./composer-model.js";
 import type { ActiveSettingsEdit } from "./settings-edit-state.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
@@ -49,9 +50,11 @@ export function sameSettingsDraft(
       && right.document !== null
       && JSON.stringify(left.document) === JSON.stringify(right.document)
       && settingsTextDraftProjectionIdentity(left)
-        === settingsTextDraftProjectionIdentity(right);
+        === settingsTextDraftProjectionIdentity(right)
+      && samplingSettingsEqual(left.sampling, right.sampling);
   }
   return left.cachePolicy === right.cachePolicy
+    && samplingSettingsEqual(left.sampling, right.sampling)
     && sameGenerationSettings(left.generation, right.generation);
 }
 
@@ -69,11 +72,12 @@ export function reconcileSettingsOverlay(
     return null;
   }
 
+  const samplingWasOpen = overlay.sampling !== null;
   const draftWasClean = !settingsDraftChanged(overlay);
-  const editRow = edit?.row ?? null;
-  const editAffectsServer = edit !== null
-    && editRow !== "theme"
-    && editRow !== "compose-focus";
+  const editAffectsServer = edit !== null && (
+    edit.kind === "sampling"
+    || edit.row !== "theme" && edit.row !== "compose-focus"
+  );
   const editWasClean = !editAffectsServer
     || edit.composer.text === edit.initialText();
   const activeEditBase = draftWasClean ? nextBase : overlay.draft;
@@ -84,13 +88,22 @@ export function reconcileSettingsOverlay(
   if (draftWasClean || converged) overlay.draft = nextBase;
   overlay.base = nextBase;
 
-  if (edit !== null && (draftWasClean || converged) && editWasClean
-    && editRow !== null
-    && settingsDraftTextRow(editRow)) {
-    const refreshed = draftRowEditValue(overlay.draft, editRow);
-    setComposerText(edit.composer, refreshed);
-    if (refreshed.length > 0) edit.composer.anchor = 0;
-    edit.setInitialText(refreshed);
+  if (edit !== null && (draftWasClean || converged) && editWasClean) {
+    if (edit.kind === "sampling") {
+      edit.close();
+    } else if (settingsDraftTextRow(edit.row)) {
+      const refreshed = draftRowEditValue(overlay.draft, edit.row);
+      setComposerText(edit.composer, refreshed);
+      if (refreshed.length > 0) edit.composer.anchor = 0;
+      edit.setInitialText(refreshed);
+    }
+  }
+
+  // The nested panel is a separate owner from its optional field buffer. A
+  // clean authoritative refresh closes both owners; a dirty buffer keeps the
+  // panel open so the conflict remains actionable.
+  if (samplingWasOpen && (draftWasClean || converged) && editWasClean) {
+    overlay.sampling = null;
   }
 
   if (converged) {
@@ -149,7 +162,7 @@ export function sameGenerationSettings(
 
 export function draftRowEditValue(
   draft: SettingsTextDraft,
-  row: Exclude<SettingsRowId, "theme" | "compose-focus" | "allow-insecure-http" | "profile">
+  row: Exclude<SettingsRowId, "theme" | "compose-focus" | "allow-insecure-http" | "profile" | "sampling">
 ): string {
   const settings = draft.generation;
   if (row === "provider") return settings.provider;
@@ -173,6 +186,9 @@ function draftWithActiveEdit(
   draft: SettingsTextDraft,
   edit: ActiveSettingsEdit
 ): SettingsTextDraft | null {
+  if (edit.kind === "sampling") {
+    return edit.composer.text === edit.initialText() ? draft : null;
+  }
   const row = edit.row;
   if (row === "theme" || row === "compose-focus") return draft;
   if (row === "profile") {
@@ -207,10 +223,11 @@ function settingsDraftTextRow(
   row: SettingsRowId
 ): row is Exclude<
   SettingsRowId,
-  "theme" | "compose-focus" | "allow-insecure-http" | "profile"
+  "theme" | "compose-focus" | "allow-insecure-http" | "profile" | "sampling"
 > {
   return row !== "theme"
     && row !== "compose-focus"
     && row !== "allow-insecure-http"
-    && row !== "profile";
+    && row !== "profile"
+    && row !== "sampling";
 }

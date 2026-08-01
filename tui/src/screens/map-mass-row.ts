@@ -52,8 +52,11 @@ export function createMapMassScale(layout: AtlasLayout, width: number): MapMassS
     partsWidth = Math.max(partsWidth, visibleWidth(massParts(row, narrow)));
     stateWidth = Math.max(stateWidth, visibleWidth(massState(row, isActiveLine(row))?.text ?? ""));
   }
-  if (!narrow && width >= pinnedGridWidth(stateWidth)
-    && wordsWidth <= PINNED_COLUMNS.wordsWidth && partsWidth <= PINNED_COLUMNS.partsWidth) {
+  // The grid is pinned by geometry alone. A story whose part count needs a
+  // ninth cell abbreviates into its eight; un-pinning on a data condition would
+  // draw the same story differently at the same width, which is the comparison
+  // this view exists for.
+  if (!narrow && width >= pinnedGridWidth(stateWidth)) {
     return { narrow, ...PINNED_COLUMNS, stateWidth, massMaximum: layout.massMaximum };
   }
   // The bar track takes what the fixed columns leave, so no row can be cut off
@@ -139,7 +142,7 @@ function massRow(scale: MapMassScale, content: MassRowContent): FrameLine {
     segment(padCells(truncate(content.label, scale.labelWidth - 2), scale.labelWidth), content.labelRole),
     segment(padCells(content.bar, scale.barWidth), content.barRole),
     segment("  "),
-    segment(`${padStartCells(content.words, scale.wordsWidth)}  ${padCells(content.parts, scale.partsWidth)}`,
+    segment(`${padStartCells(fitWords(content.words, scale.wordsWidth), scale.wordsWidth)}  ${padCells(truncate(content.parts, scale.partsWidth), scale.partsWidth)}`,
       content.active ? "focus / accent" : "chrome")
   ];
   if (content.state !== null) line.push(segment("  "), segment(content.state.text, content.state.role));
@@ -162,12 +165,21 @@ function massWords(row: AtlasRow): number {
 }
 
 function massParts(row: AtlasRow, narrow: boolean): string {
-  return narrow ? `${row.depth}p` : `${row.depth} parts`;
+  const full = `${row.depth} parts`;
+  return narrow || visibleWidth(full) > PINNED_COLUMNS.partsWidth
+    ? `${row.depth}p`
+    : full;
 }
 
 /** Every sketch is a childless take, so each is exactly one paragraph. */
 function sketchParts(narrow: boolean): string {
   return narrow ? "1p each" : "1 ¶ each";
+}
+
+/** Words abbreviate to their `k` form long before six cells run out, so the
+ *  only count that can outgrow its column is a five-digit exact one. */
+function fitWords(words: string, width: number): string {
+  return visibleWidth(words) <= width ? words : truncate(words, width);
 }
 
 function isActiveLine(row: AtlasRow): boolean {

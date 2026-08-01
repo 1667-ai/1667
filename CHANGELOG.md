@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 can now import character cards into an existing story.** The command
+  palette opens a path prompt with `Tab` completion. The `1667 import-card`
+  command accepts one or more JSON or PNG files. It adds their Facts to the
+  story that `--story` names. Thanks @10fra for the request.
+
 - **Facts can now activate only when request context matches their keys.** The
   default `always` mode keeps the existing behavior. The `keyed` mode scans the
   recent assembled story context and the current instruction. The Fact editor
@@ -15,6 +20,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **`1667 export` now writes NovelAI archives.** Use `--format story`,
   `--format scenario`, or `--format lorebook`. Use `--all` to export every
   story. The command reports content changes and omissions for each archive.
+
+- **Settings now includes a collapsed Sampling group.** Open the group to
+  edit scalar values, stop sequences, and logit bias rows. The TUI shows a
+  short reason for an unavailable value. An unavailable scalar row shows
+  `‹ — ›`. A save keeps the draft when a configured value is unavailable.
+  Thanks @10fra for the report.
 
 - **Stories now have an Author's Note.** Press `a` to write short steering for
   the next continuation or prompted retake. 1667 shows the note cost in the
