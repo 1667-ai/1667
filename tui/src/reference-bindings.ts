@@ -117,6 +117,7 @@ const DEFINITIONS = {
   mapPathPrune: route("map", "d", "MAP", "prune", { mapView: "path" }),
   mapPathTag: route("map", "t", "MAP", "tag", { mapView: "path" }),
   searchClose: route("global", "escape", "SEARCH", "cancel"),
+  cardClose: route("global", "escape", "CARD", "cancel"),
   searchFocusPrevious: route("search", "up", "SEARCH", "focus-previous"),
   searchFocusNext: route("search", "down", "SEARCH", "focus-next"),
   searchFold: route("search", "left", "SEARCH", "take-previous"),

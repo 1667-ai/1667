@@ -14,6 +14,7 @@ read_when:
 | --- | --- |
 | TUI | The terminal user interface |
 | backend | The service that stores stories and sends provider requests |
+| character card | A V1 or V2 character card file that another tool wrote |
 | project | A project root and its `.1667/` directory |
 | story part | One unit of story prose |
 | take | One alternative version of a story part |

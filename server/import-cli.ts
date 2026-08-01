@@ -3,6 +3,7 @@ import path from "node:path";
 import { MAX_IMPORT_BYTES } from "./import-model.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
+import { plainTerminalText as plain } from "../shared/terminal-text.js";
 import { StoryService } from "./story-service.js";
 
 const files = process.argv.slice(2);
@@ -12,10 +13,6 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-/** Strip terminal control characters from untrusted file names and titles. */
-function plain(value: string): string {
-  return value.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-}
 
 const machineDir = await resolveMachineTierRoot();
 const errorReporter = await InternalErrorReporter.open(machineDir);

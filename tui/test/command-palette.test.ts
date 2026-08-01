@@ -80,6 +80,14 @@ describe("grouped command palette model", () => {
     const rename = commandMatches("rename story", false)
       .find(({ command }) => command.id === "rename-story")?.command;
     expect(rename?.mutating).toBeTrue();
+    const card = commandMatches("import character card", false)
+      .find(({ command }) => command.id === "import-card")?.command;
+    expect(card).toMatchObject({
+      section: "story",
+      name: "import character card",
+      description: "add a card's fields as Facts",
+      mutating: true
+    });
   });
 
   test("Author's Note is a Story command with the NAV shortcut", () => {
@@ -195,6 +203,7 @@ function renderCommands(
     commands: {
       query: "", cursor, selectedId, view: "commands" as const, returnMode: "NAV" as const
     },
+    card: null,
     chapters: null,
     settings: null,
     summary: null,

@@ -358,6 +358,7 @@ export function adoptStoryState(state: RuntimeState, payload: StoryPayload): voi
   state.library = null;
   state.facts = null;
   state.commands = null;
+  state.card = null;
   state.settings = null;
   state.summary = null;
   state.hitRows = [];

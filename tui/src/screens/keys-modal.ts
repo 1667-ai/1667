@@ -186,7 +186,8 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navClose"),
         binding("mapClose"),
         binding("keysClose"),
-        binding("searchClose")
+        binding("searchClose"),
+        binding("cardClose")
       ]),
       entry("quit 1667", [binding("navQuit")])
     ]
