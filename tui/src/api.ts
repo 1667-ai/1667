@@ -272,9 +272,21 @@ export function createApi(
             method,
             headers: {
               ...lease.headers,
-              ...(body === undefined ? {} : { "content-type": "application/json" })
+              ...(body === undefined
+                ? {}
+                : {
+                  "content-type": body instanceof Uint8Array
+                    ? "application/octet-stream"
+                    : "application/json"
+                })
             },
-            body: body === undefined ? undefined : JSON.stringify(body),
+            // An archive body is already bytes. JSON.stringify would send it as
+            // an index object, which the byte-reading route then reads as text.
+            body: body === undefined
+              ? undefined
+              : body instanceof Uint8Array
+                ? body.slice().buffer as ArrayBuffer
+                : JSON.stringify(body),
             redirect: "error",
             signal: lease.signal
           });
@@ -857,13 +869,7 @@ export function createApi(
       const response = await request(
         "POST",
         `/api/stories/${storyId}/import-lorebook`,
-        (res) => {
-          const record = res as any;
-          return {
-            payload: decodeStoryResponse(record.payload),
-            importResult: record.importResult as LorebookImport
-          };
-        },
+        decodeLorebookImportResult,
         archiveBytes,
         HTTP_REQUEST_TIMEOUT_MS,
         await expectedVersion(storyId)
@@ -922,6 +928,33 @@ function decodeNovelAiStoryImportResult(value: unknown): NovelAiStoryImportResul
   return {
     payload: decodeStoryResponse(record.payload),
     fidelity: record.fidelity
+  };
+}
+
+/** The callers read `.facts` straight off this, so a bad shape fails here at
+ * the boundary rather than at a `.filter` deep inside a panel. */
+function decodeLorebookImportResult(
+  value: unknown
+): { payload: StoryPayload; importResult: LorebookImport } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("The server returned an invalid lorebook import result.");
+  }
+  const record = value as Record<string, unknown>;
+  const result = record.importResult;
+  if (result === null || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("The server returned an invalid lorebook import result.");
+  }
+  const importResult = result as Record<string, unknown>;
+  if (!Array.isArray(importResult.facts)) {
+    throw new Error("The server returned an invalid lorebook import fact list.");
+  }
+  if (!Array.isArray(importResult.fidelity)
+    || !importResult.fidelity.every((item) => typeof item === "string")) {
+    throw new Error("The server returned an invalid lorebook import fidelity report.");
+  }
+  return {
+    payload: decodeStoryResponse(record.payload),
+    importResult: importResult as unknown as LorebookImport
   };
 }
 

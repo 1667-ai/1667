@@ -657,16 +657,13 @@ const MUTATIONS: MutationRegistry = {
     parse: (value) => {
       const input = requireRecord(value, "importLorebook input");
       const storyId = requireString(input.storyId, "storyId");
-      let archiveBytes: Uint8Array;
-      if (input.archiveBytes instanceof Uint8Array) {
-        archiveBytes = input.archiveBytes;
-      } else if (input.archiveBytes !== null && typeof input.archiveBytes === "object") {
-        const vals = Object.values(input.archiveBytes) as number[];
-        archiveBytes = Uint8Array.from(vals);
-      } else {
+      // Structured clone keeps a Uint8Array a Uint8Array, and the HTTP route
+      // builds one from the raw body. Anything else is a protocol violation,
+      // and rebuilding bytes from an index object would hide the sender's bug.
+      if (!(input.archiveBytes instanceof Uint8Array)) {
         throw badInput("archiveBytes must be a Uint8Array");
       }
-      return { storyId, archiveBytes };
+      return { storyId, archiveBytes: input.archiveBytes };
     },
     storyId: (input) => input.storyId,
     execute: async (service, input, _plan, context) => {

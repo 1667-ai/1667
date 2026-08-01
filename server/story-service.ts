@@ -53,7 +53,7 @@ import { createFacts } from "./story-facts.js";
 import { setAuthorsNote } from "./story-authors-note.js";
 
 import { factsFromLorebook, parseLorebookArchive, type LorebookImport } from "../shared/novelai-lorebook.js";
-import { MAX_FACTS } from "../shared/types.js";
+import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 
 import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
