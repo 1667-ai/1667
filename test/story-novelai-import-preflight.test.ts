@@ -86,6 +86,19 @@ test("NovelAI MessagePack preflight bounds repeated bundled-string decoding", ()
   );
 });
 
+test("NovelAI MessagePack preflight rejects unused semantic extensions", () => {
+  for (const bytes of [
+    Buffer.from([0xd4, 20, 0, 0xd4, 0x65, 0, 0x93, 0xa5, 0x45, 0x72, 0x72, 0x6f, 0x72, 0xa0, 0xc0]),
+    Buffer.from([0xd4, 20, 0, 0xd4, 0x78, 0, 0x92, 0xa1, 0x2e, 0xa0]),
+    Buffer.from([0xd4, 20, 0, 0xd4, 0x73, 0, 0xa1, 0x78])
+  ]) {
+    assert.throws(
+      () => partsFromNovelAiStory(container(bytes)),
+      (error: unknown) => error instanceof ServiceError && error.status === 400
+    );
+  }
+});
+
 test("NovelAI container parsing bounds values in ignored metadata", () => {
   const ignoredValues = `${"null,".repeat(MAX_NOVELAI_JSON_VALUES)}null`;
   const json = `{"storyContainerVersion":1,"metadata":{"ignored":[${ignoredValues}]},`

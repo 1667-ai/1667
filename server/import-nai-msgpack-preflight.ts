@@ -6,12 +6,9 @@ const MAX_DECODE_TOKENS = MAX_NOVELAI_RECORDS * 10;
 const MAX_DECODE_DEPTH = 128;
 const MAX_SCALAR_BYTES = MAX_TOTAL_CHARS * 4;
 
-// These extensions decode the value that follows their tag. Counting that
-// value as a child keeps extension chains inside the same depth budget.
-const FOLLOWED_BY_VALUE_EXTENSIONS = new Set([
-  20, 30, 31, 40, 41, 42,
-  0x62, 0x65, 0x69, 0x73, 0x78
-]);
+// NovelAI's own extensions decode the value following their tag. Other
+// msgpackr semantic extensions stay closed unless explicitly handled below.
+const NOVELAI_VALUE_EXTENSIONS = new Set([20, 30, 31, 40, 41, 42]);
 
 interface RecordShape {
   readonly fields: number;
@@ -145,8 +142,26 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
       if (bundledStringBytes > MAX_SCALAR_BYTES) {
         throw new ServiceError(400, "MessagePack bundled strings exceed the import budget");
       }
+      return 1;
     }
-    return FOLLOWED_BY_VALUE_EXTENSIONS.has(type) ? 1 : 0;
+    if (type === 0x73) {
+      // History nodes use Sets. msgpackr encodes them from an array; requiring
+      // that form prevents iterable inputs from expanding during Set creation.
+      arrayLengthAt(offset);
+      return 1;
+    }
+    if (NOVELAI_VALUE_EXTENSIONS.has(type)) return 1;
+    if (type === 0) {
+      if (length !== 1) throw malformedMessagePack();
+      return 0;
+    }
+    if (type === 0xff) {
+      if (length !== 4 && length !== 8 && length !== 12) {
+        throw malformedMessagePack();
+      }
+      return 0;
+    }
+    throw new ServiceError(400, "Unsupported MessagePack extension");
   };
 
   while (offset < bytes.length) {
