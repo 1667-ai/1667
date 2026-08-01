@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ServiceError } from "../server/errors.js";
-import { partsFromNovelAiStory } from "../server/import-nai.js";
+import {
+  MAX_NOVELAI_JSON_VALUES,
+  partsFromNovelAiStory
+} from "../server/import-nai.js";
 
 const container = (bytes: Buffer) => JSON.stringify({
   storyContainerVersion: 1,
@@ -66,5 +69,16 @@ test("NovelAI MessagePack preflight bounds repeated bundled-string decoding", ()
     (error: unknown) => error instanceof ServiceError
       && error.status === 400
       && error.message.includes("bundled strings exceed")
+  );
+});
+
+test("NovelAI container parsing bounds values in ignored metadata", () => {
+  const ignoredValues = `${"null,".repeat(MAX_NOVELAI_JSON_VALUES)}null`;
+  const json = `{"storyContainerVersion":1,"metadata":{"ignored":[${ignoredValues}]},`
+    + `"content":{"story":{"fragments":[{"data":"prose"}]}}}`;
+
+  assert.throws(
+    () => partsFromNovelAiStory(json),
+    (error: unknown) => error instanceof ServiceError && error.status === 400
   );
 });

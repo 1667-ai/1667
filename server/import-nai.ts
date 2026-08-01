@@ -23,6 +23,7 @@ export { MAX_IMPORT_BYTES, MAX_PARTS, MAX_TOTAL_CHARS };
 export { MAX_NOVELAI_RECORDS as MAX_RECORDS };
 
 const FALLBACK_TITLE = "Imported NovelAI story";
+export const MAX_NOVELAI_JSON_VALUES = MAX_NOVELAI_RECORDS * 10;
 
 export function partsFromNovelAiStory(jsonText: string): GenericImport {
   if (Buffer.byteLength(jsonText) > MAX_IMPORT_BYTES) {
@@ -36,7 +37,8 @@ export function partsFromNovelAiStory(jsonText: string): GenericImport {
   try {
     rawJson = parseJsonRejectingDuplicateKeys(
       jsonText,
-      "NovelAI story container"
+      "NovelAI story container",
+      { maxValues: MAX_NOVELAI_JSON_VALUES }
     );
   } catch (error) {
     if (error instanceof ServiceError) throw error;

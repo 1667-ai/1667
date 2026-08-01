@@ -35,3 +35,14 @@ test("strict JSON applies the nesting bound to empty and populated containers", 
     );
   }
 });
+
+test("strict JSON optionally bounds materialized values", () => {
+  assert.deepEqual(
+    parseJsonRejectingDuplicateKeys("[null,[]]", { maxValues: 3 }),
+    [null, []]
+  );
+  assert.throws(
+    () => parseJsonRejectingDuplicateKeys("[null,[]]", { maxValues: 2 }),
+    /value count exceeds 2/
+  );
+});
