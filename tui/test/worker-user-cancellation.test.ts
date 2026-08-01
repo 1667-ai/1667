@@ -28,6 +28,10 @@ import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
 const FILE_BACKED_GRACE_MS = 2_000;
 const FILE_BACKED_CONTROL_WAIT_MS =
   FILE_BACKED_GRACE_MS + platformPerformanceBudget(500);
+const FILE_BACKED_TEST_TIMEOUT_MS =
+  FILE_BACKED_GRACE_MS
+  + FILE_BACKED_CONTROL_WAIT_MS
+  + platformPerformanceBudget(2_000);
 
 test("caller cancellation hard-fences a mutation that never reaches terminal state", async () => {
   const worker = new FakeWorker();
@@ -330,7 +334,7 @@ test("live cancellation bypasses another mutation's stalled publication", async 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-});
+}, FILE_BACKED_TEST_TIMEOUT_MS);
 
 test("local durability mutations cancel without any durable outbox transition", async () => {
   const worker = new FakeWorker(true);
