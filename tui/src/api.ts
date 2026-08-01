@@ -73,6 +73,7 @@ import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 import { HttpStoryVersions } from "./http-story-versions.js";
 import {
   MemoryHttpMutationIntentStore,
+  type HttpAbsentMutation,
   type HttpMutationIntentClaim,
   type HttpMutationIntentStore
 } from "./http-mutation-intents.js";
@@ -148,6 +149,7 @@ export interface StoryApi {
   ): Promise<ModelDiscoveryResultV2>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
+  importNovelAI(storyContainerJson: string): Promise<StoryPayload>;
   continueStory(
     storyId: string,
     instruction: string,
@@ -381,7 +383,7 @@ export function createApi(
   ));
 
   const runAbsentImportMutation = async (
-    workerMethod: "importSillyTavern" | "importMarkdown",
+    workerMethod: HttpAbsentMutation,
     intentKey: string,
     path: string,
     contentType: string,
@@ -806,6 +808,14 @@ export function createApi(
         payloadBody
       );
     },
+    importNovelAI: async (storyContainerJson) =>
+      await runAbsentImportMutation(
+        "importNovelAI",
+        storyContainerJson,
+        "/api/import/novelai",
+        "application/json; charset=utf-8",
+        storyContainerJson
+    ),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(
         storyId,

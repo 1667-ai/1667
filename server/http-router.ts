@@ -318,6 +318,16 @@ async function handleApi(
     );
   }
 
+  if (head === "import" && id === "novelai" && sub === undefined && method === "POST") {
+    return sendJson(
+      response,
+      201,
+      await mutate("importNovelAI", {
+        storyContainerJson: await textBody(MAX_IMPORT_BYTES)
+      })
+    );
+  }
+
   if (head === "import" && id === "markdown" && sub === undefined && method === "POST") {
     const framedBody = await textBody(MAX_MARKDOWN_HTTP_BODY_BYTES);
     let decoded: ReturnType<typeof decodeMarkdownHttpBody>;

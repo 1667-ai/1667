@@ -25,6 +25,7 @@
   "dependencies": {
     "fs-ext-extra-prebuilt": "2.2.9",
     "koffi": "3.1.2",
+    "msgpackr": "2.0.5",
     "tiktoken": "1.0.22"
   },
   "devDependencies": {

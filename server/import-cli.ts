@@ -38,15 +38,21 @@ try {
       }
       const content = await readFile(file, "utf8");
       const lowerFile = file.toLowerCase();
-      const isMarkdown = lowerFile.endsWith(".md")
-        || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#"));
+      const isStory = lowerFile.endsWith(".story");
+      const isMarkdown = !isStory && (lowerFile.endsWith(".md")
+        || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#")));
 
       let title: string;
       let partsCount: number;
       let id: string;
       let dropped = 0;
 
-      if (isMarkdown) {
+      if (isStory) {
+        const imported = await service.importNovelAIWithReport(content);
+        title = imported.payload.title;
+        partsCount = imported.payload.nodes.length;
+        id = imported.payload.id;
+      } else if (isMarkdown) {
         const defaultTitle = path.basename(file, path.extname(file));
         const imported = await service.importMarkdownWithReport(content, { defaultTitle });
         title = imported.payload.title;

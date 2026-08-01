@@ -94,3 +94,9 @@ creates a new story.
 - Prose blocks separated by blank lines become story parts.
 
 You can also import SillyTavern chat JSONL files with `1667 import <chat.jsonl>`.
+
+You can also import NovelAI `.story` files with `1667 import <file.story>`.
+1667 reads Editor V2 documents and Editor V1 legacy stories. Each ordered V2
+text section becomes a story part. Each nonblank line of the joined V1 story
+text becomes a story part. 1667 does not infer chapter boundaries. Container
+settings, Memory, Author's Note, Lorebook, and retry history are not imported.

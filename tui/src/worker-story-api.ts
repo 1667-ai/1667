@@ -327,6 +327,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       },
       { expectedAggregateVersion: { kind: "absent" } }
     )),
+    importNovelAI: async (storyContainerJson) => rememberPayload(await transport.call(
+      "importNovelAI",
+      { storyContainerJson },
+      { expectedAggregateVersion: { kind: "absent" } }
+    )),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {
         const result = await transport.call(

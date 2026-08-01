@@ -62,7 +62,7 @@ export const RELEASE_BUN_RUNTIME: ReleaseRuntimeComponent = Object.freeze({
 });
 
 /** Root-lockfile packages whose code the bundler pulls into the executable. */
-const NPM_BUNDLED_PACKAGES = Object.freeze(["fs-ext-extra-prebuilt", "tiktoken"] as const);
+const NPM_BUNDLED_PACKAGES = Object.freeze(["fs-ext-extra-prebuilt", "msgpackr", "tiktoken"] as const);
 
 export interface ExcludedReleasePackage {
   readonly name: string;
@@ -110,6 +110,33 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
     reason: "Optional native payload for source-only Node HTTP mode. The "
       + "compiled Bun executable uses Bun FFI and keeps Koffi external."
   })),
+  Object.freeze({
+    name: "msgpackr-extract",
+    reason: "Optional native acceleration package for msgpackr. Shipped code imports "
+      + "pure JS msgpackr/unpack so standalone contains no native binary extension."
+  }),
+  ...[
+    "@msgpackr-extract/msgpackr-extract-darwin-arm64",
+    "@msgpackr-extract/msgpackr-extract-darwin-x64",
+    "@msgpackr-extract/msgpackr-extract-linux-arm",
+    "@msgpackr-extract/msgpackr-extract-linux-arm64",
+    "@msgpackr-extract/msgpackr-extract-linux-x64",
+    "@msgpackr-extract/msgpackr-extract-win32-x64"
+  ].map((name) => Object.freeze({
+    name,
+    reason: "Optional native acceleration payload for msgpackr. Shipped code imports "
+      + "pure JS msgpackr/unpack so standalone contains no native binary extension."
+  })),
+  Object.freeze({
+    name: "node-gyp-build-optional-packages",
+    reason: "Install-only helper script declared by msgpackr-extract. It is "
+      + "never imported by shipped code and contributes no bytes."
+  }),
+  Object.freeze({
+    name: "detect-libc",
+    reason: "Dependency of node-gyp-build-optional-packages. It is never "
+      + "imported by shipped code and contributes no bytes."
+  }),
   Object.freeze({
     name: "nan",
     reason: "C++ headers that node-gyp consumes while installing "

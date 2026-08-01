@@ -247,6 +247,26 @@ describe("embedded backend worker", () => {
       expect(importedMarkdown.chapterBreaks[0]?.parentPartId)
         .toBe(importedMarkdown.path[0]?.id);
       expect((await api.deleteStory(importedMarkdown.id)).ok).toBeTrue();
+
+      const importedNovelAi = await api.importNovelAI(JSON.stringify({
+        storyContainerVersion: 1,
+        metadata: { title: "Worker NovelAI manuscript" },
+        content: {
+          story: {
+            fragments: [
+              { data: "First NovelAI line.\n" },
+              { data: "Second NovelAI line." }
+            ]
+          }
+        }
+      }));
+      expect(importedNovelAi.title).toBe("Worker NovelAI manuscript");
+      expect(importedNovelAi.path.map((node) => node.text)).toEqual([
+        "First NovelAI line.",
+        "Second NovelAI line."
+      ]);
+      expect((await api.deleteStory(importedNovelAi.id)).ok).toBeTrue();
+
       const boundedTitleImport = await api.importMarkdown(
         "Bounded title prose.",
         "t".repeat(MAX_STORED_TITLE_CHARS + 100)
@@ -289,6 +309,11 @@ describe("embedded backend worker", () => {
         status: 413
       } satisfies Partial<WorkerApiError>);
       expect(await rejection(api.importMarkdown("x".repeat(MAX_IMPORT_BYTES + 1))))
+        .toMatchObject({
+          code: "content_too_large",
+          status: 413
+        } satisfies Partial<WorkerApiError>);
+      expect(await rejection(api.importNovelAI("x".repeat(MAX_IMPORT_BYTES + 1))))
         .toMatchObject({
           code: "content_too_large",
           status: 413

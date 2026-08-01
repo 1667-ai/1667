@@ -181,7 +181,7 @@ export function migrationPrepared(): PreparedRecord {
 }
 
 export function createPrepared(
-  method: "createStory" | "importSillyTavern" | "importMarkdown"
+  method: "createStory" | "importSillyTavern" | "importMarkdown" | "importNovelAI"
 ): PreparedRecord {
   const storyId = storyIdForMutation(M2);
   return parse({

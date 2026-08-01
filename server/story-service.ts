@@ -42,6 +42,7 @@ import { ServiceError } from "./errors.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import { MAX_IMPORT_BYTES, partsFromSillyTavernJsonl, storyFromImport } from "./import-st.js";
 import { partsFromMarkdown } from "./import-md.js";
+import { partsFromNovelAiStory } from "./import-nai.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import { seedStarterVault } from "./starter-vault.js";
@@ -630,6 +631,60 @@ export class StoryService extends StoryServiceRuntime {
       storyId: options.storyId,
       nodeId: options.nodeId,
       chapterBreakId: options.chapterBreakId
+    });
+    await this.stories.save(story);
+    return {
+      payload: buildStoryPayload(story)
+    };
+  }
+
+  async importNovelAI(
+    storyContainerJson: string,
+    options: {
+      storyId?: string;
+      nodeId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return (await this.importNovelAIWithReport(
+      storyContainerJson,
+      options,
+      mutationRequest
+    )).payload;
+  }
+
+  async importNovelAIWithReport(
+    storyContainerJson: string,
+    options: {
+      storyId?: string;
+      nodeId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload }> {
+    this.ensureOpen();
+    if (Buffer.byteLength(storyContainerJson) > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    const imported = partsFromNovelAiStory(storyContainerJson);
+    if (mutationRequest !== undefined) {
+      const committed = await this.storyCreations.run(
+        mutationRequest,
+        "importNovelAI",
+        (deterministicId) => storyFromImport(imported, {
+          storyId: deterministicId,
+          nodeId: options.nodeId
+        })
+      );
+      return {
+        payload: buildStoryPayload(committed.story, {
+          kind: "v6",
+          revision: committed.result.storyRevision
+        })
+      };
+    }
+    const story = storyFromImport(imported, {
+      storyId: options.storyId,
+      nodeId: options.nodeId
     });
     await this.stories.save(story);
     return {

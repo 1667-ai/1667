@@ -107,6 +107,18 @@ test("worker Markdown import bounds its fallback title before durable publicatio
   );
 });
 
+test("worker NovelAI import validates request size bounds", () => {
+  assert.doesNotThrow(() => validateWorkerRequestSize("importNovelAI", {
+    storyContainerJson: "x".repeat(100)
+  }));
+  assert.throws(
+    () => validateWorkerRequestSize("importNovelAI", {
+      storyContainerJson: "x".repeat(MAX_IMPORT_BYTES + 1)
+    }),
+    (error: unknown) => error instanceof ServiceError && error.status === 413
+  );
+});
+
 test("worker JSON methods measure their HTTP-equivalent body", () => {
   const empty = bytes(JSON.stringify({ text: "" }));
   const text = "x".repeat(MAX_JSON_BODY_BYTES - empty);

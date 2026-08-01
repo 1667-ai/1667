@@ -20,8 +20,12 @@ export function validateWorkerRequestSize(
   protocolVersion?: number
 ): void {
   const input = requireRecord(value, `${method} input`);
-  if (method === "importSillyTavern" || method === "importMarkdown") {
-    const text = method === "importSillyTavern" ? input.jsonl : input.markdown;
+  if (method === "importSillyTavern" || method === "importMarkdown" || method === "importNovelAI") {
+    const text = method === "importSillyTavern"
+      ? input.jsonl
+      : method === "importMarkdown"
+        ? input.markdown
+        : input.storyContainerJson;
     if (method === "importMarkdown" && typeof text === "string" && hasUnpairedSurrogate(text)) {
       throw new ServiceError(400, "Markdown contains invalid Unicode");
     }
@@ -133,6 +137,7 @@ function logicalRequestBody(
     case "getSettings":
     case "importSillyTavern":
     case "importMarkdown":
+    case "importNovelAI":
       return undefined;
   }
 }
