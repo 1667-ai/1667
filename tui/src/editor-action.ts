@@ -1,4 +1,6 @@
 import { countWords } from "../../shared/story-text.js";
+import { MAX_AUTHORS_NOTE_CHARS } from "../../shared/authors-note.js";
+import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { AppSource } from "./app.js";
 import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
@@ -29,6 +31,7 @@ export {
   openChapterSummaryEditor,
   openFactEditor,
   openFactFromSelection,
+  openAuthorsNoteEditor,
   openPartEditor,
   openSystemPromptEditor
 } from "./editor-open.js";
@@ -135,6 +138,33 @@ async function saveInlineEditor(
     return void (state.toast = "offline · draft kept until the connection returns");
   }
   if (!confirmOverwrite(state, editor)) return;
+
+  if (target.kind === "authors-note") {
+    if (unicodeScalarLength(submitted, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
+      state.toast = "Author's Note must contain at most 4,000 Unicode scalar values.";
+      return;
+    }
+    try {
+      await context.backend.run("saving Author's Note", async (task) => {
+        const payload = await source.api.setAuthorsNote(task.storyId, submitted);
+        if (!task.storyCurrent()) return;
+        adoptSameStoryPayload(state, payload);
+        target.expected = payload.authorsNote ?? "";
+        context.cache.invalidate();
+        settleInlineSave(
+          state,
+          editor,
+          submitted,
+          submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved"
+        );
+      });
+    } catch (error) {
+      if (state.editor === editor) {
+        state.toast = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return;
+  }
 
   if (target.kind === "part") {
     const patch = parsePartFile(submitted);

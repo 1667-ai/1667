@@ -24,6 +24,7 @@ interface V5Fixture {
   title: string;
   createdAt: string;
   updatedAt: string;
+  authorsNote?: string;
   activeWordCount: number;
   nodes: Array<Record<string, unknown>>;
   facts: Array<Record<string, unknown>>;
@@ -118,7 +119,9 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
       copy.chapterBreaks[0]!.surprise = true;
     }),
     invalid("v5-title-over-bound", v5.id, JSON.stringify({ ...v5, title: "x".repeat(4_097) })),
+    invalid("v5-authors-note-over-bound", v5.id, JSON.stringify({ ...v5, authorsNote: "x".repeat(4_001) })),
     invalid("v5-unpaired-surrogate", v5.id, JSON.stringify({ ...v5, title: "\ud800" }), true),
+    invalid("v5-authors-note-unpaired-surrogate", v5.id, JSON.stringify({ ...v5, authorsNote: "\ud800" }), true),
     invalid("v5-story-id-final-newline", `${v5.id}\n`, JSON.stringify({ ...v5, id: `${v5.id}\n` })),
     invalid("v5-hash-final-newline", nodeV5.id, JSON.stringify({
       ...nodeV5,
@@ -268,6 +271,7 @@ function richV5Manifest(): RichV5Fixture {
   return {
     ...v5Manifest(),
     title: "Complete",
+    authorsNote: "A note for the author.",
     activeWordCount: 1,
     origin: {
       storyId: "origin-story",

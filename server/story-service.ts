@@ -228,6 +228,14 @@ export class StoryService extends StoryServiceRuntime {
     return await this.storyLocal.renameStory(id, title, mutationRequest);
   }
 
+  async setAuthorsNote(
+    id: string,
+    note: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.setAuthorsNote(id, note, mutationRequest);
+  }
+
   async autonameStory(
     id: string,
     signal: AbortSignal,

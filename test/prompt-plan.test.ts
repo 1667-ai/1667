@@ -4,9 +4,11 @@ import test from "node:test";
 import { autonamePrompt } from "../server/autoname.js";
 import { phraseRewritePlan, rewritePlan } from "../server/generation-prompts.js";
 import { streamCompletion } from "../server/providers.js";
+import { promptCacheBoundaries } from "../server/prompt-cache-breakpoints.js";
 import { summaryTakePrompt } from "../server/summary-take.js";
 import { continuationPlan } from "../shared/continuation-plan.js";
 import {
+  fixedPromptTexts,
   renderPromptPlan,
   type PromptPlan,
   type PromptTurn
@@ -67,6 +69,7 @@ test("continue renders the existing provider wire shape exactly", () => {
   const prompt = continuationPlan(
     "Write vivid prose.",
     "CANONICAL FACTS",
+    null,
     [source],
     "A stranger enters.",
     false,
@@ -94,6 +97,7 @@ test("continue omits a blank author brief instead of creating an empty block", (
   const prompt = continuationPlan(
     " \n ",
     null,
+    null,
     [source],
     "A stranger enters.",
     false,
@@ -115,6 +119,7 @@ test("requested continuation defaults an empty instruction before rendering", ()
   const prompt = continuationPlan(
     "Voice.",
     null,
+    null,
     [source],
     " \n ",
     false,
@@ -130,13 +135,61 @@ test("requested continuation defaults an empty instruction before rendering", ()
   });
 });
 
+test("continuation inserts one late Author's Note before the final part at every depth", () => {
+  for (const count of [0, 1, 2, 3, 5]) {
+    const parts = Array.from({ length: count }, (_, index) =>
+      node(`part-${index + 1}`, `Direction ${index + 1}.`, `Passage ${index + 1}.`)
+    );
+    const withNote = continuationPlan(
+      "Voice.",
+      "Facts.",
+      "Guide the next passage.",
+      parts,
+      "Request.",
+      false,
+      true,
+      "ct-note",
+      [],
+      parts
+    );
+    const noteIndexes = withNote.entries
+      .map((entry, index) => entry.category === "note" ? index : -1)
+      .filter((index) => index >= 0);
+    assert.deepEqual(noteIndexes, [3 + Math.max(0, count - 1) * 2]);
+    const noteIndex = noteIndexes[0]!;
+    assert.equal(withNote.entries[noteIndex]!.turn.role, "system");
+    assert.equal(withNote.entries[noteIndex + 1]!.turn.role, "user");
+    assert.deepEqual(
+      withNote.prompt.turns,
+      withNote.entries.map((entry) => entry.turn)
+    );
+    assert.equal(fixedPromptTexts(withNote.prompt).includes("Guide the next passage."), false);
+
+    const noNote = continuationPlan(
+      "Voice.", "Facts.", null, parts, "Request.", false, true, "ct-note", [], parts
+    );
+    assert.deepEqual(
+      promptCacheBoundaries(withNote.prompt),
+      count === 0
+        ? promptCacheBoundaries(noNote.prompt)
+        : promptCacheBoundaries(noNote.prompt).slice(0, -1)
+    );
+    assert.deepEqual(
+      continuationPlan(
+        "Voice.", "Facts.", "  \n\t", parts, "Request.", false, true, "ct-note", [], parts
+      ),
+      noNote
+    );
+  }
+});
+
 test("stable rendered-prefix hashes are golden for every generation operation", () => {
   const story = fixture("Before the lantern dimmed, rain crossed the glass. Dawn waited beyond it.");
   const target = "rain crossed the glass";
   const start = story.nodes[0]!.text.indexOf(target);
   const plans = {
     continue: continuationPlan(
-      "Voice.", "Facts.", story.nodes, "Turn north.", false, true, "ct-11111111", [], story.nodes
+      "Voice.", "Facts.", null, story.nodes, "Turn north.", false, true, "ct-11111111", [], story.nodes
     ).prompt,
     rewrite: rewritePlan({
       story,
@@ -184,8 +237,8 @@ test("request changes and random tags affect only volatile suffixes", () => {
   const start = story.nodes[0]!.text.indexOf(expected);
   const pairs: Array<readonly [PromptPlan, PromptPlan, string, string]> = [
     [
-      continuationPlan("Voice.", null, story.nodes, "Continue.", true, false, "ct-aaaaaaaa", [], story.nodes).prompt,
-      continuationPlan("Voice.", null, story.nodes, "Continue.", true, false, "ct-bbbbbbbb", [], story.nodes).prompt,
+      continuationPlan("Voice.", null, null, story.nodes, "Continue.", true, false, "ct-aaaaaaaa", [], story.nodes).prompt,
+      continuationPlan("Voice.", null, null, story.nodes, "Continue.", true, false, "ct-bbbbbbbb", [], story.nodes).prompt,
       "ct-aaaaaaaa",
       "ct-bbbbbbbb"
     ],
@@ -233,15 +286,15 @@ test("request changes and random tags affect only volatile suffixes", () => {
   }
 
   const firstInstruction = continuationPlan(
-    "Voice.", null, story.nodes, "Turn north.", false, true, "ct-unused", [], story.nodes
+    "Voice.", null, null, story.nodes, "Turn north.", false, true, "ct-unused", [], story.nodes
   ).prompt;
   const secondInstruction = continuationPlan(
-    "Voice.", null, story.nodes, "Turn south.", false, true, "ct-unused", [], story.nodes
+    "Voice.", null, null, story.nodes, "Turn south.", false, true, "ct-unused", [], story.nodes
   ).prompt;
   assert.equal(stablePrefix(firstInstruction), stablePrefix(secondInstruction));
 
   const changedFacts = continuationPlan(
-    "Voice.", "Changed facts.", story.nodes, "Turn north.", false, true, "ct-unused", [], story.nodes
+    "Voice.", "Changed facts.", null, story.nodes, "Turn north.", false, true, "ct-unused", [], story.nodes
   ).prompt;
   assert.notEqual(stablePrefix(firstInstruction), stablePrefix(changedFacts));
 });
@@ -249,7 +302,7 @@ test("request changes and random tags affect only volatile suffixes", () => {
 test("all declared cache candidates are stable and each operation ends its stable prefix at one", () => {
   const story = fixture("Rain crossed the courtyard.");
   const plans = [
-    continuationPlan("Voice.", null, story.nodes, "Continue.", false, true, "ct-test", [], story.nodes).prompt,
+    continuationPlan("Voice.", null, null, story.nodes, "Continue.", false, true, "ct-test", [], story.nodes).prompt,
     rewritePlan({
       story, facts: null, partId: story.nodes[0]!.id, start: 0, end: 4, expected: "Rain",
       instruction: "Change it.", lengthTarget: "Length: one word.", authorBrief: "Voice.",

@@ -21,7 +21,8 @@ import {
   composerFieldLine,
   composerTitle,
   renderComposerFooter,
-  renderComposerTop
+  renderComposerTop,
+  type ComposerStatus
 } from "./composer-chrome.js";
 import {
   fitLine,
@@ -56,6 +57,8 @@ export interface ComposerLayoutOptions {
   retaking?: boolean;
   /** Alternate copy for the shared in-TUI document editor. */
   title?: string;
+  /** Optional top-rule status. The normal inline line counter remains the default. */
+  status?: ComposerStatus;
   footerHints?: string;
   placeholder?: string;
   /** Break long source lines into visual rows instead of horizontally clipping. */
@@ -132,7 +135,8 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
   const scrollTop = retainedScrollTop(rowCount, bodyRows, cursorRow, options.scrollTop);
   const title = options.title ?? composerTitle(fullscreen, options.directingPart);
   const counter = !fullscreen && lineCount > 1 ? `${lineCount} / ${cap} lines` : "";
-  const top = renderComposerTop(indent, fieldWidth, title, counter);
+  const status = options.status ?? (counter.length > 0 ? { text: counter } : undefined);
+  const top = renderComposerTop(indent, fieldWidth, title, status);
   const body: FrameLine[] = [];
   for (let viewportRow = 0; viewportRow < bodyRows; viewportRow += 1) {
     const sourceIndex = scrollTop + viewportRow;
@@ -462,7 +466,7 @@ export function applyComposePageMode(
  *  mutes those cells to chrome instead: nothing stays lit against the
  *  composer, and the meter keeps the boundary it exists to draw. */
 const GAUGE_ROLES: ReadonlySet<DisplayRole> = new Set([
-  "context voice", "context facts", "context recent", "context summary",
+  "context voice", "context facts", "context recent", "context summary", "context note",
   "context growth", "context growth pulse"
 ]);
 

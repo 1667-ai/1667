@@ -31,7 +31,7 @@ test("a second acquire on one project is refused and names the holder", async (t
   );
 
   // The holder is unaffected, and the refusal changed nothing on disk.
-  assert.equal(holder.dataFormat, 3);
+  assert.equal(holder.dataFormat, 4);
 });
 
 test("contention without a run record still refuses actionably", async (t) => {

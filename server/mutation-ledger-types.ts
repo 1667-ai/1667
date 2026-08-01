@@ -20,6 +20,7 @@ export type MutationLedgerKey = MutationId | Fm1Key;
 export const STORY_MUTATION_METHODS = [
   "createStory",
   "renameStory",
+  "setAuthorsNote",
   "autonameStory",
   "deleteStory",
   "switchLine",

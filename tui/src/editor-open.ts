@@ -95,6 +95,20 @@ export function openChapterSummaryEditor(
   });
 }
 
+export function openAuthorsNoteEditor(state: RuntimeState): void {
+  const initial = state.payload.authorsNote ?? "";
+  openInlineEditor(state, {
+    target: { kind: "authors-note", expected: initial },
+    composer: createComposer(initial),
+    initial,
+    title: "author's note",
+    placeholder: "Steer the next passage. Style, tone, what is true right now. ⌃s keeps it.",
+    returnMode: "NAV",
+    conflict: null,
+    cutConfirmation: null
+  });
+}
+
 function openInlineEditor(
   state: RuntimeState,
   editor: Omit<InlineEditorSession, "kind">

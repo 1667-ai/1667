@@ -1,4 +1,5 @@
 import { assembleChapterContext, type PromptPart } from "./chapters.js";
+import { normalizeAuthorsNote } from "./authors-note.js";
 import type { PromptPlan, PromptTurn } from "./prompt-plan.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
@@ -19,7 +20,10 @@ const CONTINUE_CONTRACT = [
 
 export type ContinuationPromptEntry =
   | { category: "voice" | "facts"; turn: PromptTurn; partId?: never }
+  | { category: "note"; turn: PromptTurn; partId?: never }
   | { category: "recent" | "summary"; turn: PromptTurn; partId: string };
+
+type PartPromptEntry = Extract<ContinuationPromptEntry, { partId: string }>;
 
 export interface ContinuationPlan {
   prompt: PromptPlan;
@@ -35,6 +39,7 @@ export interface ContinuationPlan {
 export function continuationPlan(
   systemPrompt: string,
   facts: string | null,
+  authorsNote: string | null,
   parts: readonly StoryNode[],
   instruction: string,
   appendLast: boolean,
@@ -43,12 +48,13 @@ export function continuationPlan(
   chapterBreaks: readonly ChapterBreak[],
   nodes: readonly PromptPart[]
 ): ContinuationPlan {
+  const note = authorsNote === null ? null : normalizeAuthorsNote(authorsNote);
   const sourceContext = assembleChapterContext(parts, chapterBreaks, nodes);
   const contextPartIds = sourceContext.map((part) => part.id);
   const continuePassage = appendLast && (sourceContext.at(-1)?.text.trim().length ?? 0) > 0;
   // Migrated empty endpoints are structural line endings, not provider messages.
   const context = sourceContext.filter((part) => part.text.trim().length > 0);
-  const entries: ContinuationPromptEntry[] = [
+  const prelude: ContinuationPromptEntry[] = [
     ...(systemPrompt.trim().length === 0 ? [] : [{
       category: "voice" as const,
       turn: {
@@ -86,7 +92,8 @@ export function continuationPlan(
         }]
       }
     },
-    ...context.flatMap((part): ContinuationPromptEntry[] => {
+  ];
+  const partEntries: PartPromptEntry[] = context.flatMap((part): PartPromptEntry[] => {
       const category = part.role === "summary" ? "summary" as const : "recent" as const;
       return [
         { category, turn: {
@@ -108,8 +115,26 @@ export function continuationPlan(
           }]
         }, partId: part.id }
       ];
-    })
-  ];
+    });
+  const entries: ContinuationPromptEntry[] = note === null
+    ? [...prelude, ...partEntries]
+    : [
+        ...prelude,
+        ...partEntries.slice(0, -2),
+        {
+          category: "note",
+          turn: {
+            role: "system",
+            blocks: [{
+              stability: "stable",
+              kind: "authors-note",
+              text: note,
+              boundaryAfter: "none"
+            }]
+          }
+        },
+        ...partEntries.slice(-2).map(sealPartEntry)
+      ];
   if (!continuePassage) {
     entries.push({
       category: "voice",
@@ -123,9 +148,13 @@ export function continuationPlan(
         }]
       }
     });
+    assertAuthorsNoteFollowedByUser(entries);
     return continuationResult(entries, contextPartIds, "", false);
   }
-  if (assistantPrefill) return continuationResult(entries, contextPartIds, "", false);
+  if (assistantPrefill) {
+    assertAuthorsNoteFollowedByUser(entries);
+    return continuationResult(entries, contextPartIds, "", false);
+  }
 
   const leftAnchor = lastCharacters(context.at(-1)?.text.trimEnd() ?? "", BOUNDARY_ANCHOR_CHARACTERS);
   const boundaryInstruction = leftAnchor.length > 0
@@ -149,7 +178,30 @@ export function continuationPlan(
       }]
     }
   });
+  assertAuthorsNoteFollowedByUser(entries);
   return continuationResult(entries, contextPartIds, leftAnchor, leftAnchor.length > 0);
+}
+
+function sealPartEntry(entry: PartPromptEntry): PartPromptEntry {
+  return {
+    ...entry,
+    turn: {
+      ...entry.turn,
+      blocks: entry.turn.blocks.map((block) =>
+        block.stability === "stable"
+          ? { ...block, boundaryAfter: "none" }
+          : block
+      )
+    }
+  };
+}
+
+function assertAuthorsNoteFollowedByUser(entries: readonly ContinuationPromptEntry[]): void {
+  const noteIndex = entries.findIndex((entry) => entry.category === "note");
+  if (noteIndex === -1) return;
+  if (entries[noteIndex + 1]?.turn.role !== "user") {
+    throw new Error("Author's Note must be followed by a user turn");
+  }
 }
 
 function continuationResult(

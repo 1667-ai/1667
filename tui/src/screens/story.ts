@@ -1,4 +1,9 @@
 import { STARTER_LOGO_TEXT } from "../../../shared/starter-vault.js";
+import {
+  authorsNoteWarning,
+  MAX_AUTHORS_NOTE_CHARS
+} from "../../../shared/authors-note.js";
+import { unicodeScalarLength } from "../../../shared/unicode.js";
 import { TAG_STATUSES } from "../../../shared/types.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { tagStatusChoice } from "../tag-presentation.js";
@@ -54,6 +59,7 @@ import {
   renderComposerLayout,
   type ComposerLayout
 } from "./story/composer.js";
+import type { ComposerStatus as ComposerChromeStatus } from "./story/composer-chrome.js";
 import { renderStatus as renderCanonicalStatus } from "./story/status.js";
 import { viewportLines, type ViewportBlock } from "./story/viewport.js";
 import {
@@ -627,6 +633,7 @@ function renderInlineEditor(
     ? host.target.owner.conflict?.message
     : host.conflict?.message;
   const footerNotice = state.toast ?? editorConflict ?? null;
+  const status = authorNoteStatus(host, width);
   const layout = host.kind === "fact"
     ? renderFactEditorLayout(host, {
         width,
@@ -642,6 +649,7 @@ function renderInlineEditor(
         terminalHeight: height,
         measure: width,
         title: host.title,
+        status,
         footerHints: editorFooterHints(host),
         placeholder: host.placeholder,
         footerNotice,
@@ -650,6 +658,25 @@ function renderInlineEditor(
         softWrap: true
       });
   return renderEditorLayoutFrame(state, view, width, height, estimate, layout, deadlines);
+}
+
+function authorNoteStatus(
+  host: DocumentEditorSession,
+  width: number
+): ComposerChromeStatus | undefined {
+  if (host.kind !== "document" || host.target.kind !== "authors-note") return undefined;
+  const maxWidth = Math.max(1, width - visibleWidth(`┏━ ${host.title} `) - 1);
+  if (unicodeScalarLength(host.composer.text, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
+    const text = [
+      `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")} Unicode scalar values`,
+      `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")} scalar values`,
+      `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")}`
+    ].find((candidate) => [...candidate].length <= maxWidth)
+      ?? `· max is ${MAX_AUTHORS_NOTE_CHARS.toLocaleString("en-US")}`;
+    return { text, role: "danger text" };
+  }
+  const warning = authorsNoteWarning(host.composer.text, maxWidth);
+  return warning === null ? undefined : { text: warning, role: "context warning" };
 }
 
 function renderEditorLayoutFrame(

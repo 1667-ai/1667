@@ -94,6 +94,28 @@ test("HTTP StoryApi preflights before every data request", async () => {
   ]);
 });
 
+test("HTTP StoryApi sets an authors note with the versioned story mutation", async () => {
+  const calls: Array<{ path: string; method: string; body: string | undefined }> = [];
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    calls.push({ path, method: init?.method ?? "GET", body: init?.body as string | undefined });
+    return Response.json(storyPayload("story"));
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  await api.setAuthorsNote("story", "A note for the author.");
+
+  expect(calls).toEqual([
+    { path: "/api/stories/story", method: "GET", body: undefined },
+    {
+      path: "/api/stories/story/authors-note",
+      method: "PUT",
+      body: JSON.stringify({ note: "A note for the author." })
+    }
+  ]);
+});
+
 test("HTTP StoryApi reuses one durable mutation after response loss", async () => {
   const mutationIds: unknown[] = [];
   let endpointCalls = 0;

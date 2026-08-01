@@ -5,6 +5,7 @@ import {
   MAX_RECENT_LINES,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
+import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 import {
@@ -34,7 +35,7 @@ export const STORY_ID_PATTERN = exactStringPattern(STORY_ID_PATTERN_SOURCE);
 const ROOT = closedShape([
   "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount",
   "nodes", "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
-], ["origin", "autonameId", "firstChapterTitle"]);
+], ["origin", "authorsNote", "autonameId", "firstChapterTitle"]);
 const ORIGIN = closedShape(["storyId", "storyTitle", "partId", "offset", "createdAt"]);
 const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
@@ -80,6 +81,7 @@ export function assertStrictV5Manifest(
   if (manifest.firstChapterTitle !== undefined) {
     boundedString(manifest.firstChapterTitle, "manifest.firstChapterTitle", MAX_STORY_TITLE_CHARS);
   }
+  optionalBoundedString(manifest.authorsNote, "manifest.authorsNote", MAX_AUTHORS_NOTE_CHARS);
   boundedArray(manifest.nodes, "manifest.nodes", MAX_STORY_COLLECTION_ITEMS)
     .forEach((entry, index) => assertNode(entry, `manifest.nodes[${index}]`));
   boundedArray(manifest.facts, "manifest.facts", MAX_FACTS)

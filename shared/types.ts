@@ -1,4 +1,6 @@
 import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
+import { MAX_AUTHORS_NOTE_CHARS } from "./authors-note.js";
+import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 
 export interface TextRange {
   /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
@@ -152,6 +154,7 @@ export interface StoryPayload {
   createdAt: string;
   updatedAt: string;
   origin?: StoryOrigin;
+  authorsNote?: string;
   firstChapterTitle?: string;
   nodes: NodeStub[];
   path: StoryNode[];
@@ -205,6 +208,7 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   ) {
     throw new Error("The server returned an invalid story payload.firstChapterTitle.");
   }
+  assertAuthorsNote(candidate.authorsNote);
   if (candidate.aggregateVersion !== undefined) {
     assertStoryAggregateVersion(
       candidate.aggregateVersion,
@@ -345,6 +349,7 @@ export interface Story {
   createdAt: string;
   updatedAt: string;
   origin?: StoryOrigin;
+  authorsNote?: string;
   /** Chapter one has no opening break to carry a name, so it carries one here.
    * Absent means unnamed, and an unnamed chapter one reads as the story. */
   firstChapterTitle?: string;
@@ -354,6 +359,19 @@ export interface Story {
   recentNodeIds: string[];
   facts: StoryFact[];
   chapterBreaks: ChapterBreak[];
+}
+
+function assertAuthorsNote(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== "string") invalidField("story payload", "authorsNote");
+  if (hasUnpairedSurrogate(value)) {
+    throw new Error("The server returned an invalid story payload.authorsNote: contains an unpaired Unicode surrogate.");
+  }
+  if (unicodeScalarLength(value, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
+    throw new Error(
+      `The server returned an invalid story payload.authorsNote: must contain at most ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} Unicode scalar values.`
+    );
+  }
 }
 
 export interface StorySummary {

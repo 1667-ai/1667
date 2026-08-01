@@ -307,6 +307,18 @@ async function handleApi(
       return sendJson(response, 200, await mutate("renameStory", { id, title }));
     }
   }
+  if (head === "stories" && id !== undefined
+    && sub === "authors-note" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setAuthorsNote", {
+        storyId: id,
+        note: requireStringValue(body.note, "note")
+      })
+    );
+  }
 
   if (head === "import" && id === "sillytavern" && sub === undefined && method === "POST") {
     return sendJson(

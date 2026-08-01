@@ -36,7 +36,7 @@ const DIRECTORY_FLAG = typeof constants.O_DIRECTORY === "number"
   : 0;
 
 export interface DataDirectoryLockOptions {
-  /** Offline legacy migration starts at format 1 before upgrading; ordinary projects use format 2. */
+  /** Offline legacy migration starts at format 1 before upgrading; ordinary projects use format 4. */
   readonly initializeDataFormat?: DataDirectoryFormat;
 }
 
@@ -120,7 +120,7 @@ export class DataDirectoryLock {
       await assertLockingFilesystem(lockPath, canonicalDir);
       this.publishedFormat = await publishInitialFormat(
         canonicalDir,
-        this.options.initializeDataFormat ?? 3
+        this.options.initializeDataFormat ?? 4
       );
       const adoption = await adoptMarker(canonicalDir, dataDirectoryHandle);
       this.lock = lock;
@@ -192,6 +192,20 @@ export class DataDirectoryLock {
       const upgraded = await adoptMarker(canonicalDir, dataDirectoryHandle);
       if (upgraded.dataFormat !== 3 || upgraded.source !== "owner-marker") {
         throw new Error("Data-directory format 3 marker did not activate");
+      }
+      this.selectedDataFormat = upgraded.dataFormat;
+      this.selectedDataFormatSource = upgraded.source;
+    }
+    if (this.selectedDataFormat === 3) {
+      // Format 4 moves nothing on disk. It records that this directory may
+      // hold the author-note shape format 3 never allowed, so an older
+      // executable stops at the marker instead of refusing a story it
+      // believed it should understand.
+      await assertRetainedDataDirectory(canonicalDir, dataDirectoryHandle);
+      await publishDataDirectoryOwnerMarker(canonicalDir, 4);
+      const upgraded = await adoptMarker(canonicalDir, dataDirectoryHandle);
+      if (upgraded.dataFormat !== 4 || upgraded.source !== "owner-marker") {
+        throw new Error("Data-directory format 4 marker did not activate");
       }
       this.selectedDataFormat = upgraded.dataFormat;
       this.selectedDataFormatSource = upgraded.source;

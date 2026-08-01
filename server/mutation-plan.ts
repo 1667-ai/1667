@@ -11,6 +11,7 @@ import type { StoryStore } from "./stories.js";
 interface MutationEntityNamespaces {
   createStory: "story";
   renameStory: never;
+  setAuthorsNote: never;
   autonameStory: "autoname";
   acknowledgeUnknownOutcomes: never;
   deleteStory: never;

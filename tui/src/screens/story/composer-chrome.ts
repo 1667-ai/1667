@@ -9,11 +9,17 @@ import {
   visibleWidth,
   type FrameLine,
   type FrameSegment,
-  type HintItem
+  type HintItem,
+  type DisplayRole
 } from "./frame.js";
 
 /** How much of the composer a notice may take before the draft loses room. */
 const MAX_NOTICE_ROWS = 3;
+
+export interface ComposerStatus {
+  text: string;
+  role?: DisplayRole;
+}
 
 export function composerTitle(
   fullscreen: boolean,
@@ -27,17 +33,17 @@ export function renderComposerTop(
   indent: string,
   width: number,
   title: string,
-  counter: string
+  status?: ComposerStatus
 ): FrameLine {
   const prefix = `┏━ ${title} `;
-  const suffix = counter.length > 0 ? ` ${counter}` : "";
+  const suffix = status?.text.length ? ` ${status.text}` : "";
   const rule = "━".repeat(
     Math.max(1, width - visibleWidth(prefix) - visibleWidth(suffix))
   );
   return composerFieldLine(indent, width, [
     segment(prefix, "compose accent"),
     segment(rule, "compose accent"),
-    ...(suffix.length > 0 ? [segment(suffix, "chrome")] : [])
+    ...(suffix.length > 0 ? [segment(suffix, status?.role ?? "chrome")] : [])
   ]);
 }
 

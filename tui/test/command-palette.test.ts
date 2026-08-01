@@ -82,6 +82,16 @@ describe("grouped command palette model", () => {
     expect(rename?.mutating).toBeTrue();
   });
 
+  test("Author's Note is a Story command with the NAV shortcut", () => {
+    const note = commandMatches("author's note", false)
+      .find(({ command }) => command.id === "authors-note")?.command;
+    expect(note).toMatchObject({
+      section: "story",
+      shortcut: "a",
+      mutating: true
+    });
+  });
+
   test("retains command identity across live Suggested reordering", () => {
     const source = demoAppSource();
     const context = commandContext(source.payload, false, true);

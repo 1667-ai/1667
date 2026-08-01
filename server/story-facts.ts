@@ -8,7 +8,6 @@ import {
   MAX_FACTS,
   MAX_FACT_TEXT_CHARS,
   MAX_FACT_TAG_CHARS,
-  type GenerationSettings,
   type Story,
   type StoryFact
 } from "../shared/types.js";
@@ -88,49 +87,6 @@ export function deleteFact(story: Story, factId: string): void {
 
 export function factsSystemMessage(story: Story): string | null {
   return formatFactsMessage(story.facts);
-}
-
-/** Conservative token bound for the overflow screen. Prose ASCII stays at the
- *  shared ~4-chars/token average; non-ASCII counts two tokens per code point,
- *  covering CJK (~1) and most emoji (~2-3). This is deliberately a screen, not
- *  a tokenizer — a scope decision, not an oversight: exact provider tokenizers
- *  are outside the current scope, so dense ASCII/JSON facts or multi-token
- *  emoji can slip past. The autoname budget shares the same char-level
- *  approximations. The invariant this
- *  screen serves is "never silently lose or truncate a fact": a prompt that
- *  slips past is rejected by the provider with a visible error and nothing is
- *  saved. Do not "fix" this with byte-level bounds — they refuse legitimate
- *  English facts several times too early. */
-function upperBoundTokens(text: string): number {
-  let ascii = 0;
-  let wide = 0;
-  for (const char of text) {
-    if (char.charCodeAt(0) < 128) ascii += 1;
-    else wide += 1;
-  }
-  return Math.ceil(ascii / 4) + wide * 2;
-}
-
-/** Facts are fixed context: when they cannot fit a known window even with all
- *  prose removed, refuse up front instead of letting the provider truncate.
- *  `otherFixed` must list the non-prose texts of the request as actually sent. */
-export function assertFactsFit(
-  settings: GenerationSettings,
-  facts: string | null,
-  otherFixed: readonly string[]
-): void {
-  if (facts === null || settings.contextWindow === null) return;
-  const fixedTexts = [facts, ...otherFixed];
-  const framing = (fixedTexts.length + 2) * 4;
-  const fixed = fixedTexts.reduce((sum, text) => sum + upperBoundTokens(text), framing);
-  const usable = settings.contextWindow - settings.maxTokens;
-  if (fixed <= usable) return;
-  throw new HttpError(
-    400,
-    `The story facts are too large for the model's context window ` +
-    `(~${fixed.toLocaleString()} fixed prompt tokens, ~${Math.max(0, usable).toLocaleString()} usable). ` +
-    `Shorten or consolidate facts, or raise the context window in Settings.`
-  );
 }
 
 function findFact(story: Story, factId: string): StoryFact {

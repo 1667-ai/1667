@@ -99,7 +99,23 @@ describe("honest next-request context meter", () => {
     expect(model.window?.free).toBe(5_300);
     expect(collapsed).toContain(`next request  ${formatTokensEstimate(model.contextTokens)} / ${formatTokensEstimate(window).replace("~", "")}`);
     expect(collapsed).toContain("5.3k free");
-    expect(Object.keys(model.breakdown)).toEqual(["voice", "facts", "recent", "summary"]);
+    expect(Object.keys(model.breakdown)).toEqual(["voice", "facts", "recent", "summary", "note"]);
+  });
+
+  test("gives a non-empty Author's Note its own legend row and keeps the threshold exact", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(1_204));
+    const estimate = nextRequestEstimate(payload, request("Keep the voice.", payload.path.at(-1)!.id));
+    const model = buildRailModel(payload, "", 20_000, estimate);
+    const expanded = frameText(railLines(model, true));
+    const empty = createDemoController().payload();
+    const emptyEstimate = nextRequestEstimate(empty, request("Keep the voice.", empty.path.at(-1)!.id));
+    const emptyModel = buildRailModel(empty, "", 20_000, emptyEstimate);
+
+    expect(model.breakdown.note).toBeGreaterThan(300);
+    expect(expanded).toContain("▮ note");
+    expect(expanded).toContain(String(model.breakdown.note));
+    expect(frameText(railLines(emptyModel, true))).not.toContain("▮ note");
   });
 
   test("formats large request values with bounded k/m/b/t units", () => {
@@ -164,7 +180,7 @@ describe("honest next-request context meter", () => {
 
     for (const item of cases) {
       const messages = renderPromptPlan(continuationPlan(
-        systemPrompt, facts, item.parts, item.instruction, item.appendLast,
+        systemPrompt, facts, null, item.parts, item.instruction, item.appendLast,
         item.assistantPrefill, "ct-00000000", payload.chapterBreaks, promptNodes
       ).prompt);
       const expected = messages.reduce((sum, message) => sum + estimateTokens(message.content) + 4, 0);
@@ -538,7 +554,7 @@ describe("honest next-request context meter", () => {
       ...buildRailModel(payload, "", 1_000, nextRequestEstimate(payload, next)),
       contextTokens: 990,
       window: requestWindow(990, 1_000),
-      breakdown: { voice: 300, facts: 200, recent: 300, summary: 190 }
+      breakdown: { voice: 300, facts: 200, recent: 300, summary: 190, note: 0 }
     };
     const rail = railLines(model, true);
     const bar = rail.find((line) => plainLine(line).includes("▮▮"))!;
@@ -711,7 +727,7 @@ describe("honest next-request context meter", () => {
       ...buildRailModel(payload, "", 10_000, estimate),
       contextTokens: 4_936,
       window: requestWindow(4_936, 10_000),
-      breakdown: { voice: 1_234, facts: 1_234, recent: 1_234, summary: 1_234 }
+      breakdown: { voice: 1_234, facts: 1_234, recent: 1_234, summary: 1_234, note: 0 }
     };
     const rail = railLines(model, true);
     const text = frameText(rail);
@@ -726,7 +742,7 @@ describe("honest next-request context meter", () => {
       ...model,
       contextTokens: 2_019_997,
       window: requestWindow(2_019_997, 4_000_000),
-      breakdown: { voice: 9_999, facts: 999_999, recent: 1_000_000, summary: 9_999 }
+      breakdown: { voice: 9_999, facts: 999_999, recent: 1_000_000, summary: 9_999, note: 0 }
     }, true));
 
     expect(rounded).toContain("▮ voice    ~10k   ▮ facts     ~1m");
@@ -738,7 +754,7 @@ describe("honest next-request context meter", () => {
       ...model,
       contextTokens: 4e15,
       window: requestWindow(4e15, 8e15),
-      breakdown: { voice: 1e15, facts: 1e15, recent: 1e15, summary: 1e15 }
+      breakdown: { voice: 1e15, facts: 1e15, recent: 1e15, summary: 1e15, note: 0 }
     }, true);
     for (const line of offScale) expect(visibleWidth(plainLine(line))).toBe(35);
     expect(frameText(offScale)).toContain("▮ summary 999t+");

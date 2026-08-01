@@ -6,6 +6,7 @@ export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system
 export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname"
+  | "authors-note"
   | "direct-take" | "retake" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "settings" | "reconnect" | "disconnect" | "theme";
@@ -80,6 +81,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "rename-story", section: "story", name: "rename story", description: "change the current story title", mutating: true },
   { id: "folder", section: "story", name: "open story folder", description: "reveal the .1667 directory on disk" },
   { id: "autoname", section: "story", name: "autoname story", description: "ask the model for a story title", mutating: true },
+  { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "a", mutating: true },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
   { id: "retake", section: "take", name: "retake", description: "regenerate the focused part as a sibling", shortcut: "r", mutating: true },

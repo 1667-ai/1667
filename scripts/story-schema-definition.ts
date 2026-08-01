@@ -8,7 +8,13 @@ import {
   MAX_STORY_TITLE_CHARS,
   STORY_ID_PATTERN_SOURCE
 } from "../server/story-v5-strict.js";
-import { MAX_FACTS, MAX_FACT_TAG_CHARS, MAX_HUMAN_EDIT_RANGES, MAX_RECENT_LINES } from "../shared/types.js";
+import {
+  MAX_FACTS,
+  MAX_FACT_TAG_CHARS,
+  MAX_HUMAN_EDIT_RANGES,
+  MAX_RECENT_LINES
+} from "../shared/types.js";
+import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
@@ -156,6 +162,7 @@ function strictV5Schema(): Schema {
     // chapter has no such break, so its name lives here. Absent on every
     // manifest written before chapter one could be named, and absent again
     // whenever the name is cleared.
+    authorsNote: boundedString(MAX_AUTHORS_NOTE_CHARS),
     firstChapterTitle: boundedString(MAX_STORY_TITLE_CHARS),
     activeWordCount: unsignedInteger(),
     nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredNodeV5") },

@@ -88,6 +88,7 @@ test("prompt planning and request lowering stay linear for a 1 MiB transcript", 
     () => continuationPlan(
       "Keep the prose concrete and observant.",
       facts,
+      null,
       story.nodes,
       "Follow the sound beyond the gate.",
       false,
@@ -295,6 +296,7 @@ function continuationBenchmarkPrompt(nodes: readonly StoryNode[]): PromptPlan {
   return continuationPlan(
     "Keep the prose concrete and observant.",
     facts,
+    null,
     nodes,
     "Follow the sound beyond the gate.",
     false,

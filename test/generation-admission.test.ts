@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  assertFixedContextFits,
   GenerationAdmissionRegistry,
   MAX_GENERATION_MODEL_ATTRIBUTIONS
 } from "../server/generation-admission.js";
 import { ServiceError } from "../server/errors.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
+import type { GenerationSettings } from "../shared/types.js";
 
 test("generation admission rejects one in-flight story/gen tuple without invoking it", async () => {
   const registry = new GenerationAdmissionRegistry();
@@ -98,3 +100,33 @@ test("worker continuation targets cannot shadow the authoritative generation env
     );
   }
 });
+
+test("fixed-context admission checks a note-only prompt and names its owner", () => {
+  const settings = smallWindowSettings();
+  assert.throws(
+    () => assertFixedContextFits(settings, null, "x".repeat(100), []),
+    (error) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("Author's Note")
+  );
+  assert.throws(
+    () => assertFixedContextFits(settings, "x".repeat(100), null, []),
+    (error) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("story facts")
+  );
+  assert.doesNotThrow(() => assertFixedContextFits(settings, null, null, []));
+});
+
+function smallWindowSettings(): GenerationSettings {
+  return {
+    provider: "dry-run",
+    baseUrl: "",
+    model: "dry-run",
+    apiKeyEnv: null,
+    temperature: null,
+    maxTokens: 1,
+    systemPrompt: "",
+    contextWindow: 32
+  };
+}

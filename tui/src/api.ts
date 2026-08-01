@@ -112,6 +112,7 @@ export interface StoryApi {
   createStory(title?: string): Promise<StoryPayload>;
   loadStory(id: string): Promise<StoryPayload>;
   renameStory(id: string, title: string): Promise<StoryPayload>;
+  setAuthorsNote(storyId: string, note: string): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
@@ -527,6 +528,12 @@ export function createApi(
       "PATCH",
       `/api/stories/${id}`,
       { title }
+    ),
+    setAuthorsNote: (storyId, note) => mutateStoryPayload(
+      storyId,
+      "PUT",
+      `/api/stories/${storyId}/authors-note`,
+      { note }
     ),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {

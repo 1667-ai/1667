@@ -119,7 +119,7 @@ describe("chapter view models", () => {
     const hits: HitRows = Array.from({ length: 24 }, () => null);
     const estimate = {
       tokens: 0,
-      breakdown: { voice: 0, facts: 0, recent: 0, summary: 0 },
+      breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 },
       chapters: []
     };
 

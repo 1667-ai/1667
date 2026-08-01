@@ -139,7 +139,7 @@ describe("keys reference", () => {
     const frame = text(120, 60);
     for (const item of entries) expect(frame).toContain(`  ${item.description}`);
     expect(frame).not.toContain("scrolls");
-    expect(frame).not.toContain("/31");
+    expect(frame).not.toContain("/32");
     expect(frame).toContain("esc closes");
     expect(render(120, 60, 4).scrollTop).toBe(0);
   });
@@ -150,7 +150,7 @@ describe("keys reference", () => {
     expect(top.scrollTop).toBe(0);
     expect(frame).toContain("● MOVE");
     // The range reads the way every other windowed panel's title does.
-    expect(frame).toContain("keys · and what they do · 1–15/31");
+    expect(frame).toContain("keys · and what they do · 1–15/32");
     expect(frame).toContain("↑↓ scrolls · esc closes");
 
     const scrolled = render(80, 24, 8);
@@ -174,12 +174,12 @@ describe("keys reference", () => {
       const painted = frameText(bottom.composition.lines)
         .split("\n")
         .filter((line) => line.includes("┃")).length - 2;
-      // The note is the last row by construction: reaching it proves the bound.
+      // The final reference row is reachable: reaching it proves the bound.
       const shown = `${height}:${frameText(bottom.composition.lines).includes("chapter rows differ")}`;
       expect(shown).toBe(`${height}:true`);
-      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:31`);
+      expect(`${height}:${bottom.scrollTop + painted}`).toBe(`${height}:32`);
       expect(frameText(bottom.composition.lines))
-        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/31`);
+        .toContain(`${bottom.scrollTop + 1}–${bottom.scrollTop + painted}/32`);
     }
   });
 
