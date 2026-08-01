@@ -8,7 +8,7 @@ import {
   promptCachePolicyPresentation
 } from "../../shared/prompt-cache-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import type {
   SettingsDocumentV2,
   SettingsMutationResult,
@@ -368,10 +368,17 @@ async function saveSettingsDraft(
         draft.generation,
         draft.selectedProfileId
       );
+      const selectedRemoteId = resolveSettingsProfile(
+        savedDocument,
+        draft.selectedProfileId
+      ).model.remoteId;
+      const discoveryMatchesSelectedModel = discovery?.models.some(
+        (model) => model.remoteId === selectedRemoteId
+      ) === true;
       document = applyBasicModelDiscovery(
-        discovery === null
-          ? savedDocument
-          : isolateSettingsProfileModel(savedDocument, draft.selectedProfileId),
+        discoveryMatchesSelectedModel
+          ? isolateSettingsProfileModel(savedDocument, draft.selectedProfileId)
+          : savedDocument,
         discovery,
         draft.generation.contextWindow,
         draft.selectedProfileId

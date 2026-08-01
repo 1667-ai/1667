@@ -14,6 +14,7 @@ import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { settingsTextDraftForDocument } from "../src/settings-text.js";
+import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
 import {
   draftRow,
   key,
@@ -302,6 +303,62 @@ describe("Generation Profile settings", () => {
     state.settings!.draft = settingsTextDraftForDocument(unsupported);
     await press(key("right"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
+  });
+
+  test("a nonmatching discovery result does not allocate a model during save", async () => {
+    const { source, state, press } = settingsHarness();
+    const current = installNetworkSettings(source);
+    const commands: SaveSettingsCommand[] = [];
+    source.api.saveSettings = async (command) => {
+      commands.push(command);
+      const saved = savedView(current, command.document);
+      source.settingsView = saved;
+      return savedResult(saved);
+    };
+    source.api.getSettings = async () => source.settingsView;
+
+    await openSettings(press);
+    await selectRow(press, state, "profile");
+    await press(key("n"));
+    await press(key("e"));
+    setComposerText(state.settings!.edit!.composer, "Utility");
+    await press(key("return"));
+
+    const draft = state.settings!.draft;
+    if (draft.document === null || draft.selectedProfileId === null) {
+      throw new Error("editable document missing");
+    }
+    const selected = resolveSettingsProfile(draft.document, draft.selectedProfileId);
+    const models = { ...draft.document.models };
+    for (let number = 1; Object.keys(models).length < 64; number += 1) {
+      models[`imported.${number}`] = {
+        ...selected.model,
+        remoteId: `imported-${number}`,
+        name: `Imported ${number}`
+      };
+    }
+    state.settings!.draft = settingsTextDraftForDocument({
+      ...draft.document,
+      models
+    }, draft.selectedProfileId);
+    state.settings!.modelDiscovery = {
+      observedAt: "2026-08-01T00:00:00.000Z",
+      models: [{
+        remoteId: "some-other-model",
+        name: "Some other model",
+        contextWindow: null,
+        maxOutputTokens: null,
+        source: "openai-models"
+      }]
+    };
+    state.settings!.modelDiscoveryIdentity = settingsModelDiscoveryIdentity(
+      state.settings!.draft.generation
+    );
+
+    await press(key("s"));
+
+    expect(commands).toHaveLength(1);
+    expect(Object.keys(commands[0]!.document.models)).toHaveLength(64);
   });
 });
 
