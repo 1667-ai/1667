@@ -3,6 +3,7 @@ import { inlineValue, resolveImportProject, separatedValue } from "./import-proj
 import { readImportBytes } from "./import-file.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";
+import { fidelityReport } from "../../shared/fidelity.js";
 
 export interface ImportCommand {
   readonly files: readonly string[];
@@ -55,18 +56,29 @@ export async function runStoryImport(
         const content = await readImportFile(file);
         const lowerFile = file.toLowerCase();
         const isStory = lowerFile.endsWith(".story");
-        const isMarkdown = !isStory && (lowerFile.endsWith(".md")
+        const isScenario = lowerFile.endsWith(".scenario");
+        const isMarkdown = !isStory && !isScenario && (lowerFile.endsWith(".md")
           || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#")));
 
         let title: string;
         let partsCount: number;
+        let factsCount: number | null = null;
         let id: string;
 
         if (isStory) {
-          const payload = await backend.api.importNovelAI(content);
+          const { payload, fidelity } = await backend.api.importNovelAI(content);
           title = payload.title;
           partsCount = payload.nodes.length;
+          factsCount = payload.facts.length;
           id = payload.id;
+          errorOutput.write(`${plain(file)}: ${fidelityReport(fidelity)}\n`);
+        } else if (isScenario) {
+          const { payload, fidelity } = await backend.api.importScenario(content);
+          title = payload.title;
+          partsCount = payload.nodes.length;
+          factsCount = payload.facts.length;
+          id = payload.id;
+          errorOutput.write(`${plain(file)}: ${fidelityReport(fidelity)}\n`);
         } else if (isMarkdown) {
           const defaultTitle = path.basename(file, path.extname(file));
           const payload = await backend.api.importMarkdown(content, defaultTitle);
@@ -81,7 +93,8 @@ export async function runStoryImport(
         }
 
         output.write(
-          `${plain(file)}: imported "${plain(title)}" (${partsCount} parts) as ${id}\n`
+          `${plain(file)}: imported "${plain(title)}" (${partsCount} parts`
+            + `${factsCount === null ? "" : `, ${factsCount} facts`}) as ${id}\n`
         );
       } catch (error) {
         failed = true;
@@ -97,5 +110,4 @@ export async function runStoryImport(
 async function readImportFile(file: string): Promise<string> {
   return new TextDecoder("utf-8").decode(await readImportBytes(file));
 }
-
 

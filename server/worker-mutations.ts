@@ -37,6 +37,8 @@ import { buildStoryPayload } from "./story-payload.js";
 import type { StoryService } from "./story-service.js";
 import { requireRecord, requireString } from "./validation.js";
 import { parseWorkerContinueTarget } from "./worker-continue-target.js";
+import { partsFromNovelAiStory } from "./import-nai.js";
+import { partsFromNovelAiScenario } from "./import-scenario.js";
 
 interface ParsedPreQChapterRemoval {
   readonly lane: "pre-q";
@@ -614,15 +616,41 @@ const MUTATIONS: MutationRegistry = {
       const storyId = plan.entityId("story");
       if (plan.recoveryMode !== "new") {
         try {
-          return await loadMutationPayload(service, storyId);
+          const payload = await loadMutationPayload(service, storyId);
+          return {
+            payload,
+            fidelity: partsFromNovelAiStory(input.storyContainerJson).fidelity
+          };
         } catch (error) {
           if (!(error instanceof ServiceError) || error.status !== 404) throw error;
         }
       }
-      return (await service.importNovelAIWithReport(input.storyContainerJson, {
+      return await service.importNovelAIWithReport(input.storyContainerJson, {
         storyId,
         nodeId: (index) => plan.entityId("import-node", index)
-      }, context.storyMutationRequest)).payload;
+      }, context.storyMutationRequest);
+    }
+  }),
+  importScenario: define<"importScenario">({
+    parse: (value) => requiredStrings<"importScenario">(value, "importScenario", "jsonText"),
+    storyId: (_input, plan) => plan.entityId("story"),
+    execute: async (service, input, plan, context) => {
+      const storyId = plan.entityId("story");
+      if (plan.recoveryMode !== "new") {
+        try {
+          const payload = await loadMutationPayload(service, storyId);
+          return {
+            payload,
+            fidelity: partsFromNovelAiScenario(input.jsonText).fidelity
+          };
+        } catch (error) {
+          if (!(error instanceof ServiceError) || error.status !== 404) throw error;
+        }
+      }
+      return await service.importScenarioWithReport(input.jsonText, {
+        storyId,
+        nodeId: (index) => plan.entityId("import-node", index)
+      }, context.storyMutationRequest);
     }
   }),
   importLorebook: define<"importLorebook">({

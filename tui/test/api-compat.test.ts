@@ -1063,7 +1063,10 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
       return Response.json(storyPayload("markdown-imported"));
     }
     if (path === "/api/import/novelai") {
-      return Response.json(storyPayload("novelai-imported"));
+      return Response.json({
+        payload: storyPayload("novelai-imported"),
+        fidelity: []
+      });
     }
     throw new Error(`Unexpected API path: ${path}`);
   }) as typeof fetch;

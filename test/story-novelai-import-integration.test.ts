@@ -110,7 +110,10 @@ linuxTest("HTTP POST /api/import/novelai accepts a NovelAI container", async (t)
   });
 
   assert.equal(response.status, 201);
-  const payload = await response.json() as StoryPayload;
-  assert.equal(payload.title, "HTTP NovelAI Story");
-  assert.equal(payload.path[0]?.text, "HTTP imported NovelAI prose.");
+  const result = await response.json() as {
+    payload: StoryPayload;
+    fidelity: readonly string[];
+  };
+  assert.equal(result.payload.title, "HTTP NovelAI Story");
+  assert.equal(result.payload.path[0]?.text, "HTTP imported NovelAI prose.");
 });

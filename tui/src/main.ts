@@ -102,8 +102,10 @@ Export:
   you use --force.
 
 Import:
-  Imports a Markdown file or a SillyTavern chat file (.jsonl) as a new story,
-  one new story per file.
+  The import command makes one new story from each Markdown, SillyTavern
+  (.jsonl), NovelAI .story, or NovelAI .scenario file.
+  The import-card and import-lorebook commands add Facts to a story that
+  already exists.
   In Markdown, '##' headings become chapter boundaries. Prose blocks become
   story parts.
   In a chat file, each character message becomes a story part; the user

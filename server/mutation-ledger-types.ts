@@ -42,6 +42,7 @@ export const STORY_MUTATION_METHODS = [
   "importSillyTavern",
   "importMarkdown",
   "importNovelAI",
+  "importScenario",
   "importLorebook",
   "continueStory",
   "rewriteNode",
@@ -59,7 +60,7 @@ export const PROVIDER_MUTATION_METHODS = [
   "rewriteNode",
   "createSummaryTake"
 ] as const;
-export const ABSENT_STORY_MUTATION_METHODS = ["createStory", "importSillyTavern", "importMarkdown", "importNovelAI"] as const;
+export const ABSENT_STORY_MUTATION_METHODS = ["createStory", "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario"] as const;
 
 export type StoryMutationMethod = typeof STORY_MUTATION_METHODS[number];
 export type SettingsMutationMethod = typeof SETTINGS_MUTATION_METHODS[number];

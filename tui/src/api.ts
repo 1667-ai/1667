@@ -106,6 +106,11 @@ export interface ContinueTarget {
   expectedTextHash?: string;
 }
 
+export interface NovelAiStoryImportResult {
+  readonly payload: StoryPayload;
+  readonly fidelity: readonly string[];
+}
+
 /** Invariant relied on by the connection monitor's failure detection: any
  *  method that streams takes its AbortSignal as the LAST parameter. Keep new
  *  methods on that shape or teach connection.ts about the exception. */
@@ -153,7 +158,8 @@ export interface StoryApi {
   ): Promise<ModelDiscoveryResultV2>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
-  importNovelAI(storyContainerJson: string): Promise<StoryPayload>;
+  importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
+  importScenario(jsonText: string): Promise<NovelAiStoryImportResult>;
   importLorebook(storyId: string, archiveBytes: Uint8Array): Promise<{ payload: StoryPayload; importResult: LorebookImport }>;
 
   continueStory(
@@ -388,13 +394,14 @@ export function createApi(
     await expectedVersion(storyId)
   ));
 
-  const runAbsentImportMutation = async (
+  const runAbsentImportMutation = async <T>(
     workerMethod: HttpAbsentMutation,
     intentKey: string,
     path: string,
     contentType: string,
-    body: string
-  ): Promise<StoryPayload> => {
+    body: string,
+    decode: (value: unknown) => T
+  ): Promise<T> => {
     const intent = await mutationIntents.claim(workerMethod, intentKey);
     try {
       const payload = await compatible(
@@ -435,7 +442,7 @@ export function createApi(
                   response.status
                 );
               }
-              return versions.rememberPayload(decodeStoryResponse(payload));
+              return decode(payload);
             },
             shouldRetry: (error) => !(error instanceof ApiError)
           });
@@ -808,7 +815,8 @@ export function createApi(
         jsonl,
         "/api/import/sillytavern",
         "text/plain; charset=utf-8",
-        jsonl
+        jsonl,
+        (value) => versions.rememberPayload(decodeStoryResponse(value))
     ),
     importMarkdown: async (markdown, defaultTitle) => {
       const payloadBody = encodeMarkdownHttpBody(markdown, defaultTitle);
@@ -817,7 +825,8 @@ export function createApi(
         payloadBody,
         "/api/import/markdown",
         "application/vnd.1667.markdown; charset=utf-8",
-        payloadBody
+        payloadBody,
+        (value) => versions.rememberPayload(decodeStoryResponse(value))
       );
     },
     importNovelAI: async (storyContainerJson) =>
@@ -826,7 +835,23 @@ export function createApi(
         storyContainerJson,
         "/api/import/novelai",
         "application/json; charset=utf-8",
-        storyContainerJson
+        storyContainerJson,
+        (value) => rememberNovelAiStoryImportResult(
+          decodeNovelAiStoryImportResult(value),
+          versions
+        )
+    ),
+    importScenario: async (jsonText) =>
+      await runAbsentImportMutation(
+        "importScenario",
+        jsonText,
+        "/api/import/scenario",
+        "application/json; charset=utf-8",
+        jsonText,
+        (value) => rememberNovelAiStoryImportResult(
+          decodeNovelAiStoryImportResult(value),
+          versions
+        )
     ),
     importLorebook: async (storyId, archiveBytes) => {
       const response = await request(
@@ -883,6 +908,29 @@ export function createApi(
       return done.nodeId;
     }
   };
+}
+
+function decodeNovelAiStoryImportResult(value: unknown): NovelAiStoryImportResult {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("The server returned an invalid NovelAI import result.");
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.fidelity)
+    || !record.fidelity.every((item) => typeof item === "string")) {
+    throw new Error("The server returned an invalid NovelAI import fidelity report.");
+  }
+  return {
+    payload: decodeStoryResponse(record.payload),
+    fidelity: record.fidelity
+  };
+}
+
+function rememberNovelAiStoryImportResult(
+  result: NovelAiStoryImportResult,
+  versions: HttpStoryVersions
+): NovelAiStoryImportResult {
+  versions.rememberPayload(result.payload);
+  return result;
 }
 
 async function settleAbsentMutationFailure(

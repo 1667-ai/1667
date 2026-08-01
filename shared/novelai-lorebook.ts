@@ -262,7 +262,7 @@ export function factsFromLorebook(value: unknown, room: number): LorebookImport 
   return { facts, fidelity };
 }
 
-function truncateFactText(text: string): string {
+export function truncateFactText(text: string): string {
   const max = MAX_FACT_TEXT_CHARS;
   const floor = Math.floor(max / 2);
   let cut = lastBoundary(text, "\n\n", floor, max);

@@ -332,11 +332,24 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       },
       { expectedAggregateVersion: { kind: "absent" } }
     )),
-    importNovelAI: async (storyContainerJson) => rememberPayload(await transport.call(
-      "importNovelAI",
-      { storyContainerJson },
-      { expectedAggregateVersion: { kind: "absent" } }
-    )),
+    importNovelAI: async (storyContainerJson) => {
+      const result = await transport.call(
+        "importNovelAI",
+        { storyContainerJson },
+        { expectedAggregateVersion: { kind: "absent" } }
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
+    importScenario: async (jsonText) => {
+      const result = await transport.call(
+        "importScenario",
+        { jsonText },
+        { expectedAggregateVersion: { kind: "absent" } }
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
     importLorebook: async (storyId, archiveBytes) => {
       const result = await transport.call(
         "importLorebook",

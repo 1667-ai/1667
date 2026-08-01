@@ -22,6 +22,13 @@ read_when:
 | tag | A name and a status on the end of one story line |
 | Fact | One note that 1667 sends with a provider request |
 | Author's Note | One short instruction that 1667 sends near the end of each provider request |
+| Archive | A NovelAI `.story`, `.scenario`, or `.lorebook` file |
+| Container | A `.story` Archive that contains prose and settings |
+| Lorebook | A collection of NovelAI Lorebook Entries |
+| Lorebook Entry | One record in a Lorebook |
+| Entry Mapping | The map from one Lorebook Entry to one Fact |
+| Memory | The persistent NovelAI context block |
+| Fidelity Report | A list of import or export changes and omissions |
 | Fact tag | A category name for a Fact |
 | context meter | The side-rail view of the next provider request size |
 | request viewer | The read-only view of the next provider request plan |
