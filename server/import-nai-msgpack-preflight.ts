@@ -17,6 +17,7 @@ const FOLLOWED_BY_VALUE_EXTENSIONS = new Set([
 export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
   let offset = 0;
   let tokens = 0;
+  let bundledStringBytes = 0;
   const pendingChildren: number[] = [];
 
   const requireBytes = (length: number): void => {
@@ -45,6 +46,13 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
     offset += 4;
     return value;
   };
+  const readUint32At = (start: number): number => {
+    if (start < 0 || start + 4 > bytes.length) throw malformedMessagePack();
+    return bytes[start]! * 0x1000000
+      + bytes[start + 1]! * 0x10000
+      + bytes[start + 2]! * 0x100
+      + bytes[start + 3]!;
+  };
   const skip = (length: number, scalar = false): void => {
     if (scalar && length > MAX_SCALAR_BYTES) {
       throw new ServiceError(400, "MessagePack scalar exceeds the import budget");
@@ -61,9 +69,52 @@ export function assertBoundedNovelAiMessagePack(bytes: Uint8Array): void {
     }
     return map ? items * 2 : items;
   };
+  const bundledStringAt = (start: number): { end: number; bytes: number } => {
+    if (start < 0 || start >= bytes.length) throw malformedMessagePack();
+    const marker = bytes[start]!;
+    let headerBytes = 1;
+    let stringBytes: number;
+    if (marker >= 0xa0 && marker <= 0xbf) {
+      stringBytes = marker & 0x1f;
+    } else if (marker === 0xd9) {
+      if (start + 2 > bytes.length) throw malformedMessagePack();
+      headerBytes = 2;
+      stringBytes = bytes[start + 1]!;
+    } else if (marker === 0xda) {
+      if (start + 3 > bytes.length) throw malformedMessagePack();
+      headerBytes = 3;
+      stringBytes = bytes[start + 1]! * 0x100 + bytes[start + 2]!;
+    } else if (marker === 0xdb) {
+      if (start + 5 > bytes.length) throw malformedMessagePack();
+      headerBytes = 5;
+      stringBytes = readUint32At(start + 1);
+    } else {
+      throw malformedMessagePack();
+    }
+    if (stringBytes > MAX_SCALAR_BYTES
+      || stringBytes > bytes.length - start - headerBytes) {
+      throw new ServiceError(400, "MessagePack scalar exceeds the import budget");
+    }
+    return { end: start + headerBytes + stringBytes, bytes: stringBytes };
+  };
   const extension = (length: number): number => {
     const type = readByte();
+    const payloadStart = offset;
     skip(length, true);
+    if (type === 0x62) {
+      if (length < 4) throw malformedMessagePack();
+      const bundleDistance = readUint32At(payloadStart);
+      const bundleStart = offset + bundleDistance - length;
+      if (bundleDistance > 0x7fff_ffff || bundleStart < offset) {
+        throw malformedMessagePack();
+      }
+      const first = bundledStringAt(bundleStart);
+      const second = bundledStringAt(first.end);
+      bundledStringBytes += first.bytes + second.bytes;
+      if (bundledStringBytes > MAX_SCALAR_BYTES) {
+        throw new ServiceError(400, "MessagePack bundled strings exceed the import budget");
+      }
+    }
     return FOLLOWED_BY_VALUE_EXTENSIONS.has(type) ? 1 : 0;
   };
 
