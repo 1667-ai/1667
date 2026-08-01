@@ -54,6 +54,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   `Left Arrow` or `Right Arrow` to select a model. Press `Enter` to type a
   custom model name. Settings includes an OpenAI preset. The cache policy is
   not available in Settings. New profiles use the `off` cache policy.
+- **Settings now includes a collapsed Sampling group.** Open the group to
+  edit scalar values, stop sequences, and logit bias rows. The TUI shows a
+  short reason for an unavailable value. An unavailable scalar row shows
+  `‹ — ›`. A save keeps the draft when a configured value is unavailable.
+  Thanks @10fra for the report.
 
 ## 0.1.2 - 2026-07-30
 

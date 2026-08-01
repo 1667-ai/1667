@@ -24,6 +24,10 @@ read_when:
 | Fact tag | A category name for a Fact |
 | context meter | The side-rail view of the next provider request size |
 | request viewer | The read-only view of the next provider request plan |
+| Sampling group | The Settings group for sampling parameters |
+| sampling parameter | One provider request field that changes how the model selects tokens |
+| stop sequence | One text sequence that stops generation |
+| logit bias | A token identifier and a weight that changes token probability |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

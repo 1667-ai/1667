@@ -46,6 +46,7 @@ import {
 import { truncate, truncateTail, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
 import { renderSettingsPanel } from "./settings-panel.js";
 import { renderFactsPanel } from "./facts-panel.js";
+import { renderSamplingPanel } from "./sampling-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
@@ -113,6 +114,9 @@ export function renderPanels(
   }
   else if (state.commands !== null) composition = renderCommands(dimPage(base), local, width, height);
   else if (state.chapters !== null) composition = renderChapters(dimPage(base), local, width, height, estimate);
+  else if (state.settings?.sampling !== null && state.settings !== null) {
+    composition = renderSamplingPanel(base, local, width, height);
+  }
   else if (state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
   else if (state.summary !== null) composition = renderSummary(dimPage(base), local, width, height);
   if (state.connection.down) {

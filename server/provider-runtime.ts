@@ -5,8 +5,10 @@ import type {
   GenerationEffortV2,
   ModelCapabilitiesV2,
   ModelConnectionV2,
+  SamplingSettingsV2,
   SettingsPresetV2
 } from "../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { defaultConnectionTimeouts } from "../shared/settings-provider-defaults.js";
 import {
@@ -33,6 +35,7 @@ export interface ProviderRuntime {
   readonly allowInsecureHttp: boolean;
   readonly effort: GenerationEffortV2;
   readonly capabilities: ModelCapabilitiesV2;
+  readonly sampling: SamplingSettingsV2;
 }
 
 type RuntimeSettings = GenerationSettings & {
@@ -78,6 +81,7 @@ export function providerRuntimeFromV2(
   connection: ModelConnectionV2,
   effort: GenerationEffortV2,
   capabilities: ModelCapabilitiesV2,
+  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
   environment?: NodeJS.ProcessEnv,
   storedSecrets?: ReadonlyMap<string, string>
 ): ProviderRuntime {
@@ -88,7 +92,8 @@ export function providerRuntimeFromV2(
     timeouts: connection.timeouts,
     allowInsecureHttp: connection.allowInsecureHttp === true,
     effort,
-    capabilities
+    capabilities,
+    sampling
   };
   if (environment !== undefined || storedSecrets !== undefined) {
     const slots = new Map<string, string>();
@@ -456,6 +461,7 @@ function legacyProviderRuntime(settings: GenerationSettings): ProviderRuntime {
     timeouts: defaultConnectionTimeouts(settings.provider),
     allowInsecureHttp: false,
     effort: "default",
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "unknown",
       assistantPrefill: "unknown",

@@ -11,7 +11,12 @@ import {
   MAX_SETTINGS_TIMEOUT_MS,
   MAX_SETTINGS_TOKEN_COUNT,
   MAX_SETTINGS_URL_SCALARS,
+  MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
+  MAX_SAMPLING_STOP_SCALARS,
+  MAX_SAMPLING_STOP_SEQUENCES,
+  MAX_SAMPLING_TOP_K,
   SECRET_ID_PATTERN_SOURCE,
+  SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE,
   SETTINGS_ID_PATTERN_SOURCE
 } from "../server/settings-v2-scalars.js";
 import {
@@ -115,7 +120,30 @@ export function settingsV2Schema(): Schema {
       },
       maxOutputTokens: ref("TokenCount"),
       effort: { enum: GENERATION_EFFORT_V2_VALUES },
-      cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES }
+      cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES },
+      sampling: ref("Sampling")
+    }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
+    Sampling: closed({
+      topP: nullable(number(0, 1)),
+      topK: nullable(integer(0, MAX_SAMPLING_TOP_K)),
+      minP: nullable(number(0, 1)),
+      frequencyPenalty: nullable(number(-2, 2)),
+      presencePenalty: nullable(number(-2, 2)),
+      repeatPenalty: nullable(number(1, 10)),
+      stop: {
+        type: "array",
+        maxItems: MAX_SAMPLING_STOP_SEQUENCES,
+        uniqueItems: true,
+        items: boundedString(MAX_SAMPLING_STOP_SCALARS, 1)
+      },
+      logitBias: {
+        type: "object",
+        maxProperties: MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
+        propertyNames: {
+          pattern: exactStringPatternSource(SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE)
+        },
+        additionalProperties: integer(-100, 100)
+      }
     }),
     Connections: settingsMap("Connection"),
     Models: settingsMap("Model"),
@@ -233,6 +261,10 @@ function boundedString(maxLength: number, minLength = 0): Schema {
 
 function integer(minimum: number, maximum: number): Schema {
   return { type: "integer", minimum, maximum };
+}
+
+function number(minimum: number, maximum: number): Schema {
+  return { type: "number", minimum, maximum };
 }
 
 function stringPattern(source: string, maxLength?: number): Schema {

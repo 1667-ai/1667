@@ -5,7 +5,8 @@ import {
   type SettingsMutationResult,
   type SettingsStateV2,
   type SettingsRoutePurpose,
-  type SettingsView
+  type SettingsView,
+  EMPTY_SAMPLING_V2
 } from "../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -233,6 +234,7 @@ export class SettingsV2Store {
           connection,
           "default",
           model?.capabilities ?? defaultModelCapabilities(provider),
+          EMPTY_SAMPLING_V2,
           this.environment,
           storedSecrets
         )

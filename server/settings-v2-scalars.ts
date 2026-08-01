@@ -1,5 +1,5 @@
 import { StoryFormatError } from "./story-format-facts.js";
-import { unicodeScalarLength } from "../shared/unicode.js";
+import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import {
   CREDENTIAL_ENV_PATTERN,
   CREDENTIAL_ENV_PATTERN_SOURCE,
@@ -22,6 +22,15 @@ export const MAX_SETTINGS_URL_SCALARS = 4_096;
 export const MAX_SETTINGS_AUTHOR_BRIEF_SCALARS = 65_536;
 export const MAX_SETTINGS_TIMEOUT_MS = 86_400_000;
 export const MAX_SETTINGS_TOKEN_COUNT = 1_000_000_000;
+export const MAX_SAMPLING_TOP_K = 100_000;
+export const MAX_SAMPLING_STOP_SEQUENCES = 4;
+export const MAX_SAMPLING_STOP_SCALARS = 64;
+export const MAX_SAMPLING_LOGIT_BIAS_ENTRIES = 16;
+export const SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE = "(0|[1-9][0-9]{0,6})";
+export const SAMPLING_LOGIT_BIAS_KEY_PATTERN = new RegExp(
+  `^(?:${SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE})$`,
+  "u"
+);
 
 export const SETTINGS_ID_PATTERN_SOURCE = "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}";
 export const SETTINGS_ID_PATTERN = new RegExp(`^(?:${SETTINGS_ID_PATTERN_SOURCE})$`, "u");
@@ -101,6 +110,105 @@ export function requireFiniteTemperature(value: unknown, label: string): number 
     throw new SettingsFormatError(`${label} must be null or a finite number in -100..100`);
   }
   return value;
+}
+
+export function requireSamplingNumber(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum: number
+): number {
+  if (
+    typeof value !== "number"
+    || !Number.isFinite(value)
+    || Object.is(value, -0)
+    || value < minimum
+    || value > maximum
+  ) {
+    throw new SettingsFormatError(
+      `${label} must be a finite number in ${minimum}..${maximum}`
+    );
+  }
+  return value;
+}
+
+export function requireSamplingTopK(value: unknown, label: string): number {
+  if (
+    typeof value !== "number"
+    || !Number.isSafeInteger(value)
+    || Object.is(value, -0)
+    || value < 0
+    || value > MAX_SAMPLING_TOP_K
+  ) {
+    throw new SettingsFormatError(
+      `${label} must be an integer in 0..${MAX_SAMPLING_TOP_K}`
+    );
+  }
+  return value;
+}
+
+export function requireSamplingStopSequences(
+  value: unknown,
+  label: string
+): readonly string[] {
+  if (!Array.isArray(value)) throw new SettingsFormatError(`${label} must be an array`);
+  if (value.length > MAX_SAMPLING_STOP_SEQUENCES) {
+    throw new SettingsFormatError(
+      `${label} exceeds the ${MAX_SAMPLING_STOP_SEQUENCES}-item limit`
+    );
+  }
+  const seen = new Set<string>();
+  return value.map((entry, index) => {
+    if (typeof entry !== "string" || hasUnpairedSurrogate(entry)) {
+      throw new SettingsFormatError(
+        `${label}[${index}] must be a well-formed NFC string`
+      );
+    }
+    if (entry.normalize("NFC") !== entry) {
+      throw new SettingsFormatError(`${label}[${index}] must be NFC-normalized`);
+    }
+    const stop = requireBoundedSettingsString(
+      entry,
+      `${label}[${index}]`,
+      MAX_SAMPLING_STOP_SCALARS,
+      1
+    );
+    if (seen.has(stop)) throw new SettingsFormatError(`${label} repeats ${JSON.stringify(stop)}`);
+    seen.add(stop);
+    return stop;
+  });
+}
+
+export function requireSamplingLogitBias(
+  value: unknown,
+  label: string
+): Readonly<Record<string, number>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new SettingsFormatError(`${label} must be an object`);
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > MAX_SAMPLING_LOGIT_BIAS_ENTRIES) {
+    throw new SettingsFormatError(
+      `${label} exceeds the ${MAX_SAMPLING_LOGIT_BIAS_ENTRIES}-entry limit`
+    );
+  }
+  const sorted = entries.map(([key, entry]) => {
+    if (!SAMPLING_LOGIT_BIAS_KEY_PATTERN.test(key)) {
+      throw new SettingsFormatError(`${label} key ${JSON.stringify(key)} is invalid`);
+    }
+    if (
+      typeof entry !== "number"
+      || !Number.isSafeInteger(entry)
+      || Object.is(entry, -0)
+      || entry < -100
+      || entry > 100
+    ) {
+      throw new SettingsFormatError(`${label}.${key} must be an integer in -100..100`);
+    }
+    return [key, entry] as const;
+  });
+  sorted.sort((left, right) => Number(left[0]) - Number(right[0]));
+  return Object.fromEntries(sorted);
 }
 
 export function requireCredentialName(

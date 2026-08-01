@@ -578,6 +578,7 @@ export async function handleKey(
     tagChoosingStatus: state.tag?.choosingStatus ?? false,
     connectionDown: state.connection.down,
     overlayTyping: overlayTextInputActive(state),
+    settingsSampling: state.settings !== null && state.settings.sampling !== null,
     commandsTags: state.commands?.view === "tags",
     factEditor: state.editor?.kind === "fact",
     mapView: state.map?.view

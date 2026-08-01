@@ -1,5 +1,8 @@
 import {
+  EMPTY_SAMPLING_V2,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  SAMPLING_KNOB_V2_VALUES,
+  type SamplingSettingsV2,
   type PromptCachePolicyV2,
   type ModelConnectionV2,
   type SettingsDocumentV2,
@@ -26,6 +29,10 @@ import {
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
 
+const SAMPLING_SCALAR_KEYS: ReadonlySet<string> = new Set(
+  SAMPLING_KNOB_V2_VALUES.slice(0, 6).map((key) => `sampling.${key}`)
+);
+
 export interface SettingsTextDraft {
   /** Full editable document plus the selected profile's form projection.
    * Dry-run retains endpoint text that its document shape cannot represent;
@@ -34,6 +41,7 @@ export interface SettingsTextDraft {
   readonly selectedProfileId: string | null;
   readonly generation: GenerationSettings;
   readonly cachePolicy: PromptCachePolicyV2;
+  readonly sampling: SamplingSettingsV2;
 }
 
 export function settingsTextDraftForView(
@@ -47,7 +55,8 @@ export function settingsTextDraftForView(
     document: null,
     selectedProfileId: null,
     generation: basicSettingsForDisplay(view),
-    cachePolicy: "off"
+    cachePolicy: "off",
+    sampling: EMPTY_SAMPLING_V2
   };
 }
 
@@ -56,11 +65,13 @@ export function settingsTextDraftForDocument(
   preferredProfileId?: string | null
 ): SettingsTextDraft {
   const selectedProfileId = selectedSettingsProfileId(document, preferredProfileId);
+  const route = resolveSettingsProfile(document, selectedProfileId);
   return {
     document,
     selectedProfileId,
     generation: basicSettingsFromDocument(document, selectedProfileId),
-    cachePolicy: promptCacheContextForProfile(document, selectedProfileId).policy
+    cachePolicy: promptCacheContextForProfile(document, selectedProfileId).policy,
+    sampling: route.profile.sampling ?? EMPTY_SAMPLING_V2
   };
 }
 
@@ -162,6 +173,14 @@ export function serializeSettings(draft: SettingsTextDraft): string {
     `maxTokens: ${settings.maxTokens}`,
     `contextWindow: ${settings.contextWindow ?? ""}`,
     `cachePolicy: ${draft.cachePolicy}`,
+    `sampling.topP: ${draft.sampling.topP ?? ""}`,
+    `sampling.topK: ${draft.sampling.topK ?? ""}`,
+    `sampling.minP: ${draft.sampling.minP ?? ""}`,
+    `sampling.frequencyPenalty: ${draft.sampling.frequencyPenalty ?? ""}`,
+    `sampling.presencePenalty: ${draft.sampling.presencePenalty ?? ""}`,
+    `sampling.repeatPenalty: ${draft.sampling.repeatPenalty ?? ""}`,
+    `sampling.stop: ${JSON.stringify(draft.sampling.stop)}`,
+    `sampling.logitBias: ${JSON.stringify(draft.sampling.logitBias)}`,
     `systemPrompt: ${settings.systemPrompt.replace(/\n/g, " ")}`
   ].join("\n");
 }
@@ -169,6 +188,7 @@ export function serializeSettings(draft: SettingsTextDraft): string {
 export function parseSettings(value: string, base: SettingsTextDraft): SettingsTextDraft | { error: string } {
   const next = { ...base.generation };
   let cachePolicy = base.cachePolicy;
+  let sampling = base.sampling;
   for (const raw of value.split("\n")) {
     const line = raw.trim();
     if (line.length === 0 || line.startsWith("≻")) continue;
@@ -216,9 +236,37 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
         return { error: `cachePolicy must be off, auto, or long — "${text}"` };
       }
       cachePolicy = text as PromptCachePolicyV2;
+    } else if (SAMPLING_SCALAR_KEYS.has(key)) {
+      const parsed = text.length === 0 ? null : Number(text);
+      if (parsed !== null && !Number.isFinite(parsed)) {
+        return { error: `${key} is not a number or blank — "${text}"` };
+      }
+      sampling = { ...sampling, [key.slice("sampling.".length)]: parsed } as SamplingSettingsV2;
+    } else if (key === "sampling.stop") {
+      const parsed = parseJsonValue(text, key, []);
+      if (parsed.error !== undefined) return parsed;
+      if (!Array.isArray(parsed.value) || parsed.value.some((item) => typeof item !== "string")) {
+        return { error: `${key} must be a JSON array of strings` };
+      }
+      sampling = { ...sampling, stop: parsed.value };
+    } else if (key === "sampling.logitBias") {
+      const parsed = parseJsonValue(text, key, {});
+      if (parsed.error !== undefined) return parsed;
+      if (parsed.value === null || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+        return { error: `${key} must be a JSON object` };
+      }
+      const entries = Object.entries(parsed.value);
+      if (entries.some(([token, weight]) =>
+        !/^\d+$/u.test(token)
+        || !Number.isSafeInteger(Number(token))
+        || typeof weight !== "number"
+        || !Number.isFinite(weight))) {
+        return { error: `${key} must map integer token IDs to finite numbers` };
+      }
+      sampling = { ...sampling, logitBias: Object.fromEntries(entries) };
     } else return { error: `unknown setting "${key}"` };
   }
-  return { ...base, generation: next, cachePolicy };
+  return { ...base, generation: next, cachePolicy, sampling };
 }
 
 /** The document stays authoritative while a writer is between fields. The
@@ -326,4 +374,17 @@ function incompleteDraftAuth(
   return provider === "anthropic"
     ? { type: "header-stored", name: "x-api-key", secretId: storedSecretId }
     : { type: "bearer-stored", secretId: storedSecretId };
+}
+
+function parseJsonValue(
+  text: string,
+  key: string,
+  emptyValue: unknown
+): { value: unknown; error?: never } | { error: string } {
+  if (text.length === 0) return { value: emptyValue };
+  try {
+    return { value: JSON.parse(text) };
+  } catch {
+    return { error: `${key} must contain valid JSON` };
+  }
 }

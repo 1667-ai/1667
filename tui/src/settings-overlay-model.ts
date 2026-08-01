@@ -11,6 +11,7 @@ import {
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
+import { samplingSummary } from "./sampling-model.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
@@ -56,6 +57,7 @@ export const SETTINGS_ROW_IDS = [
   "model",
   "temperature",
   "max-tokens",
+  "sampling",
   "context-window",
   "effort",
   "cache-policy",
@@ -86,6 +88,7 @@ export function initialSettingsOverlay(
     connectionSecrets: {},
     cursor: 0,
     edit: null,
+    sampling: null,
     conflict: null,
     checking: false,
     probing: false,
@@ -117,6 +120,7 @@ export function settingsRowEditValue(
       ? "legacy profile"
       : document.profiles[profileId]?.name ?? "unavailable";
   }
+  if (row === "sampling") return samplingSummary(overlay.draft.sampling);
   return draftRowEditValue(overlay.draft, row);
 }
 
@@ -125,7 +129,7 @@ export function beginSettingsRowEdit(
   config: UserConfig
 ): void {
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "system-prompt") return;
+  if (row === "system-prompt" || row === "sampling") return;
   if (settingsRowUsesServer(row)) overlay.result = null;
   const initial = settingsRowEditValue(overlay, config, row);
   const composer = createComposer(initial);

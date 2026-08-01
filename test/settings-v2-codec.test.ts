@@ -47,6 +47,7 @@ import {
   MAX_SETTINGS_STATE_BYTES,
   SettingsFormatError
 } from "../server/settings-v2-scalars.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   SETTINGS_V2_CORPUS_SHA256,
@@ -99,6 +100,156 @@ test("fixed initial document and state bytes have raw and domain-separated hashe
   assert.notEqual(INITIAL_SETTINGS_STATE_V2_HASH, INITIAL_SETTINGS_STATE_V2_SHA256);
   assert.equal(SETTINGS_DOCUMENT_V2_HASH_DOMAIN, "settings-document-v2\0");
   assert.equal(SETTINGS_STATE_V2_HASH_DOMAIN, "settings-state-v2\0");
+});
+
+test("sampling parses as a closed optional profile object and projects to runtime", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const sampling = {
+    topP: 0.9,
+    topK: null,
+    minP: null,
+    frequencyPenalty: 0.2,
+    presencePenalty: -0.1,
+    repeatPenalty: null,
+    stop: ["END", "DONE"],
+    logitBias: { "15043": 1 }
+  } as const;
+  const document = parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, sampling }
+    }
+  });
+  assert.deepEqual(document.profiles.default?.sampling, sampling);
+  assert.deepEqual(providerRuntimeFor(effectiveGenerationSettings(document)).sampling, sampling);
+  assert.deepEqual(
+    parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
+    document
+  );
+});
+
+test("all-empty sampling normalizes away and preserves the initial settings identity", () => {
+  const document = parseSettingsDocumentV2({
+    ...INITIAL_SETTINGS_DOCUMENT_V2,
+    profiles: {
+      ...INITIAL_SETTINGS_DOCUMENT_V2.profiles,
+      default: {
+        ...INITIAL_SETTINGS_DOCUMENT_V2.profiles.default!,
+        sampling: EMPTY_SAMPLING_V2
+      }
+    }
+  });
+  assert.equal(Object.hasOwn(document.profiles.default!, "sampling"), false);
+  assert.equal(formatSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_TEXT);
+  assert.equal(hashSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_HASH);
+});
+
+test("sampling bounds and closed-shape rules fail before request lowering", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const profile = base.profiles.default!;
+  const sampling = {
+    topP: 0.9,
+    topK: null,
+    minP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+    repeatPenalty: null,
+    stop: [],
+    logitBias: {}
+  };
+  const withSampling = (next: Record<string, unknown>) => ({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...profile, sampling: { ...sampling, ...next } }
+    }
+  });
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ topP: 2 })), /topP/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ topK: 100_001 })), /topK/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ repeatPenalty: 0.9 })), /repeatPenalty/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["", "END"] })), /stop/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["END", "END"] })), /repeats/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ logitBias: { "01": 1 } })), /logitBias/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+  })), /logitBias/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    extra: true
+  })), /unknown key/);
+});
+
+test("save-time sampling validation refuses unavailable preset and model cells", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const profile = base.profiles.default!;
+  const ollama = {
+    ...base,
+    connections: {
+      ...base.connections,
+      "migrated:connection": {
+        ...base.connections["migrated:connection"]!,
+        preset: "ollama" as const
+      }
+    },
+    profiles: {
+      ...base.profiles,
+      default: {
+        ...profile,
+        sampling: {
+          topP: null,
+          topK: null,
+          minP: null,
+          frequencyPenalty: null,
+          presencePenalty: null,
+          repeatPenalty: null,
+          stop: [],
+          logitBias: { "1": 1 }
+        }
+      }
+    }
+  };
+  assert.throws(() => parseSettingsDocumentV2(ollama), /logit_bias.*preset/);
+
+  const anthropic = convertGenerationSettingsV1(legacy(
+    "anthropic",
+    "https://api.anthropic.com",
+    "claude-new-model",
+    null
+  ));
+  assert.throws(() => parseSettingsDocumentV2({
+    ...anthropic,
+    profiles: {
+      ...anthropic.profiles,
+      default: {
+        ...anthropic.profiles.default!,
+        sampling: {
+          topP: 0.9,
+          topK: null,
+          minP: null,
+          frequencyPenalty: null,
+          presencePenalty: null,
+          repeatPenalty: null,
+          stop: [],
+          logitBias: {}
+        }
+      }
+    }
+  }), /top_p.*model/);
 });
 
 test("parsed settings documents and states are deeply immutable", () => {

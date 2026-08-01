@@ -85,6 +85,40 @@ export type GenerationEffortV2 = (typeof GENERATION_EFFORT_V2_VALUES)[number];
 export const PROMPT_CACHE_POLICY_V2_VALUES = ["off", "auto", "long"] as const;
 export type PromptCachePolicyV2 = (typeof PROMPT_CACHE_POLICY_V2_VALUES)[number];
 
+export const SAMPLING_KNOB_V2_VALUES = [
+  "topP",
+  "topK",
+  "minP",
+  "frequencyPenalty",
+  "presencePenalty",
+  "repeatPenalty",
+  "stop",
+  "logitBias"
+] as const;
+export type SamplingKnobV2 = (typeof SAMPLING_KNOB_V2_VALUES)[number];
+
+export interface SamplingSettingsV2 {
+  readonly topP: number | null;
+  readonly topK: number | null;
+  readonly minP: number | null;
+  readonly frequencyPenalty: number | null;
+  readonly presencePenalty: number | null;
+  readonly repeatPenalty: number | null;
+  readonly stop: readonly string[];
+  readonly logitBias: Readonly<Record<string, number>>;
+}
+
+export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
+  topP: null,
+  topK: null,
+  minP: null,
+  frequencyPenalty: null,
+  presencePenalty: null,
+  repeatPenalty: null,
+  stop: Object.freeze([]) as readonly string[],
+  logitBias: Object.freeze({}) as Readonly<Record<string, number>>
+});
+
 export interface GenerationProfileV2 {
   readonly name: string;
   readonly modelId: string;
@@ -92,6 +126,8 @@ export interface GenerationProfileV2 {
   readonly maxOutputTokens: number;
   readonly effort: GenerationEffortV2;
   readonly cachePolicy: PromptCachePolicyV2;
+  /** Absent means every sampling knob is omitted from the request. */
+  readonly sampling?: SamplingSettingsV2;
 }
 
 export interface SettingsRoutingV2 {

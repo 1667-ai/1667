@@ -9,7 +9,7 @@ import {
   providerRuntimeFor,
   type ProviderRuntime
 } from "../server/provider-runtime.js";
-import type { SettingsPresetV2 } from "../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2, type SettingsPresetV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 test("LM Studio discovery uses its native model metadata", async (t) => {
@@ -520,6 +520,7 @@ function runtimeForPreset(preset: SettingsPresetV2): ProviderRuntime {
     },
     allowInsecureHttp: false,
     effort: "default",
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",

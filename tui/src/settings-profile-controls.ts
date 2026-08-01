@@ -11,6 +11,7 @@ import {
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
+import { samplingRowValue } from "./sampling-model.js";
 import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
@@ -68,6 +69,7 @@ export function settingsRows(
       label: "max tokens",
       value: settings.maxTokens.toLocaleString("en-US")
     },
+    { id: "sampling", label: "sampling", value: samplingRowValue(overlay) },
     {
       id: "context-window",
       label: "context window",

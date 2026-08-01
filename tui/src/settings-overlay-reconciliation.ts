@@ -1,5 +1,6 @@
 import type { SettingsView } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
+import { samplingSettingsEqual } from "../../shared/sampling-capabilities.js";
 import { setComposerText } from "./composer-model.js";
 import type { ActiveSettingsEdit } from "./settings-edit-state.js";
 import { renameSettingsProfile } from "./settings-profile-draft.js";
@@ -49,9 +50,11 @@ export function sameSettingsDraft(
       && right.document !== null
       && JSON.stringify(left.document) === JSON.stringify(right.document)
       && settingsTextDraftProjectionIdentity(left)
-        === settingsTextDraftProjectionIdentity(right);
+        === settingsTextDraftProjectionIdentity(right)
+      && samplingSettingsEqual(left.sampling, right.sampling);
   }
   return left.cachePolicy === right.cachePolicy
+    && samplingSettingsEqual(left.sampling, right.sampling)
     && sameGenerationSettings(left.generation, right.generation);
 }
 
@@ -149,7 +152,7 @@ export function sameGenerationSettings(
 
 export function draftRowEditValue(
   draft: SettingsTextDraft,
-  row: Exclude<SettingsRowId, "theme" | "compose-focus" | "allow-insecure-http" | "profile">
+  row: Exclude<SettingsRowId, "theme" | "compose-focus" | "allow-insecure-http" | "profile" | "sampling">
 ): string {
   const settings = draft.generation;
   if (row === "provider") return settings.provider;
@@ -189,6 +192,9 @@ function draftWithActiveEdit(
   if (row === "api-key" || row === "allow-insecure-http") {
     return edit.composer.text === edit.initialText() ? draft : null;
   }
+  if (row === "sampling") {
+    return edit.composer.text === edit.initialText() ? draft : null;
+  }
   if (row === "system-prompt") {
     return settingsTextDraftWithGeneration(draft, {
       ...draft.generation,
@@ -207,10 +213,11 @@ function settingsDraftTextRow(
   row: SettingsRowId
 ): row is Exclude<
   SettingsRowId,
-  "theme" | "compose-focus" | "allow-insecure-http" | "profile"
+  "theme" | "compose-focus" | "allow-insecure-http" | "profile" | "sampling"
 > {
   return row !== "theme"
     && row !== "compose-focus"
     && row !== "allow-insecure-http"
-    && row !== "profile";
+    && row !== "profile"
+    && row !== "sampling";
 }

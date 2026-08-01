@@ -310,7 +310,8 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
       composerScrollTop: composer.scrollTop,
       editorScrollTop: state.editorScrollTop,
       keysScrollTop,
-      composerSelectionProjection: state.mode === "SETTINGS" && state.settings?.edit != null
+      composerSelectionProjection: state.mode === "SETTINGS"
+        && (state.settings?.edit != null || state.settings?.sampling?.edit != null)
         ? buildComposerSelectionProjection(presentedLines, full)
         : state.mode === "COMPOSE"
           ? buildComposerSelectionProjection(pageSelectionLines, frameLayout.pageWidth)

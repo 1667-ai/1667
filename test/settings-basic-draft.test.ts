@@ -6,12 +6,17 @@ import {
   basicSettingsForDisplay,
   basicSettingsFromDocument
 } from "../shared/settings-basic-draft.js";
+import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import {
   attachProviderRuntime,
   providerRuntimeFromV2,
   resolveProviderHeaders
 } from "../server/provider-runtime.js";
-import type { SettingsDocumentV2 } from "../shared/settings-v2-types.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type SamplingSettingsV2,
+  type SettingsDocumentV2
+} from "../shared/settings-v2-types.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { validateSettingsDocumentV2 } from "../server/settings-v2-validation.js";
 
@@ -136,6 +141,30 @@ test("initial and advanced documents survive an unchanged basic round-trip exact
       document
     );
   }
+});
+
+test("sampling edits only the default profile and preserve route-owned settings", () => {
+  const sampling: SamplingSettingsV2 = {
+    topP: 0.9,
+    topK: null,
+    minP: null,
+    frequencyPenalty: 0.2,
+    presencePenalty: null,
+    repeatPenalty: null,
+    stop: ["END"],
+    logitBias: { "15043": 1 }
+  };
+  const updated = applySamplingSettings(DOCUMENT, sampling);
+  assert.deepEqual(updated.profiles.default?.sampling, sampling);
+  assert.equal(updated.profiles.default?.effort, DOCUMENT.profiles.default?.effort);
+  assert.equal(updated.profiles.default?.cachePolicy, DOCUMENT.profiles.default?.cachePolicy);
+  assert.deepEqual(updated.profiles.utility, DOCUMENT.profiles.utility);
+  assert.deepEqual(updated.routing, DOCUMENT.routing);
+  assert.deepEqual(updated.connections, DOCUMENT.connections);
+  assert.deepEqual(updated.models, DOCUMENT.models);
+
+  const cleared = applySamplingSettings(updated, EMPTY_SAMPLING_V2);
+  assert.equal(Object.hasOwn(cleared.profiles.default!, "sampling"), false);
 });
 
 test("canonical model whitespace is an exact no-op that preserves hidden metadata", () => {
@@ -379,6 +408,7 @@ function resolvedStoredHeaders(
         connection,
         "default",
         model.capabilities,
+        EMPTY_SAMPLING_V2,
         {},
         new Map([[auth.secretId, secret]])
       ),

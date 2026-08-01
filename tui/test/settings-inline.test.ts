@@ -56,6 +56,11 @@ describe("inline settings menu", () => {
         expect(state.settings).not.toBe(null);
         await press(key("escape"));
         expect(state.mode).toBe("SETTINGS");
+      } else if (row === "sampling") {
+        expect(state.mode).toBe("SETTINGS");
+        expect(state.settings?.edit).toBe(null);
+        expect(state.settings?.sampling?.panel).toBe("sampling");
+        await press(key("escape"));
       } else if (settingsRowCycles(row)) {
         expect(state.mode).toBe("SETTINGS");
         expect(state.editor).toBe(null);

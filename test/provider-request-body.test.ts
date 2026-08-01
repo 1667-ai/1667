@@ -10,6 +10,10 @@ import {
 } from "../server/provider-runtime.js";
 import type { PromptCacheWirePlan } from "../server/provider-cache-policy.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
+import {
+  EMPTY_SAMPLING_V2,
+  type SamplingSettingsV2
+} from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 const FORBIDDEN_CACHE_FIELDS = new Set([
@@ -354,6 +358,146 @@ test("a model that declares no sampling support keeps temperature off the wire",
   }
 });
 
+test("OpenAI-compatible serializers lower the documented baseline and preset extensions", () => {
+  const full = sampling({
+    topP: 0.91,
+    topK: 41,
+    minP: 0.05,
+    frequencyPenalty: 0.2,
+    presencePenalty: -0.1,
+    repeatPenalty: 1.1,
+    stop: ["END", "DONE"],
+    logitBias: { "15043": 1, "198": -2 }
+  });
+  const llama = buildOpenAiChatRequestBody(
+    withSampling(settings("openai-compatible"), "llama-cpp", full),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.deepEqual({
+    top_p: llama.top_p,
+    top_k: llama.top_k,
+    min_p: llama.min_p,
+    frequency_penalty: llama.frequency_penalty,
+    presence_penalty: llama.presence_penalty,
+    repeat_penalty: llama.repeat_penalty,
+    stop: llama.stop,
+    logit_bias: llama.logit_bias
+  }, {
+    top_p: 0.91,
+    top_k: 41,
+    min_p: 0.05,
+    frequency_penalty: 0.2,
+    presence_penalty: -0.1,
+    repeat_penalty: 1.1,
+    stop: ["END", "DONE"],
+    logit_bias: { "198": -2, "15043": 1 }
+  });
+
+  const lmStudio = buildOpenAiChatRequestBody(
+    withSampling(settings("openai-compatible"), "lm-studio", { ...full, minP: null }),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal("min_p" in lmStudio, false);
+  assert.equal(lmStudio.top_k, 41);
+  assert.equal(lmStudio.repeat_penalty, 1.1);
+
+  const ollama = buildOpenAiChatRequestBody(
+    withSampling(settings("openai-compatible"), "ollama", {
+      ...full,
+      topK: null,
+      minP: null,
+      repeatPenalty: null,
+      logitBias: {}
+    }),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal("logit_bias" in ollama, false);
+  assert.equal("top_k" in ollama, false);
+  assert.equal(ollama.top_p, 0.91);
+
+  const kobold = buildOpenAiChatRequestBody(
+    withSampling(settings("openai-compatible"), "koboldcpp", {
+      ...full,
+      frequencyPenalty: null
+    }),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal("frequency_penalty" in kobold, false);
+  assert.equal(kobold.min_p, 0.05);
+
+  const custom = buildOpenAiChatRequestBody(
+    withSampling(settings("openai-compatible"), "custom", {
+      ...full,
+      topK: null,
+      minP: null,
+      repeatPenalty: null
+    }),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal(custom.top_p, 0.91);
+  assert.equal(custom.frequency_penalty, 0.2);
+  assert.equal("top_k" in custom, false);
+});
+
+test("Anthropic lowering uses only its exact wire names", () => {
+  const body = buildAnthropicMessagesRequestBody(
+    withSampling({ ...settings("anthropic"), model: "claude-opus-4-5" }, "anthropic", sampling({
+      topP: 0.9,
+      topK: 32,
+      stop: ["END"]
+    })),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.equal(body.top_p, 0.9);
+  assert.equal(body.top_k, 32);
+  assert.deepEqual(body.stop_sequences, ["END"]);
+  for (const field of [
+    "stop",
+    "min_p",
+    "logit_bias",
+    "frequency_penalty",
+    "presence_penalty",
+    "repeat_penalty"
+  ]) assert.equal(field in body, false, field);
+});
+
+test("serializers refuse configured sampling values that the selected route cannot lower", () => {
+  const cases: readonly [string, SamplingSettingsV2][] = [
+    ["top_k", sampling({ topK: 32 })],
+    ["min_p", sampling({ minP: 0.05 })],
+    ["repeat_penalty", sampling({ repeatPenalty: 1.1 })]
+  ];
+  for (const [field, value] of cases) {
+    const settingsValue = withSampling(settings("openai-compatible"), "custom", value);
+    assert.throws(
+      () => buildOpenAiChatRequestBody(settingsValue, PROMPT, OMIT_PLANS[0]!),
+      new RegExp(`Configured sampling parameter ${field}`)
+    );
+  }
+  assert.throws(
+    () => buildOpenAiChatRequestBody(
+      withSampling(settings("openai-compatible"), "ollama", sampling({ logitBias: { "1": 1 } })),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /Configured sampling parameter logit_bias/
+  );
+  assert.throws(
+    () => buildAnthropicMessagesRequestBody(
+      withSampling({ ...settings("anthropic"), model: "claude-opus-4-5" }, "anthropic", sampling({ frequencyPenalty: 0.2 })),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /Configured sampling parameter frequency_penalty/
+  );
+});
+
 function withTemperatureSupport(
   value: GenerationSettings,
   temperature: ProviderRuntime["capabilities"]["temperature"]
@@ -370,6 +514,7 @@ function withTemperatureSupport(
     },
     allowInsecureHttp: false,
     effort: "default",
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature,
       assistantPrefill: "unknown",
@@ -377,6 +522,42 @@ function withTemperatureSupport(
       promptCaching: "unknown"
     }
   }, true);
+}
+
+function withSampling(
+  value: GenerationSettings,
+  preset: ProviderRuntime["preset"],
+  sampling: SamplingSettingsV2
+): GenerationSettings {
+  return attachProviderRuntime({ ...value }, {
+    preset,
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 1_000,
+      firstTokenMs: 1_000,
+      idleMs: 1_000,
+      totalMs: 5_000
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    sampling,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  }, true);
+}
+
+function sampling(overrides: Partial<SamplingSettingsV2> = {}): SamplingSettingsV2 {
+  return {
+    ...EMPTY_SAMPLING_V2,
+    ...overrides,
+    stop: overrides.stop ?? EMPTY_SAMPLING_V2.stop,
+    logitBias: overrides.logitBias ?? EMPTY_SAMPLING_V2.logitBias
+  };
 }
 
 function settings(provider: GenerationSettings["provider"]): GenerationSettings {
@@ -408,6 +589,7 @@ function withEffort(
     },
     allowInsecureHttp: false,
     effort,
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",

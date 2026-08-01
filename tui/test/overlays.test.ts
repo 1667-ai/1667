@@ -26,6 +26,7 @@ import type {
   SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 
 describe("fuzzy matching", () => {
   test("orders contiguous early matches first", () => {
@@ -119,7 +120,8 @@ describe("settings text contract", () => {
       provider: "dry-run", baseUrl: "", model: "qwen3-32b", apiKeyEnv: null,
       temperature: 0.7, maxTokens: 2048, systemPrompt: "Continue.", contextWindow: 32768
     },
-    cachePolicy: "off"
+    cachePolicy: "off",
+    sampling: EMPTY_SAMPLING_V2
   } as const;
   test("round-trips through the editor format", () => {
     const parsed = parseSettings(serializeSettings(base), base);
