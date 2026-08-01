@@ -1,7 +1,12 @@
 import { graphemeCells } from "../cell-width.js";
 import { composerPosition } from "../composer-model.js";
 import type { HitRegion, HitTarget } from "../hit.js";
-import { scalarTrack, type SettingsScalar } from "../settings-scalar.js";
+import {
+  scalarInvalidReason,
+  scalarTrack,
+  typedScalarValue,
+  type SettingsScalar
+} from "../settings-scalar.js";
 import {
   settingsEditDisplayComposer,
   SETTINGS_SECTIONS,
@@ -111,7 +116,18 @@ function noteRows(
   options: SettingsFormOptions,
   rail: boolean
 ): SettingsFormRow[] {
-  if (index !== options.cursor || options.edit !== null) return [];
+  if (index !== options.cursor) return [];
+  // While a scalar is being typed, its own limit is the note: F-2 says the
+  // reason shows live and typing is never blocked.
+  const editing = options.edit !== null && row.scalar !== undefined
+    ? scalarInvalidReason(typedScalarValue(row.scalar, options.edit.composer.text)
+      ?? row.scalar)
+    : null;
+  if (options.edit !== null) {
+    return editing === null
+      ? []
+      : noteLines(index, { text: editing, role: "danger text" }, options, rail);
+  }
   const report = options.actionReport?.row === row.id ? options.actionReport : null;
   const note = row.invalid !== undefined
     ? { text: row.invalid, role: "danger text" as DisplayRole }
@@ -122,6 +138,15 @@ function noteRows(
       }
       : null;
   if (note === null) return [];
+  return noteLines(index, note, options, rail);
+}
+
+function noteLines(
+  index: number,
+  note: { text: string; role: DisplayRole },
+  options: SettingsFormOptions,
+  rail: boolean
+): SettingsFormRow[] {
   const inset = bodyInset(rail) + NOTE_LEAD + LABEL_WIDTH;
   const measure = Math.max(8, options.contentWidth - inset);
   return wrapText(note.text, [], measure).map((line): SettingsFormRow => ({
@@ -195,15 +220,28 @@ function fieldRow(
   const valueRoom = Math.max(1, bodyWidth - visibleWidth(lead) - labelWidth);
   if (edit !== null) {
     // C-07 editing state: `‹ ›` becomes `[ ]` and the block caret takes over.
+    // A scalar keeps its track through it, following what is being typed, so
+    // an out-of-range keystroke pins the handle instead of blanking the row.
+    const typed = row.scalar === undefined
+      ? null
+      : typedScalarValue(row.scalar, edit.composer.text);
+    const field = Math.min(
+      row.scalar === undefined ? valueRoom : SCALAR_CHIP_WIDTH,
+      valueRoom
+    );
     const displayComposer = settingsEditDisplayComposer(edit);
     line.push(
       raisedSegment("[", "chrome"),
       ...renderComposerInput(
         displayComposer, 0, composerPosition(displayComposer).column,
-        Math.max(1, valueRoom - 2), "streaming", false, ""
+        Math.max(1, field - 2), "streaming", false, ""
       ),
       raisedSegment("]", "chrome")
     );
+    const editTrack = typed === null || options.terminalWidth < TRACK_MIN_PANEL_WIDTH
+      ? null
+      : trackSegments(typed, Math.max(0, valueRoom - field));
+    if (editTrack !== null) line.push(raisedSegment(" "), ...editTrack.segments);
     return { line, target: { kind: "list", index }, overrides: [] };
   }
   const invalid = row.invalid !== undefined;

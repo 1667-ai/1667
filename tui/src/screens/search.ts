@@ -220,14 +220,15 @@ function renderFooter(
   });
 }
 
-/** Where the cursor is among the hits, in the breadcrumb's `¶` slot. */
+/** Where the cursor is among the hits, in the breadcrumb's `¶` slot. A group
+ *  header is a selectable row but not a hit, so it is counted as neither. */
 function searchCrumb(model: SearchRowModel, cursor: number): string {
-  if (model.selectableCount === 0) return "no hits";
+  const hits = model.rows.filter((row) => row.kind === "hit");
+  if (hits.length === 0) return "no hits";
   const row = selectedSearchRow(model, cursor);
-  const position = `hit ${boundedSearchCursor(cursor, model.selectableCount) + 1}/${model.selectableCount}`;
-  return row === null || row.kind === "group"
-    ? position
-    : `${hitReference(row)} · ${position}`;
+  if (row === null || row.kind === "group") return `${hits.length} hits`;
+  const at = hits.findIndex((hit) => hit.select === row.select);
+  return `${hitReference(row)} · hit ${at + 1}/${hits.length}`;
 }
 
 function searchKeys(search: SearchState, narrow: boolean): FrameLine {

@@ -30,7 +30,9 @@ export function modelPickerColumn(
   contentWidth: number
 ): ModelOptionColumn {
   const rows = modelPickerRows(overlay, picker.query);
-  const cursor = boundedModelPickerCursor(picker.cursor, rows.length);
+  // One stop past the choices: `use what you typed`. The reducer counts the
+  // same way, or the highlight and `↵` would disagree about the selection.
+  const cursor = boundedModelPickerCursor(picker.cursor, rows.length + 1);
   const nameWidth = Math.min(32, Math.max(8, Math.floor(contentWidth / 2)));
   const filter: FrameLine = [
     raisedSegment("  › model: ", "accent · deep"),

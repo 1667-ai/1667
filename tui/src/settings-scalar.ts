@@ -134,6 +134,24 @@ export function scalarChipText(scalar: SettingsScalar): string {
     : Math.round(scalar.value).toLocaleString("en-US");
 }
 
+/** The same scalar carrying whatever has been typed into its field, so C-08's
+ *  typing state keeps its live track and its limit: "it updates live as you
+ *  type", and "out of range pins the handle to the wall … it never clamps your
+ *  keystrokes". Returns null while the text is not a number the row accepts. */
+export function typedScalarValue(
+  scalar: SettingsScalar,
+  text: string
+): SettingsScalar | null {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return scalar.sentinel === null ? null : { ...scalar, value: null };
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  if (scalar.decimals === 0 && !Number.isInteger(value)) return null;
+  return { ...scalar, value };
+}
+
 /** Why the current value is refused, or null while it is fine. The reason is
  *  what F-2 shows in the hint slot; it never blocks a keystroke. */
 export function scalarInvalidReason(scalar: SettingsScalar): string | null {

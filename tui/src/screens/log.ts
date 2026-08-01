@@ -135,7 +135,7 @@ function renderBreadcrumb(
     segment(" · ", "chrome"),
     segment("x clears", "chrome", { kind: "action", action: "clear-log" }),
     segment(" · ", "chrome"),
-    segment("esc closes", "focus / accent", { kind: "action", action: "cancel" })
+    segment("! or esc closes", "focus / accent", { kind: "action", action: "cancel" })
   ];
   return renderSurfaceBreadcrumb({
     mode: "LOG",

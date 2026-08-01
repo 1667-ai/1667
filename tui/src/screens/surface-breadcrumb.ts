@@ -27,17 +27,27 @@ export interface SurfaceBreadcrumbOptions {
   identityRole: DisplayRole;
   /** Where you are inside it — the `¶ n/m` slot. */
   crumb: string;
-  /** The keyline, already built. It is reserved before identity is spent. */
+  /** The keyline. The breadcrumb's own fields are reserved first: C-02 says
+   *  the tether must never be dropped, so a keyline too wide for what is left
+   *  yields its cells rather than taking the story's name with it. */
   keys: FrameLine;
   width: number;
 }
+
+/** Cells the breadcrumb keeps for itself before the keyline may claim any:
+ *  the mode cell, the scope, a short title and the position. */
+const TETHER_MINIMUM = 34;
 
 export function renderSurfaceBreadcrumb(options: SurfaceBreadcrumbOptions): FrameLine {
   const { mode, scope, title, identity, identityRole, crumb, keys, width } = options;
   const modeCell = ` ${mode} `;
   const scopeCell = scope.length === 0 ? " " : ` ${scope}  `;
   const keysWidth = lineWidth(keys);
-  const available = Math.max(0, width - keysWidth - 1);
+  const shownKeys = keysWidth + TETHER_MINIMUM + 1 <= width
+    ? keys
+    : fitLine(keys, Math.max(0, width - TETHER_MINIMUM - 1));
+  const shownKeysWidth = lineWidth(shownKeys);
+  const available = Math.max(0, width - shownKeysWidth - 1);
   const separators = identity.length === 0 ? 1 : 2;
   const fixed = visibleWidth(modeCell) + visibleWidth(scopeCell)
     + visibleWidth(" · ") * separators + visibleWidth(crumb);
@@ -60,8 +70,8 @@ export function renderSurfaceBreadcrumb(options: SurfaceBreadcrumbOptions): Fram
     segment(` · ${crumb}`, "chrome")
   ];
   const shownLeft = fitLine(left, available);
-  const gap = Math.max(1, width - lineWidth(shownLeft) - keysWidth);
-  return [...shownLeft, segment(" ".repeat(gap), "chrome"), ...keys];
+  const gap = Math.max(1, width - lineWidth(shownLeft) - shownKeysWidth);
+  return [...shownLeft, segment(" ".repeat(gap), "chrome"), ...shownKeys];
 }
 
 /** Spend every identity cell. A short title or line yields its unused share to

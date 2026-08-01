@@ -259,3 +259,21 @@ describe("the settings row model stays one list", () => {
       .toBe(true);
   });
 });
+
+describe("C-08 keeps its track through the typing state", () => {
+  test("an out-of-range keystroke pins the handle and states the limit", async () => {
+    const { state, press } = settingsHarness();
+    await openSettings(press);
+    await selectRow(press, state, "temperature");
+    await press(key("return"));
+    for (const character of "9") await press(key(character, { sequence: character }));
+    const rendered = screen(state);
+
+    // The chip opens to a typed field, the track follows what is typed, and
+    // the wall pins the handle rather than clamping the keystroke.
+    // `‹ ›` became `[ ]`, and the typed value is what the track follows.
+    expect(rendered).toContain("[9");
+    expect(rendered).toContain("▌");
+    expect(rendered).toContain("· max is 2.00");
+  });
+});

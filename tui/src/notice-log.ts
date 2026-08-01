@@ -74,15 +74,23 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
 export function recordSessionNotices(state: {
   toast: string | null;
   connection: Parameters<typeof connectionNoticeText>[0];
-  settings: { result: { message: string } | null } | null;
+  settings: {
+    result: { message: string } | null;
+    sampling: { result: string | null } | null;
+  } | null;
   notices: NoticeLog;
-  now: number;
-}): void {
+}, now = Date.now()): void {
   recordNotices(state.notices, {
     toast: state.toast,
     banner: connectionNoticeText(state.connection),
-    check: state.settings?.result?.message ?? null,
-    now: state.now
+    // Settings speaks through two result slots: the panel's own check, and
+    // the nested sampling editor's. Both are shown to the writer, so both are
+    // recorded — a message that vanishes when its panel closes is exactly
+    // what C-37 exists to stop.
+    check: state.settings?.result?.message
+      ?? state.settings?.sampling?.result
+      ?? null,
+    now
   });
 }
 

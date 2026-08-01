@@ -124,6 +124,12 @@ export async function settingsOverlayAction(
   context: ActionContext
 ): Promise<boolean> {
   const overlay = state.settings!;
+  // C-18: an action's in-place report keeps reporting "until the next
+  // keypress". The wrapped block below the fields is a C-32 result line and
+  // outlives it; only the row attribution is bounded here.
+  if (resolved.action !== "check" && resolved.action !== "detect-context") {
+    overlay.resultRow = null;
+  }
   // A profile delete requires two consecutive delete commands. Any intervening
   // action starts a different interaction, so it must not retain consent.
   // Cancel handles its own armed state below so Esc remains a harmless abort.

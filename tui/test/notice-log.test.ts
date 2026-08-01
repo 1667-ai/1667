@@ -52,7 +52,8 @@ describe("C-37 · the session log", () => {
     expect(rendered).toContain("━━ log ━ 1 notice this session");
     expect(rendered).toContain(raised!);
     // C-37's keys, in the keyline beside the breadcrumb (C-06).
-    expect(rendered).toContain("↑↓ move · ↵ copies · x clears · esc closes");
+    // C-37 requires every close key in the keyline, `!` included.
+    expect(rendered).toContain("↑↓ move · ↵ copies · x clears · ! or esc closes");
   });
 
   test("x clears the log and esc returns to the page", async () => {

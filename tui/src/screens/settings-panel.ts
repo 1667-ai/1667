@@ -92,7 +92,7 @@ export function renderSettingsPanel(
           ? paintedRowOffset(painted, boundedSettingsCursor(overlay.cursor))
           : boundedModelPickerCursor(
             overlay.modelPicker!.cursor,
-            modelPickerRows(overlay, overlay.modelPicker!.query).length
+            modelPickerRows(overlay, overlay.modelPicker!.query).length + 1
           ),
         Math.max(1, contentCapacity - fixedRows - (picker === null ? 0 : 1))
       );

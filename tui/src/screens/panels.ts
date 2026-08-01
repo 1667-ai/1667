@@ -370,7 +370,7 @@ function renderCommands(
       ]);
     }
     if (tags.length === 0) {
-      content.push([raisedSegment("  no tags yet · t names a line", "prose · dim")]);
+      content.push([raisedSegment("  no tags yet · esc, then t names a line", "prose · dim")]);
       targets.push(null);
     }
     return placePanel(base, `tag manager${panelRange(tags.length, window)}`, content,

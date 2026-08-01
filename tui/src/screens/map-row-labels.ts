@@ -8,8 +8,11 @@ export { tagGlyph, tagRole };
 export function formatMapWordsBare(words: number): string {
   if (words < 1_000) return words.toLocaleString("en-US");
   // Decision 21 pins this column at six cells, so the scale steps up rather
-  // than letting the number outgrow the grid it is compared in.
-  if (words < 1_000_000) return `${(words / 1_000).toFixed(1)}k`;
+  // than letting the number outgrow the grid it is compared in. The step is
+  // decided on the *rounded* figure: 999,999 rounds to `1000.0k`, which is
+  // seven cells, and is `1.0M`.
+  const thousands = (words / 1_000).toFixed(1);
+  if (Number(thousands) < 1_000) return `${thousands}k`;
   return `${(words / 1_000_000).toFixed(1)}M`;
 }
 
