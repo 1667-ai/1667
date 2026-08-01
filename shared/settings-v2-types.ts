@@ -318,3 +318,9 @@ export interface SettingsMutationResult {
   readonly pendingSettingsRevision: number | null;
   readonly activationOutcome: SettingsActivationOutcomeV2 | null;
 }
+
+/** What a fresh profile ships with. The C-08 tracks mark these as the default
+ *  and the sentinel opens on them, so they have to be the same two numbers the
+ *  initial settings document carries — a test holds the two together. */
+export const DEFAULT_PROFILE_TEMPERATURE = 0.8;
+export const DEFAULT_PROFILE_MAX_OUTPUT_TOKENS = 2_048;

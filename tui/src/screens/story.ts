@@ -483,7 +483,11 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     // first character rather than clipping to one row, because the tail of a
     // toast is the undo key. Everything else still gets exactly one line.
     if (state.toast !== null) {
-      const wrapped = wrapFeedback(state.toast, hintBudget, TOAST_ROW_CAP, "! full");
+      // Continuation rows hang two cells in under the message's first
+      // character, so the wrap measures against what they actually get.
+      const wrapped = wrapFeedback(
+        state.toast, Math.max(8, hintBudget - TOAST_HANGING_INDENT), TOAST_ROW_CAP, "! full"
+      );
       return {
         lines: wrapped.rows.map((row, index): FrameLine => [
           segment(indent),
@@ -522,6 +526,8 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
  * cells and the hint line is wider, but the cap is the message's, not the
  * measure's. Past it the body truncates and `!` opens the whole thing. */
 const TOAST_ROW_CAP = 4;
+/** Decision 24's hanging indent, under the message's first character. */
+const TOAST_HANGING_INDENT = 2;
 
 /** The contextual NAV hint under the story: what this focus can do next.
  *

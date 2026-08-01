@@ -118,15 +118,15 @@ function noteRows(
 ): SettingsFormRow[] {
   if (index !== options.cursor) return [];
   // While a scalar is being typed, its own limit is the note: F-2 says the
-  // reason shows live and typing is never blocked.
-  const editing = options.edit !== null && row.scalar !== undefined
-    ? scalarInvalidReason(typedScalarValue(row.scalar, options.edit.composer.text)
-      ?? row.scalar)
-    : null;
+  // reason shows live and typing is never blocked. Text the row cannot read at
+  // all says so, rather than reporting the last value it could.
   if (options.edit !== null) {
-    return editing === null
+    if (row.scalar === undefined) return [];
+    const typed = typedScalarValue(row.scalar, options.edit.composer.text);
+    const reason = "refused" in typed ? typed.refused : scalarInvalidReason(typed.scalar);
+    return reason === null
       ? []
-      : noteLines(index, { text: editing, role: "danger text" }, options, rail);
+      : noteLines(index, { text: reason, role: "danger text" }, options, rail);
   }
   const report = options.actionReport?.row === row.id ? options.actionReport : null;
   const note = row.invalid !== undefined
@@ -222,9 +222,10 @@ function fieldRow(
     // C-07 editing state: `‹ ›` becomes `[ ]` and the block caret takes over.
     // A scalar keeps its track through it, following what is being typed, so
     // an out-of-range keystroke pins the handle instead of blanking the row.
-    const typed = row.scalar === undefined
+    const parsed = row.scalar === undefined
       ? null
       : typedScalarValue(row.scalar, edit.composer.text);
+    const typed = parsed !== null && "scalar" in parsed ? parsed.scalar : null;
     const field = Math.min(
       row.scalar === undefined ? valueRoom : SCALAR_CHIP_WIDTH,
       valueRoom

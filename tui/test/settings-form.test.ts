@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import {
+  DEFAULT_PROFILE_MAX_OUTPUT_TOKENS,
+  DEFAULT_PROFILE_TEMPERATURE
+} from "../../shared/settings-v2-types.js";
+import { INITIAL_SETTINGS_DOCUMENT_V2_TEXT } from "../../server/settings-v2-initial-vectors.js";
 import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
 import {
   initialSettingsOverlay,
@@ -97,7 +102,9 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(screen(state)).toContain("◇ ");
 
     await press(key("right"));
-    expect(state.settings!.draft.generation.temperature).toBe(0.9);
+    // The sentinel opens on what a fresh profile ships with.
+    expect(state.settings!.draft.generation.temperature)
+      .toBe(DEFAULT_PROFILE_TEMPERATURE);
   });
 
   test("a value past the wall pins the handle and states the limit", async () => {
@@ -275,5 +282,18 @@ describe("C-08 keeps its track through the typing state", () => {
     expect(rendered).toContain("[9");
     expect(rendered).toContain("▌");
     expect(rendered).toContain("· max is 2.00");
+  });
+});
+
+describe("the shipped profile defaults are one set of numbers", () => {
+  test("the C-08 ticks mark what a fresh profile actually carries", () => {
+    const document = JSON.parse(INITIAL_SETTINGS_DOCUMENT_V2_TEXT) as {
+      profiles: Record<string, { temperature: number; maxOutputTokens: number }>;
+    };
+    const profile = Object.values(document.profiles)[0]!;
+    // The tick says "this is the default". It has to be the same number the
+    // store initializes a profile with, or it points at nothing.
+    expect(profile.temperature).toBe(DEFAULT_PROFILE_TEMPERATURE);
+    expect(profile.maxOutputTokens).toBe(DEFAULT_PROFILE_MAX_OUTPUT_TOKENS);
   });
 });

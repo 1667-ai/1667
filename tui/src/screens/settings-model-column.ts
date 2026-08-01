@@ -9,6 +9,7 @@ import { raisedSegment } from "./overlay.js";
 import type { SettingsFormRow } from "./settings-form.js";
 import {
   truncate,
+  truncateTail,
   TYPING_CARET,
   visibleWidth,
   type FrameLine
@@ -34,11 +35,17 @@ export function modelPickerColumn(
   // same way, or the highlight and `↵` would disagree about the selection.
   const cursor = boundedModelPickerCursor(picker.cursor, rows.length + 1);
   const nameWidth = Math.min(32, Math.max(8, Math.floor(contentWidth / 2)));
+  const prefix = "  › model: ";
+  const count = `  ${rows.length} of ${settingsModelChoices(overlay).length}`;
+  // C-17 never lets the count off the row, and the caret has to stay with the
+  // last thing typed, so the query is what yields — from its head.
+  const queryWidth = Math.max(0,
+    contentWidth - visibleWidth(prefix) - visibleWidth(count) - 1);
   const filter: FrameLine = [
-    raisedSegment("  › model: ", "accent · deep"),
-    raisedSegment(picker.query, "streaming"),
+    raisedSegment(prefix, "accent · deep"),
+    raisedSegment(truncateTail(picker.query, queryWidth), "streaming"),
     raisedSegment(TYPING_CARET, "focus / accent"),
-    raisedSegment(`  ${rows.length} of ${settingsModelChoices(overlay).length}`, "chrome")
+    raisedSegment(count, "chrome")
   ];
   const painted: SettingsFormRow[] = [];
   for (const [index, choice] of rows.entries()) {

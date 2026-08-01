@@ -1,3 +1,7 @@
+import {
+  DEFAULT_PROFILE_MAX_OUTPUT_TOKENS,
+  DEFAULT_PROFILE_TEMPERATURE
+} from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import type { SettingsRowId } from "./state.js";
 
@@ -49,11 +53,10 @@ export type ScalarMagnitude = "step" | "coarse" | "end";
  *  the writer typed. */
 const CONTEXT_WINDOW_CEILING = 1_000_000;
 
-/** Where the `┊` tick sits: the value the app ships with, so the writer can
- *  see at a glance how far from it they have moved. `server/settings.ts` holds
- *  the same two numbers as the store's defaults. */
-const DEFAULT_TEMPERATURE = 0.9;
-const DEFAULT_MAX_TOKENS = 1_024;
+/** Where the `┊` tick sits: the value a fresh profile ships with, so the
+ *  writer can see at a glance how far from it they have moved. */
+const DEFAULT_TEMPERATURE = DEFAULT_PROFILE_TEMPERATURE;
+const DEFAULT_MAX_TOKENS = DEFAULT_PROFILE_MAX_OUTPUT_TOKENS;
 
 export function settingsScalar(
   row: SettingsScalarRow,
@@ -141,15 +144,19 @@ export function scalarChipText(scalar: SettingsScalar): string {
 export function typedScalarValue(
   scalar: SettingsScalar,
   text: string
-): SettingsScalar | null {
+): { scalar: SettingsScalar } | { refused: string } {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
-    return scalar.sentinel === null ? null : { ...scalar, value: null };
+    return scalar.sentinel === null
+      ? { refused: "this row needs a number" }
+      : { scalar: { ...scalar, value: null } };
   }
   const value = Number(trimmed);
-  if (!Number.isFinite(value)) return null;
-  if (scalar.decimals === 0 && !Number.isInteger(value)) return null;
-  return { ...scalar, value };
+  if (!Number.isFinite(value)) return { refused: "not a number" };
+  if (scalar.decimals === 0 && !Number.isInteger(value)) {
+    return { refused: "whole numbers only" };
+  }
+  return { scalar: { ...scalar, value } };
 }
 
 /** Why the current value is refused, or null while it is fine. The reason is

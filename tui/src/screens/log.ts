@@ -88,12 +88,17 @@ function noticeRows(notice: SessionNotice, focused: boolean, width: number): Fra
     : [segment(" ".repeat(BODY_COLUMN)), segment(row, "prose")]);
 }
 
-/** Keep the focused notice on screen without moving it further than it has to. */
+/** Keep the focused notice on screen without moving it further than it has to.
+ *
+ *  A notice taller than the surface starts at its own first row: this is the
+ *  channel with no cap, so losing the explanation to a viewport that opened on
+ *  the tail would defeat the point of it. */
 function windowStart(log: NoticeLog, cursor: number, bodyHeight: number, width: number): number {
   let row = 0;
   for (const [index, notice] of log.entries.entries()) {
     const rows = noticeRows(notice, index === cursor, width).length;
     if (index === cursor) {
+      if (rows >= bodyHeight) return row;
       const end = row + rows;
       return end <= bodyHeight ? 0 : Math.max(0, end - bodyHeight);
     }
