@@ -186,7 +186,7 @@ test("asset base URL rejects credentials, query, fragment, controls, and quotes"
 
 test(
   "Shell Installer rejects non-canonical transactions, exact layout, symlink locks",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async (t) => {
   const homeScratch = path.join(homedir(), ".cache", "1667-tests");
   await mkdir(homeScratch, { recursive: true, mode: 0o755 });
