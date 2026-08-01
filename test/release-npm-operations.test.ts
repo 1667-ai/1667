@@ -99,12 +99,20 @@ test("operation orchestration binds journal, writer, writes, and terminal", asyn
       registry.authorizeWrite = authorizeWrite;
       return registry;
     },
-    assertProcessQuiescent: () => {}
+    assertProcessQuiescent: () => {},
+    // The GitHub release is marked after the lease completes, so npm stays the
+    // authority for what the channel contains.
+    markGitHubRelease: async (version, repository) => {
+      assert.equal(version, VERSION);
+      assert.equal(repository, "1667-ai/1667");
+      calls.push("github-release");
+    }
   });
   assert.deepEqual(calls, [
     "writer", ...PROMOTION_ORDER.flatMap(() => ["access", "verify"]),
     "acknowledge-success",
-    "complete"
+    "complete",
+    "github-release"
   ]);
 });
 test("promotion verifies all packages before changing tags", async () => {
