@@ -1,5 +1,5 @@
 import { ServiceError } from "./errors.js";
-import { MAX_TOTAL_CHARS } from "./import-st.js";
+import { MAX_TOTAL_CHARS } from "./import-model.js";
 
 export const MAX_NOVELAI_RECORDS = 50_000;
 const MAX_DECODE_TOKENS = MAX_NOVELAI_RECORDS * 10;

@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { MAX_IMPORT_BYTES } from "./import-st.js";
+import { MAX_IMPORT_BYTES } from "./import-model.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
 import { StoryService } from "./story-service.js";

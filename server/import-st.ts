@@ -1,14 +1,18 @@
-import { randomUUID } from "node:crypto";
 import { ServiceError as HttpError } from "./errors.js";
-import type { ChapterBreak, Story, StoryNode } from "../shared/types.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
-export { MAX_IMPORT_BYTES } from "../shared/types.js";
-
-export interface ImportedPart {
-  instruction: string;
-  text: string;
-  createdAt: string;
-}
+import {
+  MAX_PARTS,
+  MAX_TOTAL_CHARS,
+  type ImportedPart
+} from "./import-model.js";
+export {
+  MAX_IMPORT_BYTES,
+  MAX_PARTS,
+  MAX_TOTAL_CHARS,
+  storyFromImport,
+  type GenericImport,
+  type ImportedPart
+} from "./import-model.js";
 
 export interface SillyTavernImport {
   title: string;
@@ -19,20 +23,11 @@ export interface SillyTavernImport {
   droppedTrailingUserMessages: number;
 }
 
-export interface GenericImport {
-  title: string;
-  parts: ImportedPart[];
-  chapterBreaks?: readonly { parentPartIndex: number; title: string }[];
-}
-
 // A byte cap bounds the *input*, not the work: 20MB of one-word lines is millions
 // of records, and a long name times many {{char}} macros expands far past the input
 // size. Every dimension that can amplify gets its own budget.
 const MAX_RECORDS = 50_000;
-export const MAX_PARTS = 5_000;
 export const MAX_NAME = 200;
-/** Cumulative post-substitution characters — the story we would write to disk. */
-export const MAX_TOTAL_CHARS = 4_000_000;
 
 /** One pattern, one pass. Two sequential replaces would let a name containing
  *  "{{char}}" inject macros that the next pass expands again — a small file could
@@ -123,46 +118,6 @@ export function partsFromSillyTavernJsonl(jsonl: string): SillyTavernImport {
     title: characterName.length > 0 ? `${characterName} (imported)` : "Imported chat",
     parts,
     droppedTrailingUserMessages: pendingUser.length
-  };
-}
-
-export function storyFromImport(
-  imported: GenericImport,
-  ids: {
-    storyId?: string;
-    nodeId?: (index: number) => string;
-    chapterBreakId?: (index: number) => string;
-  } = {}
-): Story {
-  const now = new Date().toISOString();
-  const nodes: StoryNode[] = imported.parts.map((part, index) => ({
-    id: ids.nodeId?.(index) ?? randomUUID(),
-    parentId: index === 0 ? null : "",
-    model: "imported",
-    ...part,
-    activeChildId: null
-  }));
-  for (let index = 0; index < nodes.length; index += 1) {
-    if (index > 0) nodes[index]!.parentId = nodes[index - 1]!.id;
-    nodes[index]!.activeChildId = nodes[index + 1]?.id ?? null;
-  }
-  const chapterBreaks: ChapterBreak[] = (imported.chapterBreaks ?? []).map((b, index) => ({
-    id: ids.chapterBreakId?.(index) ?? randomUUID(),
-    parentPartId: nodes[b.parentPartIndex]!.id,
-    title: b.title,
-    createdAt: now
-  }));
-  return {
-    id: ids.storyId ?? randomUUID(),
-    title: imported.title,
-    createdAt: now,
-    updatedAt: now,
-    facts: [],
-    nodes,
-    activeRootId: nodes[0]?.id ?? null,
-    tags: [],
-    recentNodeIds: [],
-    chapterBreaks
   };
 }
 

@@ -42,10 +42,10 @@ import { ServiceError } from "./errors.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import {
   MAX_IMPORT_BYTES,
-  partsFromSillyTavernJsonl,
   storyFromImport,
   type GenericImport
-} from "./import-st.js";
+} from "./import-model.js";
+import { partsFromSillyTavernJsonl } from "./import-st.js";
 import { partsFromMarkdown } from "./import-md.js";
 import { partsFromNovelAiStory } from "./import-nai.js";
 import type { CreationMethod } from "./story-creation-record.js";

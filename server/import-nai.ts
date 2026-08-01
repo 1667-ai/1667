@@ -1,19 +1,17 @@
 import { ServiceError } from "./errors.js";
 import {
+  MAX_IMPORT_BYTES,
   MAX_PARTS,
   MAX_TOTAL_CHARS,
   type GenericImport,
   type ImportedPart
-} from "./import-st.js";
+} from "./import-model.js";
 import {
   MAX_NOVELAI_RECORDS,
   partsFromNovelAiDocument
 } from "./import-nai-document.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
-import {
-  MAX_IMPORT_BYTES,
-  MAX_STORED_TITLE_CHARS
-} from "../shared/types.js";
+import { MAX_STORED_TITLE_CHARS } from "../shared/types.js";
 import {
   hasUnpairedSurrogate,
   sliceUnicodeScalarPrefix
