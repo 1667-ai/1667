@@ -87,7 +87,7 @@ import {
   apiHttpErrorFromPayload
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
-import { encodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
+import { importMethods } from "./api-import-methods.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -821,64 +821,7 @@ export function createApi(
       undefined,
       signal
     ),
-    importSillyTavern: async (jsonl) =>
-      await runAbsentImportMutation(
-        "importSillyTavern",
-        jsonl,
-        "/api/import/sillytavern",
-        "text/plain; charset=utf-8",
-        jsonl,
-        (value) => versions.rememberPayload(decodeStoryResponse(value))
-    ),
-    importMarkdown: async (markdown, defaultTitle) => {
-      const payloadBody = encodeMarkdownHttpBody(markdown, defaultTitle);
-      return await runAbsentImportMutation(
-        "importMarkdown",
-        payloadBody,
-        "/api/import/markdown",
-        "application/vnd.1667.markdown; charset=utf-8",
-        payloadBody,
-        (value) => versions.rememberPayload(decodeStoryResponse(value))
-      );
-    },
-    importNovelAI: async (storyContainerJson) =>
-      await runAbsentImportMutation(
-        "importNovelAI",
-        storyContainerJson,
-        "/api/import/novelai",
-        "application/json; charset=utf-8",
-        storyContainerJson,
-        (value) => rememberNovelAiStoryImportResult(
-          decodeNovelAiStoryImportResult(value),
-          versions
-        )
-    ),
-    importScenario: async (jsonText) =>
-      await runAbsentImportMutation(
-        "importScenario",
-        jsonText,
-        "/api/import/scenario",
-        "application/json; charset=utf-8",
-        jsonText,
-        (value) => rememberNovelAiStoryImportResult(
-          decodeNovelAiStoryImportResult(value),
-          versions
-        )
-    ),
-    importLorebook: async (storyId, archiveBytes) => {
-      const response = await request(
-        "POST",
-        `/api/stories/${storyId}/import-lorebook`,
-        decodeLorebookImportResult,
-        archiveBytes,
-        HTTP_REQUEST_TIMEOUT_MS,
-        await expectedVersion(storyId)
-      );
-
-      versions.rememberPayload(response.payload);
-      return response;
-    },
-
+    ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(
         storyId,
@@ -916,55 +859,8 @@ export function createApi(
   };
 }
 
-function decodeNovelAiStoryImportResult(value: unknown): NovelAiStoryImportResult {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("The server returned an invalid NovelAI import result.");
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.fidelity)
-    || !record.fidelity.every((item) => typeof item === "string")) {
-    throw new Error("The server returned an invalid NovelAI import fidelity report.");
-  }
-  return {
-    payload: decodeStoryResponse(record.payload),
-    fidelity: record.fidelity
-  };
-}
-
 /** The callers read `.facts` straight off this, so a bad shape fails here at
  * the boundary rather than at a `.filter` deep inside a panel. */
-function decodeLorebookImportResult(
-  value: unknown
-): { payload: StoryPayload; importResult: LorebookImport } {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("The server returned an invalid lorebook import result.");
-  }
-  const record = value as Record<string, unknown>;
-  const result = record.importResult;
-  if (result === null || typeof result !== "object" || Array.isArray(result)) {
-    throw new Error("The server returned an invalid lorebook import result.");
-  }
-  const importResult = result as Record<string, unknown>;
-  if (!Array.isArray(importResult.facts)) {
-    throw new Error("The server returned an invalid lorebook import fact list.");
-  }
-  if (!Array.isArray(importResult.fidelity)
-    || !importResult.fidelity.every((item) => typeof item === "string")) {
-    throw new Error("The server returned an invalid lorebook import fidelity report.");
-  }
-  return {
-    payload: decodeStoryResponse(record.payload),
-    importResult: importResult as unknown as LorebookImport
-  };
-}
-
-function rememberNovelAiStoryImportResult(
-  result: NovelAiStoryImportResult,
-  versions: HttpStoryVersions
-): NovelAiStoryImportResult {
-  versions.rememberPayload(result.payload);
-  return result;
-}
 
 async function settleAbsentMutationFailure(
   intent: HttpMutationIntentClaim,

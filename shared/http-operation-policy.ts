@@ -68,7 +68,6 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   createSummaryTake: "generation"
 } as const satisfies Record<WorkerMethod, HttpOperationLifetime>;
 
-
 /** Frozen HTTP route-to-command policy shared by reservation and clients. */
 export function resolveHttpApiRoute(
   httpMethodInput: string,

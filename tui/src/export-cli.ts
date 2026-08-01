@@ -163,7 +163,6 @@ function archiveFormat(value: string): NovelAiExportFormat {
   throw new Error(`unknown export format: ${value}`);
 }
 
-
 function compareStoriesForExport(
   left: { readonly updatedAt: string; readonly id: string },
   right: { readonly updatedAt: string; readonly id: string }

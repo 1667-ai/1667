@@ -227,7 +227,6 @@ export function normalizeFactText(value: string): string {
   return value.normalize("NFC").toLowerCase();
 }
 
-
 function suffixStart(value: string, start: number): number {
   const unit = value.charCodeAt(start);
   return isLowSurrogate(unit) ? start + 1 : start;

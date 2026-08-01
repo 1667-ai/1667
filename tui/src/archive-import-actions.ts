@@ -46,7 +46,6 @@ export async function archiveImportAction(
   return true;
 }
 
-
 async function applyArchiveImport(
   overlay: ArchiveImportPrompt,
   state: RuntimeState,
@@ -133,7 +132,4 @@ function archiveExtension(value: string): ".lorebook" | ".scenario" | ".story" |
   if (lower.endsWith(".story")) return ".story";
   return null;
 }
-
-
-
 

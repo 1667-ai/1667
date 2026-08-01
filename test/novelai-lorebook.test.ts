@@ -114,7 +114,6 @@ test("fidelity report text for a Lorebook that fires every counter at once asser
   const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; search range, bias groups, and advanced conditions omitted";
   assert.equal(formattedReport, expected);
 
-
 });
 
 test("oversized entry is cut on a paragraph boundary, never between surrogates, and createFacts accepts it", () => {

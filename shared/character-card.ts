@@ -129,7 +129,6 @@ function parseJsonCardText(text: string): CharacterCardCore {
   return normalizeCard(value);
 }
 
-
 function normalizeCard(value: unknown): CharacterCardCore {
   if (!isRecord(value)) throw new Error("Character card JSON must be an object.");
   let version: 1 | 2;

@@ -243,7 +243,6 @@ export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook"
 ] as const satisfies readonly MutatingWorkerMethod[];
 
-
 export type LocalDurabilityMutationMethod =
   typeof LOCAL_DURABILITY_MUTATION_METHODS[number];
 
