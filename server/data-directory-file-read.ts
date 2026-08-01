@@ -85,15 +85,14 @@ export async function readBoundedMutableAuthorityFile(
   // transient second link is one more shape of "replacement in flight": it is
   // retried, while a link count that never settles still fails closed on the
   // final attempt.
-  const attempts = 10;
+  const attempts = 20;
   const replacementInFlight = (info: Stats, attempt: number): boolean =>
     attempt < attempts - 1 && info.isFile() && Number(info.nlink) === 2;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     // A replacement window is not instantaneous: under I/O pressure the
-    // renamed inode can carry both names for tens of milliseconds. The
-    // growing pause gives a stalled writer roughly half a second in total
-    // before the final attempt still fails closed on a link count that
-    // never settles.
+    // renamed inode can carry both names for hundreds of milliseconds. The
+    // growing pause gives a stalled writer roughly two seconds in total before
+    // the final attempt still fails closed on a link count that never settles.
     if (attempt > 0) {
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(2 ** attempt, 128)));

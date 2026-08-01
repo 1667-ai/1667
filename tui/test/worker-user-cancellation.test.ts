@@ -20,19 +20,18 @@ import { FakeWorker, waitForRequest } from "./fixtures/fake-worker.js";
 // in-memory outboxes below can hold that window near zero because their enqueue
 // is a no-op, and they pick single-digit grace values accordingly.
 //
-// The one test that uses this cannot: CommittedHangingPublicationOutbox writes
-// the record to a temp directory for real, because the assertions that follow
-// read that directory back through a second transport, and it hangs on that
-// same first write. A loaded CI runner has taken over 50ms to land it, firing
-// the deadline before the test reached cancel.abort() and rejecting a mutation
-// the test expects to resolve. This grace has to outrun a contended
-// filesystem, not merely a fast one.
-//
-// It is deliberately not shared with the other test on that fixture. A long
-// grace is not free: where a test waits on a control message rather than on
-// the fence, stretching the deadline pushes the message past what the test
-// will wait for.
+// The tests that use this write the outbox to a temp directory for real, because
+// their assertions read that directory back through another transport. A
+// loaded CI runner can take more than the in-memory grace to land the write.
+// Keep the product grace below Bun's five-second default test timeout. Give the
+// observer separate scheduler headroom without changing product behavior.
 const FILE_BACKED_GRACE_MS = 2_000;
+const FILE_BACKED_CONTROL_WAIT_MS =
+  FILE_BACKED_GRACE_MS + platformPerformanceBudget(500);
+const FILE_BACKED_TEST_TIMEOUT_MS =
+  FILE_BACKED_GRACE_MS
+  + FILE_BACKED_CONTROL_WAIT_MS
+  + platformPerformanceBudget(2_000);
 
 test("caller cancellation hard-fences a mutation that never reaches terminal state", async () => {
   const worker = new FakeWorker();
@@ -275,12 +274,7 @@ test("live cancellation bypasses another mutation's stalled publication", async 
     const outbox = new CommittedHangingPublicationOutbox(dir, 2);
     await outbox.init();
     const worker = new FakeWorker();
-    // Not FILE_BACKED_GRACE_MS. This test cancels a mutation that already
-    // published. A two-second grace delays its cancel message past the bounded
-    // control-message wait. The race that constant exists to fix does not apply
-    // here: hangOnEnqueue is 2, so the cancelled mutation's own publication
-    // settles on the first write and never has a deadline running against it.
-    const transport = await startTransport(worker, outbox, 200);
+    const transport = await startTransport(worker, outbox, FILE_BACKED_GRACE_MS);
     const cancel = new AbortController();
     const firstError = rejection(transport.call(
       "createStory",
@@ -302,7 +296,12 @@ test("live cancellation bypasses another mutation's stalled publication", async 
 
     await outbox.committed;
     cancel.abort();
-    await waitForControlMessage(worker, "cancel", firstRequest.id);
+    await waitForControlMessage(
+      worker,
+      "cancel",
+      firstRequest.id,
+      FILE_BACKED_CONTROL_WAIT_MS
+    );
     expect(await outbox.listCancellationMarkers()).toContain(firstMutationId);
     const secondMutationId = (await outbox.list())
       .find((record) => record.mutationId !== firstMutationId)?.mutationId;
@@ -335,7 +334,7 @@ test("live cancellation bypasses another mutation's stalled publication", async 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-});
+}, FILE_BACKED_TEST_TIMEOUT_MS);
 
 test("local durability mutations cancel without any durable outbox transition", async () => {
   const worker = new FakeWorker(true);
@@ -488,9 +487,10 @@ function hasControlMessage(
 async function waitForControlMessage(
   worker: FakeWorker,
   type: "cancel" | "terminalAck",
-  id: WorkerOperationId
+  id: WorkerOperationId,
+  timeoutMs = platformPerformanceBudget(500)
 ): Promise<MainToWorkerMessage> {
-  const deadline = performance.now() + platformPerformanceBudget(500);
+  const deadline = performance.now() + timeoutMs;
   do {
     const message = worker.messages.find((candidate) =>
       candidate.type === type && sameWorkerOperationId(candidate.id, id)
