@@ -1,4 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
+import type { SettingsRoutePurpose } from "../../shared/settings-v2-types.js";
+import type { StorySummary } from "../../shared/types.js";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
 import {
   editorInsertionPolicy,
@@ -22,7 +24,6 @@ import type {
   SettingsRowId
 } from "./state.js";
 import { setLibraryQuery } from "./library-model.js";
-import type { StorySummary } from "../../shared/types.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -43,7 +44,7 @@ export type KeyAction =
   | "open-keys" | "prune" | "tag" | "delete-tag"
   | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply"
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
-  | "open-selected" | "new-item" | "rename-item" | "delete-item"
+  | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
@@ -72,6 +73,8 @@ export interface ResolvedKey {
   view?: MapView;
   /** Settings row named by a semantic shortcut outside the Settings panel. */
   settingsRow?: SettingsRowId;
+  /** Route whose profile the semantic shortcut describes. */
+  settingsProfilePurpose?: SettingsRoutePurpose;
 }
 
 export interface PlainNavigationState {
@@ -94,7 +97,7 @@ export function isPlainNavigation(state: PlainNavigationState): boolean {
 /** Actions that mutate the story and must not run while a stream is active. */
 export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
-  "new-item", "rename-item", "delete-item", "discard-pending",
+  "new-item", "duplicate-item", "rename-item", "delete-item", "discard-pending",
   "create-chapter", "summarize-chapter", "save-edit", "save-edit-inplace"
 ]);
 
@@ -334,7 +337,8 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   // Capital letters are distinct terminal commands. Declared reference routes
   // resolve above; reject every other shifted spelling so lowercase-name
   // terminal events cannot silently trigger lowercase hotkeys.
-  if (!ownsText && shiftedAsciiLetter(key)) return { action: "none" };
+  if (!ownsText && shiftedAsciiLetter(key)
+    && !(mode === "SETTINGS" && shiftedLetter(key, "n"))) return { action: "none" };
   const navChord = resolveReferenceBinding("nav-chord", key, mode, mapView);
   if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
@@ -435,6 +439,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "c") return { action: "check" };
     if (key.name === "p") return { action: "detect-context" };
     if (key.name === "e") return { action: "edit" };
+    if (shiftedLetter(key, "n")) return { action: "duplicate-item" };
+    if (key.name === "n") return { action: "new-item" };
+    if (key.name === "d") return { action: "delete-item" };
     if (key.name === "x") return { action: "discard-pending" };
     if (key.name === "left") return { action: "take-previous" };
     if (key.name === "right") return { action: "take-next" };

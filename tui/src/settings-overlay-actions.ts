@@ -4,14 +4,15 @@ import {
   applyBasicSettingsDraft
 } from "../../shared/settings-basic-draft.js";
 import {
-  applyPromptCachePolicy,
-  promptCacheContextForDocument,
+  promptCacheContextForProfile,
   promptCachePolicyPresentation
 } from "../../shared/prompt-cache-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
+import { selectSettingsRoute } from "../../shared/settings-route.js";
 import type {
   SettingsDocumentV2,
-  SettingsMutationResult
+  SettingsMutationResult,
+  SettingsRoutePurpose
 } from "../../shared/settings-v2-types.js";
 import type { AppSource } from "./app.js";
 import { apiErrorCode } from "./api.js";
@@ -35,7 +36,6 @@ import {
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import {
   applySettingsRowEdit,
-  applyStoredApiKeyIntent,
   beginSettingsRowEdit,
   boundedSettingsCursor,
   disarmSettingsConflict,
@@ -49,6 +49,14 @@ import {
   settingsRowUsesServer,
   settleSettingsOverlaySave
 } from "./settings-overlay-model.js";
+import {
+  createSettingsProfile,
+  deleteSettingsProfile,
+  duplicateSettingsProfile,
+  isolateSettingsProfileModel
+} from "./settings-profile-draft.js";
+import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
+import { settingsTextDraftForDocument } from "./settings-text.js";
 import {
   applySettingsComposeFocus,
   applySettingsTheme,
@@ -66,9 +74,17 @@ export async function openSettingsOverlay(
   state: RuntimeState,
   source: AppSource,
   context: ActionContext,
-  row?: SettingsRowId
+  row?: SettingsRowId,
+  profilePurpose?: SettingsRoutePurpose
 ): Promise<void> {
-  state.settings = initialSettingsOverlay(source.settingsView, state.config);
+  const selectedProfileId = profilePurpose !== undefined && source.settingsView.editable
+    ? selectSettingsRoute(source.settingsView.document, profilePurpose).profileId
+    : undefined;
+  state.settings = initialSettingsOverlay(
+    source.settingsView,
+    state.config,
+    selectedProfileId
+  );
   const overlay = state.settings;
   if (row !== undefined) {
     overlay.cursor = SETTINGS_ROW_IDS.indexOf(row);
@@ -92,10 +108,21 @@ export async function settingsOverlayAction(
   context: ActionContext
 ): Promise<boolean> {
   const overlay = state.settings!;
+  // A profile delete requires two consecutive delete commands. Any intervening
+  // action starts a different interaction, so it must not retain consent.
+  // Cancel handles its own armed state below so Esc remains a harmless abort.
+  if (overlay.deleteArmedProfileId !== null
+    && resolved.action !== "delete-item"
+    && resolved.action !== "cancel") {
+    overlay.deleteArmedProfileId = null;
+  }
   if (resolved.action === "cancel") {
     if (overlay.edit !== null) {
       overlay.edit = null;
       state.toast = settingsDraftChanged(overlay) ? "row edit cancelled · draft kept" : null;
+    } else if (overlay.deleteArmedProfileId !== null) {
+      overlay.deleteArmedProfileId = null;
+      state.toast = "profile deletion cancelled";
     } else {
       state.settings = null;
       state.mode = "NAV";
@@ -125,6 +152,13 @@ export async function settingsOverlayAction(
     overlay.cursor = boundedSettingsCursor(overlay.cursor - 1);
   } else if (resolved.action === "focus-index") {
     overlay.cursor = boundedSettingsCursor(resolved.index ?? overlay.cursor);
+  } else if (resolved.action === "edit"
+    && SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)] === "profile") {
+    if (!overlay.view.editable) {
+      state.toast = "legacy settings are read-only";
+    } else {
+      beginSettingsRowEdit(overlay, state.config);
+    }
   } else if (resolved.action === "open-selected" || resolved.action === "edit") {
     const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
     if (settingsRowUsesServer(row) && !overlay.view.editable) {
@@ -140,6 +174,9 @@ export async function settingsOverlayAction(
     }
   } else if (resolved.action === "save-edit") {
     await saveSettingsDraft(state, source, context, overlay);
+  } else if (resolved.action === "new-item" || resolved.action === "duplicate-item"
+    || resolved.action === "delete-item") {
+    manageSettingsProfile(resolved.action, state, overlay);
   } else if (resolved.action === "take-next" || resolved.action === "take-previous") {
     if (resolved.index !== undefined) {
       overlay.cursor = boundedSettingsCursor(resolved.index);
@@ -157,6 +194,57 @@ export async function settingsOverlayAction(
     await detectSettingsContext(state, source, context, overlay);
   }
   return true;
+}
+
+function manageSettingsProfile(
+  action: "new-item" | "duplicate-item" | "delete-item",
+  state: RuntimeState,
+  overlay: SettingsOverlayState
+): void {
+  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  if (row !== "profile") return;
+  if (!overlay.view.editable || overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
+    state.toast = "legacy settings are read-only";
+    return;
+  }
+  const document = overlay.draft.document;
+  const profileId = overlay.draft.selectedProfileId;
+  if (action === "new-item" || action === "duplicate-item") {
+    const created = action === "new-item"
+      ? createSettingsProfile(document, profileId)
+      : duplicateSettingsProfile(document, profileId);
+    if ("error" in created) {
+      state.toast = `profile kept · ${created.error}`;
+      return;
+    }
+    overlay.draft = settingsTextDraftForDocument(created.document, created.profileId);
+    overlay.deleteArmedProfileId = null;
+    overlay.result = null;
+    overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
+    state.toast = `${action === "new-item" ? "profile created" : "profile duplicated"} · s saves settings`;
+    return;
+  }
+  if (overlay.deleteArmedProfileId !== profileId) {
+    if (Object.keys(document.profiles).length === 1) {
+      state.toast = "profile kept · the last profile cannot be removed";
+      return;
+    }
+    overlay.deleteArmedProfileId = profileId;
+    state.toast = `delete ${document.profiles[profileId]!.name} · d again confirms`;
+    return;
+  }
+  const deleted = deleteSettingsProfile(document, profileId);
+  if ("error" in deleted) {
+    overlay.deleteArmedProfileId = null;
+    state.toast = `profile kept · ${deleted.error}`;
+    return;
+  }
+  overlay.draft = settingsTextDraftForDocument(deleted.document, deleted.profileId);
+  discardUnreferencedConnectionSecretWrites(overlay);
+  overlay.deleteArmedProfileId = null;
+  overlay.result = null;
+  overlay.conflict = overlay.conflict === null ? null : { ...overlay.conflict, armed: false };
+  state.toast = "profile deleted · routes repaired · s saves settings";
 }
 
 async function settingsInlineEditAction(
@@ -268,26 +356,27 @@ async function saveSettingsDraft(
     const connectionSecrets = { ...overlay.connectionSecrets };
     let document: SettingsDocumentV2;
     try {
-      const basicDocument = applyBasicSettingsDraft(
-        overlay.view.document,
-        draft.generation
-      );
+      if (draft.document === null || draft.selectedProfileId === null) {
+        throw new Error("Editable settings document is unavailable");
+      }
       const discovery = overlay.modelDiscoveryIdentity
           === settingsModelDiscoveryIdentity(draft.generation)
         ? overlay.modelDiscovery
         : null;
-      document = applyStoredApiKeyIntent(
-        applyPromptCachePolicy(
-          applyBasicModelDiscovery(
-            basicDocument,
-            discovery,
-            draft.generation.contextWindow
-          ),
-          draft.cachePolicy
-        ),
-        connectionSecrets
+      const savedDocument = applyBasicSettingsDraft(
+        draft.document,
+        draft.generation,
+        draft.selectedProfileId
       );
-      const cacheContext = promptCacheContextForDocument(document);
+      document = applyBasicModelDiscovery(
+        discovery === null
+          ? savedDocument
+          : isolateSettingsProfileModel(savedDocument, draft.selectedProfileId),
+        discovery,
+        draft.generation.contextWindow,
+        draft.selectedProfileId
+      );
+      const cacheContext = promptCacheContextForProfile(document, draft.selectedProfileId);
       const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
       if (!presentation.available) {
         throw new Error(

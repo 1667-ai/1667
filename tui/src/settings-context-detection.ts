@@ -5,6 +5,7 @@ import {
   sameSettingsDraft,
   settingsRowUsesServer
 } from "./settings-overlay-model.js";
+import { settingsTextDraftWithDetectedContext } from "./settings-text.js";
 import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import { sameConnectionSecrets } from "./settings-secret-sidecar.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
@@ -25,6 +26,8 @@ export async function detectSettingsContext(
     context.repaint();
     const editable = overlay.view.editable;
     const probed = editable ? overlay.draft.generation : overlay.view.effective;
+    const probedProfileId = overlay.draft.selectedProfileId;
+    const probedDocument = overlay.draft.document;
     // The probe now authenticates with the sidecar key, so the key is part of
     // what was probed. Without it a limit discovered under one key could land
     // in a draft the writer has since re-keyed.
@@ -38,7 +41,9 @@ export async function detectSettingsContext(
         settingsProviderProbeTarget(
           overlay.view,
           probed,
-          overlay.connectionSecrets
+          overlay.connectionSecrets,
+          probedDocument,
+          probedProfileId
         )
       );
       const currentlyEditable = overlay.view.editable;
@@ -49,6 +54,7 @@ export async function detectSettingsContext(
       if (!task.owns() || state.settings !== overlay
         || edit !== null
         || currentlyEditable !== editable
+        || overlay.draft.selectedProfileId !== probedProfileId
         || !sameProbeIdentity(probed, current)
         || !sameConnectionSecrets(probedSecrets, overlay.connectionSecrets)
         || current.contextWindow !== probed.contextWindow) {
@@ -62,10 +68,10 @@ export async function detectSettingsContext(
         return;
       }
       if (editable) {
-        overlay.draft = {
-          ...overlay.draft,
-          generation: { ...overlay.draft.generation, contextWindow }
-        };
+        overlay.draft = settingsTextDraftWithDetectedContext(
+          overlay.draft,
+          contextWindow
+        );
         if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
         else if (overlay.conflict !== null) overlay.conflict.armed = false;
       }
@@ -99,12 +105,16 @@ export async function checkSettings(
       const checked = overlay.view.editable
         ? overlay.draft.generation
         : overlay.view.effective;
+      const checkedProfileId = overlay.draft.selectedProfileId;
+      const checkedDocument = overlay.draft.document;
       const checkedSecrets = overlay.connectionSecrets;
       const result = await source.api.checkModelServer(
         settingsProviderProbeTarget(
           overlay.view,
           checked,
-          overlay.connectionSecrets
+          overlay.connectionSecrets,
+          checkedDocument,
+          checkedProfileId
         )
       );
       const current = overlay.view.editable
@@ -114,6 +124,7 @@ export async function checkSettings(
       if (task.owns() && state.settings === overlay
         && (edit === null
           || !settingsRowUsesServer(edit.row))
+        && overlay.draft.selectedProfileId === checkedProfileId
         && sameConnectionSecrets(checkedSecrets, overlay.connectionSecrets)
         && sameGenerationSettings(checked, current)) {
         overlay.result = result;

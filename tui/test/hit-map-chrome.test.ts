@@ -696,8 +696,8 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // theme, compose focus, provider, and insecure HTTP
-    expect(opens.size).toBe(4);
+    // Four existing choices plus profile, effort, cache, and three routes.
+    expect(opens.size).toBe(10);
     expect(new Set(opens.values()).size).toBe(1);
   });
 
@@ -754,15 +754,40 @@ describe("hit map clickable chrome", () => {
 
   test("story model and context hint open their exact Settings rows", async () => {
     const source = demoAppSource();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
     source.settings = { ...source.settings, contextWindow: null };
+    const document = source.settingsView.document;
+    const defaultProfile = document.profiles[document.routing.default]!;
+    source.settingsView = {
+      ...source.settingsView,
+      effective: source.settings,
+      effectiveProse: source.settings,
+      document: {
+        ...document,
+        profiles: {
+          ...document.profiles,
+          prose: { ...defaultProfile, name: "Prose" }
+        },
+        routing: { ...document.routing, prose: "prose" }
+      }
+    };
+    source.api.getSettings = async () => source.settingsView;
     const state = initialState(source, false);
     state.stream = null;
     const frame = render(state, 140, 36);
 
     const model = clickText(frame, state, state.model);
     const context = clickText(frame, state, "set context window · settings (,)");
-    expect(model).toEqual({ action: "open-settings", settingsRow: "model" });
-    expect(context).toEqual({ action: "open-settings", settingsRow: "context-window" });
+    expect(model).toEqual({
+      action: "open-settings",
+      settingsRow: "model",
+      settingsProfilePurpose: "prose"
+    });
+    expect(context).toEqual({
+      action: "open-settings",
+      settingsRow: "context-window",
+      settingsProfilePurpose: "prose"
+    });
 
     await dispatch(
       context!,
@@ -775,11 +800,17 @@ describe("hit map clickable chrome", () => {
     );
     expect(state.mode).toBe("SETTINGS");
     expect(state.settings?.cursor).toBe(SETTINGS_ROW_IDS.indexOf("context-window"));
+    expect(state.settings?.draft.selectedProfileId).toBe("prose");
   });
 
   test("story Settings links cannot take ownership from Compose", () => {
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: null };
+    source.settingsView = {
+      ...source.settingsView,
+      effective: source.settings,
+      effectiveProse: source.settings
+    };
     const state = initialState(source, false);
     state.stream = null;
     state.mode = "COMPOSE";

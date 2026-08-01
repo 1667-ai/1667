@@ -236,6 +236,7 @@ describe("run C overlay frames", () => {
       pendingRevision: null,
       document: null,
       effective: source.settings,
+      effectiveProse: source.settings,
       lastActivationOutcome: null
     };
     source.settingsView = legacy;
@@ -291,6 +292,11 @@ describe("run C overlay frames", () => {
   test("facts rail never invents a percentage when the context window is unknown", async () => {
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: null };
+    source.settingsView = {
+      ...source.settingsView,
+      effective: source.settings,
+      effectiveProse: source.settings
+    };
     const frame = await renderOnce(source, 150, 30);
     expect(frame).toContain("next request  ~884 tokens");
     expect(frame).not.toContain("+≤");
@@ -372,6 +378,11 @@ describe("run C overlay frames", () => {
 
     const source = demoAppSource();
     source.settings = { ...source.settings, contextWindow: 100 };
+    source.settingsView = {
+      ...source.settingsView,
+      effective: source.settings,
+      effectiveProse: source.settings
+    };
     const priorChapterIds = new Set(["p6", "p7", "p8", "p9", "p10"]);
     for (const part of source.payload.path) {
       if (priorChapterIds.has(part.id)) part.text = "storm ".repeat(500);

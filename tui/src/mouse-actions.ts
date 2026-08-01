@@ -250,7 +250,13 @@ export function mouseToAction(
 
   if (target.kind === "scrim") return { action: "cancel" };
   if (target.kind === "settings-row" && event.button === 0) {
-    return { action: "open-settings", settingsRow: target.row };
+    return {
+      action: "open-settings",
+      settingsRow: target.row,
+      ...(target.profilePurpose === undefined
+        ? {}
+        : { settingsProfilePurpose: target.profilePurpose })
+    };
   }
   if (target.kind === "action" && event.button === 0) {
     return {

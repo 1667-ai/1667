@@ -3,7 +3,8 @@ import { ApiHttpError } from "../src/api.js";
 import {
   parseSettings,
   serializeSettings,
-  settingsTextDraftForView
+  settingsTextDraftForView,
+  settingsTextDraftWithGeneration
 } from "../src/settings-text.js";
 import { commandMatches } from "../src/command-model.js";
 import { connectionFailed, connectionSucceeded, createConnectionMonitor, retrySeconds } from "../src/connection.js";
@@ -112,6 +113,8 @@ describe("summary model", () => {
 
 describe("settings text contract", () => {
   const base = {
+    document: null,
+    selectedProfileId: null,
     generation: {
       provider: "dry-run", baseUrl: "", model: "qwen3-32b", apiKeyEnv: null,
       temperature: 0.7, maxTokens: 2048, systemPrompt: "Continue.", contextWindow: 32768
@@ -168,16 +171,16 @@ describe("settings cache summary", () => {
   test("derives capability from the complete unsaved route", () => {
     const view = cacheView("anthropic", "claude-sonnet-5", "auto");
     const base = settingsTextDraftForView(view);
-    const summary = promptCacheRowValue(view, {
-      generation: {
+    const summary = promptCacheRowValue(view, settingsTextDraftWithGeneration(
+      base,
+      {
         ...base.generation,
         provider: "dry-run",
         baseUrl: "",
         model: "",
         apiKeyEnv: null
       },
-      cachePolicy: "auto"
-    });
+    ));
 
     expect(summary).toContain("Dry run");
     expect(summary).toContain("unavailable");
@@ -325,6 +328,7 @@ function cacheView(
     pendingRevision: null,
     document,
     effective: basicSettingsFromDocument(document),
+    effectiveProse: basicSettingsFromDocument(document),
     lastActivationOutcome: null
   };
 }

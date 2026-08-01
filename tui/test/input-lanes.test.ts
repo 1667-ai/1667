@@ -308,7 +308,8 @@ describe("responsive input lanes", () => {
     const recoveredView = {
       ...source.settingsView,
       document: applyBasicSettingsDraft(source.settingsView.document, recovered),
-      effective: recovered
+      effective: recovered,
+      effectiveProse: recovered
     };
     source.api.listStories = async () => {
       entered.resolve();

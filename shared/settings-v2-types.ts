@@ -237,6 +237,8 @@ export type SettingsView =
       readonly pendingRevision: null;
       readonly document: null;
       readonly effective: GenerationSettings;
+      /** The active continuation route. Format 1 falls back to `effective`. */
+      readonly effectiveProse: GenerationSettings;
       readonly lastActivationOutcome: null;
     }
   | {
@@ -247,6 +249,8 @@ export type SettingsView =
       readonly pendingRevision: number | null;
       readonly document: SettingsDocumentV2;
       readonly effective: GenerationSettings;
+      /** The active continuation route, never a pending document projection. */
+      readonly effectiveProse: GenerationSettings;
       readonly lastActivationOutcome: SettingsActivationOutcomeV2 | null;
     };
 

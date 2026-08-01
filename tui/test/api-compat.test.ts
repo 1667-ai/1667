@@ -643,7 +643,11 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
     systemPrompt: "Continue the story.",
     contextWindow: null
   };
-  const settingsView = { ...DEMO_SETTINGS_VIEW, effective: settings };
+  const settingsView = {
+    ...DEMO_SETTINGS_VIEW,
+    effective: settings,
+    effectiveProse: settings
+  };
   const command = {
     transportOperationId: "transport-operation",
     mutationId: "m1.0000000000000.00000000000000000000000000000000",
@@ -676,12 +680,18 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       model: "cafe\u0301",
       systemPrompt: "Continue cafe\u0301."
     },
+    effectiveProse: {
+      ...settings,
+      model: "cafe\u0301",
+      systemPrompt: "Continue cafe\u0301."
+    },
     lastActivationOutcome: null
   };
   response = legacyView;
   expect(await api.getSettings()).toEqual(legacyView);
   response = { ok: true };
   expect(await deleteWithCurrentResponse()).toEqual({ ok: true });
+  const { effectiveProse: _effectiveProse, ...withoutEffectiveProse } = settingsView;
   const malformed: Array<[unknown, () => Promise<unknown>, string]> = [
     [catalogPage([{
       id: "story", title: "Story", updatedAt: "today", partCount: 1,
@@ -693,6 +703,7 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
     }]), () => api.listStories(), "story summary.partCount"],
     [{ ok: "yes" }, deleteWithCurrentResponse, "story deletion response.ok"],
     [{ ok: false }, deleteWithCurrentResponse, "story deletion response.ok"],
+    [withoutEffectiveProse, () => api.getSettings(), "settings view"],
     [{ ...settingsView, effective: { ...settings, provider: "other" } }, () => api.getSettings(), "generation settings.provider"],
     [{
       ...settingsView,

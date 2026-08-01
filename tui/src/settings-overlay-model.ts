@@ -1,44 +1,48 @@
-import {
-  type SettingsActivationErrorCodeV2,
-  type SettingsView
-} from "../../shared/settings-v2-types.js";
-import type { GenerationSettings } from "../../shared/types.js";
+import { type SettingsActivationErrorCodeV2, type SettingsView } from "../../shared/settings-v2-types.js";
 import type { UserConfig } from "./config.js";
 import { THEME_NAMES, type ThemeName } from "./config.js";
 import {
   createComposer,
-  setComposerText,
   type ComposerState
 } from "./composer-model.js";
 import { graphemeCells } from "./cell-width.js";
 import {
-  localProviderPresetsSupported,
   nextSettingsProviderChoice,
-  settingsProviderChoice,
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
-import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import {
   parseSettings,
+  settingsTextDraftForDocument,
   settingsTextDraftForView,
-  type SettingsTextDraft
+  settingsTextDraftWithGeneration
 } from "./settings-text.js";
+import { renameSettingsProfile } from "./settings-profile-draft.js";
+import { settingsModelDisplayText } from "./settings-profile-controls.js";
 import type {
   SettingsInlineEditState,
   SettingsOverlayState,
   SettingsRowId
 } from "./state.js";
-import type { ActiveSettingsEdit } from "./settings-edit-state.js";
 import {
   applyStoredApiKeyEdit,
+  discardUnreferencedConnectionSecretWrites,
   hasStoredApiKey,
-  rekeyPendingStoredSecret,
-  sameConnectionSecrets,
-  storedApiKeyPresentation
+  rekeyPendingStoredSecret
 } from "./settings-secret-sidecar.js";
+import {
+  draftRowEditValue,
+  sameSettingsDraft,
+  settingsDraftChanged,
+  settingsFieldKey
+} from "./settings-overlay-reconciliation.js";
 
-export { applyStoredApiKeyIntent } from "./settings-secret-sidecar.js";
+export {
+  promptCacheRowValue,
+  settingsModelDisplayText,
+  settingsRows,
+  type SettingsRowPresentation
+} from "./settings-profile-controls.js";
 
 export const SETTINGS_ROW_IDS = [
   "theme",
@@ -46,43 +50,35 @@ export const SETTINGS_ROW_IDS = [
   "provider",
   "base-url",
   "allow-insecure-http",
-  "model",
   "api-key",
   "api-key-env",
+  "profile",
+  "model",
   "temperature",
   "max-tokens",
   "context-window",
+  "effort",
+  "cache-policy",
+  "default-route",
+  "prose-route",
+  "utility-route",
   "system-prompt"
 ] as const satisfies readonly SettingsRowId[];
 
-export interface SettingsRowPresentation {
-  readonly id: SettingsRowId;
-  readonly label: string;
-  readonly value: string;
-}
-
-const SETTINGS_FIELD_KEYS = {
-  provider: "provider",
-  "base-url": "baseUrl",
-  model: "model",
-  "api-key-env": "apiKeyEnv",
-  temperature: "temperature",
-  "max-tokens": "maxTokens",
-  "context-window": "contextWindow",
-  "system-prompt": "systemPrompt"
-} as const satisfies Record<
-  Exclude<
-    SettingsRowId,
-    "theme" | "compose-focus" | "allow-insecure-http" | "api-key"
-  >,
-  string
->;
+export {
+  reconcileSettingsOverlay,
+  sameGenerationSettings,
+  sameSettingsDraft,
+  settingsDraftChanged,
+  settleSettingsOverlaySave
+} from "./settings-overlay-reconciliation.js";
 
 export function initialSettingsOverlay(
   view: SettingsView,
-  config: UserConfig
+  config: UserConfig,
+  selectedProfileId?: string
 ): SettingsOverlayState {
-  const draft = settingsTextDraftForView(view);
+  const draft = settingsTextDraftForView(view, selectedProfileId);
   return {
     view,
     base: draft,
@@ -99,65 +95,9 @@ export function initialSettingsOverlay(
     modelDiscoveryGeneration: 0,
     modelDiscoveryAbortController: null,
     modelDiscoveryTargetIdentity: null,
-    result: null
+    result: null,
+    deleteArmedProfileId: null
   };
-}
-
-export function settingsRows(
-  overlay: SettingsOverlayState,
-  config: UserConfig
-): readonly SettingsRowPresentation[] {
-  const settings = overlay.draft.generation;
-  const providerChoice = settingsProviderChoice(settings);
-  // Where the account-ownership proof does not exist, a plaintext endpoint is
-  // still reachable — it just needs the opt-in one row below. Name that,
-  // instead of calling the provider unavailable and leaving the writer to
-  // guess which of the two settings is the obstacle.
-  const providerLabel =
-    providerChoice.plaintextDefaultRequiresOwnedLoopback === true
-    && !localProviderPresetsSupported()
-    && isPlainHttp(settings.baseUrl)
-    && settings.allowInsecureHttp !== true
-    ? `${providerChoice.label} · needs insecure HTTP`
-    : providerChoice.label;
-  return [
-    { id: "theme", label: "theme", value: `‹ ${config.theme} ›` },
-    { id: "compose-focus", label: "compose focus", value: `[ ${config.composeFocus} ]` },
-    {
-      id: "provider",
-      label: "provider",
-      value: `‹ ${providerLabel} ›`
-    },
-    { id: "base-url", label: "base URL", value: settings.baseUrl || "—" },
-    {
-      id: "allow-insecure-http",
-      label: "insecure HTTP",
-      value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`
-    },
-    { id: "model", label: "model", value: modelRowValue(overlay) },
-    { id: "api-key", label: "API key", value: storedApiKeyPresentation(overlay) },
-    { id: "api-key-env", label: "API key env", value: settings.apiKeyEnv ?? "—" },
-    {
-      id: "temperature",
-      label: "temperature",
-      value: settings.temperature?.toString() ?? "default"
-    },
-    {
-      id: "max-tokens",
-      label: "max tokens",
-      value: settings.maxTokens.toLocaleString("en-US")
-    },
-    {
-      id: "context-window",
-      label: "context window",
-      value: settings.contextWindow?.toLocaleString("en-US") ?? "unknown"
-    },
-    {
-      id: "system-prompt",
-      label: "system prompt",
-      value: settings.systemPrompt.replace(/\s+/g, " ")
-    }
-  ];
 }
 
 export function settingsRowEditValue(
@@ -169,6 +109,13 @@ export function settingsRowEditValue(
   if (row === "compose-focus") return config.composeFocus;
   if (row === "allow-insecure-http") {
     return overlay.draft.generation.allowInsecureHttp === true ? "on" : "off";
+  }
+  if (row === "profile") {
+    const document = overlay.draft.document;
+    const profileId = overlay.draft.selectedProfileId;
+    return document === null || profileId === null
+      ? "legacy profile"
+      : document.profiles[profileId]?.name ?? "unavailable";
   }
   return draftRowEditValue(overlay.draft, row);
 }
@@ -263,8 +210,25 @@ export function applySettingsRowEdit(
   if (edit.row === "allow-insecure-http") {
     return { kind: "error", message: "insecure HTTP is a selector" };
   }
+  if (edit.row === "profile") {
+    if (overlay.draft.document === null || overlay.draft.selectedProfileId === null) {
+      return { kind: "error", message: "legacy settings are read-only" };
+    }
+    const renamed = renameSettingsProfile(
+      overlay.draft.document,
+      overlay.draft.selectedProfileId,
+      rawValue
+    );
+    if ("error" in renamed) return { kind: "error", message: renamed.error };
+    overlay.draft = settingsTextDraftForDocument(renamed, overlay.draft.selectedProfileId);
+    overlay.edit = null;
+    overlay.result = null;
+    return { kind: "draft" };
+  }
+  const fieldKey = settingsFieldKey(edit.row);
+  if (fieldKey === undefined) return { kind: "error", message: "this row is a selector" };
   const parsed = parseSettings(
-    `${SETTINGS_FIELD_KEYS[edit.row]}: ${value}`,
+    `${fieldKey}: ${value}`,
     overlay.draft
   );
   if ("error" in parsed) return { kind: "error", message: parsed.error };
@@ -281,8 +245,12 @@ export function applySettingsRowEdit(
         generation: { ...parsed.generation, contextWindow: null }
       }
     : parsed;
-  overlay.draft = next;
-  if (edit.row === "api-key-env") overlay.connectionSecrets = {};
+  try {
+    overlay.draft = settingsTextDraftWithGeneration(overlay.draft, next.generation);
+  } catch (error) {
+    return { kind: "error", message: error instanceof Error ? error.message : String(error) };
+  }
+  if (edit.row === "api-key-env") discardUnreferencedConnectionSecretWrites(overlay);
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   overlay.edit = null;
   overlay.result = null;
@@ -294,13 +262,10 @@ export function applySystemPromptDraft(
   systemPrompt: string
 ): void {
   disarmSettingsConflict(overlay);
-  overlay.draft = {
-    ...overlay.draft,
-    generation: {
-      ...overlay.draft.generation,
-      systemPrompt
-    }
-  };
+  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
+    ...overlay.draft.generation,
+    systemPrompt
+  });
   if (sameSettingsDraft(overlay.draft, overlay.base)) overlay.conflict = null;
   overlay.result = null;
 }
@@ -322,19 +287,6 @@ export function settingsActivationFailureText(
   }
 }
 
-export function settingsDraftChanged(overlay: SettingsOverlayState): boolean {
-  return !sameSettingsDraft(overlay.draft, overlay.base)
-    || Object.keys(overlay.connectionSecrets).length > 0;
-}
-
-export function sameSettingsDraft(
-  left: SettingsTextDraft,
-  right: SettingsTextDraft
-): boolean {
-  return left.cachePolicy === right.cachePolicy
-    && sameGenerationSettings(left.generation, right.generation);
-}
-
 export function boundedSettingsCursor(value: number): number {
   return Math.max(0, Math.min(SETTINGS_ROW_IDS.length - 1, value));
 }
@@ -348,7 +300,13 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
   return row === "theme"
     || row === "compose-focus"
     || row === "provider"
-    || row === "allow-insecure-http";
+    || row === "allow-insecure-http"
+    || row === "profile"
+    || row === "effort"
+    || row === "cache-policy"
+    || row === "default-route"
+    || row === "prose-route"
+    || row === "utility-route";
 }
 
 export function settingsRowHasArrows(
@@ -371,16 +329,14 @@ export function cycleSettingsProvider(
 ): SettingsProviderChoice {
   const choice = nextSettingsProviderChoice(overlay.draft.generation, step);
   const preserveStoredApiKey = hasStoredApiKey(overlay);
-  overlay.draft = {
-    ...overlay.draft,
-    generation: {
-      ...overlay.draft.generation,
-      provider: choice.provider,
-      ...choice.defaults,
-      ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
-    }
-  };
+  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
+    ...overlay.draft.generation,
+    provider: choice.provider,
+    ...choice.defaults,
+    ...(preserveStoredApiKey ? { apiKeyEnv: null } : {})
+  });
   rekeyPendingStoredSecret(overlay);
+  discardUnreferencedConnectionSecretWrites(overlay);
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
@@ -403,170 +359,15 @@ export function cycleSettingsModel(
   if (choice.remoteId === overlay.draft.generation.model) {
     return choice.remoteId;
   }
-  overlay.draft = {
-    ...overlay.draft,
-    generation: {
-      ...overlay.draft.generation,
-      model: choice.remoteId,
-      contextWindow: choice.contextWindow
-    }
-  };
+  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, {
+    ...overlay.draft.generation,
+    model: choice.remoteId,
+    contextWindow: choice.contextWindow
+  });
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
   return choice.remoteId;
-}
-
-/** Rebase a clean menu refresh; preserve dirty row drafts and require an
- * explicit overwrite when the authoritative document changed underneath it. */
-export function reconcileSettingsOverlay(
-  overlay: SettingsOverlayState,
-  view: SettingsView,
-  edit: ActiveSettingsEdit | null
-): string | null {
-  const nextBase = settingsTextDraftForView(view);
-  const baseChanged = !sameSettingsDraft(overlay.base, nextBase);
-  if (!baseChanged) {
-    overlay.base = nextBase;
-    return null;
-  }
-
-  const draftWasClean = !settingsDraftChanged(overlay);
-  const editRow = edit?.row ?? null;
-  const editAffectsServer = edit !== null
-    && editRow !== "theme"
-    && editRow !== "compose-focus";
-  const editWasClean = !editAffectsServer
-    || edit.composer.text === edit.initialText();
-  const activeEditBase = draftWasClean ? nextBase : overlay.draft;
-  const activeDraft = editAffectsServer && !editWasClean
-    ? draftWithActiveEdit(activeEditBase, edit)
-    : overlay.draft;
-  const converged = activeDraft !== null && sameSettingsDraft(activeDraft, nextBase);
-  if (draftWasClean || converged) {
-    overlay.draft = nextBase;
-  }
-  overlay.base = nextBase;
-
-  if (edit !== null && (draftWasClean || converged) && editWasClean
-    && editRow !== null
-    && settingsDraftTextRow(editRow)) {
-    const refreshed = draftRowEditValue(overlay.draft, editRow);
-    setComposerText(edit.composer, refreshed);
-    if (refreshed.length > 0) edit.composer.anchor = 0;
-    edit.setInitialText(refreshed);
-  }
-
-  if (converged) {
-    if (editAffectsServer && !editWasClean) {
-      edit.setInitialText(edit.composer.text);
-    }
-    overlay.conflict = null;
-    return "settings changed during refresh · draft now current";
-  }
-  if (draftWasClean && editWasClean) {
-    overlay.conflict = null;
-    return "settings changed during refresh · menu refreshed";
-  }
-  overlay.conflict = {
-    message: "settings changed during refresh · draft kept",
-    armed: false
-  };
-  return overlay.conflict.message;
-}
-
-export function settleSettingsOverlaySave(
-  overlay: SettingsOverlayState,
-  acknowledged: SettingsTextDraft,
-  edit: ActiveSettingsEdit | null,
-  acknowledgedSecrets: Readonly<Record<string, string | null>> = {}
-): boolean {
-  const newerDraft = !sameSettingsDraft(overlay.draft, acknowledged)
-    || !sameConnectionSecrets(overlay.connectionSecrets, acknowledgedSecrets);
-  if (sameConnectionSecrets(overlay.connectionSecrets, acknowledgedSecrets)) {
-    overlay.connectionSecrets = {};
-  }
-  const nextBase = settingsTextDraftForView(overlay.view);
-  overlay.base = nextBase;
-  if (!newerDraft) {
-    overlay.draft = nextBase;
-  }
-  overlay.conflict = null;
-  return newerDraft || (
-    edit !== null && edit.composer.text !== edit.initialText()
-  );
-}
-
-export function sameGenerationSettings(
-  left: GenerationSettings,
-  right: GenerationSettings
-): boolean {
-  return left.provider === right.provider
-    && left.baseUrl === right.baseUrl
-    && left.model === right.model
-    && left.apiKeyEnv === right.apiKeyEnv
-    && left.allowInsecureHttp === right.allowInsecureHttp
-    && left.temperature === right.temperature
-    && left.maxTokens === right.maxTokens
-    && left.contextWindow === right.contextWindow
-    && left.systemPrompt === right.systemPrompt;
-}
-
-function draftRowEditValue(
-  draft: SettingsTextDraft,
-  row: Exclude<
-    SettingsRowId,
-    "theme" | "compose-focus" | "allow-insecure-http"
-  >
-): string {
-  const settings = draft.generation;
-  if (row === "provider") return settings.provider;
-  if (row === "base-url") return settings.baseUrl;
-  if (row === "model") return settings.model;
-  if (row === "api-key") return "";
-  if (row === "api-key-env") return settings.apiKeyEnv ?? "";
-  if (row === "temperature") return settings.temperature?.toString() ?? "";
-  if (row === "max-tokens") return settings.maxTokens.toString();
-  if (row === "context-window") return settings.contextWindow?.toString() ?? "";
-  return settings.systemPrompt;
-}
-
-function draftWithActiveEdit(
-  draft: SettingsTextDraft,
-  edit: ActiveSettingsEdit
-): SettingsTextDraft | null {
-  const row = edit.row;
-  if (row === "theme" || row === "compose-focus") {
-    return draft;
-  }
-  if (row === "api-key" || row === "allow-insecure-http") {
-    return edit.composer.text === edit.initialText() ? draft : null;
-  }
-  if (row === "system-prompt") {
-    return {
-      ...draft,
-      generation: {
-        ...draft.generation,
-        systemPrompt: edit.composer.text
-      }
-    };
-  }
-  const parsed = parseSettings(
-    `${SETTINGS_FIELD_KEYS[row]}: ${edit.composer.text}`,
-    draft
-  );
-  return "error" in parsed ? null : parsed;
-}
-
-function settingsDraftTextRow(
-  row: SettingsRowId
-): row is Exclude<
-  SettingsRowId,
-  "theme" | "compose-focus" | "allow-insecure-http"
-> {
-  return row !== "theme"
-    && row !== "compose-focus"
-    && row !== "allow-insecure-http";
 }
 
 export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
@@ -574,57 +375,15 @@ export function cycleAllowInsecureHttp(overlay: SettingsOverlayState): boolean {
   const generation = { ...overlay.draft.generation };
   if (allowInsecureHttp) generation.allowInsecureHttp = true;
   else delete generation.allowInsecureHttp;
-  overlay.draft = {
-    ...overlay.draft,
-    generation
-  };
+  overlay.draft = settingsTextDraftWithGeneration(overlay.draft, generation);
   overlay.result = null;
   if (!settingsDraftChanged(overlay)) overlay.conflict = null;
   else disarmSettingsConflict(overlay);
   return allowInsecureHttp;
 }
 
-/** The cycled policy in brackets, then what the choice costs. The panel puts
- * the arrows on the brackets, so the detail has to stay outside them. */
-export function promptCacheRowValue(
-  view: SettingsView,
-  draft?: SettingsTextDraft
-): string {
-  const parts = promptCacheSummaryParts(view, draft);
-  return `‹ ${parts.policy} › · ${
-    parts.kind === "available"
-      ? parts.detail
-      : `unavailable · ${parts.reason}`
-  }`;
-}
-
-function isPlainHttp(value: string): boolean {
-  try {
-    return new URL(value).protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
 function maskSecretText(value: string): string {
   return graphemeCells(value)
     .map((cell) => /[\r\n]/u.test(cell.text) ? cell.text : "•")
     .join("");
-}
-
-function modelRowValue(overlay: SettingsOverlayState): string {
-  const model = overlay.draft.generation.model;
-  const choices = settingsModelChoices(overlay);
-  if (choices.length === 0) return model || "—";
-  const selected = choices.find((choice) => choice.remoteId === model);
-  const label = selected === undefined
-    ? model.length === 0 ? "choose model" : `${settingsModelDisplayText(model)} · custom`
-    : selected.name === selected.remoteId
-      ? settingsModelDisplayText(selected.remoteId)
-      : `${settingsModelDisplayText(selected.name)} · ${settingsModelDisplayText(selected.remoteId)}`;
-  return `‹ ${label} ›`;
-}
-
-export function settingsModelDisplayText(value: string): string {
-  return value.replace(/\s+/gu, " ");
 }

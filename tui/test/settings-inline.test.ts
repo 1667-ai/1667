@@ -243,6 +243,7 @@ describe("inline settings menu", () => {
       pendingRevision: null,
       document: null,
       effective: source.settings,
+      effectiveProse: source.settings,
       lastActivationOutcome: null
     };
     source.settingsView = legacy;
@@ -392,7 +393,8 @@ describe("inline settings menu", () => {
         stateGeneration: current.stateGeneration + 1,
         activeRevision: current.activeRevision + 1,
         document: command.document,
-        effective: basicSettingsFromDocument(command.document)
+        effective: basicSettingsFromDocument(command.document),
+        effectiveProse: basicSettingsFromDocument(command.document)
       };
       return {
         kind: "settings",
@@ -513,7 +515,8 @@ describe("inline settings menu", () => {
     const savedView: SettingsView = {
       ...source.settingsView,
       document: savedDocument,
-      effective: basicSettingsFromDocument(savedDocument)
+      effective: basicSettingsFromDocument(savedDocument),
+      effectiveProse: basicSettingsFromDocument(savedDocument)
     };
     source.settingsView = savedView;
     source.settings = savedView.effective;
@@ -884,6 +887,7 @@ describe("inline settings menu", () => {
         pendingRevision: null,
         document: command.document,
         effective: basicSettingsFromDocument(command.document),
+        effectiveProse: basicSettingsFromDocument(command.document),
         lastActivationOutcome: outcome
       };
       return {

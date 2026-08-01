@@ -123,6 +123,7 @@ export class SettingsStore {
   async loadView(): Promise<SettingsView> {
     const initialized = this.requireInitialized();
     if (initialized.dataFormat !== 1) return await initialized.store.loadView();
+    const effective = await loadGenerationSettingsV1(this.dir);
     return {
       dataFormat: 1,
       editable: false,
@@ -130,7 +131,8 @@ export class SettingsStore {
       activeRevision: null,
       pendingRevision: null,
       document: null,
-      effective: await loadGenerationSettingsV1(this.dir),
+      effective,
+      effectiveProse: effective,
       lastActivationOutcome: null
     };
   }

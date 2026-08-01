@@ -47,7 +47,7 @@ export function publishSettingsView(
   view: SettingsView
 ): void {
   source.settingsView = view;
-  applyGenerationSettings(state, source, view.effective);
+  applyGenerationSettings(state, source, view);
   const overlay = state.settings;
   if (overlay !== null) {
     const message = reconcileSettingsOverlay(

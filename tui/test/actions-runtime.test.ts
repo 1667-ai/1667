@@ -95,7 +95,11 @@ describe("demo action runtime and input", () => {
       systemPrompt: "Use the server's newly loaded voice.",
       contextWindow: 8_192
     };
-    source.api.getSettings = async () => ({ ...source.settingsView, effective: settings });
+    source.api.getSettings = async () => ({
+      ...source.settingsView,
+      effective: settings,
+      effectiveProse: settings
+    });
     source.connection = {
       api: source.api,
       state: () => ({ down: false, attempt: 0, nextRetryAt: null, error: null }),

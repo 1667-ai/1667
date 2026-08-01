@@ -37,6 +37,7 @@ export function settingsViewFromState(
     pendingRevision,
     document: shown,
     effective: effectiveGenerationSettings(activeSettingsDocument(state)),
+    effectiveProse: effectiveGenerationSettings(activeSettingsDocument(state), "prose"),
     lastActivationOutcome: state.lastActivationOutcome
   };
 }

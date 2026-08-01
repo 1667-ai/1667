@@ -43,7 +43,8 @@ describe("full-screen Settings prompt editor", () => {
         ...source.settings,
         systemPrompt: prompt
       }),
-      effective: { ...source.settings, systemPrompt: prompt }
+      effective: { ...source.settings, systemPrompt: prompt },
+      effectiveProse: { ...source.settings, systemPrompt: prompt }
     };
     source.api.getSettings = async () => source.settingsView;
     await openSettings(press);
@@ -230,7 +231,8 @@ describe("full-screen Settings prompt editor", () => {
       stateGeneration: current.stateGeneration + 1,
       activeRevision: current.activeRevision + 1,
       document: applyBasicSettingsDraft(current.document, settings),
-      effective: settings
+      effective: settings,
+      effectiveProse: settings
     });
     expect(state.settings?.conflict?.armed).toBeFalse();
 
@@ -261,7 +263,8 @@ describe("full-screen Settings prompt editor", () => {
         stateGeneration: current.stateGeneration + 1,
         activeRevision: current.activeRevision + 1,
         document: applyBasicSettingsDraft(current.document, settings),
-        effective: settings
+        effective: settings,
+        effectiveProse: settings
       });
 
       expect(promptEdit(state).composer.text).toBe(systemPrompt);
@@ -289,7 +292,8 @@ describe("full-screen Settings prompt editor", () => {
       stateGeneration: current.stateGeneration + 1,
       activeRevision: current.activeRevision + 1,
       document: applyBasicSettingsDraft(current.document, converged),
-      effective: converged
+      effective: converged,
+      effectiveProse: converged
     });
 
     expect(promptEdit(state).composer.text).toBe("Remote prompt B");
@@ -308,7 +312,8 @@ describe("full-screen Settings prompt editor", () => {
       stateGeneration: afterConvergence.stateGeneration + 1,
       activeRevision: afterConvergence.activeRevision + 1,
       document: applyBasicSettingsDraft(afterConvergence.document, refreshed),
-      effective: refreshed
+      effective: refreshed,
+      effectiveProse: refreshed
     });
     expect(promptEdit(state).composer.text).toBe("Remote prompt C");
     expect(promptEdit(state).initial).toBe("Remote prompt C");
@@ -331,7 +336,8 @@ describe("full-screen Settings prompt editor", () => {
       stateGeneration: current.stateGeneration + 1,
       activeRevision: current.activeRevision + 1,
       document: applyBasicSettingsDraft(current.document, remote),
-      effective: remote
+      effective: remote,
+      effectiveProse: remote
     });
     expect(state.settings?.conflict?.armed).toBeFalse();
     setComposerText(promptEdit(state).composer, original);

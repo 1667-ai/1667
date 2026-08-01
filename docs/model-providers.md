@@ -55,8 +55,29 @@ Settings reads the model list from the selected provider. Use `Left Arrow` or
 Settings reads the list again after you change the provider or the base URL.
 Save a new credential target before you use it to read a model list.
 
-The cache policy is not available in Settings. New profiles use the `off`
-cache policy.
+## Use Generation Profiles and Generation Routes
+
+A **Generation Profile** is one set of model behavior settings. It contains a
+model, a temperature, a maximum output, a reasoning effort, and a cache policy.
+
+Select the **profile** row to see a Generation Profile. Use `Left Arrow` or
+`Right Arrow` to select a different Generation Profile. Press `n` to create a
+Generation Profile. Press `Shift+N` to duplicate the selected Generation
+Profile. Press `e` to rename the selected Generation Profile. Press `d` two
+times to delete the selected Generation Profile. Press `s` to save the changes.
+
+A **Generation Route** selects a Generation Profile for one type of work. The
+**default route** is required. The **prose route** and the **utility route** are
+optional. An optional Generation Route uses the default route when its value is
+**same as default**.
+
+Continuation and rewrite operations use the prose route. Chapter summary,
+summary take, and story name operations use the utility route. The context
+meter uses the active prose route.
+
+Select the **cache** row to set the cache policy. Use `Left Arrow` or
+`Right Arrow` to select `off`, `auto`, or `long`. Settings shows an unavailable
+message when the selected model cannot use the cache policy.
 
 ## Credentials and deadlines
 

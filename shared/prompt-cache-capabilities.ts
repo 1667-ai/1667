@@ -7,6 +7,7 @@ import type {
   SettingsRoutePurpose
 } from "./settings-v2-types.js";
 import {
+  resolveSettingsProfile,
   selectSettingsRoute,
   type SelectedSettingsRouteV2
 } from "./settings-route.js";
@@ -157,6 +158,15 @@ export function promptCacheContextForDocument(
   return promptCacheContextForRoute(selectSettingsRoute(document, purpose));
 }
 
+/** Profile-editor projections already hold a profile identity. Keep that
+ * distinct from a routing purpose, whose fallback belongs to route selection. */
+export function promptCacheContextForProfile(
+  document: SettingsDocumentV2,
+  profileId: string
+): PromptCacheContext {
+  return promptCacheContextForRoute(resolveSettingsProfile(document, profileId));
+}
+
 export function promptCacheContextForRoute(
   route: SelectedSettingsRouteV2
 ): PromptCacheContext {
@@ -174,9 +184,9 @@ export function promptCacheContextForRoute(
 
 export function applyPromptCachePolicy(
   document: SettingsDocumentV2,
-  policy: PromptCachePolicyV2
+  policy: PromptCachePolicyV2,
+  profileId: string = document.routing.default
 ): SettingsDocumentV2 {
-  const profileId = document.routing.default;
   const profile = document.profiles[profileId];
   if (profile === undefined) throw new Error(`Prompt-cache route references missing profile ${profileId}`);
   if (profile.cachePolicy === policy) return document;

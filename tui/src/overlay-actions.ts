@@ -62,7 +62,13 @@ export async function handleOverlayAction(
     return true;
   }
   if (resolved.action === "open-settings") {
-    await openSettingsOverlay(state, source, context, resolved.settingsRow);
+    await openSettingsOverlay(
+      state,
+      source,
+      context,
+      resolved.settingsRow,
+      resolved.settingsProfilePurpose
+    );
     await synchronizeSettingsModelDiscovery(state, source, context);
     return true;
   }

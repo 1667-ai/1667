@@ -15,6 +15,7 @@ import {
 } from "./settings-provider-defaults.js";
 import { classifyHttpHost } from "./http-host-class.js";
 import { storedCredentialSecretId } from "./settings-stored-credential.js";
+import { resolveSettingsProfile } from "./settings-route.js";
 
 /**
  * Apply the deliberately small Release A editor to the active default route.
@@ -22,9 +23,10 @@ import { storedCredentialSecretId } from "./settings-stored-credential.js";
  */
 export function applyBasicSettingsDraft(
   document: SettingsDocumentV2,
-  draft: GenerationSettings
+  draft: GenerationSettings,
+  profileId: string = document.routing.default
 ): SettingsDocumentV2 {
-  return applyBasicSettingsDocumentDraft(document, draft, savedModelIdentity);
+  return applyBasicSettingsDocumentDraft(document, draft, savedModelIdentity, profileId);
 }
 
 /**
@@ -33,9 +35,10 @@ export function applyBasicSettingsDraft(
  */
 export function applyBasicSettingsProbeDraft(
   document: SettingsDocumentV2,
-  draft: GenerationSettings
+  draft: GenerationSettings,
+  profileId: string = document.routing.default
 ): SettingsDocumentV2 {
-  return applyBasicSettingsDocumentDraft(document, draft, probeModelIdentity);
+  return applyBasicSettingsDocumentDraft(document, draft, probeModelIdentity, profileId);
 }
 
 type ModelIdentity = {
@@ -46,13 +49,18 @@ type ModelIdentity = {
 function applyBasicSettingsDocumentDraft(
   document: SettingsDocumentV2,
   draft: GenerationSettings,
-  modelIdentityFor: (settings: GenerationSettings) => ModelIdentity
+  modelIdentityFor: (settings: GenerationSettings) => ModelIdentity,
+  profileId: string
 ): SettingsDocumentV2 {
-  const route = activeDefaultRoute(document);
-  const projected = basicSettingsFromDocument(document);
+  const route = resolveSettingsProfile(document, profileId);
+  const projected = basicSettingsFromDocument(document, profileId);
   const storedAuth = storedCredentialSecretId(route.connection.auth) !== null;
   const normalizedProjection = normalizeBasicSettingsIdentity(projected, false, storedAuth);
   const normalizedDraft = normalizeBasicSettingsIdentity(draft, true, storedAuth);
+  // The saved reducer validates identity even when an editable probe document
+  // already contains the same incomplete value. The probe reducer deliberately
+  // accepts a blank model so discovery can complete that draft.
+  const requestedModelIdentity = modelIdentityFor(normalizedDraft);
   if (sameBasicSettings(normalizedProjection, normalizedDraft)) return document;
 
   const protocol = protocolFor(normalizedDraft.provider);
@@ -68,7 +76,7 @@ function applyBasicSettingsDocumentDraft(
   const modelIdentityChanged =
     connectionIdentityChanged || normalizedProjection.model !== normalizedDraft.model;
   const modelIdentity = modelIdentityChanged
-    ? modelIdentityFor(normalizedDraft)
+    ? requestedModelIdentity
     : { remoteId: route.model.remoteId, name: route.model.name };
   const contextWindowChanged =
     normalizedProjection.contextWindow !== normalizedDraft.contextWindow;
@@ -112,7 +120,7 @@ function applyBasicSettingsDocumentDraft(
     },
     profiles: {
       ...document.profiles,
-      [document.routing.default]: {
+      [route.profileId]: {
         ...route.profile,
         temperature: normalizedDraft.temperature,
         maxOutputTokens: normalizedDraft.maxTokens
@@ -129,10 +137,11 @@ function applyBasicSettingsDocumentDraft(
 export function applyBasicModelDiscovery(
   document: SettingsDocumentV2,
   discovery: ModelDiscoveryResultV2 | null,
-  visibleContextWindow: number | null
+  visibleContextWindow: number | null,
+  profileId: string = document.routing.default
 ): SettingsDocumentV2 {
   if (discovery === null) return document;
-  const route = activeDefaultRoute(document);
+  const route = resolveSettingsProfile(document, profileId);
   const found = discovery.models.find(
     (candidate) => candidate.remoteId === route.model.remoteId
   );
@@ -169,7 +178,7 @@ export function applyBasicModelDiscovery(
 
 export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2): boolean {
   try {
-    activeDefaultRoute(document);
+    resolveSettingsProfile(document, document.routing.default);
     return true;
   } catch {
     return false;
@@ -177,8 +186,11 @@ export function settingsDocumentSupportsBasicEditor(document: SettingsDocumentV2
 }
 
 /** Project the active default route back into the legacy/basic editor shape. */
-export function basicSettingsFromDocument(document: SettingsDocumentV2): GenerationSettings {
-  const route = activeDefaultRoute(document);
+export function basicSettingsFromDocument(
+  document: SettingsDocumentV2,
+  profileId: string = document.routing.default
+): GenerationSettings {
+  const route = resolveSettingsProfile(document, profileId);
   const provider: Provider = route.connection.protocol === "dry-run"
     ? "dry-run"
     : route.connection.protocol === "anthropic-messages"
@@ -208,20 +220,13 @@ export function basicSettingsFromDocument(document: SettingsDocumentV2): Generat
 
 /** Editable views present their persisted document (active or staged) while
  * runtime callers remain pinned to `effective`; legacy views have no document. */
-export function basicSettingsForDisplay(view: SettingsView): GenerationSettings {
+export function basicSettingsForDisplay(
+  view: SettingsView,
+  profileId?: string
+): GenerationSettings {
   return view.editable
-    ? basicSettingsFromDocument(view.document)
+    ? basicSettingsFromDocument(view.document, profileId)
     : view.effective;
-}
-
-function activeDefaultRoute(document: SettingsDocumentV2) {
-  const profile = document.profiles[document.routing.default];
-  if (profile === undefined) throw new Error("Default generation profile is missing");
-  const model = document.models[profile.modelId];
-  if (model === undefined) throw new Error("Default profile model is missing");
-  const connection = document.connections[model.connectionId];
-  if (connection === undefined) throw new Error("Default model connection is missing");
-  return { profile, model, connection };
 }
 
 function connectionFor(

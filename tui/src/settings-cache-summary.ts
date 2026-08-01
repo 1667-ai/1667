@@ -1,6 +1,6 @@
 import {
-  applyPromptCachePolicy,
   promptCacheContextForDocument,
+  promptCacheContextForProfile,
   promptCachePolicyPresentation,
   resolvePromptCacheCapability
 } from "../../shared/prompt-cache-capabilities.js";
@@ -8,7 +8,6 @@ import type {
   PromptCachePolicyV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
-import { applyBasicSettingsProbeDraft } from "../../shared/settings-basic-draft.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 
 /** The policy is the part the row cycles; the detail is what that choice
@@ -44,23 +43,23 @@ export function promptCacheSummaryParts(
     };
   }
   let document = view.document;
+  let profileId: string | undefined;
   if (draft !== undefined) {
-    try {
-      document = applyPromptCachePolicy(
-        applyBasicSettingsProbeDraft(document, draft.generation),
-        draft.cachePolicy
-      );
-    } catch (error) {
+    if (draft.document === null || draft.selectedProfileId === null) {
       return {
         kind: "unavailable",
         policy: draft.cachePolicy,
         detail: "unavailable",
-        reason: error instanceof Error ? error.message : String(error),
+        reason: "Editable settings document is unavailable.",
         compactReason: "Fix invalid cache settings."
       };
     }
+    document = draft.document;
+    profileId = draft.selectedProfileId;
   }
-  const context = promptCacheContextForDocument(document);
+  const context = profileId === undefined
+    ? promptCacheContextForDocument(document)
+    : promptCacheContextForProfile(document, profileId);
   const resolution = resolvePromptCacheCapability(context);
   const presentation = promptCachePolicyPresentation(context, context.policy);
   if (!presentation.available) {

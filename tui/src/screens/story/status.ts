@@ -103,7 +103,11 @@ export function renderStatus(
   // carries it where this line cannot.
   const wideRight = (buildTag: boolean): FrameLine => [
     segment(" ", "chrome"),
-    segment(state.model, "chrome", { kind: "settings-row", row: "model" }),
+    segment(state.model, "chrome", {
+      kind: "settings-row",
+      row: "model",
+      profilePurpose: "prose"
+    }),
     ...(backendStatus === null
       ? []
       : [segment(" · ", "chrome"), segment(backendStatus, "chrome")]),
