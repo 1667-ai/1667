@@ -23,7 +23,7 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "./settings-v2-types.js";
-import type { LorebookImport } from "./novelai-lorebook.js";
+import type { LorebookImport } from "./lorebook-entry.js";
 import type {
   PromptBiasEncoding,
   SamplingBiasResolutionResult

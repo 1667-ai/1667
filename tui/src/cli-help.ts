@@ -100,13 +100,16 @@ Options:
   --data <path>          Open this project root instead of discovering one
   --global               Open the machine-wide project instead of a folder`;
 
-export const IMPORT_LOREBOOK_HELP = `1667 import-lorebook — add NovelAI lorebook Facts to a story
+export const IMPORT_LOREBOOK_HELP = `1667 import-lorebook — add lorebook Facts to a story
 
 Usage: 1667 import-lorebook --story <id-or-title> [--data <path>|--global] <file...>
 
-Adds one Fact for each entry of a NovelAI .lorebook archive, as JSON or inside
-a PNG, to a story that already exists. It does not make a new story, so --story
-is required.
+Adds one Fact for each entry of a lorebook to a story that already exists. It
+does not make a new story, so --story is required.
+
+It reads a NovelAI .lorebook archive, as JSON or inside a PNG, and a SillyTavern
+World Info .json file. 1667 reads the file to know which format it has. It does
+not use the file name.
 
 An entry's text becomes the Fact text and its category or display name becomes
 the tag. Entry keys become Fact keys with keyed activation; an always-on entry

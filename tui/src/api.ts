@@ -23,7 +23,7 @@ import type {
 } from "../../shared/sampling-capabilities.js";
 import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
-import type { LorebookImport } from "../../shared/novelai-lorebook.js";
+import type { LorebookImport } from "../../shared/lorebook-entry.js";
 
 import type {
   TagStatus,
