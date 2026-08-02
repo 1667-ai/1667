@@ -6,6 +6,7 @@ import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { validateSettingsDocumentV2 } from "../server/settings-v2-validation.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { applyBasicSettingsDraft, basicSettingsFromDocument } from "../shared/settings-basic-draft.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 /** A model server on this machine must not be harder to reach than the same
@@ -44,6 +45,7 @@ function runtime(allowInsecureHttp: boolean) {
     timeouts: { responseHeaderMs: 1_000, firstTokenMs: 1_000, idleMs: 1_000, totalMs: 5_000 },
     allowInsecureHttp,
     effort: "default" as const,
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported" as const,
       assistantPrefill: "unknown" as const,

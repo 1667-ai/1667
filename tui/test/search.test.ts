@@ -357,7 +357,7 @@ describe("global search screen and model", () => {
     const frame = render(120, 36);
     const footerLine = plainLine(frame.lines[frame.lines.length - 1]!);
     // The grids' own copy: vault scope promises a story switch, not a reroute.
-    expect(footerLine).toContain("⏎ switch story + open");
+    expect(footerLine).toContain("↵ switch story + open");
   });
 
   test("left and right keys fold and unfold groups without reducing total tally", async () => {

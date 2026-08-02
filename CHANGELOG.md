@@ -21,6 +21,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   `--format scenario`, or `--format lorebook`. Use `--all` to export every
   story. The command reports content changes and omissions for each archive.
 
+- **Settings now includes a collapsed Sampling group.** Open the group to
+  edit scalar values, stop sequences, and logit bias rows. The TUI shows a
+  short reason for an unavailable value. An unavailable scalar row shows
+  `‹ — ›`. A save keeps the draft when a configured value is unavailable.
+  Thanks @10fra for the report.
+
 - **Stories now have an Author's Note.** Press `a` to write short steering for
   the next continuation or prompted retake. 1667 shows the note cost in the
   context meter and warns above 300 estimated tokens. Thanks @10fra for the

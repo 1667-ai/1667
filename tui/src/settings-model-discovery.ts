@@ -153,6 +153,7 @@ async function runModelDiscoveryRequest(
           state: "warning",
           message: "model list is empty · enter a custom name"
         };
+        overlay.resultRow = "model";
       }
     } catch (error) {
       if (!task.owns() || !ownsCurrentRequest(state, overlay, request)) return;
@@ -160,6 +161,7 @@ async function runModelDiscoveryRequest(
         state: "warning",
         message: "model list unavailable · enter a custom name"
       };
+      overlay.resultRow = "model";
       state.toast = error instanceof Error ? error.message : String(error);
     } finally {
       if (task.owns() && ownsCurrentRequest(state, overlay, request)) {

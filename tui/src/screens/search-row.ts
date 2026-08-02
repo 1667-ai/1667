@@ -85,7 +85,7 @@ export function highlightedSnippet(hit: SearchHit, focused: boolean, room: numbe
   const textRole = focused ? "prose" : "prose · dim";
   const matchSegment: FrameSegment = focused
     ? { text: match, role: "background", background: "focus / accent", bold: true }
-    : { text: match, role: "focus / accent", background: "raised" };
+    : { text: match, role: "match ink", background: "match wash" };
   const line: FrameLine = [
     segment(lead, textRole),
     matchSegment,

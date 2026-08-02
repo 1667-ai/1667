@@ -71,10 +71,7 @@ export async function mapAction(
     return;
   }
   if (resolved.action === "map-cycle-sort") {
-    // `s` was the atlas' "by size" lens before mass became a first-class
-    // view. Keep that muscle memory: tree enters mass; mass re-sorts it.
-    if (map.view === "tree") map.view = "mass";
-    else map.massSort = nextMassSort(map.massSort);
+    map.massSort = nextMassSort(map.massSort);
     return;
   }
   if (map.view === "path") return await pathAction(resolved, state, source, context);

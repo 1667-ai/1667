@@ -113,10 +113,12 @@ describe("MAP mass rows", () => {
 
     for (const width of [80, 120]) {
       const scale = createMapMassScale(layout, width);
-      expect(scale.wordsWidth).toBeGreaterThan(6);
+      // Decision 21's column holds six cells at every width; a count that would
+      // outgrow them steps up its scale instead of widening the grid.
+      expect(scale.wordsWidth).toBeGreaterThan(5);
       const rendered = rows.map((row) => renderMapMassRow(row, scale));
       expect(rendered.every((line) => visibleWidth(plainLine(line)) <= width)).toBeTrue();
-      expect(plainLine(rendered[0]!)).toContain("10000.3k");
+      expect(plainLine(rendered[0]!)).toContain("10.0M");
       const fields = rendered.map((line) => line[BAR]!.text);
       expect(new Set(fields.map(visibleWidth))).toEqual(new Set([scale.barWidth]));
       const cells = fields.map((field) => field.match(/^█+/)?.[0].length ?? 0);

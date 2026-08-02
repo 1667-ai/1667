@@ -8,6 +8,7 @@ import type {
   SettingsPresetV2,
   SettingsRoutePurpose
 } from "../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import {
   defaultConnectionTimeouts,
   defaultModelCapabilities,
@@ -131,7 +132,8 @@ export function effectiveGenerationRuntime(
     profile.effort,
     model.capabilities,
     environment,
-    storedSecrets
+    storedSecrets,
+    profile.sampling ?? EMPTY_SAMPLING_V2
   );
   const settings = attachProviderRuntime({
       provider,

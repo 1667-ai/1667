@@ -26,6 +26,7 @@ import type {
   SettingsDocumentV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 
 describe("fuzzy matching", () => {
   test("orders contiguous early matches first", () => {
@@ -119,7 +120,8 @@ describe("settings text contract", () => {
       provider: "dry-run", baseUrl: "", model: "qwen3-32b", apiKeyEnv: null,
       temperature: 0.7, maxTokens: 2048, systemPrompt: "Continue.", contextWindow: 32768
     },
-    cachePolicy: "off"
+    cachePolicy: "off",
+    sampling: EMPTY_SAMPLING_V2
   } as const;
   test("round-trips through the editor format", () => {
     const parsed = parseSettings(serializeSettings(base), base);
@@ -128,6 +130,17 @@ describe("settings text contract", () => {
   test("rejects typos and bad numbers loudly", () => {
     expect(parseSettings("modle: x", base)).toEqual({ error: 'unknown setting "modle"' });
     expect("error" in (parseSettings("maxTokens: many", base) as object)).toBeTrue();
+  });
+  test("rejects invalid sampling values before a settings save", () => {
+    expect(parseSettings("sampling.topP: 2", base)).toEqual({
+      error: "sampling.topP must be a finite number in 0..1"
+    });
+    expect(parseSettings('sampling.logitBias: {"1": 1.5}', base)).toEqual({
+      error: "sampling.logitBias.1 must be an integer in -100..100"
+    });
+    expect(parseSettings('sampling.logitBias: {"1": 101}', base)).toEqual({
+      error: "sampling.logitBias.1 must be an integer in -100..100"
+    });
   });
   test("blank apiKeyEnv and contextWindow mean null", () => {
     const parsed = parseSettings("apiKeyEnv:\ncontextWindow:", base);

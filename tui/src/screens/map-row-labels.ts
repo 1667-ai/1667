@@ -6,7 +6,14 @@ export { tagGlyph, tagRole };
 /** A word count with no unit, for views that already head a column of them —
  * doc 20c's tree gutter and doc 26a's metadata column. */
 export function formatMapWordsBare(words: number): string {
-  return words < 1_000 ? words.toLocaleString("en-US") : `${(words / 1_000).toFixed(1)}k`;
+  if (words < 1_000) return words.toLocaleString("en-US");
+  // Decision 21 pins this column at six cells, so the scale steps up rather
+  // than letting the number outgrow the grid it is compared in. The step is
+  // decided on the *rounded* figure: 999,999 rounds to `1000.0k`, which is
+  // seven cells, and is `1.0M`.
+  const thousands = (words / 1_000).toFixed(1);
+  if (Number(thousands) < 1_000) return `${thousands}k`;
+  return `${(words / 1_000_000).toFixed(1)}M`;
 }
 
 /** The same count carrying its unit, for the places a number stands alone. The

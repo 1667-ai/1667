@@ -11,6 +11,7 @@ export type LogoDisplayRole =
 export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "danger text" | "context warning"
   | "context voice" | "context facts" | "context recent" | "context summary" | "context note"
   | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2"
+  | "match wash" | "match ink"
   | LogoDisplayRole;
 
 /** Every display role that is not a palette role in its own right. */
@@ -52,6 +53,11 @@ export interface FrameComposition {
   lines: FrameLine[];
   selectable: FrameRegion | null;
 }
+
+/** F-1's typing caret. One caret app-wide: the filter, prompt and tag-name
+ *  rows used to draw `▌`, which the package assigns to the C-08 out-of-range
+ *  pin and the search focus rail — never to a caret. */
+export const TYPING_CARET = "█";
 
 export function segment(text: string, role?: DisplayRole, hit?: HitTarget): FrameSegment {
   const result: FrameSegment = { text };
@@ -364,6 +370,10 @@ const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   // distinct from every severity's request ink without reading as an alert.
   "context growth": (palette) => palette.brassDim,
   "context growth pulse": (palette) => palette.color("tag · draft"),
+  // Decision 22's search wash: the tint an unfocused hit takes, and the ink
+  // that stays legible on it. Solid accent is reserved for the focused row.
+  "match wash": (palette) => palette.matchWash,
+  "match ink": (palette) => palette.matchInk,
   "fresh 1": (palette) => palette.freshIntermediate[0],
   "fresh 2": (palette) => palette.freshIntermediate[1],
   "logo red": (palette) => palette.color("danger"),

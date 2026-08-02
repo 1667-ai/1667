@@ -1,4 +1,11 @@
 import type { KeyAction } from "../keys.js";
+import {
+  boundedSettingsCursor,
+  settingsRowHasArrows,
+  SETTINGS_ROW_IDS
+} from "../settings-overlay-model.js";
+import { isSettingsScalarRow } from "../settings-scalar.js";
+import type { SettingsOverlayState } from "../state.js";
 import { visibleWidth } from "./story/frame.js";
 
 /** Footer variants for the settings panel, widest first.
@@ -268,7 +275,83 @@ export const SETTINGS_TEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
   }
 ];
 
+/** C-15 owns `↑↓` and every letter, so the column advertises only what it
+ *  actually answers. */
+export const SETTINGS_PICKER_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · type to narrow · ↵ choose · esc back",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ choose", action: "open-selected" },
+      { token: "esc back", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ↵ choose · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "↵ choose", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
+/** A C-08 scalar owns `←→`, `⇧` and `↵`, so its keyline says so rather than
+ *  borrowing the cycler's `choose`. */
+export const SETTINGS_SCALAR_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ step · ⇧ ×10 · ↵ type · s save · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ step", action: "take-next" },
+      { token: "↵ type", action: "open-selected" },
+      { token: "s save", action: "save-edit" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ · ←→ step · ↵ type · s · esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ step", action: "take-next" },
+      { token: "↵ type", action: "open-selected" },
+      { token: "s", action: "save-edit" },
+      { token: "esc", action: "cancel" }
+    ]
+  },
+  {
+    text: "↑↓ ←→ ↵ esc",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→", action: "take-next" },
+      { token: "↵", action: "open-selected" },
+      { token: "esc", action: "cancel" }
+    ]
+  }
+];
+
 export const SETTINGS_CONTEXT_FOOTERS: ReadonlyArray<SettingsFooter> = [
+  {
+    text: "↑↓ move · ←→ step · ↵ type · p detect · s save · esc close",
+    actions: [
+      { token: "↑", action: "focus-previous" },
+      { token: "↓", action: "focus-next" },
+      { token: "←", action: "take-previous" },
+      { token: "→ step", action: "take-next" },
+      { token: "↵ type", action: "open-selected" },
+      { token: "p detect", action: "detect-context" },
+      { token: "s save", action: "save-edit" },
+      { token: "esc close", action: "cancel" }
+    ]
+  },
   {
     text: "↑↓ move · ↵ edit · p detect · s save · c check · esc close",
     actions: SETTINGS_CONTEXT_FOOTER_ACTIONS
@@ -352,3 +435,25 @@ export const SETTINGS_PENDING_FOOTERS: ReadonlyArray<SettingsFooter> = [
     ]
   }
 ];
+
+/** Which keyline this panel shows. Footer policy follows the row model, so it
+ *  lives with the footers rather than as a ternary chain in the renderer. */
+export function settingsFooterVariants(
+  overlay: SettingsOverlayState,
+  pickerOpen: boolean
+): ReadonlyArray<SettingsFooter> {
+  if (pickerOpen) return SETTINGS_PICKER_FOOTERS;
+  if (overlay.edit !== null) return SETTINGS_EDIT_FOOTERS;
+  const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
+  const pending = overlay.view.editable && overlay.view.pendingRevision !== null;
+  if (row === "profile") {
+    return pending ? SETTINGS_PENDING_PROFILE_FOOTERS : SETTINGS_PROFILE_FOOTERS;
+  }
+  if (pending) return SETTINGS_PENDING_FOOTERS;
+  // The context window is a scalar that can also be probed, so it keeps its
+  // own keyline rather than the plain scalar one.
+  if (row === "context-window") return SETTINGS_CONTEXT_FOOTERS;
+  if (isSettingsScalarRow(row)) return SETTINGS_SCALAR_FOOTERS;
+  if (!settingsRowHasArrows(overlay, row)) return SETTINGS_TEXT_FOOTERS;
+  return row === "model" ? SETTINGS_MODEL_FOOTERS : SETTINGS_CHOICE_FOOTERS;
+}

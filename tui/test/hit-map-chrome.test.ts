@@ -197,7 +197,10 @@ describe("hit map clickable chrome", () => {
 
     state.map!.view = "tree";
     frame = render(state);
-    const reveal = clickText(frame, state, "a reveals");
+    // The fold row states what it holds and names no key; `a` is advertised in
+    // the keyline (C-06). Both still answer a click.
+    expect(clickText(frame, state, "sketches")).toEqual({ action: "toggle-sketches" });
+    const reveal = clickText(frame, state, "a sketches");
     expect(reveal).toEqual({ action: "toggle-sketches" });
     await dispatch(reveal!, state, source, createWrapCache(), () => {}, async () => {}, () => {});
     expect(state.map?.showSketches).toBeTrue();
@@ -254,9 +257,10 @@ describe("hit map clickable chrome", () => {
     const expected = {
       path: [["m tree", "cycle-map-view"], ["a branches", "toggle-path-takes"],
         ["enter reroute", "apply"], ["esc writes", "cancel"]],
-      tree: [["m mass", "cycle-map-view"], ["l follow", "map-follow"],
-        ["enter reroute", "apply"], ["s sort", "map-cycle-sort"], ["esc writes", "cancel"]],
+      tree: [["m mass", "cycle-map-view"], ["a sketches", "toggle-sketches"],
+        ["l follow", "map-follow"], ["enter reroute", "apply"], ["esc writes", "cancel"]],
       mass: [["m path", "cycle-map-view"], ["s sort", "map-cycle-sort"],
+        ["a sketches", "toggle-sketches"],
         ["l open line", "map-follow"], ["enter reroute", "apply"], ["esc writes", "cancel"]]
     } as const;
     for (const view of ["path", "tree", "mass"] as const) {
@@ -683,7 +687,8 @@ describe("hit map clickable chrome", () => {
     const state = initialState(source, false);
     state.stream = null;
     footerCases.at(-1)!.setup(state, source);
-    const frame = render(state, 120, 30);
+    // Tall enough to paint the whole sectioned form, so every choice is sampled.
+    const frame = render(state, 120, 48);
 
     // Each closed choice opens on the first cell of its value, so the opening
     // arrows share a column exactly when the labels all fit theirs.
@@ -697,8 +702,10 @@ describe("hit map clickable chrome", () => {
       }
     }
 
-    // Four existing choices plus profile, effort, cache, and three routes.
-    expect(opens.size).toBe(10);
+    // Theme, compose focus, provider, insecure HTTP, profile, effort, cache,
+    // sampling and three routes — plus the three C-08 scalars, whose chips
+    // open on the same column.
+    expect(opens.size).toBe(13);
     expect(new Set(opens.values()).size).toBe(1);
   });
 
@@ -739,7 +746,11 @@ describe("hit map clickable chrome", () => {
       let arrows = 0;
       for (const [rowIndex, row] of state.hitRows.entries()) {
         for (const region of row?.overrides ?? []) {
+          // The selector arrows, not every indexed action — the C-03 rail's
+          // jump cells are indexed too and sit on a label, not a glyph.
           if (region.target.kind !== "action" || region.target.index === undefined) continue;
+          if (region.target.action !== "take-previous"
+            && region.target.action !== "take-next") continue;
           arrows += 1;
           const line = [...plainLine(frame[rowIndex]!)];
           // The whole region, not just its first cell, has to be on the glyph.
@@ -910,14 +921,14 @@ describe("hit map clickable chrome", () => {
       { name: "map tree", expected: (width) => width < 100
         ? "m mass · ↑↓ row · l follow · esc"
         : width < 136
-          ? "m mass · ↑↓ row · l follow · enter · esc writes"
-          : "m mass · ↑↓ row · l follow · enter reroute · s sort · esc writes",
+          ? "m mass · ↑↓ row · a sketches · l follow · enter · esc writes"
+          : "m mass · ↑↓ row · a sketches · l follow · enter reroute · esc writes",
         setup: (state) => { showMap(state, "tree", state.payload.path.at(-1)!.id); } },
       { name: "map mass", expected: (width) => width < 100
         ? "m path · ↑↓ row · s sort · l open · esc"
         : width < 136
           ? "m path · ↑↓ row · s sort · l open · esc writes"
-          : "m path · ↑↓ row · s sort · l open line · enter reroute · esc writes",
+          : "m path · ↑↓ row · s sort · a sketches · l open line · enter reroute · esc writes",
         setup: (state) => { showMap(state, "mass", state.payload.path.at(-1)!.id); } },
       // Too short a terminal to hold the whole reference trades the selection
       // hint for the scroll position, so the footer differs by size.
@@ -927,7 +938,9 @@ describe("hit map clickable chrome", () => {
         setup: (state) => { state.mode = "KEYS"; } },
       { name: "library", expected: "↑↓ move · ↵ open · n new · e rename · / filter · d delete · esc",
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
-      { name: "facts", expected: "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
+      { name: "facts", expected: (width: number) => width < 100
+        ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
+        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
         ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"

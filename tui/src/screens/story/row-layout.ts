@@ -293,7 +293,7 @@ function compactPromptSegments(
         `${partId}:instruction`, instruction, cursor, hit
       ));
     }
-    output.push(segment(" ⏎ ", "chrome", hit));
+    output.push(segment(" ↵ ", "chrome", hit));
     cursor = start + match[0].length;
   }
   if (cursor < instruction.length) {

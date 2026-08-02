@@ -29,9 +29,13 @@ export function renderStatus(
   const focusedChapter = chapterForRow(view, state.focusIndex);
   const tag = tagForLeaf(payload.tags, payload.path.at(-1)?.id ?? null);
   const title = narrow ? truncate(payload.title, 20) : payload.title;
+  const samplingPanel = state.settings?.sampling?.panel ?? null;
   const mode = state.mode === "EDITOR" ? "EDIT"
     : state.mode === "COMPOSE" && state.composer.fullscreen
     ? "COMPOSE · fullscreen"
+    : samplingPanel === "sampling" ? "SAMPLING"
+    : samplingPanel === "stop" ? "STOP"
+    : samplingPanel === "logit-bias" ? "LOGIT BIAS"
     : state.mode;
   const modeBlock: FrameSegment = {
     text: state.prune === null ? ` ${mode} ` : " PRUNE ",

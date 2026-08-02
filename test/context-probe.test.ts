@@ -9,7 +9,7 @@ import {
   attachProviderRuntime,
   type ProviderRuntime
 } from "../server/provider-runtime.js";
-import type { SettingsPresetV2 } from "../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2, type SettingsPresetV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
 test("LM Studio context probe uses only loaded native context", async (t) => {
@@ -283,6 +283,7 @@ function settings(preset: SettingsPresetV2): GenerationSettings {
     },
     allowInsecureHttp: false,
     effort: "default",
+    sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",

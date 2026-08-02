@@ -7,6 +7,17 @@ import {
   isCredentialEnvironmentName
 } from "../shared/credential-slot-policy.js";
 export { classifyHttpHost } from "../shared/http-host-class.js";
+export {
+  MAX_SAMPLING_LOGIT_BIAS_ENTRIES,
+  MAX_SAMPLING_STOP_SCALARS,
+  MAX_SAMPLING_STOP_SEQUENCES,
+  MAX_SAMPLING_TOP_K,
+  SAMPLING_LOGIT_BIAS_KEY_PATTERN,
+  SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE,
+  SAMPLING_LOGIT_BIAS_POLICY,
+  SAMPLING_SCALAR_DESCRIPTORS,
+  SAMPLING_STOP_POLICY
+} from "../shared/sampling-validation-policy.js";
 
 export const MAX_SETTINGS_DOCUMENT_BYTES = 256 * 1024;
 export const MAX_SETTINGS_STATE_BYTES = 1024 * 1024;

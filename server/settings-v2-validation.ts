@@ -14,6 +14,7 @@ import {
   type SettingsPresetV2,
   type SettingsProtocolV2
 } from "../shared/settings-v2-types.js";
+import { parseSampling, validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
@@ -52,7 +53,10 @@ const HEADER_VALUE = closedShape(["type", "env"]);
 const MODEL = closedShape(["connectionId", "remoteId", "name", "discovered", "overrides", "capabilities"]);
 const METADATA = closedShape([], ["contextWindow", "maxOutputTokens"]);
 const CAPABILITIES = closedShape(["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"]);
-const PROFILE = closedShape(["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]);
+const PROFILE = closedShape(
+  ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"],
+  ["sampling"]
+);
 const ROUTING = closedShape(["default"], ["prose", "utility"]);
 const WRITING = closedShape(["defaultAuthorBrief"]);
 
@@ -70,7 +74,7 @@ export function validateSettingsDocumentV2(
   const caseInsensitive = options.environmentCaseInsensitive ?? process.platform === "win32";
   const connections = parseConnections(root.connections, credentialNames, caseInsensitive);
   const models = parseModels(root.models, connections);
-  const profiles = parseProfiles(root.profiles, models);
+  const profiles = parseProfiles(root.profiles, models, connections);
   const routing = parseRouting(root.routing, profiles);
   const writing = closedRecord(root.writing, "settings document.writing", WRITING);
   const defaultAuthorBrief = requireBoundedSettingsString(
@@ -342,7 +346,8 @@ function parseCapabilities(value: unknown, label: string): ModelCapabilitiesV2 {
 
 function parseProfiles(
   value: unknown,
-  models: Readonly<Record<string, ModelDefinitionV2>>
+  models: Readonly<Record<string, ModelDefinitionV2>>,
+  connections: Readonly<Record<string, ModelConnectionV2>>
 ): Record<string, GenerationProfileV2> {
   const record = settingsMap(value, "settings document.profiles");
   const result: Record<string, GenerationProfileV2> = {};
@@ -362,7 +367,8 @@ function parseProfiles(
     if (effort !== "default" && model.capabilities.reasoningEffort !== "supported") {
       throw new SettingsFormatError(`profile ${id} sets effort without explicit model support`);
     }
-    result[id] = {
+    const sampling = parseSampling(profile.sampling, `profile ${id}.sampling`);
+    const parsedProfile: GenerationProfileV2 = {
       name: requireBoundedSettingsString(profile.name, `profile ${id}.name`, MAX_SETTINGS_NAME_SCALARS, 1),
       modelId,
       temperature,
@@ -372,8 +378,15 @@ function parseProfiles(
         MAX_SETTINGS_TOKEN_COUNT
       ),
       effort,
-      cachePolicy: oneOf(profile.cachePolicy, PROMPT_CACHE_POLICY_V2_VALUES, `profile ${id}.cachePolicy`)
+      cachePolicy: oneOf(profile.cachePolicy, PROMPT_CACHE_POLICY_V2_VALUES, `profile ${id}.cachePolicy`),
+      ...(sampling === undefined ? {} : { sampling })
     };
+    const connection = connections[model.connectionId];
+    if (connection === undefined) {
+      throw new SettingsFormatError(`model ${modelId}.connectionId does not resolve`);
+    }
+    validateSamplingRoute(id, parsedProfile, model, connection);
+    result[id] = parsedProfile;
   }
   return result;
 }

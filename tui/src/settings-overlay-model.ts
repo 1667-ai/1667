@@ -11,6 +11,8 @@ import {
   type SettingsProviderChoice
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
+import { isSettingsScalarRow } from "./settings-scalar.js";
+import { modelPickerRequired } from "./settings-model-picker.js";
 import {
   parseSettings,
   settingsTextDraftForDocument,
@@ -41,7 +43,9 @@ export {
   promptCacheRowValue,
   settingsModelDisplayText,
   settingsRows,
-  type SettingsRowPresentation
+  SETTINGS_SECTIONS,
+  type SettingsRowPresentation,
+  type SettingsSectionId
 } from "./settings-profile-controls.js";
 
 export const SETTINGS_ROW_IDS = [
@@ -50,12 +54,14 @@ export const SETTINGS_ROW_IDS = [
   "provider",
   "base-url",
   "allow-insecure-http",
-  "api-key",
+  // C-14 prefers the env-var form, so it leads the stored key.
   "api-key-env",
+  "api-key",
   "profile",
   "model",
   "temperature",
   "max-tokens",
+  "sampling",
   "context-window",
   "effort",
   "cache-policy",
@@ -73,6 +79,8 @@ export {
   settleSettingsOverlaySave
 } from "./settings-overlay-reconciliation.js";
 
+type SettingsInlineRow = Exclude<SettingsRowId, "system-prompt" | "sampling">;
+
 export function initialSettingsOverlay(
   view: SettingsView,
   config: UserConfig,
@@ -86,6 +94,7 @@ export function initialSettingsOverlay(
     connectionSecrets: {},
     cursor: 0,
     edit: null,
+    sampling: null,
     conflict: null,
     checking: false,
     probing: false,
@@ -96,14 +105,16 @@ export function initialSettingsOverlay(
     modelDiscoveryAbortController: null,
     modelDiscoveryTargetIdentity: null,
     result: null,
-    deleteArmedProfileId: null
+    resultRow: null,
+    deleteArmedProfileId: null,
+    modelPicker: null
   };
 }
 
 export function settingsRowEditValue(
   overlay: SettingsOverlayState,
   config: UserConfig,
-  row: SettingsRowId
+  row: SettingsInlineRow
 ): string {
   if (row === "theme") return config.theme;
   if (row === "compose-focus") return config.composeFocus;
@@ -125,7 +136,7 @@ export function beginSettingsRowEdit(
   config: UserConfig
 ): void {
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "system-prompt") return;
+  if (row === "system-prompt" || row === "sampling") return;
   if (settingsRowUsesServer(row)) overlay.result = null;
   const initial = settingsRowEditValue(overlay, config, row);
   const composer = createComposer(initial);
@@ -163,7 +174,7 @@ export function beginSettingsPasteEdit(
 ): boolean {
   if (overlay.edit !== null) return true;
   const row = SETTINGS_ROW_IDS[boundedSettingsCursor(overlay.cursor)]!;
-  if (row === "system-prompt") return false;
+  if (row === "system-prompt" || row === "sampling") return false;
   // Closed choices cycle in place; paste must not open their row editor.
   if (settingsRowCycles(row)) return false;
   if (settingsRowUsesServer(row) && !overlay.view.editable) {
@@ -309,12 +320,18 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
     || row === "utility-route";
 }
 
+/** Rows `←→` acts on: a cycler steps through its options, a C-08 scalar steps
+ *  through its range. Both wear brackets or chevrons, which is what the arrows
+ *  are anchored to. */
 export function settingsRowHasArrows(
   overlay: SettingsOverlayState,
   row: SettingsRowId
 ): boolean {
   return settingsRowCycles(row)
-    || row === "model" && settingsModelChoices(overlay).length > 0;
+    || isSettingsScalarRow(row)
+    // A cycler stops at eight; past that the option column owns the choice.
+    || row === "model" && settingsModelChoices(overlay).length > 0
+      && !modelPickerRequired(overlay);
 }
 
 /** Local-only rows live in the user config; every other row edits a

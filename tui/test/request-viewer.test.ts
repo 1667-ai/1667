@@ -12,6 +12,7 @@ import {
   type PresentedInteraction
 } from "../src/presented-mouse-action.js";
 import { resolveKey } from "../src/keys.js";
+import { hitAt } from "../src/hit.js";
 import { projectNextRequest } from "../src/request-context.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
 import { renderRequestViewer } from "../src/screens/request-viewer.js";
@@ -105,11 +106,14 @@ describe("next request viewer", () => {
       : estimate.messages.at(-1)?.role === "assistant" ? "assistant prefill" : "new passage";
 
     const frame = renderRequestViewer(
+      {
+        payload: projected.payload,
+        model: `model-${"long-identifier-".repeat(20)}`,
+        contextWindow: 32_768
+      },
       projected.context,
       estimate,
       { cursor: 0, scrollTop: 0, returnMode: "NAV" },
-      `model-${"long-identifier-".repeat(20)}`,
-      32_768,
       80,
       1_000
     );
@@ -339,5 +343,30 @@ describe("next request viewer", () => {
 
     expect(state.request).toBe(null);
     expect(state.mode).toBe("NAV");
+  });
+
+  test("the breadcrumb keeps a mode cell, a tether, and clickable keys", () => {
+    const { state } = harness();
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const frame = renderRequestViewer(
+      { payload: projected.payload, model: "test-model", contextWindow: 32_768 },
+      projected.context,
+      estimate,
+      { cursor: 0, scrollTop: 0, returnMode: "NAV" },
+      120,
+      30
+    );
+    const row = frame.lines.length - 1;
+    const breadcrumb = plainLine(frame.lines[row]!);
+
+    // C-02: the surface names its mode and stays tethered to the story.
+    expect(breadcrumb).toContain(" REQUEST ");
+    expect(breadcrumb).toContain(projected.payload.title);
+    expect(breadcrumb).toContain("message 1/");
+    // Its keys answer a click, the way the map's and search's do.
+    const column = visibleWidth(breadcrumb.slice(0, breadcrumb.indexOf("esc close")));
+    expect(hitAt(frame.hitRows, column, row))
+      .toEqual({ kind: "action", action: "cancel" });
   });
 });

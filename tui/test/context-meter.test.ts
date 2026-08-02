@@ -362,7 +362,7 @@ describe("honest next-request context meter", () => {
     }
     expect(frameText(railLines({
       ...buildRailModel(payload, "", 1_000, estimate), window: requestWindow(1_200, 1_000)
-    }))).toContain("near full");
+    }))).toContain("over by 200");
   });
 
   test("a gauge never reads empty or full until the fill exactly is", () => {
@@ -470,7 +470,8 @@ describe("honest next-request context meter", () => {
     const lines = contextMeterLines(model, false, 3);
     const value = lines.flat().find((part) => part.text.includes("+~400≤2k"));
 
-    expect(frameText(lines)).toContain("near full");
+    expect(frameText(lines)).toContain("over by 100");
+    expect(frameText(lines)).toContain("summarize or drop a fact");
     expect(frameText(lines)).not.toContain("300 free");
     expect(value?.role).toBe("danger text");
   });

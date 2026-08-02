@@ -31,6 +31,8 @@ export interface RequestWindow {
   /** Share of the window this request occupies; above 1 it does not fit. */
   fill: number;
   free: number;
+  /** Tokens this request runs past the window. Zero while it still fits. */
+  over: number;
 }
 
 /** The one place a request is measured against a window. A provider that
@@ -38,7 +40,12 @@ export interface RequestWindow {
  * rather than a percentage of nothing. */
 export function requestWindow(tokens: number, size: number | null): RequestWindow | null {
   if (size === null || size <= 0) return null;
-  return { size, fill: tokens / size, free: Math.max(0, size - tokens) };
+  return {
+    size,
+    fill: tokens / size,
+    free: Math.max(0, size - tokens),
+    over: Math.max(0, tokens - size)
+  };
 }
 
 export interface RailModel {

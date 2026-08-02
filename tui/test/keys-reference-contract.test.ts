@@ -114,7 +114,7 @@ describe("keys reference contract", () => {
     expect(state.keysScrollTop).toBe(1);
 
     await apply({ action: "scroll-down" });
-    expect(state.keysScrollTop).toBe(3);
+    expect(state.keysScrollTop).toBe(4);
     await apply({ action: "scroll-up" });
     expect(state.keysScrollTop).toBe(1);
 

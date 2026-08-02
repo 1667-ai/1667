@@ -22,12 +22,15 @@ import {
 import { addInlineHits } from "./story/hits.js";
 import {
   DIVIDER_COLUMN,
+  hitReference,
   PREVIEW_COLUMN,
   PREVIEW_MIN_WIDTH,
   renderGroupRow,
   renderHitRow
 } from "./search-row.js";
 import { joinPanes, renderPreview } from "./search-preview.js";
+import { renderSurfaceBreadcrumb } from "./surface-breadcrumb.js";
+import { tagGlyph, tagRole } from "../tag-presentation.js";
 
 const SHELL_ROWS = 2;
 
@@ -90,7 +93,7 @@ export function renderSearchScreen(
     ...body.map((line, offset) => preview
       ? joinPanes(line, previewLines[offset] ?? [], width)
       : fitLine(line, width)),
-    renderFooter(search, width)
+    renderFooter(state, search, model, width)
   ].slice(0, height).map((line) => fitLine(line, width));
 
   hitRows.length = height;
@@ -192,55 +195,66 @@ function searchTally(search: SearchState, status: SearchStatus): string {
   }
 }
 
-function renderFooter(search: SearchState, width: number): FrameLine {
+/** Spec §4: search takes the same full-bleed shell as the map — title rule and
+ *  footer breadcrumb. The last row used to be a bare keyline, which dropped
+ *  both the ` SEARCH ` mode cell and the C-02 tether back to the story. */
+function renderFooter(
+  state: StoryScreenState,
+  search: SearchState,
+  model: SearchRowModel,
+  width: number
+): FrameLine {
   const narrow = width < PREVIEW_MIN_WIDTH;
-  const line: FrameLine = [segment("━━ ", "brass dim")];
-  const appendSep = () => line.push(segment(" ━ ", "brass dim"));
+  const tag = state.payload.tags.find(
+    (item) => item.nodeId === (state.payload.path.at(-1)?.id ?? null)
+  ) ?? null;
+  return renderSurfaceBreadcrumb({
+    mode: "SEARCH",
+    scope: search.scope === "tree" ? narrow ? "tree" : "whole tree" : "vault",
+    title: state.payload.title,
+    identity: tag === null ? "" : `${tagGlyph(tag.status)} ${tag.name}`,
+    identityRole: tagRole(tag),
+    crumb: searchCrumb(model, search.cursor),
+    keys: searchKeys(search, narrow),
+    width
+  });
+}
 
-  // 1: ↑↓ hit
-  line.push(
-    segment("↑", "prose", { kind: "action", action: "focus-previous" }),
-    segment("↓", "prose", { kind: "action", action: "focus-next" }),
-    segment(" hit", "prose")
-  );
+/** Where the cursor is among the hits, in the breadcrumb's `¶` slot. A group
+ *  header is a selectable row but not a hit, so it is counted as neither. */
+function searchCrumb(model: SearchRowModel, cursor: number): string {
+  const hits = model.rows.filter((row) => row.kind === "hit");
+  if (hits.length === 0) return "no hits";
+  const row = selectedSearchRow(model, cursor);
+  if (row === null || row.kind === "group") return `${hits.length} hits`;
+  const at = hits.findIndex((hit) => hit.select === row.select);
+  return `${hitReference(row)} · hit ${at + 1}/${hits.length}`;
+}
 
-  // 2: ←→ fold
-  appendSep();
-  line.push(
-    segment("←", "prose", { kind: "action", action: "take-previous" }),
-    segment("→", "prose", { kind: "action", action: "take-next" }),
-    segment(" fold", "prose")
-  );
-
-  // 3: ⇥ vault / ⇥ tree
-  appendSep();
-  line.push(
-    segment(search.scope === "tree" ? "⇥ vault" : "⇥ tree", "prose", { kind: "action", action: "cycle" })
-  );
-
-  // 4: ⏎ open
-  appendSep();
-  const openText = narrow ? "⏎ open"
-    : search.scope === "tree" ? "⏎ reroute + jump" : "⏎ switch story + open";
-  line.push(
-    segment(openText, "focus / accent", { kind: "action", action: "apply" })
-  );
-
-  // 5: ⌃s case
-  appendSep();
-  line.push(
-    segment("⌃s case", "prose", { kind: "action", action: "toggle-search-case" })
-  );
-
-  // 6: esc back
-  appendSep();
-  line.push(
-    segment("esc back", "prose", { kind: "action", action: "cancel" })
-  );
-
-  const remaining = width - lineWidth(line);
-  if (remaining > 0) line.push(segment(` ${"━".repeat(Math.max(0, remaining - 1))}`, "brass dim"));
-  return fitLine(line, width);
+function searchKeys(search: SearchState, narrow: boolean): FrameLine {
+  const line: FrameLine = [];
+  const push = (segments: FrameLine) => {
+    if (line.length > 0) line.push(segment(" · ", "chrome"));
+    line.push(...segments);
+  };
+  push([
+    segment("↑", "chrome", { kind: "action", action: "focus-previous" }),
+    segment("↓", "chrome", { kind: "action", action: "focus-next" }),
+    segment(" hit", "chrome")
+  ]);
+  push([
+    segment("←", "chrome", { kind: "action", action: "take-previous" }),
+    segment("→", "chrome", { kind: "action", action: "take-next" }),
+    segment(" fold", "chrome")
+  ]);
+  push([segment(search.scope === "tree" ? "⇥ vault" : "⇥ tree", "chrome",
+    { kind: "action", action: "cycle" })]);
+  push([segment(narrow ? "↵ open"
+    : search.scope === "tree" ? "↵ reroute + jump" : "↵ switch story + open",
+  "focus / accent", { kind: "action", action: "apply" })]);
+  push([segment("⌃s case", "chrome", { kind: "action", action: "toggle-search-case" })]);
+  push([segment("esc back", "chrome", { kind: "action", action: "cancel" })]);
+  return line;
 }
 
 /** The title rule states the query, the count and the scope. At 80 columns the

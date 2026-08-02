@@ -16,6 +16,7 @@ import {
 } from "../server/provider-sse.js";
 import { streamCompletion } from "../server/providers.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { supportsAssistantPrefill } from "../shared/continuation-plan.js";
 import { providerRequestTransportAvailable } from "../server/settings-v2-runtime.js";
@@ -1218,7 +1219,8 @@ function attached(
       reasoningEffort: "unknown",
       promptCaching: "unknown"
     },
-    ...overrides
+    ...overrides,
+    sampling: overrides.sampling ?? EMPTY_SAMPLING_V2
   }, true);
 }
 

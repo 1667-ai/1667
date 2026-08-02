@@ -65,7 +65,7 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain("hits in");
     expect(frame).not.toContain("searching…");
     expect(frame).toContain("· this line");
-    expect(frame).toContain("⏎ reroute + jump");
+    expect(frame).toContain("↵ reroute + jump");
     expect(frame).not.toContain("␠ continue");
 
     const lines = frame.split("\n");
@@ -106,11 +106,11 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain("×1 line · cold 8 wks");
     // One fused footnote where two dense lines used to sit, weighed in the same
     // right gutter as the rows above it.
-    expect(frame).toContain("    ↳ 1 cold subtree · 7 sketches revealed · a hides");
+    expect(frame).toContain("    ↳ 1 cold subtree · 7 sketches revealed");
     expect(frame).toContain(`⚑ ${tag.name}`);
     expect(frame).toContain("‥ Outside, the storm leaned on the shutters");
     expect(frame).toContain("MAP  tree");
-    expect(frame).toContain("m mass · ↑↓ row · l follow · enter · esc writes");
+    expect(frame).toContain("m mass · ↑↓ row · a sketches · l follow · enter · esc writes");
     expect(frame).not.toContain("┏━");
   });
 
@@ -125,7 +125,7 @@ describe("deterministic demo frames", () => {
     expect(/[│├└┼]/.test(frame)).toBeFalse();
     expect(frame).toContain(`⚑ ${tag.name}`);
     expect(frame).toContain("↑ 5 earlier");
-    expect(frame).toContain("7 sketches revealed · a hides");
+    expect(frame).toContain("7 sketches revealed");
     expect(frame).toContain("m mass · ↑↓ row · l follow · esc");
     expect(frame).not.toContain("‥ Outside");
     expect(frame).not.toContain("enter reroute");
@@ -182,7 +182,7 @@ describe("deterministic demo frames", () => {
     expect(frame).toContain("↑ ↓  previous · next row");
     expect(frame).toContain("← →  flip between takes");
     expect(frame).toContain("l  follow tree · open mass");
-    expect(frame).toContain("s  tree→mass · mass sorts");
+    expect(frame).toContain("s  sort the mass view");
     expect(frame).not.toContain("│ ↑ │");
     expect(frame).not.toContain("j/k");
     expect(frame).not.toContain("h/l");

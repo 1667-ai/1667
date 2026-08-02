@@ -27,6 +27,7 @@ import type {
 } from "./state.js";
 import { setLibraryQuery } from "./library-model.js";
 import { resolveRequestViewerKey } from "./request-viewer-actions.js";
+import { resolveLogKey } from "./notice-log.js";
 
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
@@ -52,11 +53,12 @@ export type KeyAction =
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
-  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request" | "complete";
+  | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
+  | "complete" | "open-log" | "clear-log" | "row-action";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE";
+  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "LOG";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -79,6 +81,9 @@ export interface ResolvedKey {
   settingsRow?: SettingsRowId;
   /** Route whose profile the semantic shortcut describes. */
   settingsProfilePurpose?: SettingsRoutePurpose;
+  /** How far a stepping key moves a C-08 scalar: one step, `⇧` ten of them, or
+   *  home/end to the wall. Cyclers ignore it — they have no distance. */
+  magnitude?: "step" | "coarse" | "end";
 }
 
 export interface PlainNavigationState {
@@ -197,6 +202,7 @@ export function pasteInto(
     chapters?: { rename: { value: string } | null } | null;
     settings: {
       edit: SettingsInlineEditState | null;
+      sampling?: { edit: { composer: ComposerState } | null } | null;
       conflict: { armed: boolean } | null;
     } | null;
     card: CardImportPrompt | null;
@@ -280,6 +286,12 @@ export function pasteInto(
     insertComposerText(settingsEdit.composer, line);
     return true;
   }
+  const samplingEdit = state.mode === "SETTINGS" ? state.settings?.sampling?.edit : null;
+  if (samplingEdit !== null && samplingEdit !== undefined) {
+    if (state.settings?.conflict != null) state.settings.conflict.armed = false;
+    insertComposerText(samplingEdit.composer, line);
+    return true;
+  }
   if (isPlainNavigation(state)) {
     openDirectComposer(state);
     insertComposerText(state.composer, clean);
@@ -300,8 +312,12 @@ export interface ResolveOptions {
   connectionDown?: boolean;
   /** A text prompt/filter owns the keyboard: letters are input, not hotkeys. */
   overlayTyping?: boolean;
+  /** A nested Sampling panel owns list navigation and scalar controls. */
+  settingsSampling?: boolean;
   /** The command palette is showing its tags sub-view. */
   commandsTags?: boolean;
+  /** Settings has its C-15 option column open, which owns `↑↓` and letters. */
+  settingsPicker?: boolean;
   /** The full-screen editor owns a Fact tag slider above its text body. */
   factEditor?: boolean;
   mapView?: MapView;
@@ -320,7 +336,11 @@ export function overlayTextInputActive(state: OverlayTextInputState): boolean {
   if (state.mode === "CARD") return state.card != null;
   if (state.mode === "ARCHIVE") return state.archive != null;
   if (state.mode === "CHAPTERS") return state.chapters?.rename != null;
-  if (state.mode === "SETTINGS") return state.settings?.edit != null;
+  if (state.mode === "SETTINGS") {
+    return state.settings?.edit != null
+      || state.settings?.modelPicker != null
+      || state.settings?.sampling?.edit != null;
+  }
   return false;
 }
 
@@ -336,8 +356,8 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
-    overlayTyping = false, commandsTags = false, factEditor = false,
-    mapView = "path" } = options;
+    overlayTyping = false, settingsSampling = false, commandsTags = false,
+    factEditor = false, settingsPicker = false, mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
@@ -354,6 +374,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
   }
   if (mode === "REQUEST") return resolveRequestViewerKey(key);
+  if (mode === "LOG") return resolveLogKey(key);
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
   // Capital letters are distinct terminal commands. Declared reference routes
@@ -414,6 +435,18 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.ctrl && name === "d") return { action: "delete-forward" };
     return composerBackedInput(key);
   }
+  // C-15 owns `↑↓` and every plain letter while it is open, so it is resolved
+  // ahead of the row editor and ahead of the field list.
+  if (mode === "SETTINGS" && settingsPicker) {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "open-selected" };
+    if (key.name === "backspace") return { action: "backspace" };
+    // Tab is structural everywhere else on this surface; it is not a character
+    // the column's filter should swallow.
+    if (key.name === "tab") return { action: "none" };
+    return textInput(key) ?? { action: "none" };
+  }
   if (mode === "SETTINGS" && overlayTyping) {
     const name = key.name.toLowerCase();
     if (key.name === "return" || key.ctrl && name === "s") return { action: "commit-field" };
@@ -426,6 +459,19 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     && (key.ctrl || key.super)
     && key.name.toLowerCase() === "v") {
     return { action: "paste-clipboard" };
+  }
+  if (mode === "SETTINGS" && settingsSampling) {
+    // A modified key is a chord, never a plain Sampling hotkey. The Settings
+    // paste chord is handled immediately above.
+    if (key.ctrl || key.meta || key.super) return { action: "none" };
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "open-selected" };
+    if (key.name === "left") return { action: "take-previous" };
+    if (key.name === "right") return { action: "take-next" };
+    if (key.name === "n") return { action: "new-item" };
+    if (key.name === "d") return { action: "delete-item" };
+    return { action: "none" };
   }
   if (mode === "SEARCH") {
     const searchReference = resolveReferenceBinding("search", key, mode, mapView);
@@ -465,8 +511,20 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.name === "n") return { action: "new-item" };
     if (key.name === "d") return { action: "delete-item" };
     if (key.name === "x") return { action: "discard-pending" };
-    if (key.name === "left") return { action: "take-previous" };
-    if (key.name === "right") return { action: "take-next" };
+    // C-08 stepping: `←→` by one, `⇧←→` by ten, home/end to the ends. A cycler
+    // on the same keys ignores the distance and steps once either way.
+    if (key.name === "left") {
+      return { action: "take-previous", magnitude: key.shift ? "coarse" : "step" };
+    }
+    if (key.name === "right") {
+      return { action: "take-next", magnitude: key.shift ? "coarse" : "step" };
+    }
+    if (key.name === "home") return { action: "take-previous", magnitude: "end" };
+    if (key.name === "end") return { action: "take-next", magnitude: "end" };
+    // Law 1: a row's secondary action is reached with `tab`, never with `↓`.
+    // Which action that is belongs to the row, not to key resolution — `tab`
+    // used to run a connection check from every row in the panel.
+    if (key.name === "tab") return { action: "row-action" };
     return { action: "none" };
   }
   if (mode === "CHAPTERS") {
