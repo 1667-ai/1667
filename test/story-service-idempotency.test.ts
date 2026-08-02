@@ -462,6 +462,52 @@ test("summary cancellation after provider admission completes as null", async (t
   }
 });
 
+test("replaying a cleared Author's Note recovers instead of reporting an unknown outcome", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-note-clear-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Depth story");
+    story = await service.createNode(story.id, { parentId: null, text: "A sufficiently detailed opening." });
+    await service.setAuthorsNote(story.id, "Keep the lantern unanswered.", 3);
+    // Clearing the note clears the depth with it, so a replay of this exact
+    // input must recognise the story it already produced.
+    const clearInput = { storyId: story.id, note: "", depth: 3 };
+    const clearId = mutationId("d");
+    const cleared = await leavePendingAfterCommit(service, clearId, "setAuthorsNote", clearInput);
+    assert.equal("authorsNote" in cleared, false);
+    assert.equal("authorsNoteDepth" in cleared, false);
+
+    const replayed = await runWorkerMutation(service, clearId, "setAuthorsNote", clearInput);
+    assert.equal("authorsNote" in replayed, false);
+    assert.equal("authorsNoteDepth" in replayed, false);
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("replaying a depth-only Author's Note save recovers on a story with no note", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-note-depth-only-replay-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Depth story");
+    story = await service.createNode(story.id, { parentId: null, text: "A sufficiently detailed opening." });
+    // A depth without a note stores nothing, so the replay predicate has to
+    // read that absence as the state this input already produced.
+    const input = { storyId: story.id, note: "", depth: 5 };
+    const depthId = mutationId("e");
+    await leavePendingAfterCommit(service, depthId, "setAuthorsNote", input);
+
+    const replayed = await runWorkerMutation(service, depthId, "setAuthorsNote", input);
+    assert.equal("authorsNoteDepth" in replayed, false);
+  } finally {
+    await service.dispose();
+  }
+});
+
 async function runWorkerMutation<M extends MutatingWorkerMethod>(
   service: StoryService,
   mutationIdValue: string,

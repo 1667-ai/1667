@@ -93,6 +93,74 @@ describe("next request viewer", () => {
     expect(text).toContain(state.payload.authorsNote);
   });
 
+  test("the request viewer shows the effective Author's Note depth, including when it clamps", () => {
+    const { state } = harness();
+    state.payload.authorsNote = "Keep the storm quiet until Maren opens the door.";
+    state.payload.authorsNoteDepth = 3;
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+    const noteEntry = estimate.plan.entries.find((entry) => entry.category === "note");
+
+    expect(noteEntry).toBeDefined();
+    expect((noteEntry as { partsAfterNote: number }).partsAfterNote).toBe(3);
+    expect(text).toContain("authors note · depth 3");
+
+    // A depth past the available parts clamps to the start; the viewer shows
+    // the depth the request actually used, not the one that was requested.
+    const hugeDepth = 9_999;
+    state.payload.authorsNoteDepth = hugeDepth;
+    const clampedProjected = projectNextRequest(state);
+    const clampedEstimate = nextRequestEstimate(clampedProjected.payload, clampedProjected.context);
+    const clampedText = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+    const clampedNoteEntry = clampedEstimate.plan.entries.find((entry) => entry.category === "note")!;
+    const clampedDepth = (clampedNoteEntry as { partsAfterNote: number }).partsAfterNote;
+    const clampedIndex = clampedEstimate.plan.entries.indexOf(clampedNoteEntry);
+
+    expect(clampedDepth).toBeGreaterThan(0);
+    expect(clampedDepth).toBeLessThan(hugeDepth);
+    expect(clampedText).toContain(`authors note · depth ${clampedDepth}`);
+
+    // The clamp is stable: an even larger depth lands in the same place.
+    state.payload.authorsNoteDepth = hugeDepth + 1;
+    const againProjected = projectNextRequest(state);
+    const againEstimate = nextRequestEstimate(againProjected.payload, againProjected.context);
+    const againNoteEntry = againEstimate.plan.entries.find((entry) => entry.category === "note")!;
+    expect((againNoteEntry as { partsAfterNote: number }).partsAfterNote).toBe(clampedDepth);
+    expect(againEstimate.plan.entries.indexOf(againNoteEntry)).toBe(clampedIndex);
+  });
+
+  test("the request viewer names the placement when no story part follows the note", () => {
+    const { state } = harness();
+    state.payload = { ...state.payload, path: [], nodes: [], chapterBreaks: [] };
+    state.payload.authorsNote = "Keep the storm quiet until Maren opens the door.";
+    state.payload.authorsNoteDepth = 4;
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+
+    // No part follows the note, so no depth names this placement.
+    expect(text).toContain("authors note · before the request");
+    expect(text).not.toContain("depth 0");
+  });
+
+  test("a story Author Brief overrides the machine-wide brief in the voice block", () => {
+    const { state } = harness();
+    state.payload.authorBrief = "Write in short, clipped sentences.";
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+
+    expect(estimate.messages[0]!.content).toBe(state.payload.authorBrief);
+    expect(text).toContain("01 SYSTEM · voice · author brief");
+    expect(text).toContain(state.payload.authorBrief);
+    expect(text).not.toContain(state.systemPrompt);
+  });
+
   test("keeps required route and message metadata visible at 80 columns", () => {
     const { state } = harness();
     const projected = projectNextRequest(state);

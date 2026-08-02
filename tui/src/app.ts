@@ -589,6 +589,7 @@ export async function handleKey(
     commandsTags: state.commands?.view === "tags",
     settingsPicker: state.settings?.modelPicker != null,
     factEditor: state.editor?.kind === "fact",
+    authorsNoteEditor: state.editor?.kind === "document" && state.editor.target.kind === "authors-note",
     mapView: state.map?.view
   });
   return await dispatch(resolved, state, source, wrapCache, repaint, cancelStream, requestQuit,

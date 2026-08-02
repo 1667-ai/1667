@@ -143,6 +143,69 @@ const AUTHORS_NOTE_PROMPT: PromptPlan = {
   ]
 };
 
+// A deeper Author's Note placement: three story parts, note two parts from
+// the end (depth 2), not immediately before the last part.
+const AUTHORS_NOTE_DEEP_PROMPT: PromptPlan = {
+  operation: "continue",
+  turns: [
+    {
+      role: "system",
+      blocks: [{
+        stability: "stable",
+        kind: "author-brief",
+        text: "Write with restraint.",
+        boundaryAfter: "candidate"
+      }]
+    },
+    {
+      role: "system",
+      blocks: [{
+        stability: "stable",
+        kind: "facts",
+        text: "The lantern is blue.",
+        boundaryAfter: "candidate"
+      }]
+    },
+    {
+      role: "user",
+      blocks: [{ stability: "stable", kind: "source", text: "Open the door.", boundaryAfter: "none" }]
+    },
+    {
+      role: "assistant",
+      blocks: [{ stability: "stable", kind: "source", text: "The latch clicked.", boundaryAfter: "none" }]
+    },
+    {
+      role: "system",
+      blocks: [{
+        stability: "stable",
+        kind: "authors-note",
+        text: "Keep the danger quiet.",
+        boundaryAfter: "none"
+      }]
+    },
+    {
+      role: "user",
+      blocks: [{ stability: "stable", kind: "source", text: "A stranger enters.", boundaryAfter: "none" }]
+    },
+    {
+      role: "assistant",
+      blocks: [{ stability: "stable", kind: "source", text: "The room held its breath.", boundaryAfter: "none" }]
+    },
+    {
+      role: "user",
+      blocks: [{ stability: "stable", kind: "source", text: "Footsteps recede.", boundaryAfter: "none" }]
+    },
+    {
+      role: "assistant",
+      blocks: [{ stability: "stable", kind: "source", text: "Silence returned.", boundaryAfter: "candidate" }]
+    },
+    {
+      role: "user",
+      blocks: [{ stability: "volatile", kind: "request", text: "Continue.", boundaryAfter: "none" }]
+    }
+  ]
+};
+
 const OMIT_PLANS: readonly Extract<PromptCacheWirePlan, { kind: "omit" }>[] = [
   { kind: "omit", reason: "policy-off" },
   { kind: "omit", reason: "legacy-v1" },
@@ -185,6 +248,47 @@ test("compatible OpenAI and Anthropic endpoints fold the note into the next user
   assert.equal(
     JSON.stringify(anthropic),
     "{\"model\":\"model-fixture\",\"max_tokens\":321,\"messages\":[{\"role\":\"user\",\"content\":\"Open the door.\"},{\"role\":\"assistant\",\"content\":\"The latch clicked.\"},{\"role\":\"user\",\"content\":\"Keep the danger quiet.\\n\\nA stranger enters.\"},{\"role\":\"assistant\",\"content\":\"The room held its breath.\"},{\"role\":\"user\",\"content\":\"Continue.\"}],\"stream\":true,\"system\":\"Write with restraint.\\n\\nThe lantern is blue.\",\"temperature\":0.25}"
+  );
+});
+
+test("compatible OpenAI and Anthropic endpoints fold the note at a deeper placement, not just depth one", () => {
+  const openAi = buildOpenAiChatRequestBody(
+    settings("openai-compatible"),
+    AUTHORS_NOTE_DEEP_PROMPT,
+    OMIT_PLANS[0]!
+  ) as { messages: Array<{ role: string; content: string }> };
+  assert.deepEqual(
+    openAi.messages.map((message) => message.content),
+    [
+      "Write with restraint.",
+      "The lantern is blue.",
+      "Open the door.",
+      "The latch clicked.",
+      "Keep the danger quiet.\n\nA stranger enters.",
+      "The room held its breath.",
+      "Footsteps recede.",
+      "Silence returned.",
+      "Continue."
+    ]
+  );
+
+  const anthropic = buildAnthropicMessagesRequestBody(
+    settings("anthropic"),
+    AUTHORS_NOTE_DEEP_PROMPT,
+    OMIT_PLANS[0]!
+  ) as { system: string; messages: Array<{ role: string; content: string }> };
+  assert.equal(anthropic.system, "Write with restraint.\n\nThe lantern is blue.");
+  assert.deepEqual(
+    anthropic.messages.map((message) => message.content),
+    [
+      "Open the door.",
+      "The latch clicked.",
+      "Keep the danger quiet.\n\nA stranger enters.",
+      "The room held its breath.",
+      "Footsteps recede.",
+      "Silence returned.",
+      "Continue."
+    ]
   );
 });
 
@@ -366,6 +470,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: 1.1,
+    seed: 42,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1, "198": -2 }
   });
@@ -381,6 +486,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
     frequency_penalty: llama.frequency_penalty,
     presence_penalty: llama.presence_penalty,
     repeat_penalty: llama.repeat_penalty,
+    seed: llama.seed,
     stop: llama.stop,
     logit_bias: llama.logit_bias
   }, {
@@ -390,6 +496,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
     frequency_penalty: 0.2,
     presence_penalty: -0.1,
     repeat_penalty: 1.1,
+    seed: 42,
     stop: ["END", "DONE"],
     logit_bias: { "198": -2, "15043": 1 }
   });
@@ -402,6 +509,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   assert.equal("min_p" in lmStudio, false);
   assert.equal(lmStudio.top_k, 41);
   assert.equal(lmStudio.repeat_penalty, 1.1);
+  assert.equal(lmStudio.seed, 42);
 
   const ollama = buildOpenAiChatRequestBody(
     withSampling(settings("openai-compatible"), "ollama", {
@@ -417,6 +525,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   assert.equal("logit_bias" in ollama, false);
   assert.equal("top_k" in ollama, false);
   assert.equal(ollama.top_p, 0.91);
+  assert.equal(ollama.seed, 42);
 
   const kobold = buildOpenAiChatRequestBody(
     withSampling(settings("openai-compatible"), "koboldcpp", {
@@ -428,6 +537,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   );
   assert.equal("frequency_penalty" in kobold, false);
   assert.equal(kobold.min_p, 0.05);
+  assert.equal(kobold.seed, 42);
 
   const custom = buildOpenAiChatRequestBody(
     withSampling(settings("openai-compatible"), "custom", {
@@ -442,6 +552,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   assert.equal(custom.top_p, 0.91);
   assert.equal(custom.frequency_penalty, 0.2);
   assert.equal("top_k" in custom, false);
+  assert.equal(custom.seed, 42);
 });
 
 test("Anthropic lowering uses only its exact wire names", () => {
@@ -496,6 +607,14 @@ test("serializers refuse configured sampling values that the selected route cann
       OMIT_PLANS[0]!
     ),
     /Configured sampling parameter frequency penalty/
+  );
+  assert.throws(
+    () => buildAnthropicMessagesRequestBody(
+      withSampling({ ...settings("anthropic"), model: "claude-opus-4-5" }, "anthropic", sampling({ seed: 42 })),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /Configured sampling parameter seed/
   );
 });
 

@@ -108,6 +108,16 @@ describe("grouped command palette model", () => {
     });
   });
 
+  test("Author Brief is a Story command with no NAV shortcut", () => {
+    const brief = commandMatches("author brief", false)
+      .find(({ command }) => command.id === "author-brief")?.command;
+    expect(brief).toMatchObject({
+      section: "story",
+      mutating: true
+    });
+    expect(brief?.shortcut).toBe(undefined);
+  });
+
   test("retains command identity across live Suggested reordering", () => {
     const source = demoAppSource();
     const context = commandContext(source.payload, { connectionDown: false, requestActive: true, canRewriteSelection: false });

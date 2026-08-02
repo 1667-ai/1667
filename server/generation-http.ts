@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { fixedPromptTexts, renderPromptPlan } from "../shared/prompt-plan.js";
+import { resolveAuthorBrief } from "../shared/author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -55,7 +57,8 @@ export async function autonameStory(
   // small fact is shortened rather than refused. Factless stories keep the
   // pre-facts 24k excerpt byte-for-byte.
   const titleFacts = factsSystemMessage(snapshot);
-  const briefChars = Math.min(settings.systemPrompt.trim().length, 2_000);
+  const authorBrief = resolveAuthorBrief(snapshot.authorBrief, settings.systemPrompt);
+  const briefChars = Math.min(authorBrief.trim().length, 2_000);
   const promptCharBudget = titleFacts === null || settings.contextWindow === null
     ? MAX_STORY_CONTEXT_CHARS
     : Math.min(
@@ -63,7 +66,7 @@ export async function autonameStory(
         Math.max(1_000, (settings.contextWindow - titleSettings.maxTokens) * 3
           - titleFacts.length - briefChars - 800)
       );
-  const { prompt: titlePrompt } = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleFacts);
+  const { prompt: titlePrompt } = autonamePrompt(snapshot, authorBrief, promptCharBudget, titleFacts);
   assertFixedContextFits(titleSettings, titleFacts, null, fixedPromptTexts(titlePrompt));
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
   try {
@@ -176,8 +179,12 @@ export async function continueStory(
     instruction
   });
   const authorsNote = story.authorsNote ?? null;
+  const authorsNotePlacement: AuthorsNotePlacement | null = authorsNote === null
+    ? null
+    : { text: authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) };
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
+  const authorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   // Record it now: a Stop that saves the partial must credit this model, even if
   // the user switches models while the stream is still running.
@@ -185,9 +192,9 @@ export async function continueStory(
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.
   const continuation = continuationPlan(
-    settings.systemPrompt,
+    authorBrief,
     facts,
-    authorsNote,
+    authorsNotePlacement,
     contextParts,
     instruction,
     appendTo !== null,
@@ -203,6 +210,8 @@ export async function continueStory(
     contextPartIds: contextParts.map((part) => part.id),
     facts,
     authorsNote,
+    authorsNoteDepth: story.authorsNoteDepth ?? null,
+    authorBrief: story.authorBrief ?? null,
     instruction,
     appendTo,
     parentId
@@ -329,7 +338,7 @@ export async function rewriteNode(
     expected,
     instruction,
     lengthTarget: lengthTarget(expected, requested !== ""),
-    authorBrief: settings.systemPrompt,
+    authorBrief: resolveAuthorBrief(story.authorBrief, settings.systemPrompt),
     tag
   };
   const plan = bareMode
@@ -354,6 +363,7 @@ export async function rewriteNode(
     kind: "rewrite",
     story: { title: story.title, nodes: activePath(story), chapterBreaks: story.chapterBreaks },
     facts,
+    authorBrief: story.authorBrief ?? null,
     partId,
     start,
     end,

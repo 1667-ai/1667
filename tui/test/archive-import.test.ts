@@ -11,6 +11,7 @@ import {
 import { openArchiveImport } from "../src/archive-import-actions.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { recordSessionNotices } from "../src/notice-log.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -43,7 +44,7 @@ test("the palette lists import archive and opens its panel", async () => {
   });
   const frame = rendered(state);
   expect(frame).toContain("┏━ import archive ━");
-  expect(frame).toContain(".lorebook → Facts here · .scenario · .story → a new story");
+  expect(frame).toContain(".lorebook .json → Facts · .scenario .story → new story");
 });
 
 test("tab completes an archive path and names candidates beyond the first six", async () => {
@@ -101,7 +102,7 @@ test("enter on a Lorebook adds Facts to the open story and reports headline coun
 
   expect(calledStoryId).toBe(target);
   expect(state.payload.facts).toHaveLength(before + 2);
-  expect(state.toast).toBe("2 Facts imported · 1 keyed · 1 always");
+  expect(state.toast).toBe("2 Facts imported · 1 keyed · 1 always · ! full report");
   expect(state.archive).toBe(null);
   expect(state.mode).toBe("NAV");
 });
@@ -160,15 +161,52 @@ test("an unsupported extension explains itself in the open panel", async () => {
 
   expect(state.mode).toBe("ARCHIVE");
   expect(state.archive?.error).toBe(
-    "unsupported archive extension · use .lorebook, .scenario, or .story"
+    "unsupported archive · use .lorebook, .json, .scenario, or .story"
   );
   const frame = rendered(state);
-  expect(frame).toContain("· unsupported archive extension · use .lorebook,");
-  expect(frame).toContain(".scenario, or .story");
+  // The reason is longer than the value column, so the panel wraps it rather
+  // than cutting the list of what the command does accept.
+  expect(frame).toContain("· unsupported archive · use .lorebook, .json, .scenario,");
+  expect(frame).toContain("or .story");
+});
+
+test("a lossy World Info import writes its whole report to the log", async () => {
+  // The toast holds four rows and the report does not, so a writer importing in
+  // the app must still be able to reach what the archive lost.
+  const root = await temporaryDirectory();
+  const file = path.join(root, "world.json");
+  await writeFile(file, JSON.stringify({
+    entries: { "0": { uid: 0, comment: "Weather", content: "The pass closes.", key: ["storm"] } }
+  }), "utf8");
+
+  const source = demoAppSource();
+  source.api.importLorebook = async () => ({
+    payload: source.payload,
+    importResult: {
+      facts: [{ tag: "Weather", text: "The pass closes.", activation: "keyed" as const, keys: ["storm"] }],
+      fidelity: ["1 entry read", "1 fact imported", "2 regular expression keys dropped; a fact key is literal"]
+    }
+  });
+
+  const state = await runImport(source, file);
+
+  expect(state.toast).toContain("! full report");
+
+  // Run the recorder the app runs, so the toast lands in the log the same way
+  // it does at runtime. The headline is newest and the log opens on the notice
+  // the writer came from; the whole report must survive directly under it.
+  recordSessionNotices(state);
+  const texts = state.notices.entries.map((entry) => String(entry.text));
+  expect(texts[0]).toContain("! full report");
+  expect(texts[1]).toContain("2 regular expression keys dropped");
 });
 
 test("escape closes the archive panel and restores its previous mode", async () => {
   const source = demoAppSource();
+  source.api.importLorebook = async () => ({
+    payload: source.payload,
+    importResult: { facts: [], fidelity: ["1 entry read", "0 facts imported"] }
+  });
   const state = initialState(source, false);
   state.mode = "COMPOSE";
   openArchiveImport(state);
@@ -222,3 +260,35 @@ async function temporaryDirectory(): Promise<string> {
 function key(name: string, sequence = name): KeyEvent {
   return { name, sequence, shift: false, ctrl: false, meta: false } as KeyEvent;
 }
+
+test("an import started from the composer names a way to the report that works", async () => {
+  // `!` opens the log in NAV and MAP only. Returning to COMPOSE it would type
+  // into the draft, so the toast must not advertise it bare.
+  const root = await temporaryDirectory();
+  const file = path.join(root, "world.json");
+  await writeFile(file, JSON.stringify({
+    entries: { "0": { uid: 0, comment: "Weather", content: "The pass closes.", key: ["storm"] } }
+  }), "utf8");
+
+  const source = demoAppSource();
+  source.api.importLorebook = async () => ({
+    payload: source.payload,
+    importResult: { facts: [], fidelity: ["1 entry read", "0 facts imported"] }
+  });
+  const state = initialState(source, false);
+  state.mode = "COMPOSE";
+  openArchiveImport(state);
+  expect(state.archive?.returnMode).toBe("COMPOSE");
+
+  await pressSequence(state, source, [
+    ...file.split("").map((value) => key(value)),
+    key("return", "\r")
+  ]);
+
+  expect(state.archive?.error ?? null).toBe(null);
+  expect(state.mode).toBe("COMPOSE");
+  expect(state.toast).toContain("full report in the log");
+  // No keystroke is promised: from a fullscreen composer the first esc only
+  // leaves fullscreen, so a count of presses would be wrong.
+  expect(state.toast).not.toContain("esc then");
+});

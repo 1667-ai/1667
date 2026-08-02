@@ -1,9 +1,10 @@
-import { countNoun } from "../../shared/fidelity.js";
+import { countNoun, fidelityReport } from "../../shared/fidelity.js";
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
+import { recordNotice } from "./notice-log.js";
 import { publishStories } from "./overlay-publication.js";
 import { adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";
 import type { ArchiveImportPrompt, RuntimeState } from "./state.js";
@@ -57,13 +58,13 @@ async function applyArchiveImport(
     return;
   }
   if (overlay.path.trim().length === 0) {
-    overlay.error = "type the path to a .lorebook, .scenario, or .story file";
+    overlay.error = "type the path to a .lorebook, .json, .scenario, or .story file";
     return;
   }
 
-  const extension = archiveExtension(overlay.path);
-  if (extension === null) {
-    overlay.error = "unsupported archive extension · use .lorebook, .scenario, or .story";
+  const route = archiveRoute(overlay.path);
+  if (route === null) {
+    overlay.error = "unsupported archive · use .lorebook, .json, .scenario, or .story";
     return;
   }
 
@@ -83,7 +84,7 @@ async function applyArchiveImport(
         return;
       }
 
-      if (extension === ".lorebook") {
+      if (route === "facts") {
         const { payload, importResult } = await source.api.importLorebook(task.storyId, bytes);
         if (!task.storyCurrent()) return;
         adoptSameStoryPayload(state, payload);
@@ -91,13 +92,26 @@ async function applyArchiveImport(
         adopted = true;
         const keyed = importResult.facts.filter((fact) => fact.activation === "keyed").length;
         const always = importResult.facts.length - keyed;
+        // `!` opens the log in NAV and MAP only. An import started from the
+        // composer returns there, where `!` would type into the draft. How many
+        // times esc is needed depends on whether the composer was fullscreen,
+        // so name the place the report is rather than a keystroke that may be
+        // wrong.
+        const report = overlay.returnMode === "COMPOSE"
+          ? "full report in the log"
+          : "! full report";
         state.toast = `${importResult.facts.length} ${countNoun(importResult.facts.length, "Fact")} imported`
-          + ` · ${keyed} keyed · ${always} always`;
+          + ` · ${keyed} keyed · ${always} always · ${report}`;
+        // The toast holds four rows and the report does not. Write the whole
+        // account to the log, or a writer importing in the app never learns
+        // what the archive lost.
+        recordNotice(state.notices, "toast", `${importResult.facts.length} facts imported · `
+          + fidelityReport(importResult.fidelity));
         return;
       }
 
       const text = new TextDecoder("utf-8").decode(bytes);
-      const { payload } = extension === ".scenario"
+      const { payload } = route === "scenario"
         ? await source.api.importScenario(text)
         : await source.api.importNovelAI(text);
       if (!task.storyCurrent()) return;
@@ -125,11 +139,14 @@ async function applyArchiveImport(
   }
 }
 
-function archiveExtension(value: string): ".lorebook" | ".scenario" | ".story" | null {
+function archiveRoute(value: string): "facts" | "scenario" | "story" | null {
   const lower = value.toLowerCase();
-  if (lower.endsWith(".lorebook")) return ".lorebook";
-  if (lower.endsWith(".scenario")) return ".scenario";
-  if (lower.endsWith(".story")) return ".story";
+  if (lower.endsWith(".lorebook")) return "facts";
+  if (lower.endsWith(".scenario")) return "scenario";
+  if (lower.endsWith(".story")) return "story";
+  // SillyTavern writes World Info as plain .json. A character card is .json
+  // too, so the reader tells them apart by shape and says which door to use.
+  if (lower.endsWith(".json")) return "facts";
   return null;
 }
 

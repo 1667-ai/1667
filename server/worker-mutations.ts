@@ -1,8 +1,14 @@
 import { activePath, unusedTakePruneSelection } from "../shared/story-tree.js";
 import {
+  isValidAuthorsNoteDepth,
   MAX_AUTHORS_NOTE_CHARS,
+  MAX_AUTHORS_NOTE_DEPTH,
   normalizeAuthorsNote
 } from "../shared/authors-note.js";
+import {
+  MAX_AUTHOR_BRIEF_CHARS,
+  normalizeAuthorBrief
+} from "../shared/author-brief.js";
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
@@ -28,6 +34,8 @@ import {
   parsePruneUnusedTakes,
   parseSwitchOptions
 } from "./service-input.js";
+import { authorBriefApplied } from "./story-author-brief.js";
+import { authorsNoteApplied } from "./story-authors-note.js";
 import { HASH_PATTERN } from "./story-format.js";
 import { patchFact } from "./story-facts.js";
 import { nodeRewriteId } from "./story-node-text.js";
@@ -114,9 +122,11 @@ const MUTATIONS: MutationRegistry = {
           `Author's Note exceeds the ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} Unicode scalar value limit.`
         );
       }
+      const depth = input.depth === undefined ? undefined : requireAuthorsNoteDepth(input.depth);
       return {
         storyId: requireString(input.storyId, "storyId"),
-        note: normalizeAuthorsNote(raw) ?? ""
+        note: normalizeAuthorsNote(raw) ?? "",
+        ...(depth === undefined ? {} : { depth })
       };
     },
     storyId: (input) => input.storyId,
@@ -124,11 +134,43 @@ const MUTATIONS: MutationRegistry = {
       const recovered = await plan.reconcileStory(
         service.stories,
         input.storyId,
-        (story) => (story.authorsNote ?? "") === input.note
+        (story) => authorsNoteApplied(story, input.note, input.depth)
       );
       return recovered ?? await service.setAuthorsNote(
         input.storyId,
         input.note,
+        input.depth,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setAuthorBrief: define<"setAuthorBrief">({
+    parse: (value) => {
+      const input = requireRecord(value, "setAuthorBrief input");
+      const raw = requireStringValue(input.brief, "brief");
+      if (hasUnpairedSurrogate(raw)) {
+        throw badInput("Author Brief contains invalid Unicode.");
+      }
+      if (unicodeScalarLength(raw, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
+        throw badInput(
+          `Author Brief exceeds the ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar value limit.`
+        );
+      }
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        brief: normalizeAuthorBrief(raw) ?? ""
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => authorBriefApplied(story, input.brief)
+      );
+      return recovered ?? await service.setAuthorBrief(
+        input.storyId,
+        input.brief,
         context.storyMutationRequest
       );
     }
@@ -862,6 +904,13 @@ function bodyInputWithId<M extends MutatingWorkerMethod>(
 
 function requireStringValue(value: unknown, label: string): string {
   if (typeof value !== "string") throw badInput(`${label} must be a string`);
+  return value;
+}
+
+function requireAuthorsNoteDepth(value: unknown): number {
+  if (!isValidAuthorsNoteDepth(value)) {
+    throw badInput(`Author's Note depth must be an integer from 1 to ${MAX_AUTHORS_NOTE_DEPTH}.`);
+  }
   return value;
 }
 
