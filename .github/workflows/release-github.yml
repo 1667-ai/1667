@@ -174,6 +174,15 @@ jobs:
             version="$INPUT_VERSION"
           fi
           nightly="$(node --import tsx scripts/release-nightly.ts is-nightly "$version")"
+          # A nightly version names the commit and the date that produced it, so
+          # only this workflow may mint one. A dispatched nightly-form version
+          # carries whatever commit and date the dispatcher typed, and the check
+          # below compares the base version only, so it would publish release
+          # notes that name a commit this run never built.
+          if [ -n "$INPUT_VERSION" ] && [ "$nightly" = "true" ]; then
+            echo "::error::A dispatched version must not use the nightly form. Leave the version input empty to build a nightly."
+            exit 1
+          fi
           node --import tsx scripts/release-github-assets.ts check \
             "$version" "$COMMIT" "$TIMESTAMP"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -421,7 +430,10 @@ jobs:
             --notes-file dist/release-notes.md \
             "${ASSETS[@]}"
 
-      # Move the tag ref first so the release, tag, and assets all name one commit.
+      # The tag ref moves LAST, and that ordering is the retry story. The
+      # scheduled run reads the nightly tag as its only completion marker, so a
+      # tag that moves before the assets land would mark a partial or empty
+      # release complete, and the next run would skip instead of repairing it.
       # Assets are deleted before uploading new ones because an archive name
       # carries the version, so a new run writes new names; without deleting
       # previous assets, the Nightly Release would grow without bound.
@@ -436,8 +448,6 @@ jobs:
           node --import tsx scripts/release-github-assets.ts notes "$VERSION" > dist/release-notes.md
           readarray -t ASSETS < <(node --import tsx scripts/release-github-assets.ts upload-list "$VERSION" dist/assets)
           if gh release view nightly --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" \
-              -f sha="$COMMIT" -F force=true > /dev/null
             gh release edit nightly --repo "$GITHUB_REPOSITORY" \
               --prerelease \
               --title "1667 nightly $VERSION" \
@@ -449,6 +459,8 @@ jobs:
               gh release delete-asset nightly "$name" --repo "$GITHUB_REPOSITORY" --yes
             done < dist/previous-assets.txt
             gh release upload nightly --repo "$GITHUB_REPOSITORY" "${ASSETS[@]}"
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" \
+              -f sha="$COMMIT" -F force=true > /dev/null
           else
             gh release create nightly --repo "$GITHUB_REPOSITORY" \
               --target "$COMMIT" \
