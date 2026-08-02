@@ -195,7 +195,13 @@ So these World Info mechanisms do not import: secondary keys, insertion
 positions, firing probability, recursion controls, timed effects, per-entry
 matching rules, and keys written as a regular expression. The Fidelity Report
 gives the number of Entries that lose each one.
-| `enabled: false` | No Fact |
+
+A Fact key matches a whole key and ignores letter case. A World Info Entry can
+ask for a different rule, so a key can match at a different moment after the
+import.
+
+Entries in the same World Info group are exclusive: SillyTavern uses one of
+them. Their Facts can be active together.
 
 Memory becomes one always active Fact. The Fact tag is `memory`. Memory uses
 the first Fact slot.

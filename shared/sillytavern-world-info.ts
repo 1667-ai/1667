@@ -51,6 +51,9 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   let regexKeys = 0;
   let timedEntries = 0;
   let matchRuleEntries = 0;
+  let groupedEntries = 0;
+  let decoratedEntries = 0;
+  let refusedEntries = 0;
   const entries: Record<string, unknown>[] = [];
 
   for (const item of source) {
@@ -85,10 +88,26 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     if (item.caseSensitive === true || item.matchWholeWords === false) {
       matchRuleEntries += 1;
     }
+    // Entries sharing a group are exclusive upstream: one of them is used.
+    // Independent Facts have no such contest, so they can all be active.
+    if (typeof item.group === "string" && item.group.trim().length > 0) {
+      groupedEntries += 1;
+    }
 
     // SillyTavern reads a key written as /pattern/flags as a regular
     // expression. A Fact key is literal, so keeping one would leave a key that
     // fires only on the pattern's own text. Drop it and say so.
+    // A leading @@decorator line is a control, not prose. Left in place it
+    // would reach the model as text, and @@dont_activate would arrive as a
+    // Fact the writer had switched off.
+    const rawContent = typeof item.content === "string" ? item.content : "";
+    const decorated = readDecorators(rawContent);
+    if (decorated.decorators.length > 0) decoratedEntries += 1;
+    if (decorated.decorators.includes("@@dont_activate")) {
+      refusedEntries += 1;
+      continue;
+    }
+
     const sourceKeys = Array.isArray(item.key) ? item.key : [];
     const literalKeys = sourceKeys.filter((key) => {
       if (typeof key !== "string" || !isRegexKey(key)) return true;
@@ -97,10 +116,11 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     });
 
     entries.push({
-      text: typeof item.content === "string" ? item.content : "",
+      text: decorated.content,
       displayName: typeof item.comment === "string" ? item.comment : "",
       keys: literalKeys,
-      forceActivation: item.constant === true,
+      forceActivation: item.constant === true
+        || decorated.decorators.includes("@@activate"),
       // World Info switches an entry off with `disable`; a Lorebook switches it
       // on with `enabled`. Read both so neither file loses the writer's choice.
       enabled: item.disable !== true
@@ -148,6 +168,26 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
         + " lost a matching rule; a fact key matches a whole key without case"
     );
   }
+  if (groupedEntries > 0) {
+    fidelity.push(
+      `${groupedEntries} grouped ${countNoun(groupedEntries, "entry", "entries")}`
+        + " can now be active together; a group chose one"
+    );
+  }
+  if (decoratedEntries > 0) {
+    fidelity.push(
+      `${decoratedEntries} activation ${countNoun(decoratedEntries, "decorator")} read and removed`
+    );
+  }
+  if (refusedEntries > 0) {
+    fidelity.push(
+      `${refusedEntries} ${countNoun(refusedEntries, "entry", "entries")}`
+        + " skipped for @@dont_activate"
+    );
+  }
+  // True of every entry, whatever the file asked for, so it is stated once
+  // rather than counted.
+  fidelity.push("a fact key matches a whole key and ignores letter case");
   fidelity.push("scan depth, order, and group weighting omitted");
 
   return {
@@ -156,9 +196,35 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   };
 }
 
-/** `/pattern/flags`, the form SillyTavern reads as a regular expression. */
+/** `/pattern/flags`, the form SillyTavern reads as a regular expression.
+ *
+ * A key is only a pattern when the pattern compiles. `/(/` looks like one and
+ * is literal text upstream, so treating it as a pattern would delete a key that
+ * works. When in doubt the key stays. */
 function isRegexKey(key: string): boolean {
-  return /^\/.+\/[dgimsuvy]*$/u.test(key);
+  const match = /^\/(.+)\/([a-z]*)$/u.exec(key);
+  if (match === null) return false;
+  try {
+    new RegExp(match[1]!, match[2]!);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Read the leading @@decorator lines and return the content without them. */
+function readDecorators(content: string): {
+  readonly decorators: readonly string[];
+  readonly content: string;
+} {
+  const lines = content.split("\n");
+  const decorators: string[] = [];
+  let index = 0;
+  while (index < lines.length && lines[index]!.startsWith("@@")) {
+    decorators.push(lines[index]!.trim().split(/\s+/u)[0]!);
+    index += 1;
+  }
+  return { decorators, content: lines.slice(index).join("\n") };
 }
 
 function isPositive(value: unknown): boolean {

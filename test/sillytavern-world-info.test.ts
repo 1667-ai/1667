@@ -208,3 +208,79 @@ test("timed effects and matching rules are named", () => {
   assert.ok(report.includes("2 entries lost a timed effect"), report);
   assert.ok(report.includes("2 entries lost a matching rule"), report);
 });
+
+test("a key that only looks like a pattern stays a key", () => {
+  // `/(/` does not compile, so SillyTavern reads it as literal text. Deleting
+  // it would take away a key that works.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Odd",
+    content: "Still a key.",
+    key: ["/(/", "/storm/i"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["/(/"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 regular expression key dropped"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("an activation decorator is read and kept out of the fact text", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Forced",
+    content: "@@activate\nThe keeper never leaves the light.",
+    key: []
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts[0]?.text, "The keeper never leaves the light.");
+  assert.equal(result.facts[0]?.activation, "always", "@@activate means always");
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 activation decorator read and removed"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("an entry the writer switched off with a decorator does not arrive", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Off", content: "@@dont_activate\nNot in play.", key: ["k"] },
+    { comment: "On", content: "In play.", key: ["j"] }
+  ])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts.map((fact) => fact.tag), ["On"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 entry skipped for @@dont_activate"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("grouped entries say they can now be active together", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "A", content: "One.", key: ["k"], group: "weather" },
+    { comment: "B", content: "Two.", key: ["k"], group: "weather" }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("2 grouped entries can now be active together"), report);
+});
+
+test("the report states the matching rule for every World Info import", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Plain", content: "No special settings.", key: ["cat"] }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  // Upstream matching depends on a global setting this file does not carry, so
+  // the rule 1667 uses is stated rather than guessed at per entry.
+  assert.ok(
+    report.includes("a fact key matches a whole key and ignores letter case"),
+    report
+  );
+});
