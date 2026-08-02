@@ -467,10 +467,103 @@ describe("Sampling Settings user flow", () => {
     expect(frame).toContain("84021");
   });
 
+  // Regression test for issue #282 review round 2, finding 4: the panel
+  // displayed the raw entry-list length against the resolved-token bound,
+  // so a phrase-bias entry that expands to more than one token (any phrase,
+  // ordinarily) understated how much of the shared 200-entry cap it used.
+  // "dragon" is one entry that resolves to four tokens — the header and the
+  // new-entry gate must both read from the resolved count (4), not the raw
+  // list length (1).
+  test("phrase bias panel displays and enforces the resolved token count, not the raw entry count", async () => {
+    const { source, state, press } = settingsHarness();
+    useEncodedModelSettings(source);
+    const pending = deferred<SamplingBiasResolutionResult>();
+    source.api.resolveSamplingBias = async () => await pending.promise;
+
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
+    await press(key("return"));
+    await press(key("n"));
+    setSamplingEdit(state, "dragon:5");
+    await press(key("return"));
+
+    pending.resolve({
+      kind: "resolved",
+      logitBias: { "84021": 5, "45342": 5, "91530": 5, "34057": 5 },
+      phraseBias: [{
+        kind: "resolved",
+        phrase: "dragon",
+        tokenIds: [84021, 45342, 91530, 34057],
+        variants: [
+          { variant: "typed", text: "dragon", outcome: { kind: "single-token", tokenId: 84021 } },
+          { variant: "leading-space", text: " dragon", outcome: { kind: "single-token", tokenId: 45342 } },
+          { variant: "capitalized", text: "Dragon", outcome: { kind: "single-token", tokenId: 91530 } },
+          { variant: "leading-space-capitalized", text: " Dragon", outcome: { kind: "single-token", tokenId: 34057 } }
+        ]
+      }],
+      bannedStrings: [],
+      // Deliberately the shared 200-entry cap itself, not 4 — this proves
+      // the displayed count and the new-entry gate both read the resolved
+      // total (server/sampling-phrase-bias.ts, resolvedEntryCount), the
+      // number that actually binds a save, not this one entry's own token
+      // count.
+      resolvedEntryCount: 200
+    });
+    await pending.promise;
+    await Promise.resolve();
+
+    expect(state.settings?.draft.sampling.phraseBias).toHaveLength(1);
+    const frame = render(state, 100, 24);
+    expect(frame).toContain("200/200");
+    expect(frame).not.toContain("1/200");
+
+    await press(key("n"));
+    expect(state.settings?.sampling?.result).toContain("list limit reached");
+    expect(state.settings?.sampling?.edit).toBe(null);
+  });
+
+  // Regression test for issue #282 review round 2, finding 5: a worker call
+  // that throws — the provider-check timeout elapsing against a slow
+  // llama.cpp server is the everyday case — used to leave the panel pinned
+  // at "resolving…" forever, with the entry just committed never un-checked.
+  test("a resolveSamplingBias transport failure clears the pending state and keeps the just-committed entry out of the draft", async () => {
+    const { source, state, press } = settingsHarness();
+    useEncodedModelSettings(source);
+    let failure: Promise<never> | undefined;
+    source.api.resolveSamplingBias = () => {
+      failure = Promise.reject(new Error("connection reset"));
+      return failure;
+    };
+
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
+    await press(key("return"));
+    await press(key("n"));
+    setSamplingEdit(state, "dragon:5");
+    await press(key("return"));
+
+    expect(failure).toBeDefined();
+    await failure!.catch(() => {});
+    await Promise.resolve();
+
+    expect(state.settings?.draft.sampling.phraseBias).toEqual([]);
+    expect(state.settings?.sampling?.biasResolution.kind).toBe("failed");
+    expect(state.settings?.sampling?.result).toContain("connection reset");
+
+    const frame = render(state, 100, 24);
+    expect(frame).not.toContain("resolving…");
+  });
+
   test("adds banned strings, rejects a duplicate, and saves the sampling payload", async () => {
     const { source, state, press } = settingsHarness();
     useEncodedModelSettings(source);
-    source.api.resolveSamplingBias = async () => ({ kind: "tokenizer-unavailable" });
+    // The demo backend's default resolver (tui/src/demo-token-ids.ts) always
+    // resolves, unlike the tokenizer-unavailable stub this test used to
+    // install: since issue #282 review round 2, finding 5, a
+    // tokenizer-unavailable result un-commits the entry a writer just
+    // typed — correctly, but that would make the duplicate check below moot,
+    // because the first "forbidden word" would never stay committed to be a
+    // duplicate of.
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);

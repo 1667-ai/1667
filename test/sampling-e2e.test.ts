@@ -1,18 +1,10 @@
 import assert from "node:assert/strict";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import test from "node:test";
-import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
-import { applySamplingSettings } from "../shared/sampling-capabilities.js";
-import type {
-  SamplingSettingsV2,
-  SettingsDocumentV2,
-  SettingsPresetV2
-} from "../shared/settings-v2-types.js";
+import type { SamplingSettingsV2 } from "../shared/settings-v2-types.js";
 import { streamCompletion } from "../server/providers.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { providerRuntimeFor } from "../server/provider-runtime.js";
 import { SettingsStore } from "../server/settings.js";
-import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import {
   FIXED_TIME,
   MUTATION_A,
@@ -21,19 +13,13 @@ import {
   initializedFormat2Directory,
   saveCommand
 } from "./settings-store-fixtures.js";
-
-const PROMPT = {
-  operation: "continue" as const,
-  turns: [{
-    role: "user" as const,
-    blocks: [{
-      stability: "volatile" as const,
-      kind: "request" as const,
-      text: "Continue.",
-      boundaryAfter: "none" as const
-    }]
-  }]
-};
+import {
+  collect,
+  documentFor,
+  LLAMA_CPP_FIXTURE_TOKENS,
+  PROMPT,
+  startProviderFixture
+} from "./sampling-e2e-fixtures.js";
 
 test("saved llama.cpp sampling survives activation and restart and reaches the wire", {
   skip: !ownedLoopbackHttpSupported()
@@ -153,7 +139,7 @@ test("phrase bias and banned strings tokenize and merge into logit_bias, with ex
 test("llama.cpp phrase bias resolves through its own tokenize endpoint and reaches the wire", {
   skip: !ownedLoopbackHttpSupported()
 }, async (t) => {
-  const fixture = await startProviderFixture(t, LLAMA_CPP_FIXTURE_TOKENS);
+  const fixture = await startProviderFixture(t, { "whatever-this-server-calls-itself": LLAMA_CPP_FIXTURE_TOKENS });
   const dataDir = await initializedFormat2Directory(t, "1667-sampling-llama-tokenize-e2e-");
   const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
   await store.init(2);
@@ -185,17 +171,92 @@ test("llama.cpp phrase bias resolves through its own tokenize endpoint and reach
   });
 });
 
-/** llama.cpp's own fictional tokenizer for the fixture server above: an
- * exact map from surface text to a fake token ID, standing in for a real
- * model's vocabulary — the fixture is the tokenizer authority here, the
- * same way a real llama.cpp server is authoritative for whatever model it
- * has loaded. */
-const LLAMA_CPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
-  griffin: 501,
-  " griffin": 502,
-  Griffin: 503,
-  " Griffin": 504
-};
+// Regression test for issue #282 review round 2, finding 3: the tokenize
+// probe originally posted only `{ content }`, with no model selector.
+// llama.cpp routes POST endpoints by the body's `model` field
+// (tools/server/README.md), so a multi-model server in router mode rejects
+// a body with no model outright, and a server that instead fell back to a
+// default would silently answer from the wrong vocabulary. The fixture
+// below models a llama-server hosting two models and, like router mode,
+// requires an exact `model` match before it answers — a probe that forgot
+// to send the routed connection's own model could never pass this test.
+test("llama.cpp tokenize probe sends the routed model, not just the text", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, {
+    "qwen3-8b": LLAMA_CPP_FIXTURE_TOKENS,
+    // A different vocabulary for the second model: if the probe ever sent
+    // the wrong model (or none), and the fixture answered anyway, these
+    // IDs would show up on the wire instead of the expected ones.
+    "llama3-8b": { griffin: 901, " griffin": 902, Griffin: 903, " Griffin": 904 }
+  });
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-llama-tokenize-model-e2e-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  await store.save(saveCommand(
+    `m1.1767225600006.${"b".repeat(32)}`,
+    1,
+    documentFor(fixture.origin, "llama-cpp", "qwen3-8b", {
+      topP: null,
+      topK: null,
+      minP: null,
+      frequencyPenalty: null,
+      presencePenalty: null,
+      repeatPenalty: null,
+      seed: null,
+      stop: [],
+      logitBias: {},
+      phraseBias: [{ phrase: "griffin", weight: -3 }],
+      bannedStrings: []
+    })
+  ));
+  const runtime = await store.loadGeneration();
+  await collect(streamCompletion(runtime.settings, PROMPT, new AbortController().signal));
+  const body = fixture.bodies.at(-1)!;
+  assert.deepEqual(body.logit_bias, {
+    "501": -3,
+    "502": -3,
+    "503": -3,
+    "504": -3
+  });
+});
+
+// Regression test for issue #282 review round 2, finding 6: llama-cpp used
+// to skip save-time bias validation wholesale, so a phrase the live server
+// cannot resolve to one token per surface variant — here, the fixture has
+// no entry at all for " Hydra" (leading-space-capitalized) — could save
+// cleanly and only fail later, mid-generation, with the writer's only
+// feedback a failed request. Save-time validation must reach the same live
+// probe and reject it up front, leaving the active document untouched.
+test("llama.cpp save-time validation rejects a phrase the live server cannot resolve to one token per variant", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, {
+    "e2e-model": { hydra: 601, " hydra": 602, Hydra: 603 }
+  });
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-llama-save-validate-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const before = (await store.loadView()).document;
+  const candidate = documentFor(fixture.origin, "llama-cpp", "e2e-model", {
+    topP: null,
+    topK: null,
+    minP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+    repeatPenalty: null,
+    seed: null,
+    stop: [],
+    logitBias: {},
+    phraseBias: [{ phrase: "hydra", weight: 2 }],
+    bannedStrings: []
+  });
+  await assert.rejects(
+    () => store.save(saveCommand(MUTATION_C, 1, candidate)),
+    /hydra.*is 0 tokens/s
+  );
+  assert.deepEqual((await store.loadView()).document, before);
+});
 
 test("unset sampling knobs stay absent from an activated OpenAI request", {
   skip: !ownedLoopbackHttpSupported()
@@ -313,111 +374,3 @@ test("Anthropic Messages rejects seed at save time without changing the active d
   );
   assert.deepEqual((await store.loadView()).document, before);
 });
-
-function documentFor(
-  origin: string,
-  preset: SettingsPresetV2,
-  model: string,
-  sampling: SamplingSettingsV2,
-  provider: "openai-compatible" | "anthropic" = "openai-compatible"
-): SettingsDocumentV2 {
-  const base = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
-    provider,
-    baseUrl: `${origin}/v1`,
-    model,
-    apiKeyEnv: null,
-    temperature: 0.7,
-    maxTokens: 128,
-    systemPrompt: "Continue the story.",
-    contextWindow: 8_192
-  });
-  const connectionId = base.models[base.profiles.default!.modelId]!.connectionId;
-  return applySamplingSettings({
-    ...base,
-    connections: {
-      ...base.connections,
-      [connectionId]: { ...base.connections[connectionId]!, preset }
-    }
-  }, sampling);
-}
-
-async function startProviderFixture(
-  t: { after(callback: () => void | Promise<void>): void },
-  tokenizeMap?: Readonly<Record<string, number>>
-) {
-  const bodies: Record<string, unknown>[] = [];
-  const server = createServer((request, response) => {
-    void handleRequest(request, response, bodies, tokenizeMap);
-  });
-  await listen(server);
-  t.after(() => { server.close(); });
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("fixture has no address");
-  return { origin: `http://127.0.0.1:${address.port}`, bodies };
-}
-
-async function handleRequest(
-  request: IncomingMessage,
-  response: ServerResponse,
-  bodies: Record<string, unknown>[],
-  tokenizeMap: Readonly<Record<string, number>> | undefined
-): Promise<void> {
-  if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
-    response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({ data: [{ id: "e2e-model" }] }));
-    return;
-  }
-  if (request.method === "POST" && request.url === "/tokenize" && tokenizeMap !== undefined) {
-    const { content } = JSON.parse(await requestText(request)) as { content: string };
-    const tokenId = tokenizeMap[content];
-    response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({ tokens: tokenId === undefined ? [] : [tokenId] }));
-    return;
-  }
-  if (request.method !== "POST") {
-    response.writeHead(404).end();
-    return;
-  }
-  const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
-  bodies.push(body);
-  if (request.url === "/v1/messages") {
-    response.setHeader("content-type", "text/event-stream");
-    response.end([
-      "event: content_block_delta",
-      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}',
-      "",
-      "event: message_stop",
-      'data: {"type":"message_stop"}',
-      "",
-      ""
-    ].join("\n"));
-    return;
-  }
-  response.setHeader("content-type", "text/event-stream");
-  response.end([
-    'data: {"choices":[{"delta":{"content":"ok"}}]}',
-    "",
-    "data: [DONE]",
-    "",
-    ""
-  ].join("\n"));
-}
-
-async function listen(server: Server): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-}
-
-async function requestText(request: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-async function collect(stream: AsyncIterable<string>): Promise<string> {
-  let result = "";
-  for await (const chunk of stream) result += chunk;
-  return result;
-}

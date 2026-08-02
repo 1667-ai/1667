@@ -30,8 +30,8 @@ import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
 import {
   samplingBiasEntryRejectionMessage,
-  samplingBiasResolutionFailureMessage,
-  type SamplingBiasEntryResolution
+  type SamplingBiasEntryResolution,
+  type SamplingBiasResolutionResult
 } from "../shared/sampling-capabilities.js";
 import {
   isLogitBiasMergeKnob,
@@ -102,11 +102,41 @@ function samplingPolicy<T>(operation: () => T): T {
   }
 }
 
+/**
+ * Validates a profile's sampling route, including — whenever logitBias,
+ * phraseBias, or bannedStrings is configured — that it resolves within the
+ * preset-aware resolved-entry bound with no rejected or shadowed entry, so a
+ * document that cannot serialize into a request never saves cleanly in the
+ * first place (issue #282 review round 2, finding 6). Checked unconditionally,
+ * even when only the raw numeric logitBias map is set: a raw map alone can
+ * still carry more entries than a preset (KoboldCpp) documents.
+ *
+ * `precomputedResolution`, when supplied, is used as-is instead of resolving
+ * again here. This function is otherwise synchronous — every other caller
+ * (document decode: server/settings-v2-codec.ts, server/settings-v2-state-
+ * validation.ts, tui/src/api-response-decoders.ts) runs far more often than
+ * a save and must never make a network call — so it falls back to a local,
+ * synchronous resolution when nothing is supplied. That local fallback
+ * cannot check "llama-cpp": its tokenizer is a live probe
+ * (server/context-probe.ts, probeLlamaCppTokenize), not a local allow-list,
+ * so those callers still skip the bias check for it, same as before. The
+ * save path (server/settings-v2-store.ts) is async already, so it is the one
+ * caller that resolves llama-cpp for real and supplies the result here —
+ * one enforcement point for the whole logit-bias family, on every preset,
+ * instead of a synchronous check for one preset and a bypass for another.
+ *
+ * A resolution that comes back "tokenizer-unavailable" never blocks the
+ * save: an unreachable llama.cpp server is indistinguishable here from
+ * "briefly offline", and request-time application
+ * (server/provider-sampling.ts) re-verifies against the live server and
+ * enforces the resolved-count bound before every request regardless.
+ */
 export function validateSamplingRoute(
   profileId: string,
   profile: GenerationProfileV2,
   model: ModelDefinitionV2,
-  connection: ModelConnectionV2
+  connection: ModelConnectionV2,
+  precomputedResolution?: SamplingBiasResolutionResult
 ): void {
   if (profile.sampling === undefined) return;
   const route: SelectedSettingsRouteV2 = { profileId, profile, model, connection };
@@ -117,34 +147,15 @@ export function validateSamplingRoute(
       throw new SettingsFormatError(samplingValidationMessage(profileId, knob, resolution.reason));
     }
   }
-  // Resolve now, at save time, unconditionally whenever logitBias,
-  // phraseBias, or bannedStrings is configured — even when only the raw
-  // numeric logitBias map is set, so a phrase list (or a raw map alone)
-  // that would exceed the preset-aware resolved bound
-  // (shared/sampling-validation-policy.ts) is rejected here with a clear
-  // message instead of failing later mid-generation. A gate that only
-  // covered phraseBias/bannedStrings previously let a KoboldCpp profile
-  // with 17 plain numeric entries save cleanly.
   if (context.protocol === "legacy-v1" || context.preset === "legacy-v1") return;
   if (!configured.some(({ knob }) => isLogitBiasMergeKnob(knob))) return;
-  // llama-cpp resolves phraseBias/bannedStrings through a live tokenize
-  // probe (server/context-probe.ts, probeLlamaCppTokenize) instead of a
-  // local allow-list, and this function must stay synchronous — see
-  // resolveSamplingLogitBiasForEncoding's own comment for why. Every entry
-  // on a llama-cpp profile was already individually verified when the
-  // writer committed it in the editor (server/story-service.ts,
-  // resolveSamplingBias), and request-time application
-  // (server/provider-sampling.ts) re-verifies against the live server and
-  // enforces the resolved-count bound before every request — so this one
-  // preset trades an early, offline check here for one that can actually
-  // reach the server it is checking, instead of failing save time on a
-  // server that happens to be unreachable right now.
-  if (context.preset === "llama-cpp") return;
-  const encoding = promptBiasTokenizerEncoding(context.remoteModelId);
-  const resolved = resolveSamplingLogitBiasForEncoding(profile.sampling, encoding);
-  if (resolved.kind !== "resolved") {
-    throw new SettingsFormatError(`profile ${profileId} could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}`);
-  }
+  const preset = context.preset;
+  const resolved = precomputedResolution ?? (
+    preset === "llama-cpp"
+      ? undefined
+      : resolveSamplingLogitBiasForEncoding(profile.sampling, promptBiasTokenizerEncoding(context.remoteModelId))
+  );
+  if (resolved === undefined || resolved.kind !== "resolved") return;
   const rejected = firstRejectedEntry(resolved.phraseBias, resolved.bannedStrings);
   if (rejected !== undefined) {
     throw new SettingsFormatError(
@@ -152,11 +163,11 @@ export function validateSamplingRoute(
       + samplingBiasEntryRejectionMessage(rejected)
     );
   }
-  const bound = maxResolvedLogitBiasEntries(context.preset);
+  const bound = maxResolvedLogitBiasEntries(preset);
   if (resolved.resolvedEntryCount > bound) {
     throw new SettingsFormatError(
       `profile ${profileId} resolves to ${resolved.resolvedEntryCount} logit-bias entries, `
-      + `exceeding the ${bound}-entry limit for preset ${context.preset}`
+      + `exceeding the ${bound}-entry limit for preset ${preset}`
     );
   }
 }

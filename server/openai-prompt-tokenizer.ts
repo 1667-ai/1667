@@ -67,6 +67,16 @@ export function tokenizePhraseTokenIds(
   }
 }
 
+/** Whether the bundled WASM encoder for `encoding` actually loaded — checked
+ * once per encoding, up front, so a load failure is reported as the systemic
+ * "tokenizer-unavailable" outcome it is (shared/sampling-phrase-resolution.ts,
+ * TokenizerUnavailableCause "encoder-unavailable"), not folded into a
+ * per-phrase "unencodable" the way `tokenizePhraseTokenIds` reports it below
+ * (issue #282 review round 2, finding 6b). Memoized via the same cache. */
+export function promptBiasEncoderAvailable(encoding: PromptBiasEncoding): boolean {
+  return loadEncoding(encoding) !== null;
+}
+
 function loadEncoding(encoding: PromptBiasEncoding): Tiktoken | null {
   const cached = encoderCache.get(encoding);
   if (cached !== undefined) return cached;

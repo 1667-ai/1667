@@ -6,6 +6,7 @@ import {
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import {
+  isLogitBiasFamilyKnob,
   samplingContextForRoute,
   samplingKnobLabel,
   samplingKnobPresentation,
@@ -105,18 +106,40 @@ export function samplingListRows(
   overlay: SettingsOverlayState
 ): readonly SamplingListRow[] {
   const context = samplingContextForOverlay(overlay);
+  const resolvedCount = samplingResolvedEntryCount(overlay);
   return SAMPLING_LIST_PANEL_ORDER.map((panel) => {
     const spec = samplingListPanelSpec(panel);
-    const count = spec.values(overlay).length;
+    const rawCount = spec.values(overlay).length;
+    // The logit-bias-family panels (logit-bias, phrase-bias, banned-strings)
+    // share one cap on one resolved object (shared/sampling-validation-
+    // policy.ts, SAMPLING_RESOLVED_LOGIT_BIAS_POLICY) — a phrase-bias entry
+    // list of 51 can resolve to far more than 51 logit_bias entries once
+    // every surface variant expands. Displaying the raw list length against
+    // that bound let the panel say "51/200" while a save actually failed at
+    // 204 (issue #282 review round 2, finding 4). Report the resolved count
+    // once it is known; fall back to the raw count only while resolution is
+    // idle, pending, or failed, so the header never goes blank.
+    const count = isLogitBiasFamilyKnob(spec.knob) && resolvedCount !== null ? resolvedCount : rawCount;
     const maximum = spec.maximum(context);
     return {
       panel,
-      value: count === 0 ? "empty" : `${count}/${maximum}`,
+      value: rawCount === 0 ? "empty" : `${count}/${maximum}`,
       count,
       maximum,
       ...samplingKnobPresentation(context, spec.knob)
     };
   });
+}
+
+/** The most recently resolved total logit-bias entry count for the current
+ * draft (server/sampling-phrase-bias.ts, `resolvedEntryCount`) — the same
+ * number `maxResolvedLogitBiasEntries` bounds — or null while there is
+ * nothing to report yet (idle, pending, failed, or the tokenizer itself is
+ * unavailable). */
+function samplingResolvedEntryCount(overlay: SettingsOverlayState): number | null {
+  const state = overlay.sampling?.biasResolution;
+  if (state === undefined || state.kind !== "ready" || state.result.kind !== "resolved") return null;
+  return state.result.resolvedEntryCount;
 }
 
 export function samplingListItemIdentity(
@@ -290,15 +313,19 @@ export function beginNewSamplingEdit(overlay: SettingsOverlayState): string | nu
   if (nested === null || nested.panel === "sampling") return "choose a list first";
   const list = samplingListRows(overlay).find((row) => row.panel === nested.panel)!;
   if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
+  // Gate on the same displayed count samplingListRows reports (issue #282
+  // review round 2, finding 4): for the logit-bias-family panels that is the
+  // resolved-token bound, not this panel's own raw list length, so the
+  // editor stops accepting new entries at the same point a save would
+  // reject them, not later.
+  if (list.count >= list.maximum) return `list limit reached · ${list.maximum} items maximum`;
   const spec = samplingListPanelSpec(nested.panel);
-  const count = spec.values(overlay).length;
-  const maximum = spec.maximum(samplingContextForOverlay(overlay));
-  if (count >= maximum) return `list limit reached · ${maximum} items maximum`;
-  nested.cursor = count;
+  const rawCount = spec.values(overlay).length;
+  nested.cursor = rawCount;
   nested.edit = {
     kind: "list",
     panel: nested.panel,
-    index: count,
+    index: rawCount,
     composer: createSamplingComposer(""),
     initial: ""
   };

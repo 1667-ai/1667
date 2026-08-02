@@ -15,7 +15,10 @@ This file records notable changes to 1667. Product terms use the definitions in
   action would also change every other place those tokens appear. A phrase
   entry and a banned string merge into the same logit bias field as a token
   ID entry. A token ID that a writer sets by hand keeps priority over the
-  merged value. A banned string makes the text unlikely. It does not make
+  merged value. Two phrase entries can tokenize to the same token. For
+  example, "hello" and "Hello" share a form. 1667 keeps the higher-priority
+  entry. 1667 refuses the other entry at commit and names the entry that
+  kept the token. A banned string makes the text unlikely. It does not make
   the text impossible, because the same text can come from different token
   boundaries. Phrase bias and banned strings work for an OpenAI model on
   the tokenizer list, and for llama.cpp, which 1667 asks to tokenize the

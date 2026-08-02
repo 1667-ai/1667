@@ -69,9 +69,15 @@ function variantTag(variant: SamplingBiasVariant): string {
 function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
   if (resolution.kind === "idle") return "";
   if (resolution.kind === "pending") return "resolving…";
+  if (resolution.kind === "failed") return `‹ — › check failed · ${resolution.message}`;
   if (resolution.kind === "tokenizer-unavailable") return "‹ — › tokenizer unavailable";
   if (resolution.kind === "rejected") {
     return `‹ — › ${resolution.entry.variants.map(variantOutcomeText).join(" ")}`;
+  }
+  if (resolution.kind === "shadowed") {
+    const owner = resolution.entry.shadowedBy;
+    const ownerKind = owner.source === "bannedStrings" ? "banned string" : "phrase";
+    return `‹ — › shadowed by ${ownerKind} ${JSON.stringify(owner.phrase)}`;
   }
   return resolution.tokenIds.length === 0
     ? "0 tokens"

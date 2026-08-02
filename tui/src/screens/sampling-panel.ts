@@ -3,7 +3,6 @@ import type { HitRows, HitTarget } from "../hit.js";
 import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
-  samplingContextForOverlay,
   samplingLayerRowIdentity,
   samplingListItemIdentity,
   type SamplingListPanel,
@@ -234,15 +233,19 @@ function renderSamplingListLayer(
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
   const modelSpec = samplingListPanelSpec(panel);
   const renderSpec = SAMPLING_LIST_RENDER_SPECS[panel];
-  const context = samplingContextForOverlay(settings);
   const values = modelSpec.values(settings);
-  const maximum = modelSpec.maximum(context);
   const cursor = boundedSamplingCursor(settings, panel);
   const activeEdit = settings.sampling?.edit;
   const pendingEdit = activeEdit?.kind === "list" && activeEdit.panel === panel && activeEdit.index === values.length
     ? activeEdit
     : null;
-  const header = [raisedSegment(truncate(renderSpec.header(values.length, maximum), width), "chrome")];
+  // The header count comes from samplingListRows, not values.length directly
+  // (issue #282 review round 2, finding 4): the logit-bias-family panels
+  // display the shared resolved-token count there, which can run well ahead
+  // of this panel's own raw entry count, and this header must agree with it
+  // rather than repeating the same bug through a second code path.
+  const row = samplingListRows(settings).find((item) => item.panel === panel)!;
+  const header = [raisedSegment(truncate(renderSpec.header(row.count, row.maximum), width), "chrome")];
   const rows: FrameLine[] = [];
   const targets: Array<HitTarget | null> = [...status.map(() => null), null];
   if (values.length === 0) {

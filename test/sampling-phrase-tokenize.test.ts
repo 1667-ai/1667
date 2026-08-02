@@ -230,7 +230,7 @@ test("resolveSamplingBias reports the tokenizer as unavailable for a model with 
     phraseBias: [{ phrase: "hello", weight: 1 }],
     bannedStrings: []
   });
-  assert.deepEqual(result, { kind: "tokenizer-unavailable" });
+  assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "model-unknown" });
 });
 
 // Regression test for issue #282 review finding A: raising

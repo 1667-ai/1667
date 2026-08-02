@@ -181,10 +181,17 @@ export type SamplingInlineEditState =
  * and bannedStrings — the same worker call and the same merge computation
  * the provider request uses (server/sampling-phrase-bias.ts), fetched once
  * per sampling-editor session and once per commit
- * (tui/src/sampling-bias-resolution.ts), not once per phrase. */
+ * (tui/src/sampling-bias-resolution.ts), not once per phrase.
+ *
+ * "failed" (issue #282 review round 2, finding 5) is the worker call itself
+ * throwing — a transport failure, not a documented outcome — carrying a
+ * message so the row says why instead of claiming to still be working. It
+ * is a dead end, not a stage of "pending": nothing but a fresh
+ * resolveSamplingBias call (a new commit, or reopening the panel) leaves it. */
 export type SamplingBiasResolutionState =
   | { readonly kind: "idle" }
   | { readonly kind: "pending" }
+  | { readonly kind: "failed"; readonly message: string }
   | { readonly kind: "ready"; readonly result: SamplingBiasResolutionResult };
 
 export interface SamplingOverlayState {
@@ -194,6 +201,13 @@ export interface SamplingOverlayState {
   edit: SamplingInlineEditState | null;
   result: string | null;
   biasResolution: SamplingBiasResolutionState;
+  /** Bumped by every resolveSamplingBias call (tui/src/sampling-bias-
+   * resolution.ts) and captured by the request it starts — `pending` is set
+   * synchronously but cleared asynchronously, so two overlapping commits
+   * (issue #282 review round 2, finding 5) can otherwise land in either
+   * order with only panel identity as a staleness guard. A stale request's
+   * result is dropped rather than overwriting a newer one's. */
+  resolutionGeneration: number;
 }
 
 export interface SettingsOverlaySaveIntent {

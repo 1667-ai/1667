@@ -67,6 +67,15 @@ interface SamplingPresentation {
 // phraseBias and bannedStrings never appear on the wire under their own name:
 // both resolve to token IDs and merge into the same logit_bias object
 // (server/provider-sampling.ts), so they share logit_bias's wire field here.
+//
+// This table models field *names*, not field *shapes* — every preset that
+// reaches "available" is assumed to accept the one OpenAI-style logit_bias
+// object shape server/provider-sampling.ts always sends. That is a real gap
+// once a preset needs a different encoding for the same knob (llama.cpp's
+// native pair-array form also accepts raw strings tokenized server-side,
+// with no client tokenization at all — a capability issue #311 will want).
+// Left as a comment rather than an abstraction until a preset actually needs
+// it (issue #282 review round 2, finding 2).
 const PROTOCOL_WIRE: Readonly<
   Record<SettingsProtocolV2, Partial<Record<SamplingKnobV2, string>>>
 > = {

@@ -155,10 +155,18 @@ export interface SamplingBiasVariantResolution {
 /** One phraseBias or bannedStrings entry, resolved against all four surface
  * variants. "resolved" only when every variant is single-token — a phrase
  * counts as usable exactly when 1667 can honestly bias every form the writer
- * means, never a subset. `variants` is always populated on both outcomes, so
+ * means, never a subset. `variants` is always populated on every outcome, so
  * the editor can show the per-variant breakdown either way (issue #282,
  * stage 1: "the editor must show the resolved IDs per variant, not one list
- * per phrase"). */
+ * per phrase").
+ *
+ * "shadowed" is the third outcome (issue #282 review round 2, finding 1):
+ * every variant tokenized to exactly one token, the same bar "resolved"
+ * clears, but every one of those tokens is already owned by a
+ * higher-priority entry (server/sampling-phrase-bias.ts documents merge
+ * priority) — so this entry's own weight would never actually reach the
+ * wire. Naming the entry that took its tokens is what tells a writer their
+ * two entries are not the independent pair they look like. */
 export type SamplingBiasEntryResolution =
   | {
       readonly kind: "resolved";
@@ -170,7 +178,34 @@ export type SamplingBiasEntryResolution =
       readonly kind: "rejected";
       readonly phrase: string;
       readonly variants: readonly SamplingBiasVariantResolution[];
+    }
+  | {
+      readonly kind: "shadowed";
+      readonly phrase: string;
+      readonly variants: readonly SamplingBiasVariantResolution[];
+      readonly tokenIds: readonly number[];
+      readonly shadowedBy: {
+        readonly source: "phraseBias" | "bannedStrings";
+        readonly phrase: string;
+      };
     };
+
+/** Why "tokenizer-unavailable" — three materially different situations a
+ * writer must be able to tell apart (issue #282 review round 2, finding 6b):
+ * - "encoder-unavailable": the bundled WASM tiktoken encoder itself failed
+ *   to load, for a model that is otherwise on the allow-list.
+ * - "model-unknown": there is no tokenizer strategy for this model or
+ *   preset at all — not on the tiktoken allow-list, and no live-probe
+ *   preset either.
+ * - "probe-failed": a live-tokenize preset's own server (llama.cpp's
+ *   POST /tokenize, server/context-probe.ts) did not answer — a network or
+ *   server failure, not a fact about any phrase. */
+export const TOKENIZER_UNAVAILABLE_CAUSE_VALUES = [
+  "encoder-unavailable",
+  "model-unknown",
+  "probe-failed"
+] as const;
+export type TokenizerUnavailableCause = (typeof TOKENIZER_UNAVAILABLE_CAUSE_VALUES)[number];
 
 /**
  * The result of tokenizing and merging phraseBias and bannedStrings — the
@@ -181,12 +216,11 @@ export type SamplingBiasEntryResolution =
  * editor can never compute different token IDs for the same draft.
  *
  * "tokenizer-unavailable" means there is no way at all to resolve text to
- * token IDs for this route — the WASM tokenizer failed to load, or (for a
- * preset whose tokenizer is a live network probe) the probe itself failed —
- * systemic, not specific to any phrase. A single unresolvable phrase is not
- * systemic: it lands as a "rejected" entry inside `phraseBias` or
- * `bannedStrings` instead, alongside every entry that did resolve, so one
- * bad entry never hides the good ones.
+ * token IDs for this route — systemic, not specific to any phrase; `cause`
+ * says which systemic reason (see TokenizerUnavailableCause above). A single
+ * unresolvable phrase is not systemic: it lands as a "rejected" entry inside
+ * `phraseBias` or `bannedStrings` instead, alongside every entry that did
+ * resolve, so one bad entry never hides the good ones.
  */
 export type SamplingBiasResolutionResult =
   | {
@@ -196,32 +230,45 @@ export type SamplingBiasResolutionResult =
       readonly bannedStrings: readonly SamplingBiasEntryResolution[];
       readonly resolvedEntryCount: number;
     }
-  | { readonly kind: "tokenizer-unavailable" };
+  | { readonly kind: "tokenizer-unavailable"; readonly cause: TokenizerUnavailableCause };
 
 /** True when every phraseBias/bannedStrings entry in `result` resolved — the
  * condition a caller that must never send a rejected entry checks before
  * trusting `logitBias` (server/provider-sampling.ts throws instead of
- * sending a partial request; the editor shows each rejection inline). */
+ * sending a partial request; the editor shows each rejection inline). A
+ * "shadowed" entry (issue #282 review round 2, finding 1) does not count as
+ * resolved either: its own weight never reaches `logitBias`. */
 export function samplingBiasResolutionFullySucceeded(
   result: Extract<SamplingBiasResolutionResult, { kind: "resolved" }>
 ): boolean {
   return [...result.phraseBias, ...result.bannedStrings].every((entry) => entry.kind === "resolved");
 }
 
+const TOKENIZER_UNAVAILABLE_CAUSE_TEXT: Readonly<Record<TokenizerUnavailableCause, string>> = {
+  "encoder-unavailable": "the bundled tokenizer failed to load",
+  "model-unknown": "1667 has no exact tokenizer for this model",
+  "probe-failed": "the llama.cpp tokenize probe did not answer"
+};
+
 export function samplingBiasResolutionFailureMessage(
   result: Extract<SamplingBiasResolutionResult, { kind: "tokenizer-unavailable" }>
 ): string {
-  void result;
-  return "the tokenizer needed to resolve phrase bias or banned strings is unavailable";
+  return TOKENIZER_UNAVAILABLE_CAUSE_TEXT[result.cause];
 }
 
-/** A short, honest reason a single entry was rejected — names the first
- * surface variant that failed and, when it tokenized to more than one
- * token, shows the resolved IDs so the writer can see why. Never claims a
- * rejected entry did something it did not. */
+/** A short, honest reason a single entry was kept off the wire — either it
+ * never resolved to one token per surface variant ("rejected"), or every
+ * variant did but another, higher-priority entry already owns those tokens
+ * ("shadowed" — issue #282 review round 2, finding 1). Never claims either
+ * kind did something it did not. */
 export function samplingBiasEntryRejectionMessage(
-  entry: Extract<SamplingBiasEntryResolution, { kind: "rejected" }>
+  entry: Exclude<SamplingBiasEntryResolution, { kind: "resolved" }>
 ): string {
+  if (entry.kind === "shadowed") {
+    const owner = entry.shadowedBy.source === "bannedStrings" ? "banned string" : "phrase bias";
+    return `${JSON.stringify(entry.phrase)} shares every token with ${owner} `
+      + `${JSON.stringify(entry.shadowedBy.phrase)}, which takes precedence`;
+  }
   const failing = entry.variants.find((variant) => variant.outcome.kind !== "single-token");
   if (failing === undefined) {
     return `${JSON.stringify(entry.phrase)} could not be resolved to single tokens`;

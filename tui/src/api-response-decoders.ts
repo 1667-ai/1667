@@ -13,11 +13,13 @@ import type {
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
   SAMPLING_BIAS_VARIANT_VALUES,
+  TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
   type SamplingBiasEntryResolution,
   type SamplingBiasResolutionResult,
   type SamplingBiasVariant,
   type SamplingBiasVariantOutcome,
-  type SamplingBiasVariantResolution
+  type SamplingBiasVariantResolution,
+  type TokenizerUnavailableCause
 } from "../../shared/sampling-capabilities.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
@@ -168,7 +170,9 @@ export function decodeSamplingBiasResolutionResponse(
   const label = "sampling bias resolution";
   const response = responseRecord(value, label);
   const kind = response.kind;
-  if (kind === "tokenizer-unavailable") return { kind };
+  if (kind === "tokenizer-unavailable") {
+    return { kind, cause: decodeTokenizerUnavailableCause(response.cause, label) };
+  }
   if (kind !== "resolved") invalidField(label, "kind");
   return {
     kind: "resolved",
@@ -177,6 +181,15 @@ export function decodeSamplingBiasResolutionResponse(
     bannedStrings: decodeSamplingBiasEntryList(response.bannedStrings, label),
     resolvedEntryCount: nonNegativeIntegerField(response, "resolvedEntryCount", label)
   };
+}
+
+function decodeTokenizerUnavailableCause(value: unknown, label: string): TokenizerUnavailableCause {
+  if (typeof value !== "string"
+    || !(TOKENIZER_UNAVAILABLE_CAUSE_VALUES as readonly string[]).includes(value)
+  ) {
+    invalidField(label, "cause");
+  }
+  return value as TokenizerUnavailableCause;
 }
 
 function decodeLogitBiasRecord(value: unknown, label: string): Readonly<Record<string, number>> {
@@ -203,12 +216,36 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
   const phrase = stringField(record, "phrase", label);
   const variants = decodeSamplingBiasVariantList(record.variants, label);
   if (record.kind === "rejected") return { kind: "rejected", phrase, variants };
+  if (record.kind === "shadowed") {
+    return {
+      kind: "shadowed",
+      phrase,
+      variants,
+      tokenIds: decodeTokenIdArray(record.tokenIds, label),
+      shadowedBy: decodeShadowedBy(record.shadowedBy, label)
+    };
+  }
   if (record.kind !== "resolved") invalidField(label, "kind");
-  const tokenIds = record.tokenIds;
-  if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+  return { kind: "resolved", phrase, variants, tokenIds: decodeTokenIdArray(record.tokenIds, label) };
+}
+
+function decodeTokenIdArray(value: unknown, label: string): readonly number[] {
+  if (!Array.isArray(value) || value.some((id) => !Number.isSafeInteger(id) || id < 0)) {
     invalidField(label, "tokenIds");
   }
-  return { kind: "resolved", phrase, variants, tokenIds: tokenIds as readonly number[] };
+  return value as readonly number[];
+}
+
+function decodeShadowedBy(
+  value: unknown,
+  label: string
+): { readonly source: "phraseBias" | "bannedStrings"; readonly phrase: string } {
+  const record = responseRecord(value, `${label} shadowedBy`);
+  const source = record.source;
+  if (source !== "phraseBias" && source !== "bannedStrings") {
+    invalidField(`${label} shadowedBy`, "source");
+  }
+  return { source, phrase: stringField(record, "phrase", `${label} shadowedBy`) };
 }
 
 function decodeSamplingBiasVariantList(

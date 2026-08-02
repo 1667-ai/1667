@@ -210,7 +210,8 @@ function samplingState(
     logitBiasOrder: Object.keys(values.logitBias),
     edit: edit ?? null,
     result: null,
-    biasResolution: { kind: "idle" }
+    biasResolution: { kind: "idle" },
+    resolutionGeneration: 0
   };
   state.settings = settings;
   return state;

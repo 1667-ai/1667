@@ -578,6 +578,39 @@ test("a single-token phrase resolves into logit_bias entries for every surface v
   });
 });
 
+// Regression test for issue #282 review round 2, finding 1: variant
+// expansion makes two phrase-bias entries collide unavoidably whenever one
+// phrase's variants are a strict subset of another's — every variant of
+// "Hello" (typed/capitalized both "Hello", leading-space/leading-space-
+// capitalized both " Hello") is also a variant of "hello". The merge used to
+// write each entry's weight in array order, so the second entry silently
+// overwrote two of the first entry's four tokens and the built request
+// carried two different weights for what the writer believed was one
+// phrase. "hello" must not contribute a mixed-weight, half-overwritten
+// bias: it is fully shadowed by "Hello" (finding 1's chosen resolution —
+// see the accompanying report for why), and the merged object holds only
+// "Hello"'s two tokens at "Hello"'s own weight.
+test("a phrase-bias entry whose tokens are entirely claimed by a later entry is shadowed, not silently split across two weights", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({
+        phraseBias: [
+          { phrase: "hello", weight: 20 },
+          { phrase: "Hello", weight: -20 }
+        ]
+      })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.deepEqual(body.logit_bias, {
+    "13225": -20,
+    "32949": -20
+  });
+});
+
 // Regression test for issue #282 stage 1, point 1: resolution used to spread
 // a phrase's weight across every one of its tokens instead of refusing a
 // multi-token phrase. "hello world" needs two tokens in every variant, so
@@ -670,7 +703,7 @@ test("a failed llama.cpp tokenize probe reports the tokenizer as unavailable, an
       PROMPT,
       OMIT_PLANS[0]!
     ),
-    /the tokenizer needed to resolve phrase bias or banned strings is unavailable/
+    /the llama\.cpp tokenize probe did not answer/
   );
 });
 

@@ -84,6 +84,8 @@ import {
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
+import { resolveSamplingBiasForSettings } from "./sampling-phrase-bias.js";
+import { validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
@@ -358,6 +360,40 @@ export class SettingsV2Store {
     );
   }
 
+  /**
+   * Closes the llama-cpp save-time hole issue #282 review round 2 flagged
+   * (finding 6): `validateSamplingRoute` cannot resolve phraseBias/
+   * bannedStrings for a live-tokenize preset without reaching its server,
+   * and it must stay synchronous for every other caller — document decode
+   * runs far more often than a save and must never make a network call. The
+   * save path is async already, so it is the one place that can afford to
+   * actually ask, and it is the only caller that supplies
+   * `validateSamplingRoute` a real, network-resolved `precomputedResolution`.
+   *
+   * Bounded to the routed purposes (default/prose/utility, deduplicated —
+   * the same three `assertRuntimeDocumentSupported` above already resolves):
+   * an unrouted profile cannot reach generation yet, so there is nothing to
+   * protect by resolving it here too. A route this save cannot itself build
+   * a runtime for is skipped, not failed — `assertRuntimeDocumentSupported`
+   * immediately above already rejects the save for that.
+   */
+  private async assertSavedSamplingBiasResolves(document: SettingsDocumentV2): Promise<void> {
+    const resolvedProfileIds = new Set<string>();
+    for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
+      const route = selectSettingsRoute(document, purpose);
+      if (route.profile.sampling === undefined || resolvedProfileIds.has(route.profileId)) continue;
+      resolvedProfileIds.add(route.profileId);
+      let settings: GenerationSettings;
+      try {
+        settings = effectiveGenerationRuntime(document, purpose, {}, this.environment).settings;
+      } catch {
+        continue;
+      }
+      const resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings);
+      validateSamplingRoute(route.profileId, route.profile, route.model, route.connection, resolution);
+    }
+  }
+
   private async runMutation(
     operation: SettingsMutationOperation,
     request: MutationCoordinatorRequest<SettingsMutationTarget>
@@ -399,6 +435,7 @@ export class SettingsV2Store {
 
     if (operation.method === "saveSettings") {
       assertRuntimeDocumentSupported(operation.document);
+      await this.assertSavedSamplingBiasResolves(operation.document);
     }
     if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
       throw new ServiceError(

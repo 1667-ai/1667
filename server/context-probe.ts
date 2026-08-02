@@ -152,6 +152,19 @@ export async function probeContextWindow(
  *   Returns a JSON object with a `tokens` field containing the
  *   tokenization result — plain token IDs when `with_pieces` is omitted
  *   (default `false`), which is what 1667 sends.
+ *
+ * `model` rides the body, not a query parameter (issue #282 review round 2,
+ * finding 3): `/tokenize` is a POST, and llama.cpp's server routes POST
+ * endpoints by the body's `model` field — unlike the GET `/props` probe
+ * above, which selects a model through `?model=`. Without it, a server
+ * hosting more than one model either rejects the request outright (router
+ * mode) or answers from whichever model it defaults to — silently keying
+ * the resolved token IDs to the wrong vocabulary while the request they ride
+ * in still carries the routed connection's own `model` field. Sending it
+ * once per resolution here, the same connection-wide value every variant
+ * text in this resolution uses, needs no extra lookup: unlike `/props`, this
+ * endpoint needs no `?model=`/`&autoload=false` pair, so `allowPresetQuery`
+ * does not apply to this GET-only escape hatch.
  */
 export async function probeLlamaCppTokenize(
   settings: GenerationSettings,
@@ -163,7 +176,7 @@ export async function probeLlamaCppTokenize(
     const data = await postProviderJson(
       settings,
       `${root}/tokenize`,
-      { content: text },
+      { content: text, model: settings.model },
       {},
       { signal, timeoutMs: probeTimeout(settings) }
     );

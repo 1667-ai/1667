@@ -18,7 +18,7 @@ import type { SamplingSettingsV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
-import { tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
+import { promptBiasEncoderAvailable, tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
 import { probeLlamaCppTokenize } from "./context-probe.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 
@@ -51,33 +51,55 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
  * SamplingBiasEntryResolution — so the editor can show the writer why.
  *
  * Merge order, least to most authoritative: phraseBias, then bannedStrings,
- * then the explicit numeric logitBias map. A later source overwrites an
- * earlier one's bias for the same token ID — bannedStrings intentionally
+ * then the explicit numeric logitBias map. bannedStrings intentionally
  * outranks phraseBias (a stronger "exclude this" signal), and an explicit
  * numeric logitBias entry always wins over anything derived from text,
- * because the writer typed that exact token ID. Only resolved entries
- * contribute — a rejected entry biases nothing, silently or otherwise.
- * Banned strings only make a string unlikely, never impossible — see the
- * field comment on `SamplingSettingsV2.bannedStrings` for why.
+ * because the writer typed that exact token ID.
+ *
+ * Two entries can resolve to overlapping token IDs even though the writer
+ * never named a token twice — variant expansion makes that unavoidable, not
+ * exotic: every variant of "Hello" is also a variant of "hello". Ownership
+ * of a token ID goes to whichever entry is last in this same priority order
+ * (a later phraseBias entry beats an earlier one; any bannedStrings entry
+ * beats any phraseBias entry), and an entry that loses ownership of even one
+ * of its tokens is "shadowed" rather than resolved: it contributes nothing,
+ * so the merged map is never built from two different weights answering for
+ * the same phrase (issue #282 review round 2, finding 1). Only resolved
+ * entries contribute — a rejected or shadowed entry biases nothing, silently
+ * or otherwise. Banned strings only make a string unlikely, never
+ * impossible — see the field comment on `SamplingSettingsV2.bannedStrings`
+ * for why.
  */
 export function resolveSamplingLogitBias(
   sampling: Pick<SamplingSettingsV2, "logitBias" | "phraseBias" | "bannedStrings">,
   tokenizeVariant: SyncVariantTokenizer
 ): SamplingBiasResolutionResult {
-  const merged: Record<string, number> = {};
-  const phraseBias = sampling.phraseBias.map((entry) => {
-    const resolution = resolveEntry(entry.phrase, tokenizeVariant);
-    if (resolution.kind === "resolved") {
-      for (const id of resolution.tokenIds) merged[String(id)] = entry.weight;
-    }
-    return resolution;
+  const phraseResolutions = sampling.phraseBias.map((entry) => resolveEntry(entry.phrase, tokenizeVariant));
+  const bannedResolutions = sampling.bannedStrings.map((phrase) => resolveEntry(phrase, tokenizeVariant));
+
+  const tokenOwner = new Map<number, { readonly source: "phraseBias" | "bannedStrings"; readonly index: number }>();
+  phraseResolutions.forEach((resolution, index) => {
+    if (resolution.kind !== "resolved") return;
+    for (const id of resolution.tokenIds) tokenOwner.set(id, { source: "phraseBias", index });
   });
-  const bannedStrings = sampling.bannedStrings.map((phrase) => {
-    const resolution = resolveEntry(phrase, tokenizeVariant);
-    if (resolution.kind === "resolved") {
-      for (const id of resolution.tokenIds) merged[String(id)] = SAMPLING_LOGIT_BIAS_POLICY.minimum;
-    }
-    return resolution;
+  bannedResolutions.forEach((resolution, index) => {
+    if (resolution.kind !== "resolved") return;
+    for (const id of resolution.tokenIds) tokenOwner.set(id, { source: "bannedStrings", index });
+  });
+
+  const phraseBias = phraseResolutions.map((resolution, index) =>
+    settleTokenOwnership(resolution, "phraseBias", index, tokenOwner, sampling));
+  const bannedStrings = bannedResolutions.map((resolution, index) =>
+    settleTokenOwnership(resolution, "bannedStrings", index, tokenOwner, sampling));
+
+  const merged: Record<string, number> = {};
+  phraseBias.forEach((resolution, index) => {
+    if (resolution.kind !== "resolved") return;
+    for (const id of resolution.tokenIds) merged[String(id)] = sampling.phraseBias[index]!.weight;
+  });
+  bannedStrings.forEach((resolution) => {
+    if (resolution.kind !== "resolved") return;
+    for (const id of resolution.tokenIds) merged[String(id)] = SAMPLING_LOGIT_BIAS_POLICY.minimum;
   });
   for (const [token, weight] of Object.entries(sampling.logitBias)) merged[token] = weight;
 
@@ -87,6 +109,39 @@ export function resolveSamplingLogitBias(
     phraseBias,
     bannedStrings,
     resolvedEntryCount: Object.keys(merged).length
+  };
+}
+
+/** Downgrades a "resolved" entry to "shadowed" when the final ownership map
+ * disagrees with it about even one of its tokens — i.e. some other entry
+ * claimed that token later in merge-priority order. `rejected` entries pass
+ * through unchanged: they never held any tokens to lose. */
+function settleTokenOwnership(
+  resolution: SamplingBiasEntryResolution,
+  source: "phraseBias" | "bannedStrings",
+  index: number,
+  tokenOwner: ReadonlyMap<number, { readonly source: "phraseBias" | "bannedStrings"; readonly index: number }>,
+  sampling: Pick<SamplingSettingsV2, "phraseBias" | "bannedStrings">
+): SamplingBiasEntryResolution {
+  if (resolution.kind !== "resolved") return resolution;
+  const shadowingId = resolution.tokenIds.find((id) => {
+    const owner = tokenOwner.get(id)!;
+    return owner.source !== source || owner.index !== index;
+  });
+  if (shadowingId === undefined) return resolution;
+  const owner = tokenOwner.get(shadowingId)!;
+  const shadowedBy = {
+    source: owner.source,
+    phrase: owner.source === "phraseBias"
+      ? sampling.phraseBias[owner.index]!.phrase
+      : sampling.bannedStrings[owner.index]!
+  };
+  return {
+    kind: "shadowed",
+    phrase: resolution.phrase,
+    variants: resolution.variants,
+    tokenIds: resolution.tokenIds,
+    shadowedBy
   };
 }
 
@@ -120,7 +175,12 @@ function resolveEntry(
 /** The tiktoken-backed tokenizer for the "openai" preset — the only preset
  * whose reported model ID is trustworthy enough to key the tiktoken
  * allow-list (shared/sampling-capabilities.ts). Synchronous: the WASM
- * encoder never leaves the process. */
+ * encoder never leaves the process. Callers only reach this once the encoder
+ * is already known to have loaded (resolveSamplingLogitBiasForEncoding below
+ * checks that first), so every failure this reports is a fact about the one
+ * phrase being tokenized, never the tokenizer itself (issue #282 review
+ * round 2, finding 6b) — that is what keeps the "unencodable" outcome here
+ * honestly per-phrase. */
 function openAiVariantTokenizer(encoding: PromptBiasEncoding): SyncVariantTokenizer {
   return (text) => {
     const outcome = tokenizePhraseTokenIds(text, encoding);
@@ -140,16 +200,24 @@ function openAiVariantTokenizer(encoding: PromptBiasEncoding): SyncVariantTokeni
  * is only a problem when phraseBias or bannedStrings is actually non-empty —
  * availability gating (resolveSamplingKnob) already refuses to reach here
  * otherwise, but an empty pair of lists still resolves cleanly on a raw
- * logitBias map alone. */
+ * logitBias map alone.
+ *
+ * Checks the encoder actually loaded *before* tokenizing anything (issue
+ * #282 review round 2, finding 6b): `openAiVariantTokenizer` has no way to
+ * report "the encoder itself failed to load" separately from "this one
+ * phrase has no token" — its return type is a per-variant outcome, not a
+ * systemic one — so without this check a load failure for a supported model
+ * like gpt-4o would surface as every configured phrase being individually
+ * rejected, which is false. */
 export function resolveSamplingLogitBiasForEncoding(
   sampling: Pick<SamplingSettingsV2, "logitBias" | "phraseBias" | "bannedStrings">,
   encoding: PromptBiasEncoding | null
 ): SamplingBiasResolutionResult {
-  if (encoding === null) {
-    if (sampling.phraseBias.length === 0 && sampling.bannedStrings.length === 0) {
-      return resolveSamplingLogitBias(sampling, neverCalledTokenizer);
-    }
-    return { kind: "tokenizer-unavailable" };
+  const needsTokenizer = sampling.phraseBias.length > 0 || sampling.bannedStrings.length > 0;
+  if (!needsTokenizer) return resolveSamplingLogitBias(sampling, neverCalledTokenizer);
+  if (encoding === null) return { kind: "tokenizer-unavailable", cause: "model-unknown" };
+  if (!promptBiasEncoderAvailable(encoding)) {
+    return { kind: "tokenizer-unavailable", cause: "encoder-unavailable" };
   }
   return resolveSamplingLogitBias(sampling, openAiVariantTokenizer(encoding));
 }
@@ -173,6 +241,11 @@ function neverCalledTokenizer(): SamplingBiasVariantOutcome {
  * strategy at all: "tokenizer-unavailable" whenever phraseBias or
  * bannedStrings is non-empty, matching what resolveSamplingKnob already
  * reports as unavailable for those presets ahead of reaching here.
+ *
+ * The "nothing to tokenize" guard is hoisted above every preset branch
+ * (issue #282 review round 2, finding 7): a raw numeric logitBias map alone
+ * never needs a tokenizer at all, on any preset, so that case is handled
+ * once instead of once per branch.
  */
 export async function resolveSamplingBiasForSettings(
   sampling: Pick<SamplingSettingsV2, "logitBias" | "phraseBias" | "bannedStrings">,
@@ -180,25 +253,21 @@ export async function resolveSamplingBiasForSettings(
   signal?: AbortSignal
 ): Promise<SamplingBiasResolutionResult> {
   const needsTokenizer = sampling.phraseBias.length > 0 || sampling.bannedStrings.length > 0;
+  if (!needsTokenizer) return resolveSamplingLogitBias(sampling, neverCalledTokenizer);
   if (settings.provider !== "openai-compatible") {
-    return needsTokenizer
-      ? { kind: "tokenizer-unavailable" }
-      : resolveSamplingLogitBias(sampling, neverCalledTokenizer);
+    return { kind: "tokenizer-unavailable", cause: "model-unknown" };
   }
   const runtime = providerRuntimeFor(settings);
   if (runtime.preset === "openai") {
     return resolveSamplingLogitBiasForEncoding(sampling, promptBiasTokenizerEncoding(settings.model));
   }
   if (runtime.preset === "llama-cpp") {
-    if (!needsTokenizer) return resolveSamplingLogitBias(sampling, neverCalledTokenizer);
     const tokenizer = await llamaCppVariantTokenizer(sampling, settings, signal);
     return tokenizer === null
-      ? { kind: "tokenizer-unavailable" }
+      ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
       : resolveSamplingLogitBias(sampling, tokenizer);
   }
-  return needsTokenizer
-    ? { kind: "tokenizer-unavailable" }
-    : resolveSamplingLogitBias(sampling, neverCalledTokenizer);
+  return { kind: "tokenizer-unavailable", cause: "model-unknown" };
 }
 
 /** A local server answering a handful of small POSTs in parallel is normal;
@@ -250,7 +319,20 @@ async function llamaCppVariantTokenizer(
     Array.from({ length: Math.min(LLAMA_CPP_TOKENIZE_CONCURRENCY, queue.length) }, worker)
   );
   if (failed) return null;
-  return (text) => outcomes.get(text) ?? { kind: "unencodable" };
+  // Every text queued above was either recorded in `outcomes` or caused
+  // `failed` to short-circuit the whole probe (returning null before this
+  // point) — so by construction, a lookup miss here can only mean the
+  // resolver asked for a variant text it never queued. That is a real bug,
+  // not a legitimate "unencodable" phrase (issue #282 review round 2,
+  // finding 7): throwing surfaces it instead of silently misreporting why a
+  // phrase was rejected.
+  return (text) => {
+    const outcome = outcomes.get(text);
+    if (outcome === undefined) {
+      throw new Error(`llama.cpp tokenize probe never queued ${JSON.stringify(text)}`);
+    }
+    return outcome;
+  };
 }
 
 export interface ResolveSamplingBiasInput {
