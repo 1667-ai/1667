@@ -5,6 +5,15 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The Sampling group now accepts phrase bias and banned strings.** Type a
+  text phrase and a weight. Or type a banned string. 1667 tokenizes the text
+  for the routed model and shows the token IDs. A phrase entry and a banned
+  string merge into the same logit bias field as a token ID entry. A token
+  ID that a writer sets by hand keeps priority over the merged value. A
+  banned string makes the text unlikely. It does not make the text
+  impossible, because the same text can come from different token
+  boundaries. 1667 shows a clear reason when it has no exact tokenizer for
+  the routed model.
 - **Settings now includes a collapsed Sampling group.** Open the group to
   edit scalar values, stop sequences, and logit bias rows. The TUI shows a
   short reason for an unavailable value. An unavailable scalar row shows
