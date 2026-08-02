@@ -162,9 +162,10 @@ describe("embedded backend worker", () => {
         (text) => deltas.push(text),
         new AbortController().signal
       );
-      expect(continued?.path.at(-1)?.genId).toBe("worker-continue");
+      expect(continued?.payload.path.at(-1)?.genId).toBe("worker-continue");
       expect(deltas.join("").length > 0).toBeTrue();
-      story = continued!;
+      expect(continued?.droppedFacts).toEqual([]);
+      story = continued!.payload;
 
       const rewriteDeltas: string[] = [];
       await api.rewriteNode(
@@ -376,7 +377,7 @@ describe("embedded backend worker", () => {
         { parentId: undefined, appendTo: leaf.id, expectedTextHash: await textHash(leaf.text) },
         () => {},
         new AbortController().signal
-      ))!;
+      ))!.payload;
       expect(story.path[0]!.text.length).toBeGreaterThan(leaf.text.length);
 
       story = await backend.api.createFact(story.id, { tag: "Place", text: "Old" });

@@ -9,6 +9,7 @@ import {
   FACT_TAG_COMPOSER_SOURCE,
   factEditorTagLabel
 } from "../../fact-editor-policy.js";
+import { FACT_EDITOR_ROWS } from "../../fact-editor-rows.js";
 import type { ComposerState } from "../../composer-model.js";
 import type { FactEditorSession } from "../../state.js";
 import {
@@ -111,17 +112,12 @@ export function renderFactEditorLayout(
     ],
     lineCount: body.lineCount + 5,
     bodyRows: body.bodyRows + 5,
-    cursorViewportRow: editor.focus === "tag"
-      ? 0
-      : editor.focus === "activation"
-        ? 1
-        : editor.focus === "keys"
-          ? 2
-          : editor.focus === "priority"
-            ? 3
-            : editor.focus === "budget"
-              ? 4
-              : body.cursorViewportRow + 5
+    // Every row but the body sits at its FACT_EDITOR_ROWS index, in the five
+    // header lines inserted above; the body's own viewport row shifts down
+    // by that same five.
+    cursorViewportRow: editor.focus === "body"
+      ? body.cursorViewportRow + 5
+      : FACT_EDITOR_ROWS.indexOf(editor.focus)
   };
 }
 

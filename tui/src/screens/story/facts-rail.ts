@@ -1,6 +1,6 @@
 import { addHit, type HitRows } from "../../hit.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
-import { factPriorityGlyph } from "../../facts-model.js";
+import { factPriorityGlyph, factStatusDisplay } from "../../facts-model.js";
 import { RAIL_CONTENT_WIDTH, type RailModel } from "../../rail.js";
 import type { StoryFrameLayout } from "../../story-frame-layout.js";
 import { wrapText } from "../../wrap.js";
@@ -36,14 +36,14 @@ export function renderFactsRail(
     const tagWidth = visibleWidth(tag);
     const tagGap = tagWidth > 0 ? 1 : 0;
     const name = truncate(fact.name, Math.max(0, RAIL_CONTENT_WIDTH - 2 - tagGap - tagWidth));
-    // Two one-cell glyphs share the marker's fixed two-cell budget: activation
-    // state first, then priority — blank for "normal", the common case, so a
-    // priority worth noticing is the only thing that ever draws there.
-    const activationGlyph = fact.activation === "always"
+    // Two one-cell glyphs share the marker's fixed two-cell budget: request
+    // status first, then priority — blank for the common cases (an `always`
+    // Fact riding whole, a "normal" priority), so a state worth noticing is
+    // the only thing that ever draws there.
+    const requestStatus = factStatusDisplay(fact.activation, fact.status);
+    const activationGlyph = requestStatus.glyph.length === 0
       ? segment(" ")
-      : fact.active
-        ? segment("✓", "focus / accent")
-        : segment("·", "chrome");
+      : segment(requestStatus.glyph, requestStatus.emphasis);
     const priorityChar = factPriorityGlyph(fact.priority);
     const priorityGlyph = priorityChar.length === 0
       ? segment(" ")
@@ -51,16 +51,14 @@ export function renderFactsRail(
     const namePart = [
       activationGlyph,
       priorityGlyph,
-      segment(name, fact.activation === "keyed" && !fact.active
-        ? "prose · dim"
-        : "prose")
+      segment(name, fact.status.kind === "sent" ? "prose" : "prose · dim")
     ];
     const gap = Math.max(tagGap, RAIL_CONTENT_WIDTH - 2 - visibleWidth(name) - tagWidth);
     rows.push([...namePart,
       segment(" ".repeat(gap)),
       segment(tag, "brass dim")]);
     targets.push(fact.index);
-    if (fact.activation === "keyed" && fact.active && fact.body.length > 0) {
+    if (fact.activation === "keyed" && fact.status.kind === "sent" && fact.body.length > 0) {
       for (const line of wrapText(fact.body, [], RAIL_CONTENT_WIDTH - 4).slice(0, 4)) {
         rows.push([segment("    "), { ...segment(line.text, "prose · dim"), prose: true }]);
         targets.push(fact.index);

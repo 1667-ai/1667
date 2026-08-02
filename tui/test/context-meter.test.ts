@@ -281,7 +281,9 @@ describe("honest next-request context meter", () => {
     );
     const selected = formatFactsMessage(payload.facts.slice(0, 2))!;
 
-    expect(estimate.activeFactIds).toEqual(["always-fact", "green-door-fact"]);
+    expect(estimate.factStatuses.get("always-fact")).toEqual({ kind: "sent" });
+    expect(estimate.factStatuses.get("green-door-fact")).toEqual({ kind: "sent" });
+    expect(estimate.factStatuses.get("moon-fact")).toEqual({ kind: "not-matched" });
     expect(estimate.breakdown.facts).toBe(estimateTokens(selected) + 4);
     expect(estimate.breakdown.facts).not.toBe(estimateTokens(formatFactsMessage(payload.facts)!)+4);
   });
@@ -846,7 +848,7 @@ describe("honest next-request context meter", () => {
     );
     const fact = rail.find((line) => plainLine(line).includes("玲珑"))!;
 
-    expect(model.facts[0]?.active).toBeTrue();
+    expect(model.facts[0]?.status.kind).toBe("sent");
     expect(visibleWidth(plainLine(fact))).toBe(35);
     expect(plainLine(fact).startsWith("│ ✓ 玲珑")).toBeTrue();
     expect(plainLine(fact).endsWith("人物界")).toBeTrue();

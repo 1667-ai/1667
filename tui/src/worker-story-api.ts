@@ -381,7 +381,9 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
             expectedAggregateVersion: await expectedVersion(storyId)
           }
         );
-        return result === null ? null : rememberPayload(result);
+        return result === null
+          ? null
+          : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
     rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {

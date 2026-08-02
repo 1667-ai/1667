@@ -666,8 +666,9 @@ describe("Fact editor", () => {
       operation: "continue",
       targetId: state.payload.path.at(-1)!.id
     });
-    expect(estimate.activeFactIds).not.toContain(shedId);
-    expect(estimate.activeFactIds).toHaveLength(facts.length - 1);
+    expect(estimate.factStatuses.get(shedId)).toEqual({ kind: "dropped", reason: "total-budget" });
+    expect([...estimate.factStatuses.values()].filter((status) => status.kind === "sent"))
+      .toHaveLength(facts.length - 1);
     expect(estimate.droppedFacts).toEqual([{ factId: shedId, reason: "total-budget" }]);
   });
 });

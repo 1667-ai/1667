@@ -262,6 +262,58 @@ describe("run C overlay frames", () => {
     )).toBeTrue();
   });
 
+  test("the Facts panel tells a shed Fact apart from one that never matched or one that was sent", () => {
+    // Review finding D: activeFactIds used to mean only "activation matched",
+    // so a Fact the budget shed rendered identically to one that never
+    // matched at all, and an always Fact ranked low that was shed rendered
+    // identically to one actually being sent. Both are reproduced here.
+    const state = initialState(demoAppSource(), true);
+    const now = state.payload.facts[0]!.createdAt;
+    const alwaysSent = {
+      id: "always-sent", tag: null, text: "Always sent fact.",
+      activation: "always" as const, keys: [], createdAt: now, updatedAt: now
+    };
+    const alwaysShed = {
+      id: "always-shed", tag: null, text: "Always fact ranked low, shed by the tight budget.",
+      activation: "always" as const, keys: [], priority: "low" as const, createdAt: now, updatedAt: now
+    };
+    const keyedDormant = {
+      id: "keyed-dormant", tag: null, text: "Keyed fact whose key never appears.",
+      activation: "keyed" as const, keys: ["zzz-never-matches-zzz"], createdAt: now, updatedAt: now
+    };
+    const keyedShed = {
+      id: "keyed-shed", tag: null, text: "Keyed fact whose key matches, shed by the tight budget.",
+      activation: "keyed" as const, keys: ["Maren"], priority: "low" as const, createdAt: now, updatedAt: now
+    };
+    state.payload.facts = [alwaysSent, alwaysShed, keyedDormant, keyedShed];
+    // Room for exactly the one Fact that must stay: alwaysSent is exempt from
+    // shedding, so the budget alone decides the other three.
+    state.payload.factsBudgetTokens = 1;
+    state.mode = "FACTS";
+    state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
+    const text = frameText(renderStoryScreen(state, { width: 100, height: 30, wrapCache: createWrapCache() }).lines);
+    const lineFor = (name: string) => lineContaining(text, name);
+
+    const alwaysSentLine = lineFor("Always sent fact");
+    const alwaysShedLine = lineFor("Always fact ranked low");
+    const keyedDormantLine = lineFor("Keyed fact whose key never");
+    const keyedShedLine = lineFor("Keyed fact whose key matches");
+
+    // An always Fact that is actually sent reads plain "always"; the shed
+    // always Fact must not read the same way — it reads "✕ always".
+    expect(alwaysSentLine).toContain("always");
+    expect(alwaysSentLine).not.toContain("✕ always");
+    expect(alwaysShedLine).toContain("✕ always");
+    // A keyed Fact that never matched reads "· keyed"; the keyed Fact whose
+    // key did match but was then shed reads "✕ keyed" instead — neither the
+    // dormant marker nor the "✓ keyed" a Fact that made it into the request
+    // would show.
+    expect(keyedDormantLine).toContain("· keyed");
+    expect(keyedShedLine).toContain("✕ keyed");
+    expect(keyedShedLine).not.toContain("· keyed");
+    expect(keyedShedLine).not.toContain("✓ keyed");
+  });
+
   test("settings overlay shows theme switcher and editable fields", async () => {
     const frame = await renderOnce(demoAppSource(), 120, 36, ",");
     expect(frame).toContain("┏━ settings ━");

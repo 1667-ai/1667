@@ -7,6 +7,7 @@ import {
   decodeChapterBreakRemovalPreview,
   decodeChapterBreakRemovedResponse,
   decodeContextWindowResponse,
+  decodeContinueStoryResponse,
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
@@ -18,6 +19,7 @@ import {
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import type { LorebookImport } from "../../shared/novelai-lorebook.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 
 import type {
   TagStatus,
@@ -175,7 +177,7 @@ export interface StoryApi {
     target: ContinueTarget,
     onDelta: (text: string) => void,
     signal: AbortSignal
-  ): Promise<StoryPayload | null>;
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
     nodeId: string,
@@ -849,7 +851,9 @@ export function createApi(
         signal
       );
       if (done === null) return null;
-      return versions.rememberPayload(decodeStoryResponse(done.story));
+      const result = decodeContinueStoryResponse(done);
+      versions.rememberPayload(result.payload);
+      return result;
     },
     rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {
       await stream(

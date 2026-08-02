@@ -121,7 +121,7 @@ describe("chapter view models", () => {
       tokens: 0,
       breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 },
       chapters: [],
-      activeFactIds: [],
+      factStatuses: new Map(),
       droppedFacts: []
     };
 

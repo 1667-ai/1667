@@ -64,9 +64,9 @@ describe("facts rail at lorebook scale", () => {
     const { model } = paintRail(state, 16);
 
     expect(model.facts.map((fact) => fact.index)).toEqual([5, 0, 1, 2, 4, 3]);
-    expect(model.facts[0]?.active).toBeTrue();
+    expect(model.facts[0]?.status.kind).toBe("sent");
     expect(model.facts.at(-1)?.activation).toBe("keyed");
-    expect(model.facts.at(-1)?.active).toBeFalse();
+    expect(model.facts.at(-1)?.status.kind).toBe("not-matched");
   });
 
   test("a clipped rail names how many facts it hid", () => {

@@ -14,6 +14,7 @@ import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "./continuation-intent.js";
+import { factRequestStatuses, type FactRequestStatus } from "./facts-model.js";
 
 export interface ContextBreakdown {
   voice: number;
@@ -27,7 +28,10 @@ export interface RequestTokenEstimate {
   tokens: number;
   breakdown: ContextBreakdown;
   chapters: RequestChapterProjection[];
-  activeFactIds: string[];
+  /** Sent, not-matched, or dropped-with-reason, for every Fact in the story —
+   *  see tui/src/facts-model.ts. Replaces a plain "is it active" boolean,
+   *  which could not tell a Fact that never matched from one the budget shed. */
+  factStatuses: ReadonlyMap<string, FactRequestStatus>;
   /** Facts that matched activation but the story's own Facts budget shed
    *  before they would reach the provider. Window-pressure shedding is a
    *  server-side last resort (see server/generation-admission.ts) and is not
@@ -181,7 +185,11 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     tokens: Object.values(breakdown).reduce((sum, tokens) => sum + tokens, 0),
     breakdown,
     chapters,
-    activeFactIds: budgetedFacts.kept.map((fact) => fact.id),
+    factStatuses: factRequestStatuses(
+      payload.facts,
+      new Set(activeFacts.map((fact) => fact.id)),
+      budgetedFacts.dropped
+    ),
     droppedFacts: budgetedFacts.dropped
   };
 }

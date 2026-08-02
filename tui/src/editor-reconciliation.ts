@@ -1,7 +1,8 @@
-import type { FactPriority } from "../../shared/fact-activation.js";
 import type { StoryFact } from "../../shared/types.js";
+import { factDraftOf, sameFactDraft } from "../../shared/fact-draft.js";
 import { setComposerText } from "./composer-model.js";
 import {
+  applyFactDraftToEditor,
   factEditorChanged,
   formatFactBudget,
   formatFactKeys,
@@ -62,26 +63,25 @@ function reconcileFactDocument(
   current: StoryFact,
   message: string
 ): void {
-  const draftMatches = factEditorPersistedTag(editor) === current.tag
-    && editor.activation === current.activation
-    && editor.keys.text === formatFactKeys(current.keys)
-    && editor.priority === (current.priority ?? "normal")
-    && editor.budget.text === formatFactBudget(current.budgetTokens)
-    && editor.composer.text === current.text;
+  const draft = factDraftOf(current);
+  // The tag half of "does the live draft already match" goes through the
+  // persisted-tag projection rather than a raw text compare — trimming
+  // still counts as a match, the same trim save itself would apply.
+  const draftMatches = factEditorPersistedTag(editor) === draft.tag
+    && editor.activation === draft.activation
+    && editor.keys.text === formatFactKeys(draft.keys)
+    && editor.priority === draft.priority
+    && editor.budget.text === formatFactBudget(draft.budgetTokens)
+    && editor.composer.text === draft.text;
   if (draftMatches) {
-    editor.initialFact = editableFact(current);
+    editor.initialFact = draft;
     editor.conflict = null;
     return;
   }
   if (!factEditorChanged(editor)) {
-    setComposerText(editor.tag, current.tag ?? "");
-    editor.activation = current.activation;
-    setComposerText(editor.keys, formatFactKeys(current.keys));
-    editor.priority = current.priority ?? "normal";
-    setComposerText(editor.budget, formatFactBudget(current.budgetTokens));
-    setComposerText(editor.composer, current.text);
+    applyFactDraftToEditor(editor, draft);
     resetFactEditorHistory(editor);
-    editor.initialFact = editableFact(current);
+    editor.initialFact = draft;
     editor.conflict = null;
     state.toast = `${message} · editor refreshed`;
     return;
@@ -120,30 +120,10 @@ function reconcileEditorDocument(
   state.toast = editor.conflict.message;
 }
 
+/** Same Fact record, not just the same draft content — a deleted-then-recreated
+ *  Fact with identical fields is still a different `base` to reconcile against. */
 function sameEditableFact(left: StoryFact | null, right: StoryFact): boolean {
   return left !== null
     && left.id === right.id
-    && left.tag === right.tag
-    && left.activation === right.activation
-    && left.keys.length === right.keys.length
-    && left.keys.every((key, index) => key === right.keys[index])
-    && (left.priority ?? "normal") === (right.priority ?? "normal")
-    && left.budgetTokens === right.budgetTokens
-    && left.text === right.text;
-}
-
-function editableFact(
-  fact: StoryFact
-): Pick<StoryFact, "tag" | "activation" | "keys" | "text"> & {
-  priority: FactPriority;
-  budgetTokens: number | undefined;
-} {
-  return {
-    tag: fact.tag,
-    activation: fact.activation,
-    keys: [...fact.keys],
-    priority: fact.priority ?? "normal",
-    budgetTokens: fact.budgetTokens,
-    text: fact.text
-  };
+    && sameFactDraft(factDraftOf(left), factDraftOf(right));
 }

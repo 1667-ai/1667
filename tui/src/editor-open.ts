@@ -1,4 +1,5 @@
 import type { StoryFact } from "../../shared/types.js";
+import { EMPTY_FACT_DRAFT, factDraftOf } from "../../shared/fact-draft.js";
 import { createComposer } from "./composer-model.js";
 import {
   formatFactBudget,
@@ -52,14 +53,7 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     priority: fact?.priority ?? "normal",
     budget: createComposer(formatFactBudget(fact?.budgetTokens)),
     focus: "body",
-    initialFact: {
-      tag: fact?.tag ?? null,
-      activation: fact?.activation ?? "always",
-      keys: [...(fact?.keys ?? [])],
-      priority: fact?.priority ?? "normal",
-      budgetTokens: fact?.budgetTokens,
-      text
-    },
+    initialFact: fact === null ? EMPTY_FACT_DRAFT : factDraftOf(fact),
     title: `${fact === null ? "new" : "edit"} fact`,
     placeholder: "fact text…",
     returnMode: "FACTS",
@@ -86,7 +80,7 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     budget: createComposer(""),
     focus: "body",
     // This prefill is an unsaved draft, so Ctrl+S must create it unchanged.
-    initialFact: { tag: null, activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: "" },
+    initialFact: EMPTY_FACT_DRAFT,
     title: "new fact from selection",
     placeholder: "fact text…",
     returnMode: "NAV",

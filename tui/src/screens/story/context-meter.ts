@@ -1,5 +1,4 @@
-import type { FactBudgetDrop } from "../../../../shared/fact-budget.js";
-import { countNoun } from "../../../../shared/fidelity.js";
+import { factDropNotice } from "../../facts-model.js";
 import {
   contextSeverity,
   formatTokensNarrow,
@@ -277,33 +276,6 @@ function totalsLines(
     [segment(primary, valueRole(severity))],
     [free]
   ];
-}
-
-/** Fidelity-Report style (see shared/fidelity.ts): a short count-led clause
- * naming what changed, reusing `countNoun` rather than inventing a second
- * "N things happened" vocabulary. Mixed reasons name whichever shed the most
- * Facts — the meter has one row to spend here, not a itemized breakdown. */
-function factDropNotice(dropped: readonly FactBudgetDrop[]): string | null {
-  if (dropped.length === 0) return null;
-  const counts = new Map<FactBudgetDrop["reason"], number>();
-  for (const drop of dropped) counts.set(drop.reason, (counts.get(drop.reason) ?? 0) + 1);
-  const [dominantReason] = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]!;
-  return `${dropped.length} ${countNoun(dropped.length, "fact")} dropped · ${dropReasonLabel(dominantReason)}`;
-}
-
-/** Kept to 12 cells: worst case is a 3-digit count (MAX_FACTS=128) plus this
- *  label, and that still has to fit the rail's narrow content width. */
-function dropReasonLabel(reason: FactBudgetDrop["reason"]): string {
-  switch (reason) {
-    case "fact-budget": return "over its cap";
-    case "total-budget": return "over budget";
-    case "priority": return "low priority";
-    default: return assertNeverDropReason(reason);
-  }
-}
-
-function assertNeverDropReason(value: never): never {
-  throw new Error(`Unknown Fact drop reason: ${String(value)}`);
 }
 
 function contextWindowHint(): FrameSegment {

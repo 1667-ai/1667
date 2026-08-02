@@ -317,12 +317,12 @@ async function saveFactEditor(
   if (!validated.ok) return void (state.toast = validated.toast);
   if (!confirmOverwrite(state, editor)) return;
   const submitted = {
-    tag: validated.tag,
-    activation: validated.activation,
-    keys: validated.keys,
-    priority: validated.priority,
-    budgetTokens: validated.budgetTokens,
-    text: validated.text
+    tag: validated.draft.tag,
+    activation: validated.draft.activation,
+    keys: [...validated.draft.keys],
+    priority: validated.draft.priority,
+    budgetTokens: validated.draft.budgetTokens,
+    text: validated.draft.text
   };
   const submittedTagText = editor.tag.text;
   const submittedActivation = editor.activation;

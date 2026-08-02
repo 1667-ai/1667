@@ -6,6 +6,8 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { FactPriority } from "../../shared/fact-activation.js";
+import type { FactDraft } from "../../shared/fact-draft.js";
+import type { FactEditorRow } from "./fact-editor-rows.js";
 import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
 import type { NoticeLog } from "./notice-log.js";
@@ -283,11 +285,10 @@ export interface FactEditorSession extends EditorSessionBase {
   /** Budget as typed text; empty means "no budget set". Parsed on commit,
    *  the same way authorsNote and Fact keys already are. */
   budget: ComposerState;
-  focus: "tag" | "activation" | "keys" | "priority" | "budget" | "body";
-  initialFact: Pick<StoryFact, "tag" | "activation" | "keys" | "text"> & {
-    priority: FactPriority;
-    budgetTokens: number | undefined;
-  };
+  focus: FactEditorRow;
+  /** Draft-of-Fact: what the editor would already match if nothing changed —
+   *  see shared/fact-draft.ts. Rebased on a clean reconcile, replaced on save. */
+  initialFact: FactDraft;
   tagCutConfirmation: EditorSessionBase["cutConfirmation"];
   keysCutConfirmation: EditorSessionBase["cutConfirmation"];
   budgetCutConfirmation: EditorSessionBase["cutConfirmation"];

@@ -164,7 +164,7 @@ describe("generation draft restoration", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     const entered = deferred<void>();
-    const gate = deferred<typeof state.payload>();
+    const gate = deferred<{ payload: typeof state.payload; droppedFacts: [] }>();
     state.mode = "COMPOSE";
     state.composer = createComposer("make it darker");
     source.api.continueStory = async () => {
@@ -191,7 +191,7 @@ describe("generation draft restoration", () => {
     expect(state.composerClaimEpoch).toBe(claimEpoch);
     expect(state.toast).toBe("generation still landing · wait before changing this part");
 
-    gate.resolve({ ...state.payload, title: "virtual stream landed" });
+    gate.resolve({ payload: { ...state.payload, title: "virtual stream landed" }, droppedFacts: [] });
     await pending;
     expect(state.payload.title).toBe("virtual stream landed");
     expect(state.stream).toBe(null);
@@ -224,7 +224,7 @@ describe("generation draft restoration", () => {
   test("late success preserves a retake edited after empty-stop restoration", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
-    const gate = deferred<typeof state.payload>();
+    const gate = deferred<{ payload: typeof state.payload; droppedFacts: [] }>();
     state.composer = createComposer("persistent Direct draft");
     const directComposer = state.composer;
     const prompt = openRetakeComposer(state, "p12", "submitted retake");
@@ -239,7 +239,7 @@ describe("generation draft restoration", () => {
     expect(state.composer.text).toBe("submitted retake");
     expect(state.historyDraft).toBe("submitted retake + newer edit");
 
-    gate.resolve({ ...state.payload, title: "authoritative retake landed" });
+    gate.resolve({ payload: { ...state.payload, title: "authoritative retake landed" }, droppedFacts: [] });
     await pending;
 
     expect(state.payload.title).toBe("authoritative retake landed");
@@ -255,7 +255,7 @@ describe("generation draft restoration", () => {
     const settle = async (editAfterStop: string | null) => {
       const source = demoAppSource();
       const state = initialState(source, false);
-      const gate = deferred<typeof state.payload>();
+      const gate = deferred<{ payload: typeof state.payload; droppedFacts: [] }>();
       state.composer = createComposer();
       const directComposer = state.composer;
       source.api.continueStory = async () => gate.promise;
@@ -270,7 +270,7 @@ describe("generation draft restoration", () => {
         setComposerText(restoredPrompt.composer, editAfterStop);
         await composeAction({ action: "history-previous" }, state, source, context(state));
       }
-      gate.resolve({ ...state.payload, title: "authoritative retake landed" });
+      gate.resolve({ payload: { ...state.payload, title: "authoritative retake landed" }, droppedFacts: [] });
       await pending;
       return { state, directComposer, restoredPrompt };
     };
@@ -328,7 +328,7 @@ describe("generation draft restoration", () => {
     const settle = async (editAfterStop: string | null) => {
       const source = demoAppSource();
       const state = initialState(source, false);
-      const gate = deferred<typeof state.payload>();
+      const gate = deferred<{ payload: typeof state.payload; droppedFacts: [] }>();
       state.mode = "COMPOSE";
       state.composer = createComposer("submitted Direct");
       source.api.continueStory = async () => gate.promise;
@@ -340,7 +340,7 @@ describe("generation draft restoration", () => {
         setComposerText(state.composer, editAfterStop);
         await composeAction({ action: "history-previous" }, state, source, context(state));
       } else await composeAction({ action: "cancel" }, state, source, context(state));
-      gate.resolve({ ...state.payload, title: "authoritative Direct landed" });
+      gate.resolve({ payload: { ...state.payload, title: "authoritative Direct landed" }, droppedFacts: [] });
       await pending;
       return state;
     };

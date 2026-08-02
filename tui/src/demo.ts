@@ -608,10 +608,12 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         onDelta(delta);
       }
       if (signal.aborted) return null;
-      if (target.appendTo !== undefined) {
-        return demo.appendGenerated(instruction, landed, true, genId);
-      }
-      return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
+      // The fixture has no real context window to press against, so it never
+      // sheds a Fact — droppedFacts is honestly empty rather than simulated.
+      const payload = target.appendTo !== undefined
+        ? demo.appendGenerated(instruction, landed, true, genId)
+        : demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
+      return { payload, droppedFacts: [] };
     },
     rewriteNode: async () => unavailable("Selection rewrite"),
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
