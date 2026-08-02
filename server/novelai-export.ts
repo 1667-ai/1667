@@ -302,14 +302,19 @@ function exportFidelity(
     `${story.chapterBreaks.length} chapter ${countNoun(story.chapterBreaks.length, "break")} omitted.`
   ];
   const history = "NovelAI history omitted.";
-  // Memory is a free-form block in NovelAI, so a keyed Fact loses what made it
-  // conditional. Say that rather than let the writer find out on import.
+  // Memory is a free-form block in NovelAI, so a Fact that becomes Memory loses
+  // whatever made it conditional. Say that rather than let the writer find out
+  // on import. Keys and activation are stored separately — an always-on Fact
+  // can hold keys for a later switch — so each one is reported on its own.
   const memoryNotes = memory === null
     ? []
     : [
       "1 fact exported as Memory.",
       ...(memory.activation === "keyed"
-        ? ["Memory activation and keys omitted; Memory is always in context."]
+        ? ["Memory activation omitted; Memory is always in context."]
+        : []),
+      ...(memory.keys.length > 0
+        ? [`${memory.keys.length} Memory ${countNoun(memory.keys.length, "key")} omitted.`]
         : [])
     ];
   const authorsNote = story.authorsNote === undefined

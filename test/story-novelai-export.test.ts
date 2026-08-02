@@ -316,9 +316,29 @@ test("a keyed Memory fact says that its keys do not survive the trip", () => {
   const fidelity = exportNovelAiArchive(story, "story").fidelity;
 
   assert.ok(fidelity.includes("1 fact exported as Memory."));
-  assert.ok(fidelity.includes(
-    "Memory activation and keys omitted; Memory is always in context."
-  ));
+  assert.ok(fidelity.includes("Memory activation omitted; Memory is always in context."));
+  assert.ok(fidelity.includes("1 Memory key omitted."));
+});
+
+test("an always-on Memory fact still reports the keys it leaves behind", () => {
+  // Activation and keys are stored separately, so an always-on Fact can hold
+  // keys for a later switch to keyed. Becoming Memory drops them either way.
+  const story = fixtureStory();
+  story.facts = [{
+    id: "fact-memory",
+    tag: "memory",
+    text: "Winter. The keeper is Maren.",
+    activation: "always",
+    keys: ["storm", "lantern"],
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z"
+  }];
+
+  const fidelity = exportNovelAiArchive(story, "story").fidelity;
+
+  assert.ok(fidelity.includes("2 Memory keys omitted."));
+  // Its activation already matches Memory, so there is nothing to say there.
+  assert.ok(!fidelity.some((line) => line.includes("Memory activation omitted")));
 });
 
 test("a story with no Memory fact and no Author's Note writes empty steering slots", () => {
