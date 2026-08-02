@@ -11,7 +11,7 @@ import { StoryService } from "../server/story-service.js";
 const execFileAsync = promisify(execFile);
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
-test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3", async (t) => {
+test("E2E integration: import-card adds JSON and PNG card Facts, and a V3 card's Facts and book", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-e2e-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -38,7 +38,21 @@ test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3",
   })), "utf8").toString("base64"))));
   await writeFile(v3File, JSON.stringify({
     spec: "chara_card_v3",
-    data: { name: "Unsupported", description: "Not imported." }
+    spec_version: "3.0",
+    data: {
+      name: "Wren",
+      description: "A lighthouse keeper.",
+      personality: "Watchful.",
+      scenario: "",
+      tags: ["coastal"],
+      creator: "someone",
+      character_book: {
+        entries: [
+          { content: "The pass closes in winter.", name: "Weather", keys: ["storm", "snow"] },
+          { content: "The light never goes dark.", comment: "Premise", constant: true }
+        ]
+      }
+    }
   }), "utf8");
 
   const jsonResult = await runCardImport(root, story.id, jsonFile);
@@ -53,22 +67,28 @@ test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3",
     /imported 1 fact for "Sable" into "Card target" — used description, scenario; skipped personality/u
   );
 
-  const failure = await runCardImport(root, story.id, v3File).catch((error: unknown) => error);
-  assert.ok(failure instanceof Error);
-  assert.equal((failure as { code?: number }).code, 1);
+  const v3Result = await runCardImport(root, story.id, v3File);
   assert.match(
-    String((failure as { stderr?: string }).stderr),
-    /Character Card V3 is not supported yet/u
+    v3Result.stdout,
+    /imported 3 facts for "Wren" into "Card target" — used description, personality; skipped scenario/u
   );
+  // The Fidelity Report reaches standard error, the same as import-lorebook.
+  assert.match(v3Result.stderr, /1 tag not imported/u);
+  assert.match(v3Result.stderr, /creator not imported/u);
 
   const verification = StoryService.withoutDiagnostics({ dataDir: project.directory });
   await verification.init();
   const payload = await verification.loadStory(story.id);
   await verification.dispose();
-  assert.equal(payload.facts.length, 2);
-  assert.ok(payload.facts.every((fact) => fact.tag === "Character"));
+  assert.equal(payload.facts.length, 5);
   assert.match(payload.facts[0]!.text, /Mira/u);
   assert.match(payload.facts[1]!.text, /Sable/u);
+  assert.match(payload.facts[2]!.text, /Wren/u);
+  assert.equal(payload.facts[3]!.tag, "Weather");
+  assert.equal(payload.facts[3]!.activation, "keyed");
+  assert.deepEqual(payload.facts[3]!.keys, ["storm", "snow"]);
+  assert.equal(payload.facts[4]!.tag, "Premise");
+  assert.equal(payload.facts[4]!.activation, "always");
 });
 
 async function runCardImport(

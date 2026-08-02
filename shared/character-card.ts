@@ -6,19 +6,26 @@ import {
 } from "./types.js";
 import {
   hasPngSignature,
-  hasPngTextKeyword,
   readPngTextChunk
 } from "./png-text-chunk.js";
+import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 
 export const MAX_CHARACTER_CARD_JSON_BYTES = 1_000_000;
 export const MAX_CHARACTER_CARD_NAME_CHARS = 200;
 
 export interface CharacterCardCore {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   name: string;
   description: string;
   personality: string;
   scenario: string;
+  /** `data.character_book`, present on a V2 or V3 card that carries one. Read
+   * it with `entriesFromCharacterBook` in `character-book.js`; this module
+   * only carries the four core fields through to a Fact. */
+  characterBook?: unknown;
+  /** Fidelity Report lines for V3 fields this converter does not import.
+   * Present only for a V3 card. */
+  ignoredFields?: readonly string[];
 }
 
 export interface CharacterCardSections {
@@ -96,11 +103,13 @@ export function factImportRequestBytes(facts: readonly FactInput[]): number {
 }
 
 function parsePngCard(bytes: Uint8Array): CharacterCardCore {
+  // A V3 PNG usually carries both chunks: `ccv3` with the V3 payload and
+  // `chara` with a V2-shaped fallback for older readers. Prefer `ccv3` when
+  // the chunk is present at all; fall back to `chara` only when it is not.
+  const v3Text = readPngTextChunk(bytes, "ccv3");
+  if (v3Text !== null) return parseJsonCardText(v3Text);
   const jsonText = readPngTextChunk(bytes, "chara");
   if (jsonText === null) {
-    if (hasPngTextKeyword(bytes, "ccv3")) {
-      throw new Error("Character Card V3 PNGs are not supported yet; export a V2 PNG or JSON card.");
-    }
     throw new Error("No character data found. This may be an ordinary image or its card metadata was stripped.");
   }
   return parseJsonCardText(jsonText);
@@ -147,7 +156,7 @@ export function looksLikeCharacterCard(value: unknown): boolean {
 
 function normalizeCard(value: unknown): CharacterCardCore {
   if (!isRecord(value)) throw new Error("Character card JSON must be an object.");
-  let version: 1 | 2;
+  let version: 1 | 2 | 3;
   let data: Record<string, unknown>;
   if (value.spec === undefined) {
     version = 1;
@@ -160,7 +169,10 @@ function normalizeCard(value: unknown): CharacterCardCore {
     }
     data = value.data;
   } else if (value.spec === "chara_card_v3") {
-    throw new Error("Character Card V3 is not supported yet; export a V2 PNG or JSON card.");
+    version = 3;
+    if (!isRecord(value.data)) throw new Error("Character Card V3 is missing its data object.");
+    validateV3SpecVersion(value.spec_version);
+    data = value.data;
   } else {
     throw new Error("Unsupported character card specification.");
   }
@@ -175,7 +187,83 @@ function normalizeCard(value: unknown): CharacterCardCore {
   if (![description, personality, scenario].some((entry) => entry.trim().length > 0)) {
     throw new Error("Character card has no description, personality, or scenario to import.");
   }
-  return { version, name, description, personality, scenario };
+  return {
+    version,
+    name,
+    description,
+    personality,
+    scenario,
+    // `character_book` is a V2 and V3 field; a V1 card has no `data` wrapper
+    // and no such concept.
+    ...(version !== 1 && data.character_book !== undefined ? { characterBook: data.character_book } : {}),
+    ...(version === 3 ? { ignoredFields: ignoredV3Fields(data) } : {})
+  };
+}
+
+/** `spec_version` for `chara_card_v3` is parsed as a float, per the spec's own
+ * forward-compatibility rule. Accept any `3.x`; refuse anything else by name
+ * rather than guess at a version 1667 has not seen. */
+function validateV3SpecVersion(value: unknown): void {
+  if (typeof value !== "string") {
+    throw new Error("Character Card V3 is missing its spec_version.");
+  }
+  // parseFloat would take "3abc" as 3. A version is digits and dots, so the
+  // shape is checked before the major number is read.
+  const parsed = /^3(\.\d+)*$/u.test(value) ? Number.parseFloat(value) : Number.NaN;
+  if (!Number.isFinite(parsed) || Math.floor(parsed) !== 3) {
+    throw new Error(`Unsupported Character Card V3 spec version; expected a 3.x version, got "${value}".`);
+  }
+}
+
+type IgnoredV3Field =
+  | "greetings"
+  | "examples"
+  | "assets"
+  | "creatorNotes"
+  | "systemPrompt"
+  | "postHistoryInstructions"
+  | "characterVersion"
+  | "tags"
+  | "creator";
+
+const IGNORED_V3_FIELD_PHRASES: LossPhrases<IgnoredV3Field> = {
+  greetings: (count) => `${count} ${countNoun(count, "greeting")} not imported`,
+  examples: () => "example messages not imported",
+  assets: (count) => `${count} ${countNoun(count, "asset")} not imported`,
+  creatorNotes: () => "creator notes not imported",
+  systemPrompt: () => "system prompt not imported",
+  postHistoryInstructions: () => "post-history instructions not imported",
+  characterVersion: () => "character version not imported",
+  tags: (count) => `${count} ${countNoun(count, "tag")} not imported`,
+  creator: () => "creator not imported"
+};
+
+/** Name every V3 field this converter ignores, so the Fidelity Report is the
+ * one place a writer learns what a V3 card carried that did not come across.
+ * Counts what the card holds; a field that is absent or empty is not named. */
+function ignoredV3Fields(data: Record<string, unknown>): readonly string[] {
+  const present: IgnoredV3Field[] = [];
+  const greetingCount = (nonEmptyString(data.first_mes) ? 1 : 0)
+    + arrayLength(data.alternate_greetings)
+    + arrayLength(data.group_only_greetings);
+  for (let index = 0; index < greetingCount; index += 1) present.push("greetings");
+  if (nonEmptyString(data.mes_example)) present.push("examples");
+  for (let index = 0; index < arrayLength(data.assets); index += 1) present.push("assets");
+  if (nonEmptyString(data.creator_notes)) present.push("creatorNotes");
+  if (nonEmptyString(data.system_prompt)) present.push("systemPrompt");
+  if (nonEmptyString(data.post_history_instructions)) present.push("postHistoryInstructions");
+  if (nonEmptyString(data.character_version)) present.push("characterVersion");
+  for (let index = 0; index < arrayLength(data.tags); index += 1) present.push("tags");
+  if (nonEmptyString(data.creator)) present.push("creator");
+  return lossLines(present, IGNORED_V3_FIELD_PHRASES);
+}
+
+function nonEmptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function arrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
 }
 
 function coreString(data: Record<string, unknown>, key: string): string {

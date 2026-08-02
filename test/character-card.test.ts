@@ -11,6 +11,29 @@ import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
 const encoder = new TextEncoder();
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
+test("a V3 spec version must be digits and dots, not merely start with a 3", () => {
+  for (const version of ["3.0", "3.1", "3"]) {
+    assert.doesNotThrow(
+      () => parseCharacterCard(jsonBytes({
+        spec: "chara_card_v3",
+        spec_version: version,
+        data: { name: "Wren", description: "A keeper." }
+      })),
+      `${version} should be accepted`
+    );
+  }
+  for (const version of ["3abc", "3.x-beta", "2.9", "4.0", ""]) {
+    assert.throws(
+      () => parseCharacterCard(jsonBytes({
+        spec: "chara_card_v3",
+        spec_version: version,
+        data: { name: "Wren", description: "A keeper." }
+      })),
+      `${version} should be refused`
+    );
+  }
+});
+
 test("character cards parse V1 and V2 JSON with strict core fields", () => {
   const v1 = parseCharacterCard(jsonBytes({
     name: "  Sélène  ",
@@ -43,7 +66,8 @@ test("character cards parse V1 and V2 JSON with strict core fields", () => {
     /expected 2\.0/
   );
   assert.throws(() => parseCharacterCard(jsonBytes({ ...v2Card(), spec_version: "3.0" })), /expected 2\.0/);
-  assert.throws(() => parseCharacterCard(jsonBytes({ spec: "chara_card_v3", data: {} })), /V3 is not supported/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ spec: "chara_card_v3", data: {} })), /missing its spec_version/);
+  assert.throws(() => parseCharacterCard(jsonBytes({ spec: "chara_card_v3" })), /data object/);
   assert.throws(() => parseCharacterCard(jsonBytes({ spec: "unknown", data: {} })), /Unsupported/);
   assert.throws(() => parseCharacterCard(jsonBytes({ name: 3, description: "x" })), /name must be text/);
   assert.throws(() => parseCharacterCard(jsonBytes({ name: " ", description: "x" })), /missing a name/);
@@ -56,7 +80,6 @@ test("character cards parse V1 and V2 JSON with strict core fields", () => {
 test("character card PNG accepts a V2 chara fallback and rejects unsafe metadata", () => {
   const payload = Buffer.from(JSON.stringify(v2Card()), "utf8").toString("base64");
   const parsed = parseCharacterCard(png(
-    textChunk("ccv3", "not-used"),
     textChunk("author", "also ignored"),
     chunk("tEXt", Uint8Array.from([0xe9, 0, 0xff])),
     textChunk("chara", payload)
@@ -65,7 +88,9 @@ test("character card PNG accepts a V2 chara fallback and rejects unsafe metadata
   assert.equal(parsed.name, "Mira");
 
   assert.throws(() => parseCharacterCard(png()), /ordinary image|metadata was stripped/);
-  assert.throws(() => parseCharacterCard(png(textChunk("ccv3", "only"))), /V3 PNGs are not supported/);
+  // A present but unreadable ccv3 chunk is a broken V3 payload, not a missing
+  // chunk, so it fails on its own terms rather than silently trying `chara`.
+  assert.throws(() => parseCharacterCard(png(textChunk("ccv3", "only"))), /not valid UTF-8/);
   assert.throws(
     () => parseCharacterCard(png(textChunk("chara", payload), textChunk("chara", payload))),
     /duplicate chara/
@@ -77,6 +102,114 @@ test("character card PNG accepts a V2 chara fallback and rejects unsafe metadata
   assert.throws(() => parseCharacterCard(missingEnd), /missing its IEND/);
   const truncated = concat(PNG_SIGNATURE, Uint8Array.from([0, 0, 0, 20]), asciiBytes("tEXt"));
   assert.throws(() => parseCharacterCard(truncated), /invalid chunk length|truncated chunk/);
+});
+
+test("a V3 card is read from JSON and its spec_version minor is forward-compatible", () => {
+  const v3 = parseCharacterCard(jsonBytes(v3Card()));
+  assert.deepEqual(v3, {
+    version: 3,
+    name: "Mira",
+    description: "A cartographer.",
+    personality: "Exacting but kind.",
+    scenario: "At the glass coast.",
+    ignoredFields: []
+  });
+
+  // "3.1" parses as a float bigger than 3.0, which the spec's own
+  // forward-compatibility rule says to accept, not reject.
+  const minor = parseCharacterCard(jsonBytes(v3Card({}, { spec_version: "3.1" })));
+  assert.equal(minor.version, 3);
+
+  assert.throws(
+    () => parseCharacterCard(jsonBytes(v3Card({}, { spec_version: "2.9" }))),
+    /Unsupported Character Card V3 spec version; expected a 3\.x version, got "2\.9"/
+  );
+  assert.throws(
+    () => parseCharacterCard(jsonBytes(v3Card({}, { spec_version: "4.0" }))),
+    /expected a 3\.x version/
+  );
+  assert.throws(
+    () => parseCharacterCard(jsonBytes(v3Card({}, { spec_version: "not-a-number" }))),
+    /expected a 3\.x version/
+  );
+});
+
+test("a V3 card names the fields it does not import", () => {
+  const v3 = parseCharacterCard(jsonBytes(v3Card({
+    first_mes: "Hello.",
+    alternate_greetings: ["Hi.", "Hey."],
+    group_only_greetings: ["Everyone, hello."],
+    mes_example: "<START>\n{{user}}: Hi\n{{char}}: Hello",
+    assets: [
+      { type: "icon", uri: "ccdefault:", name: "main", ext: "png" },
+      { type: "background", uri: "ccdefault:", name: "main", ext: "png" }
+    ],
+    creator_notes: "Written for a winter campaign.",
+    system_prompt: "Stay in character.",
+    post_history_instructions: "Never break the fourth wall.",
+    character_version: "1.2",
+    tags: ["fantasy", "slow-burn"],
+    creator: "someone"
+  })));
+
+  assert.deepEqual(v3.ignoredFields, [
+    "4 greetings not imported",
+    "example messages not imported",
+    "2 assets not imported",
+    "creator notes not imported",
+    "system prompt not imported",
+    "post-history instructions not imported",
+    "character version not imported",
+    "2 tags not imported",
+    "creator not imported"
+  ]);
+
+  const minimal = parseCharacterCard(jsonBytes(v3Card()));
+  // Nothing beyond the four core fields is present, so nothing is named.
+  assert.deepEqual(minimal.ignoredFields, []);
+});
+
+test("a V3 card carries its character_book through for the caller to map", () => {
+  const withBook = parseCharacterCard(jsonBytes(v3Card({
+    character_book: { entries: [{ content: "The pass closes in winter.", keys: ["storm"] }] }
+  })));
+  assert.deepEqual(withBook.characterBook, {
+    entries: [{ content: "The pass closes in winter.", keys: ["storm"] }]
+  });
+
+  const withoutBook = parseCharacterCard(jsonBytes(v3Card()));
+  assert.equal("characterBook" in withoutBook, false);
+});
+
+test("a V2 card also carries its character_book through, the same as V3", () => {
+  const v2 = parseCharacterCard(jsonBytes(v2Card({
+    character_book: { entries: [{ content: "Lore.", keys: ["k"] }] }
+  })));
+  assert.deepEqual(v2.characterBook, { entries: [{ content: "Lore.", keys: ["k"] }] });
+  // V2 has no ignored-field report; that accounting is V3-specific.
+  assert.equal("ignoredFields" in v2, false);
+});
+
+test("a V3 PNG prefers the ccv3 chunk over a chara fallback", () => {
+  const v3Payload = Buffer.from(JSON.stringify(v3Card()), "utf8").toString("base64");
+  const v2Payload = Buffer.from(JSON.stringify(v2Card({ name: "FallbackOnly" })), "utf8").toString("base64");
+
+  const both = parseCharacterCard(png(
+    textChunk("ccv3", v3Payload),
+    textChunk("chara", v2Payload)
+  ));
+  assert.equal(both.version, 3);
+  assert.equal(both.name, "Mira");
+
+  const chunkOrderReversed = parseCharacterCard(png(
+    textChunk("chara", v2Payload),
+    textChunk("ccv3", v3Payload)
+  ));
+  assert.equal(chunkOrderReversed.version, 3, "the ccv3 chunk wins regardless of its position");
+
+  const v3Only = parseCharacterCard(png(textChunk("ccv3", v3Payload)));
+  assert.equal(v3Only.version, 3);
+  assert.equal(v3Only.name, "Mira");
 });
 
 test("character card parsing bounds decoded data before accepting JSON", () => {
@@ -172,6 +305,24 @@ function v2Card(overrides: Record<string, unknown> = {}): Record<string, unknown
       scenario: "At the glass coast.",
       ...overrides
     }
+  };
+}
+
+function v3Card(
+  dataOverrides: Record<string, unknown> = {},
+  rootOverrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Mira",
+      description: "A cartographer.",
+      personality: "Exacting but kind.",
+      scenario: "At the glass coast.",
+      ...dataOverrides
+    },
+    ...rootOverrides
   };
 }
 

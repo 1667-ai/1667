@@ -4,8 +4,11 @@ import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-compl
 import { describeCardImport, planCardImport, type CardImportPlan } from "./card-import.js";
 import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
+import { recordNotice } from "./notice-log.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import type { CardImportPrompt, RuntimeState } from "./state.js";
+import { fidelityReport } from "../../shared/fidelity.js";
+import { MAX_FACTS } from "../../shared/types.js";
 
 export function openCardImport(
   state: RuntimeState,
@@ -65,7 +68,12 @@ async function applyCardImport(
   let plan: CardImportPlan;
   try {
     // The field keeps the `~` the writer typed, so the read has to expand it.
-    plan = planCardImport(await readImportBytes(expandLeadingTilde(overlay.path)));
+    const bytes = await readImportBytes(expandLeadingTilde(overlay.path));
+    // `state.payload` is the currently open story, which is the one this
+    // overlay targets unless a swap raced the read above. The guard below
+    // catches that race before any Fact is created, so a stale room estimate
+    // here costs nothing worse than an aborted import.
+    plan = planCardImport(bytes, MAX_FACTS - state.payload.facts.length);
   } catch (error) {
     overlay.error = errorMessage(error);
     return;
@@ -90,7 +98,18 @@ async function applyCardImport(
     if (ran && adopted && state.card === overlay) {
       state.card = null;
       state.mode = overlay.returnMode;
-      state.toast = `imported ${describeCardImport(plan)}`;
+      const headline = `imported ${describeCardImport(plan)}`;
+      if (plan.fidelity.length === 0) {
+        state.toast = headline;
+      } else {
+        // The toast holds four rows and the report does not. Write the whole
+        // account to the log, or a writer importing a V3 card in the app
+        // never learns what it lost — the same trade the archive import
+        // panel makes.
+        const report = overlay.returnMode === "COMPOSE" ? "full report in the log" : "! full report";
+        state.toast = `${headline} · ${report}`;
+        recordNotice(state.notices, "toast", `${headline} · ${fidelityReport(plan.fidelity)}`);
+      }
     } else if (!ran && overlay.error === null) {
       // The runtime refuses a second backend task and says so in a toast that
       // the next key clears. The open panel has to keep the reason.

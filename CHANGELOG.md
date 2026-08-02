@@ -5,6 +5,17 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Character card import now reads Character Card V3.** This covers V3 JSON
+  and the `ccv3` PNG chunk; when a PNG has both `ccv3` and a V1 or V2 `chara`
+  fallback, 1667 reads `ccv3`. A V3 or V2 card's embedded `character_book`
+  becomes Facts through the same Entry Mapping as `1667 import-lorebook`: a
+  constant entry becomes an always-active Fact, and a keyed entry keeps its
+  keys. The Fidelity Report names the `character_book` mechanisms a Fact has
+  no place for, and the V3 fields this converter does not import — greetings,
+  example messages, assets, creator notes, the system prompt, the
+  post-history instructions, the character version, tags, and the creator.
+  CHARX, the zip container, stays unsupported. Thanks @10fra for the request.
+
 - **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
   `.json` file to the command or to `import archive` in the command palette.
   1667 reads the file to know its format. A constant Entry becomes an always
