@@ -7,6 +7,14 @@ import {
 } from "../shared/release-targets.js";
 import { isSemVer, parseSemVer } from "../shared/semver.js";
 import { releaseArchiveFileName } from "./release-archive.js";
+import {
+  installScriptChannelsForVersion,
+  installScriptFileName
+} from "./release-install-script.js";
+import {
+  isNightlyVersion,
+  parseNightlyVersion
+} from "./release-nightly-version.js";
 
 export const RELEASE_REPOSITORY_SLUG = "1667-ai/1667" as const;
 
@@ -39,6 +47,14 @@ const PLATFORM_LABELS: Readonly<Record<CanonicalReleaseTarget["platform"], strin
  */
 export function releaseNotesMarkdown(version: string): string {
   if (!isSemVer(version)) throw new Error(`Release notes need a SemVer version, not ${version}`);
+  // The first entry is the channel every version on this path publishes: a
+  // release version also produces a stable Installer, and this workflow never
+  // uploads that one. A nightly version produces the nightly Installer alone.
+  const channel = installScriptChannelsForVersion(version)[0]!;
+  const shellScript = installScriptFileName(channel, "shell");
+  const powershellScript = installScriptFileName(channel, "powershell");
+  const isNightly = isNightlyVersion(version);
+
   const first = PUBLISHED_ARTIFACT_TARGETS[0];
   if (first === undefined) throw new Error("Release notes need at least one published target");
   const sample = releaseArchiveFileName(version, first);
@@ -47,7 +63,7 @@ export function releaseNotesMarkdown(version: string): string {
     return releaseTargetForArtifact(target).platform === "win32";
   });
   return [
-    `# 1667 v${version}`,
+    isNightly ? `# 1667 nightly ${version}` : `# 1667 v${version}`,
     "",
     "Native builds of 1667, a full-screen terminal environment for writing fiction",
     "with language models. Every release on this path is a pre-release: the",
@@ -68,9 +84,14 @@ export function releaseNotesMarkdown(version: string): string {
     "`NOTICE`, `build-manifest.json`, and `sbom.spdx.json`. The executable needs",
     "neither Bun nor Node.js at run time.",
     "",
-    "This release includes `install-beta.sh` and `install-beta.ps1`. Each Installer",
-    "embeds this version, the beta channel, the applicable archive name, and its",
+    `This release includes \`${shellScript}\` and \`${powershellScript}\`. Each Installer`,
+    `embeds this version, the ${channel} channel, the applicable archive name, and its`,
     "SHA-256 digest. The Installers do not resolve GitHub latest or read npm tags.",
+    ...(isNightly ? [
+      "",
+      "`checksums.txt` and the Installers describe this build alone. Download them",
+      "again after each nightly run."
+    ] : []),
     "",
     "## Verify what you downloaded, then run it",
     "",
@@ -89,14 +110,14 @@ export function releaseNotesMarkdown(version: string): string {
     "Optional stronger install path:",
     "",
     "```sh",
-    `gh attestation verify install-beta.sh --repo ${RELEASE_REPOSITORY_SLUG}`,
-    "sh ./install-beta.sh",
+    `gh attestation verify ${shellScript} --repo ${RELEASE_REPOSITORY_SLUG}`,
+    `sh ./${shellScript}`,
     "```",
     "",
     ...(hasWindows ? [
       "```powershell",
-      `gh attestation verify install-beta.ps1 --repo ${RELEASE_REPOSITORY_SLUG}`,
-      "powershell -ExecutionPolicy Bypass -File .\\install-beta.ps1",
+      `gh attestation verify ${powershellScript} --repo ${RELEASE_REPOSITORY_SLUG}`,
+      `powershell -ExecutionPolicy Bypass -File .\\${powershellScript}`,
       "```",
       ""
     ] : []),
@@ -123,6 +144,15 @@ export function releaseNotesMarkdown(version: string): string {
  * rather than anything about which release this is.
  */
 function reservedVersionNote(version: string): readonly string[] {
+  const nightly = parseNightlyVersion(version);
+  if (nightly !== null) {
+    return [
+      `This build comes from commit \`${nightly.shortCommit}\` and it is not a release.`,
+      "The Nightly Release always keeps the tag `nightly`, and the next nightly run",
+      "replaces every asset here. A reader who wants a stable number must use a release.",
+      ""
+    ];
+  }
   const parsed = parseSemVer(version);
   if (parsed === null || parsed.prerelease.length === 0) return [];
   const stable = `${parsed.major}.${parsed.minor}.${parsed.patch}`;

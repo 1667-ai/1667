@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { InstallChannel } from "../shared/install-ownership-record.js";
 import {
   PUBLISHED_ARTIFACT_TARGETS,
   releaseTargetForArtifact,
@@ -22,9 +21,21 @@ import {
 } from "./release-archive-layout.js";
 import { shellInstallerBody } from "./release-install-script-body.js";
 import { powershellInstallerBody } from "./release-install-powershell-body.js";
+import {
+  NIGHTLY_RELEASE_TAG,
+  isNightlyVersion
+} from "./release-nightly-version.js";
+import {
+  INSTALL_SCRIPT_CHANNELS,
+  isInstallScriptChannel,
+  type InstallScriptChannel
+} from "./release-install-channels.js";
 
-export const INSTALL_SCRIPT_CHANNELS = ["stable", "beta"] as const;
-export type InstallScriptChannel = InstallChannel;
+export {
+  INSTALL_SCRIPT_CHANNELS,
+  isInstallScriptChannel,
+  type InstallScriptChannel
+};
 
 /**
  * One Installer kind per host family. `covers` selects the published targets the
@@ -67,6 +78,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 
 export function installScriptChannelsForVersion(version: string): readonly InstallScriptChannel[] {
   if (!isSemVer(version)) throw new Error(`Install script needs a SemVer version, not ${version}`);
+  if (isNightlyVersion(version)) return ["nightly"];
   const parsed = parseSemVer(version)!;
   return parsed.prerelease.length === 0 ? ["beta", "stable"] : ["beta"];
 }
@@ -128,11 +140,17 @@ function validatedInstallerInput(
   if (!isSemVer(input.version)) {
     throw new Error(`Install script needs a SemVer version, not ${input.version}`);
   }
-  if (input.channel !== "stable" && input.channel !== "beta") {
-    throw new Error("Install script channel must be stable or beta");
+  if (!isInstallScriptChannel(input.channel)) {
+    throw new Error(`Install script channel ${input.channel} is not a release channel`);
   }
   if (input.channel === "stable" && parseSemVer(input.version)!.prerelease.length > 0) {
     throw new Error(`${name} is only valid for a non-prerelease version`);
+  }
+  if (input.channel === "nightly" && !isNightlyVersion(input.version)) {
+    throw new Error(`${name} is only valid for a nightly version`);
+  }
+  if (isNightlyVersion(input.version) && input.channel !== "nightly") {
+    throw new Error(`${name} is not valid for a nightly version`);
   }
   if (!REPOSITORY.test(input.repository)) {
     throw new Error("Install script repository is invalid");
@@ -147,6 +165,17 @@ function validatedInstallerInput(
   return { byTarget: validatedArchiveMap(input.archives, input.version), targets };
 }
 
+/**
+ * Resolves the GitHub Release download URL base for a given repository and version.
+ *
+ * The Nightly Release keeps one fixed tag, so an Installer that names it stays valid
+ * after the next nightly run replaces the assets.
+ */
+export function releaseAssetBaseUrl(repository: string, version: string): string {
+  const tag = isNightlyVersion(version) ? NIGHTLY_RELEASE_TAG : `v${version}`;
+  return `https://github.com/${repository}/releases/download/${tag}`;
+}
+
 export function renderInstallScript(input: RenderInstallScriptInput): string {
   const { byTarget, targets } = validatedInstallerInput(input, "shell");
   const digestLines: string[] = [];
@@ -157,7 +186,7 @@ export function renderInstallScript(input: RenderInstallScriptInput): string {
     digestLines.push(`    ${target}) digest='${archive.sha256}' ;;`);
     nameLines.push(`    ${target}) archive='${archive.fileName}' ;;`);
   }
-  const defaultBase = `https://github.com/${input.repository}/releases/download/v${input.version}`;
+  const defaultBase = releaseAssetBaseUrl(input.repository, input.version);
   const assetBase = assertSafeAssetBaseUrl(input.assetBaseUrl ?? defaultBase);
   // One portable installer: every published POSIX target shares this layout.
   const memberRelPaths = publishedShellArchiveMemberRelLayout(input.version);
@@ -191,7 +220,7 @@ export function renderPowerShellInstallScript(input: RenderInstallScriptInput): 
   const archiveEntries = releaseArchiveMemberRelPaths(target, input.version).map((entry) => {
     return entry === "" ? `${stem}/` : `${stem}/${entry}`;
   });
-  const defaultBase = `https://github.com/${input.repository}/releases/download/v${input.version}`;
+  const defaultBase = releaseAssetBaseUrl(input.repository, input.version);
   return powershellInstallerBody({
     version: input.version,
     channel: input.channel,

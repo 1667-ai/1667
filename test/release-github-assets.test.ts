@@ -502,7 +502,7 @@ test("staging fails on a missing executable rather than writing a partial archiv
 // written to disk and uploaded from a pre-release run would be downloadable and
 // sufficient, so reintroducing the upload must fail here rather than pass
 // review.
-test("the release workflow passes three strings between jobs and uploads no evidence", () => {
+test("the release workflow passes short strings between jobs and uploads no evidence", () => {
   assert.ok(!WORKFLOW.includes("release-source-evidence"));
 
   const lines = WORKFLOW.split("\n");
@@ -518,14 +518,16 @@ test("the release workflow passes three strings between jobs and uploads no evid
     assert.doesNotMatch(line, /^\s*-?\s*(?:name|path|pattern):.*evidence/iu);
   }
 
-  // The three facts, and only the three facts plus the target list, are the
-  // prepare job's outputs.
+  // The three identity facts, target list, and decisions (`nightly` and `proceed`
+  // are decisions rather than release identity) are the prepare job's outputs.
   const outputs = /\n    outputs:\n((?:      [^\n]*\n)+)/u.exec(WORKFLOW)?.[1];
   assert.equal(outputs, [
     "      targets: ${{ steps.policy.outputs.targets }}",
     "      version: ${{ steps.source.outputs.version }}",
-    "      commit: ${{ steps.source.outputs.commit }}",
-    "      timestamp: ${{ steps.source.outputs.timestamp }}",
+    "      commit: ${{ steps.facts.outputs.commit }}",
+    "      timestamp: ${{ steps.facts.outputs.timestamp }}",
+    "      nightly: ${{ steps.source.outputs.nightly }}",
+    "      proceed: ${{ steps.decision.outputs.proceed }}",
     ""
   ].join("\n"));
   for (const fact of ["version", "commit", "timestamp"] as const) {
@@ -728,3 +730,34 @@ test("the release notes stay true at every version the workflow can be dispatche
   // create` marks every release this path publishes as one.
   assert.match(WORKFLOW, /^\s+--prerelease\s*\\?$/mu);
 });
+
+test("the nightly path builds every target and replaces one rolling release", () => {
+  const jobs = workflowJobs();
+  const buildJob = jobs.get("build");
+  const releaseJob = jobs.get("release");
+  assert.ok(buildJob !== undefined);
+  assert.ok(releaseJob !== undefined);
+
+  assert.match(WORKFLOW, /schedule:[\s\S]*?-\s*cron:/u);
+  assert.match(WORKFLOW, /workflow_dispatch:/u);
+  assert.match(WORKFLOW, /version:\s*\n(?:[^\n]*\n)*?\s+required:\s*false/u);
+  assert.match(buildJob, /target:\s*\$\{\{\s*fromJSON\(needs\.prepare\.outputs\.targets\)\s*\}\}/u);
+
+  assert.match(buildJob, /if:\s*needs\.prepare\.outputs\.proceed\s*==\s*'true'/u);
+  assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.proceed\s*==\s*'true'/u);
+
+  const nightlyStepMatch = releaseJob.match(/- name:\s*Publish the Nightly Release\n([\s\S]*?)(?=\n {6}- name:|\n {4}[a-z]|$)/u);
+  assert.ok(nightlyStepMatch !== null);
+  const nightlyStep = nightlyStepMatch[1]!;
+
+  assert.match(nightlyStep, /\bnightly\b/u);
+  const deleteIndex = nightlyStep.indexOf("gh release delete-asset");
+  const uploadIndex = nightlyStep.indexOf("gh release upload nightly");
+  assert.ok(deleteIndex !== -1, "nightly step must call gh release delete-asset");
+  assert.ok(uploadIndex !== -1, "nightly step must call gh release upload nightly");
+  assert.ok(deleteIndex < uploadIndex, "delete must appear before upload in the nightly release step");
+
+  assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.nightly\s*!=\s*'true'/u);
+  assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.nightly\s*==\s*'true'/u);
+});
+

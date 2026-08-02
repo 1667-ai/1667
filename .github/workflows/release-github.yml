@@ -2,13 +2,18 @@ name: Release (GitHub)
 
 # Publishes one archive per published release target as a GitHub pre-release,
 # with a build-provenance attestation over every uploaded file. Manual dispatch
-# only: a release is a decision, not a consequence of a push.
+# only: a release is a decision, not a consequence of a push. That is still
+# true of a versioned release. The schedule publishes only to the one mutable
+# Nightly Release, which no version number and no tag of its own is spent on.
 #
 # The target list, the archive contents, the archive names, the checksum file,
 # and the release notes all come from scripts/release-github-assets.ts and the
 # modules beside it, because a file list written in YAML cannot be tested and
 # the file this must never drop is LICENSE.
 on:
+  schedule:
+    # 04:27 UTC. A run with no new commit stops in prepare.
+    - cron: '27 4 * * *'
   workflow_dispatch:
     inputs:
       version:
@@ -16,8 +21,9 @@ on:
           Version to release, without a leading v (for example 0.1.0-rc.1). It
           must include a prerelease identifier. It must match the version in
           package.json, tui/package.json, and the lockfile; the command that
-          checks the release source refuses it otherwise.
-        required: true
+          checks the release source refuses it otherwise. An empty value builds
+          a nightly, and a supplied value builds that version.
+        required: false
         type: string
 
 permissions:
@@ -37,13 +43,16 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # Three strings, and deliberately nothing larger, are the whole of what
-    # crosses a job boundary here. See the step that produces them.
+    # Short strings, and deliberately nothing larger, cross job boundaries here.
+    # The version, commit, and timestamp facts carry the build identity, and
+    # the target list, nightly flag, and proceed decision steer downstream jobs.
     outputs:
       targets: ${{ steps.policy.outputs.targets }}
       version: ${{ steps.source.outputs.version }}
-      commit: ${{ steps.source.outputs.commit }}
-      timestamp: ${{ steps.source.outputs.timestamp }}
+      commit: ${{ steps.facts.outputs.commit }}
+      timestamp: ${{ steps.facts.outputs.timestamp }}
+      nightly: ${{ steps.source.outputs.nightly }}
+      proceed: ${{ steps.decision.outputs.proceed }}
     steps:
       # Fail closed. A job-level `if` would skip and report success, which for a
       # release job is indistinguishable from a release that happened.
@@ -94,14 +103,48 @@ jobs:
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
           echo "Publishing $targets" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Compute commit and timestamp facts
+        id: facts
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          timestamp="$(node -e 'process.stdout.write(new Date().toISOString())')"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether to proceed
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.facts.outputs.commit }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          previous="$(gh api "repos/$GITHUB_REPOSITORY/commits/nightly" --jq .sha 2>/dev/null || true)"
+          decision="$(node --import tsx scripts/release-nightly.ts decide "$COMMIT" "$previous")"
+          if [ "$decision" = "build" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            reason="${decision#skip }"
+            echo "Skipping nightly release: $reason" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # One timestamp and one commit for every target, so the archives describe
       # one build rather than one build per runner, minutes apart. The check
       # rejects a version the release identity codec would reject, and one the
       # repository's own package versions disagree with, here rather than on
       # four runners at once.
       #
-      # These three strings are all that crosses a job boundary. Each later job
-      # rebuilds its release identity in memory from them. Do not "simplify"
+      # The version, the commit and the timestamp are all the release identity
+      # that crosses a job boundary. Each later job rebuilds its release
+      # identity in memory from them. The other two outputs are decisions, not
+      # identity: `nightly` names the publication path and `proceed` says
+      # whether this run publishes at all. Do not "simplify"
       # that into building the identity once, writing it to a file and uploading
       # the file for the matrix to download. The evidence document the identity
       # codec parses types tagObjectType as "annotated" and tagSignature as
@@ -113,22 +156,35 @@ jobs:
       # uploaded artifact would therefore be a downloadable, ready-made
       # credential for that gate. Three strings assert nothing, so they may be
       # passed; the document they build may not.
-      - name: Check the release source and publish its three facts
+      #
+      # An empty inputs.version resolves to a nightly version generated from the
+      # commit and timestamp. A supplied inputs.version is used as it is.
+      - name: Check the release source and publish its facts
         id: source
+        if: steps.decision.outputs.proceed == 'true'
         env:
-          VERSION: ${{ inputs.version }}
+          INPUT_VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.facts.outputs.commit }}
+          TIMESTAMP: ${{ steps.facts.outputs.timestamp }}
         run: |
           set -euo pipefail
-          commit="$(git rev-parse HEAD)"
-          timestamp="$(node -e 'process.stdout.write(new Date().toISOString())')"
+          if [ -z "$INPUT_VERSION" ]; then
+            version="$(node --import tsx scripts/release-nightly.ts version "$COMMIT" "$TIMESTAMP")"
+            nightly="true"
+          else
+            version="$INPUT_VERSION"
+            nightly="false"
+          fi
           node --import tsx scripts/release-github-assets.ts check \
-            "$VERSION" "$commit" "$timestamp"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
+            "$version" "$COMMIT" "$TIMESTAMP"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
+    # A skipped run publishes nothing. This is the one place a job-level `if`
+    # is right, because the decision is deliberate rather than a failure.
+    if: needs.prepare.outputs.proceed == 'true'
     name: build-${{ matrix.target }}
     strategy:
       fail-fast: false
@@ -237,6 +293,9 @@ jobs:
 
   release:
     needs: [prepare, build]
+    # A skipped run publishes nothing. This is the one place a job-level `if`
+    # is right, because the decision is deliberate rather than a failure.
+    if: needs.prepare.outputs.proceed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -290,9 +349,9 @@ jobs:
             exit 1
           fi
 
-      # Render both beta Installers from the same archive digests. This path
+      # Render the Installers from the same archive digests. This path
       # publishes a prerelease SemVer, so stable Installers are absent.
-      - name: Render the beta Installers
+      - name: Render the Installers
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -342,10 +401,11 @@ jobs:
         with:
           subject-path: |
             dist/assets/*.tar.gz
-            dist/assets/install-beta.*
+            dist/assets/install-*
             dist/assets/checksums.txt
 
       - name: Publish the pre-release
+        if: needs.prepare.outputs.nightly != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -360,5 +420,46 @@ jobs:
             --title "1667 v$VERSION" \
             --notes-file dist/release-notes.md \
             dist/assets/*.tar.gz \
-            dist/assets/install-beta.* \
+            dist/assets/install-* \
             dist/assets/checksums.txt
+
+      # Move the tag ref first so the release, tag, and assets all name one commit.
+      # Assets are deleted before uploading new ones because an archive name
+      # carries the version, so a new run writes new names; without deleting
+      # previous assets, the Nightly Release would grow without bound.
+      - name: Publish the Nightly Release
+        if: needs.prepare.outputs.nightly == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/release-github-assets.ts notes "$VERSION" > dist/release-notes.md
+          if gh release view nightly --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" \
+              -f sha="$COMMIT" -F force=true > /dev/null
+            gh release edit nightly --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --title "1667 nightly $VERSION" \
+              --notes-file dist/release-notes.md
+            gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' > dist/previous-assets.txt
+            while read -r name; do
+              [ -n "$name" ] || continue
+              gh release delete-asset nightly "$name" --repo "$GITHUB_REPOSITORY" --yes
+            done < dist/previous-assets.txt
+            gh release upload nightly --repo "$GITHUB_REPOSITORY" \
+              dist/assets/*.tar.gz \
+              dist/assets/install-nightly.* \
+              dist/assets/checksums.txt
+          else
+            gh release create nightly --repo "$GITHUB_REPOSITORY" \
+              --target "$COMMIT" \
+              --prerelease \
+              --title "1667 nightly $VERSION" \
+              --notes-file dist/release-notes.md \
+              dist/assets/*.tar.gz \
+              dist/assets/install-nightly.* \
+              dist/assets/checksums.txt
+          fi

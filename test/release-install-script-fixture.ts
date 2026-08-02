@@ -31,6 +31,7 @@ export {
 export const execFileAsync = promisify(execFile);
 export const INSTALL_VERSION = "1.2.3";
 export const INSTALL_PRE_VERSION = "1.2.3-rc.1";
+export const INSTALL_NIGHTLY_VERSION = `${INSTALL_VERSION}-nightly.20260802.1a2b3c4`;
 export const INSTALL_REPO = "1667-ai/1667";
 
 /**

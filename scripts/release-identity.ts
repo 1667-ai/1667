@@ -8,6 +8,7 @@ import {
   type BuiltArtifactTarget
 } from "../shared/build-identity.js";
 import { exactRecord } from "./release-boundary-validation.js";
+import { parseNightlyVersion } from "./release-nightly-version.js";
 
 export type ReleaseBuildIdentity = Extract<BuildIdentity, { buildKind: "release" }>;
 
@@ -18,12 +19,21 @@ export interface ReleasePackageVersions {
   rootLockPackage: string;
 }
 
+/**
+ * A nightly build carries the committed version plus a nightly prerelease, so
+ * the four package versions describe its base. The npm release path is
+ * unaffected, because there the product version is read from
+ * packageVersions.root (scripts/release-evidence-inspection.ts), so the two can
+ * never differ there.
+ */
 export function assertReleasePackageVersions(
   productVersion: string,
   packageVersions: ReleasePackageVersions
 ): void {
+  const nightly = parseNightlyVersion(productVersion);
+  const expectedVersion = nightly !== null ? nightly.base : productVersion;
   for (const [label, version] of Object.entries(packageVersions)) {
-    if (version !== productVersion) {
+    if (version !== expectedVersion) {
       throw new Error(`Release ${label} version does not match ${productVersion}`);
     }
   }

@@ -14,6 +14,7 @@ import {
   INSTALL_OWNERSHIP_FILE,
   RECORD_KEYS
 } from "../shared/install-ownership-record.js";
+import { INSTALL_SCRIPT_CHANNELS } from "./release-install-channels.js";
 
 const CONNECT_TIMEOUT = RELEASE_TRANSFER_CONNECT_TIMEOUT_MS;
 const READ_TIMEOUT = RELEASE_TRANSFER_TOTAL_TIMEOUT_MS;
@@ -38,6 +39,10 @@ export function powershellInstallerBody(input: {
     .sort()
     .map((key) => `'${key}'`)
     .join(",");
+  // The generated Installer must accept the record it wrote itself, so the list is the Installer channel list.
+  const installChannels = INSTALL_SCRIPT_CHANNELS
+    .map((channel) => `'${channel}'`)
+    .join(", ");
   return `# 1667 PowerShell Installer - channel ${input.channel}, version ${input.version}
 # Generated release asset. Do not edit. Attest before you trust a local copy.
 [CmdletBinding()]
@@ -157,7 +162,7 @@ function Read-InstallRecord([string]$RecordPath, [string]$Root, [string]$Executa
   if (($names -join ',') -cne (($expected | Sort-Object) -join ',')) { Fail 'Ownership Record is invalid.' }
   if ($record.schemaVersion -ne 1 -or $record.product -cne '1667' -or
       $record.method -cne 'powershell' -or $record.artifactTarget -cne $ArtifactTarget -or
-      ($record.channel -cne 'stable' -and $record.channel -cne 'beta') -or
+      ($record.channel -cnotin @(${installChannels})) -or
       $record.installRoot -ine $Root -or $record.executable -ine $Executable -or
       $record.installationId -cnotmatch '^[0-9a-f]{32}$') {
     Fail 'Ownership Record does not authorize this Install Root.'
