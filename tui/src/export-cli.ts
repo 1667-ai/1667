@@ -103,9 +103,6 @@ export async function runStoryExport(
         ? `no stories to export in ${project.directory}`
         : `unknown story: ${command.storyId}`);
     }
-    const authorBrief = command.format === "markdown"
-      ? ""
-      : (await backend.api.getSettings()).effective.systemPrompt;
     const batchNames = command.all ? createExportFileAllocator() : null;
     for (const story of selected) {
       if (command.format === "markdown") {
@@ -123,7 +120,6 @@ export async function runStoryExport(
       }
       const archive = exportNovelAiArchive(
         await backend.api.loadStory(story.id),
-        authorBrief,
         command.format
       );
       const file = await writeExportFile({

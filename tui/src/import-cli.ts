@@ -1,6 +1,6 @@
 import path from "node:path";
 import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
-import { readImportBytes } from "./import-file.js";
+import { readImportBytes } from "../../server/import-file.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";
 import { fidelityReport } from "../../shared/fidelity.js";

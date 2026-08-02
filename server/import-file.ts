@@ -1,9 +1,14 @@
 import { constants } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
-import { MAX_IMPORT_BYTES } from "../../shared/types.js";
-import { noFollowFlag } from "../../server/data-directory-file-read.js";
+import { MAX_IMPORT_BYTES } from "../shared/types.js";
+import { noFollowFlag } from "./data-directory-file-read.js";
 
-/** Read one bounded, regular import source without following a final link. */
+/** Read one bounded, regular import source without following a final link.
+ *
+ * Every command that reads a file the writer named goes through here, so the
+ * bounds hold whether the caller is the packaged binary or a workspace script.
+ * A second reader is a second set of rules, and the weaker one wins by
+ * accident. */
 export async function readImportBytes(file: string): Promise<Uint8Array> {
   let handle: FileHandle | undefined;
   try {

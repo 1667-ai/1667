@@ -1,6 +1,6 @@
 import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
 import type { StorySummary } from "../../shared/types.js";
-import { readImportBytes } from "./import-file.js";
+import { readImportBytes } from "../../server/import-file.js";
 import { selectStory } from "./story-selector.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";

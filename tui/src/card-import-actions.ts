@@ -2,7 +2,7 @@ import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { describeCardImport, planCardImport, type CardImportPlan } from "./card-import.js";
-import { readImportBytes } from "./import-file.js";
+import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import type { CardImportPrompt, RuntimeState } from "./state.js";

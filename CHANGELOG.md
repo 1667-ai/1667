@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A NovelAI `.story` or `.scenario` export now carries the Facts, the Memory,
+  and the Author's Note.** An export and an import carry the same items, so a
+  story that leaves 1667 and comes back keeps the world that steers it. A
+  Scenario now carries the story's own Author's Note in place of the author
+  brief. Thanks @10fra for the report.
+
 - **`1667 --help` is now one page for each command.** The first page gives the
   commands and the usual options, and it fits a short terminal. Use
   `1667 <command> --help` for what one command accepts. This command also
