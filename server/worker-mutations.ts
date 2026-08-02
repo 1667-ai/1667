@@ -709,18 +709,22 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const rewriteId = plan.entityId("rewrite");
+      // A rewrite mints exactly one new node — the sibling take named by
+      // `takeId` — so its presence on reload is the committed marker: a
+      // provider-uncertain retry that finds it never re-enters the provider.
+      const takeId = plan.entityId("rewrite-take");
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
-        const node = story.nodes.find((candidate) => candidate.id === input.nodeId);
-        if (plan.generationAction(node !== undefined && nodeRewriteId(node) === rewriteId) === "return-committed") {
-          return true;
+        const takeCommitted = story.nodes.some((node) => node.id === takeId);
+        if (plan.generationAction(takeCommitted) === "return-committed") {
+          return takeId;
         }
       }
       return await service.rewriteNode(
         input.storyId, input.nodeId, input.body, context.onDelta, context.signal,
         generationHooks(
           plan,
-          { rewriteId },
+          { rewriteId, takeId },
           context.storyMutationRequest
         )
       );

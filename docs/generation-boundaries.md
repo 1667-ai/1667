@@ -22,7 +22,14 @@ withholds that suffix. A missing required anchor rejects the generation and keep
 the original passage unchanged.
 
 Boundary whitespace stays owned by the original selection. Only generated prose
-between the verified anchors is spliced into the active take in place.
+between the verified anchors replaces the selection. 1667 saves the result as
+a new take next to the original take. The original take keeps its
+descendant takes. The new take has none. The story line then runs through
+the new take instead. For example: a rewrite in story part 12 of a 30-part
+story removes story parts 13 through 30 from the story line.
+
+A writer cannot rewrite a chapter summary. A chapter summary is not part of
+the active story line, so this operation cannot reach it.
 
 ## Author's Note boundary
 

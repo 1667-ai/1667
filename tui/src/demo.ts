@@ -71,8 +71,11 @@ export interface DemoController {
   /** Splice [start, end) with a model replacement, exactly the attribution
    *  shape `applyRewrite` (server/story-provider-effect.ts) commits — never
    *  the human-edit path `editNode` uses, which would credit the writer with
-   *  words the model wrote. */
-  rewriteNode(nodeId: string, start: number, end: number, replacement: string): StoryPayload;
+   *  words the model wrote. Commits as a new sibling take, mirroring
+   *  `applyRewrite`. A chapter summary never reaches this: it is not on the
+   *  active path, so nothing upstream can ever resolve one as a rewrite
+   *  target. Returns the id of the new take. */
+  rewriteNode(nodeId: string, start: number, end: number, replacement: string): { payload: StoryPayload; nodeId: string };
   deleteNode(nodeId: string, expectedSubtreeCount: number): StoryPayload;
   pruneUnusedTakes(expected: PruneUnusedTakesRequest): StoryPayload;
   putBookmark(nodeId: string, name: string, status: TagStatus): StoryPayload;
@@ -171,13 +174,13 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     createChild(parentId, instruction, text, human = false, genId) {
-      createDemoTake(story, parentId, instruction, text, human, null, genId);
+      createDemoTake(story, parentId, instruction, text, human, { genId });
       return payloadFrom(story);
     },
     createEditedTake(sourceNodeId, instruction, text) {
       const source = story.nodes.find((node) => node.id === sourceNodeId);
       if (source === undefined) throw new Error(`Unknown demo node: ${sourceNodeId}`);
-      createDemoTake(story, source.parentId, instruction, text, source.human === true, source);
+      createDemoTake(story, source.parentId, instruction, text, source.human === true, { source });
       return payloadFrom(story);
     },
     addSummaryTake(text) {
@@ -204,12 +207,15 @@ export function createDemoController(dense = false): DemoController {
       const node = story.nodes.find((candidate) => candidate.id === nodeId);
       if (node === undefined) throw new Error(`Unknown demo node: ${nodeId}`);
       const originalText = node.text;
-      node.attribution = attributionAfterReplacement(
+      const attribution = attributionAfterReplacement(
         activeHumanAttribution(node), start, end, replacement.length, originalText.length
       );
-      node.text = originalText.slice(0, start) + replacement + originalText.slice(end);
-      node.updatedAt = EDITED;
-      return payloadFrom(story);
+      const text = originalText.slice(0, start) + replacement + originalText.slice(end);
+      const take = createDemoTake(story, node.parentId, node.instruction, text, node.human === true, {
+        source: node,
+        attributionOverride: attribution
+      });
+      return { payload: payloadFrom(story), nodeId: take.id };
     },
     deleteNode(nodeId, expectedSubtreeCount) {
       return deleteDemoNode(nodeId, expectedSubtreeCount);
@@ -601,16 +607,21 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       }
       return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
     },
-    rewriteNode: async (_storyId, nodeId, body, onDelta, signal) => {
+    rewriteNode: async (_storyId, nodeId, body, onDelta, signal, onCommitted) => {
       let landed = "";
       for await (const delta of streamFake(DEMO_REWRITE_TEXT, { wpm: 700, signal })) {
         landed += delta;
         onDelta(delta);
       }
-      if (signal.aborted) return;
+      if (signal.aborted) return null;
       const node = demo.payload().path.find((candidate) => candidate.id === nodeId);
-      if (node === undefined) return;
-      demo.rewriteNode(nodeId, body.start, body.end, landed);
+      if (node === undefined) return null;
+      const result = demo.rewriteNode(nodeId, body.start, body.end, landed);
+      // Mirrors the real adapters: the fixture's own "commit" already
+      // happened above, so tell the caller before returning rather than
+      // pretend it waits on some refresh of its own.
+      onCommitted?.(result.nodeId);
+      return result.nodeId;
     },
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
       let landed = "";

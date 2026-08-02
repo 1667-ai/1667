@@ -374,9 +374,9 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         return result === null ? null : rememberPayload(result);
       });
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {
-      await runProviderMutation(storyId, async () => {
-        await transport.call(
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+      return await runProviderMutation(storyId, async () => {
+        const result = await transport.call(
           "rewriteNode",
           { storyId, nodeId, body },
           {
@@ -385,7 +385,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
             expectedAggregateVersion: await expectedVersion(storyId)
           }
         );
-        rememberPayload(await transport.call("loadStory", { id: storyId }));
+        if (result !== null) {
+          // Same ordering as the HTTP adapter: durable the moment the call
+          // resolves an id, recorded before the loadStory refresh that could
+          // itself reject and hide that the take already landed.
+          onCommitted?.(result);
+          rememberPayload(await transport.call("loadStory", { id: storyId }));
+        }
+        return result;
       });
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {

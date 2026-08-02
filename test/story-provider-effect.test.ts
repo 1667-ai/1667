@@ -362,6 +362,10 @@ test("rewrite transfers only provider-owned fields and its rewrite ID", async ()
   assert.equal(target.genId, "original-gen");
   assert.equal(target.coveredExtent?.toPartId, "root");
   assert.equal(target.editedByUser, true);
+  // A chapter summary is a dead end no take can branch from (`createTake`
+  // refuses a chapter-summary parent); its rewrite keeps splicing in place
+  // instead of minting a sibling.
+  assert.equal(current.nodes.length, 2);
 });
 
 test("rewrite rejects instruction-only and timestamp-only concurrent edits", async () => {
@@ -381,6 +385,71 @@ test("rewrite rejects instruction-only and timestamp-only concurrent edits", asy
       GenerationResultError
     );
   }
+});
+
+test("rewrite of an ordinary take commits as a new sibling and keeps the source reachable", async () => {
+  const target = node("root", null, "Opening.", {
+    attribution: { source: "human", ranges: [{ start: 0, end: 7 }] },
+    human: true,
+    genId: "original-gen",
+    model: "writer-model",
+    activeChildId: "writer-child"
+  });
+  const current = story([target, node("writer-child", "root", "Writer.")]);
+  const applied = await applyProviderStoryEffect(current, {
+    kind: "rewrite",
+    nodeId: "root",
+    expectedText: "Opening.",
+    expectedInstruction: "",
+    text: "Model rewrite.",
+    attribution: null,
+    updatedAt: LATER,
+    rewriteId: "rewrite-2",
+    takeId: "take-1"
+  }, hydrate);
+
+  assert.equal(applied.changed, true);
+  assert.equal(applied.value.id, "take-1");
+  assert.equal(applied.value.text, "Model rewrite.");
+  assert.equal(applied.value.attribution, null);
+  assert.equal(applied.value.parentId, null);
+  // createEditedTake's field-carrying decisions, mirrored: model and human
+  // travel from the source, generation identity deliberately does not.
+  assert.equal(applied.value.model, "writer-model");
+  assert.equal(applied.value.human, true);
+  assert.equal(applied.value.genId, undefined);
+  assert.equal(nodeRewriteId(applied.value), "rewrite-2");
+
+  // The source survives untouched, reachable as a sibling of the new take.
+  assert.equal(target.text, "Opening.");
+  assert.equal(target.attribution?.source, "human");
+  assert.equal(nodeRewriteId(target), undefined);
+  assert.equal(current.nodes.length, 3);
+  assert.equal(current.nodes.some((candidate) => candidate.id === "root"), true);
+  // createTake's retarget rule: the new take wins the pointer.
+  assert.equal(current.activeRootId, "take-1");
+});
+
+test("replaying a committed rewrite take id leaves the story unchanged", async () => {
+  const target = node("root", null, "Opening.");
+  const alreadyCommitted = node("take-1", null, "Model rewrite.");
+  const current = story([target, alreadyCommitted], "take-1");
+  const applied = await applyProviderStoryEffect(current, {
+    kind: "rewrite",
+    nodeId: "root",
+    expectedText: "Opening.",
+    expectedInstruction: "",
+    text: "A different replay text — must not land.",
+    updatedAt: LATER,
+    rewriteId: "rewrite-2",
+    takeId: "take-1"
+  }, hydrate);
+
+  assert.equal(applied.changed, false);
+  assert.equal(applied.value.id, "take-1");
+  assert.equal(applied.value.text, "Model rewrite.");
+  assert.equal(current.nodes.length, 2);
+  assert.equal(target.text, "Opening.");
 });
 
 test("summary take validates current source and never changes navigation", async () => {

@@ -550,6 +550,31 @@ describe("demo action pipeline", () => {
     expect(state.composer.cursor).toBe(directCursor);
   });
 
+  test("rewrite selection composer chrome reads REWRITE, not RETAKE", async () => {
+    // promptKind turned a boolean into a tri-state ("retake" | "rewrite" |
+    // null); the retake variant is asserted above — this is its rewrite
+    // counterpart, the only chrome telling a writer Enter rewrites rather
+    // than sends a Direct take.
+    const { state, press } = harness();
+    const index = focusNode(state, "p12");
+    const node = state.payload.path.find((candidate) => candidate.id === "p12")!;
+    const needle = "the brass compass";
+    const start = node.text.indexOf(needle);
+    const end = start + needle.length;
+    const span = { key: "p12:text", text: node.text, start, end };
+
+    openActions(state, index, node.text.slice(start, end), [span]);
+    state.actions!.cursor = currentPartActions(state).findIndex(({ id }) => id === "rewrite-selection");
+    await press("return", "\r");
+
+    expect(state.mode).toBe("COMPOSE");
+    expect(state.retakePrompt?.intent.kind).toBe("rewrite");
+    const composeFrame = frameText(renderStoryScreen(state, { width: 100, height: 30 }).lines);
+    expect(composeFrame).toContain("REWRITE");
+    expect(composeFrame).not.toContain("RETAKE");
+    expect(composeFrame).toContain("enter rewrites this passage");
+  });
+
   test("canceling a prompted retake restores the exact hidden Direct composer", async () => {
     const { state, press } = harness();
     await press("i");
@@ -620,7 +645,7 @@ describe("demo action pipeline", () => {
     focusNode(state, "p12");
     const original = state.payload.path.find((node) => node.id === "p12")!;
     const retakePrompt = openRetakeComposer(
-      state, original.id, "send Maren back toward the ruined observatory"
+      state, original.id, "send Maren back toward the ruined observatory", { kind: "retake" }
     );
     const draft = {
       kind: "retake",
@@ -698,7 +723,7 @@ describe("demo action pipeline", () => {
     state.historyDraft = "live unsent Direct scratch";
     setComposerText(state.composer, "edited recalled Direct direction");
     const retakePrompt = openRetakeComposer(
-      state, "p12", "keep the direction without its obsolete sibling target"
+      state, "p12", "keep the direction without its obsolete sibling target", { kind: "retake" }
     );
     const draft = {
       kind: "retake",
@@ -737,7 +762,7 @@ describe("demo action pipeline", () => {
     state.historyDraft = "live unsent Direct scratch";
     setComposerText(state.composer, "edited recalled Direct direction");
     const directComposer = state.composer;
-    const retakePrompt = openRetakeComposer(state, "p12", "dormant failed retake");
+    const retakePrompt = openRetakeComposer(state, "p12", "dormant failed retake", { kind: "retake" });
     const draft = {
       kind: "retake",
       text: retakePrompt.composer.text,

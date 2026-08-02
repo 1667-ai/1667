@@ -18,7 +18,7 @@ import { createStoryViewModel, lastPartRowIndex } from "./model.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
-import { partIdFromTextSelection, resolveRewriteTarget, startSelectionRewrite } from "./rewrite-action.js";
+import { openRewriteComposer, partIdFromTextSelection, resolveRewriteTarget } from "./rewrite-action.js";
 import { canRewriteSelection, type ProjectedStorySelection } from "./selection-projection.js";
 import { storySelectionFromRendererSelection } from "./copy-actions.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
@@ -46,6 +46,15 @@ import type { ActionContext } from "./action-context.js";
 
 export type OverlayActionContext = ActionContext;
 
+/** A rewrite composer's request has no honest projection yet — see the
+ *  comment on `nextRequestContext` (request-context.ts) — so both entry
+ *  points to the viewer (the `open-request` action below and the
+ *  `next-request` palette command in `runCommand`) refuse to open it while
+ *  one owns the composer, rather than show the baseline continuation
+ *  request under a "next request" label that implies it describes the
+ *  rewrite. */
+const REWRITE_REQUEST_NOT_PROJECTED_TOAST = "a highlighted rewrite's request is not projected yet";
+
 export async function handleOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
@@ -59,7 +68,13 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-request") {
     if (state.mode === "REQUEST") requestViewerAction(resolved, state, context.renderer?.height);
-    else if (state.mode === "NAV" || state.mode === "COMPOSE") openRequestViewer(state);
+    else if (state.mode === "NAV" || state.mode === "COMPOSE") {
+      if (state.retakePrompt?.intent.kind === "rewrite") {
+        state.toast = REWRITE_REQUEST_NOT_PROJECTED_TOAST;
+      } else {
+        openRequestViewer(state);
+      }
+    }
     return true;
   }
   if (resolved.action === "open-log") {
@@ -343,7 +358,19 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   const selection = state.commands!.selection ?? null;
   state.commands = null;
   state.mode = "NAV";
-  if (command.id === "next-request") openRequestViewer(state, returnMode);
+  if (command.id === "next-request") {
+    if (state.retakePrompt?.intent.kind === "rewrite") {
+      // The unconditional `state.mode = "NAV"` above assumed every command
+      // either runs or falls through to a toast in NAV; this one refuses
+      // instead, so it has to put the writer back where the palette found
+      // them — otherwise the rewrite composer is still open in `retakePrompt`
+      // but no longer visible, stranded behind a NAV screen.
+      state.mode = returnMode;
+      state.toast = REWRITE_REQUEST_NOT_PROJECTED_TOAST;
+    } else {
+      openRequestViewer(state, returnMode);
+    }
+  }
   else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "switch-story") await openLibrary(state, source, context);
@@ -371,7 +398,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
         ? { error: "highlight story text before rewriting it" }
         : resolveRewriteTarget(state.payload, partId, selection.spans);
       if ("error" in resolved) state.toast = resolved.error;
-      else await startSelectionRewrite(state, source, context, resolved);
+      else openRewriteComposer(state, resolved);
     }
   }
   else if (command.id === "export") {

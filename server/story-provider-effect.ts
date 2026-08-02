@@ -1,5 +1,5 @@
 import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
-import { activePath, nodeById } from "../shared/story-tree.js";
+import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
 import type { Story, StoryNode } from "../shared/types.js";
 import {
   GenerationResultError,
@@ -53,6 +53,10 @@ export interface RewriteNodeEffect {
   readonly attribution?: StoryNode["attribution"];
   readonly updatedAt: string;
   readonly rewriteId?: string;
+  /** The new take's id. Deterministic when the caller supplies one (worker
+   *  mutations always do), so `story.nodes.some(n => n.id === takeId)` is a
+   *  committed marker exactly like `SummaryTakeEffect.commitIds.summaryNodeId`. */
+  readonly takeId?: string;
   readonly cancelled?: AbortSignal;
 }
 
@@ -100,16 +104,14 @@ type ProviderStoryEffectValueForKind<
   Kind extends ProviderStoryEffect["kind"]
 > = Kind extends "autoname" | "continue" | "chapter-summary"
     ? Story
-    : Kind extends "rewrite"
-      ? boolean
-      : Kind extends "summary-take"
-        ? StoryNode
-        : never;
+    : Kind extends "rewrite" | "summary-take"
+      ? StoryNode
+      : never;
 
 export type ProviderStoryEffectValue<Effect extends ProviderStoryEffect> =
   ProviderStoryEffectValueForKind<Effect["kind"]>;
 
-export interface AppliedProviderStoryEffect<Value = Story | StoryNode | boolean> {
+export interface AppliedProviderStoryEffect<Value = Story | StoryNode> {
   readonly changed: boolean;
   readonly value: Value;
 }
@@ -281,8 +283,12 @@ async function applyRewrite(
   story: Story,
   effect: RewriteNodeEffect,
   hydratePath: HydrateProviderPath
-): Promise<AppliedProviderStoryEffect<boolean>> {
+): Promise<AppliedProviderStoryEffect<StoryNode>> {
   requireNotCancelled(effect.cancelled, "Story rewriting was cancelled");
+  if (effect.takeId !== undefined) {
+    const existing = story.nodes.find((candidate) => candidate.id === effect.takeId);
+    if (existing !== undefined) return { changed: false, value: existing };
+  }
   const target = nodeById(story, effect.nodeId);
   if (target === null) {
     throw new GenerationResultError(
@@ -300,11 +306,35 @@ async function applyRewrite(
       "The node changed while rewriting; nothing was saved."
     );
   }
-  target.text = effect.text;
-  target.attribution = effect.attribution;
-  target.updatedAt = effect.updatedAt;
-  setNodeRewriteId(target, effect.rewriteId);
-  return { changed: true, value: true };
+  // A chapter summary is a dead end (`createTake` refuses a chapter-summary
+  // parent) and `createEditedTake` already refuses to sibling one, so a
+  // rewrite of a chapter summary keeps the pre-take-rewrite behaviour: it
+  // splices in place instead of trying to branch off a node the tree does
+  // not let anything branch from.
+  if (isChapterSummary(target)) {
+    target.text = effect.text;
+    target.attribution = effect.attribution;
+    target.updatedAt = effect.updatedAt;
+    setNodeRewriteId(target, effect.rewriteId);
+    return { changed: true, value: target };
+  }
+  // Sibling of the source, same field-carrying decisions as
+  // `createEditedTake` (server/story-nodes.ts): human and role travel,
+  // chapter-summary-only fields travel defensively, generation identity and
+  // descendants deliberately do not. `createTake` applies the retarget rule,
+  // tag movement, and active-path switching unchanged.
+  const node = newNode(target.parentId, target.instruction, effect.text, target.model, {
+    ...(effect.takeId === undefined ? {} : { id: effect.takeId }),
+    ...(target.human === true ? { human: true as const } : {}),
+    ...(target.role === "summary" ? { role: target.role } : {}),
+    ...(target.coveredExtent === undefined ? {} : { coveredExtent: { ...target.coveredExtent } }),
+    ...(target.madeAt === undefined ? {} : { madeAt: target.madeAt })
+  });
+  node.createdAt = effect.updatedAt;
+  node.attribution = effect.attribution;
+  setNodeRewriteId(node, effect.rewriteId);
+  createTake(story, node);
+  return { changed: true, value: node };
 }
 
 async function applySummaryTake(

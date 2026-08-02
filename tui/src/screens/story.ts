@@ -521,7 +521,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     directingPart: composerPartNumber(state, view),
     caret: state.stream === null ? "focused" : "streaming",
     footerNotice: composerFooterNotice(state),
-    retaking: state.retakePrompt !== null,
+    promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
     narrow
@@ -634,7 +634,7 @@ function renderFullscreenComposer(
     directingPart: composerPartNumber(state, view),
     caret: state.stream === null ? "focused" : "streaming",
     footerNotice: composerFooterNotice(state),
-    retaking: state.retakePrompt !== null,
+    promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
     narrow: width < 100
@@ -803,12 +803,14 @@ function renderStoryStatus(
   estimate: NextRequestEstimate
 ): FrameLine {
   const status = renderCanonicalStatus(state, view, width, narrow, estimate);
-  if (state.mode !== "COMPOSE" || state.retakePrompt === null) return status;
+  const prompt = state.mode === "COMPOSE" ? state.retakePrompt : null;
+  if (prompt === null) return status;
   const [modeBlock, ...rest] = status;
   if (modeBlock === undefined || modeBlock.role !== "background" || !modeBlock.text.includes("COMPOSE")) {
     return status;
   }
-  return [{ ...modeBlock, text: modeBlock.text.replace("COMPOSE", "RETAKE") }, ...rest];
+  const label = prompt.intent.kind === "rewrite" ? "REWRITE" : "RETAKE";
+  return [{ ...modeBlock, text: modeBlock.text.replace("COMPOSE", label) }, ...rest];
 }
 
 function actionHint(text: string, action: KeyAction, role: DisplayRole = "chrome"): FrameSegment {

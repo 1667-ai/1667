@@ -350,7 +350,13 @@ export interface StoryScreenState extends OverlayState {
         stopInteractionVersion: number | null;
       }
     | { kind: "summary"; controller: AbortController }
-    | { kind: "rewrite"; controller: AbortController }
+    /** `committed` becomes true once the API call has minted a durable take,
+     *  server-side — see `runSelectionRewrite` (rewrite-action.ts). Past
+     *  that point a stop or a failed confirming reload must never resurrect
+     *  the pre-rewrite draft; requestRewriteStop and the reload's catch
+     *  branch both gate on this flag instead of assuming an abort or an
+     *  error always means nothing was saved. */
+    | { kind: "rewrite"; controller: AbortController; committed: boolean }
     | null;
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;
@@ -421,9 +427,23 @@ export interface RetakePromptReturnState {
   historyWasLive: boolean;
 }
 
-/** One movable owner spanning prompt entry and its pending generation. */
+/** What a prompt session's composed text will do on send. A discriminated
+ *  union rather than an optional field on the session, so a session can never
+ *  claim to be both — or neither — and the send path can switch on `kind`
+ *  instead of inferring intent from which optional fields happen to be set.
+ *  `rewrite` carries the target range resolved when the composer opened;
+ *  the send path re-resolves it against the live payload rather than trust
+ *  offsets that may no longer describe the passage. */
+export type PromptIntent =
+  | { kind: "retake" }
+  | { kind: "rewrite"; start: number; end: number; expected: string };
+
+/** One movable owner spanning prompt entry and its pending generation. The
+ *  name predates the rewrite composer reusing this same machinery; `intent`
+ *  carries which operation `nodeId`'s prompt actually performs. */
 export interface RetakePromptSession {
   nodeId: string;
+  intent: PromptIntent;
   composer: ComposerState;
   composerScrollTop: number;
   returnState: RetakePromptReturnState;

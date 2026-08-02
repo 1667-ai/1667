@@ -4,6 +4,7 @@ import type {
   ChapterSummaryEffect,
   ContinueStoryEffect,
   ProviderStoryEffect,
+  RewriteNodeEffect,
   SummaryTakeEffect
 } from "./story-provider-effect.js";
 
@@ -24,7 +25,9 @@ export type PreparedProviderStoryEffect<
           readonly summaryNodeId: string;
           readonly committedAt: string;
         }
-      : Omit<Effect, "cancelled">;
+      : Effect extends RewriteNodeEffect
+        ? Omit<Effect, "cancelled" | "takeId"> & { readonly takeId: string }
+        : Omit<Effect, "cancelled">;
 
 /** Freeze all IDs, timestamps, and cancellation checks before an effect can
  * cross the provider/terminal phase boundary. The returned effect is safe to
@@ -73,8 +76,12 @@ export function prepareProviderStoryEffect(
       return { ...rest, summaryNodeId, committedAt: suppliedAt };
     }
     case "rewrite": {
-      const { cancelled: _cancelled, ...prepared } = effect;
-      return prepared;
+      const {
+        cancelled: _cancelled,
+        takeId = randomUUID(),
+        ...prepared
+      } = effect;
+      return { ...prepared, takeId };
     }
     case "autoname":
       return { ...effect };

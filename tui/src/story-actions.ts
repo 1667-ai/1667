@@ -47,7 +47,7 @@ import type { PendingGenerationDraft, RuntimeState } from "./state.js";
 import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
 import type { ActionContext } from "./action-context.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
-import { resolveRewriteTarget, startSelectionRewrite } from "./rewrite-action.js";
+import { openRewriteComposer, resolveRewriteTarget, submitRewriteComposer } from "./rewrite-action.js";
 import {
   advanceOrSaveTag,
   confirmPrune,
@@ -277,16 +277,13 @@ export async function runPartAction(
     }
   }
   if (id === "rewrite-selection") {
+    // Unlike continue/retake above, this only opens a local composer — the
+    // same case the comment above ("Local prompt phases stay available...")
+    // already carves out for retake-with-prompt. Its eventual API mutation
+    // claims the backend owner at send, where composeAction re-checks both
+    // guards this used to duplicate here.
     if (selectionSpans.length === 0) {
       state.toast = "highlight story text before rewriting it";
-      return;
-    }
-    if (generationBusy(state)) {
-      state.toast = "stream running · esc stops it first";
-      return;
-    }
-    if (state.connection.down) {
-      state.toast = "offline · reading still works";
       return;
     }
   }
@@ -295,7 +292,7 @@ export async function runPartAction(
   else if (id === "direct") openDirectComposer(state);
   else if (id === "retake") await context.backend.run("retaking prose", (task) =>
     generate(state, source, context.cache, context.repaint, node.instruction, node, null, task));
-  else if (id === "retake-with-prompt") openRetakeComposer(state, node.id, node.instruction);
+  else if (id === "retake-with-prompt") openRetakeComposer(state, node.id, node.instruction, { kind: "retake" });
   else if (id === "write") openPartEditor(state, true);
   else if (id === "edit") openPartEditor(state, false);
   else if (id === "copy") {
@@ -309,7 +306,7 @@ export async function runPartAction(
   else if (id === "rewrite-selection") {
     const resolved = resolveRewriteTarget(state.payload, node.id, selectionSpans);
     if ("error" in resolved) state.toast = resolved.error;
-    else await startSelectionRewrite(state, source, context, resolved);
+    else openRewriteComposer(state, resolved);
   }
   else if (id === "tag") openTag(state, node.id);
   else if (id === "prune") armPrune(state, node.id);
@@ -319,7 +316,11 @@ function resumePendingRetakeDraft(state: RuntimeState): boolean {
   const draft = state.pendingGenerationDraft;
   if (draft?.kind !== "retake" || !draft.restored || state.retakePrompt !== null) return false;
   resumeRetakeComposer(state, draft.retakePrompt);
-  state.toast = "retake draft restored";
+  // The wrapper is always `kind: "retake"` (PendingGenerationDraft has no
+  // shape of its own for a rewrite session), so the noun the writer reads
+  // here has to come from the session's own intent instead of the wrapper's
+  // name — a rewrite's dormant draft reaching this path is not a retake.
+  state.toast = draft.retakePrompt.intent.kind === "rewrite" ? "rewrite draft restored" : "retake draft restored";
   return true;
 }
 
@@ -434,6 +435,16 @@ export async function composeAction(
     }
     const instruction = state.composer.text;
     const retakePrompt = state.retakePrompt;
+    // A rewrite composer targets a live text range, not a node to retake or
+    // continue: it must re-resolve that range against the current payload
+    // (the story may have moved while it sat open) and calls a differently
+    // shaped API (start/end/expected, not parentId/regenerateNode). That
+    // belongs beside the operation it drives — rewrite-action.ts — rather
+    // than widening `generate()`'s already-branchy retake/direct path.
+    if (retakePrompt !== null && retakePrompt.intent.kind === "rewrite") {
+      await submitRewriteComposer(state, source, context, retakePrompt, retakePrompt.intent, instruction);
+      return;
+    }
     const retakeNode = retakePrompt === null
       ? null
       : state.payload.path.find((node) => node.id === retakePrompt.nodeId) ?? null;
