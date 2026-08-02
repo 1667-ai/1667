@@ -91,11 +91,12 @@ export function factsFromLorebook(
   if (Array.isArray(value.categories)) {
     for (const cat of value.categories) {
       if (isRecord(cat) && typeof cat.name === "string" && cat.name.trim().length > 0) {
-        const name = cat.name.trim();
+        // Keep the name as written. The tag block below trims once and counts
+        // it, so a category tag and a display-name tag report the same way.
         if (typeof cat.id === "string" && cat.id.length > 0) {
-          categoryMap.set(cat.id, name);
+          categoryMap.set(cat.id, cat.name);
         }
-        categoryMap.set(name, name);
+        categoryMap.set(cat.name.trim(), cat.name);
       }
     }
   }
@@ -154,12 +155,17 @@ export function factsFromLorebook(
       textTruncatedCount += 1;
     }
 
-    let rawTag: string | null = null;
+    // One source string, trimmed and counted once, whichever field supplied it.
+    let sourceTag: string | null = null;
     if (typeof item.displayName === "string" && item.displayName.trim().length > 0) {
-      rawTag = item.displayName.trim();
-      if (rawTag !== item.displayName) tagTrimmedCount += 1;
+      sourceTag = item.displayName;
     } else if (typeof item.category === "string" && categoryMap.has(item.category)) {
-      rawTag = categoryMap.get(item.category)!;
+      sourceTag = categoryMap.get(item.category)!;
+    }
+    let rawTag: string | null = null;
+    if (sourceTag !== null) {
+      rawTag = sourceTag.trim();
+      if (rawTag !== sourceTag) tagTrimmedCount += 1;
     }
 
     let tag: string | null = rawTag;

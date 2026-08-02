@@ -331,3 +331,17 @@ test("a tag dropped for invalid Unicode is named, and the entry survives", () =>
     fidelityReport(result.fidelity)
   );
 });
+
+test("a tag taken from a category reports its trimming like any other tag", () => {
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    categories: [{ id: "cat:people", name: "  People  " }],
+    entries: [{ enabled: true, text: "Character info", category: "cat:people" }]
+  }, 128);
+
+  assert.equal(result.facts[0]?.tag, "People");
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 tag trimmed of surrounding whitespace"),
+    fidelityReport(result.fidelity)
+  );
+});
