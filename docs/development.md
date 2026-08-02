@@ -148,3 +148,22 @@ compatible migration.
 | `AI_1667_URL` | Select the base URL of a loopback 1667 HTTP backend |
 | `AI_1667_NO_UPDATE_CHECK` | Set to `1` to disable background update checks |
 | `AI_1667_TUI_PROFILE` | Set to `1` to write a frame profile at exit |
+
+## Development command options
+
+`1667 --help` gives the commands and the options a writer uses. These options
+are for development, so the help page names this file instead.
+
+| Option | Effect |
+| --- | --- |
+| `--demo` | Use the in-memory lantern keeper fixture |
+| `--embedded` | Use the embedded backend; this is the default |
+| `--diagnostic` | Print read-only startup and project resolution JSON |
+| `--print-logs` | Also print unexpected embedded backend errors to stderr |
+| `--render-once` | Print one deterministic frame and exit |
+| `--size <WxH>` | Set the `--render-once` dimensions; the default is 120x36 |
+| `--keys <sequence>` | Send keys through the app before `--render-once` |
+| `--debug-density` | Give the demo focus part 20 takes |
+
+Use `1667 serve --legacy-v1 --data <path> [--print-logs]` to run the legacy
+backend. This mode is for Linux only, and it refuses `--port`.

@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 --help` is now one page for each command.** The first page gives the
+  commands and the usual options, and it fits a short terminal. Use
+  `1667 <command> --help` for what one command accepts. This command also
+  replaces the error that `1667 import --help` gave before. Thanks @10fra for
+  the report.
+
 - **1667 can now import character cards into an existing story.** The command
   palette opens a path prompt with `Tab` completion. The `1667 import-card`
   command accepts one or more JSON or PNG files. It adds their Facts to the
