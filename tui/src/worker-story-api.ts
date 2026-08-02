@@ -124,6 +124,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, note },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    setFactsBudget: async (storyId, budgetTokens) => rememberPayload(await transport.call(
+      "setFactsBudget",
+      { storyId, budgetTokens },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = rememberPayload(await transport.call("loadStory", { id }));

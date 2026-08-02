@@ -7,15 +7,27 @@ import {
 import { openFactEditor } from "../src/editor-action.js";
 import { resetFactEditorHistory } from "../src/fact-editor-policy.js";
 import { pasteInto } from "../src/keys.js";
+import { nextRequestEstimate } from "../src/request-projection.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
-import type { FactEditorSession, RuntimeState } from "../src/state.js";
+import type { DocumentEditorSession, FactEditorSession, RuntimeState } from "../src/state.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
+import { estimateTokens } from "../../shared/tokens.js";
 import { editorHarness, key } from "./editor-harness.js";
+
+/** Ctrl+S's raw terminal sequence (0x13), built at runtime so the literal
+ *  control byte never has to live in this file's source text. */
+const SAVE_SEQUENCE = String.fromCharCode(0x13);
 
 function activeFactEditor(state: RuntimeState): FactEditorSession {
   const editor = state.editor;
   if (editor?.kind !== "fact") throw new Error("expected an active Fact editor");
+  return editor;
+}
+
+function activeDocumentEditor(state: RuntimeState): Extract<DocumentEditorSession, { kind: "document" }> {
+  const editor = state.editor;
+  if (editor?.kind !== "document") throw new Error("expected an active document editor");
   return editor;
 }
 
@@ -118,7 +130,7 @@ describe("Fact editor", () => {
     expect(frame).not.toContain(editor.tag.text);
   });
 
-  test("moves through keys and activation from the body first row", async () => {
+  test("moves through budget, priority, keys, and activation from the body first row", async () => {
     const { state, press } = editorHarness();
     await press(key("f"));
     await press(key("return"));
@@ -128,6 +140,15 @@ describe("Fact editor", () => {
 
     await press(key("up"));
 
+    expect(editor.focus).toBe("budget");
+    expect(composerPosition(editor.budget).column).toBe(0);
+    await press(key("5"));
+    expect(editor.budget.text).toBe("5");
+    await press(key("up"));
+    expect(editor.focus).toBe("priority");
+    await press(key("right"));
+    expect(editor.priority).toBe("high");
+    await press(key("up"));
     expect(editor.focus).toBe("keys");
     expect(composerPosition(editor.keys).column).toBe(0);
     await press(key("X"));
@@ -543,24 +564,35 @@ describe("Fact editor", () => {
     editor.tag.cursor = 3;
     editor.tagCutConfirmation = { start: 0, end: 3, text: "peo" };
 
-    // Move focus through the activation and key fields to the body.
+    // Move focus through activation, keys, priority, and budget to the body.
     await press(key("down"));
     expect(editor.focus).toBe("activation");
     await press(key("down"));
     expect(editor.focus).toBe("keys");
+    editor.keysCutConfirmation = { start: 0, end: 1, text: "x" };
+    await press(key("down"));
+    expect(editor.focus).toBe("priority");
+    // Priority borrows budget's buffer identity, same as activation borrows
+    // keys' — leaving keys for priority still clears keys' own confirmation.
+    expect(editor.keysCutConfirmation).toBe(null);
+    editor.budgetCutConfirmation = { start: 0, end: 1, text: "5" };
+    await press(key("down"));
+    expect(editor.focus).toBe("budget");
+    expect(editor.budgetCutConfirmation).toEqual({ start: 0, end: 1, text: "5" });
     await press(key("down"));
     expect(editor.focus).toBe("body");
     expect(editor.tag.anchor).toBe(null);
     expect(editor.tagCutConfirmation).toBe(null);
+    expect(editor.budgetCutConfirmation).toBe(null);
 
     // In body field, set selection and cut confirmation
     editor.composer.anchor = 0;
     editor.composer.cursor = 5;
     editor.cutConfirmation = { start: 0, end: 5, text: "Maren" };
 
-    // Move focus to keys. The body selection ownership clears immediately.
+    // Move focus to budget. The body selection ownership clears immediately.
     await press(key("up"));
-    expect(editor.focus).toBe("keys");
+    expect(editor.focus).toBe("budget");
     expect(editor.composer.anchor).toBe(null);
     expect(editor.cutConfirmation).toBe(null);
   });
@@ -581,5 +613,61 @@ describe("Fact editor", () => {
     await press(key("s", { sequence: "\u0013", ctrl: true }));
     expect(state.mode).toBe("EDITOR");
     expect(state.toast).toContain("duplicates another key");
+  });
+
+  test("a Fact ranked low and a tight Facts budget, both set through the interface, shed that Fact from the next request", async () => {
+    const { state, press } = editorHarness();
+    const facts = state.payload.facts;
+    const shedId = facts.at(-1)!.id;
+
+    // Rank the last Fact low through the Fact editor's priority row.
+    state.facts = { cursor: facts.length - 1, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null };
+    state.mode = "FACTS";
+    await press(key("return"));
+    expect(activeFactEditor(state).target).toMatchObject({ factId: shedId });
+    // A new editor's cursor starts at the end of the body text; put it on
+    // the first row so the next Up leaves the body instead of just moving
+    // the text cursor within it.
+    activeFactEditor(state).composer.anchor = null;
+    activeFactEditor(state).composer.cursor = 0;
+    await press(key("up")); // body -> budget
+    await press(key("up")); // budget -> priority
+    expect(activeFactEditor(state).focus).toBe("priority");
+    await press(key("left")); // normal -> low
+    expect(activeFactEditor(state).priority).toBe("low");
+    await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
+    expect(state.mode).toBe("FACTS");
+    expect(state.payload.facts.find(({ id }) => id === shedId)?.priority).toBe("low");
+
+    // Cap the story's Facts budget through the command palette, tight enough
+    // to force exactly the one low-priority Fact out.
+    const budget = state.payload.facts
+      .filter(({ id }) => id !== shedId)
+      .reduce((sum, fact) => sum + estimateTokens(fact.text), 0) + 1;
+    await press(key("escape"));
+    expect(state.mode).toBe("NAV");
+    await press(key(":"));
+    expect(state.mode).toBe("COMMANDS");
+    for (const character of "facts budget") await press(key(character));
+    expect(state.commands?.selectedId).toBe("facts-budget");
+    await press(key("return"));
+    const budgetEditor = activeDocumentEditor(state);
+    expect(budgetEditor.target.kind).toBe("facts-budget");
+    setComposerText(budgetEditor.composer, String(budget));
+    await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.factsBudgetTokens).toBe(budget);
+
+    // The ranked-low Fact leaves the next request; every other Fact stays.
+    const estimate = nextRequestEstimate(state.payload, {
+      systemPrompt: "Write vivid prose.",
+      instruction: "",
+      assistantPrefill: true,
+      operation: "continue",
+      targetId: state.payload.path.at(-1)!.id
+    });
+    expect(estimate.activeFactIds).not.toContain(shedId);
+    expect(estimate.activeFactIds).toHaveLength(facts.length - 1);
+    expect(estimate.droppedFacts).toEqual([{ factId: shedId, reason: "total-budget" }]);
   });
 });

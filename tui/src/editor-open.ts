@@ -1,6 +1,7 @@
 import type { StoryFact } from "../../shared/types.js";
 import { createComposer } from "./composer-model.js";
 import {
+  formatFactBudget,
   formatFactKeys,
   initializeFactEditorHistory
 } from "./fact-editor-policy.js";
@@ -48,11 +49,15 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     tag: createComposer(fact?.tag ?? ""),
     activation: fact?.activation ?? "always",
     keys: createComposer(formatFactKeys(fact?.keys ?? [])),
+    priority: fact?.priority ?? "normal",
+    budget: createComposer(formatFactBudget(fact?.budgetTokens)),
     focus: "body",
     initialFact: {
       tag: fact?.tag ?? null,
       activation: fact?.activation ?? "always",
       keys: [...(fact?.keys ?? [])],
+      priority: fact?.priority ?? "normal",
+      budgetTokens: fact?.budgetTokens,
       text
     },
     title: `${fact === null ? "new" : "edit"} fact`,
@@ -61,7 +66,8 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     conflict: null,
     cutConfirmation: null,
     tagCutConfirmation: null,
-    keysCutConfirmation: null
+    keysCutConfirmation: null,
+    budgetCutConfirmation: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -76,16 +82,19 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     tag: createComposer(""),
     activation: "always",
     keys: createComposer(""),
+    priority: "normal",
+    budget: createComposer(""),
     focus: "body",
     // This prefill is an unsaved draft, so Ctrl+S must create it unchanged.
-    initialFact: { tag: null, activation: "always", keys: [], text: "" },
+    initialFact: { tag: null, activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: "" },
     title: "new fact from selection",
     placeholder: "fact text…",
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null,
     tagCutConfirmation: null,
-    keysCutConfirmation: null
+    keysCutConfirmation: null,
+    budgetCutConfirmation: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -117,6 +126,22 @@ export function openAuthorsNoteEditor(state: RuntimeState): void {
     initial,
     title: "author's note",
     placeholder: "Steer the next passage. Style, tone, what is true right now. ⌃s keeps it.",
+    returnMode: "NAV",
+    conflict: null,
+    cutConfirmation: null
+  });
+}
+
+/** The story's total Facts budget. Its text field follows the same "empty
+ *  means unset" convention as the per-Fact budget field. */
+export function openFactsBudgetEditor(state: RuntimeState): void {
+  const initial = formatFactBudget(state.payload.factsBudgetTokens);
+  openInlineEditor(state, {
+    target: { kind: "facts-budget", expected: initial },
+    composer: createComposer(initial),
+    initial,
+    title: "facts budget",
+    placeholder: "Cap the combined estimated tokens of every Fact in a request. Empty means uncapped.",
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null

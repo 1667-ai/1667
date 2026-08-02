@@ -1,5 +1,6 @@
 import { countWords } from "../../shared/story-text.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../../shared/authors-note.js";
+import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../../shared/fact-budget.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { AppSource } from "./app.js";
 import { recordHumanWords } from "./config.js";
@@ -10,9 +11,11 @@ import {
   factEditorBuffer,
   factEditorChanged,
   factEditorSavePayload,
+  formatFactBudget,
   handleFactEditorVerticalMove,
   handleFactEditorCommand,
-  handleFactEditorHistory
+  handleFactEditorHistory,
+  parseBudgetText
 } from "./fact-editor-policy.js";
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
@@ -32,6 +35,7 @@ export {
   openFactEditor,
   openFactFromSelection,
   openAuthorsNoteEditor,
+  openFactsBudgetEditor,
   openPartEditor,
   openSystemPromptEditor
 } from "./editor-open.js";
@@ -156,6 +160,31 @@ async function saveInlineEditor(
           editor,
           submitted,
           submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved"
+        );
+      });
+    } catch (error) {
+      if (state.editor === editor) {
+        state.toast = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return;
+  }
+
+  if (target.kind === "facts-budget") {
+    const parsed = parseBudgetText(submitted, MAX_STORY_FACTS_BUDGET_TOKENS, "facts budget");
+    if (!parsed.ok) return void (state.toast = parsed.toast);
+    try {
+      await context.backend.run("saving facts budget", async (task) => {
+        const payload = await source.api.setFactsBudget(task.storyId, parsed.budgetTokens ?? null);
+        if (!task.storyCurrent()) return;
+        adoptSameStoryPayload(state, payload);
+        target.expected = formatFactBudget(payload.factsBudgetTokens);
+        context.cache.invalidate();
+        settleInlineSave(
+          state,
+          editor,
+          submitted,
+          parsed.budgetTokens === undefined ? "facts budget cleared" : "facts budget saved"
         );
       });
     } catch (error) {
@@ -291,11 +320,15 @@ async function saveFactEditor(
     tag: validated.tag,
     activation: validated.activation,
     keys: validated.keys,
+    priority: validated.priority,
+    budgetTokens: validated.budgetTokens,
     text: validated.text
   };
   const submittedTagText = editor.tag.text;
   const submittedActivation = editor.activation;
   const submittedKeysText = editor.keys.text;
+  const submittedPriority = editor.priority;
+  const submittedBudgetText = editor.budget.text;
   const target = editor.target;
   const factId = target.factId;
   const creating = factId === null;
@@ -303,7 +336,9 @@ async function saveFactEditor(
     const previousIds = new Set(state.payload.facts.map(({ id }) => id));
     const payload = creating
       ? await source.api.createFact(task.storyId, submitted)
-      : await source.api.patchFact(task.storyId, factId, submitted);
+      // budgetTokens must travel as an explicit null to clear a previously
+      // set cap — an omitted (undefined) field means "leave it alone".
+      : await source.api.patchFact(task.storyId, factId, { ...submitted, budgetTokens: submitted.budgetTokens ?? null });
     if (!task.storyCurrent()) return;
     adoptSameStoryPayload(state, payload);
     if (creating) {
@@ -328,6 +363,8 @@ async function saveFactEditor(
     const unchanged = editor.tag.text === submittedTagText
       && editor.activation === submittedActivation
       && editor.keys.text === submittedKeysText
+      && editor.priority === submittedPriority
+      && editor.budget.text === submittedBudgetText
       && editor.composer.text === submitted.text;
     if (unchanged) {
       closeInlineEditor(state, editor, creating ? "fact created" : "fact saved");
@@ -346,6 +383,7 @@ function disarmEditorConfirmations(
   if (editor.kind === "fact") {
     editor.tagCutConfirmation = null;
     editor.keysCutConfirmation = null;
+    editor.budgetCutConfirmation = null;
   }
 }
 

@@ -1,9 +1,11 @@
 import { composerPosition } from "../../composer-model.js";
 import {
   FACT_ACTIVATION_COMPOSER_SOURCE,
+  FACT_BUDGET_COMPOSER_SOURCE,
   FACT_EDITOR_FOOTER,
   FACT_BODY_COMPOSER_SOURCE,
   FACT_KEYS_COMPOSER_SOURCE,
+  FACT_PRIORITY_COMPOSER_SOURCE,
   FACT_TAG_COMPOSER_SOURCE,
   factEditorTagLabel
 } from "../../fact-editor-policy.js";
@@ -78,6 +80,23 @@ export function renderFactEditorLayout(
     body.fieldWidth,
     FACT_KEYS_COMPOSER_SOURCE
   );
+  const priority = renderComposerChoiceRow({
+    indent: "",
+    fieldWidth: body.fieldWidth,
+    label: "priority",
+    value: editor.priority,
+    sourceId: FACT_PRIORITY_COMPOSER_SOURCE,
+    sourceStart: null,
+    focused: editor.focus === "priority"
+  });
+  const budget = renderTextInput(
+    editor.budget,
+    editor.focus === "budget",
+    "budget",
+    "uncapped",
+    body.fieldWidth,
+    FACT_BUDGET_COMPOSER_SOURCE
+  );
   return {
     ...body,
     lines: [
@@ -85,18 +104,24 @@ export function renderFactEditorLayout(
       tag,
       activation,
       keys,
+      priority,
+      budget,
       ...body.lines.slice(1).map((line) =>
         composerSource(line, FACT_BODY_COMPOSER_SOURCE))
     ],
-    lineCount: body.lineCount + 3,
-    bodyRows: body.bodyRows + 3,
+    lineCount: body.lineCount + 5,
+    bodyRows: body.bodyRows + 5,
     cursorViewportRow: editor.focus === "tag"
       ? 0
       : editor.focus === "activation"
         ? 1
         : editor.focus === "keys"
           ? 2
-          : body.cursorViewportRow + 3
+          : editor.focus === "priority"
+            ? 3
+            : editor.focus === "budget"
+              ? 4
+              : body.cursorViewportRow + 5
   };
 }
 

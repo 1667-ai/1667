@@ -5,6 +5,7 @@ import type {
   StoryPayload,
   StorySummary
 } from "../../shared/types.js";
+import type { FactPriority } from "../../shared/fact-activation.js";
 import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
 import type { NoticeLog } from "./notice-log.js";
@@ -238,6 +239,10 @@ export type InlineEditorTarget =
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "chapter-summary"; summaryId: string; expected: string }
   | { kind: "authors-note"; expected: string }
+  /** `expected` is the budget as typed text — empty means "no budget set",
+   *  matching the composer's own text, so reconciliation compares like the
+   *  Author's Note editor does. */
+  | { kind: "facts-budget"; expected: string }
   | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
 
 export interface FactEditorTarget {
@@ -274,10 +279,18 @@ export interface FactEditorSession extends EditorSessionBase {
   tag: ComposerState;
   activation: StoryFact["activation"];
   keys: ComposerState;
-  focus: "tag" | "activation" | "keys" | "body";
-  initialFact: Pick<StoryFact, "tag" | "activation" | "keys" | "text">;
+  priority: FactPriority;
+  /** Budget as typed text; empty means "no budget set". Parsed on commit,
+   *  the same way authorsNote and Fact keys already are. */
+  budget: ComposerState;
+  focus: "tag" | "activation" | "keys" | "priority" | "budget" | "body";
+  initialFact: Pick<StoryFact, "tag" | "activation" | "keys" | "text"> & {
+    priority: FactPriority;
+    budgetTokens: number | undefined;
+  };
   tagCutConfirmation: EditorSessionBase["cutConfirmation"];
   keysCutConfirmation: EditorSessionBase["cutConfirmation"];
+  budgetCutConfirmation: EditorSessionBase["cutConfirmation"];
 }
 
 export type DocumentEditorSession =

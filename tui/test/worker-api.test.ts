@@ -122,6 +122,12 @@ describe("embedded backend worker", () => {
       const secondFactId = story.facts[1]!.id;
       story = await api.reorderFact(story.id, secondFactId, 0);
       expect(story.facts.map((fact) => fact.id)).toEqual([secondFactId, factId]);
+
+      story = await api.setFactsBudget(story.id, 4_000);
+      expect(story.factsBudgetTokens).toBe(4_000);
+      story = await api.setFactsBudget(story.id, null);
+      expect(story.factsBudgetTokens).toBe(undefined);
+
       story = await api.deleteFact(story.id, factId);
       story = await api.deleteFact(story.id, secondFactId);
       expect(story.facts).toHaveLength(0);

@@ -1,7 +1,9 @@
+import type { FactPriority } from "../../shared/fact-activation.js";
 import type { StoryFact } from "../../shared/types.js";
 import { setComposerText } from "./composer-model.js";
 import {
   factEditorChanged,
+  formatFactBudget,
   formatFactKeys,
   factEditorPersistedTag,
   resetFactEditorHistory
@@ -45,6 +47,15 @@ export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   reconcileEditorDocument(state, editor, authoritative, "Author's Note changed during recovery");
 }
 
+/** Reconcile an authoritative Facts budget refresh against the active draft. */
+export function reconcileFactsBudgetEditor(state: RuntimeState): void {
+  const editor = state.editor;
+  if (editor?.kind !== "document" || editor.target.kind !== "facts-budget") return;
+  const authoritative = formatFactBudget(state.payload.factsBudgetTokens);
+  editor.target.expected = authoritative;
+  reconcileEditorDocument(state, editor, authoritative, "facts budget changed during recovery");
+}
+
 function reconcileFactDocument(
   state: RuntimeState,
   editor: FactEditorSession,
@@ -54,6 +65,8 @@ function reconcileFactDocument(
   const draftMatches = factEditorPersistedTag(editor) === current.tag
     && editor.activation === current.activation
     && editor.keys.text === formatFactKeys(current.keys)
+    && editor.priority === (current.priority ?? "normal")
+    && editor.budget.text === formatFactBudget(current.budgetTokens)
     && editor.composer.text === current.text;
   if (draftMatches) {
     editor.initialFact = editableFact(current);
@@ -64,6 +77,8 @@ function reconcileFactDocument(
     setComposerText(editor.tag, current.tag ?? "");
     editor.activation = current.activation;
     setComposerText(editor.keys, formatFactKeys(current.keys));
+    editor.priority = current.priority ?? "normal";
+    setComposerText(editor.budget, formatFactBudget(current.budgetTokens));
     setComposerText(editor.composer, current.text);
     resetFactEditorHistory(editor);
     editor.initialFact = editableFact(current);
@@ -112,16 +127,23 @@ function sameEditableFact(left: StoryFact | null, right: StoryFact): boolean {
     && left.activation === right.activation
     && left.keys.length === right.keys.length
     && left.keys.every((key, index) => key === right.keys[index])
+    && (left.priority ?? "normal") === (right.priority ?? "normal")
+    && left.budgetTokens === right.budgetTokens
     && left.text === right.text;
 }
 
 function editableFact(
   fact: StoryFact
-): Pick<StoryFact, "tag" | "activation" | "keys" | "text"> {
+): Pick<StoryFact, "tag" | "activation" | "keys" | "text"> & {
+  priority: FactPriority;
+  budgetTokens: number | undefined;
+} {
   return {
     tag: fact.tag,
     activation: fact.activation,
     keys: [...fact.keys],
+    priority: fact.priority ?? "normal",
+    budgetTokens: fact.budgetTokens,
     text: fact.text
   };
 }

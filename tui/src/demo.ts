@@ -76,6 +76,7 @@ export interface DemoController {
   createStory(): StoryPayload;
   renameStory(title: string): StoryPayload;
   setAuthorsNote(authorsNote: string): StoryPayload;
+  setFactsBudget(budgetTokens: number | null): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
@@ -252,6 +253,12 @@ export function createDemoController(dense = false): DemoController {
       story.updatedAt = EDITED;
       return payloadFrom(story);
     },
+    setFactsBudget(budgetTokens) {
+      if (budgetTokens === null) delete story.factsBudgetTokens;
+      else story.factsBudgetTokens = budgetTokens;
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
     deleteStory() {
       story = { id: "demo-empty", title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
         nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
@@ -381,6 +388,7 @@ function payloadFrom(story: Story): StoryPayload {
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
+    ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id)!;
       const base = {
@@ -487,6 +495,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     loadStory: async (id) => demo.openStory(id),
     renameStory: async (_id, title) => demo.renameStory(title),
     setAuthorsNote: async (_storyId, authorsNote) => demo.setAuthorsNote(authorsNote),
+    setFactsBudget: async (_storyId, budgetTokens) => demo.setFactsBudget(budgetTokens),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },

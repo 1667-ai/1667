@@ -102,15 +102,20 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
       tag: createComposer(""),
       activation: "always" as const,
       keys: createComposer(""),
+      priority: "normal" as const,
+      budget: createComposer(""),
       focus: "body" as const,
-      initialFact: { tag: null, activation: "always" as const, keys: [], text: "ab" },
+      initialFact: {
+        tag: null, activation: "always" as const, keys: [], priority: "normal" as const, budgetTokens: undefined, text: "ab"
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS" as const,
       conflict: { message: "changed", resolution: "overwrite" as const, armed: true },
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     }
   };
   expect(pasteInto(editor, "line one\r\nline two")).toBeTrue();

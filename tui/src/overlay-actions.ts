@@ -9,7 +9,7 @@ import { connectionFailed, connectionSucceeded } from "./connection.js";
 import { writeStoryExport } from "./export-file.js";
 import { boundedFactCursor, boundedFactSelection, factRows, factTags } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
-import { openAuthorsNoteEditor, openFactEditor } from "./editor-action.js";
+import { openAuthorsNoteEditor, openFactEditor, openFactsBudgetEditor } from "./editor-action.js";
 import { generationBusy, openTag, runPartAction } from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import { createUnusedTakesPrunePlan } from "./prune-model.js";
@@ -370,6 +370,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   if (command.id === "next-request") openRequestViewer(state, returnMode);
   else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
+  else if (command.id === "facts-budget") openFactsBudgetEditor(state);
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {
     const targetId = state.payload.id;
