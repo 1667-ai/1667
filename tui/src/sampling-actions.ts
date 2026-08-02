@@ -12,13 +12,11 @@ import {
   SAMPLING_LAYER_ROWS,
   samplingListRows,
   samplingScalarRows,
-  setLogitBias,
   setSamplingScalar,
-  setStopSequence,
   type SamplingScalarKnob
 } from "./sampling-model.js";
-import { setBannedString, setPhraseBias } from "./sampling-bias-model.js";
-import { resolveSamplingBiasTokens } from "./sampling-bias-resolution.js";
+import { samplingListPanelSpec } from "./sampling-panel-spec.js";
+import { resolveSamplingBias } from "./sampling-bias-resolution.js";
 import { disarmSettingsConflict } from "./settings-overlay-model.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
@@ -89,7 +87,7 @@ export async function samplingOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     if (nested.panel === "sampling") {
       stepSamplingScalar(settings, step);
-    } else if (nested.panel === "stop") {
+    } else if (samplingListPanelSpec(nested.panel).reorderable) {
       moveStopSequence(settings, step);
     }
   }
@@ -194,8 +192,8 @@ function samplingEditAction(
     }
     nested.edit = null;
     nested.result = "draft updated · save in Settings";
-    if (edit.kind === "phrase-bias" || edit.kind === "banned-strings") {
-      resolveSamplingBiasTokens(settings, source, context);
+    if (edit.kind === "list" && (edit.panel === "phrase-bias" || edit.panel === "banned-strings")) {
+      resolveSamplingBias(settings, source, context);
     }
     return;
   }
@@ -213,13 +211,8 @@ function commitSamplingEdit(
   settings: NonNullable<RuntimeState["settings"]>,
   edit: SamplingInlineEditState
 ): string | null {
-  switch (edit.kind) {
-    case "scalar": return setSamplingScalar(settings, edit.knob, edit.composer.text);
-    case "stop": return setStopSequence(settings, edit.index, edit.composer.text);
-    case "logit-bias": return setLogitBias(settings, edit.index, edit.composer.text);
-    case "phrase-bias": return setPhraseBias(settings, edit.index, edit.composer.text);
-    case "banned-strings": return setBannedString(settings, edit.index, edit.composer.text);
-  }
+  if (edit.kind === "scalar") return setSamplingScalar(settings, edit.knob, edit.composer.text);
+  return samplingListPanelSpec(edit.panel).set(settings, edit.index, edit.composer.text);
 }
 
 async function pasteSamplingEdit(state: RuntimeState): Promise<void> {

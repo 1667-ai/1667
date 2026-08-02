@@ -1,6 +1,6 @@
 import type { SamplingPhraseBiasEntryV2 } from "../../../shared/settings-v2-types.js";
-import { samplingBiasResolution } from "../sampling-bias-resolution.js";
-import type { SamplingBiasResolution, SettingsOverlayState } from "../state.js";
+import { samplingBiasRowResolution } from "../sampling-bias-resolution.js";
+import type { SettingsOverlayState } from "../state.js";
 import { cellPad, cellPadStart } from "./panel-table-layout.js";
 import { raisedSegment } from "./overlay.js";
 import { truncate, visibleWidth, type FrameLine } from "./story/frame.js";
@@ -11,7 +11,7 @@ import { truncate, visibleWidth, type FrameLine } from "./story/frame.js";
  * repository's file-size guideline. Both panels show the resolved token IDs
  * next to each entry (design goal: the mapping from typed text to what the
  * provider actually biases stays inspectable) — resolution itself runs
- * server-side and lands in `settings.sampling.biasTokenCache` via
+ * server-side and lands in `settings.sampling.biasResolution` via
  * ../sampling-bias-resolution.js; this module only reads that cache.
  */
 
@@ -23,7 +23,8 @@ export function phraseBiasValueRow(
 ): FrameLine {
   const lead = selected ? "  ▸ " : "    ";
   const left = `${lead}${cellPad(entry.phrase, 18)}`;
-  const right = `${cellPadStart(String(entry.weight), 5)}  ${resolvedTokensText(samplingBiasResolution(settings, entry.phrase))}`;
+  const resolution = samplingBiasRowResolution(settings, "phraseBias", entry.phrase);
+  const right = `${cellPadStart(String(entry.weight), 5)}  ${resolvedTokensText(resolution)}`;
   const role = selected ? "focus / accent" : "chrome";
   return [
     raisedSegment(left, role),
@@ -39,7 +40,8 @@ export function bannedStringValueRow(
 ): FrameLine {
   const lead = selected ? "  ▸ " : "    ";
   const left = `${lead}${cellPad(JSON.stringify(phrase), 24)}`;
-  const right = resolvedTokensText(samplingBiasResolution(settings, phrase));
+  const resolution = samplingBiasRowResolution(settings, "bannedStrings", phrase);
+  const right = resolvedTokensText(resolution);
   const role = selected ? "focus / accent" : "chrome";
   return [
     raisedSegment(left, role),
@@ -47,10 +49,11 @@ export function bannedStringValueRow(
   ];
 }
 
-function resolvedTokensText(resolution: SamplingBiasResolution | null): string {
-  if (resolution === null) return "";
+function resolvedTokensText(resolution: ReturnType<typeof samplingBiasRowResolution>): string {
+  if (resolution.kind === "idle") return "";
   if (resolution.kind === "pending") return "resolving…";
-  if (resolution.kind === "unavailable") return "tokenizer unavailable";
+  if (resolution.kind === "tokenizer-unavailable") return "tokenizer unavailable";
+  if (resolution.kind === "phrase-unencodable") return "could not be tokenized";
   if (resolution.tokenIds.length === 0) return "0 tokens";
   return `→ ${resolution.tokenIds.join(",")}`;
 }

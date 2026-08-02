@@ -4,6 +4,7 @@ import {
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
+import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type { SaveSettingsCommand, SettingsView } from "../../shared/settings-v2-types.js";
 import { initialState } from "../src/app.js";
@@ -308,9 +309,37 @@ describe("Sampling Settings user flow", () => {
     expect(selectedNestedHit(state, 1)).not.toBe(null);
   });
 
+  test("phrase bias is unavailable for a self-hosted local preset", async () => {
+    const { source, state, press } = settingsHarness();
+    // llama.cpp's server documents an --alias flag, so its reported model
+    // name is not trustworthy for tokenizer selection — phraseBias and
+    // bannedStrings are subtracted for this preset outright, regardless of
+    // model (issue #282 review finding B; see PRESET_SUBTRACTIONS in
+    // shared/sampling-capabilities.ts).
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, 8);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("sampling");
+    expect(state.settings?.sampling?.result).toContain("not in preset");
+  });
+
   test("phrase bias is unavailable for a model with no exact tokenizer", async () => {
     const { source, state, press } = settingsHarness();
-    useSupportedSettings(source); // model "gpt-5.2" is not on the tokenizer allow-list
+    // A real OpenAI host, so the preset itself is trustworthy, but the model
+    // name is not on the closed tokenizer allow-list.
+    const active = source.settingsView;
+    if (!active.editable) throw new Error("demo settings must be editable");
+    const document = applyBasicSettingsDraft(active.document, {
+      ...source.settings,
+      provider: "openai-compatible" as const,
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5.2",
+      apiKeyEnv: null
+    });
+    source.settingsView = { ...active, document, effective: basicSettingsFromDocument(document) } satisfies SettingsView;
+    source.api.getSettings = async () => source.settingsView;
+
     await enterSampling(state, press);
     await moveLayer2Cursor(press, 8);
     await press(key("return"));
@@ -318,12 +347,17 @@ describe("Sampling Settings user flow", () => {
     expect(state.settings?.sampling?.result).toContain("no exact tokenizer");
   });
 
-  test("phrase bias resolves token IDs through the tokenizeSamplingPhrase worker call", async () => {
+  test("phrase bias resolves token IDs through the resolveSamplingBias worker call", async () => {
     const { source, state, press } = settingsHarness();
     useEncodedModelSettings(source);
-    const pending = deferred<{ tokenIds: readonly number[] | null }>();
-    const calls: Array<{ phrase: string; encoding: string }> = [];
-    source.api.tokenizeSamplingPhrase = async (request) => {
+    const pending = deferred<SamplingBiasResolutionResult>();
+    const calls: Array<{
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly { phrase: string; weight: number }[];
+      bannedStrings: readonly string[];
+      encoding: string;
+    }> = [];
+    source.api.resolveSamplingBias = async (request) => {
       calls.push(request);
       return await pending.promise;
     };
@@ -337,13 +371,25 @@ describe("Sampling Settings user flow", () => {
     setSamplingEdit(state, "dragon:5");
     await press(key("return"));
     expect(state.settings?.draft.sampling.phraseBias).toEqual([{ phrase: "dragon", weight: 5 }]);
-    // A worker call for exactly the typed phrase, in the model's encoding —
-    // this is the boundary crossing design decision #6 calls out as the main
+    // One worker call for the whole draft, in the model's encoding — this is
+    // the boundary crossing design decision #6 calls out as the main
     // integration risk: the WASM tokenizer lives in server/, so the editor
-    // reaches it through this call rather than importing it directly.
-    expect(calls).toEqual([{ phrase: "dragon", encoding: "o200k_base" }]);
+    // reaches it through this call rather than importing it directly. Issue
+    // #282 review finding E: one call per commit, not one per phrase.
+    expect(calls.at(-1)).toEqual({
+      logitBias: {},
+      phraseBias: [{ phrase: "dragon", weight: 5 }],
+      bannedStrings: [],
+      encoding: "o200k_base"
+    });
 
-    pending.resolve({ tokenIds: [84021] });
+    pending.resolve({
+      kind: "resolved",
+      logitBias: { "84021": 5 },
+      phraseBias: [{ phrase: "dragon", tokenIds: [84021] }],
+      bannedStrings: [],
+      resolvedEntryCount: 1
+    });
     await pending.promise;
     await Promise.resolve();
     const frame = render(state, 80, 24);
@@ -353,7 +399,7 @@ describe("Sampling Settings user flow", () => {
   test("adds banned strings, rejects a duplicate, and saves the sampling payload", async () => {
     const { source, state, press } = settingsHarness();
     useEncodedModelSettings(source);
-    source.api.tokenizeSamplingPhrase = async () => ({ tokenIds: null });
+    source.api.resolveSamplingBias = async () => ({ kind: "tokenizer-unavailable" });
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
@@ -460,7 +506,12 @@ function useEncodedModelSettings(source: ReturnType<typeof demoAppSource>): void
   const generation = {
     ...source.settings,
     provider: "openai-compatible" as const,
-    baseUrl: "http://127.0.0.1:8080/v1",
+    // The real api.openai.com host, not a loopback port: phraseBias and
+    // bannedStrings are subtracted for every self-hosted local preset
+    // (llama.cpp, KoboldCpp, LM Studio, Ollama — see PRESET_SUBTRACTIONS in
+    // shared/sampling-capabilities.ts) regardless of what model name it
+    // reports, so this test needs a preset the model name is trustworthy for.
+    baseUrl: "https://api.openai.com/v1",
     model: "gpt-4o",
     apiKeyEnv: null
   };

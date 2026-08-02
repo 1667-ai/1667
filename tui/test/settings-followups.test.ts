@@ -71,7 +71,7 @@ describe("the settings surface reads as a grid", () => {
     state.settings = initialSettingsOverlay(source.settingsView, state.config);
     state.settings.sampling = {
       panel: "sampling", cursor: 0, logitBiasOrder: [], edit: null, result: null,
-      biasTokenCache: new Map()
+      biasResolution: { kind: "idle" }
     };
     const rendered = screen(state, 120, 30);
     const reason = "Dry run does not send provider requests.";

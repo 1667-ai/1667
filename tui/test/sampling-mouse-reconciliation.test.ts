@@ -210,7 +210,7 @@ function samplingState(
     logitBiasOrder: Object.keys(values.logitBias),
     edit: edit ?? null,
     result: null,
-    biasTokenCache: new Map()
+    biasResolution: { kind: "idle" }
   };
   state.settings = settings;
   return state;
@@ -279,11 +279,12 @@ function mutableLogitBias(state: State): Record<string, number> {
 }
 
 function pendingEdit(
-  kind: "stop" | "logit-bias",
+  panel: "stop" | "logit-bias",
   index: number
 ): SamplingInlineEditState {
   return {
-    kind,
+    kind: "list",
+    panel,
     index,
     composer: createSamplingComposer(""),
     initial: ""

@@ -25,6 +25,7 @@ import type {
   SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import type {
   ComposerSelectionProjection,
   StorySelectionProjection,
@@ -161,26 +162,30 @@ export interface SettingsInlineEditState extends SettingsEditBufferState {
 }
 
 export type SamplingPanelId = "sampling" | "stop" | "logit-bias" | "phrase-bias" | "banned-strings";
+export type SamplingListPanel = Exclude<SamplingPanelId, "sampling">;
 
+/** One shape for every list panel's inline editor, discriminated by `panel`
+ * instead of four near-identical `kind` variants — every list panel edits
+ * one row's text through the same composer regardless of what that row's
+ * value looks like (tui/src/sampling-panel-spec.ts owns the per-panel
+ * parse/validate/apply logic). */
 export type SamplingInlineEditState =
   | (SettingsEditBufferState & {
       kind: "scalar";
       index: number;
       knob: SamplingScalarKnobV2;
     })
-  | (SettingsEditBufferState & { kind: "stop"; index: number })
-  | (SettingsEditBufferState & { kind: "logit-bias"; index: number })
-  | (SettingsEditBufferState & { kind: "phrase-bias"; index: number })
-  | (SettingsEditBufferState & { kind: "banned-strings"; index: number });
+  | (SettingsEditBufferState & { kind: "list"; panel: SamplingListPanel; index: number });
 
-/** One phrase or banned string's resolved token IDs, cached by the editor so
- * a repaint does not refire the tokenizeSamplingPhrase worker call. Keyed by
- * `${encoding} ${phrase}` (see samplingBiasCacheKey) so a model swap
- * that changes the routed encoding never shows a stale resolution. */
-export type SamplingBiasResolution =
-  | { kind: "pending" }
-  | { kind: "resolved"; tokenIds: readonly number[] }
-  | { kind: "unavailable" };
+/** The last resolveSamplingBias response for the current draft's phraseBias
+ * and bannedStrings — the same worker call and the same merge computation
+ * the provider request uses (server/sampling-phrase-bias.ts), fetched once
+ * per sampling-editor session and once per commit
+ * (tui/src/sampling-bias-resolution.ts), not once per phrase. */
+export type SamplingBiasResolutionState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "ready"; readonly result: SamplingBiasResolutionResult };
 
 export interface SamplingOverlayState {
   panel: SamplingPanelId;
@@ -188,7 +193,7 @@ export interface SamplingOverlayState {
   logitBiasOrder: string[];
   edit: SamplingInlineEditState | null;
   result: string | null;
-  biasTokenCache: Map<string, SamplingBiasResolution>;
+  biasResolution: SamplingBiasResolutionState;
 }
 
 export interface SettingsOverlaySaveIntent {

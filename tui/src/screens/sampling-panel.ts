@@ -3,8 +3,8 @@ import type { HitRows, HitTarget } from "../hit.js";
 import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
+  samplingContextForOverlay,
   samplingLayerRowIdentity,
-  samplingLogitBiasEntries,
   samplingListItemIdentity,
   type SamplingListPanel,
   type SamplingListRow,
@@ -12,6 +12,7 @@ import {
   samplingListRows,
   samplingScalarRows
 } from "../sampling-model.js";
+import { samplingListPanelSpec } from "../sampling-panel-spec.js";
 import { bannedStringValueRow, phraseBiasValueRow } from "./sampling-bias-panel.js";
 import type { SamplingPhraseBiasEntryV2 } from "../../../shared/settings-v2-types.js";
 import type { OverlayState } from "../state.js";
@@ -167,15 +168,62 @@ function renderSamplingRow(
   );
 }
 
-type SamplingListValue = string | readonly [string, number] | SamplingPhraseBiasEntryV2;
-
-interface SamplingListDescriptor {
-  readonly panel: SamplingListPanel;
-  readonly values: readonly SamplingListValue[];
+/** One render spec per list panel, paired with the model spec
+ * (../sampling-panel-spec.js) by panel key. `formatValue` takes exactly one
+ * cast, not a runtime narrowing throw: the value it receives always came
+ * from this same panel's own `values()`, so the shape is already known. */
+interface SamplingListRenderSpec {
   readonly emptyCopy: readonly string[];
-  header(count: number): string;
-  formatValue(value: SamplingListValue, index: number, selected: boolean, width: number): FrameLine;
+  header(count: number, maximum: number): string;
+  formatValue(
+    value: unknown,
+    settings: NonNullable<OverlayState["settings"]>,
+    index: number,
+    selected: boolean,
+    width: number
+  ): FrameLine;
 }
+
+const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingListRenderSpec>> = {
+  stop: {
+    emptyCopy: [
+      "  no stop sequences yet.",
+      "  n writes one · the model stops when it types one"
+    ],
+    header: (count, maximum) => `  #   stop sequence · ${count}/${maximum}`,
+    formatValue: (value, _settings, index, selected, width) =>
+      listValueRow(index, value as string, selected, width)
+  },
+  "logit-bias": {
+    emptyCopy: [
+      "  no biased tokens yet.",
+      "  n writes one · token IDs come from the model's tokenizer."
+    ],
+    header: (count, maximum) => `  token ID       integer bias · ${count}/${maximum}`,
+    formatValue: (value, _settings, _index, selected, width) => {
+      const [token, weight] = value as readonly [string, number];
+      return logitValueRow(token, weight, selected, width);
+    }
+  },
+  "phrase-bias": {
+    emptyCopy: [
+      "  no phrase bias yet.",
+      "  n writes one · phrase:integer bias · each phrase resolves to one or more tokens."
+    ],
+    header: (count, maximum) => `  phrase              bias  resolved tokens · ${count}/${maximum}`,
+    formatValue: (value, settings, _index, selected, width) =>
+      phraseBiasValueRow(value as SamplingPhraseBiasEntryV2, settings, selected, width)
+  },
+  "banned-strings": {
+    emptyCopy: [
+      "  no banned strings yet.",
+      "  n writes one · a negative bias makes a string unlikely, not impossible."
+    ],
+    header: (count, maximum) => `  banned string             resolved tokens · ${count}/${maximum}`,
+    formatValue: (value, settings, _index, selected, width) =>
+      bannedStringValueRow(value as string, settings, selected, width)
+  }
+};
 
 function renderSamplingListLayer(
   settings: NonNullable<OverlayState["settings"]>,
@@ -184,25 +232,28 @@ function renderSamplingListLayer(
   status: FrameLine[],
   panel: SamplingListPanel
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const descriptor = samplingListDescriptor(settings, panel);
-  const values = descriptor.values;
-  const cursor = boundedSamplingCursor(settings, descriptor.panel);
+  const modelSpec = samplingListPanelSpec(panel);
+  const renderSpec = SAMPLING_LIST_RENDER_SPECS[panel];
+  const context = samplingContextForOverlay(settings);
+  const values = modelSpec.values(settings);
+  const maximum = modelSpec.maximum(context);
+  const cursor = boundedSamplingCursor(settings, panel);
   const activeEdit = settings.sampling?.edit;
-  const pendingEdit = activeEdit?.kind === descriptor.panel && activeEdit.index === values.length
+  const pendingEdit = activeEdit?.kind === "list" && activeEdit.panel === panel && activeEdit.index === values.length
     ? activeEdit
     : null;
-  const header = [raisedSegment(truncate(descriptor.header(values.length), width), "chrome")];
+  const header = [raisedSegment(truncate(renderSpec.header(values.length, maximum), width), "chrome")];
   const rows: FrameLine[] = [];
   const targets: Array<HitTarget | null> = [...status.map(() => null), null];
   if (values.length === 0) {
-    for (const text of descriptor.emptyCopy) {
+    for (const text of renderSpec.emptyCopy) {
       rows.push([raisedSegment(truncate(text, width), "prose · dim")]);
       targets.push(null);
     }
   }
   const rowCount = values.length + (pendingEdit === null ? 0 : 1);
   if (rowCount > 0) {
-    const emptyCopyRows = values.length === 0 ? descriptor.emptyCopy.length : 0;
+    const emptyCopyRows = values.length === 0 ? renderSpec.emptyCopy.length : 0;
     const capacity = Math.max(1, panelContentRows(height) - status.length - 1 - emptyCopyRows);
     const window = panelRowWindow(Array.from({ length: rowCount }, () => 1), cursor, capacity);
     for (let index = window.start; index < window.end; index += 1) {
@@ -211,16 +262,16 @@ function renderSamplingListLayer(
       } else {
         const value = values[index];
         if (value === undefined) continue;
-        const edit = index === cursor && activeEdit?.kind === descriptor.panel
+        const edit = index === cursor && activeEdit?.kind === "list" && activeEdit.panel === panel
           ? activeEdit
           : null;
         rows.push(edit === null
-          ? descriptor.formatValue(value, index, cursor === index, width)
+          ? renderSpec.formatValue(value, settings, index, cursor === index, width)
           : inlineListValueRow(index, edit.composer, width));
       }
       const rowId = samplingListItemIdentity(
-        descriptor.panel,
-        index === values.length ? undefined : values[index],
+        panel,
+        index === values.length ? null : modelSpec.identityKey(values[index]!),
         index === values.length && pendingEdit !== null
       );
       targets.push({
@@ -232,75 +283,6 @@ function renderSamplingListLayer(
     }
   }
   return { lines: [...status, header, ...rows], targets };
-}
-
-function samplingListDescriptor(
-  settings: NonNullable<OverlayState["settings"]>,
-  panel: SamplingListPanel
-): SamplingListDescriptor {
-  const summary = samplingListRows(settings).find((row) => row.panel === panel)!;
-  if (panel === "stop") {
-    return {
-      panel,
-      values: settings.draft.sampling.stop,
-      emptyCopy: [
-        "  no stop sequences yet.",
-        "  n writes one · the model stops when it types one"
-      ],
-      header: (count) => `  #   stop sequence · ${count}/${summary.maximum}`,
-      formatValue: (value, index, selected, width) => {
-        if (typeof value !== "string") throw new Error("stop sequence row has an invalid value");
-        return listValueRow(index, value, selected, width);
-      }
-    };
-  }
-  if (panel === "logit-bias") {
-    return {
-      panel,
-      values: samplingLogitBiasEntries(settings),
-      emptyCopy: [
-        "  no biased tokens yet.",
-        "  n writes one · token IDs come from the model's tokenizer."
-      ],
-      header: (count) => `  token ID       integer bias · ${count}/${summary.maximum}`,
-      formatValue: (value, _index, selected, width) => {
-        if (typeof value === "string" || "phrase" in value) {
-          throw new Error("logit-bias row has an invalid value");
-        }
-        return logitValueRow(value[0], value[1], selected, width);
-      }
-    };
-  }
-  if (panel === "phrase-bias") {
-    return {
-      panel,
-      values: settings.draft.sampling.phraseBias,
-      emptyCopy: [
-        "  no phrase bias yet.",
-        "  n writes one · phrase:integer bias · each phrase resolves to one or more tokens."
-      ],
-      header: (count) => `  phrase              bias  resolved tokens · ${count}/${summary.maximum}`,
-      formatValue: (value, _index, selected, width) => {
-        if (typeof value === "string" || !("phrase" in value)) {
-          throw new Error("phrase-bias row has an invalid value");
-        }
-        return phraseBiasValueRow(value, settings, selected, width);
-      }
-    };
-  }
-  return {
-    panel,
-    values: settings.draft.sampling.bannedStrings,
-    emptyCopy: [
-      "  no banned strings yet.",
-      "  n writes one · a negative bias makes a string unlikely, not impossible."
-    ],
-    header: (count) => `  banned string             resolved tokens · ${count}/${summary.maximum}`,
-    formatValue: (value, _index, selected, width) => {
-      if (typeof value !== "string") throw new Error("banned-string row has an invalid value");
-      return bannedStringValueRow(value, settings, selected, width);
-    }
-  };
 }
 
 function listValueRow(index: number, value: string, selected: boolean, width: number): FrameLine {
@@ -444,13 +426,14 @@ function samplingFooter(
       { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
     ] }
   ], width);
+  const reorderable = samplingListPanelSpec(panel).reorderable;
   const actions = [
     { token: "↑", action: "focus-previous" as const },
     { token: "↓", action: "focus-next" as const },
     { token: "↵ edit", action: "open-selected" as const },
     { token: "n add", action: "new-item" as const },
     { token: "d delete", action: "delete-item" as const },
-    ...(panel === "stop"
+    ...(reorderable
       ? [
           { token: "←", action: "take-previous" as const },
           { token: "→", action: "take-next" as const }
@@ -464,7 +447,7 @@ function samplingFooter(
     { token: "↵", action: "open-selected" as const },
     { token: "n", action: "new-item" as const },
     { token: "d", action: "delete-item" as const },
-    ...(panel === "stop"
+    ...(reorderable
       ? [
           { token: "←", action: "take-previous" as const },
           { token: "→", action: "take-next" as const }
@@ -474,13 +457,13 @@ function samplingFooter(
   ];
   return footerFit([
     {
-      text: panel === "stop"
+      text: reorderable
         ? "↑↓ move · ↵ edit · n add · d delete · ←→ reorder · esc back"
         : "↑↓ move · ↵ edit · n add · d delete · esc back",
       actions
     },
     {
-      text: panel === "stop" ? "↑↓ ↵ n d ←→ esc" : "↑↓ ↵ n d esc",
+      text: reorderable ? "↑↓ ↵ n d ←→ esc" : "↑↓ ↵ n d esc",
       actions: compactActions
     }
   ], width);
