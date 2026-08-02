@@ -12,6 +12,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   World Info mechanisms that a Fact has no place for. Thanks @10fra for the
   request.
 
+- **Settings now includes a collapsed Sampling group.** Open the group to
+  edit scalar values, stop sequences, and logit bias rows. The TUI shows a
+  short reason for an unavailable value. An unavailable scalar row shows
+  `‹ — ›`. A save keeps the draft when a configured value is unavailable.
+  Thanks @10fra for the report.
 - **A NovelAI `.story` or `.scenario` export now carries the Facts, the Memory,
   and the Author's Note.** An export and an import carry the same items, so a
   story that leaves 1667 and comes back keeps the world that steers it. A
@@ -29,6 +34,8 @@ This file records notable changes to 1667. Product terms use the definitions in
   command accepts one or more JSON or PNG files. It adds their Facts to the
   story that `--story` names. Thanks @10fra for the request.
 
+## 0.2.1 - 2026-08-01
+
 - **Facts can now activate only when request context matches their keys.** The
   default `always` mode keeps the existing behavior. The `keyed` mode scans the
   recent assembled story context and the current instruction. The Fact editor
@@ -40,11 +47,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   `--format scenario`, or `--format lorebook`. Use `--all` to export every
   story. The command reports content changes and omissions for each archive.
 
-- **Settings now includes a collapsed Sampling group.** Open the group to
-  edit scalar values, stop sequences, and logit bias rows. The TUI shows a
-  short reason for an unavailable value. An unavailable scalar row shows
-  `‹ — ›`. A save keeps the draft when a configured value is unavailable.
-  Thanks @10fra for the report.
 
 - **Stories now have an Author's Note.** Press `a` to write short steering for
   the next continuation or prompted retake. 1667 shows the note cost in the
@@ -55,8 +57,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   request viewer. It shows each message, the estimated token counts, chapter
   summary replacements, the routed model, and the context window. It does not
   show credentials. Thanks @10fra for the request and the design.
-
-## 0.2.1 - 2026-08-01
 
 - **`1667 import` now imports NovelAI `.story` files.** Supports Editor V2
   MessagePack documents and Editor V1 legacy stories. Story title and section

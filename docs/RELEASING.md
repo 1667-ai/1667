@@ -46,7 +46,6 @@ This document uses these Technical Names:
 | release plan | The strict JSON input for release preflight |
 | artifact manifest | The canonical JSON output from release preflight |
 | publication attempt ref | An immutable ref that records one npm write attempt |
-| operation lease | The exclusive GitHub workflow run for one manual npm operation |
 | SBOM | The SPDX Software Bill of Materials in each release package |
 | preflight | Local validation of release packages and their evidence |
 | Bun baseline runtime | The Bun runtime for x64 processors that support SSE4.2 |
@@ -324,9 +323,7 @@ The workflow has these jobs:
 5. `publish` publishes the five platform packages before the launcher package.
 6. `release` verifies publication and publishes the GitHub pre-release.
 
-The publication workflow and the manual operation holder use one non-cancelling
-lock. The lock serializes publication, promotion, and quarantine. A failed job
-can use the retained inputs from the same workflow run. The registry check
+A failed job can use the retained inputs from the same workflow run. The registry check
 accepts an existing version only when its digest and provenance are correct.
 It binds the provenance certificate to this repository, workflow, and ref.
 The `release-publication` Actions artifact supports job handoff and same-run retries.
@@ -340,10 +337,6 @@ waits for the first write to become visible. If the wait expires, the job tries
 the same immutable version again. npm rejects an existing version without a
 replacement. The job then continues the visibility check.
 
-A `released/v<version>_quarantined` ref blocks publication for that version.
-The ref is immutable. The publish job checks this ref before it reads npm
-metadata. It checks the ref and active operation leases again immediately before
-each npm write.
 
 `.github/workflows/release-npm-operation.yml` holds the shared lock for a manual operation.
 The `authorize` job runs before the `hold` job.
@@ -359,10 +352,10 @@ The helper creates a complete or failed marker.
 An administrator can create an abandoned marker after the stale lease recovery procedure.
 No procedure updates or deletes an operation marker.
 
-The workflow publishes with the npm `next` tag. It waits for the platform
+The workflow publishes with the npm `latest` tag. It waits for the platform
 packages before it publishes the launcher package. It creates
 `released/v<version>` only after npm and GitHub publication are complete.
-The final registry check requires `next` to name this version for all six
+The final registry check requires `latest` to name this version for all six
 packages.
 The workflow fully verifies each package before it writes the next package.
 
@@ -374,9 +367,7 @@ The `preflight`, `publish`, and `release` jobs run the publication readiness
 check before they create signed-tag evidence. The check permits publication
 because the prepublication controls are complete.
 
-Use [npm release operations](./npm-release-operations.md) to promote or
-quarantine a published version.
-
+A release reaches users when the workflow finishes. There is no promotion step.
 ## Local gates
 
 Run the root gates from the repository root:
