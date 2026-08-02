@@ -32,6 +32,21 @@ describe("a focused row says so on every surface", () => {
     expect(tag).not.toContain("▸");
   });
 
+  test("only the field the keyboard is on draws a caret", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    openFactEditor(state, state.payload.facts[0]!);
+    const editor = state.editor;
+    if (editor?.kind !== "fact") throw new Error("the fact editor did not open");
+    editor.focus = "activation";
+
+    // F-1's hollow `▯` marks a pane that has lost focus — one caret going
+    // hollow, not one per idle field. Four fields drew three of them at once,
+    // which read as stray boxes rather than as anything about focus.
+    expect(screen(state, 88, 12)).not.toContain("▯");
+  });
+
   test("the selected request message inverts instead of tinting its ink", () => {
     const source = demoAppSource();
     const state = initialState(source, false);

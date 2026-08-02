@@ -46,7 +46,7 @@ export function renderFactEditorLayout(
     scrollTop: options.scrollTop,
     narrow: options.narrow,
     softWrap: true,
-    caret: editor.focus === "body" ? "focused" : "unfocused"
+    caret: editor.focus === "body" ? "focused" : "none"
   });
   const tagLabel = factEditorTagLabel(editor);
   const tag = editor.focus === "tag"
@@ -132,7 +132,7 @@ function renderTextInput(
       position.line,
       position.column,
       inputWidth,
-      focused ? "focused" : "unfocused",
+      focused ? "focused" : "none",
       composer.text.length === 0,
       placeholder
     ),

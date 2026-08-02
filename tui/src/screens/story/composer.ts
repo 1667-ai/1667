@@ -33,7 +33,13 @@ import {
   type FrameLine
 } from "./frame.js";
 
-export type ComposerCaret = "focused" | "unfocused" | "streaming";
+/** Where the writer's insertion point is, and whether this field has it.
+ *
+ *  `none` draws nothing. F-1's hollow `▯` marks a *pane* that has lost focus —
+ *  one caret going hollow, not a caret per idle field. An editor with four
+ *  fields drew one in each of the three the keyboard was not on, which put
+ *  three carets on one surface and read as an artifact. */
+export type ComposerCaret = "focused" | "none" | "streaming";
 
 export interface ComposerLayoutOptions {
   composer: ComposerState;
@@ -239,7 +245,7 @@ function renderWrappedInput(options: WrappedBodyRowOptions, cursorColumn: number
   const focusedConsumes = options.caret === "focused" && cursorCell !== null;
   const caretText = options.caret === "focused"
     ? focusedConsumes ? cursorCell!.text : " "
-    : options.caret === "unfocused" ? "▯" : "▏";
+    : options.caret === "none" ? "" : "▏";
   const before = composerLineSlice(
     options.composer, options.row.sourceIndex, options.row.start, cursor
   );
@@ -256,7 +262,14 @@ function renderWrappedInput(options: WrappedBodyRowOptions, cursorColumn: number
     && composerLineHasBreak(options.composer, options.row.sourceIndex);
   if (options.emptyDraft && options.row.start === 0 && options.row.end === 0) {
     return [
-      { text: caretText, role: "background", background: "compose accent", prose: true },
+      ...(caretText.length === 0
+        ? []
+        : [{
+          text: caretText,
+          role: "background" as const,
+          background: "compose accent" as const,
+          prose: true as const
+        }]),
       segment(options.placeholder, "chrome")
     ];
   }
@@ -266,15 +279,15 @@ function renderWrappedInput(options: WrappedBodyRowOptions, cursorColumn: number
         options.composer, options.row.sourceIndex, options.row.start, cursor
       )
       : []),
-    options.caret === "focused"
-      ? {
+    ...(options.caret === "focused"
+      ? [{
         text: caretText,
-        role: "background",
-        background: "compose accent",
+        role: "background" as const,
+        background: "compose accent" as const,
         ...(focusedConsumes || focusedBreak ? { composerStart: lineStart + cursor } : {}),
-        prose: true
-      }
-      : segment(caretText, options.caret === "streaming" ? "chrome" : "compose accent"),
+        prose: true as const
+      }]
+      : caretText.length === 0 ? [] : [segment(caretText, "chrome")]),
     ...(after.length > 0
       ? renderComposerRange(
         options.composer,
@@ -316,8 +329,10 @@ export function renderComposerInput(
   const focusedBreak = caret === "focused" && cursor === length && hasBreak;
   const caretText = caret === "focused"
     ? focusedConsumes ? cursorCell.text : " "
-    : caret === "unfocused" ? "▯" : "▏";
-  const caretWidth = Math.max(1, focusedConsumes ? cursorCell.width : visibleWidth(caretText));
+    : caret === "none" ? "" : "▏";
+  const caretWidth = focusedConsumes
+    ? Math.max(1, cursorCell.width)
+    : visibleWidth(caretText);
   let start = cursor;
   let beforeWidth = 0;
   while (start > 0) {

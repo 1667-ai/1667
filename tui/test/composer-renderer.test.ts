@@ -294,7 +294,9 @@ describe("composer renderer", () => {
 
     const layout = renderComposerLayout({
       composer, terminalWidth: 8, terminalHeight: 12, measure: 8, softWrap: true,
-      caret: "unfocused"
+      // A field the keyboard is not on draws no caret, so the only accented
+      // cell left on the row is the selected break marker itself.
+      caret: "none"
     });
     const selected = layout.lines.flat()
       .filter((part) => part.background === "compose accent")
