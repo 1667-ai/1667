@@ -21,7 +21,13 @@ import {
 } from "./overlay.js";
 import { panelRowWindow, cellPadStart } from "./panel-table-layout.js";
 import { renderComposerInput } from "./story/composer.js";
-import { truncate, visibleWidth, type FrameComposition, type FrameLine } from "./story/frame.js";
+import {
+  truncate,
+  visibleWidth,
+  type DisplayRole,
+  type FrameComposition,
+  type FrameLine
+} from "./story/frame.js";
 
 type SamplingPanelState = Pick<OverlayState, "settings"> & { hitRows: HitRows };
 type SamplingLayerRow =
@@ -78,13 +84,24 @@ function renderSamplingLayer(
     ...listRows.map((row) => ({ kind: "list" as const, row }))
   ];
   const cursor = boundedSamplingCursor(settings);
-  const capacity = Math.max(1, panelContentRows(height) - status.length);
+  // One reason held by every knob is a fact about the provider, not about any
+  // row. Repeated down the column it was the loudest thing on the panel and
+  // pushed each row's own value out of alignment.
+  const shared = sharedDisabledReason(scalarRows, listRows);
+  const sharedLine: FrameLine[] = shared === null
+    ? []
+    : [[raisedSegment(truncate(`  ${shared}`, width), "prose · dim")]];
+  const capacity = Math.max(1,
+    panelContentRows(height) - status.length - sharedLine.length);
   const window = panelRowWindow(rows.map(() => 1), cursor, capacity);
-  const lines: FrameLine[] = [...status];
-  const targets: Array<HitTarget | null> = status.map(() => null);
+  const lines: FrameLine[] = [...status, ...sharedLine];
+  const targets: Array<HitTarget | null> = [
+    ...status.map(() => null),
+    ...sharedLine.map(() => null)
+  ];
   for (const [offset, row] of rows.slice(window.start, window.end).entries()) {
     const index = window.start + offset;
-    lines.push(renderSamplingRow(row, index === cursor, settings, width));
+    lines.push(renderSamplingRow(row, index === cursor, settings, width, shared !== null));
     const rowIdentity = row.kind === "scalar"
       ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
       : samplingLayerRowIdentity({ kind: "list", panel: row.row.panel });
@@ -98,31 +115,51 @@ function renderSamplingLayer(
   return { lines, targets };
 }
 
+/** The one reason every knob is disabled for, when there is exactly one. */
+function sharedDisabledReason(
+  scalars: readonly SamplingScalarRow[],
+  lists: readonly SamplingListRow[]
+): string | null {
+  if (scalars.some((row) => row.available) || lists.some((row) => row.available)) {
+    return null;
+  }
+  const reasons = new Set(scalars.map((row) => row.reason));
+  return reasons.size === 1 ? [...reasons][0]! : null;
+}
+
 function renderSamplingRow(
   row: SamplingLayerRow,
   selected: boolean,
   settings: NonNullable<OverlayState["settings"]>,
-  width: number
+  width: number,
+  reasonShared: boolean
 ): FrameLine {
   const lead = selected ? "  ▸ " : "    ";
   if (row.kind === "scalar") {
     const edit = selected && settings.sampling?.edit?.kind === "scalar"
       ? settings.sampling.edit
       : null;
-    const value = row.row.available ? `‹ ${row.row.value} ›` : "‹ — ›";
-    const reason = row.row.available ? "" : ` · ${row.row.reason}`;
     if (edit !== null) {
       return inlineRow(lead, row.row.label, edit.composer, width);
     }
-    return plainRow(`${lead}${row.row.label}`, `${value}${reason}`, width, selected);
+    return fieldRow(
+      lead,
+      row.row.label,
+      row.row.available ? `‹ ${row.row.value} ›` : "‹ — ›",
+      row.row.available || reasonShared ? "" : row.row.reason,
+      width,
+      selected,
+      row.row.available ? "chrome" : "prose · dim"
+    );
   }
-  return plainRow(
-    `${lead}${row.row.label}`,
-    row.row.available
-      ? `[${row.row.value}] · ↵ open`
-      : `[${row.row.value}] · [disabled · ${row.row.reasonCompact}]`,
+  return fieldRow(
+    lead,
+    row.row.label,
+    `[${row.row.value}]`,
+    row.row.available ? "↵ open" : reasonShared ? "" : `disabled · ${row.row.reasonCompact}`,
     width,
-    selected
+    selected,
+    row.row.available ? "chrome" : "prose · dim"
   );
 }
 
@@ -281,6 +318,43 @@ function inlineRow(
     ),
     raisedSegment("]", "chrome")
   ];
+}
+
+/** The same three columns the settings form uses — label, control, hint. The
+ *  label and the value used to share one string, so a longer knob name pushed
+ *  its value right and the panel read as a ragged list rather than a grid. */
+const SAMPLING_LABEL_WIDTH = 18;
+const SAMPLING_VALUE_WIDTH = 12;
+
+function fieldRow(
+  lead: string,
+  label: string,
+  value: string,
+  hint: string,
+  width: number,
+  selected: boolean,
+  hintRole: DisplayRole = "chrome"
+): FrameLine {
+  const labelWidth = Math.min(SAMPLING_LABEL_WIDTH,
+    Math.max(4, width - visibleWidth(lead) - 6));
+  const room = Math.max(1, width - visibleWidth(lead) - labelWidth);
+  const valueWidth = Math.min(SAMPLING_VALUE_WIDTH, room);
+  const hintRoom = Math.max(0, room - valueWidth - 2);
+  const line: FrameLine = [
+    raisedSegment(lead, selected ? "focus / accent" : "chrome"),
+    raisedSegment(pad(truncate(label, labelWidth), labelWidth),
+      selected ? "prose" : "chrome"),
+    raisedSegment(pad(truncate(value, valueWidth), valueWidth),
+      selected ? "focus / accent" : "prose")
+  ];
+  if (hintRoom >= 4 && hint.length > 0) {
+    line.push(raisedSegment("  "), raisedSegment(truncate(hint, hintRoom), hintRole));
+  }
+  return line;
+}
+
+function pad(value: string, width: number): string {
+  return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
 }
 
 function plainRow(prefix: string, value: string, width: number, selected: boolean): FrameLine {

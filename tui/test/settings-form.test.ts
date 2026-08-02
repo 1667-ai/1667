@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderStoryScreen } from "../src/screens/story.js";
-import { frameText } from "../src/screens/story/frame.js";
+import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import {
   DEFAULT_PROFILE_MAX_OUTPUT_TOKENS,
@@ -39,20 +39,33 @@ function round(value: number): number {
 }
 
 describe("the settings form follows C-03 and C-08", () => {
-  test("draws a jump rail, a divider on every row, and section rules", async () => {
+  test("groups the form under section rules and lines its columns up", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
     const rendered = screen(state);
-    const rows = rendered.split("\n").filter((line) => line.includes("│"));
 
     expect(rendered).toContain("── app ");
     expect(rendered).toContain("── connection ");
     expect(rendered).toContain("── generation ");
-    // The rail names the section the cursor is in, and the divider runs on
-    // every row of the split, blanks and section rules included.
-    expect(rendered).toContain("app         │");
-    expect(rows.length).toBeGreaterThan(10);
-    for (const row of rows) expect(row.indexOf("│")).toBe(rows[0]!.indexOf("│"));
+    // The rule is the section heading. It used to be printed twice — once in a
+    // jump rail and again beside it — which is what made the panel read as
+    // chaos, together with hints that started in a different column per row.
+    expect(rendered).not.toContain("│");
+    const hints = [
+      "the whole palette, remapped",
+      "dim the page while you type",
+      "who answers a request",
+      "how far it strays"
+    ].map((hint) => rendered.split("\n").find((line) => line.includes(hint))!);
+    expect(hints.every((line) => line !== undefined)).toBeTrue();
+    const columns = new Set(hints.map((line, index) =>
+      visibleWidth(line.slice(0, line.indexOf([
+        "the whole palette, remapped",
+        "dim the page while you type",
+        "who answers a request",
+        "how far it strays"
+      ][index]!)))));
+    expect(columns.size).toBe(1);
   });
 
   test("a settable number wears a chip, a positional track and a default tick", async () => {
@@ -122,25 +135,19 @@ describe("the settings form follows C-03 and C-08", () => {
     expect(rendered).toContain("max is 2.00");
   });
 
-  test("the env-var row reports whether the shell actually holds the key", async () => {
-    const { state, source, press } = settingsHarness();
+  test("a key is supplied one way, and the row says where it is kept", async () => {
+    const { state, press } = settingsHarness();
     await openSettings(press);
-    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
-    state.settings!.draft = {
-      ...state.settings!.draft,
-      generation: {
-        ...state.settings!.draft.generation,
-        apiKeyEnv: "SETTINGS_FORM_TEST_KEY"
-      }
-    };
-    expect(screen(state)).toContain("not set in this shell");
+    const rendered = screen(state);
 
-    process.env.SETTINGS_FORM_TEST_KEY = "sk-test";
-    try {
-      expect(screen(state)).toContain("⚑ found in shell");
-    } finally {
-      delete process.env.SETTINGS_FORM_TEST_KEY;
-    }
+    // Two rows for one job — an env var and a stored key — left every writer
+    // guessing which one to fill in.
+    expect(rendered).toContain("stored key");
+    expect(rendered).not.toContain("key env");
+    // The keys live in the machine-tier state root, whose path is a platform
+    // detail; what matters is that they never travel with a story.
+    expect(rendered).toContain("kept on this machine");
+    expect(rendered).not.toContain(".config/1667");
   });
 
   test("the check action reports in place beside the row that runs it", async () => {

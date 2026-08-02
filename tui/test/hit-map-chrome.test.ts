@@ -3,7 +3,7 @@ import type { KeyEvent } from "@opentui/core";
 import { dispatch, initialState } from "../src/app.js";
 import { createComposer } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
-import { hitAt } from "../src/hit.js";
+import { hitAt, type HitTarget } from "../src/hit.js";
 import { GUTTER_VERBS } from "../src/screens/story/row-layout.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
 import { mouseToAction } from "../src/mouse-actions.js";
@@ -666,12 +666,16 @@ describe("hit map clickable chrome", () => {
     for (let row = first.index; row <= last.index; row += 1) {
       expect(hitAt(state.hitRows, first.panel!.left + 2, row)?.kind).not.toBe("scrim");
     }
+    // The selector arrows only. A section rule also carries an indexed action —
+    // it jumps to that section's first field — and sits on a label, not a glyph.
+    const isArrow = (region: { target: HitTarget }, index: number) =>
+      region.target.kind === "action" && region.target.index === index
+      && (region.target.action === "take-previous" || region.target.action === "take-next");
     for (const index of [0, 2]) {
       const selectorRow = state.hitRows.findIndex((row) =>
-        row?.overrides?.some((region) =>
-          region.target.kind === "action" && region.target.index === index) === true);
+        row?.overrides?.some((region) => isArrow(region, index)) === true);
       const arrows = state.hitRows[selectorRow]!.overrides!.filter((region) =>
-        region.target.kind === "action" && region.target.index === index);
+        isArrow(region, index));
       expect(arrows.map((span) => span.target)).toEqual([
         { kind: "action", action: "take-previous", index },
         { kind: "action", action: "take-next", index }

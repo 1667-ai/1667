@@ -230,17 +230,19 @@ function requestBody(
       0,
       width - visibleWidth(messagePrefix) - visibleWidth(tokenSuffix)
     );
+    // The selected header is an inverted block, not tinted prose: prose ink on
+    // the accent is light on light in every warm theme.
     const selection = selected
       ? { background: "focus / accent" as const, bold: true }
       : {};
     rows.push({
       line: [
         {
-          ...segment(messagePrefix, selected ? "prose" : "focus / accent", target),
+          ...segment(messagePrefix, selected ? "background" : "focus / accent", target),
           ...selection
         },
         {
-          ...segment(truncate(source, sourceWidth), selected ? "prose" : "focus / accent", target),
+          ...segment(truncate(source, sourceWidth), selected ? "background" : "focus / accent", target),
           ...selection
         },
         segment(tokenSuffix, "chrome", target)

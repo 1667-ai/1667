@@ -9,7 +9,7 @@ import { ActionRuntime } from "../src/action-runtime.js";
 import { handleKey, initialState } from "../src/app.js";
 import { setComposerText } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
-import { SETTINGS_ROW_IDS } from "../src/settings-overlay-model.js";
+import { settingsRowIndex } from "../src/settings-overlay-model.js";
 import type { SettingsRowId } from "../src/state.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
@@ -101,7 +101,8 @@ export async function selectRow(
   state: ReturnType<typeof settingsHarness>["state"],
   row: SettingsRowId
 ): Promise<void> {
-  const target = SETTINGS_ROW_IDS.indexOf(row);
+  const target = settingsRowIndex(row);
+  if (target < 0) throw new Error(`settings has no row for ${row}`);
   while (state.settings!.cursor < target) await press(key("down"));
   while (state.settings!.cursor > target) await press(key("up"));
 }

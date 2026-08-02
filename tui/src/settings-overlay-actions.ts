@@ -55,6 +55,7 @@ import {
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRowCycles,
+  settingsRowIndex,
   settingsRows,
   settingsRowUsesServer,
   settleSettingsOverlaySave
@@ -103,7 +104,8 @@ export async function openSettingsOverlay(
   );
   const overlay = state.settings;
   if (row !== undefined) {
-    overlay.cursor = SETTINGS_ROW_IDS.indexOf(row);
+    const at = settingsRowIndex(row);
+    if (at >= 0) overlay.cursor = at;
   }
   state.mode = "SETTINGS";
   context.repaint();
