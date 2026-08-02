@@ -216,6 +216,11 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
     }
   },
   {
+    // "custom" is by definition an arbitrary OpenAI-compatible endpoint at
+    // an arbitrary base URL — the preset a writer uses to point 1667 at a
+    // self-hosted server that is none of the three named presets, so it
+    // carries the aliasing risk in its strongest form (see the
+    // PRESET_SUBTRACTIONS comment in shared/sampling-capabilities.ts).
     name: "custom OpenAI-compatible preset",
     context: samplingContext("openai-chat-completions", "custom"),
     expected: {
@@ -227,8 +232,32 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
-      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
+    }
+  },
+  {
+    // Regression test for a gap found after the initial B fix: "custom" is
+    // an arbitrary OpenAI-compatible endpoint at an arbitrary base URL, so
+    // a self-hosted server reached through it can report any model name it
+    // likes, the same as an aliased llama.cpp server. "gpt-4o" is on the
+    // tokenizer allow-list (promptBiasTokenizerEncoding), but the preset
+    // subtraction must win regardless — trusting the reported name here
+    // would let a "custom"-routed local model receive real OpenAI token
+    // IDs for a different vocabulary.
+    name: "custom preset with an allow-listed model name",
+    context: samplingContext("openai-chat-completions", "custom", "gpt-4o"),
+    expected: {
+      topP: { kind: "available", wireField: "top_p" },
+      topK: { kind: "unavailable", reason: "preset-unknown" },
+      minP: { kind: "unavailable", reason: "preset-unknown" },
+      frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
+      presencePenalty: { kind: "available", wireField: "presence_penalty" },
+      repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      stop: { kind: "available", wireField: "stop" },
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {

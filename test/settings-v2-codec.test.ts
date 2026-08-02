@@ -107,12 +107,16 @@ test("fixed initial document and state bytes have raw and domain-separated hashe
 });
 
 test("sampling parses as a closed optional profile object and projects to runtime", () => {
-  // gpt-4o, not the usual model-fixture placeholder: phraseBias and
-  // bannedStrings only validate as available for a model on the closed
-  // tokenizer allow-list (shared/sampling-capabilities.ts).
+  // The real api.openai.com host, and gpt-4o rather than the usual
+  // model-fixture placeholder: phraseBias and bannedStrings only validate
+  // as available for the "openai" preset (a fixed, trustworthy host) with
+  // a model on the closed tokenizer allow-list
+  // (shared/sampling-capabilities.ts) — "custom" (an arbitrary base URL,
+  // like the usual models.example fixture host) is subtracted, because a
+  // self-hosted server reached through it could report any model name.
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",
-    "https://models.example/v1",
+    "https://api.openai.com/v1",
     "gpt-4o",
     null
   ));

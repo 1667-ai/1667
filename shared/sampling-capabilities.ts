@@ -91,29 +91,54 @@ const PRESET_EXTENSIONS: Readonly<
 // phraseBias and bannedStrings ride the same wire field, so they inherit the
 // subtraction rather than repeating it under a different unavailable reason.
 //
+// The trust boundary below is not "self-hosted" as a label — it is whether
+// 1667 can trust a preset's reported model ID to identify the actual
+// tokenizer vocabulary. promptBiasTokenizerEncoding is a closed allow-list
+// keyed on that reported ID, built to prevent a wrong token ID from
+// silently biasing the wrong token — but a closed list is only as
+// trustworthy as the key it is looked up by.
+//
 // llama.cpp, KoboldCpp, and LM Studio are self-hosted local servers whose
-// operator controls what "model" string the API reports, independent of the
-// weights actually loaded. llama.cpp's server documents this directly:
+// operator controls what "model" string the API reports, independent of
+// the weights actually loaded. llama.cpp's server documents this directly:
 // "-a, --alias STRING  set model name aliases, comma-separated (to be used
 // by API)" (tools/server/README.md, --alias). LM Studio's `lms load
 // --identifier` does the same (https://lmstudio.ai/docs/cli/local-models/load).
-// KoboldCpp is the same category of self-hosted server. promptBiasTokenizerEncoding
-// below is a closed allow-list keyed on that reported model ID, built to
-// prevent a wrong token ID from silently biasing the wrong token — but a
-// closed list is only as trustworthy as the key it is looked up by. A local
-// server told to call its Llama build "gpt-4o" would otherwise pass the
-// allow-list and receive real OpenAI token IDs for a completely different
-// vocabulary. So phraseBias and bannedStrings are subtracted for every
-// self-hosted preset, regardless of what model name it reports. logitBias
-// itself is unaffected: it takes a raw token ID the writer already resolved
-// by hand, so it never depends on which tokenizer produced it.
+// KoboldCpp is the same category of self-hosted server.
+//
+// "custom" carries the same risk in its strongest form: it is by
+// definition an arbitrary OpenAI-compatible endpoint at an arbitrary base
+// URL — the exact preset a writer uses to point 1667 at a self-hosted
+// server that is none of the three named above. A local build told to
+// call itself "gpt-4o" would otherwise pass the allow-list and receive
+// real OpenAI token IDs for a completely different vocabulary, the same
+// as an aliased llama.cpp server. There is no single "custom" endpoint to
+// cite, because there is no fixed endpoint at all — that absence of a
+// fixed, verifiable host is exactly why it cannot be trusted.
+//
+// "openai" and "openrouter" are excluded from this subtraction because
+// their preset is only ever assigned when the connection's base URL
+// actually resolves to their one fixed, real host (api.openai.com or
+// openrouter.ai — see presetFor in shared/settings-basic-draft.ts); a
+// writer cannot retarget a "custom" base URL while keeping one of those
+// preset labels. For OpenRouter specifically, the reported model ID is
+// also not a free-form label: it is OpenRouter's own routing key, the
+// same string that determines which real backend serves the request.
+//
+// So phraseBias and bannedStrings are subtracted for every preset whose
+// reported model ID is not tied to a fixed, real, first-party endpoint —
+// llama-cpp, koboldcpp, lm-studio, ollama, and custom — regardless of what
+// model name any of them reports. logitBias itself is unaffected: it
+// takes a raw token ID the writer already resolved by hand, so it never
+// depends on which tokenizer produced it.
 const PRESET_SUBTRACTIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
   "lm-studio": ["minP", "phraseBias", "bannedStrings"],
   ollama: ["logitBias", "phraseBias", "bannedStrings"],
   koboldcpp: ["frequencyPenalty", "phraseBias", "bannedStrings"],
-  "llama-cpp": ["phraseBias", "bannedStrings"]
+  "llama-cpp": ["phraseBias", "bannedStrings"],
+  custom: ["phraseBias", "bannedStrings"]
 };
 
 /**
