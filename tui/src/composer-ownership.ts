@@ -1,6 +1,6 @@
 import { createComposer } from "./composer-model.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
-import type { PendingGenerationDraft, RetakePromptSession, RuntimeState } from "./state.js";
+import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, RuntimeState } from "./state.js";
 import { followStoryViewport } from "./viewport-intent.js";
 
 export type ComposerOwnershipState = Pick<RuntimeState,
@@ -69,10 +69,11 @@ export function claimDirectComposer(state: ComposerOwnershipState): boolean {
 export function openRetakeComposer(
   state: ComposerOwnershipState & RetakeFocusState,
   nodeId: string,
-  instruction: string
+  instruction: string,
+  intent: PromptIntent
 ): RetakePromptSession {
   resumeDirectComposer(state);
-  const prompt = createRetakeSession(state, nodeId, instruction);
+  const prompt = createRetakeSession(state, nodeId, instruction, intent);
   revealRetakeComposer(state, prompt);
   state.composerClaimEpoch += 1;
   return prompt;
@@ -131,13 +132,16 @@ export function focusVisibleRetakeTarget(
   return true;
 }
 
-/** Bind a restored legacy/implicit retake draft to the same atomic model. */
+/** Bind a restored legacy/implicit retake draft to the same atomic model.
+ *  Only `generate()`'s own stopped-stream reconstruction calls this, and it
+ *  only ever rebuilds a retake — a rewrite never threads through that path. */
 export function createRestoredRetakeComposer(
   state: ComposerOwnershipState,
   nodeId: string,
-  instruction: string
+  instruction: string,
+  intent: PromptIntent
 ): RetakePromptSession {
-  const prompt = createRetakeSession(state, nodeId, instruction);
+  const prompt = createRetakeSession(state, nodeId, instruction, intent);
   activateRetakeComposer(state, prompt);
   return prompt;
 }
@@ -145,10 +149,12 @@ export function createRestoredRetakeComposer(
 function createRetakeSession(
   state: ComposerOwnershipState,
   nodeId: string,
-  instruction: string
+  instruction: string,
+  intent: PromptIntent
 ): RetakePromptSession {
   return {
     nodeId,
+    intent,
     composer: createComposer(instruction),
     composerScrollTop: 0,
     returnState: captureReturnState(state)

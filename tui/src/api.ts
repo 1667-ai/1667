@@ -190,8 +190,14 @@ export interface StoryApi {
     nodeId: string,
     body: RewriteRequest,
     onDelta: (text: string) => void,
-    signal: AbortSignal
-  ): Promise<void>;
+    signal: AbortSignal,
+    /** Fires the instant the take id is known — durable server-side from
+     * that point on — and strictly before any refresh this call makes on
+     * its way back to the caller. The caller (rewrite-action.ts) uses this
+     * to record commitment one layer below where its own await resolves, so
+     * a refresh that then rejects cannot hide a take that already landed. */
+    onCommitted?: (takeId: string) => void
+  ): Promise<string | null>;
   createSummaryTake(
     storyId: string,
     body: { nodeId: string; offset?: number; expected?: string },
@@ -844,15 +850,22 @@ export function createApi(
       if (done === null) return null;
       return versions.rememberPayload(decodeStoryResponse(done.story));
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {
-      await stream(
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+      const done = await stream(
         storyId,
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
         body,
         onDelta,
         signal
       );
+      if (done === null) return null;
+      if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
+      // The take is durable this instant — tell the caller before the
+      // confirming reload below, which can itself reject and otherwise
+      // swallow the fact that the take already landed.
+      onCommitted?.(done.nodeId);
       await loadVersionedStory(storyId);
+      return done.nodeId;
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       const done = await stream(

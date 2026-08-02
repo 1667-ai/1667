@@ -284,9 +284,16 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   // own row rather than riding along with the page rows above it.
   lines.push(status);
   addInlineHits([status], hitRows, liveHit, surfaceRows);
+  // The part-actions menu and the command palette each bind their own
+  // captured selection; paint whichever one is open so the writer can see
+  // exactly what a rewrite would touch.
   const menuSelection = state.actions?.selectionSpans;
-  if (menuSelection !== undefined && menuSelection.length > 0) {
-    lines = paintStorySelection(lines, menuSelection);
+  const paletteSelection = state.mode === "COMMANDS" ? state.commands?.selection?.spans : undefined;
+  const highlightSpans = menuSelection !== undefined && menuSelection.length > 0
+    ? menuSelection
+    : paletteSelection;
+  if (highlightSpans !== undefined && highlightSpans.length > 0) {
+    lines = paintStorySelection(lines, highlightSpans);
   }
   const full = options.width;
   let selectable: FrameComposition["selectable"] = null;
@@ -515,7 +522,7 @@ function renderPageComposer(state: StoryScreenState, view: StoryViewModel, width
     directingPart: composerPartNumber(state, view),
     caret: state.stream === null ? "focused" : "streaming",
     footerNotice: composerFooterNotice(state),
-    retaking: state.retakePrompt !== null,
+    promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
     narrow
@@ -628,7 +635,7 @@ function renderFullscreenComposer(
     directingPart: composerPartNumber(state, view),
     caret: state.stream === null ? "focused" : "streaming",
     footerNotice: composerFooterNotice(state),
-    retaking: state.retakePrompt !== null,
+    promptKind: state.retakePrompt?.intent.kind ?? null,
     scrollTop: state.composerScrollTop,
     focusDim: state.config.composeFocus === "on",
     narrow: width < 100
@@ -801,12 +808,14 @@ function renderStoryStatus(
   estimate: NextRequestEstimate
 ): FrameLine {
   const status = renderCanonicalStatus(state, view, width, narrow, estimate);
-  if (state.mode !== "COMPOSE" || state.retakePrompt === null) return status;
+  const prompt = state.mode === "COMPOSE" ? state.retakePrompt : null;
+  if (prompt === null) return status;
   const [modeBlock, ...rest] = status;
   if (modeBlock === undefined || modeBlock.role !== "background" || !modeBlock.text.includes("COMPOSE")) {
     return status;
   }
-  return [{ ...modeBlock, text: modeBlock.text.replace("COMPOSE", "RETAKE") }, ...rest];
+  const label = prompt.intent.kind === "rewrite" ? "REWRITE" : "RETAKE";
+  return [{ ...modeBlock, text: modeBlock.text.replace("COMPOSE", label) }, ...rest];
 }
 
 function actionHint(text: string, action: KeyAction, role: DisplayRole = "chrome"): FrameSegment {

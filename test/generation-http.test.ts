@@ -3,8 +3,15 @@ import test from "node:test";
 import {
   ABSENT_SETTINGS_V1,
 } from "../server/settings-v1-codec.js";
+import { rewriteNode } from "../server/generation-http.js";
+import { GenerationResultError } from "../server/errors.js";
+import { PromptCacheRuntime, LEGACY_PROMPT_CACHE_CONTEXT } from "../server/provider-cache-policy.js";
+import { attachProviderRuntime } from "../server/provider-runtime.js";
+import type { ProviderStoryRuntime } from "../server/story-mutation-runtime.js";
+import type { SettingsStore } from "../server/settings.js";
 import { sha256 } from "../server/story-format.js";
-import type { GenerationSettings, StoryPayload } from "../shared/types.js";
+import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import type { GenerationSettings, Story, StoryPayload } from "../shared/types.js";
 import {
   API_PROTOCOL_HEADERS,
   fetchWithApiProtocol
@@ -339,7 +346,7 @@ providerTest("generation HTTP: aborting a continuation does not commit a full ta
   assert.equal(saved.path.some((node) => node.genId === "abort-mid-stream"), false);
 });
 
-providerTest("generation HTTP: rewrite splices into the same node and keeps descendants", async (t) => {
+providerTest("generation HTTP: rewrite commits as a new take and keeps the source reachable as a sibling", async (t) => {
   const model = await fakeModel(t, (body, response) => {
     const messages = body.messages as Array<{ content: string }>;
     assert.match(messages.at(-1)!.content, /<rw-[a-f0-9]+-excerpt>/);
@@ -353,13 +360,24 @@ providerTest("generation HTTP: rewrite splices into the same node and keeps desc
   const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${root.id}/rewrite`, post({
     start, end: start + 3, instruction: "Change the color.", expected: "red"
   }));
-  assert.match(await response.text(), /"type":"done"/);
+  const events = await response.text();
+  assert.match(events, /"type":"done"/);
+  const takeId = /"type":"done","nodeId":"([^"]+)"/.exec(events)?.[1];
+  assert.ok(takeId);
+  assert.notEqual(takeId, root.id);
+
   const saved = await getStory(base, story.id);
-  assert.equal(saved.nodes.length, 2);
-  assert.equal(saved.path[0]!.id, root.id);
+  // The rewrite, the source it rewrote, and the child written under the
+  // source before the rewrite all survive as three nodes.
+  assert.equal(saved.nodes.length, 3);
+  assert.equal(saved.path.length, 1);
+  assert.equal(saved.path[0]!.id, takeId);
   assert.equal(saved.path[0]!.text, "The blue door opened.");
-  assert.equal(saved.path[1]!.text, "Dawn followed.");
-  assert.ok(saved.path[0]!.updatedAt);
+  // A freshly created take, never touched since — unlike the in-place splice
+  // this replaces, it carries no updatedAt.
+  assert.equal(saved.path[0]!.updatedAt, undefined);
+  const source = saved.nodes.find((node) => node.id === root.id);
+  assert.equal(source?.preview, "The red door opened.");
 });
 
 providerTest("generation HTTP: rewrite Fact selection scans through the target, not the active-line tail", async (t) => {
@@ -417,7 +435,7 @@ providerTest("generation HTTP: instructed passage rewrite preserves both semanti
   assert.equal(saved.path[0]!.text, "Before, storm-dark rain crossed the stones. Dawn followed.");
 });
 
-providerTest("generation HTTP: rewrite succeeds in place on a summary node", async (t) => {
+providerTest("generation HTTP: rewrite of a summary node commits as a new summary take", async (t) => {
   const base = await testApp(t, ABSENT_SETTINGS_V1);
   const story = await seededStory(base, "Opening.");
   const summaryResponse = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path[0]!.id }));
@@ -432,11 +450,149 @@ providerTest("generation HTTP: rewrite succeeds in place on a summary node", asy
   const rewrite = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${summary.id}/rewrite`, post({
     start: 0, end: expected.length, expected, instruction: "Reword the heading."
   }));
-  assert.match(await rewrite.text(), /"type":"done"/);
+  const rewriteEvents = await rewrite.text();
+  assert.match(rewriteEvents, /"type":"done"/);
+  const takeId = /"type":"done","nodeId":"([^"]+)"/.exec(rewriteEvents)?.[1];
+  assert.ok(takeId);
+  assert.notEqual(takeId, summaryId);
+
   const saved = await getStory(base, story.id);
-  const rewritten = saved.path.find((node) => node.id === summary.id)!;
+  // A plain inline summary is not a chapter summary — it takes the ordinary
+  // sibling-take path, not the in-place splice a chapter summary keeps.
+  const rewritten = saved.path.find((node) => node.id === takeId)!;
   assert.match(rewritten.text, /^placeholder/);
   assert.equal(rewritten.role, "summary");
+  assert.equal(saved.path.some((node) => node.id === summaryId), false);
+  assert.equal(saved.nodes.some((node) => node.id === summaryId), true);
+});
+
+// Issue #277 stage 1: a provider without assistant-prefill support must echo
+// the exact seam text back — precisely the step small models fail. These two
+// tests call `rewriteNode` directly (skipping the settings file a spawned
+// `testApp` reads from disk) because the no-prefill path is only reachable
+// through a runtime-attached capability that cannot survive that round trip.
+function noPrefillRewriteSettings(baseUrl: string): GenerationSettings {
+  return attachProviderRuntime(modelSettings(baseUrl), {
+    preset: "custom",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: { responseHeaderMs: 5_000, firstTokenMs: 5_000, idleMs: 5_000, totalMs: 20_000 },
+    allowInsecureHttp: true,
+    effort: "default",
+    sampling: EMPTY_SAMPLING_V2,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unsupported",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  }, true);
+}
+
+function seamRewriteStory(): { story: Story; nodeId: string; start: number; end: number; expected: string } {
+  const text = "The tavern keeper wiped the counter with a grey rag, then set it down slowly.";
+  const expected = "then set it down slowly.";
+  const start = text.indexOf(expected);
+  const nodeId = "seam-root";
+  return {
+    story: {
+      id: "seam-story",
+      title: "Seam",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      nodes: [{
+        id: nodeId,
+        parentId: null,
+        instruction: "Open.",
+        text,
+        model: "m",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        activeChildId: null
+      }],
+      activeRootId: nodeId,
+      tags: [],
+      recentNodeIds: [],
+      facts: [],
+      chapterBreaks: []
+    },
+    nodeId,
+    start,
+    end: start + expected.length,
+    expected
+  };
+}
+
+function stubRewriteStories(story: Story): ProviderStoryRuntime<"rewriteNode"> {
+  return {
+    loadForMutation: async () => story,
+    hydratePath: async () => {},
+    commitProviderEffect: async () => {
+      throw new Error("commitProviderEffect must not run once the seam contract fails");
+    }
+  } as unknown as ProviderStoryRuntime<"rewriteNode">;
+}
+
+function stubSettingsStore(settings: GenerationSettings): SettingsStore {
+  return {
+    loadGeneration: async () => ({ settings, promptCache: LEGACY_PROMPT_CACHE_CONTEXT })
+  } as unknown as SettingsStore;
+}
+
+providerTest("generation HTTP: a rewrite that fails the left seam points a struggling small model at plain regenerate", async (t) => {
+  const model = await fakeModel(t, (body, response) => {
+    const messages = body.messages as Array<{ content: string }>;
+    const prompt = messages.map((message) => message.content).join("\n");
+    assert.match(prompt, /-left>/, "expected the no-prefill contract to ask for an echoed left boundary");
+    // Never copies the left boundary — the failure mode small models show live.
+    stream(response, ["Something else entirely, not the boundary text."]);
+  });
+  const { story, nodeId, start, end, expected } = seamRewriteStory();
+
+  await assert.rejects(
+    rewriteNode(
+      story.id, nodeId, { start, end, expected, instruction: "Make it grimmer." },
+      stubRewriteStories(story), stubSettingsStore(noPrefillRewriteSettings(model.baseUrl)),
+      new PromptCacheRuntime(), () => {}, new AbortController().signal
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof GenerationResultError);
+      assert.equal(error.status, 502);
+      assert.match(error.message, /did not reconnect the replacement to the exact text before it/);
+      assert.match(error.message, /Smaller models often cannot complete this exact-boundary step/);
+      assert.match(error.message, /a plain regenerate \(a rewrite with no instruction\) is the reliable alternative/);
+      return true;
+    }
+  );
+});
+
+providerTest("generation HTTP: a rewrite that fails to sign off points a struggling small model at plain regenerate", async (t) => {
+  const model = await fakeModel(t, (body, response) => {
+    const messages = body.messages as Array<{ content: string }>;
+    const prompt = messages.map((message) => message.content).join("\n");
+    const left = /<(rw-[a-f0-9]+)-left>([\s\S]*?)<\/\1-left>/.exec(prompt);
+    assert.ok(left, "expected the no-prefill contract to ask for an echoed left boundary");
+    // Copies the left boundary correctly, but never signs off with the end
+    // marker — the selection reaches the end of the story, so there is no
+    // right boundary to echo either.
+    stream(response, [`${left![2]} new prose that never signs off`]);
+  });
+  const { story, nodeId, start, end, expected } = seamRewriteStory();
+
+  await assert.rejects(
+    rewriteNode(
+      story.id, nodeId, { start, end, expected, instruction: "Make it grimmer." },
+      stubRewriteStories(story), stubSettingsStore(noPrefillRewriteSettings(model.baseUrl)),
+      new PromptCacheRuntime(), () => {}, new AbortController().signal
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof GenerationResultError);
+      assert.equal(error.status, 502);
+      assert.match(error.message, /did not finish its replacement cleanly/);
+      assert.match(error.message, /Smaller models often cannot complete this exact-boundary step/);
+      assert.match(error.message, /a plain regenerate \(a rewrite with no instruction\) is the reliable alternative/);
+      return true;
+    }
+  );
 });
 
 providerTest("generation HTTP: autoname selects only always Facts when no scan context exists", async (t) => {

@@ -1,6 +1,6 @@
 import type { StoryNode, StoryPayload } from "../../shared/types.js";
 import { createAppendPlanWrap } from "./append-wrap.js";
-import { projectedAppendText } from "./stream-projection.js";
+import { projectedPart } from "./stream-projection.js";
 import { storyProseMeasure } from "./screens/story.js";
 import {
   storyPartWrapPlan,
@@ -11,6 +11,7 @@ import type { StoryFrameLayout } from "./story-frame-layout.js";
 import type { StoryScreenState, StreamView } from "./state.js";
 import {
   streamHasSubstantiveText,
+  streamMode,
   streamTrimmedText
 } from "./stream-text.js";
 import {
@@ -324,17 +325,21 @@ function* storyWrapPlans(input: PlanInput): Generator<StoryPartWrapPlan> {
   const { payload, measure } = input;
   const stream = input.stream?.live ?? null;
   const substantive = stream !== null && streamHasSubstantiveText(stream);
-  if (stream !== null && substantive && !stream.append && stream.parentId === null) {
+  // A rewrite targets a node already on the path, never a claimed new take —
+  // both new-take branches below must stay closed to it, or the node it splices
+  // into gets fabricated a second time as a virtual sibling.
+  if (stream !== null && substantive && streamMode(stream) === "take" && stream.parentId === null) {
     yield streamTakePlan(payload, stream, measure);
     return;
   }
 
   for (const node of payload.path) {
     const partStream = stream?.targetId === node.id ? stream : null;
-    // The projection already materialized this exact settled+streamed string;
-    // consume it instead of concatenating a second copy per delta batch.
-    const projected = partStream?.append === true && substantive
-      ? { ...node, text: projectedAppendText(payload, partStream, node) }
+    // The projection already materialized this exact settled+streamed node,
+    // text and attribution both; consume it instead of re-deriving a second
+    // copy per delta batch from the settled node's now-stale attribution.
+    const projected = partStream !== null && substantive && streamMode(partStream) !== "take"
+      ? projectedPart(payload, partStream, node)
       : node;
     yield storyPartWrapPlan(
       wrapInput(projected),
@@ -343,7 +348,7 @@ function* storyWrapPlans(input: PlanInput): Generator<StoryPartWrapPlan> {
       node.text.length,
       node
     );
-    if (stream !== null && substantive && !stream.append && node.id === stream.parentId) {
+    if (stream !== null && substantive && streamMode(stream) === "take" && node.id === stream.parentId) {
       yield streamTakePlan(payload, stream, measure);
       return;
     }

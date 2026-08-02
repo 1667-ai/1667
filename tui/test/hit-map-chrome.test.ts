@@ -7,13 +7,14 @@ import { hitAt, type HitTarget } from "../src/hit.js";
 import { GUTTER_VERBS } from "../src/screens/story/row-layout.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
 import { mouseToAction } from "../src/mouse-actions.js";
-import { createStoryViewModel } from "../src/model.js";
+import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import {
   beginSettingsRowEdit,
   initialSettingsOverlay,
   SETTINGS_ROW_IDS
 } from "../src/settings-overlay-model.js";
 import { settingsModelDiscoveryIdentity } from "../src/settings-model-discovery.js";
+import { currentPartActions, openActions } from "../src/story-actions.js";
 import {
   ACTIONS_FOOTER_ACTIONS, TAGS_FOOTER_ACTIONS, CHAPTERS_FOOTER_ACTIONS,
   COMMANDS_FOOTER_ACTIONS, FACTS_FOOTER_ACTIONS, LIBRARY_FOOTER_ACTIONS,
@@ -301,6 +302,33 @@ describe("hit map clickable chrome", () => {
       expect(clickText(frame, state, entry === "i" ? "esc nav" : "esc cancels"))
         .toEqual({ action: "cancel" });
     }
+  });
+
+  test("the composer footer is clickable while rewriting a highlighted passage", async () => {
+    // The rewrite counterpart of the retake case above — its own tri-state
+    // promptKind value, asserted nowhere else in this file.
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.stream = null;
+    const node = state.payload.path.find((candidate) => candidate.id === "p12")!;
+    const needle = "the brass compass";
+    const start = node.text.indexOf(needle);
+    const end = start + needle.length;
+    const span = { key: "p12:text", text: node.text, start, end } as const;
+    const index = rowIndexForNode(createStoryViewModel(state.payload), "p12");
+    openActions(state, index, node.text.slice(start, end), [span]);
+    state.actions!.cursor = currentPartActions(state).findIndex(({ id }) => id === "rewrite-selection");
+    await dispatch(resolveKey(key("return"), "ACTIONS"), state, source,
+      createWrapCache(), () => {}, async () => {}, () => {});
+
+    expect(state.mode).toBe("COMPOSE");
+    expect(state.retakePrompt?.intent.kind).toBe("rewrite");
+    const frame = render(state, 120, 30);
+    expect(plainLine(frame.find((line) => plainLine(line).includes("enter rewrites this passage"))!))
+      .not.toContain("…");
+    expect(clickText(frame, state, "enter rewrites this passage")).toEqual({ action: "send" });
+    expect(clickText(frame, state, "⇧enter newline")).toEqual({ action: "newline" });
+    expect(clickText(frame, state, "esc cancels")).toEqual({ action: "cancel" });
   });
 
   test("the fullscreen composer harvests its footer keys like the inline one", async () => {
