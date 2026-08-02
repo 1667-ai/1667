@@ -258,3 +258,23 @@ test("a trimmed fact body is named, because 1667 stores fact text exactly", () =
     fidelityReport(result.fidelity)
   );
 });
+
+test("a trimmed key is named, because spacing decides when a keyed fact activates", () => {
+  // A key is matched literally in the scanned text and normalization folds
+  // case but not spacing, so " storm " is a narrower matcher than "storm".
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{
+      enabled: true,
+      text: "The pass closes.",
+      displayName: "weather",
+      keys: [" storm ", "lantern"]
+    }]
+  }, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["storm", "lantern"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 key trimmed of surrounding whitespace"),
+    fidelityReport(result.fidelity)
+  );
+});

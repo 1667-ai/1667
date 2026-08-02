@@ -111,6 +111,7 @@ export function factsFromLorebook(
   let tagCutCount = 0;
   let keyedNoKeysCount = 0;
   let keysDroppedCount = 0;
+  let keysTrimmedCount = 0;
 
   const facts: FactInput[] = [];
 
@@ -206,6 +207,10 @@ export function factsFromLorebook(
       }
       seenKeys.add(normalizedKey);
 
+      // A key is matched literally inside the scanned text, and the match
+      // normalizes case but not spacing. So " storm " and "storm" activate at
+      // different moments, and trimming one into the other is a real change.
+      if (key !== keyCandidate) keysTrimmedCount += 1;
       keys.push(key);
     }
 
@@ -271,6 +276,11 @@ export function factsFromLorebook(
   }
   if (tagCutCount > 0) {
     fidelity.push(`${tagCutCount} ${countNoun(tagCutCount, "tag")} cut to 48 characters`);
+  }
+  if (keysTrimmedCount > 0) {
+    fidelity.push(
+      `${keysTrimmedCount} ${countNoun(keysTrimmedCount, "key")} trimmed of surrounding whitespace`
+    );
   }
   if (keysDroppedCount > 0) {
     fidelity.push(`${keysDroppedCount} ${countNoun(keysDroppedCount, "key")} dropped`);
