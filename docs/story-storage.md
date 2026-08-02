@@ -190,9 +190,11 @@ A World Info Entry uses different names for the same values.
 | Other `constant` values | Keyed activation |
 | `disable: true` | No Fact |
 
-A Fact is always in context or keyed on one list. So World Info secondary keys,
-insertion positions, firing probability, and recursion controls do not import.
-The Fidelity Report gives the number of Entries that lose each one.
+A Fact is always in context or keyed on one list, and a Fact key is literal.
+So these World Info mechanisms do not import: secondary keys, insertion
+positions, firing probability, recursion controls, timed effects, per-entry
+matching rules, and keys written as a regular expression. The Fidelity Report
+gives the number of Entries that lose each one.
 | `enabled: false` | No Fact |
 
 Memory becomes one always active Fact. The Fact tag is `memory`. Memory uses

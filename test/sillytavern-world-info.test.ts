@@ -149,3 +149,62 @@ test("an unknown JSON object names both archives it could have been", () => {
     /expected a NovelAI lorebook or a SillyTavern World Info file/u
   );
 });
+
+test("a regular expression key is dropped and named, not kept as literal text", () => {
+  // SillyTavern reads /pattern/flags as a regex. Kept as a literal key it would
+  // fire only on the pattern's own text, which is worse than not being there.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Weather",
+    content: "The pass closes.",
+    key: ["/storm(s|y)?/i", "snow"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["snow"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes(
+      "1 regular expression key dropped; a fact key is literal"
+    ),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("an entry whose keys are all regular expressions says it will not activate", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Weather",
+    content: "The pass closes.",
+    key: ["/storm/i"]
+  }])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("1 regular expression key dropped"), report);
+  assert.ok(report.includes("keyed entries have no keys and will not activate")
+    || report.includes("keyed entry has no keys and will not activate"), report);
+});
+
+test("delayed recursion counts as a recursion setting", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Delayed", content: "Second pass only.", key: ["k"], delayUntilRecursion: true },
+    { comment: "Depth", content: "Third pass only.", key: ["k2"], delayUntilRecursion: 3 }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("2 recursion settings omitted"), report);
+});
+
+test("timed effects and matching rules are named", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Sticky", content: "Stays a while.", key: ["a"], sticky: 3 },
+    { comment: "Cool", content: "Waits a while.", key: ["b"], cooldown: 2 },
+    { comment: "Exact", content: "Case matters.", key: ["c"], caseSensitive: true },
+    { comment: "Partial", content: "Substring matters.", key: ["d"], matchWholeWords: false }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("2 entries lost a timed effect"), report);
+  assert.ok(report.includes("2 entries lost a matching rule"), report);
+});

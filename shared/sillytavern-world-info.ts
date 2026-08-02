@@ -48,6 +48,9 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   let positionedEntries = 0;
   let chanceEntries = 0;
   let recursiveEntries = 0;
+  let regexKeys = 0;
+  let timedEntries = 0;
+  let matchRuleEntries = 0;
   const entries: Record<string, unknown>[] = [];
 
   for (const item of source) {
@@ -63,15 +66,40 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
       && item.probability < 100) {
       chanceEntries += 1;
     }
+    // `delayUntilRecursion` holds an entry back from the first scan, and it is
+    // a number as often as a boolean.
+    const delayed = item.delayUntilRecursion !== undefined
+      && item.delayUntilRecursion !== false
+      && item.delayUntilRecursion !== null;
     if (item.recursion === true || item.excludeRecursion === true
-      || item.preventRecursion === true) {
+      || item.preventRecursion === true || delayed) {
       recursiveEntries += 1;
     }
+    // sticky, cooldown, and delay hold an entry in or out of context for a
+    // number of turns. A Fact is judged fresh on every request.
+    if (isPositive(item.sticky) || isPositive(item.cooldown) || isPositive(item.delay)) {
+      timedEntries += 1;
+    }
+    // A Fact key matches case-insensitively on a whole key. An entry that asked
+    // for something else will fire at different moments.
+    if (item.caseSensitive === true || item.matchWholeWords === false) {
+      matchRuleEntries += 1;
+    }
+
+    // SillyTavern reads a key written as /pattern/flags as a regular
+    // expression. A Fact key is literal, so keeping one would leave a key that
+    // fires only on the pattern's own text. Drop it and say so.
+    const sourceKeys = Array.isArray(item.key) ? item.key : [];
+    const literalKeys = sourceKeys.filter((key) => {
+      if (typeof key !== "string" || !isRegexKey(key)) return true;
+      regexKeys += 1;
+      return false;
+    });
 
     entries.push({
       text: typeof item.content === "string" ? item.content : "",
       displayName: typeof item.comment === "string" ? item.comment : "",
-      keys: Array.isArray(item.key) ? item.key : [],
+      keys: literalKeys,
       forceActivation: item.constant === true,
       // World Info switches an entry off with `disable`; a Lorebook switches it
       // on with `enabled`. Read both so neither file loses the writer's choice.
@@ -102,12 +130,39 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
       `${recursiveEntries} recursion ${countNoun(recursiveEntries, "setting")} omitted`
     );
   }
+  if (regexKeys > 0) {
+    fidelity.push(
+      `${regexKeys} regular expression ${countNoun(regexKeys, "key")} dropped;`
+        + " a fact key is literal"
+    );
+  }
+  if (timedEntries > 0) {
+    fidelity.push(
+      `${timedEntries} ${countNoun(timedEntries, "entry", "entries")}`
+        + " lost a timed effect; a fact is judged on every request"
+    );
+  }
+  if (matchRuleEntries > 0) {
+    fidelity.push(
+      `${matchRuleEntries} ${countNoun(matchRuleEntries, "entry", "entries")}`
+        + " lost a matching rule; a fact key matches a whole key without case"
+    );
+  }
   fidelity.push("scan depth, order, and group weighting omitted");
 
   return {
     lorebook: { lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries, categories: [] },
     fidelity
   };
+}
+
+/** `/pattern/flags`, the form SillyTavern reads as a regular expression. */
+function isRegexKey(key: string): boolean {
+  return /^\/.+\/[dgimsuvy]*$/u.test(key);
+}
+
+function isPositive(value: unknown): boolean {
+  return typeof value === "number" ? value > 0 : value === true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
