@@ -20,7 +20,10 @@ const CONTINUE_CONTRACT = [
 
 export type ContinuationPromptEntry =
   | { category: "voice" | "facts"; turn: PromptTurn; partId?: never }
-  | { category: "note"; turn: PromptTurn; partId?: never; depth: number }
+  /** `partsAfterNote` is the placement the plan really used, which is the
+   *  requested depth clamped to the parts available. It is 0 when the note
+   *  precedes the request itself, a placement no stored depth can name. */
+  | { category: "note"; turn: PromptTurn; partId?: never; partsAfterNote: number }
   | { category: "recent" | "summary"; turn: PromptTurn; partId: string };
 
 type PartPromptEntry = Extract<ContinuationPromptEntry, { partId: string }>;
@@ -116,15 +119,11 @@ export function continuationPlan(
         }, partId: part.id }
       ];
     });
-  // Insertion index = max(0, partEntries.length - 2 * depth): each part is a
-  // user/assistant pair, so the index stays even and the entry right after
-  // the note is always a user turn. A depth past the available parts clamps
-  // to the start (right after the prelude); the clamped value is the depth
-  // this placement actually used, which the request viewer reports.
-  const requestedDepth = authorsNote?.depth ?? 0;
-  const insertionIndexRaw = partEntries.length - 2 * requestedDepth;
-  const insertionIndex = Math.max(0, insertionIndexRaw);
-  const effectiveDepth = insertionIndexRaw >= 0 ? requestedDepth : partEntries.length / 2;
+  // Each part is a user/assistant pair, so the index stays even and the entry
+  // right after the note is always a user turn. A depth past the available
+  // parts clamps to the start, right after the prelude.
+  const partsAfterNote = Math.min(authorsNote?.depth ?? 0, partEntries.length / 2);
+  const insertionIndex = partEntries.length - 2 * partsAfterNote;
   const entries: ContinuationPromptEntry[] = note === null
     ? [...prelude, ...partEntries]
     : [
@@ -141,7 +140,7 @@ export function continuationPlan(
               boundaryAfter: "none"
             }]
           },
-          depth: effectiveDepth
+          partsAfterNote
         },
         ...partEntries.slice(insertionIndex).map(sealPartEntry)
       ];

@@ -3,8 +3,7 @@ import {
   isValidAuthorsNoteDepth,
   MAX_AUTHORS_NOTE_CHARS,
   MAX_AUTHORS_NOTE_DEPTH,
-  normalizeAuthorsNote,
-  resolveAuthorsNoteDepth
+  normalizeAuthorsNote
 } from "../shared/authors-note.js";
 import {
   MAX_AUTHOR_BRIEF_CHARS,
@@ -35,6 +34,8 @@ import {
   parsePruneUnusedTakes,
   parseSwitchOptions
 } from "./service-input.js";
+import { authorBriefApplied } from "./story-author-brief.js";
+import { authorsNoteApplied } from "./story-authors-note.js";
 import { HASH_PATTERN } from "./story-format.js";
 import { patchFact } from "./story-facts.js";
 import { nodeRewriteId } from "./story-node-text.js";
@@ -133,9 +134,7 @@ const MUTATIONS: MutationRegistry = {
       const recovered = await plan.reconcileStory(
         service.stories,
         input.storyId,
-        (story) => (story.authorsNote ?? "") === input.note
-          && (input.depth === undefined
-            || resolveAuthorsNoteDepth(story.authorsNoteDepth) === input.depth)
+        (story) => authorsNoteApplied(story, input.note, input.depth)
       );
       return recovered ?? await service.setAuthorsNote(
         input.storyId,
@@ -167,7 +166,7 @@ const MUTATIONS: MutationRegistry = {
       const recovered = await plan.reconcileStory(
         service.stories,
         input.storyId,
-        (story) => (story.authorBrief ?? "") === input.brief
+        (story) => authorBriefApplied(story, input.brief)
       );
       return recovered ?? await service.setAuthorBrief(
         input.storyId,

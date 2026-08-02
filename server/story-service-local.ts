@@ -17,9 +17,8 @@ import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import { createFacts, deleteFact, patchFact } from "./story-facts.js";
-import { setAuthorsNote } from "./story-authors-note.js";
-import { resolveAuthorsNoteDepth } from "../shared/authors-note.js";
-import { setAuthorBrief } from "./story-author-brief.js";
+import { authorsNoteApplied, setAuthorsNote } from "./story-authors-note.js";
+import { authorBriefApplied, setAuthorBrief } from "./story-author-brief.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
   LocalStoryMutationMethod,
@@ -93,12 +92,7 @@ export class StoryServiceLocal {
         mutationRequest,
         "setAuthorsNote",
         (story) => {
-          // Clearing an already-clear note is unchanged regardless of the
-          // requested depth: a clear ignores depth, so nothing net changes.
-          if (normalized === "" && (story.authorsNote ?? "") === "") return STORY_UNCHANGED;
-          const depthUnchanged = depth === undefined
-            || resolveAuthorsNoteDepth(story.authorsNoteDepth) === depth;
-          if ((story.authorsNote ?? "") === normalized && depthUnchanged) return STORY_UNCHANGED;
+          if (authorsNoteApplied(story, normalized, depth)) return STORY_UNCHANGED;
           setAuthorsNote(story, normalized, depth);
         }
       );
@@ -128,7 +122,7 @@ export class StoryServiceLocal {
         mutationRequest,
         "setAuthorBrief",
         (story) => {
-          if ((story.authorBrief ?? "") === normalized) return STORY_UNCHANGED;
+          if (authorBriefApplied(story, normalized)) return STORY_UNCHANGED;
           setAuthorBrief(story, normalized);
         }
       );

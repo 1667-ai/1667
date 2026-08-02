@@ -159,7 +159,7 @@ test("continuation inserts one late Author's Note before the final part at every
     const noteIndex = noteIndexes[0]!;
     assert.equal(withNote.entries[noteIndex]!.turn.role, "system");
     assert.equal(withNote.entries[noteIndex + 1]!.turn.role, "user");
-    assert.equal((withNote.entries[noteIndex] as { depth: number }).depth, count === 0 ? 0 : 1);
+    assert.equal((withNote.entries[noteIndex] as { partsAfterNote: number }).partsAfterNote, count === 0 ? 0 : 1);
     assert.deepEqual(
       withNote.prompt.turns,
       withNote.entries.map((entry) => entry.turn)
@@ -203,7 +203,7 @@ test("continuation places the Author's Note deeper by depth, and clamps past the
     assert.equal(noteIndex, expectedIndex, `depth ${depth}`);
     assert.equal(plan.entries[noteIndex + 1]!.turn.role, "user");
     assert.equal(
-      (plan.entries[noteIndex] as { depth: number }).depth,
+      (plan.entries[noteIndex] as { partsAfterNote: number }).partsAfterNote,
       expectedEffectiveDepth,
       `depth ${depth} effective`
     );

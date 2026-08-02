@@ -360,7 +360,8 @@ export function textOwnsKeyboard(mode: AppMode, options: ResolveOptions = {}): b
 export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions = {}): ResolvedKey {
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, settingsSampling = false, commandsTags = false,
-    factEditor = false, settingsPicker = false, mapView = "path" } = options;
+    factEditor = false, authorsNoteEditor = false, settingsPicker = false,
+    mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
@@ -407,7 +408,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     // introducers, and reads as decrease/increase. Checked ahead of every
     // other EDITOR chord, including the plain `ctrl+-` undo alias below,
     // which answers a different modifier combination.
-    if (options.authorsNoteEditor === true && (key.meta || key.option)
+    if (authorsNoteEditor && (key.meta || key.option)
       && (name === "-" || name === "=")) {
       return { action: name === "-" ? "note-depth-decrease" : "note-depth-increase" };
     }

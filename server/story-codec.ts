@@ -5,7 +5,7 @@ import {
   type StoryFact,
   type StoryNode
 } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
 import { activePath } from "../shared/story-tree.js";
@@ -67,8 +67,7 @@ export async function encodeStoryBundle(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
-  // A depth with no note means nothing — never encode one without the other.
-  const authorsNoteDepth = authorsNote === undefined ? undefined : story.authorsNoteDepth;
+  const authorsNoteDepth = storedAuthorsNoteDepth(authorsNote, story.authorsNoteDepth);
   const authorBrief = story.authorBrief === undefined || story.authorBrief === ""
     ? undefined
     : boundedString(story.authorBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
@@ -218,8 +217,7 @@ export async function decodeStoryBundle(
     ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
       ? {}
       : { authorsNote: manifest.authorsNote }),
-    ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
-      || manifest.authorsNoteDepth === undefined
+    ...(storedAuthorsNoteDepth(manifest.authorsNote, manifest.authorsNoteDepth) === undefined
       ? {}
       : { authorsNoteDepth: manifest.authorsNoteDepth }),
     ...(manifest.authorBrief === undefined || manifest.authorBrief === ""

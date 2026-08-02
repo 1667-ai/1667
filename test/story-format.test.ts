@@ -496,6 +496,20 @@ test("story format: author note depth round-trips and never survives without its
   const encodedNoteless = await encodeStoryBundle(noteless, objects);
   assert.equal("authorsNoteDepth" in encodedNoteless, false);
   assert.equal("authorsNoteDepth" in buildStoryPayload(noteless), false);
+
+  // Absence already means the default placement, so an explicit default from
+  // another writer canonicalizes away instead of riding along for ever.
+  const explicitDefault = { ...base, authorsNote: "Steer it darker.", authorsNoteDepth: 1 };
+  const encodedDefault = await encodeStoryBundle(explicitDefault, objects);
+  assert.equal("authorsNoteDepth" in encodedDefault, false);
+  assert.equal("authorsNoteDepth" in buildStoryPayload(explicitDefault), false);
+  assert.equal(
+    "authorsNoteDepth" in (await decodeStoryBundle(
+      { ...encodedDefault, authorsNoteDepth: 1 },
+      dir
+    )).story,
+    false
+  );
 });
 
 test("story format: author brief round-trips, omits empty values, and enforces scalar bounds", async (t) => {

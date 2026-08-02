@@ -1,12 +1,12 @@
 import { countWords } from "../../shared/story-text.js";
 import {
   MAX_AUTHORS_NOTE_CHARS,
-  MAX_AUTHORS_NOTE_DEPTH,
   resolveAuthorsNoteDepth
 } from "../../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../../shared/author-brief.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { AppSource } from "./app.js";
+import { handleAuthorsNoteCommand } from "./authors-note-editor-policy.js";
 import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
 import { editorBufferAction } from "./editor-buffer-action.js";
@@ -52,15 +52,9 @@ export async function inlineEditorAction(
   if (host === null) return;
   const editor = host;
 
-  if ((resolved.action === "note-depth-decrease" || resolved.action === "note-depth-increase")
-    && editor.kind === "document" && editor.target.kind === "authors-note") {
-    const delta = resolved.action === "note-depth-decrease" ? -1 : 1;
-    editor.target.depth = Math.min(
-      MAX_AUTHORS_NOTE_DEPTH,
-      Math.max(1, editor.target.depth + delta)
-    );
-    return;
-  }
+  // Author's Note grammar owns the depth control, the same way the Fact
+  // header owns its own commands below.
+  if (handleAuthorsNoteCommand(resolved, editor)) return;
 
   // Fact header grammar owns its commands; the generic path stays target-agnostic.
   if (editor.kind === "fact" && handleFactEditorCommand(resolved, state, editor)) {
@@ -203,7 +197,8 @@ async function saveInlineEditor(
           state,
           editor,
           submitted,
-          submitted.trim().length === 0 ? "Author Brief cleared" : "Author Brief saved"
+          submitted.trim().length === 0 ? "Author Brief cleared" : "Author Brief saved",
+          true
         );
       });
     } catch (error) {
@@ -260,7 +255,8 @@ async function saveInlineEditor(
         state,
         editor,
         submitted,
-        creating ? "edited take created" : "take updated in place"
+        creating ? "edited take created" : "take updated in place",
+        true
       );
     });
     return;
@@ -295,7 +291,7 @@ async function saveInlineEditor(
         state.config = source.config;
       }
       context.cache.invalidate();
-      settleInlineSave(state, editor, submitted, "human take saved");
+      settleInlineSave(state, editor, submitted, "human take saved", true);
     });
     return;
   }
@@ -311,7 +307,9 @@ async function saveInlineEditor(
       adoptSameStoryPayload(state, payload);
       target.expected = text;
       context.cache.invalidate();
-      settleInlineSave(state, editor, submitted, "summary edited · kept until you re-summarize");
+      settleInlineSave(
+        state, editor, submitted, "summary edited · kept until you re-summarize", true
+      );
     });
     return;
   }
@@ -410,16 +408,18 @@ function confirmOverwrite(
 }
 
 /** Close only the exact draft that was acknowledged. Input typed while the
- * request was in flight remains visible and becomes the next save. A target
- * with a field beyond `composer.text` (the Author's Note depth) passes
- * `otherFieldsUnchanged` so a live edit to that field also keeps the draft
- * open, the same way a live text edit does. */
+ * request was in flight remains visible and becomes the next save. Every
+ * caller states `otherFieldsUnchanged`: a target that carries a field beyond
+ * `composer.text` (the Author's Note depth) reports whether that field moved
+ * while the request was in flight, so a live edit to it keeps the draft open
+ * the same way a live text edit does. It is not defaulted, because a target
+ * that gains such a field must not settle wrongly by saying nothing. */
 function settleInlineSave(
   state: RuntimeState,
   editor: DocumentEditorSession,
   submitted: string,
   toast: string,
-  otherFieldsUnchanged = true
+  otherFieldsUnchanged: boolean
 ): void {
   if (state.editor !== editor) return;
   if (editor.kind === "fact") return;

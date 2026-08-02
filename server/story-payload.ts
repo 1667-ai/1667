@@ -1,6 +1,6 @@
 import { activePath, computeRollups } from "../shared/story-tree.js";
 import type { NodeStub, Story, StoryPayload } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { nodeStubPreview, nodeStubTokens, nodeStubWords } from "./story-node-text.js";
@@ -14,8 +14,7 @@ export function buildStoryPayload(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
-  // A depth with no note means nothing — never send one without the other.
-  const authorsNoteDepth = authorsNote === undefined ? undefined : story.authorsNoteDepth;
+  const authorsNoteDepth = storedAuthorsNoteDepth(authorsNote, story.authorsNoteDepth);
   const authorBrief = story.authorBrief === undefined || story.authorBrief === ""
     ? undefined
     : boundedString(story.authorBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);

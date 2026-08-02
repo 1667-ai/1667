@@ -105,7 +105,7 @@ describe("next request viewer", () => {
     const noteEntry = estimate.plan.entries.find((entry) => entry.category === "note");
 
     expect(noteEntry).toBeDefined();
-    expect((noteEntry as { depth: number }).depth).toBe(3);
+    expect((noteEntry as { partsAfterNote: number }).partsAfterNote).toBe(3);
     expect(text).toContain("authors note · depth 3");
 
     // A depth past the available parts clamps to the start; the viewer shows
@@ -116,7 +116,7 @@ describe("next request viewer", () => {
     const clampedEstimate = nextRequestEstimate(clampedProjected.payload, clampedProjected.context);
     const clampedText = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
     const clampedNoteEntry = clampedEstimate.plan.entries.find((entry) => entry.category === "note")!;
-    const clampedDepth = (clampedNoteEntry as { depth: number }).depth;
+    const clampedDepth = (clampedNoteEntry as { partsAfterNote: number }).partsAfterNote;
     const clampedIndex = clampedEstimate.plan.entries.indexOf(clampedNoteEntry);
 
     expect(clampedDepth).toBeGreaterThan(0);
@@ -128,8 +128,22 @@ describe("next request viewer", () => {
     const againProjected = projectNextRequest(state);
     const againEstimate = nextRequestEstimate(againProjected.payload, againProjected.context);
     const againNoteEntry = againEstimate.plan.entries.find((entry) => entry.category === "note")!;
-    expect((againNoteEntry as { depth: number }).depth).toBe(clampedDepth);
+    expect((againNoteEntry as { partsAfterNote: number }).partsAfterNote).toBe(clampedDepth);
     expect(againEstimate.plan.entries.indexOf(againNoteEntry)).toBe(clampedIndex);
+  });
+
+  test("the request viewer names the placement when no story part follows the note", () => {
+    const { state } = harness();
+    state.payload = { ...state.payload, path: [], nodes: [], chapterBreaks: [] };
+    state.payload.authorsNote = "Keep the storm quiet until Maren opens the door.";
+    state.payload.authorsNoteDepth = 4;
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+
+    // No part follows the note, so no depth names this placement.
+    expect(text).toContain("authors note · before the request");
+    expect(text).not.toContain("depth 0");
   });
 
   test("a story Author Brief overrides the machine-wide brief in the voice block", () => {

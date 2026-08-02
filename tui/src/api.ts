@@ -17,6 +17,7 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
+import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/novelai-lorebook.js";
 
 import type {
@@ -548,24 +549,7 @@ export function createApi(
       }
     },
     loadStory: loadVersionedStory,
-    renameStory: (id, title) => mutateStoryPayload(
-      id,
-      "PATCH",
-      `/api/stories/${id}`,
-      { title }
-    ),
-    setAuthorsNote: (storyId, note, depth) => mutateStoryPayload(
-      storyId,
-      "PUT",
-      `/api/stories/${storyId}/authors-note`,
-      { note, ...(depth === undefined ? {} : { depth }) }
-    ),
-    setAuthorBrief: (storyId, brief) => mutateStoryPayload(
-      storyId,
-      "PUT",
-      `/api/stories/${storyId}/author-brief`,
-      { brief }
-    ),
+    ...storyFieldApi(mutateStoryPayload),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = await loadVersionedStory(id);

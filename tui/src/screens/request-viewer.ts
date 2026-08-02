@@ -274,9 +274,13 @@ function entrySource(entry: NextRequestEstimate["plan"]["entries"][number]): str
   const kind = entry.turn.blocks[0]?.kind ?? "source";
   if (entry.partId !== undefined) return `${kind} ${entry.partId}`;
   const label = kind.replaceAll("-", " ");
-  // The effective placement, which may be clamped short of the requested
-  // depth — the request viewer must show what the request actually sent.
-  return entry.category === "note" ? `${label} · depth ${entry.depth}` : label;
+  // The placement the request really used, which may be clamped short of the
+  // requested depth. No part follows the note when the story has none, and
+  // "depth 0" is not a depth the writer can set, so name that placement.
+  if (entry.category !== "note") return label;
+  return entry.partsAfterNote === 0
+    ? `${label} · before the request`
+    : `${label} · depth ${entry.partsAfterNote}`;
 }
 
 function titleLine(title: string, width: number): FrameLine {
