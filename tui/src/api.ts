@@ -10,12 +10,14 @@ import {
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
+  decodeTokenizeSamplingPhraseResponse,
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
   decodeModelServerCheckResponse,
   decodeStoryResponse,
 } from "./api-response-decoders.js";
+import type { PromptBiasEncoding } from "../../shared/sampling-capabilities.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import type { LorebookImport } from "../../shared/novelai-lorebook.js";
 
@@ -152,6 +154,9 @@ export interface StoryApi {
   discardPendingSettings(command: DiscardPendingSettingsCommand): Promise<SettingsMutationResult>;
   checkModelServer(settings: ProviderProbeTarget): Promise<ModelServerCheckResult>;
   probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
+  tokenizeSamplingPhrase(
+    request: { phrase: string; encoding: PromptBiasEncoding }
+  ): Promise<{ tokenIds: readonly number[] | null }>;
   discoverModels(
     settings: ProviderProbeTarget,
     signal?: AbortSignal
@@ -811,6 +816,12 @@ export function createApi(
       decodeContextWindowResponse,
       settings,
       WORKER_PROVIDER_CHECK_TIMEOUT_MS
+    ),
+    tokenizeSamplingPhrase: (phraseRequest) => request(
+      "POST",
+      "/api/settings/tokenize-phrase",
+      decodeTokenizeSamplingPhraseResponse,
+      phraseRequest
     ),
     discoverModels: (settings, signal) => request(
       "POST",

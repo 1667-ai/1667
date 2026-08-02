@@ -279,6 +279,13 @@ async function handleApi(
       await service.discoverModels(await jsonBody(), operation.signal)
     );
   }
+  if (head === "settings" && id === "tokenize-phrase" && method === "POST") {
+    return sendJson(
+      response,
+      200,
+      await service.tokenizeSamplingPhrase(await jsonBody())
+    );
+  }
 
   if (head === "stories" && id === undefined) {
     if (method === "GET") return sendJson(response, 200, await service.listStories());

@@ -24,6 +24,7 @@ import type {
   SettingsView
 } from "./settings-v2-types.js";
 import type { LorebookImport } from "./novelai-lorebook.js";
+import type { PromptBiasEncoding } from "./sampling-capabilities.js";
 
 import type {
   ListStoriesPageInput,
@@ -167,6 +168,14 @@ export interface WorkerMethodContract {
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
+  /** A pure local tokenization, not a provider probe: no network call, no
+   * credentials. It still crosses the worker boundary because the WASM
+   * tokenizer lives in server/ (see server/openai-prompt-tokenizer.ts) and
+   * must not load into the TUI's render process. */
+  tokenizeSamplingPhrase: {
+    input: { phrase: string; encoding: PromptBiasEncoding };
+    output: { tokenIds: readonly number[] | null };
+  };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
   importNovelAI: { input: { storyContainerJson: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
@@ -443,7 +452,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
-  "discoverModels",
+  "discoverModels", "tokenizeSamplingPhrase",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory",
 
   "rewriteNode", "createSummaryTake"

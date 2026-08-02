@@ -314,6 +314,8 @@ async function invokeReadOnly(
         requireRecord(input.settings, "settings"),
         signal
       );
+    case "tokenizeSamplingPhrase":
+      return await service.tokenizeSamplingPhrase(input);
     case "discoverModels":
       return await service.discoverModels(
         requireRecord(input.settings, "settings"),

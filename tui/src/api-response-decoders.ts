@@ -154,6 +154,18 @@ export function decodeContextWindowResponse(value: unknown): { contextWindow: nu
   };
 }
 
+export function decodeTokenizeSamplingPhraseResponse(
+  value: unknown
+): { tokenIds: readonly number[] | null } {
+  const response = responseRecord(value, "phrase tokenization");
+  const tokenIds = response.tokenIds;
+  if (tokenIds === null) return { tokenIds: null };
+  if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+    invalidField("phrase tokenization response", "tokenIds");
+  }
+  return { tokenIds };
+}
+
 export function decodeUnknownOutcomeStatusResponse(
   value: unknown
 ):
