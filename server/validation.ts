@@ -10,6 +10,13 @@ export function requireStringValue(value: unknown, label: string): string {
   return value;
 }
 
+export function requireNumberValue(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ServiceError(400, `${label} must be a number`);
+  }
+  return value;
+}
+
 export function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }

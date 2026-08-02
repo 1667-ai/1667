@@ -1,5 +1,6 @@
 import { StoryFormatError } from "./story-format-facts.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import {
   CREDENTIAL_ENV_PATTERN,
   CREDENTIAL_ENV_PATTERN_SOURCE,
@@ -30,7 +31,9 @@ export const MAX_SETTINGS_ID_SCALARS = 128;
 export const MAX_SETTINGS_NAME_SCALARS = 256;
 export const MAX_SETTINGS_REMOTE_ID_SCALARS = 512;
 export const MAX_SETTINGS_URL_SCALARS = 4_096;
-export const MAX_SETTINGS_AUTHOR_BRIEF_SCALARS = 65_536;
+/** The story-scoped Author Brief field shares this exact bound (`shared/author-brief.ts`),
+ * so a single value governs both — see `MAX_AUTHOR_BRIEF_CHARS`. */
+export const MAX_SETTINGS_AUTHOR_BRIEF_SCALARS = MAX_AUTHOR_BRIEF_CHARS;
 export const MAX_SETTINGS_TIMEOUT_MS = 86_400_000;
 export const MAX_SETTINGS_TOKEN_COUNT = 1_000_000_000;
 
