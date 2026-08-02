@@ -104,6 +104,8 @@ test("use_regex on an entry with no keys reports nothing; there was nothing to l
 });
 
 test("a leading V3 decorator is stripped from the fact text and named", () => {
+  // @@depth and @@role each carry their own reason, matching the granularity
+  // WORLD_INFO_LOSS_PHRASES already uses for the same mechanisms.
   const book = entriesFromCharacterBook({
     entries: [{
       content: "@@depth 0\n@@role assistant\nThe keeper never leaves the light.",
@@ -115,7 +117,63 @@ test("a leading V3 decorator is stripped from the fact text and named", () => {
   const report = fidelityReport([...result.fidelity, ...book.fidelity]);
 
   assert.equal(result.facts[0]?.text, "The keeper never leaves the light.");
+  assert.ok(report.includes("1 entry lost a position; a fact lands where 1667 puts facts"), report);
+  assert.ok(report.includes("1 entry lost a prompt role; a fact speaks as the system"), report);
+  assert.ok(!report.includes("V3 decorator"), report);
+});
+
+test("a decorator this reader does not classify falls to the generic reason", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@is_greeting 0\nThe keeper never leaves the light.", keys: ["keeper"] }]
+  });
+
+  const result = factsFromEntries(book.entries, 128);
+  const report = fidelityReport([...result.fidelity, ...book.fidelity]);
+
+  assert.equal(result.facts[0]?.text, "The keeper never leaves the light.");
   assert.ok(report.includes("1 V3 decorator read and removed from the fact text"), report);
+});
+
+test("an activation-timing decorator is named as a timed loss", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@activate_only_after 3\nBody.", keys: ["k"] }]
+  });
+
+  const report = fidelityReport(book.fidelity);
+
+  assert.ok(report.includes("1 entry lost a timed effect; a fact is judged on every request"), report);
+});
+
+test("@@activate makes a character_book entry always-active, the same as World Info", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@activate\nAlways in play.", keys: ["k"] }]
+  });
+
+  assert.equal(book.entries[0]?.forceActivation, true);
+  assert.equal(book.entries[0]?.text, "Always in play.");
+});
+
+test("@@dont_activate suppresses a character_book entry, matching the World Info reader", () => {
+  const book = entriesFromCharacterBook({
+    entries: [
+      { content: "@@dont_activate\nNot in play.", keys: ["k"] },
+      { content: "In play.", keys: ["j"] }
+    ]
+  });
+
+  assert.equal(book.entries.length, 1);
+  assert.equal(book.entries[0]?.text, "In play.");
+  assert.equal(book.sourceCount, 2);
+  assert.ok(fidelityReport(book.fidelity).includes("1 entry skipped for @@dont_activate"), fidelityReport(book.fidelity));
+});
+
+test("@@activate wins over @@dont_activate in a character_book entry, matching World Info", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@activate\n@@dont_activate\nIn play after all.", keys: ["k"] }]
+  });
+
+  assert.equal(book.entries.length, 1);
+  assert.equal(book.entries[0]?.forceActivation, true);
 });
 
 test("prose that only looks like a decorator once the entry starts elsewhere is untouched", () => {

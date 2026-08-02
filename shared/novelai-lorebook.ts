@@ -1,10 +1,12 @@
 import { countNoun } from "./fidelity.js";
 import { hasPngSignature, readPngTextChunk } from "./png-text-chunk.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
+import { isRecord } from "./types.js";
 import {
-  factsFromEntries,
+  importEntries,
   type LorebookEntry,
-  type LorebookImport
+  type LorebookImport,
+  type LorebookRead
 } from "./lorebook-entry.js";
 
 export const SUPPORTED_LOREBOOK_VERSION = 6;
@@ -52,14 +54,7 @@ export function parseLorebookArchive(bytes: Uint8Array): unknown {
 /** Read a NovelAI Lorebook: the `lorebookVersion` check and the
  * category→displayName resolution, turned into the canonical entry shape the
  * one Entry Mapping reads. */
-export interface NovelAiEntries {
-  readonly entries: readonly LorebookEntry[];
-  readonly fidelity: readonly string[];
-  /** Entries the file held, including any this reader could not read. */
-  readonly sourceCount: number;
-}
-
-export function entriesFromNovelAiLorebook(value: unknown): NovelAiEntries {
+export function entriesFromNovelAiLorebook(value: unknown): LorebookRead {
   if (!isRecord(value)) {
     throw new Error("Lorebook JSON must be an object.");
   }
@@ -122,21 +117,12 @@ export function entriesFromNovelAiLorebook(value: unknown): NovelAiEntries {
 
 /** Turn a parsed Lorebook into Facts, bounded by the room the story has left.
  *
- * A thin wrapper over `entriesFromNovelAiLorebook` and `factsFromEntries`,
- * kept for the callers that hand this a raw NovelAI Lorebook value directly. */
+ * A thin wrapper over `entriesFromNovelAiLorebook` and `importEntries`, kept
+ * for the callers that hand this a raw NovelAI Lorebook value directly. */
 export function factsFromLorebook(
   value: unknown,
   room: number,
   bodyBudget?: number
 ): LorebookImport {
-  const read = entriesFromNovelAiLorebook(value);
-  const imported = factsFromEntries(read.entries, room, bodyBudget, read.sourceCount);
-  return {
-    facts: imported.facts,
-    fidelity: [...imported.fidelity, ...read.fidelity]
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return importEntries(entriesFromNovelAiLorebook(value), room, bodyBudget);
 }

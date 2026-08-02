@@ -55,6 +55,7 @@ import { setAuthorsNote } from "./story-authors-note.js";
 import { factsFromArchive } from "../shared/archive-import.js";
 import { parseLorebookArchive } from "../shared/novelai-lorebook.js";
 import type { LorebookImport } from "../shared/lorebook-entry.js";
+import { planCardImport, type CardImportPlan } from "../shared/card-import.js";
 import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 
 import type { CreationMethod } from "./story-creation-record.js";
@@ -787,6 +788,33 @@ export class StoryService extends StoryServiceRuntime {
     return { payload, importResult };
   }
 
+  async importCard(
+    storyId: string,
+    cardBytes: Uint8Array,
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload; plan: CardImportPlan }> {
+    this.ensureOpen();
+    if (cardBytes.byteLength > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    // Loaded first, unlike a lorebook, because the plan itself is bounded by
+    // the room this load produces: the Character Facts and the
+    // character_book Facts alike, not the character_book alone.
+    const story = await this.stories.load(storyId);
+    const room = MAX_FACTS - story.facts.length;
+    const plan = planCardImport(cardBytes, room);
+    // A card can hold nothing this story can take: no room left for even one
+    // Fact. That is a report, not a failure, and `createFacts` already
+    // answers `false` (-> STORY_UNCHANGED) for a request that asks for what
+    // already holds.
+    const payload = await this.createFact(
+      storyId,
+      { facts: [...plan.facts] },
+      undefined,
+      mutationRequest
+    );
+    return { payload, plan };
+  }
 
   async continueStory(
     id: string,

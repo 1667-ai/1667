@@ -20,9 +20,9 @@ export function validateWorkerRequestSize(
   protocolVersion?: number
 ): void {
   const input = requireRecord(value, `${method} input`);
-  if (method === "importLorebook") {
-    // The only import whose body is bytes rather than text.
-    const bytes = input.archiveBytes;
+  if (method === "importLorebook" || method === "importCard") {
+    // The only imports whose body is bytes rather than text.
+    const bytes = method === "importLorebook" ? input.archiveBytes : input.cardBytes;
     const byteLength = bytes instanceof Uint8Array ? bytes.byteLength : 0;
     if (byteLength > MAX_IMPORT_BYTES) {
       throw new ServiceError(413, "Request body too large");
@@ -153,6 +153,7 @@ function logicalRequestBody(
     case "importNovelAI":
     case "importScenario":
     case "importLorebook":
+    case "importCard":
       return undefined;
 
   }

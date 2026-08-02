@@ -140,7 +140,23 @@ The Fidelity Report names each one:
 | `selective` | The Fact has no AND/NOT key logic |
 | `case_sensitive` | The Fact key matches a whole key and ignores letter case |
 | `use_regex: true` | The Fact key is literal text, not a pattern; the entry's keys do not import |
-| A leading `@@decorator` line in `content` | The line is removed from the Fact text; 1667 does not act on it |
+| A leading `@@decorator` line in `content` | The line is removed from the Fact text |
+
+Every leading `@@decorator` line is removed from the Fact text. Most are read
+only to be removed and named in the Fidelity Report — `@@depth` reports the
+same way a `position`, `insertion_order`, or `priority` field does, `@@role`
+reports that the entry lost a prompt role, and the activation-timing
+decorators (`@@activate_only_after`, `@@activate_only_every`,
+`@@keep_activate_after_match`, `@@dont_activate_after_match`) report a lost
+timed effect. Any other decorator is still named, generically.
+
+`@@activate` and `@@dont_activate` are acted on, the same way
+[`1667 import-lorebook`](#related-commands) acts on them in a SillyTavern
+World Info file: `@@activate` makes the entry an always-active Fact, and
+`@@dont_activate` keeps the entry out of the story entirely, unless
+`@@activate` is also present, in which case `@@activate` wins. Only the exact
+control line is honored; a decorator this converter does not recognize, or a
+malformed one, leaves the prose without deciding activation.
 
 An entry the converter cannot read at all — for example, an array element that
 is not an object — still counts toward "entries read." It does not silently
@@ -179,12 +195,17 @@ line, word, and Unicode-safe boundaries. It does not truncate selected text.
 - Maximum card import request size: 1 MB
 
 The 128-Fact limit and the 1 MB request limit apply to the Character Facts and
-the `character_book` Facts together. The Character Facts import in full, or
-the converter refuses the card. The converter drops `character_book` entries
-that do not fit the remaining room, starting from the end of the list. The
-Fidelity Report gives the dropped count.
+the `character_book` Facts together. A card whose own text needs more than 128
+Facts is refused outright — that many Facts do not fit any story, so shortening
+the text is the only fix. Within that ceiling, the Character Facts are the
+first claim on the room the target story has left; the `character_book` gets
+whatever room and request budget remain, dropping entries from the end of the
+list if it does not all fit. If the story's remaining room is smaller than the
+Character Facts alone, the Character Facts themselves are trimmed from the
+end, the same way. The Fidelity Report gives the dropped count either way.
 
-The selected story must have room for the new Facts.
+The selected story must have room for at least one new Fact, or nothing
+imports and the report says so.
 
 ## Related commands
 

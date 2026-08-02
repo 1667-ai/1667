@@ -1,5 +1,7 @@
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 import type { LorebookEntry } from "./lorebook-entry.js";
+import { readLeadingDecorators } from "./entry-decorators.js";
+import { isRecord } from "./types.js";
 
 /** A `character_book` can hold far more entries than a story has room for. The
  * Entry Mapping bounds the Facts; this bounds the reading that gets there. */
@@ -18,10 +20,13 @@ type CharacterBookLoss =
   | "unreadable"
   | "secondaryKeys"
   | "positioned"
+  | "role"
+  | "timed"
   | "selective"
   | "caseSensitive"
   | "useRegex"
-  | "decorated";
+  | "decorated"
+  | "refused";
 
 const CHARACTER_BOOK_LOSS_PHRASES: LossPhrases<CharacterBookLoss> = {
   unreadable: (count) => `${count} ${countNoun(count, "entry", "entries")} could not be read`,
@@ -29,14 +34,32 @@ const CHARACTER_BOOK_LOSS_PHRASES: LossPhrases<CharacterBookLoss> = {
     `${count} ${countNoun(count, "entry", "entries")} lost secondary keys; a fact keys on one list`,
   positioned: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost a position; a fact lands where 1667 puts facts`,
+  role: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")}`
+      + " lost a prompt role; a fact speaks as the system",
+  timed: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")} lost a timed effect; a fact is judged on every request`,
   selective: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost selective matching; a fact has no AND/NOT logic`,
   caseSensitive: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} lost case-sensitive matching; a fact key ignores letter case`,
   useRegex: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} marked their keys as a regular expression; a fact key is literal`,
-  decorated: (count) => `${count} V3 ${countNoun(count, "decorator")} read and removed from the fact text`
+  decorated: (count) => `${count} V3 ${countNoun(count, "decorator")} read and removed from the fact text`,
+  refused: (count) => `${count} ${countNoun(count, "entry", "entries")} skipped for @@dont_activate`
 };
+
+/** `@@depth` and `@@role` are named individually; these four are the V3
+ * spec's activation-timing family — they gate an entry by message count or
+ * repeat match, which a Fact has no memory for and is judged on every
+ * request. Anything else read from a decorator line falls to the generic
+ * `decorated` reason, so an unrecognized one is still named. */
+const TIMING_DECORATORS: ReadonlySet<string> = new Set([
+  "@@activate_only_after",
+  "@@activate_only_every",
+  "@@keep_activate_after_match",
+  "@@dont_activate_after_match"
+]);
 
 /**
  * Turn a Character Card `character_book` into the Lorebook entry shape the
@@ -48,6 +71,11 @@ const CHARACTER_BOOK_LOSS_PHRASES: LossPhrases<CharacterBookLoss> = {
  * own literal list, so those mechanisms are counted and named rather than
  * approximated into something that would fire at the wrong time, or not at
  * all.
+ *
+ * V3 decorators are honoured the same way SillyTavern World Info honours
+ * them: `@@activate` and `@@dont_activate` decide whether the entry arrives
+ * at all, so the same suppressed entry behaves the same way whether it
+ * arrives as a World Info export or inside the V3 card it was written in.
  */
 export function entriesFromCharacterBook(value: unknown): CharacterBookEntries {
   const source = isRecord(value) && Array.isArray(value.entries) ? value.entries : [];
@@ -69,30 +97,65 @@ export function entriesFromCharacterBook(value: unknown): CharacterBookEntries {
     }
     const converted = convertCharacterBookEntry(item);
     losses.push(...converted.losses);
-    entries.push(converted.entry);
+    if (converted.entry !== null) entries.push(converted.entry);
   }
 
   return { entries, sourceCount: source.length, fidelity: lossLines(losses, CHARACTER_BOOK_LOSS_PHRASES) };
 }
 
 interface ConvertedEntry {
-  readonly entry: LorebookEntry;
+  readonly entry: LorebookEntry | null; // null when @@dont_activate refused it
   readonly losses: readonly CharacterBookLoss[]; // repeats allowed, one per occurrence
 }
 
 function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntry {
   const losses: CharacterBookLoss[] = [];
 
+  const decorated = readLeadingDecorators(typeof item.content === "string" ? item.content : "");
+  let depthDecorator = false;
+  let roleDecorator = false;
+  let timingDecorator = false;
+  let otherDecorator = false;
+  for (const line of decorated.decorators) {
+    const name = decoratorName(line);
+    if (name === "@@depth") depthDecorator = true;
+    else if (name === "@@role") roleDecorator = true;
+    else if (TIMING_DECORATORS.has(name)) timingDecorator = true;
+    else otherDecorator = true;
+  }
+  if (depthDecorator) losses.push("positioned");
+  if (roleDecorator) losses.push("role");
+  if (timingDecorator) losses.push("timed");
+  if (otherDecorator) losses.push("decorated");
+
+  // Decide whether the entry arrives at all before naming what a field would
+  // have lost, the same order World Info reads in: a mechanism an entry
+  // never got to use is not a loss, and reporting one for an entry that
+  // produced no Fact makes every count untrustworthy. Only the two exact
+  // control lines are acted on; `@@activate` wins when both appear, and
+  // anything else — including a malformed one, like `@@activate note` — is
+  // still a control line and still leaves the prose, but does not get to
+  // decide activation on a guess.
+  const forced = decorated.decorators.includes("@@activate");
+  if (!forced && decorated.decorators.includes("@@dont_activate")) {
+    losses.push("refused");
+    return { entry: null, losses };
+  }
+
   if (Array.isArray(item.secondary_keys) && item.secondary_keys.length > 0) {
     losses.push("secondaryKeys");
   }
   // `insertion_order` is required by the spec, so this fires on nearly every
   // entry. That is honest: 1667 never keeps an entry's place in the prompt,
-  // whichever of these three fields asked for one.
+  // whichever of these three fields — or the `@@depth` decorator above —
+  // asked for one.
   if (
-    (item.position !== undefined && item.position !== null)
-    || (item.insertion_order !== undefined && item.insertion_order !== null)
-    || (item.priority !== undefined && item.priority !== null)
+    !depthDecorator
+    && (
+      (item.position !== undefined && item.position !== null)
+      || (item.insertion_order !== undefined && item.insertion_order !== null)
+      || (item.priority !== undefined && item.priority !== null)
+    )
   ) {
     losses.push("positioned");
   }
@@ -108,9 +171,6 @@ function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntr
     keys = [];
   }
 
-  const decorated = readLeadingDecorators(typeof item.content === "string" ? item.content : "");
-  if (decorated.decorators.length > 0) losses.push("decorated");
-
   let displayName = "";
   if (typeof item.name === "string" && item.name.trim().length > 0) {
     displayName = item.name;
@@ -123,32 +183,19 @@ function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntr
       text: decorated.content,
       displayName,
       keys,
-      forceActivation: item.constant === true,
+      forceActivation: item.constant === true || forced,
       enabled: item.enabled !== false
     },
     losses
   };
 }
 
-/** Strip leading `@@decorator value` lines from `content`, the way the spec's
- * Decorators section describes: a decorator is a line starting with `@@` that
- * ends at a newline, and the newline after the run of decorators is trimmed
- * too. This reads the lines only to remove them; it does not act on any
- * decorator's meaning, which 1667 has no mechanism for. */
-function readLeadingDecorators(content: string): {
-  readonly decorators: readonly string[];
-  readonly content: string;
-} {
-  const lines = content.split("\n");
-  const decorators: string[] = [];
-  let index = 0;
-  while (index < lines.length && lines[index]!.startsWith("@@")) {
-    decorators.push(lines[index]!);
-    index += 1;
-  }
-  return { decorators, content: lines.slice(index).join("\n") };
+/** The decorator's name, ignoring any `value` after it: `@@depth 0` and
+ * `@@depth` are the same decorator with and without an argument. An
+ * argument-less control like `@@activate` is matched by its exact full
+ * line instead, so a malformed one like `@@activate note` does not count. */
+function decoratorName(line: string): string {
+  const match = /^@@[\w-]+/u.exec(line);
+  return match === null ? line : match[0];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

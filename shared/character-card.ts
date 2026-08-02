@@ -2,6 +2,7 @@ import {
   MAX_FACTS,
   MAX_FACT_TEXT_CHARS,
   MAX_IMPORT_BYTES,
+  isRecord,
   type FactInput
 } from "./types.js";
 import {
@@ -24,8 +25,8 @@ export interface CharacterCardCore {
    * only carries the four core fields through to a Fact. */
   characterBook?: unknown;
   /** Fidelity Report lines for V3 fields this converter does not import.
-   * Present only for a V3 card. */
-  ignoredFields?: readonly string[];
+   * Empty for a V1 or V2 card, which has no such fields to name. */
+  readonly fidelity: readonly string[];
 }
 
 export interface CharacterCardSections {
@@ -40,11 +41,8 @@ interface NamedSection {
   text: string;
 }
 
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MACROS = /\{\{(char|user)\}\}/gi;
 const MAX_COMBINED_FACT_TEXT_CHARS = MAX_FACTS * MAX_FACT_TEXT_CHARS;
-const textEncoder = new TextEncoder();
 
 export function parseCharacterCard(bytes: Uint8Array): CharacterCardCore {
   if (bytes.byteLength === 0) throw new Error("Character card file is empty.");
@@ -95,11 +93,6 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
     throw new Error(`Selected character text needs more than ${MAX_FACTS} facts; shorten it before importing.`);
   }
   return packed.map((group) => ({ tag: "Character", text: renderFact(name, group) }));
-}
-
-/** Exact UTF-8 size of the body sent by api.createFact for a card import. */
-export function factImportRequestBytes(facts: readonly FactInput[]): number {
-  return textEncoder.encode(JSON.stringify({ facts })).byteLength;
 }
 
 function parsePngCard(bytes: Uint8Array): CharacterCardCore {
@@ -194,9 +187,10 @@ function normalizeCard(value: unknown): CharacterCardCore {
     personality,
     scenario,
     // `character_book` is a V2 and V3 field; a V1 card has no `data` wrapper
-    // and no such concept.
+    // and no such concept. Its absence is meaningful, so it stays optional
+    // rather than joining `fidelity` below.
     ...(version !== 1 && data.character_book !== undefined ? { characterBook: data.character_book } : {}),
-    ...(version === 3 ? { ignoredFields: ignoredV3Fields(data) } : {})
+    fidelity: version === 3 ? ignoredV3Fields(data) : []
   };
 }
 
@@ -338,24 +332,6 @@ function renderFact(name: string, sections: readonly NamedSection[]): string {
   return [`Name: ${name}`, ...sections.map((section) => `${section.label}:\n${section.text}`)].join("\n\n");
 }
 
-function decodeBase64(source: string): Uint8Array {
-  const encoded = source.trim();
-  const maxEncoded = Math.ceil(MAX_CHARACTER_CARD_JSON_BYTES / 3) * 4;
-  if (encoded.length === 0 || encoded.length > maxEncoded || !BASE64.test(encoded)) {
-    throw new Error("Character card PNG contains invalid or oversized Base64 metadata.");
-  }
-  let decoded: string;
-  try {
-    decoded = atob(encoded);
-  } catch {
-    throw new Error("Character card PNG contains invalid Base64 metadata.");
-  }
-  if (decoded.length > MAX_CHARACTER_CARD_JSON_BYTES) {
-    throw new Error("Character card data exceeds the 1 MB limit.");
-  }
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
-}
-
 function rejectUnsupportedContainer(bytes: Uint8Array): void {
 
   if (equalsAscii(bytes, 0, 4, "RIFF") && equalsAscii(bytes, 8, 12, "WEBP")) {
@@ -370,33 +346,12 @@ function rejectUnsupportedContainer(bytes: Uint8Array): void {
   }
 }
 
-function ascii(bytes: Uint8Array, start: number, end: number): string {
-  let result = "";
-  for (let index = start; index < end; index += 1) {
-    const byte = bytes[index]!;
-    if (byte > 127) throw new Error("Character card PNG metadata is not valid ASCII.");
-    result += String.fromCharCode(byte);
-  }
-  return result;
-}
-
-function findByte(bytes: Uint8Array, value: number, start: number, end: number): number {
-  for (let index = start; index < end; index += 1) {
-    if (bytes[index] === value) return index;
-  }
-  return -1;
-}
-
 function equalsAscii(bytes: Uint8Array, start: number, end: number, expected: string): boolean {
   if (end - start !== expected.length) return false;
   for (let index = 0; index < expected.length; index += 1) {
     if (bytes[start + index] !== expected.charCodeAt(index)) return false;
   }
   return true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function validateText(value: string, label: string): void {

@@ -624,6 +624,17 @@ async function handleApi(
       })
     );
   }
+  if (head === "stories" && id !== undefined && sub === "import-card" && method === "POST") {
+    const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);
+    return sendJson(
+      response,
+      200,
+      await mutate("importCard", {
+        storyId: id,
+        cardBytes: rawBuffer
+      })
+    );
+  }
 
   if (head === "stories" && id !== undefined && sub === "autoname" && method === "POST") {
     const expectedTitle = requireStringValue(

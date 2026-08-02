@@ -1,6 +1,5 @@
 import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
-import { MAX_FACTS, type StorySummary } from "../../shared/types.js";
-import { planCardImport } from "./card-import.js";
+import type { StorySummary } from "../../shared/types.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { selectStory } from "./story-selector.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
@@ -62,11 +61,10 @@ export async function runCardImport(
     for (const file of command.files) {
       try {
         const bytes = await readImportBytes(file);
-        // Room is read fresh for each file, because an earlier file in this
-        // same run can already have used up the story's space.
-        const current = await backend.api.loadStory(story.id);
-        const plan = planCardImport(bytes, MAX_FACTS - current.facts.length);
-        await backend.api.createFact(story.id, { facts: [...plan.facts] });
+        // The service loads the story and computes its own room, fresh for
+        // each file, the same way `importLorebook` does — an earlier file in
+        // this same run can already have used up the story's space.
+        const { plan } = await backend.api.importCard(story.id, bytes);
         errorOutput.write(`${plain(file)}: ${fidelityReport(plan.fidelity)}\n`);
         const skipped = plan.skipped.length === 0
           ? ""

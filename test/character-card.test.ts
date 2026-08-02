@@ -2,11 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MAX_CHARACTER_CARD_JSON_BYTES,
-  factImportRequestBytes,
   factsFromCharacterCard,
   parseCharacterCard
 } from "../shared/character-card.js";
-import { MAX_FACT_TEXT_CHARS } from "../shared/types.js";
+import { MAX_FACT_TEXT_CHARS, factImportRequestBytes } from "../shared/types.js";
 
 const encoder = new TextEncoder();
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -47,7 +46,8 @@ test("character cards parse V1 and V2 JSON with strict core fields", () => {
     name: "Sélène",
     description: "Moon keeper 🌙",
     personality: "Patient",
-    scenario: "A winter observatory"
+    scenario: "A winter observatory",
+    fidelity: []
   });
 
   const v2 = parseCharacterCard(jsonBytes(v2Card()));
@@ -56,7 +56,8 @@ test("character cards parse V1 and V2 JSON with strict core fields", () => {
     name: "Mira",
     description: "A cartographer.",
     personality: "Exacting but kind.",
-    scenario: "At the glass coast."
+    scenario: "At the glass coast.",
+    fidelity: []
   });
 
   assert.throws(() => parseCharacterCard(jsonBytes([])), /must be an object/);
@@ -112,7 +113,7 @@ test("a V3 card is read from JSON and its spec_version minor is forward-compatib
     description: "A cartographer.",
     personality: "Exacting but kind.",
     scenario: "At the glass coast.",
-    ignoredFields: []
+    fidelity: []
   });
 
   // "3.1" parses as a float bigger than 3.0, which the spec's own
@@ -152,7 +153,7 @@ test("a V3 card names the fields it does not import", () => {
     creator: "someone"
   })));
 
-  assert.deepEqual(v3.ignoredFields, [
+  assert.deepEqual(v3.fidelity, [
     "4 greetings not imported",
     "example messages not imported",
     "2 assets not imported",
@@ -166,7 +167,7 @@ test("a V3 card names the fields it does not import", () => {
 
   const minimal = parseCharacterCard(jsonBytes(v3Card()));
   // Nothing beyond the four core fields is present, so nothing is named.
-  assert.deepEqual(minimal.ignoredFields, []);
+  assert.deepEqual(minimal.fidelity, []);
 });
 
 test("a V3 card carries its character_book through for the caller to map", () => {
@@ -186,8 +187,9 @@ test("a V2 card also carries its character_book through, the same as V3", () => 
     character_book: { entries: [{ content: "Lore.", keys: ["k"] }] }
   })));
   assert.deepEqual(v2.characterBook, { entries: [{ content: "Lore.", keys: ["k"] }] });
-  // V2 has no ignored-field report; that accounting is V3-specific.
-  assert.equal("ignoredFields" in v2, false);
+  // V2 has no ignored-field report; that accounting is V3-specific, so the
+  // field is present (it is never optional) but empty.
+  assert.deepEqual(v2.fidelity, []);
 });
 
 test("a V3 PNG prefers the ccv3 chunk over a chara fallback", () => {
