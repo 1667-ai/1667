@@ -1,6 +1,6 @@
 import { countWords } from "../../shared/story-text.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
-import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
+import { activeHumanAttribution, attributionAfterHumanEdit, attributionAfterReplacement } from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -52,6 +52,7 @@ const EDITED = DEMO_EDITED_AT;
 
 export const DEMO_CONTINUE_TEXT = " while the compass needle scratched one small circle in the wood.";
 export const DEMO_GENERATED_TEXT = " The lantern flame bent toward the compass, though no door had opened.";
+export const DEMO_REWRITE_TEXT = "the lantern's flame steadied and held";
 export interface DemoController {
   payload(): StoryPayload;
   switchTo(nodeId: string, options?: { stopAtNode?: boolean }): StoryPayload;
@@ -67,6 +68,11 @@ export interface DemoController {
   createEditedTake(sourceNodeId: string, instruction: string, text: string): StoryPayload;
   addSummaryTake(text: string): StoryPayload;
   editNode(nodeId: string, patch: { instruction?: string; text?: string }): StoryPayload;
+  /** Splice [start, end) with a model replacement, exactly the attribution
+   *  shape `applyRewrite` (server/story-provider-effect.ts) commits — never
+   *  the human-edit path `editNode` uses, which would credit the writer with
+   *  words the model wrote. */
+  rewriteNode(nodeId: string, start: number, end: number, replacement: string): StoryPayload;
   deleteNode(nodeId: string, expectedSubtreeCount: number): StoryPayload;
   pruneUnusedTakes(expected: PruneUnusedTakesRequest): StoryPayload;
   putBookmark(nodeId: string, name: string, status: TagStatus): StoryPayload;
@@ -191,6 +197,17 @@ export function createDemoController(dense = false): DemoController {
         node.attribution = attributionAfterHumanEdit(node.attribution, node.text, patch.text);
         node.text = patch.text;
       }
+      node.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
+    rewriteNode(nodeId, start, end, replacement) {
+      const node = story.nodes.find((candidate) => candidate.id === nodeId);
+      if (node === undefined) throw new Error(`Unknown demo node: ${nodeId}`);
+      const originalText = node.text;
+      node.attribution = attributionAfterReplacement(
+        activeHumanAttribution(node), start, end, replacement.length, originalText.length
+      );
+      node.text = originalText.slice(0, start) + replacement + originalText.slice(end);
       node.updatedAt = EDITED;
       return payloadFrom(story);
     },
@@ -492,7 +509,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     editNode: async (_storyId, node, patch) => demo.editNode(node.id, patch),
     deleteNode: async (_storyId, nodeId, expectedSubtreeCount) => demo.deleteNode(nodeId, expectedSubtreeCount),
     pruneUnusedTakes: async (_storyId, expected) => demo.pruneUnusedTakes(expected),
-    takeFromCut: async () => unavailable("Selection rewrite"),
+    takeFromCut: async () => unavailable("Take from cut"),
     putBookmark: async (_storyId, nodeId, name, label) => demo.putBookmark(nodeId, name, label),
     deleteBookmark: async (_storyId, nodeId) => demo.deleteBookmark(nodeId),
     createFact: async (_storyId, body) => {
@@ -584,7 +601,17 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       }
       return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
     },
-    rewriteNode: async () => unavailable("Selection rewrite"),
+    rewriteNode: async (_storyId, nodeId, body, onDelta, signal) => {
+      let landed = "";
+      for await (const delta of streamFake(DEMO_REWRITE_TEXT, { wpm: 700, signal })) {
+        landed += delta;
+        onDelta(delta);
+      }
+      if (signal.aborted) return;
+      const node = demo.payload().path.find((candidate) => candidate.id === nodeId);
+      if (node === undefined) return;
+      demo.rewriteNode(nodeId, body.start, body.end, landed);
+    },
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
       let landed = "";
       for await (const delta of streamFake(DEMO_SUMMARY_TEXT, { wpm: 700, signal })) {

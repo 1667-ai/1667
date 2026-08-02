@@ -39,13 +39,15 @@ import {
   partActionRequiresPersistedTarget,
   partActions,
   type PartAction,
-  type PartActionId
+  type PartActionId,
+  type PartActionSelection
 } from "./part-actions.js";
 import { createPrunePlan } from "./prune-model.js";
 import type { PendingGenerationDraft, RuntimeState } from "./state.js";
-import type { StorySelectionSpan } from "./selection-projection.js";
+import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
 import type { ActionContext } from "./action-context.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { resolveRewriteTarget, startSelectionRewrite } from "./rewrite-action.js";
 import {
   advanceOrSaveTag,
   confirmPrune,
@@ -220,10 +222,15 @@ export function currentPartActions(
     ? state.focusIndex
     : rowIndexForNode(view, state.actions.partId);
   const part = rowPart(view, index);
+  const selection: PartActionSelection = state.actions?.selectionText == null
+    ? "none"
+    : canRewriteSelection(state.actions.selectionSpans ?? [])
+      ? "rewritable"
+      : "text";
   const actions = partActions(
     part?.node,
     part?.pathIndex === state.payload.path.length - 1,
-    state.actions?.selectionText != null
+    selection
   );
   const persisted = part !== null && state.payload.nodes.some(({ id }) => id === part.id);
   return persisted ? actions : actions.filter(({ id }) => !partActionRequiresPersistedTarget(id));
@@ -240,6 +247,7 @@ export async function runPartAction(
   const view = createStoryViewModel(state.payload, state.stream);
   const partId = state.actions?.partId ?? rowPart(view, state.focusIndex)?.id ?? null;
   const selectionText = state.actions?.selectionText ?? null;
+  const selectionSpans = state.actions?.selectionSpans ?? [];
   closeActions(state);
   const index = partId === null ? -1 : rowIndexForNode(view, partId);
   if (index < 0) return;
@@ -268,6 +276,20 @@ export async function runPartAction(
       return;
     }
   }
+  if (id === "rewrite-selection") {
+    if (selectionSpans.length === 0) {
+      state.toast = "highlight story text before rewriting it";
+      return;
+    }
+    if (generationBusy(state)) {
+      state.toast = "stream running · esc stops it first";
+      return;
+    }
+    if (state.connection.down) {
+      state.toast = "offline · reading still works";
+      return;
+    }
+  }
   if (id === "continue") await context.backend.run("generating prose", (task) =>
     generate(state, source, context.cache, context.repaint, "", null, null, task));
   else if (id === "direct") openDirectComposer(state);
@@ -283,6 +305,11 @@ export async function runPartAction(
   else if (id === "fact-from-selection") {
     if (selectionText === null) state.toast = "highlight story text before creating a fact";
     else openFactFromSelection(state, selectionText);
+  }
+  else if (id === "rewrite-selection") {
+    const resolved = resolveRewriteTarget(state.payload, node.id, selectionSpans);
+    if ("error" in resolved) state.toast = resolved.error;
+    else await startSelectionRewrite(state, source, context, resolved);
   }
   else if (id === "tag") openTag(state, node.id);
   else if (id === "prune") armPrune(state, node.id);

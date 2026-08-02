@@ -3,7 +3,8 @@ import type {
   StoryFact,
   StoryNode,
   StoryPayload,
-  StorySummary
+  StorySummary,
+  TextRange
 } from "../../shared/types.js";
 import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
@@ -27,6 +28,7 @@ import type {
 } from "../../shared/settings-v2-types.js";
 import type {
   ComposerSelectionProjection,
+  ProjectedStorySelection,
   StorySelectionProjection,
   StorySelectionSpan
 } from "./selection-projection.js";
@@ -46,6 +48,9 @@ export interface StreamView {
   targetId: string;
   parentId: string | null;
   append: boolean;
+  /** Set for a highlighted rewrite: the node keeps its id, and the streamed
+   *  replacement splices into [start, end) of its settled text in place. */
+  rewrite?: Readonly<TextRange>;
   /** Client wall-clock time when this visible stream claimed the request. */
   startedAt: string;
   /** Explicit composer-owner epoch at launch. Legacy stop restoration may
@@ -122,6 +127,9 @@ export interface CommandsOverlayState {
   view: "commands" | "tags";
   /** Surface that owns the composer while the palette is open. */
   returnMode: "NAV" | "COMPOSE";
+  /** Story selection captured at open time — the NAV projection it reads
+   *  only exists for that one frame, so a later keystroke cannot rebuild it. */
+  selection?: ProjectedStorySelection | null;
 }
 export interface ChaptersOverlayState {
   cursor: number;
@@ -342,6 +350,7 @@ export interface StoryScreenState extends OverlayState {
         stopInteractionVersion: number | null;
       }
     | { kind: "summary"; controller: AbortController }
+    | { kind: "rewrite"; controller: AbortController }
     | null;
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;

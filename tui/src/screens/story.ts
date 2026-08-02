@@ -283,9 +283,16 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   // own row rather than riding along with the page rows above it.
   lines.push(status);
   addInlineHits([status], hitRows, liveHit, surfaceRows);
+  // The part-actions menu and the command palette each bind their own
+  // captured selection; paint whichever one is open so the writer can see
+  // exactly what a rewrite would touch.
   const menuSelection = state.actions?.selectionSpans;
-  if (menuSelection !== undefined && menuSelection.length > 0) {
-    lines = paintStorySelection(lines, menuSelection);
+  const paletteSelection = state.mode === "COMMANDS" ? state.commands?.selection?.spans : undefined;
+  const highlightSpans = menuSelection !== undefined && menuSelection.length > 0
+    ? menuSelection
+    : paletteSelection;
+  if (highlightSpans !== undefined && highlightSpans.length > 0) {
+    lines = paintStorySelection(lines, highlightSpans);
   }
   const full = options.width;
   let selectable: FrameComposition["selectable"] = null;

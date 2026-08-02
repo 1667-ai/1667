@@ -18,6 +18,9 @@ import { createStoryViewModel, lastPartRowIndex } from "./model.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
+import { partIdFromTextSelection, resolveRewriteTarget, startSelectionRewrite } from "./rewrite-action.js";
+import { canRewriteSelection, type ProjectedStorySelection } from "./selection-projection.js";
+import { storySelectionFromRendererSelection } from "./copy-actions.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
 import { openSearch } from "./search-actions.js";
 import { cardImportAction, openCardImport } from "./card-import-actions.js";
@@ -80,11 +83,17 @@ export async function handleOverlayAction(
     return true;
   }
   if (resolved.action === "open-commands") {
+    // The NAV projection this reads is only built for that one frame, so the
+    // selection has to be captured now — a later keystroke cannot rebuild it.
+    const selection = context.renderer === null
+      ? null
+      : storySelectionFromRendererSelection(context.renderer, state.storySelectionProjection);
     state.commands = {
       query: "",
-      ...retainCommandSelection(liveCommandMatches(state, ""), null, 0),
       view: "commands",
-      returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV"
+      returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
+      selection,
+      ...retainCommandSelection(liveCommandMatches(state, "", selection), null, 0)
     };
     state.mode = "COMMANDS";
     return true;
@@ -331,6 +340,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
   if (command.id === "tags") { state.commands!.view = "tags"; state.commands!.cursor = 0; return; }
   const returnMode = state.commands!.returnMode;
+  const selection = state.commands!.selection ?? null;
   state.commands = null;
   state.mode = "NAV";
   if (command.id === "next-request") openRequestViewer(state, returnMode);
@@ -347,6 +357,23 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
   else if (command.id === "direct-take") openDirectComposer(state);
   else if (command.id === "retake") await runPartAction("retake", state, source, context);
+  else if (command.id === "rewrite-selection") {
+    // The palette's own filtering already requires a captured selection, but
+    // that only means one existed at open time — re-resolve it against the
+    // live story exactly as the part-actions menu does.
+    if (selection === null) {
+      state.toast = "highlight story text before rewriting it";
+    } else if (state.connection.down) {
+      state.toast = "offline · reading still works";
+    } else {
+      const partId = partIdFromTextSelection(selection.spans);
+      const resolved = partId === null
+        ? { error: "highlight story text before rewriting it" }
+        : resolveRewriteTarget(state.payload, partId, selection.spans);
+      if ("error" in resolved) state.toast = resolved.error;
+      else await startSelectionRewrite(state, source, context, resolved);
+    }
+  }
   else if (command.id === "export") {
     const title = state.payload.title;
     await context.backend.run("exporting story", async (task) => {
@@ -397,11 +424,19 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
 }
 
-function liveCommandMatches(state: RuntimeState, query: string): CommandMatch[] {
+function liveCommandMatches(
+  state: RuntimeState,
+  query: string,
+  selection: ProjectedStorySelection | null = state.commands?.selection ?? null
+): CommandMatch[] {
   return commandMatches(
     query,
     state.demo,
-    commandContext(state.payload, state.connection.down, generationBusy(state) || state.summary !== null)
+    commandContext(state.payload, {
+      connectionDown: state.connection.down,
+      requestActive: generationBusy(state) || state.summary !== null,
+      canRewriteSelection: canRewriteSelection(selection?.spans ?? [])
+    })
   );
 }
 
