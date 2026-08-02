@@ -55,6 +55,8 @@ export function parseLorebookArchive(bytes: Uint8Array): unknown {
 export interface NovelAiEntries {
   readonly entries: readonly LorebookEntry[];
   readonly fidelity: readonly string[];
+  /** Entries the file held, including any this reader could not read. */
+  readonly sourceCount: number;
 }
 
 export function entriesFromNovelAiLorebook(value: unknown): NovelAiEntries {
@@ -111,6 +113,7 @@ export function entriesFromNovelAiLorebook(value: unknown): NovelAiEntries {
   }
   return {
     entries,
+    sourceCount: rawEntries.length,
     fidelity: unreadable === 0
       ? []
       : [`${unreadable} ${countNoun(unreadable, "entry", "entries")} could not be read`]
@@ -127,7 +130,7 @@ export function factsFromLorebook(
   bodyBudget?: number
 ): LorebookImport {
   const read = entriesFromNovelAiLorebook(value);
-  const imported = factsFromEntries(read.entries, room, bodyBudget);
+  const imported = factsFromEntries(read.entries, room, bodyBudget, read.sourceCount);
   return {
     facts: imported.facts,
     fidelity: [...imported.fidelity, ...read.fidelity]

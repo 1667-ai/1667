@@ -355,10 +355,10 @@ test("an entry that cannot be read at all is still named", () => {
   }, 128);
 
   assert.equal(result.facts.length, 1);
-  assert.ok(
-    fidelityReport(result.fidelity).includes("2 entries could not be read"),
-    fidelityReport(result.fidelity)
-  );
+  const report = fidelityReport(result.fidelity);
+  // The headline counts what the file held, not what the reader could use.
+  assert.ok(report.includes("3 entries read"), report);
+  assert.ok(report.includes("2 entries could not be read"), report);
 });
 
 test("a key that grows past the ceiling when folded is dropped, not left to abort the import", () => {
