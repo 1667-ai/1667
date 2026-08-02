@@ -100,7 +100,29 @@ export function entriesFromCharacterBook(value: unknown): CharacterBookEntries {
     if (converted.entry !== null) entries.push(converted.entry);
   }
 
-  return { entries, sourceCount: source.length, fidelity: lossLines(losses, CHARACTER_BOOK_LOSS_PHRASES) };
+  const fidelity = lossLines(losses, CHARACTER_BOOK_LOSS_PHRASES);
+  if (isRecord(value)) fidelity.push(...bookLevelFidelity(value));
+
+  return { entries, sourceCount: source.length, fidelity };
+}
+
+/** `scan_depth`, `token_budget`, and `recursive_scanning` are book-level, not
+ * per-entry, so they do not fit the counted `CharacterBookLoss` table above —
+ * each is present at most once. Each gets its own reason, named only when the
+ * book actually carries the field, rather than one vague catch-all covering
+ * all three regardless of what the book set. */
+function bookLevelFidelity(book: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  if (book.scan_depth !== undefined && book.scan_depth !== null) {
+    lines.push("the book's scan depth omitted; a fact is judged on every request, not a limited recent window");
+  }
+  if (book.token_budget !== undefined && book.token_budget !== null) {
+    lines.push("the book's token budget omitted; an activated fact is included in full");
+  }
+  if (book.recursive_scanning !== undefined && book.recursive_scanning !== null) {
+    lines.push("the book's recursive scanning omitted; a fact never activates another fact by its own text");
+  }
+  return lines;
 }
 
 interface ConvertedEntry {
@@ -109,8 +131,6 @@ interface ConvertedEntry {
 }
 
 function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntry {
-  const losses: CharacterBookLoss[] = [];
-
   const decorated = readLeadingDecorators(typeof item.content === "string" ? item.content : "");
   let depthDecorator = false;
   let roleDecorator = false;
@@ -123,24 +143,43 @@ function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntr
     else if (TIMING_DECORATORS.has(name)) timingDecorator = true;
     else otherDecorator = true;
   }
-  if (depthDecorator) losses.push("positioned");
-  if (roleDecorator) losses.push("role");
-  if (timingDecorator) losses.push("timed");
-  if (otherDecorator) losses.push("decorated");
 
-  // Decide whether the entry arrives at all before naming what a field would
-  // have lost, the same order World Info reads in: a mechanism an entry
-  // never got to use is not a loss, and reporting one for an entry that
-  // produced no Fact makes every count untrustworthy. Only the two exact
+  // Decide whether the entry arrives at all before naming what a decorator or
+  // a field would have lost, the same order World Info reads in: a mechanism
+  // an entry never got to use is not a loss, and reporting one for an entry
+  // that produced no Fact makes every count untrustworthy. Only the two exact
   // control lines are acted on; `@@activate` wins when both appear, and
   // anything else — including a malformed one, like `@@activate note` — is
   // still a control line and still leaves the prose, but does not get to
   // decide activation on a guess.
   const forced = decorated.decorators.includes("@@activate");
   if (!forced && decorated.decorators.includes("@@dont_activate")) {
-    losses.push("refused");
-    return { entry: null, losses };
+    return { entry: null, losses: ["refused"] };
   }
+
+  const displayName = displayNameOf(item);
+
+  // A disabled entry never reaches the Entry Mapping as an active Fact — the
+  // mapper reports the skip on its own, the same as a disabled World Info
+  // entry — so it produced no Fact and needs no mechanism losses named here.
+  if (item.enabled === false) {
+    return {
+      entry: {
+        text: decorated.content,
+        displayName,
+        keys: [],
+        forceActivation: false,
+        enabled: false
+      },
+      losses: []
+    };
+  }
+
+  const losses: CharacterBookLoss[] = [];
+  if (depthDecorator) losses.push("positioned");
+  if (roleDecorator) losses.push("role");
+  if (timingDecorator) losses.push("timed");
+  if (otherDecorator) losses.push("decorated");
 
   if (Array.isArray(item.secondary_keys) && item.secondary_keys.length > 0) {
     losses.push("secondaryKeys");
@@ -171,23 +210,22 @@ function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntr
     keys = [];
   }
 
-  let displayName = "";
-  if (typeof item.name === "string" && item.name.trim().length > 0) {
-    displayName = item.name;
-  } else if (typeof item.comment === "string" && item.comment.trim().length > 0) {
-    displayName = item.comment;
-  }
-
   return {
     entry: {
       text: decorated.content,
       displayName,
       keys,
       forceActivation: item.constant === true || forced,
-      enabled: item.enabled !== false
+      enabled: true
     },
     losses
   };
+}
+
+function displayNameOf(item: Record<string, unknown>): string {
+  if (typeof item.name === "string" && item.name.trim().length > 0) return item.name;
+  if (typeof item.comment === "string" && item.comment.trim().length > 0) return item.comment;
+  return "";
 }
 
 /** The decorator's name, ignoring any `value` after it: `@@depth 0` and

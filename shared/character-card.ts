@@ -20,6 +20,10 @@ export interface CharacterCardCore {
   description: string;
   personality: string;
   scenario: string;
+  /** V3's `nickname`. Present only when the card names one and it is
+   * non-empty; a V1 or V2 card has no such field. `{{char}}` expands to this
+   * instead of `name` when present — `name` remains the Fact-naming value. */
+  readonly nickname?: string;
   /** `data.character_book`, present on a V2 or V3 card that carries one. Read
    * it with `entriesFromCharacterBook` in `character-book.js`; this module
    * only carries the four core fields through to a Fact. */
@@ -34,6 +38,9 @@ export interface CharacterCardSections {
   description?: string;
   personality?: string;
   scenario?: string;
+  /** V3's `nickname`, used only to expand `{{char}}`. Absent, or empty once
+   * trimmed, falls back to `name` the same way an ordinary V1 or V2 card does. */
+  nickname?: string;
 }
 
 interface NamedSection {
@@ -56,6 +63,10 @@ export function parseCharacterCard(bytes: Uint8Array): CharacterCardCore {
 
 export function factsFromCharacterCard(source: CharacterCardSections): FactInput[] {
   const name = characterName(source.name, "Character name cannot be empty.");
+  // The V3 spec has `{{char}}` expand to `nickname` when the card gives one,
+  // falling back to `name` otherwise. `name` still names and titles the Fact;
+  // only the macro's expansion changes.
+  const macroName = nonEmptyTrimmed(source.nickname) ?? name;
 
   const sections = [
     selectedSection("Description", source.description),
@@ -65,7 +76,7 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   if (sections.length === 0) throw new Error("Select at least one non-empty character field.");
   let combinedLength = 0;
   for (const section of sections) {
-    combinedLength += expandedMacroLength(section.text, name);
+    combinedLength += expandedMacroLength(section.text, macroName);
     if (combinedLength > MAX_COMBINED_FACT_TEXT_CHARS) {
       throw new Error(`Selected character text needs more than ${MAX_FACTS} facts; shorten it before importing.`);
     }
@@ -73,7 +84,7 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   const expandedSections = sections.map((section) => ({
     ...section,
     text: section.text.replace(MACROS, (_match, kind: string) =>
-      kind.toLowerCase() === "char" ? name : "the protagonist")
+      kind.toLowerCase() === "char" ? macroName : "the protagonist")
   }));
 
   const pieces = expandedSections.flatMap((section) => splitSection(name, section));
@@ -177,7 +188,18 @@ function normalizeCard(value: unknown): CharacterCardCore {
   validateText(description, "Description");
   validateText(personality, "Personality");
   validateText(scenario, "Scenario");
-  if (![description, personality, scenario].some((entry) => entry.trim().length > 0)) {
+  // `nickname` is a V3-only field: a V1 or V2 card has no such concept, so a
+  // stray field of that name on either is not read.
+  const nickname = version === 3 ? coreString(data, "nickname") : "";
+  validateText(nickname, "Nickname");
+  // A card whose whole value lives in its character_book is a legitimate
+  // shape: empty core strings are permitted by both V2 and V3, and a book
+  // with at least one entry is content in its own right. Only a card with
+  // neither is refused, and only then with this wording.
+  if (
+    ![description, personality, scenario].some((entry) => entry.trim().length > 0)
+    && !hasCharacterBookEntries(data, version)
+  ) {
     throw new Error("Character card has no description, personality, or scenario to import.");
   }
   return {
@@ -186,6 +208,7 @@ function normalizeCard(value: unknown): CharacterCardCore {
     description,
     personality,
     scenario,
+    ...(nickname.trim().length > 0 ? { nickname } : {}),
     // `character_book` is a V2 and V3 field; a V1 card has no `data` wrapper
     // and no such concept. Its absence is meaningful, so it stays optional
     // rather than joining `fidelity` below.
@@ -260,6 +283,16 @@ function arrayLength(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+/** Whether `data.character_book` carries at least one entry worth reading.
+ * A V1 card has no `data` wrapper and no such concept, so it never qualifies.
+ * This only decides whether the card has content; `entriesFromCharacterBook`
+ * in `character-book.js` does the actual reading. */
+function hasCharacterBookEntries(data: Record<string, unknown>, version: 1 | 2 | 3): boolean {
+  if (version === 1) return false;
+  const book = data.character_book;
+  return isRecord(book) && Array.isArray(book.entries) && book.entries.length > 0;
+}
+
 function coreString(data: Record<string, unknown>, key: string): string {
   const value = data[key];
   if (value === undefined) return "";
@@ -271,6 +304,14 @@ function selectedSection(label: string, value: string | undefined): NamedSection
   if (value === undefined || value.trim().length === 0) return null;
   validateText(value, label);
   return { label, text: value.trim() };
+}
+
+/** `undefined` for a missing or blank value, so a caller can `??` a fallback
+ * without separately checking for whitespace-only text. */
+function nonEmptyTrimmed(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function expandedMacroLength(text: string, name: string): number {

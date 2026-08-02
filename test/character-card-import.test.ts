@@ -7,9 +7,36 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { StoryService } from "../server/story-service.js";
+import { planCardImport } from "../shared/card-import.js";
 
 const execFileAsync = promisify(execFile);
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const encoder = new TextEncoder();
+
+test("a card whose whole value is its character_book still imports, empty core fields and all", () => {
+  const plan = planCardImport(encoder.encode(JSON.stringify({
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Archive",
+      description: "",
+      personality: "",
+      scenario: "",
+      character_book: {
+        entries: [
+          { content: "The pass closes in winter.", name: "Weather", keys: ["storm"] },
+          { content: "The keeper never leaves the light.", comment: "Premise", constant: true }
+        ]
+      }
+    }
+  })), 128);
+
+  assert.deepEqual(plan.used, []);
+  assert.deepEqual(plan.skipped, ["description", "personality", "scenario"]);
+  assert.equal(plan.facts.length, 2, "no Character fact; both Facts come from the book");
+  assert.equal(plan.facts[0]?.tag, "Weather");
+  assert.equal(plan.facts[1]?.tag, "Premise");
+});
 
 test("E2E integration: import-card adds JSON and PNG card Facts, and a V3 card's Facts and book", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-e2e-"));

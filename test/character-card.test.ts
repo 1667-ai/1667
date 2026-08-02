@@ -182,6 +182,40 @@ test("a V3 card carries its character_book through for the caller to map", () =>
   assert.equal("characterBook" in withoutBook, false);
 });
 
+test("{{char}} expands to the V3 nickname when one is present, not the name", () => {
+  const card = parseCharacterCard(jsonBytes(v3Card({
+    name: "Elizabeth",
+    nickname: "Liz",
+    description: "{{char}} waits."
+  })));
+  assert.equal(card.nickname, "Liz");
+  assert.equal(card.name, "Elizabeth", "name still names and titles the Fact");
+
+  const facts = factsFromCharacterCard({
+    name: card.name,
+    description: card.description,
+    nickname: card.nickname
+  });
+
+  assert.equal(facts[0]?.text, "Name: Elizabeth\n\nDescription:\nLiz waits.");
+});
+
+test("{{char}} falls back to name when a V3 nickname is absent or blank", () => {
+  const withoutNickname = parseCharacterCard(jsonBytes(v3Card({ name: "Elizabeth" })));
+  assert.equal("nickname" in withoutNickname, false);
+  assert.deepEqual(
+    factsFromCharacterCard({ name: "Elizabeth", description: "{{char}} waits." }),
+    [{ tag: "Character", text: "Name: Elizabeth\n\nDescription:\nElizabeth waits." }]
+  );
+
+  const blankNickname = parseCharacterCard(jsonBytes(v3Card({ name: "Elizabeth", nickname: "   " })));
+  assert.equal("nickname" in blankNickname, false, "a blank nickname is not carried through");
+  assert.deepEqual(
+    factsFromCharacterCard({ name: "Elizabeth", description: "{{char}} waits.", nickname: "   " }),
+    [{ tag: "Character", text: "Name: Elizabeth\n\nDescription:\nElizabeth waits." }]
+  );
+});
+
 test("a V2 card also carries its character_book through, the same as V3", () => {
   const v2 = parseCharacterCard(jsonBytes(v2Card({
     character_book: { entries: [{ content: "Lore.", keys: ["k"] }] }

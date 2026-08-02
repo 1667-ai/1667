@@ -229,3 +229,72 @@ test("enabled: false does not arrive, matching the shared disabled-entry rule", 
   assert.equal(result.facts.length, 0);
   assert.ok(fidelityReport(result.fidelity).includes("1 disabled entry skipped"));
 });
+
+test("a disabled entry does not report what it would have lost, mirroring World Info", () => {
+  // A mechanism an entry never got to use is not a loss. Reporting one for an
+  // entry that produced no Fact makes every count untrustworthy — the same
+  // defect already fixed in sillytavern-world-info.ts.
+  const book = entriesFromCharacterBook({
+    entries: [{
+      content: "@@depth 0\n@@role assistant\nNot in play.",
+      keys: ["k"],
+      enabled: false,
+      insertion_order: 0,
+      secondary_keys: ["night"],
+      selective: true,
+      case_sensitive: true,
+      use_regex: true
+    }]
+  });
+
+  const result = factsFromEntries(book.entries, 128);
+  const report = fidelityReport([...result.fidelity, ...book.fidelity]);
+
+  assert.equal(result.facts.length, 0);
+  assert.ok(report.includes("1 disabled entry skipped"), report);
+  for (const absent of [
+    "lost a position",
+    "lost a prompt role",
+    "lost secondary keys",
+    "lost selective matching",
+    "lost case-sensitive matching",
+    "regular expression",
+    "V3 decorator"
+  ]) assert.ok(!report.includes(absent), `${absent} should not be reported: ${report}`);
+});
+
+test("a refused entry does not report a decorator loss it never used either", () => {
+  // `@@dont_activate` is itself read from a decorator line; the entry must
+  // not additionally report the generic decorator loss for it.
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@dont_activate\nNot in play.", keys: ["k"] }]
+  });
+
+  const report = fidelityReport(book.fidelity);
+
+  assert.ok(report.includes("1 entry skipped for @@dont_activate"), report);
+  assert.ok(!report.includes("V3 decorator"), report);
+});
+
+test("book-level scan_depth, token_budget, and recursive_scanning are each named when present", () => {
+  const withSettings = entriesFromCharacterBook({
+    entries: [{ content: "Body.", keys: ["k"] }],
+    scan_depth: 4,
+    token_budget: 512,
+    recursive_scanning: true
+  });
+  const report = fidelityReport(withSettings.fidelity);
+
+  assert.ok(report.includes("scan depth omitted"), report);
+  assert.ok(report.includes("token budget omitted"), report);
+  assert.ok(report.includes("recursive scanning omitted"), report);
+
+  const withoutSettings = entriesFromCharacterBook({
+    entries: [{ content: "Body.", keys: ["k"] }]
+  });
+  const bareReport = fidelityReport(withoutSettings.fidelity);
+
+  for (const absent of ["scan depth", "token budget", "recursive scanning"]) {
+    assert.ok(!bareReport.includes(absent), `${absent} should not be reported: ${bareReport}`);
+  }
+});

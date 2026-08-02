@@ -36,7 +36,11 @@ export function planCardImport(bytes: Uint8Array, room: number): CardImportPlan 
   const skipped = SECTION_NAMES.filter((section) => card[section].trim().length === 0);
   const sections: CharacterCardSections = { name: card.name };
   for (const section of used) sections[section] = card[section];
-  const allCharacterFacts = factsFromCharacterCard(sections);
+  if (card.nickname !== undefined) sections.nickname = card.nickname;
+  // A card can carry its whole value in `character_book` and have nothing
+  // selected here; `factsFromCharacterCard` refuses an empty selection, so it
+  // is only called when there is a core section to convert.
+  const allCharacterFacts = used.length > 0 ? factsFromCharacterCard(sections) : [];
   if (factImportRequestBytes(allCharacterFacts) > MAX_JSON_BODY_BYTES) {
     throw new Error(
       `The card converts to ${allCharacterFacts.length} facts that exceed the 1 MB request limit; shorten the character text.`
