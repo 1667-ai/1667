@@ -5,6 +5,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { AI_1667_PRODUCT_VERSION } from "../shared/build-identity.js";
 import { isSemVer } from "../shared/semver.js";
+import { releasePublicationTag } from "../scripts/release-nightly-version.js";
+import { releaseSbomSourceForFacts } from "../scripts/release-source-facts.js";
 
 const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BASE_VERSION = AI_1667_PRODUCT_VERSION;
@@ -135,4 +137,19 @@ test("the is-nightly command reports whether a version is a nightly version", ()
   );
   assert.equal(runOrdinary.status, 0);
   assert.equal(runOrdinary.stdout, "false\n");
+});
+
+test("a nightly SBOM names the tag the release job actually creates", () => {
+  const nightlyVersion = `${BASE_VERSION}-nightly.20260802.a123456`;
+  assert.equal(releasePublicationTag(nightlyVersion), "nightly");
+  assert.equal(releasePublicationTag(BASE_VERSION), `v${BASE_VERSION}`);
+
+  // The SBOM source is the record whose tag ships inside every archive.
+  const source = releaseSbomSourceForFacts({
+    version: nightlyVersion,
+    sourceCommit: "0123456789abcdef0123456789abcdef01234567",
+    buildTimestamp: "2026-08-02T04:27:00.000Z"
+  });
+  assert.equal(source.tagName, "nightly");
+  assert.doesNotMatch(source.tagName, /^v/u);
 });

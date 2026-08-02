@@ -2,6 +2,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isSemVer } from "../shared/semver.js";
+import { releasePublicationTag } from "./release-nightly-version.js";
 import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import {
   assertReleasePackageVersions,
@@ -46,7 +47,7 @@ export function releaseSbomSourceForFacts(facts: ReleaseSourceFacts): ReleaseSbo
     productVersion: facts.version,
     sourceCommit: facts.sourceCommit,
     buildTimestamp: facts.buildTimestamp,
-    tagName: `v${facts.version}`
+    tagName: releasePublicationTag(facts.version)
   });
 }
 
@@ -98,7 +99,13 @@ export function assertRepositoryPackageVersions(productVersion: string): void {
  * signature claim never leaves memory. `tagName` does ship — the SPDX document
  * comments each package with `Built from tag <tagName> at a clean working
  * tree` — and that is not a signature claim: it names the tag the release job
- * creates at `sourceCommit`, which is true once `gh release create` runs. npm
+ * creates at `sourceCommit`, which is true once `gh release create` runs.
+ *
+ * This document keeps `v<version>` because the identity codec is the npm
+ * signed-tag gate and must not learn about rolling tags. The two names that
+ * ship — the SBOM comment and the artifact manifest `sourceTag` — come from
+ * `releasePublicationTag` instead, because a nightly run publishes the fixed
+ * `nightly` tag and `v<version>` would name a tag that never exists. npm
  * publication still requires the signed-tag evidence documented in
  * docs/RELEASING.md, obtained by a maintainer rather than by this workflow.
  */

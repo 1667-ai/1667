@@ -27,6 +27,13 @@ import {
 } from "../shared/release-targets.js";
 import { releaseIdentityForTarget } from "../scripts/release-identity.js";
 import {
+  PRERELEASE_VERSION,
+  RELEASE_ASSETS_CLI,
+  REPOSITORY_ROOT,
+  WORKFLOW,
+  workflowJobs
+} from "./release-workflow-fixture.js";
+import {
   RELEASE_LICENSE_FILES,
   RELEASE_LICENSE_FILE_DIGESTS
 } from "../scripts/release-package-manifests.js";
@@ -59,12 +66,10 @@ function heldFromPublication(target: BuiltArtifactTarget): boolean {
   return releaseTargetForArtifact(target).heldFromPublication !== null;
 }
 
-const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // The version this release ships under. Release identity refuses a version the
 // checkout's manifests disagree with, so both derive from the product version.
 const VERSION = AI_1667_PRODUCT_VERSION;
 const STABLE_VERSION = AI_1667_PRODUCT_VERSION;
-const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
 /**
@@ -77,36 +82,10 @@ const FACTS = Object.freeze({
   sourceCommit: SOURCE_COMMIT,
   buildTimestamp: BUILD_TIMESTAMP
 });
-const WORKFLOW = readFileSync(
-  path.join(REPOSITORY_ROOT, ".github", "workflows", "release-github.yml"),
-  "utf8"
-);
-const RELEASE_ASSETS_CLI = path.join(
-  REPOSITORY_ROOT,
-  "scripts",
-  "release-github-assets.ts"
-);
-
 function digestOf(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-/**
- * The workflow's jobs, each as the block of text between its own header and the
- * next one. Enough to ask which job holds which permission and which commands
- * run inside it, without a YAML parser this repository does not depend on.
- */
-function workflowJobs(): ReadonlyMap<string, string> {
-  const body = WORKFLOW.slice(WORKFLOW.indexOf("\njobs:\n"));
-  const headers = [...body.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gmu)];
-  const jobs = new Map<string, string>();
-  headers.forEach((header, index) => {
-    const start = header.index;
-    const end = index + 1 < headers.length ? headers[index + 1]!.index : body.length;
-    jobs.set(header[1]!, body.slice(start, end));
-  });
-  return jobs;
-}
 
 test("the archive release CLI refuses the stable version reserved for npm", () => {
   const run = spawnSync(
@@ -731,104 +710,3 @@ test("the release notes stay true at every version the workflow can be dispatche
   // create` marks every release this path publishes as one.
   assert.match(WORKFLOW, /^\s+--prerelease\s*\\?$/mu);
 });
-
-test("the nightly path builds every target and replaces one rolling release", () => {
-  const jobs = workflowJobs();
-  const buildJob = jobs.get("build");
-  const releaseJob = jobs.get("release");
-  assert.ok(buildJob !== undefined);
-  assert.ok(releaseJob !== undefined);
-
-  assert.match(WORKFLOW, /schedule:[\s\S]*?-\s*cron:/u);
-  assert.match(WORKFLOW, /workflow_dispatch:/u);
-  assert.match(WORKFLOW, /version:\s*\n(?:[^\n]*\n)*?\s+required:\s*false/u);
-  assert.match(buildJob, /target:\s*\$\{\{\s*fromJSON\(needs\.prepare\.outputs\.targets\)\s*\}\}/u);
-
-  assert.match(buildJob, /if:\s*needs\.prepare\.outputs\.proceed\s*==\s*'true'/u);
-  assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.proceed\s*==\s*'true'/u);
-
-  const nightlyStepMatch = releaseJob.match(/- name:\s*Publish the Nightly Release\n([\s\S]*?)(?=\n {6}- name:|\n {4}[a-z]|$)/u);
-  assert.ok(nightlyStepMatch !== null);
-  const nightlyStep = nightlyStepMatch[1]!;
-
-  assert.match(
-    nightlyStep,
-    /readarray -t ASSETS < <\(node --import tsx scripts\/release-github-assets\.ts upload-list "\$VERSION" dist\/assets\)/u
-  );
-  const nightlyVersion = "0.1.0-nightly.20260802.a123456";
-  assert.deepEqual(
-    releaseUploadAssetPaths(nightlyVersion, "dist/assets"),
-    [
-      `dist/assets/1667_${nightlyVersion}_darwin-arm64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_darwin-x64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_linux-arm64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_linux-x64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_windows-x64.tar.gz`,
-      "dist/assets/install-nightly.sh",
-      "dist/assets/install-nightly.ps1",
-      "dist/assets/checksums.txt"
-    ]
-  );
-  const deleteIndex = nightlyStep.indexOf("gh release delete-asset");
-  const uploadIndex = nightlyStep.indexOf("gh release upload nightly");
-  assert.ok(deleteIndex !== -1, "nightly step must call gh release delete-asset");
-  assert.ok(uploadIndex !== -1, "nightly step must call gh release upload nightly");
-  assert.ok(deleteIndex < uploadIndex, "delete must appear before upload in the nightly release step");
-
-  assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.nightly\s*!=\s*'true'/u);
-  assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.nightly\s*==\s*'true'/u);
-});
-
-test("the upload-list command outputs expected asset paths for nightly and prerelease versions", () => {
-  const nightlyVersion = "0.1.0-nightly.20260802.a123456";
-  const prereleaseVersion = PRERELEASE_VERSION;
-
-  const nightlyRun = spawnSync(
-    process.execPath,
-    ["--import", "tsx", RELEASE_ASSETS_CLI, "upload-list", nightlyVersion, "dist/assets"],
-    { cwd: REPOSITORY_ROOT, encoding: "utf8" }
-  );
-  assert.equal(nightlyRun.status, 0);
-  assert.equal(
-    nightlyRun.stdout,
-    releaseUploadAssetPaths(nightlyVersion, "dist/assets").join("\n") + "\n"
-  );
-  assert.deepEqual(
-    nightlyRun.stdout.trim().split("\n"),
-    [
-      `dist/assets/1667_${nightlyVersion}_darwin-arm64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_darwin-x64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_linux-arm64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_linux-x64.tar.gz`,
-      `dist/assets/1667_${nightlyVersion}_windows-x64.tar.gz`,
-      "dist/assets/install-nightly.sh",
-      "dist/assets/install-nightly.ps1",
-      "dist/assets/checksums.txt"
-    ]
-  );
-
-  const prereleaseRun = spawnSync(
-    process.execPath,
-    ["--import", "tsx", RELEASE_ASSETS_CLI, "upload-list", prereleaseVersion, "dist/assets"],
-    { cwd: REPOSITORY_ROOT, encoding: "utf8" }
-  );
-  assert.equal(prereleaseRun.status, 0);
-  assert.equal(
-    prereleaseRun.stdout,
-    releaseUploadAssetPaths(prereleaseVersion, "dist/assets").join("\n") + "\n"
-  );
-  assert.deepEqual(
-    prereleaseRun.stdout.trim().split("\n"),
-    [
-      `dist/assets/1667_${prereleaseVersion}_darwin-arm64.tar.gz`,
-      `dist/assets/1667_${prereleaseVersion}_darwin-x64.tar.gz`,
-      `dist/assets/1667_${prereleaseVersion}_linux-arm64.tar.gz`,
-      `dist/assets/1667_${prereleaseVersion}_linux-x64.tar.gz`,
-      `dist/assets/1667_${prereleaseVersion}_windows-x64.tar.gz`,
-      "dist/assets/install-beta.sh",
-      "dist/assets/install-beta.ps1",
-      "dist/assets/checksums.txt"
-    ]
-  );
-});
-

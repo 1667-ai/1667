@@ -1,6 +1,7 @@
 import { isCanonicalTimestamp } from "../shared/build-identity.js";
 import { isSemVer } from "../shared/semver.js";
 import { exactRecord } from "./release-boundary-validation.js";
+import { releasePublicationTag } from "./release-nightly-version.js";
 
 const SOURCE_KEYS = new Set([
   "productVersion",
@@ -42,7 +43,7 @@ export function createReleaseSbomSource(value: unknown): ReleaseSbomSource {
   if (!isCanonicalTimestamp(buildTimestamp)) {
     throw new Error("Release SBOM source has an invalid build timestamp");
   }
-  if (tagName !== `v${productVersion}`) {
+  if (tagName !== releasePublicationTag(productVersion)) {
     throw new Error("Release SBOM source tag does not match its product version");
   }
 

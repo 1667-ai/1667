@@ -691,12 +691,33 @@ The workflow builds all five release targets. A target that
 `heldFromPublication` names stays held.
 
 The workflow publishes to one prerelease at the fixed tag `nightly`. This is the
-Nightly Release. The workflow moves the tag to the new commit. It deletes
-every previous asset, then uploads the new assets. The asset count stays
+Nightly Release. The workflow deletes every previous asset. It then uploads the
+new assets. It moves the tag to the new commit last. The asset count stays
 constant.
+
+The tag order is necessary. A schedule run reads the tag as the only record of
+the last publication. A tag that moves first makes a failed publication look
+complete, and the next run skips it.
 
 The Nightly Release holds `install-nightly.sh` and `install-nightly.ps1`. Each
 Installer names the fixed tag, so its download URL stays correct.
+
+### Install a newer nightly build
+
+On Windows, run the `install-nightly.ps1` command again. The PowerShell
+Installer replaces the executable and keeps the Installation ID.
+
+On macOS and Linux, you must remove the Install Root before you install a newer
+nightly build. The Shell Installer does a fresh install only, and it refuses an
+Install Root that holds an executable. `1667 upgrade` cannot replace a nightly
+build, because the product reads a nightly Ownership Record as externally
+managed. Issue #273 gives the nightly channel a managed upgrade path. Until then,
+use these commands:
+
+```sh
+rm -rf <install-root>
+curl -fsSL <install-nightly.sh URL> | sh
+```
 
 A schedule run stops before it builds when no commit came after the last
 Nightly Release. The run creates no release and reports success.
@@ -706,7 +727,9 @@ digests are in the same release as the assets. A reader must use
 `gh attestation verify` for stronger evidence.
 
 A maintainer who wants a version number and a `v<version>` tag must dispatch
-the workflow with a version.
+the workflow with a version. A dispatched version must not use the nightly form.
+A nightly version names the commit and the date that made it, so only the
+workflow may make one.
 
 ## Retain release evidence
 

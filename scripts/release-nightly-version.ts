@@ -129,3 +129,13 @@ export function nightlyRunDecision(headCommit: string, previousCommit: string | 
   }
   return Object.freeze({ kind: "build" as const });
 }
+
+/**
+ * The tag the release job actually creates for a version. A nightly run keeps
+ * one rolling tag, so a nightly publication tag is not derived from the version.
+ * Every reader of a shipped tag name must use this, or it will name a tag that
+ * does not exist.
+ */
+export function releasePublicationTag(version: string): string {
+  return isNightlyVersion(version) ? NIGHTLY_RELEASE_TAG : `v${version}`;
+}

@@ -12,6 +12,7 @@ import {
   exactRecord,
   sha256Digest
 } from "./release-boundary-validation.js";
+import { releasePublicationTag } from "./release-nightly-version.js";
 import {
   RELEASE_LAUNCHER_PACKAGE,
   assertPackageIdentityAgreement,
@@ -122,7 +123,7 @@ export function createReleaseArtifactManifest(
     schemaVersion: 1 as const,
     product: "1667" as const,
     productVersion: identities.evidence.productVersion,
-    sourceTag: identities.evidence.tagName,
+    sourceTag: releasePublicationTag(identities.evidence.productVersion),
     sourceCommit: identities.evidence.sourceCommit,
     buildTimestamp: identities.evidence.buildTimestamp,
     artifacts
