@@ -87,12 +87,16 @@ export function reusableStoredRevisionId(node: StoryNode): ObjectHash | undefine
 
 export function nodeStubPreview(node: StoryNode): string {
   const state = storedText.get(node);
-  if (state !== undefined && (state.originalText === null || state.originalText === node.text)) {
-    if (!hasUnpairedSurrogate(state.preview)) return state.preview;
-    if (state.originalText === null) {
+  if (state !== undefined && state.originalText === null) {
+    // Cold: the stored preview is the only evidence. Re-project it so a preview
+    // written before the first-line rule still shows one line.
+    if (hasUnpairedSurrogate(state.preview)) {
       throw new StoryFormatError(`Node ${node.id} has malformed lazy-load preview metadata`);
     }
+    return nodeStubPreviewText(state.preview);
   }
+  // Text in hand: verifyStoredStub already conformed state.preview to it.
+  if (state !== undefined && state.originalText === node.text) return state.preview;
   return nodeStubPreviewText(node.text);
 }
 
@@ -113,11 +117,13 @@ export function nodeStubTokens(node: StoryNode): number {
 
 function verifyStoredStub(node: StoryNode, text: string): void {
   const state = storedText.get(node)!;
-  const safePreview = nodeStubPreviewText(text);
-  const legacyPreview = text.slice(0, 100);
-  if ((state.preview !== safePreview && state.preview !== legacyPreview) || countWords(text) !== state.words) {
+  if (countWords(text) !== state.words) {
     throw new StoryFormatError(`Node ${node.id} stub metadata does not match its revision`);
   }
+  // A preview is a projection of the text, not integrity data — the same rule
+  // tokens follow below. With the text in hand, adopt the current projection
+  // instead of keeping a ledger of every projection ever written.
+  state.preview = nodeStubPreviewText(text);
   // Tokens are an estimate, not integrity data — retuning the estimator must
   // not invalidate stored bundles. Adopt the current estimate instead.
   state.tokens = estimateTokens(node.instruction) + estimateTokens(text);
