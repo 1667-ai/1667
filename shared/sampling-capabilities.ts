@@ -62,6 +62,7 @@ const PROTOCOL_WIRE: Readonly<
     frequencyPenalty: "frequency_penalty",
     presencePenalty: "presence_penalty",
     repeatPenalty: "repeat_penalty",
+    seed: "seed",
     stop: "stop",
     logitBias: "logit_bias"
   },
@@ -107,6 +108,7 @@ const KNOB_LABELS: Readonly<Record<SamplingKnobV2, string>> = {
   frequencyPenalty: "frequency penalty",
   presencePenalty: "presence penalty",
   repeatPenalty: "repeat penalty",
+  seed: "seed",
   stop: "stop sequences",
   logitBias: "logit bias"
 };

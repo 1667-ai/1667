@@ -95,6 +95,10 @@ ensure_container() {
   docker run -d --name "$name" --platform "$platform" \
     -v "$REPO_ROOT:/src:ro" "$IMAGE" sleep infinity >/dev/null || return 1
   # node_modules is host-built for darwin, so the container installs its own.
+  # tui's bun dependencies install here too: root npm test spawns
+  # tui/src/standalone.ts (see test/character-card-import.test.ts and
+  # test/story-novelai-import-integration.test.ts), so tui/node_modules must
+  # exist before any test command runs, not after it.
   docker exec "$name" bash -c '
     set -e
     mkdir -p /app
@@ -102,6 +106,7 @@ ensure_container() {
     cd /app
     npm ci --no-audit --no-fund
     npm i -g bun@1.3.14
+    (cd tui && bun install --frozen-lockfile)
     useradd -m runner
     chown -R runner /app
   ' >/dev/null 2>&1
@@ -123,6 +128,7 @@ run_linux() {
   local start; start=$(date +%s)
 
   if ! ensure_container "$platform" "$name"; then
+    [ "$KEEP_CONTAINER" -eq 1 ] || docker rm -f "$name" >/dev/null 2>&1 || true
     record "$target" fail "container setup failed"
     return 0
   fi
@@ -134,7 +140,6 @@ run_linux() {
     set -e
     timeout ${TARGET_TIMEOUT_S} ${runtime_test}
     cd tui
-    bun install --frozen-lockfile
     bun run typecheck
     timeout ${TARGET_TIMEOUT_S} bun test
   "

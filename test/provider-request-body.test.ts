@@ -470,6 +470,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: 1.1,
+    seed: 42,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1, "198": -2 }
   });
@@ -485,6 +486,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
     frequency_penalty: llama.frequency_penalty,
     presence_penalty: llama.presence_penalty,
     repeat_penalty: llama.repeat_penalty,
+    seed: llama.seed,
     stop: llama.stop,
     logit_bias: llama.logit_bias
   }, {
@@ -494,6 +496,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
     frequency_penalty: 0.2,
     presence_penalty: -0.1,
     repeat_penalty: 1.1,
+    seed: 42,
     stop: ["END", "DONE"],
     logit_bias: { "198": -2, "15043": 1 }
   });
@@ -506,6 +509,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   assert.equal("min_p" in lmStudio, false);
   assert.equal(lmStudio.top_k, 41);
   assert.equal(lmStudio.repeat_penalty, 1.1);
+  assert.equal(lmStudio.seed, 42);
 
   const ollama = buildOpenAiChatRequestBody(
     withSampling(settings("openai-compatible"), "ollama", {
@@ -521,6 +525,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   assert.equal("logit_bias" in ollama, false);
   assert.equal("top_k" in ollama, false);
   assert.equal(ollama.top_p, 0.91);
+  assert.equal(ollama.seed, 42);
 
   const kobold = buildOpenAiChatRequestBody(
     withSampling(settings("openai-compatible"), "koboldcpp", {
@@ -532,6 +537,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   );
   assert.equal("frequency_penalty" in kobold, false);
   assert.equal(kobold.min_p, 0.05);
+  assert.equal(kobold.seed, 42);
 
   const custom = buildOpenAiChatRequestBody(
     withSampling(settings("openai-compatible"), "custom", {
@@ -546,6 +552,7 @@ test("OpenAI-compatible serializers lower the documented baseline and preset ext
   assert.equal(custom.top_p, 0.91);
   assert.equal(custom.frequency_penalty, 0.2);
   assert.equal("top_k" in custom, false);
+  assert.equal(custom.seed, 42);
 });
 
 test("Anthropic lowering uses only its exact wire names", () => {
@@ -600,6 +607,14 @@ test("serializers refuse configured sampling values that the selected route cann
       OMIT_PLANS[0]!
     ),
     /Configured sampling parameter frequency penalty/
+  );
+  assert.throws(
+    () => buildAnthropicMessagesRequestBody(
+      withSampling({ ...settings("anthropic"), model: "claude-opus-4-5" }, "anthropic", sampling({ seed: 42 })),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /Configured sampling parameter seed/
   );
 });
 
