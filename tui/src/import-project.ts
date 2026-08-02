@@ -4,7 +4,7 @@ import {
   type ResolvedProject
 } from "../../server/project-discovery.js";
 import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
-import { plainTerminalText as plain } from "../../shared/terminal-text.js";
+import { terminalLineText as plain } from "../../shared/terminal-text.js";
 
 /** The project selection every import command accepts. */
 export interface ProjectSelection {

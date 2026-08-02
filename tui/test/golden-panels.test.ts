@@ -128,6 +128,29 @@ describe("run C overlay frames", () => {
     expect(error).toContain("or JSON card.");
   });
 
+  test("archive import panel matches the resting design frame", () => {
+    const state = initialState(demoAppSource(), true);
+    state.mode = "ARCHIVE";
+    state.archive = {
+      path: "",
+      storyId: state.payload.id,
+      candidates: [],
+      error: null,
+      returnMode: "NAV"
+    };
+    const rest = frameText(renderStoryScreen(state, {
+      width: 120, height: 36, wrapCache: createWrapCache()
+    }).lines);
+
+    expect(rest).toContain("┏━ import archive ━");
+    expect(rest).toContain("file    █");
+    expect(rest).toContain(
+      ".lorebook → Facts here · .scenario · .story → a new story"
+    );
+    expect(rest).toContain("tab completes · ↵ imports · esc closes");
+    expect(rest).toContain(" ARCHIVE ");
+  });
+
   test("long library, facts, and tag lists keep the selected row visible", () => {
     const selected = 20;
     const render = (state: ReturnType<typeof initialState>) => {

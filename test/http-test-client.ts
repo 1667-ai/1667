@@ -224,7 +224,8 @@ async function expectedStoryVersion(
   if (policy.method === "createStory"
     || policy.method === "importSillyTavern"
     || policy.method === "importMarkdown"
-    || policy.method === "importNovelAI") {
+    || policy.method === "importNovelAI"
+    || policy.method === "importScenario") {
     return { kind: "absent" };
   }
   const storyId = path.split("/")[3];

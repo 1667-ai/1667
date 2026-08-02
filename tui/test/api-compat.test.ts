@@ -1063,7 +1063,10 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
       return Response.json(storyPayload("markdown-imported"));
     }
     if (path === "/api/import/novelai") {
-      return Response.json(storyPayload("novelai-imported"));
+      return Response.json({
+        payload: storyPayload("novelai-imported"),
+        fidelity: []
+      });
     }
     throw new Error(`Unexpected API path: ${path}`);
   }) as typeof fetch;
@@ -1453,3 +1456,52 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
   throw new Error("Timed out waiting for asynchronous test state");
 }
+
+test("HTTP StoryApi sends a lorebook archive as bytes, not as a JSON index object", async () => {
+  // The route reads the body with readBufferBody, so JSON.stringify would put
+  // {"0":137,…} on the wire and the parser would blame the writer's file.
+  const archive = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  let sent: { body: unknown; contentType: string | null } | null = null;
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path.endsWith("/import-lorebook")) {
+      const headers = new Headers(init?.headers ?? {});
+      sent = { body: init?.body, contentType: headers.get("content-type") };
+      return Response.json({
+        payload: storyPayload("story"),
+        importResult: { facts: [], fidelity: ["0 entries read"] }
+      });
+    }
+    return Response.json(storyPayload("story"));
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  const result = await api.importLorebook("story", archive);
+
+  expect(sent !== null).toBeTrue();
+  expect(sent!.contentType).toBe("application/octet-stream");
+  expect(typeof sent!.body).not.toBe("string");
+  expect(new Uint8Array(sent!.body as ArrayBuffer)).toEqual(archive);
+  expect(result.importResult.fidelity).toEqual(["0 entries read"]);
+});
+
+test("HTTP StoryApi refuses a lorebook import result that is missing its fact list", async () => {
+  globalThis.fetch = (async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path.endsWith("/import-lorebook")) {
+      return Response.json({ payload: storyPayload("story"), importResult: { fidelity: [] } });
+    }
+    return Response.json(storyPayload("story"));
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  let message = "";
+  try {
+    await api.importLorebook("story", new Uint8Array([1, 2, 3]));
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  expect(message).toContain("invalid lorebook import fact list");
+});

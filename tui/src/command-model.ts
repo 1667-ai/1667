@@ -5,7 +5,7 @@ import { fuzzyMatch } from "./fuzzy.js";
 export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system";
 export type CommandId =
   | "export" | "summary" | "tag-line"
-  | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card"
+  | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
   | "authors-note"
   | "direct-take" | "retake" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
@@ -82,6 +82,7 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "rename-story", section: "story", name: "rename story", description: "change the current story title", mutating: true },
   { id: "folder", section: "story", name: "open story folder", description: "reveal the .1667 directory on disk" },
   { id: "autoname", section: "story", name: "autoname story", description: "ask the model for a story title", mutating: true },
+  { id: "import-archive", section: "story", name: "import archive", description: "read a NovelAI lorebook, scenario, or story file", mutating: true },
   { id: "import-card", section: "story", name: "import character card", description: "add a card's fields as Facts", mutating: true },
   { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "a", mutating: true },
 

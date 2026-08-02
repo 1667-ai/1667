@@ -17,6 +17,8 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
+import type { LorebookImport } from "../../shared/novelai-lorebook.js";
+
 import type {
   TagStatus,
   TagRequest,
@@ -85,7 +87,7 @@ import {
   apiHttpErrorFromPayload
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
-import { encodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
+import { importMethods } from "./api-import-methods.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -102,6 +104,11 @@ export interface ContinueTarget {
   parentId?: string | null;
   appendTo?: string;
   expectedTextHash?: string;
+}
+
+export interface NovelAiStoryImportResult {
+  readonly payload: StoryPayload;
+  readonly fidelity: readonly string[];
 }
 
 /** Invariant relied on by the connection monitor's failure detection: any
@@ -151,7 +158,10 @@ export interface StoryApi {
   ): Promise<ModelDiscoveryResultV2>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
-  importNovelAI(storyContainerJson: string): Promise<StoryPayload>;
+  importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
+  importScenario(jsonText: string): Promise<NovelAiStoryImportResult>;
+  importLorebook(storyId: string, archiveBytes: Uint8Array): Promise<{ payload: StoryPayload; importResult: LorebookImport }>;
+
   continueStory(
     storyId: string,
     instruction: string,
@@ -262,9 +272,21 @@ export function createApi(
             method,
             headers: {
               ...lease.headers,
-              ...(body === undefined ? {} : { "content-type": "application/json" })
+              ...(body === undefined
+                ? {}
+                : {
+                  "content-type": body instanceof Uint8Array
+                    ? "application/octet-stream"
+                    : "application/json"
+                })
             },
-            body: body === undefined ? undefined : JSON.stringify(body),
+            // An archive body is already bytes. JSON.stringify would send it as
+            // an index object, which the byte-reading route then reads as text.
+            body: body === undefined
+              ? undefined
+              : body instanceof Uint8Array
+                ? body.slice().buffer as ArrayBuffer
+                : JSON.stringify(body),
             redirect: "error",
             signal: lease.signal
           });
@@ -384,13 +406,14 @@ export function createApi(
     await expectedVersion(storyId)
   ));
 
-  const runAbsentImportMutation = async (
+  const runAbsentImportMutation = async <T>(
     workerMethod: HttpAbsentMutation,
     intentKey: string,
     path: string,
     contentType: string,
-    body: string
-  ): Promise<StoryPayload> => {
+    body: string,
+    decode: (value: unknown) => T
+  ): Promise<T> => {
     const intent = await mutationIntents.claim(workerMethod, intentKey);
     try {
       const payload = await compatible(
@@ -431,7 +454,7 @@ export function createApi(
                   response.status
                 );
               }
-              return versions.rememberPayload(decodeStoryResponse(payload));
+              return decode(payload);
             },
             shouldRetry: (error) => !(error instanceof ApiError)
           });
@@ -798,32 +821,7 @@ export function createApi(
       undefined,
       signal
     ),
-    importSillyTavern: async (jsonl) =>
-      await runAbsentImportMutation(
-        "importSillyTavern",
-        jsonl,
-        "/api/import/sillytavern",
-        "text/plain; charset=utf-8",
-        jsonl
-    ),
-    importMarkdown: async (markdown, defaultTitle) => {
-      const payloadBody = encodeMarkdownHttpBody(markdown, defaultTitle);
-      return await runAbsentImportMutation(
-        "importMarkdown",
-        payloadBody,
-        "/api/import/markdown",
-        "application/vnd.1667.markdown; charset=utf-8",
-        payloadBody
-      );
-    },
-    importNovelAI: async (storyContainerJson) =>
-      await runAbsentImportMutation(
-        "importNovelAI",
-        storyContainerJson,
-        "/api/import/novelai",
-        "application/json; charset=utf-8",
-        storyContainerJson
-    ),
+    ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(
         storyId,
@@ -860,6 +858,9 @@ export function createApi(
     }
   };
 }
+
+/** The callers read `.facts` straight off this, so a bad shape fails here at
+ * the boundary rather than at a `.filter` deep inside a panel. */
 
 async function settleAbsentMutationFailure(
   intent: HttpMutationIntentClaim,

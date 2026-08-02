@@ -3,11 +3,13 @@ import type { HttpAuthRecord } from "../shared/http-auth.js";
 import { resolveHttpApiRoute } from "../shared/http-operation-policy.js";
 import { ServiceError } from "./errors.js";
 import {
+  readBufferBody,
   readJsonBody,
   readTextBody,
   sendJson,
   waitForResponseSettlement
 } from "./http.js";
+
 import { MAX_IMPORT_BYTES } from "./import-model.js";
 import {
   decodeMarkdownHttpBody,
@@ -340,6 +342,16 @@ async function handleApi(
     );
   }
 
+  if (head === "import" && id === "scenario" && sub === undefined && method === "POST") {
+    return sendJson(
+      response,
+      201,
+      await mutate("importScenario", {
+        jsonText: await textBody(MAX_IMPORT_BYTES)
+      })
+    );
+  }
+
   if (head === "import" && id === "markdown" && sub === undefined && method === "POST") {
     const framedBody = await textBody(MAX_MARKDOWN_HTTP_BODY_BYTES);
     let decoded: ReturnType<typeof decodeMarkdownHttpBody>;
@@ -601,6 +613,18 @@ async function handleApi(
       }));
     }
   }
+  if (head === "stories" && id !== undefined && sub === "import-lorebook" && method === "POST") {
+    const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);
+    return sendJson(
+      response,
+      200,
+      await mutate("importLorebook", {
+        storyId: id,
+        archiveBytes: rawBuffer
+      })
+    );
+  }
+
   if (head === "stories" && id !== undefined && sub === "autoname" && method === "POST") {
     const expectedTitle = requireStringValue(
       (await jsonBody()).expectedTitle,

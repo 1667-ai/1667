@@ -223,7 +223,7 @@ function hasFactBoundaries(
   return leftAllowed && rightAllowed;
 }
 
-function normalizeFactText(value: string): string {
+export function normalizeFactText(value: string): string {
   return value.normalize("NFC").toLowerCase();
 }
 

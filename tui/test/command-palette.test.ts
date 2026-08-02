@@ -88,6 +88,14 @@ describe("grouped command palette model", () => {
       description: "add a card's fields as Facts",
       mutating: true
     });
+    const archive = commandMatches("import archive", false)
+      .find(({ command }) => command.id === "import-archive")?.command;
+    expect(archive).toMatchObject({
+      section: "story",
+      name: "import archive",
+      description: "read a NovelAI lorebook, scenario, or story file",
+      mutating: true
+    });
   });
 
   test("Author's Note is a Story command with the NAV shortcut", () => {
@@ -204,6 +212,7 @@ function renderCommands(
       query: "", cursor, selectedId, view: "commands" as const, returnMode: "NAV" as const
     },
     card: null,
+    archive: null,
     chapters: null,
     settings: null,
     summary: null,

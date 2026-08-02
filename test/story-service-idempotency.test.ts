@@ -141,10 +141,10 @@ test("pending NovelAI import replay re-enters canonical creation recovery", asyn
       "importNovelAI",
       input
     );
-    assert.equal(replayed.id, first.id);
+    assert.equal(replayed.payload.id, first.payload.id);
     assert.deepEqual(
-      replayed.nodes.map(({ id }) => id),
-      first.nodes.map(({ id }) => id)
+      replayed.payload.nodes.map(({ id }) => id),
+      first.payload.nodes.map(({ id }) => id)
     );
     assert.equal((await service.listStories()).length, 1);
   } finally {

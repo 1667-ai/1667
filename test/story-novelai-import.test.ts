@@ -25,10 +25,10 @@ test("partsFromNovelAiStory decodes static synthetic extension 20 framed constan
   });
 
   const parsed = partsFromNovelAiStory(containerJson);
-  assert.equal(parsed.title, "Static Synthetic Story");
-  assert.equal(parsed.parts.length, 2);
-  assert.equal(parsed.parts[0]?.text, "Synthetic chapter 1 prose.");
-  assert.equal(parsed.parts[1]?.text, "Synthetic chapter 2 prose.");
+  assert.equal(parsed.story.title, "Static Synthetic Story");
+  assert.equal(parsed.story.parts.length, 2);
+  assert.equal(parsed.story.parts[0]?.text, "Synthetic chapter 1 prose.");
+  assert.equal(parsed.story.parts[1]?.text, "Synthetic chapter 2 prose.");
 });
 
 test("partsFromNovelAiStory parses V2 Editor document with Extension 20 and Map sections", () => {
@@ -48,10 +48,10 @@ test("partsFromNovelAiStory parses V2 Editor document with Extension 20 and Map 
   });
 
   const parsed = partsFromNovelAiStory(containerJson);
-  assert.equal(parsed.title, "My NovelAI Story");
-  assert.equal(parsed.parts.length, 2);
-  assert.equal(parsed.parts[0]?.text, "First section text.");
-  assert.equal(parsed.parts[1]?.text, "Second section text.");
+  assert.equal(parsed.story.title, "My NovelAI Story");
+  assert.equal(parsed.story.parts.length, 2);
+  assert.equal(parsed.story.parts[0]?.text, "First section text.");
+  assert.equal(parsed.story.parts[1]?.text, "Second section text.");
 });
 
 test("partsFromNovelAiStory normalizes NFC, line endings, and truncates title by Unicode scalar count", () => {
@@ -67,8 +67,8 @@ test("partsFromNovelAiStory normalizes NFC, line endings, and truncates title by
   });
 
   const parsed = partsFromNovelAiStory(containerJson);
-  assert.equal(parsed.title, "😀".repeat(4096));
-  assert.equal(parsed.parts[0]?.text, "Café prose.\nLine two.");
+  assert.equal(parsed.story.title, "😀".repeat(4096));
+  assert.equal(parsed.story.parts[0]?.text, "Café prose.\nLine two.");
 });
 
 test("partsFromNovelAiStory parses V1 Legacy fragments when document is absent", () => {
@@ -87,11 +87,11 @@ test("partsFromNovelAiStory parses V1 Legacy fragments when document is absent",
   });
 
   const parsed = partsFromNovelAiStory(containerJson);
-  assert.equal(parsed.title, "Legacy V1 Story");
-  assert.equal(parsed.parts.length, 3);
-  assert.equal(parsed.parts[0]?.text, "Line 1 of legacy story.");
-  assert.equal(parsed.parts[1]?.text, "Line 2 of legacy story.");
-  assert.equal(parsed.parts[2]?.text, "Line 3 of legacy story.");
+  assert.equal(parsed.story.title, "Legacy V1 Story");
+  assert.equal(parsed.story.parts.length, 3);
+  assert.equal(parsed.story.parts[0]?.text, "Line 1 of legacy story.");
+  assert.equal(parsed.story.parts[1]?.text, "Line 2 of legacy story.");
+  assert.equal(parsed.story.parts[2]?.text, "Line 3 of legacy story.");
 });
 
 test("partsFromNovelAiStory applies dirtySections diffs correctly with chunk builder and bounds verification", () => {
@@ -145,11 +145,11 @@ test("partsFromNovelAiStory applies dirtySections diffs correctly with chunk bui
   });
 
   const parsed = partsFromNovelAiStory(containerJson);
-  assert.equal(parsed.title, "Dirty Sections Story");
-  assert.equal(parsed.parts.length, 3);
-  assert.equal(parsed.parts[0]?.text, "Prepended Section");
-  assert.equal(parsed.parts[1]?.text, "Hello Universe");
-  assert.equal(parsed.parts[2]?.text, "Inserted Section");
+  assert.equal(parsed.story.title, "Dirty Sections Story");
+  assert.equal(parsed.story.parts.length, 3);
+  assert.equal(parsed.story.parts[0]?.text, "Prepended Section");
+  assert.equal(parsed.story.parts[1]?.text, "Hello Universe");
+  assert.equal(parsed.story.parts[2]?.text, "Inserted Section");
 });
 
 test("partsFromNovelAiStory applies successive text diff offsets to the evolving text", () => {
@@ -174,7 +174,7 @@ test("partsFromNovelAiStory applies successive text diff offsets to the evolving
     metadata: { title: "Successive edits" },
     content: { document: docBase64 }
   }));
-  assert.equal(parsed.parts[0]?.text, "aXXcdYfghi");
+  assert.equal(parsed.story.parts[0]?.text, "aXXcdYfghi");
 });
 
 test("partsFromNovelAiStory resolves forward dirty-create anchors", () => {
@@ -191,7 +191,7 @@ test("partsFromNovelAiStory resolves forward dirty-create anchors", () => {
     metadata: { title: "Forward anchors" },
     content: { document }
   }));
-  assert.deepEqual(parsed.parts.map(({ text }) => text), ["Base", "B", "A"]);
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Base", "B", "A"]);
 });
 
 test("partsFromNovelAiStory retains creates anchored to a pending removal", () => {
@@ -216,7 +216,7 @@ test("partsFromNovelAiStory retains creates anchored to a pending removal", () =
     metadata: { title: "Removed anchor" },
     content: { document }
   }));
-  assert.deepEqual(parsed.parts.map(({ text }) => text), ["Replacement"]);
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Replacement"]);
 });
 
 test("partsFromNovelAiStory preserves dirty-create insertion semantics", () => {
@@ -237,7 +237,7 @@ test("partsFromNovelAiStory preserves dirty-create insertion semantics", () => {
     metadata: { title: "Create order" },
     content: { document }
   }));
-  assert.deepEqual(parsed.parts.map(({ text }) => text), [
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), [
     "Prepend B",
     "Prepend A",
     "Base",
@@ -263,7 +263,7 @@ test("partsFromNovelAiStory skips valid non-prose and whitespace sections", () =
     metadata: { title: "Mixed sections" },
     content: { document: docBase64 }
   }));
-  assert.deepEqual(parsed.parts.map(({ text }) => text), ["Only prose."]);
+  assert.deepEqual(parsed.story.parts.map(({ text }) => text), ["Only prose."]);
 });
 
 test("partsFromNovelAiStory preserves type identity for numeric and string IDs", () => {
@@ -280,9 +280,9 @@ test("partsFromNovelAiStory preserves type identity for numeric and string IDs",
   });
 
   const parsed = partsFromNovelAiStory(containerJson);
-  assert.equal(parsed.parts.length, 2);
-  assert.equal(parsed.parts[0]?.text, "Numeric 1 section");
-  assert.equal(parsed.parts[1]?.text, "String 1 section");
+  assert.equal(parsed.story.parts.length, 2);
+  assert.equal(parsed.story.parts[0]?.text, "Numeric 1 section");
+  assert.equal(parsed.story.parts[1]?.text, "String 1 section");
 });
 
 test("partsFromNovelAiStory enforces strict base64 validation rules", () => {
@@ -424,7 +424,7 @@ test("partsFromNovelAiStory enforces structural bounds and budgets", () => {
     metadata: { title: "   " },
     content: { story: { fragments: [{ data: "prose" }] } }
   }));
-  assert.equal(fallbackParsed.title, "Imported NovelAI story");
+  assert.equal(fallbackParsed.story.title, "Imported NovelAI story");
 
   // 4. Duplicate JSON keys
   assert.throws(

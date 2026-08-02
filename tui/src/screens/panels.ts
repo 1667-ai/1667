@@ -48,6 +48,7 @@ import { renderSettingsPanel } from "./settings-panel.js";
 import { renderFactsPanel } from "./facts-panel.js";
 import { renderSamplingPanel } from "./sampling-panel.js";
 import { renderCardImportPanel } from "./card-import-panel.js";
+import { renderArchiveImportPanel } from "./archive-import-panel.js";
 
 export { SETTINGS_FOOTER_ACTIONS } from "./settings-panel-footers.js";
 export { FACTS_FOOTER_ACTIONS } from "./facts-panel.js";
@@ -84,6 +85,7 @@ export const CARD_IMPORT_FOOTER_ACTIONS = [
   { token: "tab", action: "complete" }, { token: "↵", action: "apply" },
   { token: "esc", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+export const ARCHIVE_IMPORT_FOOTER_ACTIONS = CARD_IMPORT_FOOTER_ACTIONS;
 type PanelState = Omit<OverlayState, "hitRows"> & {
   mode: StoryScreenState["mode"];
   tag: StoryScreenState["tag"];
@@ -112,7 +114,12 @@ export function renderPanels(
     requestActive: generationBusy(state) || state.summary !== null
   };
   let composition: FrameComposition = { lines: base, selectable: null };
-  if (state.card !== null) {
+  if (state.archive !== null) {
+    composition = renderArchiveImportPanel(
+      dimPage(base), local, width, height, ARCHIVE_IMPORT_FOOTER_ACTIONS
+    );
+  }
+  else if (state.card !== null) {
     composition = renderCardImportPanel(
       dimPage(base), local, width, height, CARD_IMPORT_FOOTER_ACTIONS
     );

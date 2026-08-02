@@ -5,7 +5,7 @@ import { pasteInto } from "../src/keys.js";
 test("paste inserts at the composer cursor and flattens single-line prompts", () => {
   const base = {
     composer: createComposer("ab"), tag: null, library: null, facts: null, commands: null, search: null,
-    editor: null, settings: null, card: null,
+    editor: null, settings: null, card: null, archive: null,
     prune: null, chapterDeleteArmedId: null, actions: null, retakePrompt: null,
     composerScrollTop: 0, history: [] as string[], historyIndex: 0, historyDraft: null,
     pendingGenerationDraft: null, composerClaimEpoch: 0

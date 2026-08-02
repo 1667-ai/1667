@@ -47,7 +47,14 @@ import {
 } from "./import-model.js";
 import { partsFromSillyTavernJsonl } from "./import-st.js";
 import { partsFromMarkdown } from "./import-md.js";
-import { partsFromNovelAiStory } from "./import-nai.js";
+import { partsFromNovelAiStory, type NovelAiContainerImport } from "./import-nai.js";
+import { partsFromNovelAiScenario } from "./import-scenario.js";
+import { createFacts } from "./story-facts.js";
+import { setAuthorsNote } from "./story-authors-note.js";
+
+import { factsFromLorebook, parseLorebookArchive, type LorebookImport } from "../shared/novelai-lorebook.js";
+import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
+
 import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
@@ -574,6 +581,31 @@ export class StoryService extends StoryServiceRuntime {
     return buildStoryPayload(story);
   }
 
+  private async persistImportedContainerStory(
+    container: NovelAiContainerImport,
+    method: ImportCreationMethod,
+    ids: ImportStoryIds,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    if (mutationRequest !== undefined) {
+      const committed = await this.storyCreations.run(
+        mutationRequest,
+        method,
+        (deterministicId) => storyFromContainerImport(container, {
+          ...ids,
+          storyId: deterministicId
+        })
+      );
+      return buildStoryPayload(committed.story, {
+        kind: "v6",
+        revision: committed.result.storyRevision
+      });
+    }
+    const story = storyFromContainerImport(container, ids);
+    await this.stories.save(story);
+    return buildStoryPayload(story);
+  }
+
   async importSillyTavern(
     jsonl: string,
     ids: { storyId?: string; nodeId?: (index: number) => string } = {},
@@ -667,21 +699,84 @@ export class StoryService extends StoryServiceRuntime {
       nodeId?: (index: number) => string;
     } = {},
     mutationRequest?: unknown
-  ): Promise<{ payload: StoryPayload }> {
+  ): Promise<{ payload: StoryPayload; fidelity: readonly string[] }> {
     this.ensureOpen();
     if (Buffer.byteLength(storyContainerJson) > MAX_IMPORT_BYTES) {
       throw new ServiceError(413, "Request body too large");
     }
-    const imported = partsFromNovelAiStory(storyContainerJson);
+    const container = partsFromNovelAiStory(storyContainerJson);
     return {
-      payload: await this.persistImportedStory(
-        imported,
+      payload: await this.persistImportedContainerStory(
+        container,
         "importNovelAI",
         options,
         mutationRequest
-      )
+      ),
+      fidelity: container.fidelity
     };
   }
+
+  async importScenario(
+    jsonText: string,
+    options: {
+      storyId?: string;
+      nodeId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return (await this.importScenarioWithReport(
+      jsonText,
+      options,
+      mutationRequest
+    )).payload;
+  }
+
+  async importScenarioWithReport(
+    jsonText: string,
+    options: {
+      storyId?: string;
+      nodeId?: (index: number) => string;
+    } = {},
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload; fidelity: readonly string[] }> {
+    this.ensureOpen();
+    if (Buffer.byteLength(jsonText) > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    const container = partsFromNovelAiScenario(jsonText);
+    return {
+      payload: await this.persistImportedContainerStory(
+        container,
+        "importScenario",
+        options,
+        mutationRequest
+      ),
+      fidelity: container.fidelity
+    };
+  }
+
+  async importLorebook(
+    storyId: string,
+    archiveBytes: Uint8Array,
+    mutationRequest?: unknown
+  ): Promise<{ payload: StoryPayload; importResult: LorebookImport }> {
+    this.ensureOpen();
+    if (archiveBytes.byteLength > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    const lorebook = parseLorebookArchive(archiveBytes);
+    const story = await this.stories.load(storyId);
+    const room = MAX_FACTS - story.facts.length;
+    const importResult = factsFromLorebook(lorebook, room);
+    const payload = await this.createFact(
+      storyId,
+      { facts: [...importResult.facts] },
+      undefined,
+      mutationRequest
+    );
+    return { payload, importResult };
+  }
+
 
   async continueStory(
     id: string,
@@ -809,6 +904,20 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+}
+
+function storyFromContainerImport(
+  container: NovelAiContainerImport,
+  ids: ImportStoryIds = {}
+) {
+  const story = storyFromImport(container.story, ids);
+  if (container.facts.length > 0) {
+    createFacts(story, { facts: [...container.facts] });
+  }
+  if (container.authorsNote !== null) {
+    setAuthorsNote(story, container.authorsNote);
+  }
+  return story;
 }
 
 /** Stop a scan the caller no longer wants.

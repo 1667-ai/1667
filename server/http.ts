@@ -33,6 +33,33 @@ export async function readTextBody(
   }
 }
 
+export async function readBufferBody(
+  request: IncomingMessage,
+  maxBytes: number,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  const cancel = () => request.destroy();
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    for await (const chunk of request) {
+      if (signal?.aborted === true) throw operationCanceled();
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > maxBytes) throw new ServiceError(413, "Request body too large");
+      chunks.push(buffer);
+    }
+    if (signal?.aborted === true) throw operationCanceled();
+    return new Uint8Array(Buffer.concat(chunks));
+  } catch (error) {
+    if (signal?.aborted === true) throw operationCanceled();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+  }
+}
+
 export async function readJsonBody(
   request: IncomingMessage,
   signal?: AbortSignal,
