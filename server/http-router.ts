@@ -321,6 +321,18 @@ async function handleApi(
       })
     );
   }
+  if (head === "stories" && id !== undefined
+    && sub === "facts-budget" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setFactsBudget", {
+        storyId: id,
+        budgetTokens: body.budgetTokens
+      })
+    );
+  }
 
   if (head === "import" && id === "sillytavern" && sub === undefined && method === "POST") {
     return sendJson(

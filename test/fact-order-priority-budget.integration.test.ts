@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { selectFactsWithinBudget } from "../shared/fact-budget.js";
 import { StoryService } from "../server/story-service.js";
 
 test("fact order, priority, and budget round-trip through create, patch, reorder, and reload", async (t) => {
@@ -73,6 +74,54 @@ test("reorderFact clamps an out-of-range index and rejects an unknown Fact", asy
       service.reorderFact(created.id, "unknown-fact", { toIndex: 0 }),
       /Fact not found/
     );
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("setFactsBudget round-trips and, once set, sheds the story's low-priority Facts", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-facts-budget-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  let service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+
+  const created = await service.createStory("Facts budget");
+  await service.createFact(created.id, { text: "A short, important fact." });
+  const withLow = await service.createFact(created.id, {
+    text: "A much longer fact that only matters when the window has room to spare for it.",
+    priority: "low"
+  });
+  const [keptId, shedId] = withLow.facts.map((fact) => fact.id) as [string, string];
+
+  // No budget yet: both Facts stand, regardless of priority.
+  const unbudgeted = selectFactsWithinBudget(withLow.facts, null);
+  assert.deepEqual(unbudgeted.kept.map((fact) => fact.id), [keptId, shedId]);
+
+  // Setting the budget is rejected outside its bounds...
+  await assert.rejects(service.setFactsBudget(created.id, 0), /factsBudgetTokens/);
+
+  // ...and takes effect once valid: tight enough to force the low-priority
+  // Fact out but not the other one.
+  const budget = Math.ceil(withLow.facts[0]!.text.length / 4) + 1;
+  const budgeted = await service.setFactsBudget(created.id, budget);
+  assert.equal(budgeted.factsBudgetTokens, budget);
+
+  const selection = selectFactsWithinBudget(budgeted.facts, budgeted.factsBudgetTokens ?? null, {
+    spaceDropReason: "total-budget"
+  });
+  assert.deepEqual(selection.kept.map((fact) => fact.id), [keptId]);
+  assert.deepEqual(selection.dropped, [{ factId: shedId, reason: "total-budget" }]);
+
+  // Clearing with null removes the field rather than leaving it at zero.
+  const cleared = await service.setFactsBudget(created.id, null);
+  assert.equal("factsBudgetTokens" in cleared, false);
+
+  await service.dispose();
+  service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    const reloaded = await service.loadStory(created.id);
+    assert.equal(reloaded.factsBudgetTokens, undefined);
   } finally {
     await service.dispose();
   }

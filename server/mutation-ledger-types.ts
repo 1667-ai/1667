@@ -21,6 +21,7 @@ export const STORY_MUTATION_METHODS = [
   "createStory",
   "renameStory",
   "setAuthorsNote",
+  "setFactsBudget",
   "autonameStory",
   "deleteStory",
   "switchLine",

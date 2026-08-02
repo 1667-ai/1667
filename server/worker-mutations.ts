@@ -14,6 +14,7 @@ import {
 import {
   isProviderRecoveryContext
 } from "../shared/provider-recovery.js";
+import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
 import {
@@ -129,6 +130,28 @@ const MUTATIONS: MutationRegistry = {
       return recovered ?? await service.setAuthorsNote(
         input.storyId,
         input.note,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setFactsBudget: define<"setFactsBudget">({
+    parse: (value) => {
+      const input = requireRecord(value, "setFactsBudget input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        budgetTokens: parseFactsBudgetTokensInput(input.budgetTokens)
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => (story.factsBudgetTokens ?? null) === input.budgetTokens
+      );
+      return recovered ?? await service.setFactsBudget(
+        input.storyId,
+        input.budgetTokens,
         context.storyMutationRequest
       );
     }
@@ -884,6 +907,16 @@ function requireStringValue(value: unknown, label: string): string {
 
 function badInput(message: string): ServiceError {
   return new ServiceError(400, message);
+}
+
+function parseFactsBudgetTokensInput(value: unknown): number | null {
+  if (value === null) return null;
+  if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > MAX_STORY_FACTS_BUDGET_TOKENS) {
+    throw badInput(
+      `budgetTokens must be an integer between 1 and ${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}, or null to clear it.`
+    );
+  }
+  return value as number;
 }
 
 function requireProviderRecoveryContext(value: unknown) {
