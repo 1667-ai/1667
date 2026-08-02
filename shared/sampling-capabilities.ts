@@ -38,7 +38,8 @@ export type SamplingUnavailableReason =
   | "preset-unsupported"
   | "preset-unknown"
   | "model-unsupported"
-  | "model-unknown";
+  | "model-unknown"
+  | "mirostat-off";
 
 export type SamplingResolution =
   | Readonly<{ kind: "available"; wireField: string }>
@@ -63,7 +64,17 @@ const PROTOCOL_WIRE: Readonly<
     presencePenalty: "presence_penalty",
     repeatPenalty: "repeat_penalty",
     stop: "stop",
-    logitBias: "logit_bias"
+    logitBias: "logit_bias",
+    dryMultiplier: "dry_multiplier",
+    dryBase: "dry_base",
+    dryRange: "dry_penalty_last_n",
+    dryBreakers: "dry_sequence_breakers",
+    xtcThreshold: "xtc_threshold",
+    xtcProbability: "xtc_probability",
+    dynatempRange: "dynatemp_range",
+    mirostat: "mirostat",
+    mirostatTau: "mirostat_tau",
+    mirostatEta: "mirostat_eta"
   },
   "anthropic-messages": {
     topP: "top_p",
@@ -72,12 +83,35 @@ const PROTOCOL_WIRE: Readonly<
   }
 };
 
+// The knobs llama.cpp and KoboldCpp document beyond the OpenAI chat-completions
+// baseline. `isOpenAiExtension` and `PRESET_EXTENSIONS` both derive from this
+// one list so a knob is never an extension in one place and a baseline field
+// in the other.
+export const SAMPLING_OPENAI_EXTENSION_KNOBS: readonly SamplingKnobV2[] = [
+  "topK",
+  "minP",
+  "repeatPenalty",
+  "dryMultiplier",
+  "dryBase",
+  "dryRange",
+  "dryBreakers",
+  "xtcThreshold",
+  "xtcProbability",
+  "dynatempRange",
+  "mirostat",
+  "mirostatTau",
+  "mirostatEta"
+];
+
+const SAMPLING_OPENAI_EXTENSION_KNOB_SET: ReadonlySet<SamplingKnobV2> =
+  new Set(SAMPLING_OPENAI_EXTENSION_KNOBS);
+
 const PRESET_EXTENSIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
-  "llama-cpp": ["topK", "minP", "repeatPenalty"],
+  "llama-cpp": SAMPLING_OPENAI_EXTENSION_KNOBS,
   "lm-studio": ["topK", "repeatPenalty"],
-  koboldcpp: ["topK", "minP", "repeatPenalty"]
+  koboldcpp: SAMPLING_OPENAI_EXTENSION_KNOBS
 };
 
 const PRESET_SUBTRACTIONS: Readonly<
@@ -108,11 +142,33 @@ const KNOB_LABELS: Readonly<Record<SamplingKnobV2, string>> = {
   presencePenalty: "presence penalty",
   repeatPenalty: "repeat penalty",
   stop: "stop sequences",
-  logitBias: "logit bias"
+  logitBias: "logit bias",
+  dryMultiplier: "dry multiplier",
+  dryBase: "dry base",
+  dryRange: "dry range",
+  dryBreakers: "dry breakers",
+  xtcThreshold: "xtc threshold",
+  xtcProbability: "xtc chance",
+  dynatempRange: "dyn temp range",
+  mirostat: "mirostat",
+  mirostatTau: "mirostat tau",
+  mirostatEta: "mirostat eta"
 };
 
 export function samplingKnobLabel(knob: SamplingKnobV2): string {
   return KNOB_LABELS[knob];
+}
+
+/** Why a knob is unavailable, in one sentence. The server names this in the
+ *  request it refuses, and the panel prints it beside the row. One table
+ *  holds the words, so a new reason cannot reach one surface and miss another. */
+export function samplingUnavailableReason(reason: SamplingUnavailableReason): string {
+  return UNAVAILABLE_REASON_TEXT[reason].reason;
+}
+
+/** The same fact, in the words a status line has room for. */
+export function samplingUnavailableReasonCompact(reason: SamplingUnavailableReason): string {
+  return UNAVAILABLE_REASON_TEXT[reason].compact;
 }
 
 export function samplingContextForRoute(route: SelectedSettingsRouteV2): SamplingContext {
@@ -126,6 +182,7 @@ export function samplingContextForRoute(route: SelectedSettingsRouteV2): Samplin
 
 export function resolveSamplingKnob(
   context: SamplingContext,
+  sampling: SamplingSettingsV2,
   knob: SamplingKnobV2
 ): SamplingResolution {
   if (context.protocol === "legacy-v1" || context.preset === "legacy-v1") {
@@ -160,14 +217,22 @@ export function resolveSamplingKnob(
   ) {
     return { kind: "unavailable", reason: "model-unknown" };
   }
+
+  // Checked last, after every route/protocol/preset check: an unsupported
+  // route reports its own reason for mirostat tau/eta too, and only a
+  // supported route that has mirostat off falls through to this reason.
+  if ((knob === "mirostatTau" || knob === "mirostatEta") && sampling.mirostat === null) {
+    return { kind: "unavailable", reason: "mirostat-off" };
+  }
   return { kind: "available", wireField };
 }
 
 export function samplingKnobPresentation(
   context: SamplingContext,
+  sampling: SamplingSettingsV2,
   knob: SamplingKnobV2
 ): SamplingPresentation {
-  const resolution = resolveSamplingKnob(context, knob);
+  const resolution = resolveSamplingKnob(context, sampling, knob);
   if (resolution.kind === "available") {
     return {
       label: samplingKnobLabel(knob),
@@ -207,7 +272,7 @@ export function resolveConfiguredSamplingKnobs(
 ): readonly ConfiguredSamplingKnob[] {
   return SAMPLING_KNOB_V2_VALUES
     .filter((knob) => samplingKnobValueIsSet(sampling, knob))
-    .map((knob) => ({ knob, resolution: resolveSamplingKnob(context, knob) }));
+    .map((knob) => ({ knob, resolution: resolveSamplingKnob(context, sampling, knob) }));
 }
 
 export function applySamplingSettings(
@@ -234,7 +299,7 @@ export function applySamplingSettings(
 }
 
 function isOpenAiExtension(knob: SamplingKnobV2): boolean {
-  return knob === "topK" || knob === "minP" || knob === "repeatPenalty";
+  return SAMPLING_OPENAI_EXTENSION_KNOB_SET.has(knob);
 }
 
 export function samplingSettingsEqual(
@@ -289,5 +354,9 @@ const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
   "model-unknown": {
     reason: "This model has no documented support for this parameter.",
     compact: "model unknown"
+  },
+  "mirostat-off": {
+    reason: "Mirostat is off.",
+    compact: "mirostat off"
   }
 };

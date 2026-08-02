@@ -36,6 +36,7 @@ export function renderStatus(
     : samplingPanel === "sampling" ? "SAMPLING"
     : samplingPanel === "stop" ? "STOP"
     : samplingPanel === "logit-bias" ? "LOGIT BIAS"
+    : samplingPanel === "dry-breakers" ? "DRY BREAKERS"
     : state.mode;
   const modeBlock: FrameSegment = {
     text: state.prune === null ? ` ${mode} ` : " PRUNE ",

@@ -145,12 +145,9 @@ test("initial and advanced documents survive an unchanged basic round-trip exact
 
 test("sampling edits only the default profile and preserve route-owned settings", () => {
   const sampling: SamplingSettingsV2 = {
+    ...EMPTY_SAMPLING_V2,
     topP: 0.9,
-    topK: null,
-    minP: null,
     frequencyPenalty: 0.2,
-    presencePenalty: null,
-    repeatPenalty: null,
     stop: ["END"],
     logitBias: { "15043": 1 }
   };

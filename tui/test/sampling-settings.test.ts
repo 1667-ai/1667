@@ -4,7 +4,7 @@ import {
   basicSettingsFromDocument
 } from "../../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
-import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2, SAMPLING_KNOB_V2_VALUES } from "../../shared/settings-v2-types.js";
 import type { SaveSettingsCommand, SettingsView } from "../../shared/settings-v2-types.js";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
@@ -13,6 +13,11 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
+import {
+  SAMPLING_LAYER_ROWS,
+  samplingListPanelInfo,
+  type SamplingLayerRowSpec
+} from "../src/sampling-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   installSave,
@@ -22,7 +27,32 @@ import {
   settingsHarness
 } from "./settings-test-harness.js";
 
+// Rows moved once #292 appended the DRY/XTC/temperature-shaping sections
+// after `stop` and `logit bias`. Deriving the index from SAMPLING_LAYER_ROWS,
+// instead of a hardcoded number, keeps these tests honest the next time a
+// knob is inserted.
+const STOP_ROW = layerRowIndex((row) => row.kind === "list" && row.panel === "stop");
+const LOGIT_BIAS_ROW = layerRowIndex((row) => row.kind === "list" && row.panel === "logit-bias");
+const DRY_BREAKERS_ROW = layerRowIndex((row) => row.kind === "list" && row.panel === "dry-breakers");
+const MIROSTAT_ROW = layerRowIndex((row) => row.kind === "scalar" && row.knob === "mirostat");
+const MIROSTAT_TAU_ROW = layerRowIndex((row) => row.kind === "scalar" && row.knob === "mirostatTau");
+
+function layerRowIndex(predicate: (row: SamplingLayerRowSpec) => boolean): number {
+  const index = SAMPLING_LAYER_ROWS.findIndex(predicate);
+  if (index < 0) throw new Error("row not found in SAMPLING_LAYER_ROWS");
+  return index;
+}
+
 describe("Sampling Settings user flow", () => {
+  test("every sampling parameter a profile can hold has a row in the panel", () => {
+    // SAMPLING_LAYER_ROWS spells its order out, because the panel order is not
+    // the knob declaration order. A knob that never reaches that list is a
+    // parameter the writer cannot see or set, so hold the two together.
+    const rows = SAMPLING_LAYER_ROWS.map((row) =>
+      row.kind === "scalar" ? row.knob : samplingListPanelInfo(row.panel).knob);
+    expect([...rows].sort()).toEqual([...SAMPLING_KNOB_V2_VALUES].sort());
+  });
+
   test("starts collapsed, opens through the Settings row, and shows a shared disabled reason", async () => {
     const { state, press } = settingsHarness();
     await openSettings(press);
@@ -166,7 +196,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, STOP_ROW);
     await press(key("return"));
 
     await press(key("n"));
@@ -192,7 +222,7 @@ describe("Sampling Settings user flow", () => {
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
     await press(key("return"));
 
     await press(key("n"));
@@ -253,7 +283,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, STOP_ROW);
     await press(key("return"));
     const stopFrame = render(state, 80, 24);
     expect(stopFrame).toContain("no stop sequences yet.");
@@ -261,7 +291,7 @@ describe("Sampling Settings user flow", () => {
     expect(stopFrame.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
     await press(key("return"));
     const logitFrame = render(state, 80, 24);
     expect(logitFrame).toContain("no biased tokens yet.");
@@ -274,7 +304,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, STOP_ROW);
     await press(key("return"));
     await press(key("n"));
     let frame = render(state, 80, 24);
@@ -291,7 +321,7 @@ describe("Sampling Settings user flow", () => {
 
     await press(key("escape"));
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
     await press(key("return"));
     await press(key("n"));
     frame = render(state, 80, 24);
@@ -311,7 +341,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, STOP_ROW);
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("stop");
     await press(key("escape"));
@@ -321,6 +351,138 @@ describe("Sampling Settings user flow", () => {
     await press(key("escape"));
     expect(state.settings).toBe(null);
     expect(state.mode).toBe("NAV");
+  });
+
+  test("renders the dry, xtc, and temperature-shaping sections under their rule lines", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    const lines = render(state, 100, 48).split("\n");
+
+    const dryRule = lines.findIndex((line) => line.includes("dry · don't repeat yourself"));
+    const xtcRule = lines.findIndex((line) => line.includes("xtc · exclude top choices"));
+    const tempRule = lines.findIndex((line) => line.includes("temperature shaping"));
+    expect(dryRule).toBeGreaterThan(-1);
+    expect(xtcRule).toBeGreaterThan(dryRule);
+    expect(tempRule).toBeGreaterThan(xtcRule);
+
+    expect(lines.findIndex((line) => line.includes("dry multiplier"))).toBeGreaterThan(dryRule);
+    expect(lines.findIndex((line) => line.includes("dry breakers"))).toBeGreaterThan(dryRule);
+    expect(lines.findIndex((line) => line.includes("xtc threshold"))).toBeGreaterThan(xtcRule);
+    expect(lines.findIndex((line) => line.includes("dyn temp range"))).toBeGreaterThan(tempRule);
+  });
+
+  test("shows a 0 disables hint only on dry multiplier, dry range, xtc chance, and dyn temp range", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    const lines = render(state, 120, 48).split("\n");
+
+    for (const label of ["dry multiplier", "dry range", "xtc chance", "dyn temp range"]) {
+      const line = lines.find((candidate) => candidate.includes(label));
+      expect(line).toContain("0 disables");
+    }
+    for (const label of ["dry base", "xtc threshold"]) {
+      const line = lines.find((candidate) => candidate.includes(label));
+      expect(line).not.toContain("0 disables");
+    }
+  });
+
+  test("mirostat walks off to v1 to v2 and back to off through the existing stepper", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, MIROSTAT_ROW);
+
+    expect(state.settings?.draft.sampling.mirostat).toBe(null);
+    expect(mirostatRowLine(render(state, 100, 40))).toContain("‹ off ›");
+
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(1);
+    expect(mirostatRowLine(render(state, 100, 40))).toContain("‹ v1 ›");
+
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(2);
+    expect(mirostatRowLine(render(state, 100, 40))).toContain("‹ v2 ›");
+
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(2);
+
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(1);
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(null);
+    expect(mirostatRowLine(render(state, 100, 40))).toContain("‹ off ›");
+  });
+
+  test("mirostat tau and eta stay unavailable while mirostat is off, and open once it is v1", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, MIROSTAT_TAU_ROW);
+
+    const offFrame = render(state, 100, 40);
+    expect(offFrame).toContain("Mirostat is off.");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).toBe(null);
+    expect(state.settings?.sampling?.result).toContain("mirostat off");
+
+    await press(key("up"));
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(1);
+
+    await press(key("down"));
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit?.kind).toBe("scalar");
+    setSamplingEdit(state, "6");
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.mirostatTau).toBe(6);
+
+    await press(key("down"));
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit?.kind).toBe("scalar");
+  });
+
+  test("an LM Studio route hides the extended samplers behind the preset reason", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source, "http://127.0.0.1:1234/v1");
+    await enterSampling(state, press);
+    const lines = render(state, 100, 48).split("\n");
+
+    const dryLine = lines.find((line) => line.includes("dry multiplier"));
+    expect(dryLine).toContain("‹ — ›");
+    expect(dryLine).toContain("This endpoint does not document");
+    // A baseline OpenAI field stays available on the same route.
+    const topPLine = lines.find((line) => line.includes("top p"));
+    expect(topPLine).toContain("‹ default ›");
+  });
+
+  test("adds, edits, reorders, and deletes dry breakers", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, DRY_BREAKERS_ROW);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("dry-breakers");
+
+    await press(key("n"));
+    setSamplingEdit(state, "\n");
+    await press(key("return"));
+    await press(key("n"));
+    setSamplingEdit(state, "*");
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual(["\n", "*"]);
+
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual(["*", "\n"]);
+
+    await press(key("return"));
+    setSamplingEdit(state, ":");
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual([":", "\n"]);
+
+    await press(key("d"));
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual(["\n"]);
   });
 });
 
@@ -358,13 +520,16 @@ async function moveLayer2Cursor(
   for (let index = 0; index < target; index += 1) await press(key("down"));
 }
 
-function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
+function useSupportedSettings(
+  source: ReturnType<typeof demoAppSource>,
+  baseUrl = "http://127.0.0.1:8080/v1"
+): void {
   const active = source.settingsView;
   if (!active.editable) throw new Error("demo settings must be editable");
   const generation = {
     ...source.settings,
     provider: "openai-compatible" as const,
-    baseUrl: "http://127.0.0.1:8080/v1",
+    baseUrl,
     model: "gpt-5.2",
     apiKeyEnv: null
   };
@@ -442,4 +607,14 @@ function selectedNestedHit(
 
 function renderedLogitRows(frame: string, tokens: readonly string[]): string[] {
   return frame.split("\n").filter((line) => tokens.some((token) => line.includes(token)));
+}
+
+// The bare `mirostat` row and the `mirostat tau` / `mirostat eta` rows all
+// contain the substring "mirostat ", so this rules out the two dependent rows
+// explicitly rather than guessing at column widths.
+function mirostatRowLine(frame: string): string {
+  const line = frame.split("\n")
+    .find((candidate) => /mirostat(?! tau| eta)\s*‹/.test(candidate));
+  if (line === undefined) throw new Error("mirostat row not found in frame");
+  return line;
 }

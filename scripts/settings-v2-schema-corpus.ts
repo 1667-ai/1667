@@ -47,6 +47,12 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   const convertedOpenAi = convertGenerationSettingsV1(openAi);
   const convertedAnthropic = convertGenerationSettingsV1(anthropic);
   const convertedLocal = convertGenerationSettingsV1(local);
+  // topK/minP/repeatPenalty and the new DRY/XTC/temperature-shaping knobs are
+  // llama.cpp/KoboldCpp extensions the "openai" preset does not document, so
+  // this fixture's connection preset leaves them null; the schema still needs
+  // every key present (and its null branch exercised). llama.cpp/KoboldCpp
+  // preset coverage of real configured values lives in
+  // test/sampling-e2e.test.ts and test/sampling-capabilities.test.ts.
   const sampledOpenAi = withSampling(convertedOpenAi, {
     topP: 0.9,
     topK: null,
@@ -54,8 +60,18 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: null,
+    dryMultiplier: null,
+    dryBase: null,
+    dryRange: null,
+    xtcThreshold: null,
+    xtcProbability: null,
+    dynatempRange: null,
+    mirostat: null,
+    mirostatTau: null,
+    mirostatEta: null,
     stop: ["END", "DONE"],
-    logitBias: { "15043": 1 }
+    logitBias: { "15043": 1 },
+    dryBreakers: []
   });
   const emptySampling = withSampling(sampledOpenAi, EMPTY_SAMPLING_V2);
   const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
@@ -194,6 +210,10 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     invalid("document-sampling-logit-bias-limit", "document", withSampling(sampledOpenAi, {
       ...sampledOpenAi.profiles.default!.sampling!,
       logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+    }), false),
+    invalid("document-sampling-invalid-mirostat", "document", withSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      mirostat: 3
     }), false),
     invalid("document-nfd-string", "document", {
       ...INITIAL_SETTINGS_DOCUMENT_V2,

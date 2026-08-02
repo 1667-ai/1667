@@ -32,6 +32,7 @@ import {
   type SamplingScalarKnobV2
 } from "../shared/settings-v2-types.js";
 import {
+  SAMPLING_DRY_BREAKERS_POLICY,
   SAMPLING_LOGIT_BIAS_POLICY,
   SAMPLING_SCALAR_DESCRIPTORS,
   SAMPLING_STOP_POLICY
@@ -145,6 +146,12 @@ export function settingsV2Schema(): Schema {
           SAMPLING_LOGIT_BIAS_POLICY.minimum,
           SAMPLING_LOGIT_BIAS_POLICY.maximum
         )
+      },
+      dryBreakers: {
+        type: "array",
+        maxItems: SAMPLING_DRY_BREAKERS_POLICY.maxSequences,
+        uniqueItems: true,
+        items: boundedString(SAMPLING_DRY_BREAKERS_POLICY.maxScalars, 1)
       }
     }),
     Connections: settingsMap("Connection"),

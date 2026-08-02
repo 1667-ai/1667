@@ -8,13 +8,12 @@ import {
   beginSamplingEdit,
   boundedSamplingCursor,
   deleteSamplingItem,
-  moveStopSequence,
+  moveSamplingListItem,
   SAMPLING_LAYER_ROWS,
   samplingListRows,
   samplingScalarRows,
-  setLogitBias,
+  setSamplingListItem,
   setSamplingScalar,
-  setStopSequence,
   type SamplingScalarKnob
 } from "./sampling-model.js";
 import { disarmSettingsConflict } from "./settings-overlay-model.js";
@@ -87,8 +86,8 @@ export async function samplingOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     if (nested.panel === "sampling") {
       stepSamplingScalar(settings, step);
-    } else if (nested.panel === "stop") {
-      moveStopSequence(settings, step);
+    } else {
+      moveSamplingListItem(settings, nested.panel, step);
     }
   }
 }
@@ -164,7 +163,20 @@ const SAMPLING_SCALAR_STEPS: Readonly<Record<SamplingScalarKnob, {
   minP: { step: 0.01, neutral: 0, precision: 2 },
   frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
   presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
-  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 }
+  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
+  dryMultiplier: { step: 0.05, neutral: 0, precision: 2 },
+  dryBase: { step: 0.05, neutral: 1.75, precision: 2 },
+  dryRange: { step: 64, neutral: 0, precision: 0 },
+  xtcThreshold: { step: 0.01, neutral: 0.1, precision: 2 },
+  xtcProbability: { step: 0.05, neutral: 0, precision: 2 },
+  dynatempRange: { step: 0.05, neutral: 0, precision: 2 },
+  // Mirostat is the existing stepper, not new cycler machinery: `neutral: 1`
+  // and `step: 1` make `←→` walk off (null) to v1 to v2 and back off through
+  // the same crossing/clamping stepSamplingScalar already does for every
+  // other scalar.
+  mirostat: { step: 1, neutral: 1, precision: 0 },
+  mirostatTau: { step: 0.1, neutral: 5, precision: 1 },
+  mirostatEta: { step: 0.01, neutral: 0.1, precision: 2 }
 };
 
 function roundSamplingValue(value: number, precision: number): number {
@@ -182,9 +194,7 @@ function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
   if (resolved.action === "commit-field") {
     const error = edit.kind === "scalar"
       ? setSamplingScalar(settings, edit.knob, edit.composer.text)
-      : edit.kind === "stop"
-        ? setStopSequence(settings, edit.index, edit.composer.text)
-        : setLogitBias(settings, edit.index, edit.composer.text);
+      : setSamplingListItem(settings, edit.kind, edit.index, edit.composer.text);
     if (error !== null) {
       nested.result = `row kept · ${error}`;
       return;

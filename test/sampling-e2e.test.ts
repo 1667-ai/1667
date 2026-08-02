@@ -3,10 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import test from "node:test";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
-import type {
-  SamplingSettingsV2,
-  SettingsDocumentV2,
-  SettingsPresetV2
+import {
+  EMPTY_SAMPLING_V2,
+  type SamplingSettingsV2,
+  type SettingsDocumentV2,
+  type SettingsPresetV2
 } from "../shared/settings-v2-types.js";
 import { streamCompletion } from "../server/providers.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
@@ -49,8 +50,18 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: 1.1,
+    dryMultiplier: 0.8,
+    dryBase: 1.75,
+    dryRange: 1024,
+    xtcThreshold: 0.1,
+    xtcProbability: 0.5,
+    dynatempRange: 0.45,
+    mirostat: 2,
+    mirostatTau: 5,
+    mirostatEta: 0.1,
     stop: ["END", "DONE"],
-    logitBias: { "15043": 1 }
+    logitBias: { "15043": 1 },
+    dryBreakers: ["\n", ":", "\"", "*"]
   };
   await first.save(saveCommand(
     MUTATION_A,
@@ -71,8 +82,18 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequency_penalty: body.frequency_penalty,
     presence_penalty: body.presence_penalty,
     repeat_penalty: body.repeat_penalty,
+    dry_multiplier: body.dry_multiplier,
+    dry_base: body.dry_base,
+    dry_penalty_last_n: body.dry_penalty_last_n,
+    xtc_threshold: body.xtc_threshold,
+    xtc_probability: body.xtc_probability,
+    dynatemp_range: body.dynatemp_range,
+    mirostat: body.mirostat,
+    mirostat_tau: body.mirostat_tau,
+    mirostat_eta: body.mirostat_eta,
     stop: body.stop,
-    logit_bias: body.logit_bias
+    logit_bias: body.logit_bias,
+    dry_sequence_breakers: body.dry_sequence_breakers
   }, {
     top_p: 0.9,
     top_k: 40,
@@ -80,9 +101,105 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequency_penalty: 0.2,
     presence_penalty: -0.1,
     repeat_penalty: 1.1,
+    dry_multiplier: 0.8,
+    dry_base: 1.75,
+    dry_penalty_last_n: 1024,
+    xtc_threshold: 0.1,
+    xtc_probability: 0.5,
+    dynatemp_range: 0.45,
+    mirostat: 2,
+    mirostat_tau: 5,
+    mirostat_eta: 0.1,
     stop: ["END", "DONE"],
-    logit_bias: { "15043": 1 }
+    logit_bias: { "15043": 1 },
+    dry_sequence_breakers: ["\n", ":", "\"", "*"]
   });
+});
+
+test("saved KoboldCpp sampling with the new knobs reaches the wire", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t);
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-koboldcpp-e2e-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const sampling: SamplingSettingsV2 = {
+    ...EMPTY_SAMPLING_V2,
+    topP: 0.92,
+    topK: 50,
+    minP: 0.02,
+    // KoboldCpp does not document frequencyPenalty; leave it unset.
+    repeatPenalty: 1.05,
+    dryMultiplier: 0.6,
+    dryBase: 2,
+    dryRange: 512,
+    xtcThreshold: 0.15,
+    xtcProbability: 0.3,
+    dynatempRange: 0.2,
+    mirostat: 1,
+    mirostatTau: 4.5,
+    mirostatEta: 0.2,
+    dryBreakers: ["\n"]
+  };
+  await store.save(saveCommand(
+    `m1.1767225600004.${"f".repeat(32)}`,
+    1,
+    documentFor(fixture.origin, "koboldcpp", "e2e-model", sampling)
+  ));
+  const runtime = await store.loadGeneration();
+  await collect(streamCompletion(runtime.settings, PROMPT, new AbortController().signal));
+  const body = fixture.bodies.at(-1)!;
+  assert.equal("frequency_penalty" in body, false);
+  assert.deepEqual({
+    top_p: body.top_p,
+    top_k: body.top_k,
+    min_p: body.min_p,
+    repeat_penalty: body.repeat_penalty,
+    dry_multiplier: body.dry_multiplier,
+    dry_base: body.dry_base,
+    dry_penalty_last_n: body.dry_penalty_last_n,
+    xtc_threshold: body.xtc_threshold,
+    xtc_probability: body.xtc_probability,
+    dynatemp_range: body.dynatemp_range,
+    mirostat: body.mirostat,
+    mirostat_tau: body.mirostat_tau,
+    mirostat_eta: body.mirostat_eta,
+    dry_sequence_breakers: body.dry_sequence_breakers
+  }, {
+    top_p: 0.92,
+    top_k: 50,
+    min_p: 0.02,
+    repeat_penalty: 1.05,
+    dry_multiplier: 0.6,
+    dry_base: 2,
+    dry_penalty_last_n: 512,
+    xtc_threshold: 0.15,
+    xtc_probability: 0.3,
+    dynatemp_range: 0.2,
+    mirostat: 1,
+    mirostat_tau: 4.5,
+    mirostat_eta: 0.2,
+    dry_sequence_breakers: ["\n"]
+  });
+});
+
+test("an LM Studio route with DRY configured refuses to save, naming the reason", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t);
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-lm-studio-dry-e2e-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const candidate = documentFor(fixture.origin, "lm-studio", "e2e-model", {
+    ...EMPTY_SAMPLING_V2,
+    dryMultiplier: 0.8
+  });
+  const before = (await store.loadView()).document;
+  await assert.rejects(
+    () => store.save(saveCommand(`m1.1767225600005.${"5".repeat(32)}`, 1, candidate)),
+    /dry multiplier.*endpoint with undocumented extension fields/u
+  );
+  assert.deepEqual((await store.loadView()).document, before);
 });
 
 test("unset sampling knobs stay absent from an activated OpenAI request", {
@@ -96,14 +213,8 @@ test("unset sampling knobs stay absent from an activated OpenAI request", {
     MUTATION_B,
     1,
     documentFor(fixture.origin, "custom", "e2e-model", {
-      topP: 0.9,
-      topK: null,
-      minP: null,
-      frequencyPenalty: null,
-      presencePenalty: null,
-      repeatPenalty: null,
-      stop: [],
-      logitBias: {}
+      ...EMPTY_SAMPLING_V2,
+      topP: 0.9
     })
   ));
   const runtime = await store.loadGeneration();
@@ -124,13 +235,7 @@ test("Ollama rejects logit bias at save time without changing the active documen
   await store.init(2);
   const before = (await store.loadView()).document;
   const candidate = documentFor("http://127.0.0.1:11434/v1", "ollama", "ollama-model", {
-    topP: null,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    stop: [],
+    ...EMPTY_SAMPLING_V2,
     logitBias: { "1": 1 }
   });
   await assert.rejects(
@@ -151,14 +256,10 @@ test("Anthropic lowering uses stop_sequences and does not emit OpenAI stop", {
     `m1.1767225600003.${"e".repeat(32)}`,
     1,
     documentFor(fixture.origin, "custom", "claude-opus-4-5", {
+      ...EMPTY_SAMPLING_V2,
       topP: 0.9,
       topK: 32,
-      minP: null,
-      frequencyPenalty: null,
-      presencePenalty: null,
-      repeatPenalty: null,
-      stop: ["END"],
-      logitBias: {}
+      stop: ["END"]
     }, "anthropic")
   ));
   const runtime = await store.loadGeneration();

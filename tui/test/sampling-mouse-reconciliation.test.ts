@@ -19,7 +19,7 @@ import type {
   SamplingInlineEditState,
   SamplingPanelId
 } from "../src/state.js";
-import type { SamplingSettingsV2 } from "../../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2, type SamplingSettingsV2 } from "../../shared/settings-v2-types.js";
 import { createWrapCache } from "../src/wrap.js";
 
 type State = ReturnType<typeof initialState>;
@@ -290,14 +290,5 @@ function pendingEdit(
 }
 
 function sampling(overrides: Partial<SamplingSettingsV2> = {}): SamplingSettingsV2 {
-  return {
-    topP: null,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    stop: overrides.stop ?? [],
-    logitBias: overrides.logitBias ?? {}
-  };
+  return { ...EMPTY_SAMPLING_V2, ...overrides };
 }

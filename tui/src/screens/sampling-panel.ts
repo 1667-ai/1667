@@ -4,9 +4,12 @@ import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
   samplingLayerRowIdentity,
-  samplingLogitBiasEntries,
   samplingListItemIdentity,
+  samplingListPanelInfo,
+  samplingListValues,
+  type SamplingListPanelId,
   type SamplingListRow,
+  type SamplingListValue,
   type SamplingScalarRow,
   samplingListRows,
   samplingScalarRows
@@ -47,17 +50,11 @@ export function renderSamplingPanel(
   const status = nested.result === null ? [] : [samplingStatus(nested.result, contentWidth)];
   const content = nested.panel === "sampling"
     ? renderSamplingLayer(settings, contentWidth, height, status)
-    : renderSamplingListLayer(
-        settings,
-        contentWidth,
-        height,
-        status,
-        nested.panel === "stop" ? "stop" : "logit-bias"
-      );
+    : renderSamplingListLayer(settings, contentWidth, height, status, nested.panel);
   const footer = samplingFooter(nested.panel, nested.edit !== null, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
-    nested.panel === "sampling" ? "sampling" : nested.panel === "stop" ? "stop sequences" : "logit bias",
+    nested.panel === "sampling" ? "sampling" : samplingListPanelInfo(nested.panel).title,
     content.lines,
     footer.text,
     width,
@@ -77,23 +74,33 @@ function renderSamplingLayer(
   height: number,
   status: FrameLine[]
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const scalarRows = samplingScalarRows(settings);
-  const listRows = samplingListRows(settings);
-  const rows = [
-    ...scalarRows.map((row) => ({ kind: "scalar" as const, row })),
-    ...listRows.map((row) => ({ kind: "list" as const, row }))
-  ];
+  const scalarByKnob = new Map(samplingScalarRows(settings).map((row) => [row.knob, row] as const));
+  const listByPanel = new Map(samplingListRows(settings).map((row) => [row.panel, row] as const));
+  // SAMPLING_LAYER_ROWS is the one ordering both the cursor and the paint use,
+  // so a knob's place in the section list can never drift from its focus stop.
+  const rows: SamplingLayerRow[] = SAMPLING_LAYER_ROWS.map((spec) =>
+    spec.kind === "scalar"
+      ? { kind: "scalar" as const, row: scalarByKnob.get(spec.knob)! }
+      : { kind: "list" as const, row: listByPanel.get(spec.panel)! }
+  );
   const cursor = boundedSamplingCursor(settings);
   // One reason held by every knob is a fact about the provider, not about any
   // row. Repeated down the column it was the loudest thing on the panel and
   // pushed each row's own value out of alignment.
-  const shared = sharedDisabledReason(scalarRows, listRows);
+  const shared = sharedDisabledReason(
+    [...scalarByKnob.values()],
+    [...listByPanel.values()]
+  );
   const sharedLine: FrameLine[] = shared === null
     ? []
     : [[raisedSegment(truncate(`  ${shared}`, width), "prose · dim")]];
+  // A section-leading row costs two physical lines: the rule above it, then
+  // the row itself. Every other row costs one. Headings are never their own
+  // focus stop, so this heights array stays index-aligned with `rows`.
+  const heights = SAMPLING_LAYER_ROWS.map((spec) => spec.section === undefined ? 1 : 2);
   const capacity = Math.max(1,
     panelContentRows(height) - status.length - sharedLine.length);
-  const window = panelRowWindow(rows.map(() => 1), cursor, capacity);
+  const window = panelRowWindow(heights, cursor, capacity);
   const lines: FrameLine[] = [...status, ...sharedLine];
   const targets: Array<HitTarget | null> = [
     ...status.map(() => null),
@@ -101,6 +108,11 @@ function renderSamplingLayer(
   ];
   for (const [offset, row] of rows.slice(window.start, window.end).entries()) {
     const index = window.start + offset;
+    const section = SAMPLING_LAYER_ROWS[index]!.section;
+    if (section !== undefined) {
+      lines.push(samplingSectionRule(section, width));
+      targets.push(null);
+    }
     lines.push(renderSamplingRow(row, index === cursor, settings, width, shared !== null));
     const rowIdentity = row.kind === "scalar"
       ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
@@ -113,6 +125,17 @@ function renderSamplingLayer(
     });
   }
   return { lines, targets };
+}
+
+/** C-04's rule: `── <title> ` padded with `─` to the content width, in the
+ *  `chrome` role, truncated rather than wrapped on a narrow panel. */
+function samplingSectionRule(title: string, width: number): FrameLine {
+  const rule = `── ${title} `;
+  const fill = width - visibleWidth(rule);
+  return [raisedSegment(
+    fill > 0 ? `${rule}${"─".repeat(fill)}` : truncate(rule, width),
+    "chrome"
+  )];
 }
 
 /** The one reason every knob is disabled for, when there is exactly one. */
@@ -146,7 +169,7 @@ function renderSamplingRow(
       lead,
       row.row.label,
       row.row.available ? `‹ ${row.row.value} ›` : "‹ — ›",
-      row.row.available || reasonShared ? "" : row.row.reason,
+      row.row.available ? row.row.hint : reasonShared ? "" : row.row.reason,
       width,
       selected,
       row.row.available ? "chrome" : "prose · dim"
@@ -163,42 +186,32 @@ function renderSamplingRow(
   );
 }
 
-type SamplingListValue = string | readonly [string, number];
-
-interface SamplingListDescriptor {
-  readonly panel: "stop" | "logit-bias";
-  readonly values: readonly SamplingListValue[];
-  readonly emptyCopy: readonly string[];
-  header(count: number): string;
-  formatValue(value: SamplingListValue, index: number, selected: boolean, width: number): FrameLine;
-}
-
 function renderSamplingListLayer(
   settings: NonNullable<OverlayState["settings"]>,
   width: number,
   height: number,
   status: FrameLine[],
-  panel: "stop" | "logit-bias"
+  panel: SamplingListPanelId
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const descriptor = samplingListDescriptor(settings, panel);
-  const values = descriptor.values;
-  const cursor = boundedSamplingCursor(settings, descriptor.panel);
+  const info = samplingListPanelInfo(panel);
+  const values = samplingListValues(settings, panel);
+  const cursor = boundedSamplingCursor(settings, panel);
   const activeEdit = settings.sampling?.edit;
-  const pendingEdit = activeEdit?.kind === descriptor.panel && activeEdit.index === values.length
+  const pendingEdit = activeEdit?.kind === panel && activeEdit.index === values.length
     ? activeEdit
     : null;
-  const header = [raisedSegment(truncate(descriptor.header(values.length), width), "chrome")];
+  const header = [raisedSegment(truncate(samplingListHeader(info, values.length), width), "chrome")];
   const rows: FrameLine[] = [];
   const targets: Array<HitTarget | null> = [...status.map(() => null), null];
   if (values.length === 0) {
-    for (const text of descriptor.emptyCopy) {
+    for (const text of info.emptyCopy) {
       rows.push([raisedSegment(truncate(text, width), "prose · dim")]);
       targets.push(null);
     }
   }
   const rowCount = values.length + (pendingEdit === null ? 0 : 1);
   if (rowCount > 0) {
-    const emptyCopyRows = values.length === 0 ? descriptor.emptyCopy.length : 0;
+    const emptyCopyRows = values.length === 0 ? info.emptyCopy.length : 0;
     const capacity = Math.max(1, panelContentRows(height) - status.length - 1 - emptyCopyRows);
     const window = panelRowWindow(Array.from({ length: rowCount }, () => 1), cursor, capacity);
     for (let index = window.start; index < window.end; index += 1) {
@@ -207,15 +220,15 @@ function renderSamplingListLayer(
       } else {
         const value = values[index];
         if (value === undefined) continue;
-        const edit = index === cursor && activeEdit?.kind === descriptor.panel
+        const edit = index === cursor && activeEdit?.kind === panel
           ? activeEdit
           : null;
         rows.push(edit === null
-          ? descriptor.formatValue(value, index, cursor === index, width)
+          ? samplingListFormatValue(info, value, index, cursor === index, width)
           : inlineListValueRow(index, edit.composer, width));
       }
       const rowId = samplingListItemIdentity(
-        descriptor.panel,
+        panel,
         index === values.length ? undefined : values[index],
         index === values.length && pendingEdit !== null
       );
@@ -230,39 +243,28 @@ function renderSamplingListLayer(
   return { lines: [...status, header, ...rows], targets };
 }
 
-function samplingListDescriptor(
-  settings: NonNullable<OverlayState["settings"]>,
-  panel: "stop" | "logit-bias"
-): SamplingListDescriptor {
-  const summary = samplingListRows(settings).find((row) => row.panel === panel)!;
-  if (panel === "stop") {
-    return {
-      panel,
-      values: settings.draft.sampling.stop,
-      emptyCopy: [
-        "  no stop sequences yet.",
-        "  n writes one · the model stops when it types one"
-      ],
-      header: (count) => `  #   stop sequence · ${count}/${summary.maximum}`,
-      formatValue: (value, index, selected, width) => {
-        if (typeof value !== "string") throw new Error("stop sequence row has an invalid value");
-        return listValueRow(index, value, selected, width);
-      }
-    };
+/** The header differs only by kind: a plain-string list numbers its rows, a
+ *  record list names its two columns. `dry-breakers` shares `stop`'s branch
+ *  automatically — no panel-specific case was added for it. */
+function samplingListHeader(info: ReturnType<typeof samplingListPanelInfo>, count: number): string {
+  return info.kind === "record"
+    ? `  token ID       integer bias · ${count}/${info.maximum}`
+    : `  #   ${info.itemLabel} · ${count}/${info.maximum}`;
+}
+
+function samplingListFormatValue(
+  info: ReturnType<typeof samplingListPanelInfo>,
+  value: SamplingListValue,
+  index: number,
+  selected: boolean,
+  width: number
+): FrameLine {
+  if (info.kind === "record") {
+    if (typeof value === "string") throw new Error(`${info.panel} row has an invalid value`);
+    return logitValueRow(value[0], value[1], selected, width);
   }
-  return {
-    panel,
-    values: samplingLogitBiasEntries(settings),
-    emptyCopy: [
-      "  no biased tokens yet.",
-      "  n writes one · token IDs come from the model's tokenizer."
-    ],
-    header: (count) => `  token ID       integer bias · ${count}/${summary.maximum}`,
-    formatValue: (value, _index, selected, width) => {
-      if (typeof value === "string") throw new Error("logit-bias row has an invalid value");
-      return logitValueRow(value[0], value[1], selected, width);
-    }
-  };
+  if (typeof value !== "string") throw new Error(`${info.panel} row has an invalid value`);
+  return listValueRow(index, value, selected, width);
 }
 
 function listValueRow(index: number, value: string, selected: boolean, width: number): FrameLine {
@@ -379,7 +381,7 @@ interface SamplingFooter {
 }
 
 function samplingFooter(
-  panel: "sampling" | "stop" | "logit-bias",
+  panel: "sampling" | SamplingListPanelId,
   editing: boolean,
   width: number
 ): SamplingFooter {
@@ -406,13 +408,16 @@ function samplingFooter(
       { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
     ] }
   ], width);
+  // `dry-breakers` reorders exactly like `stop` — both read `reorderable` off
+  // the same table, so neither footer variant branches on the panel id.
+  const reorderable = samplingListPanelInfo(panel).reorderable;
   const actions = [
     { token: "↑", action: "focus-previous" as const },
     { token: "↓", action: "focus-next" as const },
     { token: "↵ edit", action: "open-selected" as const },
     { token: "n add", action: "new-item" as const },
     { token: "d delete", action: "delete-item" as const },
-    ...(panel === "stop"
+    ...(reorderable
       ? [
           { token: "←", action: "take-previous" as const },
           { token: "→", action: "take-next" as const }
@@ -426,7 +431,7 @@ function samplingFooter(
     { token: "↵", action: "open-selected" as const },
     { token: "n", action: "new-item" as const },
     { token: "d", action: "delete-item" as const },
-    ...(panel === "stop"
+    ...(reorderable
       ? [
           { token: "←", action: "take-previous" as const },
           { token: "→", action: "take-next" as const }
@@ -436,13 +441,13 @@ function samplingFooter(
   ];
   return footerFit([
     {
-      text: panel === "stop"
+      text: reorderable
         ? "↑↓ move · ↵ edit · n add · d delete · ←→ reorder · esc back"
         : "↑↓ move · ↵ edit · n add · d delete · esc back",
       actions
     },
     {
-      text: panel === "stop" ? "↑↓ ↵ n d ←→ esc" : "↑↓ ↵ n d esc",
+      text: reorderable ? "↑↓ ↵ n d ←→ esc" : "↑↓ ↵ n d esc",
       actions: compactActions
     }
   ], width);
