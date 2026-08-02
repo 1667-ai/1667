@@ -209,7 +209,9 @@ const SAMPLING_LIST_SPECS: Readonly<Record<SamplingListPanelId, SamplingListSpec
     SAMPLING_DRY_BREAKERS_POLICY.maxSequences,
     [
       "  no dry breakers yet.",
-      "  n writes one · dry restarts counting after a breaker"
+      // An empty list is not sent, and the provider then uses its own
+      // breakers — so the empty state must not read as "dry has none".
+      "  n writes one · until then the provider uses its own list"
     ]
   )
 };

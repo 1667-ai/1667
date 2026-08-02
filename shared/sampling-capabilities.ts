@@ -114,6 +114,17 @@ const PRESET_EXTENSIONS: Readonly<
   koboldcpp: SAMPLING_OPENAI_EXTENSION_KNOBS
 };
 
+// One preset spells a field differently from the protocol. KoboldCpp's
+// OpenAI-compatible adapter reads `mirostat_mode` and then writes the result
+// over `mirostat`, so a request that names `mirostat` arrives as mode 0 and
+// the tau and eta beside it do nothing. llama.cpp reads `mirostat` and does
+// not know `mirostat_mode`, so the spelling has to follow the preset.
+const PRESET_WIRE_OVERRIDES: Readonly<
+  Partial<Record<SettingsPresetV2, Partial<Record<SamplingKnobV2, string>>>>
+> = {
+  koboldcpp: { mirostat: "mirostat_mode" }
+};
+
 const PRESET_SUBTRACTIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
@@ -224,7 +235,10 @@ export function resolveSamplingKnob(
   if ((knob === "mirostatTau" || knob === "mirostatEta") && sampling.mirostat === null) {
     return { kind: "unavailable", reason: "mirostat-off" };
   }
-  return { kind: "available", wireField };
+  return {
+    kind: "available",
+    wireField: PRESET_WIRE_OVERRIDES[context.preset]?.[knob] ?? wireField
+  };
 }
 
 export function samplingKnobPresentation(

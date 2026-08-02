@@ -161,7 +161,7 @@ test("saved KoboldCpp sampling with the new knobs reaches the wire", {
     xtc_threshold: body.xtc_threshold,
     xtc_probability: body.xtc_probability,
     dynatemp_range: body.dynatemp_range,
-    mirostat: body.mirostat,
+    mirostat_mode: body.mirostat_mode,
     mirostat_tau: body.mirostat_tau,
     mirostat_eta: body.mirostat_eta,
     dry_sequence_breakers: body.dry_sequence_breakers
@@ -176,11 +176,14 @@ test("saved KoboldCpp sampling with the new knobs reaches the wire", {
     xtc_threshold: 0.15,
     xtc_probability: 0.3,
     dynatemp_range: 0.2,
-    mirostat: 1,
+    mirostat_mode: 1,
     mirostat_tau: 4.5,
     mirostat_eta: 0.2,
     dry_sequence_breakers: ["\n"]
   });
+  // KoboldCpp's OpenAI-compatible adapter writes `mirostat_mode` over
+  // `mirostat`, so a request that names `mirostat` arrives as mode 0.
+  assert.equal("mirostat" in body, false);
 });
 
 test("an LM Studio route with DRY configured refuses to save, naming the reason", {

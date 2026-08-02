@@ -168,6 +168,10 @@ Select `stop sequences` or `dry breakers`. Press `n` to add a string. Press
 `Enter` to edit the selected string. Press `d` to delete the selected string.
 Press `Left Arrow` or `Right Arrow` to reorder the strings.
 
+1667 sends the DRY breakers only when the list holds one or more strings. An
+empty list lets the provider use its own breakers. 1667 cannot tell a provider
+to use no breakers.
+
 Select `logit bias`. Press `n` to add a token-ID and integer-bias row. Press
 `Enter` to edit a row. Press `d` to delete a row.
 

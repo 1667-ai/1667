@@ -131,7 +131,11 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
     sampling: EMPTY_SAMPLING_V2,
     expected: {
       ...llamaCppOrKoboldcppExtensions("mirostat-off"),
-      frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" }
+      frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" },
+      // KoboldCpp's OpenAI-compatible adapter reads `mirostat_mode` and writes
+      // the result over `mirostat`, so this one preset spells the field
+      // differently. A request that names `mirostat` arrives as mode 0.
+      mirostat: { kind: "available", wireField: "mirostat_mode" }
     }
   },
   {
@@ -143,7 +147,8 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
         kind: "available",
         wireField: "mirostat_eta"
       }),
-      frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" }
+      frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" },
+      mirostat: { kind: "available", wireField: "mirostat_mode" }
     }
   },
   {
