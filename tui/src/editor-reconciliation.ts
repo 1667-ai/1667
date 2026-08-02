@@ -45,6 +45,15 @@ export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   reconcileEditorDocument(state, editor, authoritative, "Author's Note changed during recovery");
 }
 
+/** Reconcile an authoritative Author Brief refresh against the active draft. */
+export function reconcileAuthorBriefEditor(state: RuntimeState): void {
+  const editor = state.editor;
+  if (editor?.kind !== "document" || editor.target.kind !== "author-brief") return;
+  const authoritative = state.payload.authorBrief ?? "";
+  editor.target.expected = authoritative;
+  reconcileEditorDocument(state, editor, authoritative, "Author Brief changed during recovery");
+}
+
 function reconcileFactDocument(
   state: RuntimeState,
   editor: FactEditorSession,

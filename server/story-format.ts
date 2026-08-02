@@ -174,6 +174,9 @@ export interface StoryManifestV4 {
 export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> {
   schemaVersion: typeof STORY_SCHEMA_VERSION;
   authorsNote?: string;
+  /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
+   *  to the machine-wide value. See `resolveAuthorBrief`. */
+  authorBrief?: string;
   /** Internal idempotency marker for a committed generated title. */
   autonameId?: string;
   /** Chapter one's name. It has no opening break to carry one. */
@@ -364,6 +367,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   const authorsNote = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalString(value.authorsNote, "authorsNote")
     : undefined;
+  const authorBrief = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    ? optionalString(value.authorBrief, "authorBrief")
+    : undefined;
   validateChapterRecords(chapterBreaks, stored.nodes);
   const parsed: StoryManifestV5 = {
     ...stored,
@@ -375,6 +381,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(authorsNote === undefined || authorsNote === ""
       ? {}
       : { authorsNote }),
+    ...(authorBrief === undefined || authorBrief === ""
+      ? {}
+      : { authorBrief }),
     chapterBreaks
   };
   return {

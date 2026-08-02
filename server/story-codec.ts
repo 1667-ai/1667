@@ -6,6 +6,7 @@ import {
   type StoryNode
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
@@ -66,6 +67,9 @@ export async function encodeStoryBundle(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  const authorBrief = story.authorBrief === undefined || story.authorBrief === ""
+    ? undefined
+    : boundedString(story.authorBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
   validateFactBodies(story.facts);
   for (const node of story.nodes) if (isNodeTextHydrated(node)) validateNodeAttribution(node);
   await objects.init();
@@ -120,6 +124,7 @@ export async function encodeStoryBundle(
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
     ...(authorsNote === undefined ? {} : { authorsNote }),
+    ...(authorBrief === undefined ? {} : { authorBrief }),
     ...(storyAutonameId(story) === undefined ? {} : { autonameId: storyAutonameId(story) }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
@@ -210,6 +215,9 @@ export async function decodeStoryBundle(
     ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
       ? {}
       : { authorsNote: manifest.authorsNote }),
+    ...(manifest.authorBrief === undefined || manifest.authorBrief === ""
+      ? {}
+      : { authorBrief: manifest.authorBrief }),
     ...(manifest.firstChapterTitle === undefined
       ? {}
       : { firstChapterTitle: manifest.firstChapterTitle }),

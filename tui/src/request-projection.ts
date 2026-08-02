@@ -6,6 +6,7 @@ import {
   type PromptPart
 } from "../../shared/chapters.js";
 import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
+import { resolveAuthorBrief } from "../../shared/author-brief.js";
 import { selectActiveFacts } from "../../shared/fact-activation.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
 import { formatFactsMessage } from "../../shared/story-facts.js";
@@ -94,7 +95,7 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     instruction: intent.instruction
   });
   const plan = continuationPlan(
-    request.systemPrompt,
+    resolveAuthorBrief(payload.authorBrief, request.systemPrompt),
     formatFactsMessage(activeFacts),
     payload.authorsNote ?? null,
     intent.contextParts,

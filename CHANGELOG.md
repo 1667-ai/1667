@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Stories can now override the default Author Brief.** Open the command
+  palette. Select **Author brief**. A story Author Brief overrides the
+  machine-wide default for that story's continuation, prompted retake,
+  highlighted rewrite, and autoname requests. A story with no Author Brief of
+  its own keeps the machine-wide default. Thanks @10fra for the request.
 - **Settings now includes a collapsed Sampling group.** Open the group to
   edit scalar values, stop sequences, and logit bias rows. The TUI shows a
   short reason for an unavailable value. An unavailable scalar row shows

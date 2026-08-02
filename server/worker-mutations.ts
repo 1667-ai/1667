@@ -4,6 +4,10 @@ import {
   normalizeAuthorsNote
 } from "../shared/authors-note.js";
 import {
+  MAX_AUTHOR_BRIEF_CHARS,
+  normalizeAuthorBrief
+} from "../shared/author-brief.js";
+import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   PREDECESSOR_WORKER_PROTOCOL_VERSION,
   isCurrentWorkerInputProtocolVersion,
@@ -129,6 +133,37 @@ const MUTATIONS: MutationRegistry = {
       return recovered ?? await service.setAuthorsNote(
         input.storyId,
         input.note,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setAuthorBrief: define<"setAuthorBrief">({
+    parse: (value) => {
+      const input = requireRecord(value, "setAuthorBrief input");
+      const raw = requireStringValue(input.brief, "brief");
+      if (hasUnpairedSurrogate(raw)) {
+        throw badInput("Author Brief contains invalid Unicode.");
+      }
+      if (unicodeScalarLength(raw, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
+        throw badInput(
+          `Author Brief exceeds the ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar value limit.`
+        );
+      }
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        brief: normalizeAuthorBrief(raw) ?? ""
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => (story.authorBrief ?? "") === input.brief
+      );
+      return recovered ?? await service.setAuthorBrief(
+        input.storyId,
+        input.brief,
         context.storyMutationRequest
       );
     }

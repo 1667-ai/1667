@@ -14,6 +14,24 @@ function documentEditor(state: RuntimeState): InlineEditorSession {
   return editor;
 }
 
+/** Author Brief has no NAV shortcut; open it the way a writer would, through
+ *  the story palette. */
+async function openAuthorBriefFromPalette(
+  state: RuntimeState,
+  press: (event: ReturnType<typeof key>) => Promise<void>
+): Promise<void> {
+  await press(key("p", { ctrl: true }));
+  expect(state.mode).toBe("COMMANDS");
+  state.commands = {
+    query: "author brief",
+    cursor: 0,
+    selectedId: "author-brief",
+    view: "commands",
+    returnMode: state.commands?.returnMode ?? "NAV"
+  };
+  await press(key("return"));
+}
+
 describe("inline editor", () => {
   test("round-trips instruction and multiline prose through the edit contract", () => {
     const file = serializePart("make it rain", "First line.\n\nSecond line.");
@@ -229,6 +247,34 @@ describe("inline editor", () => {
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.composer.text).toBe("Keep this draft.");
     expect(state.toast).toBe("note endpoint unavailable");
+  });
+
+  test("author brief opens from the story palette, saves, clears, and reports save errors", async () => {
+    const { source, state, press } = editorHarness();
+
+    await openAuthorBriefFromPalette(state, press);
+    expect(documentEditor(state).target.kind).toBe("author-brief");
+    setComposerText(state.editor!.composer, "Write in short, clipped sentences.");
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorBrief).toBe("Write in short, clipped sentences.");
+    expect(state.toast).toBe("Author Brief saved");
+
+    await openAuthorBriefFromPalette(state, press);
+    setComposerText(state.editor!.composer, " \n\t ");
+    await press(key("s", { sequence: "", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorBrief).toBe(undefined);
+    expect(state.toast).toBe("Author Brief cleared");
+
+    source.api.setAuthorBrief = async () => { throw new Error("brief endpoint unavailable"); };
+    await openAuthorBriefFromPalette(state, press);
+    setComposerText(state.editor!.composer, "Keep this draft.");
+    await press(key("s", { sequence: "", ctrl: true }));
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.composer.text).toBe("Keep this draft.");
+    expect(state.toast).toBe("brief endpoint unavailable");
   });
 
   test("Author's Note enforces the scalar limit on save and paints its status", async () => {

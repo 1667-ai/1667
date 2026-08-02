@@ -1,5 +1,6 @@
 import { countWords } from "../../shared/story-text.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../../shared/author-brief.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { AppSource } from "./app.js";
 import { recordHumanWords } from "./config.js";
@@ -32,6 +33,7 @@ export {
   openFactEditor,
   openFactFromSelection,
   openAuthorsNoteEditor,
+  openAuthorBriefEditor,
   openPartEditor,
   openSystemPromptEditor
 } from "./editor-open.js";
@@ -156,6 +158,33 @@ async function saveInlineEditor(
           editor,
           submitted,
           submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved"
+        );
+      });
+    } catch (error) {
+      if (state.editor === editor) {
+        state.toast = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return;
+  }
+
+  if (target.kind === "author-brief") {
+    if (unicodeScalarLength(submitted, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
+      state.toast = `Author Brief must contain at most ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar values.`;
+      return;
+    }
+    try {
+      await context.backend.run("saving Author Brief", async (task) => {
+        const payload = await source.api.setAuthorBrief(task.storyId, submitted);
+        if (!task.storyCurrent()) return;
+        adoptSameStoryPayload(state, payload);
+        target.expected = payload.authorBrief ?? "";
+        context.cache.invalidate();
+        settleInlineSave(
+          state,
+          editor,
+          submitted,
+          submitted.trim().length === 0 ? "Author Brief cleared" : "Author Brief saved"
         );
       });
     } catch (error) {

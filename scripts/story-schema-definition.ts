@@ -15,6 +15,7 @@ import {
   MAX_RECENT_LINES
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
@@ -172,11 +173,14 @@ function strictV5Schema(): Schema {
     updatedAt: ref("V5Timestamp"),
     origin: ref("Origin"),
     autonameId: ref("Identifier"),
+    authorsNote: boundedString(MAX_AUTHORS_NOTE_CHARS),
+    // Story-scoped override of the machine-wide author brief. Absent falls
+    // back to the machine-wide value; absent again whenever it is cleared.
+    authorBrief: boundedString(MAX_AUTHOR_BRIEF_CHARS),
     // Every other chapter is named by the break that opens it. The first
     // chapter has no such break, so its name lives here. Absent on every
     // manifest written before chapter one could be named, and absent again
     // whenever the name is cleared.
-    authorsNote: boundedString(MAX_AUTHORS_NOTE_CHARS),
     firstChapterTitle: boundedString(MAX_STORY_TITLE_CHARS),
     activeWordCount: unsignedInteger(),
     nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredNodeV5") },

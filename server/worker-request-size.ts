@@ -85,6 +85,7 @@ function logicalRequestBody(
     case "createStory": return { title: input.title };
     case "renameStory": return { title: input.title };
     case "setAuthorsNote": return { note: input.note };
+    case "setAuthorBrief": return { brief: input.brief };
     case "acknowledgeUnknownOutcomes":
       return { originalProviderMutationId: input.originalProviderMutationId };
     case "createChapterBreak": return { parentPartId: input.parentPartId, title: input.title };

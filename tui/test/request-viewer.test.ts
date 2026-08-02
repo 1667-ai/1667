@@ -93,6 +93,21 @@ describe("next request viewer", () => {
     expect(text).toContain(state.payload.authorsNote);
   });
 
+  test("a story Author Brief overrides the machine-wide brief in the voice block", () => {
+    const { state } = harness();
+    state.payload.authorBrief = "Write in short, clipped sentences.";
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+
+    expect(estimate.messages[0]!.content).toBe(state.payload.authorBrief);
+    expect(text).toContain("01 SYSTEM · voice · author brief");
+    expect(text).toContain(state.payload.authorBrief);
+    expect(text).not.toContain(state.systemPrompt);
+  });
+
   test("keeps required route and message metadata visible at 80 columns", () => {
     const { state } = harness();
     const projected = projectNextRequest(state);

@@ -18,6 +18,7 @@ import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import { createFacts, deleteFact, patchFact } from "./story-facts.js";
 import { setAuthorsNote } from "./story-authors-note.js";
+import { setAuthorBrief } from "./story-author-brief.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
   LocalStoryMutationMethod,
@@ -98,6 +99,36 @@ export class StoryServiceLocal {
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
       (story) => { setAuthorsNote(story, normalized); }
+    ));
+  }
+
+  async setAuthorBrief(
+    id: string,
+    brief: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (this.dependencies.dataFormat() < 4) {
+      throw new ServiceError(
+        409,
+        "Setting an Author Brief requires a project on data format 4; this directory is not upgraded.",
+        "data_directory_version_unsupported"
+      );
+    }
+    const normalized = brief.trim().length === 0 ? "" : brief;
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setAuthorBrief",
+        (story) => {
+          if ((story.authorBrief ?? "") === normalized) return STORY_UNCHANGED;
+          setAuthorBrief(story, normalized);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setAuthorBrief(story, normalized); }
     ));
   }
 

@@ -76,6 +76,7 @@ export interface DemoController {
   createStory(): StoryPayload;
   renameStory(title: string): StoryPayload;
   setAuthorsNote(authorsNote: string): StoryPayload;
+  setAuthorBrief(authorBrief: string): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
@@ -251,6 +252,13 @@ export function createDemoController(dense = false): DemoController {
       story.updatedAt = EDITED;
       return payloadFrom(story);
     },
+    setAuthorBrief(authorBrief) {
+      const normalized = authorBrief.trim().length === 0 ? undefined : authorBrief;
+      if (normalized === undefined) delete story.authorBrief;
+      else story.authorBrief = normalized;
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
     deleteStory() {
       story = { id: "demo-empty", title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
         nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
@@ -359,6 +367,9 @@ function payloadFrom(story: Story): StoryPayload {
     ...(story.authorsNote === undefined || story.authorsNote.trim() === ""
       ? {}
       : { authorsNote: story.authorsNote }),
+    ...(story.authorBrief === undefined || story.authorBrief.trim() === ""
+      ? {}
+      : { authorBrief: story.authorBrief }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
@@ -468,6 +479,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     loadStory: async (id) => demo.openStory(id),
     renameStory: async (_id, title) => demo.renameStory(title),
     setAuthorsNote: async (_storyId, authorsNote) => demo.setAuthorsNote(authorsNote),
+    setAuthorBrief: async (_storyId, authorBrief) => demo.setAuthorBrief(authorBrief),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },

@@ -322,6 +322,19 @@ async function handleApi(
     );
   }
 
+  if (head === "stories" && id !== undefined
+    && sub === "author-brief" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setAuthorBrief", {
+        storyId: id,
+        brief: requireStringValue(body.brief, "brief")
+      })
+    );
+  }
+
   if (head === "import" && id === "sillytavern" && sub === undefined && method === "POST") {
     return sendJson(
       response,

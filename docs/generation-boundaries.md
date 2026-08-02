@@ -37,12 +37,24 @@ Messages and OpenAI-compatible endpoints receive the fold form in the last
 A highlighted rewrite does not use the Author's Note. A summary take does not
 use it. The autoname operation does not use it.
 
+## Author Brief boundary
+
+The Author Brief is the standing `author-brief` block that opens the stable
+prefix of every generation request. 1667 resolves one value for each request.
+A story Author Brief wins when the story has one. The machine-wide default
+Author Brief applies otherwise. `shared/author-brief.ts` holds this lookup
+order. The server and the TUI request viewer both call it, so the request
+viewer shows the same brief that the server sends.
+
+The Author Brief applies to a continuation request, a prompted retake, a
+highlighted rewrite, and an autoname request. A summary take does not use it.
+
 All generation operations first build the provider-neutral block model in
-`shared/prompt-plan.ts`. Author brief, facts, operation contract, and source
-blocks form a stable prefix. Request text, selections, boundary tags, and
-completion markers form the volatile suffix. The renderer rejects any stable
-block placed after volatility begins; provider adapters and the TUI context
-meter both consume the same model.
+`shared/prompt-plan.ts`. The Author Brief, facts, operation contract, and
+source blocks form a stable prefix. Request text, selections, boundary tags,
+and completion markers form the volatile suffix. The renderer rejects any
+stable block placed after volatility begins; provider adapters and the TUI
+context meter both consume the same model.
 
 Continuation admission is owned by `StoryService` and keyed by the exact
 `(storyId, genId)` tuple. A committed ID returns the stored story before

@@ -123,6 +123,20 @@ export function openAuthorsNoteEditor(state: RuntimeState): void {
   });
 }
 
+export function openAuthorBriefEditor(state: RuntimeState): void {
+  const initial = state.payload.authorBrief ?? "";
+  openInlineEditor(state, {
+    target: { kind: "author-brief", expected: initial },
+    composer: createComposer(initial),
+    initial,
+    title: "author brief",
+    placeholder: "Override the machine-wide author brief for this story. ⌃s keeps it.",
+    returnMode: "NAV",
+    conflict: null,
+    cutConfirmation: null
+  });
+}
+
 function openInlineEditor(
   state: RuntimeState,
   editor: Omit<InlineEditorSession, "kind">
