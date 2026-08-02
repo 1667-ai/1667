@@ -100,7 +100,9 @@ every droppable Fact.
 
 The context meter states how many Facts a request dropped, and why.
 
-Select the system prompt row to open the full-screen editor.
+Select the system prompt row to open the full-screen editor. This machine-wide
+value is the default Author Brief. A story that sets its own Author Brief uses
+that value instead.
 
 The context meter shows the estimated next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
@@ -123,7 +125,12 @@ because the request plan does not contain credentials.
 
 Each story can hold one Author's Note. Press `a` to write it. 1667 sends the
 Author's Note with each continuation request. 1667 puts it immediately before
-the last story part.
+the last story part by default.
+
+The Author's Note has a depth setting. Depth sets how many story parts from
+the end the note lands before. The default depth is 1. Open the Author's Note
+editor. Press `⌥-` to decrease the depth or `⌥=` to increase it. The request
+viewer shows the placement the note actually used.
 
 The Author's Note is not a Fact. A Fact is reference data. The Author's Note is
 an instruction for the next passage.
@@ -138,6 +145,22 @@ rewrite a story. It does not create a summary. It does not name a story.
 
 1667 shows a warning when the Author's Note is above 300 estimated tokens.
 1667 does not save an Author's Note that has more than 4,000 Unicode scalar
+values.
+
+## Author Brief
+
+Each story can hold one Author Brief. Open the command palette with `Ctrl+P`
+or `:`. Select **Author brief**. This command has no direct key.
+
+A story Author Brief overrides the default Author Brief when you set it. The
+default Author Brief is the system prompt row in Settings. 1667 falls back to
+the default Author Brief when a story has none of its own.
+
+1667 sends the resolved Author Brief with every continuation request, prompted
+retake, highlighted rewrite, and autoname request. The Author's Note applies to
+fewer operations: only continuation and prompted retake requests.
+
+1667 does not save an Author Brief that has more than 65,536 Unicode scalar
 values.
 
 ## Provider support

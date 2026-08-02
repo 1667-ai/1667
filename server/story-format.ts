@@ -18,6 +18,7 @@ import {
   arrayField,
   arrayValue,
   integerField,
+  integerValue,
   optionalString,
   parseVersionAttributions,
   recordValue,
@@ -179,6 +180,12 @@ export interface StoryManifestV4 {
 export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> {
   schemaVersion: typeof STORY_SCHEMA_VERSION;
   authorsNote?: string;
+  /** How many story parts from the end the note lands before. Absent means
+   *  the default placement (immediately before the last part). */
+  authorsNoteDepth?: number;
+  /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
+   *  to the machine-wide value. See `resolveAuthorBrief`. */
+  authorBrief?: string;
   /** Internal idempotency marker for a committed generated title. */
   autonameId?: string;
   /** Chapter one's name. It has no opening break to carry one. */
@@ -371,6 +378,13 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   const authorsNote = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalString(value.authorsNote, "authorsNote")
     : undefined;
+  const authorsNoteDepth = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    && value.authorsNoteDepth !== undefined
+    ? integerValue(value.authorsNoteDepth, "authorsNoteDepth")
+    : undefined;
+  const authorBrief = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    ? optionalString(value.authorBrief, "authorBrief")
+    : undefined;
   const factsBudgetTokens = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalFactsBudgetTokens(value.factsBudgetTokens)
     : undefined;
@@ -385,6 +399,10 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(authorsNote === undefined || authorsNote === ""
       ? {}
       : { authorsNote }),
+    ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
+    ...(authorBrief === undefined || authorBrief === ""
+      ? {}
+      : { authorBrief }),
     ...(factsBudgetTokens === undefined ? {} : { factsBudgetTokens }),
     chapterBreaks
   };

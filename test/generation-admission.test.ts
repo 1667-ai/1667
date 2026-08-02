@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  admitFactsIntoPrompt,
   assertFixedContextFits,
   GenerationAdmissionRegistry,
   MAX_GENERATION_MODEL_ATTRIBUTIONS
 } from "../server/generation-admission.js";
 import { ServiceError } from "../server/errors.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
-import type { GenerationSettings, StoryFact } from "../shared/types.js";
+import { continuationPlan } from "../shared/continuation-plan.js";
+import type { GenerationSettings, StoryFact, StoryNode } from "../shared/types.js";
 
 test("generation admission rejects one in-flight story/gen tuple without invoking it", async () => {
   const registry = new GenerationAdmissionRegistry();
@@ -186,6 +188,72 @@ test("fixed-context admission never blames a Fact's own cap on a different estim
     false
   );
 });
+
+test("Facts shedding and a deep Author's Note compose: shedding a Fact neither moves nor double-counts the note", () => {
+  // #278/#283 moved the Author's Note to a configurable depth among the story
+  // parts; #281 rewrote admission to shed Facts one at a time and rebuild the
+  // real prompt. This settles the hazard where those two land on the same
+  // prompt: a window tight enough to force a shed must still place the note
+  // at its requested depth, and must count the note's cost exactly once.
+  const settings: GenerationSettings = { ...smallWindowSettings(), contextWindow: 1_000 };
+  const exempt = fact({ id: "exempt", text: "k", activation: "always" });
+  const shed = fact({ id: "shed-me", text: "x".repeat(10_000), activation: "keyed", keys: ["x"] });
+  const authorsNote = "Keep the tone tense.";
+  const authorsNotePlacement = { text: authorsNote, depth: 2 };
+  const parts = [
+    node("p1", "Open.", "The door creaked."),
+    node("p2", "Two.", "She stepped inside."),
+    node("p3", "Three.", "Something moved upstairs.")
+  ];
+
+  const { plan, admission } = admitFactsIntoPrompt(
+    settings,
+    [exempt, shed],
+    authorsNote,
+    (factsMessage) => continuationPlan(
+      "Write vivid prose.",
+      factsMessage,
+      authorsNotePlacement,
+      parts,
+      "Continue.",
+      false,
+      true,
+      "ct-11111111",
+      [],
+      parts
+    )
+  );
+
+  // The Fact that overflows the window is shed, exactly as it would be with
+  // no note in play.
+  assert.deepEqual(admission.dropped, [{ factId: "shed-me", reason: "priority" }]);
+  assert.deepEqual(admission.facts.map((candidate) => candidate.id), ["exempt"]);
+
+  // The note still lands two story parts from the end — rebuilding the prompt
+  // with fewer Facts does not drift its placement.
+  const noteIndex = plan.entries.findIndex((entry) => entry.category === "note");
+  assert.notEqual(noteIndex, -1);
+  assert.equal((plan.entries[noteIndex] as { partsAfterNote: number }).partsAfterNote, 2);
+
+  // fixedPromptTexts excludes the note by block kind, so admission counts its
+  // cost exactly once (via the authorsNote argument), never through otherFixed.
+  const noteBlocks = plan.prompt.turns.flatMap((turn) => turn.blocks)
+    .filter((block) => block.kind === "authors-note");
+  assert.equal(noteBlocks.length, 1);
+  assert.equal(noteBlocks[0]?.text, authorsNote);
+});
+
+function node(id: string, instruction: string, text: string): StoryNode {
+  return {
+    id,
+    parentId: null,
+    instruction,
+    text,
+    model: "test",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    activeChildId: null
+  };
+}
 
 function fact(overrides: Partial<StoryFact> & Pick<StoryFact, "id" | "text">): StoryFact {
   return {

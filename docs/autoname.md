@@ -14,7 +14,7 @@ The story must contain prose. The naming request uses these items:
 
 - The active story line
 - Facts
-- The author brief
+- The Author Brief
 
 1667 limits story prose in the request to 24,000 characters. It keeps text from
 the start and the newest direction of the story. For a fork, it separates

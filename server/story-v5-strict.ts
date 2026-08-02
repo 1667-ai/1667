@@ -5,7 +5,8 @@ import {
   MAX_RECENT_LINES,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 import {
@@ -37,7 +38,7 @@ export const STORY_ID_PATTERN = exactStringPattern(STORY_ID_PATTERN_SOURCE);
 const ROOT = closedShape([
   "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount",
   "nodes", "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
-], ["origin", "authorsNote", "autonameId", "firstChapterTitle", "factsBudgetTokens"]);
+], ["origin", "authorsNote", "authorsNoteDepth", "authorBrief", "autonameId", "firstChapterTitle", "factsBudgetTokens"]);
 const ORIGIN = closedShape(["storyId", "storyTitle", "partId", "offset", "createdAt"]);
 const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
@@ -87,6 +88,10 @@ export function assertStrictV5Manifest(
     boundedString(manifest.firstChapterTitle, "manifest.firstChapterTitle", MAX_STORY_TITLE_CHARS);
   }
   optionalBoundedString(manifest.authorsNote, "manifest.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  if (manifest.authorsNoteDepth !== undefined) {
+    safeInteger(manifest.authorsNoteDepth, "manifest.authorsNoteDepth", { min: 1, max: MAX_AUTHORS_NOTE_DEPTH });
+  }
+  optionalBoundedString(manifest.authorBrief, "manifest.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
   if (manifest.factsBudgetTokens !== undefined) {
     safeInteger(manifest.factsBudgetTokens, "manifest.factsBudgetTokens", { min: 1, max: MAX_STORY_FACTS_BUDGET_TOKENS });
   }

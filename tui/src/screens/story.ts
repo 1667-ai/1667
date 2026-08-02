@@ -1,7 +1,8 @@
 import { STARTER_LOGO_TEXT } from "../../../shared/starter-vault.js";
 import {
   authorsNoteWarning,
-  MAX_AUTHORS_NOTE_CHARS
+  MAX_AUTHORS_NOTE_CHARS,
+  MAX_AUTHORS_NOTE_DEPTH
 } from "../../../shared/authors-note.js";
 import { unicodeScalarLength } from "../../../shared/unicode.js";
 import { TAG_STATUSES } from "../../../shared/types.js";
@@ -735,7 +736,11 @@ function authorNoteStatus(
     return { text, role: "danger text" };
   }
   const warning = authorsNoteWarning(host.composer.text, maxWidth);
-  return warning === null ? undefined : { text: warning, role: "context warning" };
+  if (warning !== null) return { text: warning, role: "context warning" };
+  const depthShort = `depth ${host.target.depth}/${MAX_AUTHORS_NOTE_DEPTH}`;
+  const depthHint = `${depthShort} · ⌥-/= change`;
+  const text = [depthHint, depthShort].find((candidate) => [...candidate].length <= maxWidth) ?? depthShort;
+  return { text, role: "context note" };
 }
 
 function renderEditorLayoutFrame(

@@ -74,11 +74,11 @@ test("rolling OpenAI breakpoints preserve the prior readable prefix", () => {
 test("a moving Author's Note preserves request k's newest boundary in request k+1", () => {
   const parts = Array.from({ length: 4 }, (_, index) => cacheNode(index + 1));
   const requestK = continuationPlan(
-    "Voice.", null, "Keep the danger quiet.", parts.slice(0, 3),
+    "Voice.", null, { text: "Keep the danger quiet.", depth: 1 }, parts.slice(0, 3),
     "Continue.", false, true, "ct-k", [], parts.slice(0, 3)
   ).prompt;
   const requestK1 = continuationPlan(
-    "Voice.", null, "Keep the danger quiet.", parts,
+    "Voice.", null, { text: "Keep the danger quiet.", depth: 1 }, parts,
     "Continue.", false, true, "ct-k1", [], parts
   ).prompt;
   const prior = promptCacheBoundaries(requestK).at(-1)!;

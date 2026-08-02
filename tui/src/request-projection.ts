@@ -6,6 +6,8 @@ import {
   type PromptPart
 } from "../../shared/chapters.js";
 import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
+import { resolveAuthorBrief } from "../../shared/author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../../shared/authors-note.js";
 import { selectActiveFacts } from "../../shared/fact-activation.js";
 import { selectFactsWithinBudget, type FactBudgetDrop } from "../../shared/fact-budget.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
@@ -107,10 +109,13 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
   const budgetedFacts = selectFactsWithinBudget(activeFacts, payload.factsBudgetTokens ?? null, {
     spaceDropReason: "total-budget"
   });
+  const authorsNotePlacement: AuthorsNotePlacement | null = payload.authorsNote === undefined
+    ? null
+    : { text: payload.authorsNote, depth: resolveAuthorsNoteDepth(payload.authorsNoteDepth) };
   const plan = continuationPlan(
-    request.systemPrompt,
+    resolveAuthorBrief(payload.authorBrief, request.systemPrompt),
     formatFactsMessage(budgetedFacts.kept),
-    payload.authorsNote ?? null,
+    authorsNotePlacement,
     intent.contextParts,
     intent.instruction,
     intent.appendLast,

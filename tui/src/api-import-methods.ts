@@ -1,5 +1,5 @@
 import { encodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
-import type { LorebookImport } from "../../shared/novelai-lorebook.js";
+import type { LorebookImport } from "../../shared/lorebook-entry.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import { decodeStoryResponse } from "./api-response-decoders.js";

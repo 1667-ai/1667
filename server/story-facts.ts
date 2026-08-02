@@ -38,6 +38,9 @@ export function createFacts(
   idForIndex: (index: number) => string = () => randomUUID()
 ): boolean {
   const inputs = factInputs(requireRecord(value, "fact input"));
+  // An empty batch asks for nothing the story does not already hold, the same
+  // as any other no-op request, so it reports unchanged rather than failing.
+  if (inputs.length === 0) return false;
   // Validate the complete batch before touching the story. A bad later entry must
   // never leave an earlier imported fact behind.
   const parsed = inputs.map((input) => ({
@@ -79,7 +82,7 @@ function factInputs(body: Body): Body[] {
   if (!hasBatch) return [body];
   if (hasSingle) throw new HttpError(400, "Provide one fact or a facts batch, not both.");
   if (!Array.isArray(body.facts)) throw new HttpError(400, "Facts batch must be an array.");
-  if (body.facts.length === 0) throw new HttpError(400, "Facts batch cannot be empty.");
+  if (body.facts.length === 0) return [];
   if (body.facts.length > MAX_FACTS) {
     throw new HttpError(400, `Facts batch exceeds the maximum of ${MAX_FACTS} facts.`);
   }

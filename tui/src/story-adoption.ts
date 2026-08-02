@@ -2,6 +2,7 @@ import type { StoryPayload } from "../../shared/types.js";
 import { createComposer } from "./composer-model.js";
 import { capturePendingDirectDraft } from "./composer-ownership.js";
 import {
+  reconcileAuthorBriefEditor,
   reconcileAuthorsNoteEditor,
   reconcileFactEditor,
   reconcileFactsBudgetEditor
@@ -243,6 +244,7 @@ function reconcileStoryBoundIntent(
 ): void {
   reconcileFactEditor(state);
   reconcileAuthorsNoteEditor(state);
+  reconcileAuthorBriefEditor(state);
   reconcileFactsBudgetEditor(state);
   const prune = state.prune;
   if (prune?.kind === "subtree") {
@@ -314,6 +316,7 @@ function reconcileStoryBoundIntent(
       || (target.kind === "chapter-summary"
         && state.payload.nodes.some(({ id }) => id === target.summaryId))
       || target.kind === "authors-note"
+      || target.kind === "author-brief"
       || target.kind === "facts-budget";
     if (!targetExists) {
       state.editor = null;

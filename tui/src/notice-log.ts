@@ -68,6 +68,25 @@ export function recordNotices(log: NoticeLog, sources: NoticeSources): void {
   }
 }
 
+/** Write one notice the channels cannot carry.
+ *
+ * A toast is capped at four wrapped rows, and an import fidelity report is not.
+ * C-37 is what makes that cap honest, so the whole report is written here while
+ * the toast keeps the headline. This is a discrete event rather than a channel
+ * state, so it bypasses the repeat guard: importing the same file twice is two
+ * events. */
+export function recordNotice(
+  log: NoticeLog,
+  channel: NoticeChannel,
+  text: string,
+  now = Date.now()
+): void {
+  if (text.trim().length === 0) return;
+  log.entries.unshift({ id: log.nextId, at: now, channel, text });
+  log.nextId += 1;
+  log.cursor = 0;
+}
+
 /** The three feedback channels the app can be speaking through, read off the
  *  state that already holds them. Called from the dispatcher and from repaint,
  *  so a notice raised by a backend task lands here too. */

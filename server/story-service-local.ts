@@ -17,7 +17,8 @@ import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import { createFacts, deleteFact, patchFact, reorderFact } from "./story-facts.js";
-import { setAuthorsNote } from "./story-authors-note.js";
+import { authorsNoteApplied, setAuthorsNote } from "./story-authors-note.js";
+import { authorBriefApplied, setAuthorBrief } from "./story-author-brief.js";
 import { setFactsBudget } from "./story-facts-budget.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
@@ -75,6 +76,7 @@ export class StoryServiceLocal {
   async setAuthorsNote(
     id: string,
     note: string,
+    depth?: number,
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
@@ -91,14 +93,44 @@ export class StoryServiceLocal {
         mutationRequest,
         "setAuthorsNote",
         (story) => {
-          if ((story.authorsNote ?? "") === normalized) return STORY_UNCHANGED;
-          setAuthorsNote(story, normalized);
+          if (authorsNoteApplied(story, normalized, depth)) return STORY_UNCHANGED;
+          setAuthorsNote(story, normalized, depth);
         }
       );
     }
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
-      (story) => { setAuthorsNote(story, normalized); }
+      (story) => { setAuthorsNote(story, normalized, depth); }
+    ));
+  }
+
+  async setAuthorBrief(
+    id: string,
+    brief: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (this.dependencies.dataFormat() < 4) {
+      throw new ServiceError(
+        409,
+        "Setting an Author Brief requires a project on data format 4; this directory is not upgraded.",
+        "data_directory_version_unsupported"
+      );
+    }
+    const normalized = brief.trim().length === 0 ? "" : brief;
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setAuthorBrief",
+        (story) => {
+          if (authorBriefApplied(story, normalized)) return STORY_UNCHANGED;
+          setAuthorBrief(story, normalized);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setAuthorBrief(story, normalized); }
     ));
   }
 

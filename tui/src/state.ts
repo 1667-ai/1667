@@ -240,7 +240,16 @@ export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "chapter-summary"; summaryId: string; expected: string }
-  | { kind: "authors-note"; expected: string }
+  | {
+      kind: "authors-note";
+      expected: string;
+      /** Last known authoritative depth, for reconciliation against a fresh
+       *  payload — see `depth`, which the writer's key presses mutate live. */
+      expectedDepth: number;
+      /** Current draft depth. Saving the note sends this alongside the text. */
+      depth: number;
+    }
+  | { kind: "author-brief"; expected: string }
   /** `expected` is the budget as typed text — empty means "no budget set",
    *  matching the composer's own text, so reconciliation compares like the
    *  Author's Note editor does. */

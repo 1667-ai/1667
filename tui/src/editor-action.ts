@@ -1,8 +1,14 @@
 import { countWords } from "../../shared/story-text.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../../shared/authors-note.js";
+import {
+  MAX_AUTHORS_NOTE_CHARS,
+  resolveAuthorsNoteDepth
+} from "../../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../../shared/author-brief.js";
 import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../../shared/fact-budget.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
+import type { StoryPayload } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
+import { handleAuthorsNoteCommand } from "./authors-note-editor-policy.js";
 import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
 import { editorBufferAction } from "./editor-buffer-action.js";
@@ -20,7 +26,7 @@ import {
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
-import type { DocumentEditorSession, RuntimeState } from "./state.js";
+import type { DocumentEditorSession, InlineEditorTarget, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 import { textHash } from "./api.js";
 import { findCreatedTake } from "./created-take.js";
@@ -35,6 +41,7 @@ export {
   openFactEditor,
   openFactFromSelection,
   openAuthorsNoteEditor,
+  openAuthorBriefEditor,
   openFactsBudgetEditor,
   openPartEditor,
   openSystemPromptEditor
@@ -49,6 +56,10 @@ export async function inlineEditorAction(
   const host = state.mode === "EDITOR" ? state.editor : null;
   if (host === null) return;
   const editor = host;
+
+  // Author's Note grammar owns the depth control, the same way the Fact
+  // header owns its own commands below.
+  if (handleAuthorsNoteCommand(resolved, editor)) return;
 
   // Fact header grammar owns its commands; the generic path stays target-agnostic.
   if (editor.kind === "fact" && handleFactEditorCommand(resolved, state, editor)) {
@@ -134,7 +145,9 @@ async function saveInlineEditor(
       : "system prompt unchanged";
     return;
   }
-  if (submitted === editor.initial && editor.conflict === null) {
+  // A depth draft alone (unchanged text) still has to save.
+  const pendingDepthChange = target.kind === "authors-note" && target.depth !== target.expectedDepth;
+  if (submitted === editor.initial && editor.conflict === null && !pendingDepthChange) {
     return closeInlineEditor(state, editor);
   }
   if (state.connection.down) {
@@ -148,18 +161,21 @@ async function saveInlineEditor(
       state.toast = "Author's Note must contain at most 4,000 Unicode scalar values.";
       return;
     }
+    const requestedDepth = target.depth;
     try {
       await context.backend.run("saving Author's Note", async (task) => {
-        const payload = await source.api.setAuthorsNote(task.storyId, submitted);
+        const payload = await source.api.setAuthorsNote(task.storyId, submitted, requestedDepth);
         if (!task.storyCurrent()) return;
         adoptSameStoryPayload(state, payload);
         target.expected = payload.authorsNote ?? "";
+        target.expectedDepth = resolveAuthorsNoteDepth(payload.authorsNoteDepth);
         context.cache.invalidate();
         settleInlineSave(
           state,
           editor,
           submitted,
-          submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved"
+          submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved",
+          target.depth === requestedDepth
         );
       });
     } catch (error) {
@@ -170,28 +186,31 @@ async function saveInlineEditor(
     return;
   }
 
+  if (target.kind === "author-brief") {
+    if (unicodeScalarLength(submitted, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
+      state.toast = `Author Brief must contain at most ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar values.`;
+      return;
+    }
+    await saveScalarFieldEditor(
+      state, context, editor, target, submitted,
+      "saving Author Brief",
+      (storyId) => source.api.setAuthorBrief(storyId, submitted),
+      (payload) => payload.authorBrief ?? "",
+      submitted.trim().length === 0 ? "Author Brief cleared" : "Author Brief saved"
+    );
+    return;
+  }
+
   if (target.kind === "facts-budget") {
     const parsed = parseBudgetText(submitted, MAX_STORY_FACTS_BUDGET_TOKENS, "facts budget");
     if (!parsed.ok) return void (state.toast = parsed.toast);
-    try {
-      await context.backend.run("saving facts budget", async (task) => {
-        const payload = await source.api.setFactsBudget(task.storyId, parsed.budgetTokens ?? null);
-        if (!task.storyCurrent()) return;
-        adoptSameStoryPayload(state, payload);
-        target.expected = formatFactBudget(payload.factsBudgetTokens);
-        context.cache.invalidate();
-        settleInlineSave(
-          state,
-          editor,
-          submitted,
-          parsed.budgetTokens === undefined ? "facts budget cleared" : "facts budget saved"
-        );
-      });
-    } catch (error) {
-      if (state.editor === editor) {
-        state.toast = error instanceof Error ? error.message : String(error);
-      }
-    }
+    await saveScalarFieldEditor(
+      state, context, editor, target, submitted,
+      "saving facts budget",
+      (storyId) => source.api.setFactsBudget(storyId, parsed.budgetTokens ?? null),
+      (payload) => formatFactBudget(payload.factsBudgetTokens),
+      parsed.budgetTokens === undefined ? "facts budget cleared" : "facts budget saved"
+    );
     return;
   }
 
@@ -241,7 +260,8 @@ async function saveInlineEditor(
         state,
         editor,
         submitted,
-        creating ? "edited take created" : "take updated in place"
+        creating ? "edited take created" : "take updated in place",
+        true
       );
     });
     return;
@@ -276,7 +296,7 @@ async function saveInlineEditor(
         state.config = source.config;
       }
       context.cache.invalidate();
-      settleInlineSave(state, editor, submitted, "human take saved");
+      settleInlineSave(state, editor, submitted, "human take saved", true);
     });
     return;
   }
@@ -292,7 +312,9 @@ async function saveInlineEditor(
       adoptSameStoryPayload(state, payload);
       target.expected = text;
       context.cache.invalidate();
-      settleInlineSave(state, editor, submitted, "summary edited · kept until you re-summarize");
+      settleInlineSave(
+        state, editor, submitted, "summary edited · kept until you re-summarize", true
+      );
     });
     return;
   }
@@ -375,6 +397,38 @@ async function saveFactEditor(
   });
 }
 
+/** Author Brief and the Facts budget are both a single scalar saved straight
+ *  to the story, with no field beyond `expected` to reconcile — unlike the
+ *  Author's Note, which also carries a depth. This is their one shared save
+ *  path: field-specific validation and parsing stay with each caller, but
+ *  the request/adopt/settle shell is not worth writing out twice. */
+async function saveScalarFieldEditor(
+  state: RuntimeState,
+  context: ActionContext,
+  editor: DocumentEditorSession,
+  target: Extract<InlineEditorTarget, { kind: "author-brief" | "facts-budget" }>,
+  submitted: string,
+  backendLabel: string,
+  save: (storyId: string) => Promise<StoryPayload>,
+  nextExpected: (payload: StoryPayload) => string,
+  toast: string
+): Promise<void> {
+  try {
+    await context.backend.run(backendLabel, async (task) => {
+      const payload = await save(task.storyId);
+      if (!task.storyCurrent()) return;
+      adoptSameStoryPayload(state, payload);
+      target.expected = nextExpected(payload);
+      context.cache.invalidate();
+      settleInlineSave(state, editor, submitted, toast, true);
+    });
+  } catch (error) {
+    if (state.editor === editor) {
+      state.toast = error instanceof Error ? error.message : String(error);
+    }
+  }
+}
+
 function disarmEditorConfirmations(
   editor: DocumentEditorSession
 ): void {
@@ -400,16 +454,24 @@ function confirmOverwrite(
 }
 
 /** Close only the exact draft that was acknowledged. Input typed while the
- * request was in flight remains visible and becomes the next save. */
+ * request was in flight remains visible and becomes the next save. Every
+ * caller states `otherFieldsUnchanged`: a target that carries a field beyond
+ * `composer.text` (the Author's Note depth) reports whether that field moved
+ * while the request was in flight, so a live edit to it keeps the draft open
+ * the same way a live text edit does. It is not defaulted, because a target
+ * that gains such a field must not settle wrongly by saying nothing. */
 function settleInlineSave(
   state: RuntimeState,
   editor: DocumentEditorSession,
   submitted: string,
-  toast: string
+  toast: string,
+  otherFieldsUnchanged: boolean
 ): void {
   if (state.editor !== editor) return;
   if (editor.kind === "fact") return;
-  if (editor.composer.text === submitted) return closeInlineEditor(state, editor, toast);
+  if (editor.composer.text === submitted && otherFieldsUnchanged) {
+    return closeInlineEditor(state, editor, toast);
+  }
   editor.initial = submitted;
   state.toast = `${toast} · newer edits kept`;
 }

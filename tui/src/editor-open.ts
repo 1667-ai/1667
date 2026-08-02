@@ -1,5 +1,6 @@
 import type { StoryFact } from "../../shared/types.js";
 import { EMPTY_FACT_DRAFT, factDraftOf } from "../../shared/fact-draft.js";
+import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { createComposer } from "./composer-model.js";
 import {
   formatFactBudget,
@@ -11,6 +12,7 @@ import { createStoryViewModel, rowPart } from "./model.js";
 import type {
   FactEditorSession,
   InlineEditorSession,
+  InlineEditorTarget,
   RuntimeState
 } from "./state.js";
 
@@ -114,8 +116,9 @@ export function openChapterSummaryEditor(
 
 export function openAuthorsNoteEditor(state: RuntimeState): void {
   const initial = state.payload.authorsNote ?? "";
+  const depth = resolveAuthorsNoteDepth(state.payload.authorsNoteDepth);
   openInlineEditor(state, {
-    target: { kind: "authors-note", expected: initial },
+    target: { kind: "authors-note", expected: initial, expectedDepth: depth, depth },
     composer: createComposer(initial),
     initial,
     title: "author's note",
@@ -126,16 +129,38 @@ export function openAuthorsNoteEditor(state: RuntimeState): void {
   });
 }
 
+export function openAuthorBriefEditor(state: RuntimeState): void {
+  const initial = state.payload.authorBrief ?? "";
+  openScalarFieldEditor(state, { kind: "author-brief", expected: initial }, {
+    title: "author brief",
+    placeholder: "Override the machine-wide author brief for this story. ⌃s keeps it."
+  });
+}
+
 /** The story's total Facts budget. Its text field follows the same "empty
  *  means unset" convention as the per-Fact budget field. */
 export function openFactsBudgetEditor(state: RuntimeState): void {
   const initial = formatFactBudget(state.payload.factsBudgetTokens);
-  openInlineEditor(state, {
-    target: { kind: "facts-budget", expected: initial },
-    composer: createComposer(initial),
-    initial,
+  openScalarFieldEditor(state, { kind: "facts-budget", expected: initial }, {
     title: "facts budget",
-    placeholder: "Cap the combined estimated tokens of every Fact in a request. Empty means uncapped.",
+    placeholder: "Cap the combined estimated tokens of every Fact in a request. Empty means uncapped."
+  });
+}
+
+/** Author Brief and Facts budget are both a single scalar riding on the
+ *  generic document editor, with no field beyond `expected` — unlike the
+ *  Author's Note, which also carries a depth. This is their one shared shape. */
+function openScalarFieldEditor(
+  state: RuntimeState,
+  target: Extract<InlineEditorTarget, { kind: "author-brief" | "facts-budget" }>,
+  options: { title: string; placeholder: string }
+): void {
+  openInlineEditor(state, {
+    target,
+    composer: createComposer(target.expected),
+    initial: target.expected,
+    title: options.title,
+    placeholder: options.placeholder,
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null

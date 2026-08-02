@@ -24,7 +24,7 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "./settings-v2-types.js";
-import type { LorebookImport } from "./novelai-lorebook.js";
+import type { LorebookImport } from "./lorebook-entry.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
 
 import type {
@@ -121,7 +121,8 @@ export interface WorkerMethodContract {
     };
   };
   renameStory: { input: { id: string; title: string }; output: StoryPayload };
-  setAuthorsNote: { input: { storyId: string; note: string }; output: StoryPayload };
+  setAuthorsNote: { input: { storyId: string; note: string; depth?: number }; output: StoryPayload };
+  setAuthorBrief: { input: { storyId: string; brief: string }; output: StoryPayload };
   /** budgetTokens: null clears the story's Facts budget. */
   setFactsBudget: { input: { storyId: string; budgetTokens: number | null }; output: StoryPayload };
   autonameStory: { input: { id: string; expectedTitle: string }; output: StoryPayload };
@@ -201,7 +202,7 @@ export type WorkerInput<M extends WorkerMethod> = WorkerMethodContract[M]["input
 export type WorkerOutput<M extends WorkerMethod> = WorkerMethodContract[M]["output"];
 
 export type MutatingWorkerMethod =
-  | "createStory" | "renameStory" | "setAuthorsNote" | "setFactsBudget" | "autonameStory" | "acknowledgeUnknownOutcomes"
+  | "createStory" | "renameStory" | "setAuthorsNote" | "setAuthorBrief" | "setFactsBudget" | "autonameStory" | "acknowledgeUnknownOutcomes"
   | "deleteStory" | "switchLine"
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
@@ -226,7 +227,7 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
-  "createStory", "renameStory", "setAuthorsNote", "setFactsBudget", "autonameStory", "acknowledgeUnknownOutcomes",
+  "createStory", "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "autonameStory", "acknowledgeUnknownOutcomes",
   "deleteStory", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
@@ -250,7 +251,7 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
  * reaper tombstones, and the provider-fence protocol in the ledger.
  */
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
-  "renameStory", "setAuthorsNote", "setFactsBudget", "switchLine",
+  "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook"
@@ -450,7 +451,7 @@ export type WorkerToMainMessage =
 const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "listStories", "listStoriesPage", "searchStories", "createStory", "loadStory",
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
-  "renameStory", "setAuthorsNote", "setFactsBudget", "autonameStory",
+  "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
   "exportMarkdown", "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",

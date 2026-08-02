@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderPromptPlan } from "../shared/prompt-plan.js";
+import { resolveAuthorBrief } from "../shared/author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -58,7 +60,8 @@ export async function autonameStory(
   // pre-facts 24k excerpt byte-for-byte.
   const titleBudgeted = activeBudgetedFacts(snapshot);
   const titleFacts = formatFactsMessage(titleBudgeted.kept);
-  const briefChars = Math.min(settings.systemPrompt.trim().length, 2_000);
+  const authorBrief = resolveAuthorBrief(snapshot.authorBrief, settings.systemPrompt);
+  const briefChars = Math.min(authorBrief.trim().length, 2_000);
   const promptCharBudget = titleFacts === null || settings.contextWindow === null
     ? MAX_STORY_CONTEXT_CHARS
     : Math.min(
@@ -72,7 +75,7 @@ export async function autonameStory(
     titleSettings,
     titleBudgeted.kept,
     null,
-    (factsMessage) => autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, factsMessage)
+    (factsMessage) => autonamePrompt(snapshot, authorBrief, promptCharBudget, factsMessage)
   );
   const titlePrompt = titlePlan.prompt;
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
@@ -192,8 +195,12 @@ export async function continueStory(
     instruction
   });
   const authorsNote = story.authorsNote ?? null;
+  const authorsNotePlacement: AuthorsNotePlacement | null = authorsNote === null
+    ? null
+    : { text: authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) };
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
+  const authorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   // Record it now: a Stop that saves the partial must credit this model, even if
   // the user switches models while the stream is still running.
@@ -205,9 +212,9 @@ export async function continueStory(
     budgetedFacts.kept,
     authorsNote,
     (factsMessage) => continuationPlan(
-      settings.systemPrompt,
+      authorBrief,
       factsMessage,
-      authorsNote,
+      authorsNotePlacement,
       contextParts,
       instruction,
       appendTo !== null,
@@ -224,6 +231,8 @@ export async function continueStory(
     contextPartIds: contextParts.map((part) => part.id),
     facts: admission.factsMessage,
     authorsNote,
+    authorsNoteDepth: story.authorsNoteDepth ?? null,
+    authorBrief: story.authorBrief ?? null,
     instruction,
     appendTo,
     parentId
@@ -340,6 +349,7 @@ export async function rewriteNode(
   // A fresh nonce makes the rewrite markers and output terminator impossible to
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
+  const rewriteAuthorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   // Measure the fixed rewrite prompt from the semantic plan so admission cannot
   // drift from later prompt wording.
   const { plan, admission } = admitFactsIntoPrompt(
@@ -356,7 +366,7 @@ export async function rewriteNode(
         expected,
         instruction,
         lengthTarget: lengthTarget(expected, requested !== ""),
-        authorBrief: settings.systemPrompt,
+        authorBrief: rewriteAuthorBrief,
         tag
       };
       return bareMode
@@ -380,6 +390,7 @@ export async function rewriteNode(
     kind: "rewrite",
     story: { title: story.title, nodes: activePath(story), chapterBreaks: story.chapterBreaks },
     facts: admission.factsMessage,
+    authorBrief: story.authorBrief ?? null,
     partId,
     start,
     end,
