@@ -25,6 +25,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - View Facts and estimated request context in the side rail.
 - Keep one Author's Note for the next continuation or prompted retake.
 - Use keys to include a Fact only when the request context matches it.
+- Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.

@@ -41,6 +41,42 @@ uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
 
+### Arrange Facts
+
+Facts appear in a request in the order that they appear in the Facts panel.
+Select a Fact. Press `Shift+Up Arrow` or `Shift+Down Arrow` to move it up or
+down. Clear the tag filter and the text filter first. The move keys work only
+on the full, unfiltered list.
+
+### Fact priority and Fact budget
+
+Each Fact has a priority: `low`, `normal`, or `high`. The default priority is
+`normal`. 1667 uses priority to choose which Fact to drop first when a
+request does not fit the model's context window.
+
+An `always` Fact at `normal` or `high` priority never drops. A `keyed` Fact
+can drop at any priority. Set an `always` Fact to `low` priority to let it
+drop too.
+
+A Fact can also have a Fact budget: a limit on its own estimated token count.
+1667 drops a Fact that goes over its Fact budget. 1667 never shortens a
+Fact's text. A Fact rides whole in a request, or 1667 drops it whole.
+
+A story can hold a Facts budget: a limit on the combined estimated token
+count of every Fact in a request. When the total goes over the Facts budget,
+1667 drops the lowest-priority Facts first until the total fits.
+
+### Fit a request into the context window
+
+When a request does not fit the model's context window, 1667 first applies
+the Facts budget. If the request still does not fit, 1667 drops droppable
+Facts by priority, one at a time, until it fits.
+
+1667 rejects the request only when it still does not fit after 1667 drops
+every droppable Fact.
+
+The context meter states how many Facts a request dropped, and why.
+
 Select the system prompt row to open the full-screen editor.
 
 The context meter shows the estimated next request. Its pulsing segment
