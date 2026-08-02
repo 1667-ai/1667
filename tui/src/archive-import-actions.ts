@@ -58,12 +58,12 @@ async function applyArchiveImport(
     return;
   }
   if (overlay.path.trim().length === 0) {
-    overlay.error = "type the path to a .lorebook, .scenario, or .story file";
+    overlay.error = "type the path to a .lorebook, .json, .scenario, or .story file";
     return;
   }
 
-  const extension = archiveExtension(overlay.path);
-  if (extension === null) {
+  const route = archiveRoute(overlay.path);
+  if (route === null) {
     overlay.error = "unsupported archive · use .lorebook, .json, .scenario, or .story";
     return;
   }
@@ -84,7 +84,7 @@ async function applyArchiveImport(
         return;
       }
 
-      if (extension === ".lorebook") {
+      if (route === "facts") {
         const { payload, importResult } = await source.api.importLorebook(task.storyId, bytes);
         if (!task.storyCurrent()) return;
         adoptSameStoryPayload(state, payload);
@@ -103,7 +103,7 @@ async function applyArchiveImport(
       }
 
       const text = new TextDecoder("utf-8").decode(bytes);
-      const { payload } = extension === ".scenario"
+      const { payload } = route === "scenario"
         ? await source.api.importScenario(text)
         : await source.api.importNovelAI(text);
       if (!task.storyCurrent()) return;
@@ -131,14 +131,14 @@ async function applyArchiveImport(
   }
 }
 
-function archiveExtension(value: string): ".lorebook" | ".scenario" | ".story" | null {
+function archiveRoute(value: string): "facts" | "scenario" | "story" | null {
   const lower = value.toLowerCase();
-  if (lower.endsWith(".lorebook")) return ".lorebook";
-  if (lower.endsWith(".scenario")) return ".scenario";
-  if (lower.endsWith(".story")) return ".story";
+  if (lower.endsWith(".lorebook")) return "facts";
+  if (lower.endsWith(".scenario")) return "scenario";
+  if (lower.endsWith(".story")) return "story";
   // SillyTavern writes World Info as plain .json. A character card is .json
   // too, so the reader tells them apart by shape and says which door to use.
-  if (lower.endsWith(".json")) return ".lorebook";
+  if (lower.endsWith(".json")) return "facts";
   return null;
 }
 

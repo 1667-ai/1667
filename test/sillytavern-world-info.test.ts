@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { factsFromArchive, parseLorebookArchive } from "../shared/novelai-lorebook.js";
+import { factsFromArchive } from "../shared/archive-import.js";
+import { parseLorebookArchive } from "../shared/novelai-lorebook.js";
 import { isWorldInfo } from "../shared/sillytavern-world-info.js";
 import { fidelityReport } from "../shared/fidelity.js";
 
@@ -490,4 +491,18 @@ test("an extra scan source is named", () => {
   const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
 
   assert.ok(report.includes("2 entries lost an extra scan source"), report);
+});
+
+test("a World Info entry that cannot be read at all is still named", () => {
+  const archive = parseLorebookArchive(Buffer.from(JSON.stringify({
+    entries: { "0": "junk", "1": { uid: 1, comment: "Real", content: "In play.", key: ["k"] } }
+  })));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts.length, 1);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 entry could not be read"),
+    fidelityReport(result.fidelity)
+  );
 });

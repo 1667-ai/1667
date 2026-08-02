@@ -345,3 +345,18 @@ test("a tag taken from a category reports its trimming like any other tag", () =
     fidelityReport(result.fidelity)
   );
 });
+
+test("an entry that cannot be read at all is still named", () => {
+  // An entry that vanishes with no reason is the one thing the report exists to
+  // prevent, so junk in the entry list is counted rather than skipped.
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: ["not an entry", 42, { enabled: true, text: "a real entry" }]
+  }, 128);
+
+  assert.equal(result.facts.length, 1);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("2 entries could not be read"),
+    fidelityReport(result.fidelity)
+  );
+});
