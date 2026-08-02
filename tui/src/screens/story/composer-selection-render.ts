@@ -27,7 +27,8 @@ export function renderComposerRange(
     text: composerLineSlice(composer, line, sliceStart, sliceEnd),
     role: selected ? "background" : "streaming",
     ...(selected ? { background: selectedBackground } : {}),
-    composerStart: lineStart + sliceStart
+    composerStart: lineStart + sliceStart,
+    prose: true
   });
   const selection = composerLineSelection(composer, line);
   if (selection === null || selection.end <= start || selection.start >= end) {
@@ -52,6 +53,7 @@ export function renderComposerLineBreak(
     text: " ",
     role: selected ? "background" : "streaming",
     ...(selected ? { background: selectedBackground } : {}),
-    composerStart: composerLineStart(composer, line) + composerLineLength(composer, line)
+    composerStart: composerLineStart(composer, line) + composerLineLength(composer, line),
+    prose: true
   };
 }

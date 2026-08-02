@@ -71,14 +71,11 @@ identifiers when it next changes a story.
 
 ## Export a story
 
-In this section, archive is a Technical Name for a NovelAI `.story`,
-`.scenario`, or `.lorebook` file.
-
 `1667 export` writes Markdown to `<Story Title>.md` in the project root. The
 Markdown contains the selected take for each story part. The export omits
 unselected takes and directions. Chapter titles use `##` headings.
 
-Use `--format` to write an archive:
+Use `--format` to write an Archive:
 
 ```sh
 1667 export --format story
@@ -86,18 +83,18 @@ Use `--format` to write an archive:
 1667 export --format lorebook
 ```
 
-A `.story` archive contains the selected prose in order. It does not contain
+A `.story` Archive contains the selected prose in order. It does not contain
 Facts, directions, the Author's Note, unselected takes, summary parts, chapter
 boundaries, or retry history.
 
-A `.scenario` archive contains the selected prose in one prompt. It puts the
+A `.scenario` Archive contains the selected prose in one prompt. It puts the
 author brief in the instruction context. It puts Facts in the Lorebook. It
 does not include the Author's Note. It does not create placeholder variables.
 
-A `.lorebook` archive contains one entry for each Fact. A Fact tag becomes a
-category. Current Facts have no keys. Thus, each entry is always on.
+A `.lorebook` Archive contains one entry for each Fact. A Fact tag becomes a
+category. The entry keeps the Fact activation mode and Fact keys.
 
-The command writes the path of each file to standard output. For an archive,
+The command writes the path of each file to standard output. For an Archive,
 it writes a fidelity report to standard error. The report gives the number of
 items that the export changes or omits.
 
@@ -113,8 +110,11 @@ recently updated story.
 
 No option selects a story line. Select the story line in the TUI before export.
 
-1667 can import a `.story` archive. 1667 cannot import a `.scenario` archive or
-a `.lorebook` archive.
+1667 imports `.story` and `.scenario` Archives with `1667 import`. It imports a
+`.lorebook` Archive with `1667 import-lorebook`.
+
+A `.story` import reads Facts, Memory, and the Author's Note. A `.story` export
+does not write these items.
 
 ## Import a story
 
@@ -131,4 +131,55 @@ You can also import NovelAI `.story` files with `1667 import <file.story>`.
 1667 reads Editor V2 documents and Editor V1 legacy stories. Each ordered V2
 text section becomes a story part. Each nonblank line of the joined V1 story
 text becomes a story part. 1667 does not infer chapter boundaries. Container
-settings, Memory, Author's Note, Lorebook, and retry history are not imported.
+generation settings and retry history are not imported.
+
+## Import an Archive
+
+`1667 import` makes a new story. It accepts `.md`, `.jsonl`, `.story`, and
+`.scenario` files.
+
+`1667 import-card` adds Facts to a story that exists. `1667 import-lorebook`
+also adds Facts to a story that exists.
+
+Select `import archive` in the command palette to import an Archive in the TUI.
+A `.lorebook` file adds Facts to the open story. A `.scenario` file or a
+`.story` file creates a new story.
+
+Use this command to import a Container or a Scenario:
+
+```sh
+1667 import <file.story-or-scenario>
+```
+
+Use this command to import a Lorebook:
+
+```sh
+1667 import-lorebook --story <id-or-title> <file.lorebook>
+```
+
+The Entry Mapping makes one Fact from each enabled Lorebook Entry.
+
+| Lorebook Entry value | Fact value |
+| --- | --- |
+| `text` | Fact text |
+| `displayName` | Fact tag |
+| `category` | Fact tag when `displayName` is empty |
+| `keys` | Fact keys |
+| `forceActivation: true` | Always active |
+| Other `forceActivation` values | Keyed activation |
+| `enabled: false` | No Fact |
+
+Memory becomes one always active Fact. The Fact tag is `memory`. Memory uses
+the first Fact slot.
+
+The Author's Note becomes the story's Author's Note. A `.story` import and a
+`.scenario` import use the same context position.
+
+A `.scenario` import keeps `${…}` text. It does not import the placeholder
+metadata.
+
+The command writes the new story summary to standard output. The summary gives
+the story part count and the Fact count.
+
+The command writes a Fidelity Report to standard error. The Fidelity Report
+gives the item counts. It also gives the changes and omissions.

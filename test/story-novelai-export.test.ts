@@ -60,12 +60,12 @@ test("NovelAI story export re-imports the selected prose line in order", () => {
   ]) assert.equal(documentBytes.includes(Buffer.from(omitted)), false);
   assert.ok(!result.text.includes("Keep the unresolved door closed."));
   const reimported = partsFromNovelAiStory(result.text);
-  assert.equal(reimported.title, "Archive test");
-  assert.deepEqual(reimported.parts.map((part) => part.text), [
+  assert.equal(reimported.story.title, "Archive test");
+  assert.deepEqual(reimported.story.parts.map((part) => part.text), [
     "First selected part.",
     "Second selected part."
   ], "the importer must keep the selected order");
-  assert.ok(reimported.parts.every((part) => part.instruction === ""));
+  assert.ok(reimported.story.parts.every((part) => part.instruction === ""));
   assert.deepEqual(result.fidelity, [
     "2 active prose parts selected.",
     "2 facts omitted.",

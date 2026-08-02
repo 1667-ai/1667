@@ -1,5 +1,8 @@
 import { renderOnce, runInteractive, type AppSource } from "./app.js";
 import { createApi } from "./api.js";
+import { HELP, commandHelp, wantsHelp } from "./cli-help.js";
+
+export { HELP } from "./cli-help.js";
 import { demoAppSource } from "./demo.js";
 import { createConnectionMonitor } from "./connection.js";
 import { loadConfig } from "./config.js";
@@ -28,7 +31,9 @@ import { attachHttpServer } from "./http-attach.js";
 import { runStoryExport } from "./export-cli.js";
 import { runStoryImport } from "./import-cli.js";
 import { runCardImport } from "./card-import-cli.js";
+import { runLorebookImport } from "./lorebook-import-cli.js";
 import { runHttpCommand } from "./http-commands.js";
+
 import { parseCanonicalLoopbackOrigin } from "../../shared/http-loopback-origin.js";
 import {
   createCompatibleHttpFailureEnvelope
@@ -70,74 +75,15 @@ interface Arguments {
   keys: string;
 }
 
-export const HELP = `1667 — a full-screen 1667 client
-
-Stories live in .1667/ beside your writing, found by walking up from the
-current directory the way git finds .git.
-
-Usage: 1667 [options]
-       1667 init [--adopt [--from <legacy-data-dir>]]
-       1667 export [--story <id>|--all] [--format story|scenario|lorebook] [--force] [--data <path>|--global]
-       1667 import [--data <path>|--global] <file...>
-       1667 import-card --story <id-or-title> [--data <path>|--global] <file...>
-       1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
-       1667 serve [--data <path>] [--port <0-65535>] [--print-logs]
-       1667 serve --legacy-v1 --data <path> [--print-logs] (Linux only)
-       1667 upgrade [options]
-
-Export:
-  Writes Markdown by default. It contains one story's selected line — the
-  take chosen at each part, as you last left it. Prose only: chapters become
-  '##' headings; directions and unchosen takes stay behind. No option picks
-  the line, so choose it in the app first.
-  Use --format for a NovelAI archive: story, scenario, or lorebook. The
-  command reports archive fidelity limits on standard error. Use --all to
-  write every story. It writes newest stories first and adds numeric suffixes
-  for equal file names. Otherwise it defaults to the most recently updated
-  story. It never clobbers an existing file (story.md, story-2.md, …) unless
-  you use --force.
-
-Import:
-  Imports a Markdown file or a SillyTavern chat file (.jsonl) as a new story,
-  one new story per file.
-  In Markdown, '##' headings become chapter boundaries. Prose blocks become
-  story parts.
-  In a chat file, each character message becomes a story part; the user
-  messages before it become that part's direction, and unanswered ones at the
-  end are dropped. Import never writes back to the file it read.
-  One unreadable file does not stop the others: the command reports each
-  failure and exits non-zero at the end.
-
-Character card import:
-  The command palette command 'import character card' adds card Facts to the
-  current story.
-  The import-card command adds Facts from one or more V1 or V2 JSON or PNG
-  files to an existing story. It does not make a new story.
-  One unreadable file does not stop the others: the command reports each
-  failure and exits non-zero at the end.
-
-Options:
-  --story <id>       Open a story, name the one to export, or name the one that
-                     receives card Facts; open and export default to the most
-                     recently updated, import-card has no default
-  --all              Export every story in the project
-  --format <format>  Export a NovelAI story, scenario, or lorebook archive
-  --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
-  --auth-file <path> Use the canonical private auth record for --url
-  --embedded         Use the embedded backend (default)
-  --data <path>      Open this project root instead of discovering one
-  --global           Open the machine-wide project instead of a folder
-  --diagnostic       Print read-only startup/project resolution JSON
-  --print-logs       Also print unexpected embedded backend errors to stderr
-  --demo             Use the in-memory lantern keeper fixture
-  --render-once      Print one deterministic frame and exit
-  --size <WxH>       Render-once dimensions (default: 120x36)
-  --keys <sequence>  Feed keys through the app before --render-once capture
-  --debug-density    Give the demo focus part 20 takes
-  -h, --help         Show help
-  --version [--json] Print embedded build identity`;
-
 export async function main(argv = process.argv.slice(2)): Promise<void> {
+  const command = argv[0];
+  if (command !== undefined && wantsHelp(argv.slice(1))) {
+    const page = commandHelp(command);
+    if (page !== null) {
+      process.stdout.write(`${page}\n`);
+      return;
+    }
+  }
   if (await runHttpCommand(argv)) return;
   if (argv[0] === "upgrade") {
     await runProcessUpgrade(argv.slice(1));
@@ -159,6 +105,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await runCardImport(argv.slice(1));
     return;
   }
+  if (argv[0] === "import-lorebook") {
+    await runLorebookImport(argv.slice(1));
+    return;
+  }
+
   const parsed = parseArguments(argv);
   if (parsed === null) return;
   if (parsed.diagnostic) {

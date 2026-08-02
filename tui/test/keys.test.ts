@@ -105,6 +105,14 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("escape"), "CARD").action).toBe("cancel");
   });
 
+  test("ARCHIVE uses the card panel's path-field actions", () => {
+    expect(resolveKey(key("return"), "ARCHIVE").action).toBe("apply");
+    expect(resolveKey(key("tab"), "ARCHIVE").action).toBe("complete");
+    expect(resolveKey(key("backspace"), "ARCHIVE").action).toBe("backspace");
+    expect(resolveKey(key("d"), "ARCHIVE")).toEqual({ action: "input", text: "d" });
+    expect(resolveKey(key("escape"), "ARCHIVE").action).toBe("cancel");
+  });
+
   test("NAV uses arrows for parts and takes; h/j/k/l are unbound", () => {
     expect(resolveKey(key("down"), "NAV").action).toBe("focus-next");
     expect(resolveKey(key("up"), "NAV").action).toBe("focus-previous");

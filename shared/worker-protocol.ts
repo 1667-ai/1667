@@ -23,6 +23,8 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "./settings-v2-types.js";
+import type { LorebookImport } from "./novelai-lorebook.js";
+
 import type {
   ListStoriesPageInput,
   StoryCatalogPage
@@ -167,7 +169,9 @@ export interface WorkerMethodContract {
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
-  importNovelAI: { input: { storyContainerJson: string }; output: StoryPayload };
+  importNovelAI: { input: { storyContainerJson: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
+  importScenario: { input: { jsonText: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
+  importLorebook: { input: { storyId: string; archiveBytes: Uint8Array }; output: { payload: StoryPayload; importResult: LorebookImport } };
   continueStory: {
     input: { storyId: string; instruction: string; genId: string; target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string } };
     output: StoryPayload | null;
@@ -189,7 +193,7 @@ export type MutatingWorkerMethod =
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
-  | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "continueStory" | "rewriteNode" | "createSummaryTake";
+  | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "continueStory" | "rewriteNode" | "createSummaryTake";
 
 export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "continueStory", "rewriteNode", "createSummaryTake"
@@ -214,7 +218,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
-  "importSillyTavern", "importMarkdown", "importNovelAI", "continueStory", "rewriteNode", "createSummaryTake"
+  "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory", "rewriteNode", "createSummaryTake"
 ]);
 
 export function isMutatingWorkerMethod(method: WorkerMethod): method is MutatingWorkerMethod {
@@ -236,7 +240,7 @@ export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
-  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak"
+  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook"
 ] as const satisfies readonly MutatingWorkerMethod[];
 
 export type LocalDurabilityMutationMethod =
@@ -440,7 +444,8 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
   "discoverModels",
-  "importSillyTavern", "importMarkdown", "importNovelAI", "continueStory",
+  "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory",
+
   "rewriteNode", "createSummaryTake"
 ]);
 

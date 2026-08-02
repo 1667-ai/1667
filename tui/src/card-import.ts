@@ -5,7 +5,7 @@ import {
   type CharacterCardSections
 } from "../../shared/character-card.js";
 import type { FactInput } from "../../shared/types.js";
-import { plainTerminalText } from "../../shared/terminal-text.js";
+import { terminalLineText } from "../../shared/terminal-text.js";
 import { MAX_JSON_BODY_BYTES } from "../../shared/types.js";
 
 const SECTION_NAMES = ["description", "personality", "scenario"] as const;
@@ -41,7 +41,7 @@ export function describeCardImport(plan: CardImportPlan): string {
     ? ""
     : ` · ${joinWords(plan.skipped)} ${plan.skipped.length === 1 ? "was" : "were"} empty`;
   // The name is card content, and this string is drawn in a terminal.
-  return `${count} for "${plainTerminalText(plan.name)}" · ${used}${skipped}`;
+  return `${count} for "${terminalLineText(plan.name)}" · ${used}${skipped}`;
 }
 
 function joinWords(values: readonly string[]): string {

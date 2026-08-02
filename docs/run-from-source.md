@@ -52,7 +52,8 @@ bun start -- --url                   # Use the server in run.json
 4. `AI_1667_URL`
 5. The embedded worker
 
-Run `bun start -- --help` for all commands and options.
+Run `bun start -- --help` for the commands and the usual options. Run
+`bun start -- <command> --help` for one command.
 
 ## Use the demo
 

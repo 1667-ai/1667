@@ -256,7 +256,7 @@ function renderWrappedInput(options: WrappedBodyRowOptions, cursorColumn: number
     && composerLineHasBreak(options.composer, options.row.sourceIndex);
   if (options.emptyDraft && options.row.start === 0 && options.row.end === 0) {
     return [
-      { text: caretText, role: "background", background: "compose accent" },
+      { text: caretText, role: "background", background: "compose accent", prose: true },
       segment(options.placeholder, "chrome")
     ];
   }
@@ -271,7 +271,8 @@ function renderWrappedInput(options: WrappedBodyRowOptions, cursorColumn: number
         text: caretText,
         role: "background",
         background: "compose accent",
-        ...(focusedConsumes || focusedBreak ? { composerStart: lineStart + cursor } : {})
+        ...(focusedConsumes || focusedBreak ? { composerStart: lineStart + cursor } : {}),
+        prose: true
       }
       : segment(caretText, options.caret === "streaming" ? "chrome" : "compose accent"),
     ...(after.length > 0
@@ -347,7 +348,8 @@ export function renderComposerInput(
         background: cursorSelected ? "focus / accent" : "compose accent",
         ...(focusedConsumes || focusedBreak
           ? { composerStart: composerLineStart(composer, sourceIndex) + cursor }
-          : {})
+          : {}),
+        prose: true
       });
     } else {
       parts.push(segment(caretText, caret === "streaming" ? "chrome" : "compose accent"));

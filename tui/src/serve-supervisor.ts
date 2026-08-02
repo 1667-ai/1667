@@ -38,7 +38,10 @@ Options:
   --data <path>       Project root to serve, absolute or relative
   --port <number>     Loopback port (default: 0, a free port chosen by the OS)
   --print-logs        Also print unexpected backend errors to stderr
-  -h, --help          Show serve help`;
+  -h, --help          Show serve help
+
+The legacy backend runs as '1667 serve --legacy-v1 --data <path>'. That mode is
+for Linux only, and it refuses --port.`;
 
 export class ServeUsageError extends Error {
   constructor(message: string) {

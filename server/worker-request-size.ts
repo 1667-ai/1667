@@ -20,12 +20,23 @@ export function validateWorkerRequestSize(
   protocolVersion?: number
 ): void {
   const input = requireRecord(value, `${method} input`);
-  if (method === "importSillyTavern" || method === "importMarkdown" || method === "importNovelAI") {
+  if (method === "importLorebook") {
+    // The only import whose body is bytes rather than text.
+    const bytes = input.archiveBytes;
+    const byteLength = bytes instanceof Uint8Array ? bytes.byteLength : 0;
+    if (byteLength > MAX_IMPORT_BYTES) {
+      throw new ServiceError(413, "Request body too large");
+    }
+    return;
+  }
+  if (method === "importSillyTavern" || method === "importMarkdown" || method === "importNovelAI" || method === "importScenario") {
     const text = method === "importSillyTavern"
       ? input.jsonl
       : method === "importMarkdown"
         ? input.markdown
-        : input.storyContainerJson;
+        : method === "importNovelAI"
+          ? input.storyContainerJson
+          : input.jsonText;
     if (method === "importMarkdown" && typeof text === "string" && hasUnpairedSurrogate(text)) {
       throw new ServiceError(400, "Markdown contains invalid Unicode");
     }
@@ -48,6 +59,7 @@ export function validateWorkerRequestSize(
     }
     return;
   }
+
   const body = logicalRequestBody(method, input, protocolVersion);
   if (body === undefined) return;
   const size = messageByteLength(body);
@@ -139,7 +151,10 @@ function logicalRequestBody(
     case "importSillyTavern":
     case "importMarkdown":
     case "importNovelAI":
+    case "importScenario":
+    case "importLorebook":
       return undefined;
+
   }
 }
 

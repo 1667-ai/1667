@@ -3,7 +3,7 @@ import path from "node:path";
 import { MAX_IMPORT_BYTES } from "./import-model.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
-import { plainTerminalText as plain } from "../shared/terminal-text.js";
+import { terminalLineText as plain } from "../shared/terminal-text.js";
 import { StoryService } from "./story-service.js";
 
 const files = process.argv.slice(2);

@@ -61,6 +61,8 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
   importNovelAI: "transfer",
+  importScenario: "transfer",
+  importLorebook: "local",
   continueStory: "generation",
   rewriteNode: "generation",
   createSummaryTake: "generation"
@@ -143,6 +145,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "importMarkdown";
   if (path === "/api/import/novelai"
     && httpMethod === "POST") return "importNovelAI";
+  if (path === "/api/import/scenario"
+    && httpMethod === "POST") return "importScenario";
 
   const parts = path.split("/");
   if (parts[0] !== "" || parts[1] !== "api" || parts[2] !== "stories"
@@ -210,7 +214,9 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (httpMethod === "PUT") return "putBookmark";
     if (httpMethod === "DELETE") return "deleteBookmark";
   }
+  if (sub === "import-lorebook" && parts.length === 5 && httpMethod === "POST") return "importLorebook";
   if (sub === "facts" && action === undefined) {
+
     if (subId === undefined && parts.length === 5
       && httpMethod === "POST") return "createFact";
     if (subId !== undefined && parts.length === 6

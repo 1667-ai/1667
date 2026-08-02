@@ -1,5 +1,6 @@
 import { Packr } from "msgpackr";
 import type { StoryFact, StoryNode, StoryPayload } from "../shared/types.js";
+import { countNoun } from "../shared/fidelity.js";
 
 export type NovelAiExportFormat = "story" | "scenario" | "lorebook";
 
@@ -299,11 +300,8 @@ function exportFidelity(
   }
 }
 
-function countNoun(count: number, singular: string): string {
-  return count === 1 ? singular : `${singular}s`;
-}
-
 type MessagePackRecord = { readonly [key: string]: MessagePackValue };
+
 type MessagePackValue =
   | undefined
   | string

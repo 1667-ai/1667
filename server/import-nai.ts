@@ -11,10 +11,25 @@ import {
   partsFromNovelAiDocument
 } from "./import-nai-document.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
-import { MAX_STORED_TITLE_CHARS } from "../shared/types.js";
+import {
+  MAX_FACTS,
+  MAX_FACT_TEXT_CHARS,
+  MAX_STORED_TITLE_CHARS,
+  type FactInput
+} from "../shared/types.js";
+import {
+  MAX_AUTHORS_NOTE_CHARS,
+  normalizeAuthorsNote
+} from "../shared/authors-note.js";
+import {
+  factsFromLorebook,
+  SUPPORTED_LOREBOOK_VERSION,
+  truncateFactText
+} from "../shared/novelai-lorebook.js";
 import {
   hasUnpairedSurrogate,
-  sliceUnicodeScalarPrefix
+  sliceUnicodeScalarPrefix,
+  unicodeScalarLength
 } from "../shared/unicode.js";
 
 export { MAX_IMPORT_BYTES, MAX_PARTS, MAX_TOTAL_CHARS };
@@ -23,7 +38,14 @@ export { MAX_NOVELAI_RECORDS as MAX_RECORDS };
 const FALLBACK_TITLE = "Imported NovelAI story";
 export const MAX_NOVELAI_JSON_VALUES = MAX_NOVELAI_RECORDS * 10;
 
-export function partsFromNovelAiStory(jsonText: string): GenericImport {
+export interface NovelAiContainerImport {
+  readonly story: GenericImport;
+  readonly facts: readonly FactInput[];
+  readonly authorsNote: string | null;
+  readonly fidelity: readonly string[];
+}
+
+export function partsFromNovelAiStory(jsonText: string): NovelAiContainerImport {
   if (Buffer.byteLength(jsonText) > MAX_IMPORT_BYTES) {
     throw new ServiceError(413, "Request body too large");
   }
@@ -58,16 +80,25 @@ export function partsFromNovelAiStory(jsonText: string): GenericImport {
 
   const title = importTitle(rawJson.metadata?.title);
   const document = rawJson.content.document;
+  let story: GenericImport;
   if (typeof document === "string" && document.length > 0) {
-    return { title, parts: partsFromNovelAiDocument(document) };
-  }
-  if (document !== undefined && document !== "") {
+    story = { title, parts: partsFromNovelAiDocument(document) };
+  } else if (document !== undefined && document !== "") {
     throw new ServiceError(400, "Malformed MessagePack document");
+  } else {
+    story = parseLegacyStory(rawJson.content.story, title);
   }
-  return parseLegacyStory(rawJson.content.story, title);
+
+  const fidelity: string[] = [];
+  const facts = extractFacts(rawJson.content.context, rawJson.content.lorebook, fidelity);
+  const authorsNote = extractAuthorsNote(rawJson.content.context, fidelity);
+
+  fidelity.push("generation settings and retry history omitted");
+
+  return { story, facts, authorsNote, fidelity };
 }
 
-function importTitle(value: unknown): string {
+export function importTitle(value: unknown): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     return FALLBACK_TITLE;
   }
@@ -78,6 +109,75 @@ function importTitle(value: unknown): string {
   return normalized.length === 0
     ? FALLBACK_TITLE
     : sliceUnicodeScalarPrefix(normalized, MAX_STORED_TITLE_CHARS);
+}
+
+export function extractFacts(
+  contextRaw: unknown,
+  lorebookRaw: unknown,
+  fidelity: string[]
+): readonly FactInput[] {
+  let memoryFact: FactInput | null = null;
+  const contextArray = Array.isArray(contextRaw) ? contextRaw : [];
+  const memEntry = contextArray[0];
+  if (isRecord(memEntry) && typeof memEntry.text === "string") {
+    if (hasUnpairedSurrogate(memEntry.text)) {
+      throw new ServiceError(400, "Memory contains invalid Unicode");
+    }
+    const normalized = memEntry.text.replace(/\r\n|\r|\u2028|\u2029/g, "\n");
+    if (normalized.trim().length > 0) {
+      let text = normalized;
+      if (text.length > MAX_FACT_TEXT_CHARS) {
+        text = truncateFactText(text);
+        fidelity.push("memory truncated to 4,000 characters");
+      }
+      memoryFact = { tag: "memory", text, activation: "always", keys: [] };
+    }
+  }
+
+  const room = MAX_FACTS - (memoryFact !== null ? 1 : 0);
+  let lorebookFacts: readonly FactInput[] = [];
+  if (isRecord(lorebookRaw)) {
+    // The prose is what the writer came for. A Lorebook the reader does not
+    // know is worth a line in the report, not the loss of the manuscript, so
+    // the embedded Lorebook degrades where a `.lorebook` file refuses.
+    if (lorebookRaw.lorebookVersion !== SUPPORTED_LOREBOOK_VERSION) {
+      fidelity.push(
+        `lorebook version ${String(lorebookRaw.lorebookVersion ?? "missing")} not read`
+      );
+    } else {
+      try {
+        const lorebookImport = factsFromLorebook(lorebookRaw, room);
+        lorebookFacts = lorebookImport.facts;
+        fidelity.push(...lorebookImport.fidelity);
+      } catch (error) {
+        if (error instanceof ServiceError) throw error;
+        throw new ServiceError(400, error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+
+  return memoryFact !== null ? [memoryFact, ...lorebookFacts] : lorebookFacts;
+}
+
+export function extractAuthorsNote(
+  contextRaw: unknown,
+  fidelity: string[]
+): string | null {
+  const contextArray = Array.isArray(contextRaw) ? contextRaw : [];
+  const anEntry = contextArray[1];
+  if (!isRecord(anEntry) || typeof anEntry.text !== "string") {
+    return null;
+  }
+  if (hasUnpairedSurrogate(anEntry.text)) {
+    throw new ServiceError(400, "Author's Note contains invalid Unicode");
+  }
+  const norm = normalizeAuthorsNote(anEntry.text);
+  if (norm === null) return null;
+  if (unicodeScalarLength(norm, MAX_AUTHORS_NOTE_CHARS + 1) > MAX_AUTHORS_NOTE_CHARS) {
+    fidelity.push("author's note truncated to 4,000 characters");
+    return sliceUnicodeScalarPrefix(norm, MAX_AUTHORS_NOTE_CHARS);
+  }
+  return norm;
 }
 
 function parseLegacyStory(storyRaw: unknown, title: string): GenericImport {

@@ -13,6 +13,7 @@ import {
   writeStoryExport
 } from "./export-file.js";
 import { createWorkerStoryApi } from "./worker-api.js";
+import { fidelityReport } from "../../shared/fidelity.js";
 
 export type ExportFormat = "markdown" | NovelAiExportFormat;
 
@@ -160,10 +161,6 @@ function inlineValue(argument: string, flag: string): string {
 function archiveFormat(value: string): NovelAiExportFormat {
   if (value === "story" || value === "scenario" || value === "lorebook") return value;
   throw new Error(`unknown export format: ${value}`);
-}
-
-function fidelityReport(fidelity: readonly string[]): string {
-  return fidelity.length === 0 ? "no fidelity limitations reported" : fidelity.join("; ");
 }
 
 function compareStoriesForExport(

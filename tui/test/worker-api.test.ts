@@ -269,12 +269,12 @@ describe("embedded backend worker", () => {
           }
         }
       }));
-      expect(importedNovelAi.title).toBe("Worker NovelAI manuscript");
-      expect(importedNovelAi.path.map((node) => node.text)).toEqual([
+      expect(importedNovelAi.payload.title).toBe("Worker NovelAI manuscript");
+      expect(importedNovelAi.payload.path.map((node) => node.text)).toEqual([
         "First NovelAI line.",
         "Second NovelAI line."
       ]);
-      expect((await api.deleteStory(importedNovelAi.id)).ok).toBeTrue();
+      expect((await api.deleteStory(importedNovelAi.payload.id)).ok).toBeTrue();
 
       const boundedTitleImport = await api.importMarkdown(
         "Bounded title prose.",
