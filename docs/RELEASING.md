@@ -39,7 +39,9 @@ This document uses these Technical Names:
 | PowerShell Installer | A Windows release script that installs one native executable |
 | Managed Installation | An installation that an Installer creates and registers |
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
-| Release Archive | The target-specific native archive in an immutable GitHub release |
+| Release Archive | The target-specific native archive in a GitHub release |
+| Nightly Release | The mutable GitHub prerelease that holds the most recent nightly Release Archives |
+| Release Source | The service that supplies a Candidate: npm or GitHub |
 | POSIX ustar | The archive format that the release workflows use |
 | build identity | Version, source, time, protocol, and target data in a native executable |
 | source evidence | Trusted source, tag, version, and time data |
@@ -598,8 +600,9 @@ downloaded script to PowerShell. It verifies these cases:
 ## GitHub pre-release of native archives
 
 `.github/workflows/release-github.yml` publishes one archive per published
-release target. A maintainer dispatches it from the default branch and supplies
-the version. The version must include a prerelease identifier. The workflow
+release target. A schedule starts the workflow, or a maintainer dispatches it
+from the default branch. The version input is optional. A supplied version must
+include a prerelease identifier. An empty version builds a nightly. The workflow
 refuses every other ref, and refuses a dirty checkout.
 
 `shared/release-targets.ts` decides which targets the GitHub workflow
@@ -611,12 +614,17 @@ held-target paragraph, and archive set. The npm workflow has a separate,
 explicit runner matrix. Add and verify that runner before you clear the field.
 
 The dispatched version must match the root package, the TUI package, and the
-lockfile. The `check` command refuses any other value, in the `prepare` job.
+lockfile. A nightly version is the committed version plus a nightly prerelease.
+The `check` command accepts both version forms in the `prepare` job. It refuses
+any other value.
 
-Exactly three strings cross a job boundary: the version, the source commit, and
-one build timestamp. The `prepare` job publishes them as job outputs, and every
-later job rebuilds its release identity in memory from them. That is why every
-archive in a run carries the same `build-manifest.json` identity.
+Exactly three strings of release identity cross a job boundary: the version, the
+source commit, and one build timestamp. The `prepare` job publishes them as job
+outputs, and every later job rebuilds its release identity in memory from them.
+That is why every archive in a run carries the same `build-manifest.json`
+identity. The `prepare` job publishes two more short strings. They are
+decisions, not identity: `nightly` names the publication path, and `proceed`
+says whether this run publishes.
 
 The workflow never writes a source evidence document and never uploads one. A
 `ReleaseSourceEvidence` value types `tagObjectType` as `"annotated"` and
@@ -667,6 +675,39 @@ The workflow attests every uploaded file with
 This path does not verify a tag signature, and the release notes claim none.
 The attestation is the evidence a GitHub pre-release offers. npm publication
 still requires the trusted inputs above.
+
+### The nightly channel
+
+The workflow runs each day at 04:27 UTC. A manual dispatch with an empty
+version does the same work immediately.
+
+The nightly version is `<committed-version>-nightly.<utc-date>.<short-commit>`.
+The `check` command accepts this form. The four package versions must equal
+the committed version.
+
+The short commit is seven characters. SemVer refuses an all-digit identifier
+that starts with a zero. The short commit grows until SemVer accepts it.
+
+The workflow builds all five release targets. A target that
+`heldFromPublication` names stays held.
+
+The workflow publishes to one prerelease at the fixed tag `nightly`. This is the
+Nightly Release. The workflow moves the tag to the new commit. It deletes
+every previous asset, then uploads the new assets. The asset count stays
+constant.
+
+The Nightly Release holds `install-nightly.sh` and `install-nightly.ps1`. Each
+Installer names the fixed tag, so its download URL stays correct.
+
+A schedule run stops before it builds when no commit came after the last
+Nightly Release. The run creates no release and reports success.
+
+The nightly channel has a lower assurance level than `stable` and `beta`. The
+digests are in the same release as the assets. A reader must use
+`gh attestation verify` for stronger evidence.
+
+A maintainer who wants a version number and a `v<version>` tag must dispatch
+the workflow with a version.
 
 ## Retain release evidence
 
