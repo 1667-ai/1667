@@ -111,7 +111,7 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
         await runNpm(this.#npm, [
           "publish",
           packageToPublish.tarballPath,
-          "--tag=next",
+          "--tag=latest",
           "--access=public",
           "--provenance",
           "--ignore-scripts",

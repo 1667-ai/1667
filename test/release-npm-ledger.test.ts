@@ -229,27 +229,6 @@ test("the GitHub ledger refuses a different created attempt ref", async () => {
   );
 });
 
-test("the GitHub write gate rejects an active manual operation", async () => {
-  const expected = publicationMatrix()[0]!;
-  const ledger = new GitHubNpmPublicationLedger({
-    repository: "1667-ai/1667",
-    sourceCommit: COMMIT,
-    token: "test-token",
-    fetch: async (input) => {
-      const pathname = new URL(String(input)).pathname;
-      if (pathname.includes("/tags/npm-operations-open/")) {
-        return jsonResponse([{
-          ref: "refs/tags/npm-operations-open/"
-            + "run-1-attempt-1/promotion/v1.2.3",
-          object: { type: "commit", sha: COMMIT }
-        }], 200);
-      }
-      return jsonResponse([], 200);
-    }
-  });
-  await assert.rejects(ledger.assertWritable(expected), /is active/u);
-});
-
 test("the workflow write gate does not require repository administration", async () => {
   const expected = publicationMatrix()[0]!;
   const requested: string[] = [];

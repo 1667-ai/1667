@@ -11,7 +11,6 @@ import {
   GitHubRefStore,
   type GitHubRef
 } from "./release-github-ref-store.js";
-import { GitHubNpmOperationLease } from "./release-npm-operation-lease.js";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
 const DIGEST = /^[0-9a-f]{64}$/u;
@@ -37,7 +36,6 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
   readonly #repository: string;
   readonly #sourceCommit: string;
   readonly #store: GitHubRefStore;
-  readonly #operationLease: GitHubNpmOperationLease;
 
   constructor(options: GitHubNpmPublicationLedgerOptions) {
     if (!REPOSITORY.test(options.repository)) {
@@ -50,19 +48,10 @@ export class GitHubNpmPublicationLedger implements NpmPublicationLedger {
     this.#repository = options.repository;
     this.#sourceCommit = options.sourceCommit;
     this.#store = new GitHubRefStore(options);
-    this.#operationLease = new GitHubNpmOperationLease({
-      repository: this.#repository,
-      token: options.token,
-      apiUrl: options.apiUrl,
-      fetch: options.fetch
-    });
   }
 
   async assertWritable(packageToPublish: NpmPublicationPackage): Promise<void> {
-    await Promise.all([
-      this.#operationLease.assertNoUnterminatedActive(),
-      this.status(packageToPublish)
-    ]);
+    await this.status(packageToPublish);
   }
 
   async status(
