@@ -6,11 +6,14 @@ import {
   samplingLayerRowIdentity,
   samplingLogitBiasEntries,
   samplingListItemIdentity,
+  type SamplingListPanel,
   type SamplingListRow,
   type SamplingScalarRow,
   samplingListRows,
   samplingScalarRows
 } from "../sampling-model.js";
+import { bannedStringValueRow, phraseBiasValueRow } from "./sampling-bias-panel.js";
+import type { SamplingPhraseBiasEntryV2 } from "../../../shared/settings-v2-types.js";
 import type { OverlayState } from "../state.js";
 import {
   dimPage,
@@ -34,6 +37,13 @@ type SamplingLayerRow =
   | { kind: "scalar"; row: SamplingScalarRow }
   | { kind: "list"; row: SamplingListRow };
 
+const SAMPLING_PANEL_TITLES: Readonly<Record<SamplingListPanel, string>> = {
+  stop: "stop sequences",
+  "logit-bias": "logit bias",
+  "phrase-bias": "phrase bias",
+  "banned-strings": "banned strings"
+};
+
 export function renderSamplingPanel(
   base: FrameLine[],
   state: SamplingPanelState,
@@ -47,17 +57,11 @@ export function renderSamplingPanel(
   const status = nested.result === null ? [] : [samplingStatus(nested.result, contentWidth)];
   const content = nested.panel === "sampling"
     ? renderSamplingLayer(settings, contentWidth, height, status)
-    : renderSamplingListLayer(
-        settings,
-        contentWidth,
-        height,
-        status,
-        nested.panel === "stop" ? "stop" : "logit-bias"
-      );
+    : renderSamplingListLayer(settings, contentWidth, height, status, nested.panel);
   const footer = samplingFooter(nested.panel, nested.edit !== null, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
-    nested.panel === "sampling" ? "sampling" : nested.panel === "stop" ? "stop sequences" : "logit bias",
+    nested.panel === "sampling" ? "sampling" : SAMPLING_PANEL_TITLES[nested.panel],
     content.lines,
     footer.text,
     width,
@@ -163,10 +167,10 @@ function renderSamplingRow(
   );
 }
 
-type SamplingListValue = string | readonly [string, number];
+type SamplingListValue = string | readonly [string, number] | SamplingPhraseBiasEntryV2;
 
 interface SamplingListDescriptor {
-  readonly panel: "stop" | "logit-bias";
+  readonly panel: SamplingListPanel;
   readonly values: readonly SamplingListValue[];
   readonly emptyCopy: readonly string[];
   header(count: number): string;
@@ -178,7 +182,7 @@ function renderSamplingListLayer(
   width: number,
   height: number,
   status: FrameLine[],
-  panel: "stop" | "logit-bias"
+  panel: SamplingListPanel
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
   const descriptor = samplingListDescriptor(settings, panel);
   const values = descriptor.values;
@@ -232,7 +236,7 @@ function renderSamplingListLayer(
 
 function samplingListDescriptor(
   settings: NonNullable<OverlayState["settings"]>,
-  panel: "stop" | "logit-bias"
+  panel: SamplingListPanel
 ): SamplingListDescriptor {
   const summary = samplingListRows(settings).find((row) => row.panel === panel)!;
   if (panel === "stop") {
@@ -250,17 +254,51 @@ function samplingListDescriptor(
       }
     };
   }
+  if (panel === "logit-bias") {
+    return {
+      panel,
+      values: samplingLogitBiasEntries(settings),
+      emptyCopy: [
+        "  no biased tokens yet.",
+        "  n writes one · token IDs come from the model's tokenizer."
+      ],
+      header: (count) => `  token ID       integer bias · ${count}/${summary.maximum}`,
+      formatValue: (value, _index, selected, width) => {
+        if (typeof value === "string" || "phrase" in value) {
+          throw new Error("logit-bias row has an invalid value");
+        }
+        return logitValueRow(value[0], value[1], selected, width);
+      }
+    };
+  }
+  if (panel === "phrase-bias") {
+    return {
+      panel,
+      values: settings.draft.sampling.phraseBias,
+      emptyCopy: [
+        "  no phrase bias yet.",
+        "  n writes one · phrase:integer bias · each phrase resolves to one or more tokens."
+      ],
+      header: (count) => `  phrase              bias  resolved tokens · ${count}/${summary.maximum}`,
+      formatValue: (value, _index, selected, width) => {
+        if (typeof value === "string" || !("phrase" in value)) {
+          throw new Error("phrase-bias row has an invalid value");
+        }
+        return phraseBiasValueRow(value, settings, selected, width);
+      }
+    };
+  }
   return {
     panel,
-    values: samplingLogitBiasEntries(settings),
+    values: settings.draft.sampling.bannedStrings,
     emptyCopy: [
-      "  no biased tokens yet.",
-      "  n writes one · token IDs come from the model's tokenizer."
+      "  no banned strings yet.",
+      "  n writes one · a negative bias makes a string unlikely, not impossible."
     ],
-    header: (count) => `  token ID       integer bias · ${count}/${summary.maximum}`,
+    header: (count) => `  banned string             resolved tokens · ${count}/${summary.maximum}`,
     formatValue: (value, _index, selected, width) => {
-      if (typeof value === "string") throw new Error("logit-bias row has an invalid value");
-      return logitValueRow(value[0], value[1], selected, width);
+      if (typeof value !== "string") throw new Error("banned-string row has an invalid value");
+      return bannedStringValueRow(value, settings, selected, width);
     }
   };
 }
@@ -379,7 +417,7 @@ interface SamplingFooter {
 }
 
 function samplingFooter(
-  panel: "sampling" | "stop" | "logit-bias",
+  panel: "sampling" | SamplingListPanel,
   editing: boolean,
   width: number
 ): SamplingFooter {

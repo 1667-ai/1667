@@ -27,6 +27,7 @@ import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { samplingOverlayAction } from "./sampling-actions.js";
+import { resolveSamplingBiasTokens } from "./sampling-bias-resolution.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -215,8 +216,10 @@ export async function settingsOverlayAction(
         cursor: 0,
         logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
         edit: null,
-        result: null
+        result: null,
+        biasTokenCache: new Map()
       };
+      resolveSamplingBiasTokens(overlay, source, context);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -457,7 +460,8 @@ const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableRe
   "preset-unsupported": "not in preset",
   "preset-unknown": "unknown endpoint",
   "model-unsupported": "model unsupported",
-  "model-unknown": "model unknown"
+  "model-unknown": "model unknown",
+  "no-exact-tokenizer": "no exact tokenizer"
 };
 
 /** A credential-touching save activates inside the save request, so the

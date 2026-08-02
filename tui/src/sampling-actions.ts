@@ -17,16 +17,18 @@ import {
   setStopSequence,
   type SamplingScalarKnob
 } from "./sampling-model.js";
+import { setBannedString, setPhraseBias } from "./sampling-bias-model.js";
+import { resolveSamplingBiasTokens } from "./sampling-bias-resolution.js";
 import { disarmSettingsConflict } from "./settings-overlay-model.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import type { RuntimeState } from "./state.js";
+import type { RuntimeState, SamplingInlineEditState } from "./state.js";
 
 export async function samplingOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
-  _source: AppSource,
-  _context: ActionContext
+  source: AppSource,
+  context: ActionContext
 ): Promise<void> {
   const settings = state.settings;
   if (settings === null || settings.sampling === null) return;
@@ -52,7 +54,7 @@ export async function samplingOverlayAction(
     return;
   }
   if (nested.edit !== null) {
-    samplingEditAction(resolved, state);
+    samplingEditAction(resolved, state, source, context);
     return;
   }
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
@@ -173,24 +175,28 @@ function roundSamplingValue(value: number, precision: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
-function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
+function samplingEditAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): void {
   const settings = state.settings;
   if (settings === null || settings.sampling === null) return;
   const nested = settings.sampling;
   const edit = nested.edit;
   if (edit === null) return;
   if (resolved.action === "commit-field") {
-    const error = edit.kind === "scalar"
-      ? setSamplingScalar(settings, edit.knob, edit.composer.text)
-      : edit.kind === "stop"
-        ? setStopSequence(settings, edit.index, edit.composer.text)
-        : setLogitBias(settings, edit.index, edit.composer.text);
+    const error = commitSamplingEdit(settings, edit);
     if (error !== null) {
       nested.result = `row kept · ${error}`;
       return;
     }
     nested.edit = null;
     nested.result = "draft updated · save in Settings";
+    if (edit.kind === "phrase-bias" || edit.kind === "banned-strings") {
+      resolveSamplingBiasTokens(settings, source, context);
+    }
     return;
   }
   if (resolved.action === "input") {
@@ -200,6 +206,19 @@ function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
   }
   if (applyComposerEdit(edit.composer, resolved.action, resolved.extendSelection) !== null) {
     if (settings.conflict !== null) settings.conflict.armed = false;
+  }
+}
+
+function commitSamplingEdit(
+  settings: NonNullable<RuntimeState["settings"]>,
+  edit: SamplingInlineEditState
+): string | null {
+  switch (edit.kind) {
+    case "scalar": return setSamplingScalar(settings, edit.knob, edit.composer.text);
+    case "stop": return setStopSequence(settings, edit.index, edit.composer.text);
+    case "logit-bias": return setLogitBias(settings, edit.index, edit.composer.text);
+    case "phrase-bias": return setPhraseBias(settings, edit.index, edit.composer.text);
+    case "banned-strings": return setBannedString(settings, edit.index, edit.composer.text);
   }
 }
 

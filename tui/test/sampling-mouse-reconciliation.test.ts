@@ -209,7 +209,8 @@ function samplingState(
     cursor,
     logitBiasOrder: Object.keys(values.logitBias),
     edit: edit ?? null,
-    result: null
+    result: null,
+    biasTokenCache: new Map()
   };
   state.settings = settings;
   return state;
@@ -298,6 +299,8 @@ function sampling(overrides: Partial<SamplingSettingsV2> = {}): SamplingSettings
     presencePenalty: null,
     repeatPenalty: null,
     stop: overrides.stop ?? [],
-    logitBias: overrides.logitBias ?? {}
+    logitBias: overrides.logitBias ?? {},
+    bannedStrings: overrides.bannedStrings ?? [],
+    phraseBias: overrides.phraseBias ?? []
   };
 }

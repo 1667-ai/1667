@@ -1,6 +1,7 @@
 import {
   SAMPLING_KNOB_V2_VALUES,
   SAMPLING_SCALAR_KNOB_V2_VALUES,
+  type SamplingPhraseBiasEntryV2,
   type SamplingScalarKnobV2,
   type SamplingSettingsV2
 } from "../../shared/settings-v2-types.js";
@@ -13,7 +14,9 @@ import {
   type SamplingContext
 } from "../../shared/sampling-capabilities.js";
 import {
+  SAMPLING_BANNED_STRINGS_POLICY,
   SAMPLING_LOGIT_BIAS_POLICY,
+  SAMPLING_PHRASE_BIAS_POLICY,
   SAMPLING_STOP_POLICY,
   validateSamplingLogitBiasEntry,
   validateSamplingSettings
@@ -33,8 +36,10 @@ export interface SamplingScalarRow {
   readonly value: string;
 }
 
+export type SamplingListPanel = Exclude<SamplingPanelId, "sampling">;
+
 export interface SamplingListRow {
-  readonly panel: "stop" | "logit-bias";
+  readonly panel: SamplingListPanel;
   readonly label: string;
   readonly value: string;
   readonly count: number;
@@ -47,7 +52,9 @@ export interface SamplingListRow {
 export const SAMPLING_LAYER_ROWS = [
   ...SAMPLING_SCALAR_KNOBS.map((knob) => ({ kind: "scalar" as const, knob })),
   { kind: "list" as const, panel: "stop" as const },
-  { kind: "list" as const, panel: "logit-bias" as const }
+  { kind: "list" as const, panel: "logit-bias" as const },
+  { kind: "list" as const, panel: "phrase-bias" as const },
+  { kind: "list" as const, panel: "banned-strings" as const }
 ];
 
 export function samplingLayerRowIdentity(
@@ -97,26 +104,67 @@ export function samplingListRows(
 ): readonly SamplingListRow[] {
   const sampling = overlay.draft.sampling;
   const context = samplingContextForOverlay(overlay);
-  const stopPresentation = samplingKnobPresentation(context, "stop");
-  const logitPresentation = samplingKnobPresentation(context, "logitBias");
   return [
-    {
-      panel: "stop",
-      value: sampling.stop.length === 0 ? "empty" : `${sampling.stop.length}/${SAMPLING_STOP_POLICY.maxSequences}`,
-      count: sampling.stop.length,
-      maximum: SAMPLING_STOP_POLICY.maxSequences,
-      ...stopPresentation
-    },
-    {
-      panel: "logit-bias",
-      value: Object.keys(sampling.logitBias).length === 0
-        ? "empty"
-        : `${Object.keys(sampling.logitBias).length}/${SAMPLING_LOGIT_BIAS_POLICY.maxEntries}`,
-      count: Object.keys(sampling.logitBias).length,
-      maximum: SAMPLING_LOGIT_BIAS_POLICY.maxEntries,
-      ...logitPresentation
-    }
+    listRow("stop", sampling.stop.length, samplingKnobPresentation(context, "stop")),
+    listRow(
+      "logit-bias",
+      Object.keys(sampling.logitBias).length,
+      samplingKnobPresentation(context, "logitBias")
+    ),
+    listRow("phrase-bias", sampling.phraseBias.length, samplingKnobPresentation(context, "phraseBias")),
+    listRow("banned-strings", sampling.bannedStrings.length, samplingKnobPresentation(context, "bannedStrings"))
   ];
+}
+
+function listRow(
+  panel: SamplingListPanel,
+  count: number,
+  presentation: ReturnType<typeof samplingKnobPresentation>
+): SamplingListRow {
+  const maximum = samplingListMaximum(panel);
+  return {
+    panel,
+    value: count === 0 ? "empty" : `${count}/${maximum}`,
+    count,
+    maximum,
+    ...presentation
+  };
+}
+
+function samplingListMaximum(panel: SamplingListPanel): number {
+  switch (panel) {
+    case "stop": return SAMPLING_STOP_POLICY.maxSequences;
+    case "logit-bias": return SAMPLING_LOGIT_BIAS_POLICY.maxEntries;
+    case "phrase-bias": return SAMPLING_PHRASE_BIAS_POLICY.maxEntries;
+    case "banned-strings": return SAMPLING_BANNED_STRINGS_POLICY.maxEntries;
+  }
+}
+
+/** The panel's entries in the shape sampling-panel.ts and
+ * samplingListItemIdentity need to derive a stable per-row key. */
+function samplingListIdentityValues(
+  overlay: SettingsOverlayState,
+  panel: SamplingListPanel
+): readonly (string | readonly [string, number] | SamplingPhraseBiasEntryV2)[] {
+  switch (panel) {
+    case "stop": return overlay.draft.sampling.stop;
+    case "logit-bias": return samplingLogitBiasEntries(overlay);
+    case "phrase-bias": return overlay.draft.sampling.phraseBias;
+    case "banned-strings": return overlay.draft.sampling.bannedStrings;
+  }
+}
+
+/** The panel's entries as the single-line text its inline composer edits. */
+function samplingListEditableValues(
+  overlay: SettingsOverlayState,
+  panel: SamplingListPanel
+): readonly string[] {
+  switch (panel) {
+    case "stop": return overlay.draft.sampling.stop;
+    case "logit-bias": return samplingLogitBiasEntries(overlay).map(([token, weight]) => `${token}:${weight}`);
+    case "phrase-bias": return overlay.draft.sampling.phraseBias.map((entry) => `${entry.phrase}:${entry.weight}`);
+    case "banned-strings": return overlay.draft.sampling.bannedStrings;
+  }
 }
 
 export function samplingLogitBiasEntries(
@@ -142,13 +190,15 @@ export function samplingLogitBiasEntries(
 }
 
 export function samplingListItemIdentity(
-  panel: Exclude<SamplingPanelId, "sampling">,
-  value: string | readonly [string, number] | undefined,
+  panel: SamplingListPanel,
+  value: string | readonly [string, number] | SamplingPhraseBiasEntryV2 | undefined,
   pending = false
 ): string | null {
   if (pending) return `sampling:${panel}:pending`;
   if (value === undefined) return null;
-  const key = typeof value === "string" ? value : value[0];
+  const key = typeof value === "string"
+    ? value
+    : "phrase" in value ? value.phrase : value[0];
   return `sampling:${panel}:${JSON.stringify(key)}`;
 }
 
@@ -160,9 +210,7 @@ export function samplingSelectedRowIdentity(
   if (nested.panel === "sampling") {
     return samplingLayerRowIdentity(SAMPLING_LAYER_ROWS[boundedSamplingCursor(overlay)]!);
   }
-  const values = nested.panel === "stop"
-    ? overlay.draft.sampling.stop
-    : samplingLogitBiasEntries(overlay);
+  const values = samplingListIdentityValues(overlay, nested.panel);
   const cursor = boundedSamplingCursor(overlay, nested.panel, nested.cursor);
   const value = values[cursor];
   if (value !== undefined) return samplingListItemIdentity(nested.panel, value);
@@ -173,16 +221,32 @@ export function samplingSelectedRowIdentity(
 }
 
 export function samplingSummary(sampling: SamplingSettingsV2): string {
-  const fields = SAMPLING_KNOB_V2_VALUES.map((knob) => {
-    const value = sampling[knob];
-    if (typeof value === "number") return `${samplingKnobLabel(knob)} ${value}`;
-    if (Array.isArray(value) && value.length > 0) return `stop ${value.length}`;
-    if (value !== null && !Array.isArray(value) && Object.keys(value).length > 0) {
-      return `bias ${Object.keys(value).length}`;
-    }
-    return null;
-  }).filter((value): value is string => value !== null);
+  const fields = SAMPLING_KNOB_V2_VALUES.map((knob) => samplingSummaryField(sampling, knob))
+    .filter((value): value is string => value !== null);
   return fields.length === 0 ? "default" : fields.join(" · ");
+}
+
+/** Kept as one explicit branch per knob, not a generic "any array/object is
+ * non-empty" check: stop, logitBias, phraseBias, and bannedStrings are all
+ * array- or object-shaped, and a shape-based check cannot tell them apart. */
+function samplingSummaryField(
+  sampling: SamplingSettingsV2,
+  knob: (typeof SAMPLING_KNOB_V2_VALUES)[number]
+): string | null {
+  const value = sampling[knob];
+  if (typeof value === "number") return `${samplingKnobLabel(knob)} ${value}`;
+  if (knob === "stop") return sampling.stop.length > 0 ? `stop ${sampling.stop.length}` : null;
+  if (knob === "logitBias") {
+    const count = Object.keys(sampling.logitBias).length;
+    return count > 0 ? `bias ${count}` : null;
+  }
+  if (knob === "phraseBias") {
+    return sampling.phraseBias.length > 0 ? `phrase bias ${sampling.phraseBias.length}` : null;
+  }
+  if (knob === "bannedStrings") {
+    return sampling.bannedStrings.length > 0 ? `banned ${sampling.bannedStrings.length}` : null;
+  }
+  return null;
 }
 
 export function samplingRowValue(overlay: SettingsOverlayState): string {
@@ -205,11 +269,9 @@ export function boundedSamplingCursor(
 
 function samplingListItemCount(
   overlay: SettingsOverlayState,
-  panel: Exclude<SamplingPanelId, "sampling">
+  panel: SamplingListPanel
 ): number {
-  const persisted = panel === "stop"
-    ? overlay.draft.sampling.stop.length
-    : samplingLogitBiasEntries(overlay).length;
+  const persisted = samplingListEditableValues(overlay, panel).length;
   const edit = overlay.sampling?.edit;
   const hasPendingRow = edit !== null && edit !== undefined
     && edit.kind === panel
@@ -287,7 +349,7 @@ export function setLogitBias(
 
 export function deleteSamplingItem(
   overlay: SettingsOverlayState,
-  panel: "stop" | "logit-bias",
+  panel: SamplingListPanel,
   index: number
 ): boolean {
   const sampling = overlay.draft.sampling;
@@ -295,6 +357,18 @@ export function deleteSamplingItem(
     if (index < 0 || index >= sampling.stop.length) return false;
     const stop = sampling.stop.filter((_, item) => item !== index);
     updateSamplingDraft(overlay, { ...sampling, stop });
+    return true;
+  }
+  if (panel === "phrase-bias") {
+    if (index < 0 || index >= sampling.phraseBias.length) return false;
+    const phraseBias = sampling.phraseBias.filter((_, item) => item !== index);
+    updateSamplingDraft(overlay, { ...sampling, phraseBias });
+    return true;
+  }
+  if (panel === "banned-strings") {
+    if (index < 0 || index >= sampling.bannedStrings.length) return false;
+    const bannedStrings = sampling.bannedStrings.filter((_, item) => item !== index);
+    updateSamplingDraft(overlay, { ...sampling, bannedStrings });
     return true;
   }
   const entries = samplingLogitBiasEntries(overlay);
@@ -343,9 +417,7 @@ export function beginSamplingEdit(overlay: SettingsOverlayState): string | null 
   }
   const list = samplingListRows(overlay).find((row) => row.panel === nested.panel)!;
   if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
-  const values = nested.panel === "stop"
-    ? overlay.draft.sampling.stop
-    : samplingLogitBiasEntries(overlay).map(([token, weight]) => `${token}:${weight}`);
+  const values = samplingListEditableValues(overlay, nested.panel);
   const index = boundedSamplingCursor(overlay);
   if (index >= values.length) return null;
   const initial = values[index]!;
@@ -363,12 +435,8 @@ export function beginNewSamplingEdit(overlay: SettingsOverlayState): string | nu
   if (nested === null || nested.panel === "sampling") return "choose a list first";
   const list = samplingListRows(overlay).find((row) => row.panel === nested.panel)!;
   if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
-  const count = nested.panel === "stop"
-    ? overlay.draft.sampling.stop.length
-    : samplingLogitBiasEntries(overlay).length;
-  const maximum = nested.panel === "stop"
-    ? SAMPLING_STOP_POLICY.maxSequences
-    : SAMPLING_LOGIT_BIAS_POLICY.maxEntries;
+  const count = samplingListEditableValues(overlay, nested.panel).length;
+  const maximum = samplingListMaximum(nested.panel);
   if (count >= maximum) return `list limit reached · ${maximum} items maximum`;
   nested.cursor = count;
   nested.edit = {
@@ -395,7 +463,7 @@ export function validateSampling(sampling: SamplingSettingsV2): string | null {
   }
 }
 
-function updateSamplingDraft(
+export function updateSamplingDraft(
   overlay: SettingsOverlayState,
   sampling: SamplingSettingsV2
 ): void {

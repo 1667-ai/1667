@@ -29,7 +29,9 @@ import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../shared/settings-stored-credential.js";
 import {
   SAMPLING_SCALAR_KNOBS,
+  validateSamplingBannedStrings,
   validateSamplingLogitBias,
+  validateSamplingPhraseBias,
   validateSamplingScalar,
   validateSamplingStopSequences,
   type SamplingScalarKnob
@@ -187,6 +189,8 @@ export function serializeSettings(draft: SettingsTextDraft): string {
     `sampling.repeatPenalty: ${draft.sampling.repeatPenalty ?? ""}`,
     `sampling.stop: ${JSON.stringify(draft.sampling.stop)}`,
     `sampling.logitBias: ${JSON.stringify(draft.sampling.logitBias)}`,
+    `sampling.bannedStrings: ${JSON.stringify(draft.sampling.bannedStrings)}`,
+    `sampling.phraseBias: ${JSON.stringify(draft.sampling.phraseBias)}`,
     `systemPrompt: ${settings.systemPrompt.replace(/\n/g, " ")}`
   ].join("\n");
 }
@@ -280,6 +284,34 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
         sampling = {
           ...sampling,
           logitBias: validateSamplingLogitBias(parsed.value, key)
+        };
+      } catch (error) {
+        return samplingParseError(error);
+      }
+    } else if (key === "sampling.bannedStrings") {
+      const parsed = parseJsonValue(text, key, []);
+      if (parsed.error !== undefined) return parsed;
+      if (!Array.isArray(parsed.value) || parsed.value.some((item) => typeof item !== "string")) {
+        return { error: `${key} must be a JSON array of strings` };
+      }
+      try {
+        sampling = {
+          ...sampling,
+          bannedStrings: validateSamplingBannedStrings(parsed.value, key)
+        };
+      } catch (error) {
+        return samplingParseError(error);
+      }
+    } else if (key === "sampling.phraseBias") {
+      const parsed = parseJsonValue(text, key, []);
+      if (parsed.error !== undefined) return parsed;
+      if (!Array.isArray(parsed.value)) {
+        return { error: `${key} must be a JSON array of {phrase, weight} objects` };
+      }
+      try {
+        sampling = {
+          ...sampling,
+          phraseBias: validateSamplingPhraseBias(parsed.value, key)
         };
       } catch (error) {
         return samplingParseError(error);

@@ -232,7 +232,8 @@ function captureSettingsOverlay(
           logitBiasOrder: [...sampling.logitBiasOrder],
           edit: sampling.edit === null
             ? null
-            : { ...sampling.edit, composer: { ...sampling.edit.composer } }
+            : { ...sampling.edit, composer: { ...sampling.edit.composer } },
+          biasTokenCache: new Map(sampling.biasTokenCache)
         }
   };
 }
@@ -243,7 +244,9 @@ function captureSamplingSettings(
   return {
     ...sampling,
     stop: [...sampling.stop],
-    logitBias: { ...sampling.logitBias }
+    logitBias: { ...sampling.logitBias },
+    bannedStrings: [...sampling.bannedStrings],
+    phraseBias: sampling.phraseBias.map((entry) => ({ ...entry }))
   };
 }
 

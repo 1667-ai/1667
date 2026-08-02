@@ -15,6 +15,7 @@ import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
+  deferred,
   installSave,
   key,
   openSettings,
@@ -307,6 +308,79 @@ describe("Sampling Settings user flow", () => {
     expect(selectedNestedHit(state, 1)).not.toBe(null);
   });
 
+  test("phrase bias is unavailable for a model with no exact tokenizer", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source); // model "gpt-5.2" is not on the tokenizer allow-list
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, 8);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("sampling");
+    expect(state.settings?.sampling?.result).toContain("no exact tokenizer");
+  });
+
+  test("phrase bias resolves token IDs through the tokenizeSamplingPhrase worker call", async () => {
+    const { source, state, press } = settingsHarness();
+    useEncodedModelSettings(source);
+    const pending = deferred<{ tokenIds: readonly number[] | null }>();
+    const calls: Array<{ phrase: string; encoding: string }> = [];
+    source.api.tokenizeSamplingPhrase = async (request) => {
+      calls.push(request);
+      return await pending.promise;
+    };
+
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, 8);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("phrase-bias");
+
+    await press(key("n"));
+    setSamplingEdit(state, "dragon:5");
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.phraseBias).toEqual([{ phrase: "dragon", weight: 5 }]);
+    // A worker call for exactly the typed phrase, in the model's encoding —
+    // this is the boundary crossing design decision #6 calls out as the main
+    // integration risk: the WASM tokenizer lives in server/, so the editor
+    // reaches it through this call rather than importing it directly.
+    expect(calls).toEqual([{ phrase: "dragon", encoding: "o200k_base" }]);
+
+    pending.resolve({ tokenIds: [84021] });
+    await pending.promise;
+    await Promise.resolve();
+    const frame = render(state, 80, 24);
+    expect(frame).toContain("84021");
+  });
+
+  test("adds banned strings, rejects a duplicate, and saves the sampling payload", async () => {
+    const { source, state, press } = settingsHarness();
+    useEncodedModelSettings(source);
+    source.api.tokenizeSamplingPhrase = async () => ({ tokenIds: null });
+    const saved: SaveSettingsCommand[] = [];
+    installSave(source, saved);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, 9);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("banned-strings");
+
+    await press(key("n"));
+    setSamplingEdit(state, "forbidden word");
+    await press(key("return"));
+    await press(key("n"));
+    setSamplingEdit(state, "forbidden word");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    expect(state.settings?.sampling?.result).toContain("repeats");
+    await press(key("escape"));
+    expect(state.settings?.draft.sampling.bannedStrings).toEqual(["forbidden word"]);
+
+    await press(key("escape"));
+    await press(key("escape"));
+    expect(state.settings?.sampling).toBe(null);
+    await press(key("s"));
+    expect(saved).toHaveLength(1);
+    const profile = saved[0]!.document.profiles[saved[0]!.document.routing.default]!;
+    expect(profile.sampling?.bannedStrings).toEqual(["forbidden word"]);
+  });
+
   test("escape peels list, sampling, and Settings layers in order", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
@@ -366,6 +440,28 @@ function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
     provider: "openai-compatible" as const,
     baseUrl: "http://127.0.0.1:8080/v1",
     model: "gpt-5.2",
+    apiKeyEnv: null
+  };
+  const document = applyBasicSettingsDraft(active.document, generation);
+  source.settingsView = {
+    ...active,
+    document,
+    effective: basicSettingsFromDocument(document)
+  } satisfies SettingsView;
+  source.api.getSettings = async () => source.settingsView;
+}
+
+/** "gpt-4o" is on the closed tokenizer allow-list
+ * (shared/sampling-capabilities.ts), so phrase bias and banned strings
+ * resolve instead of reporting "no exact tokenizer". */
+function useEncodedModelSettings(source: ReturnType<typeof demoAppSource>): void {
+  const active = source.settingsView;
+  if (!active.editable) throw new Error("demo settings must be editable");
+  const generation = {
+    ...source.settings,
+    provider: "openai-compatible" as const,
+    baseUrl: "http://127.0.0.1:8080/v1",
+    model: "gpt-4o",
     apiKeyEnv: null
   };
   const document = applyBasicSettingsDraft(active.document, generation);
