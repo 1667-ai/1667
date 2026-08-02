@@ -2,7 +2,7 @@ import { countNoun } from "../../shared/fidelity.js";
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
-import { readImportBytes } from "./import-file.js";
+import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
 import { publishStories } from "./overlay-publication.js";
 import { adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";

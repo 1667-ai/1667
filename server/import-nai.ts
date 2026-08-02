@@ -124,6 +124,11 @@ export function extractFacts(
       throw new ServiceError(400, "Memory contains invalid Unicode");
     }
     const normalized = memEntry.text.replace(/\r\n|\r|\u2028|\u2029/g, "\n");
+    // Memory takes the same line-ending rule as a Lorebook entry, so it takes
+    // the same notice. A Fact can hold CRLF or a Unicode separator exactly.
+    if (normalized !== memEntry.text) {
+      fidelity.push("memory changed to line feeds");
+    }
     if (normalized.trim().length > 0) {
       let text = normalized;
       if (text.length > MAX_FACT_TEXT_CHARS) {

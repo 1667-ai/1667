@@ -107,3 +107,13 @@ test("A Container whose embedded Lorebook has an unknown version still imports i
   assert.equal(result.payload.facts.length, 0);
   assert.match(fidelityReport(result.fidelity), /lorebook version 5 not read/u);
 });
+
+test("Memory that carried carriage returns says its line endings changed", async (t) => {
+  const service = await temporaryService(t);
+  const result = await service.importNovelAIWithReport(novelAiStoryContainer({
+    context: { memory: "a memory\r\nwith carriage returns" }
+  }));
+
+  assert.equal(result.payload.facts[0]?.text, "a memory\nwith carriage returns");
+  assert.match(fidelityReport(result.fidelity), /memory changed to line feeds/u);
+});

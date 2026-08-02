@@ -7,7 +7,7 @@ import {
 } from "../shared/novelai-lorebook.js";
 import { createFacts } from "../server/story-facts.js";
 import { fidelityReport } from "../shared/fidelity.js";
-import type { Story } from "../shared/types.js";
+import { MAX_JSON_BODY_BYTES, type Story } from "../shared/types.js";
 
 test("factsFromLorebook maps every row of the §2.2 table", () => {
   const lorebook = {
@@ -111,7 +111,7 @@ test("fidelity report text for a Lorebook that fires every counter at once asser
   const importResult = factsFromLorebook(lorebook, 34);
   const formattedReport = fidelityReport(importResult.fidelity);
 
-  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; search range, bias groups, and advanced conditions omitted";
+  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 2 fact bodies trimmed of surrounding whitespace; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; search range, bias groups, and advanced conditions omitted";
   assert.equal(formattedReport, expected);
 
 });
@@ -203,11 +203,34 @@ test("facts dropped for the request body limit are named separately from the fac
   }));
 
   const report = fidelityReport(
-    factsFromLorebook({ lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries }, 128).fidelity
+    factsFromLorebook(
+      { lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries },
+      128,
+      MAX_JSON_BODY_BYTES
+    ).fidelity
   );
 
   assert.ok(report.includes("dropped to fit the 1 MB request limit"), report);
   assert.ok(!report.includes("did not fit the 128-fact limit"), report);
+});
+
+test("a container import keeps every fact, because it sends no request", () => {
+  // The same lorebook that overflows a createFact body imports whole when the
+  // story is built in process. A request limit must not shrink a round trip
+  // that never made a request.
+  const entries = Array.from({ length: 128 }, (_unused, index) => ({
+    enabled: true,
+    text: `${index} `.padEnd(4_000, "銀"),
+    displayName: `tag ${index}`
+  }));
+
+  const result = factsFromLorebook(
+    { lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries },
+    128
+  );
+
+  assert.equal(result.facts.length, 128);
+  assert.ok(!fidelityReport(result.fidelity).includes("1 MB request limit"));
 });
 
 test("a lorebook PNG reports a lorebook error and never a character-card error", () => {
@@ -217,5 +240,108 @@ test("a lorebook PNG reports a lorebook error and never a character-card error",
   assert.throws(
     () => parseLorebookArchive(truncated),
     (error: Error) => error.message.startsWith("Lorebook PNG") && !error.message.includes("Character card")
+  );
+});
+
+test("a trimmed fact body is named, because 1667 stores fact text exactly", () => {
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [
+      { enabled: true, text: "  indented and padded  ", displayName: "padded" },
+      { enabled: true, text: "already exact", displayName: "exact" }
+    ]
+  }, 128);
+
+  assert.equal(result.facts[0]?.text, "indented and padded");
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 fact body trimmed of surrounding whitespace"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("a trimmed key is named, because spacing decides when a keyed fact activates", () => {
+  // A key is matched literally in the scanned text and normalization folds
+  // case but not spacing, so " storm " is a narrower matcher than "storm".
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{
+      enabled: true,
+      text: "The pass closes.",
+      displayName: "weather",
+      keys: [" storm ", "lantern"]
+    }]
+  }, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["storm", "lantern"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 key trimmed of surrounding whitespace"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("every change the import makes to a fact is named in the report", () => {
+  // The report is the only place a writer learns what the import altered, so
+  // each transformation gets its own reason rather than a shared one.
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{
+      enabled: true,
+      text: "  a body\r\nwith carriage returns  ",
+      displayName: "  padded tag  ",
+      keys: [" padded ", "k".repeat(80)]
+    }]
+  }, 128);
+
+  const report = fidelityReport(result.fidelity);
+  const fact = result.facts[0]!;
+
+  assert.equal(fact.text, "a body\nwith carriage returns");
+  assert.equal(fact.tag, "padded tag");
+  assert.deepEqual(fact.keys, ["padded", "k".repeat(64)]);
+
+  for (const reason of [
+    "1 fact body changed to line feeds",
+    "1 fact body trimmed of surrounding whitespace",
+    "1 tag trimmed of surrounding whitespace",
+    "1 key cut to 64 characters",
+    "1 key trimmed of surrounding whitespace"
+  ]) assert.ok(report.includes(reason), `${reason} missing from: ${report}`);
+});
+
+test("a key cut to the ceiling is not reported as whitespace trimming", () => {
+  const report = fidelityReport(factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{ enabled: true, text: "body", keys: ["k".repeat(80)] }]
+  }, 128).fidelity);
+
+  assert.ok(report.includes("1 key cut to 64 characters"), report);
+  assert.ok(!report.includes("key trimmed of surrounding whitespace"), report);
+});
+
+test("a tag dropped for invalid Unicode is named, and the entry survives", () => {
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{ enabled: true, text: "the keeper trims the wick", displayName: "bad \udfff tag" }]
+  }, 128);
+
+  assert.equal(result.facts.length, 1);
+  assert.equal(result.facts[0]?.tag, null);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 tag dropped for invalid Unicode"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("a tag taken from a category reports its trimming like any other tag", () => {
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    categories: [{ id: "cat:people", name: "  People  " }],
+    entries: [{ enabled: true, text: "Character info", category: "cat:people" }]
+  }, 128);
+
+  assert.equal(result.facts[0]?.tag, "People");
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 tag trimmed of surrounding whitespace"),
+    fidelityReport(result.fidelity)
   );
 });

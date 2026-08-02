@@ -1,6 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { MAX_IMPORT_BYTES } from "./import-model.js";
+import { readImportBytes } from "./import-file.js";
 import { resolveMachineTierRoot } from "./machine-tier.js";
 import { InternalErrorReporter } from "./internal-error-reporter.js";
 import { terminalLineText as plain } from "../shared/terminal-text.js";
@@ -26,14 +25,9 @@ let failed = false;
 try {
   for (const file of files) {
     try {
-      const { size } = await stat(file);
-      if (size > MAX_IMPORT_BYTES) {
-        throw new Error(
-          `file is ${Math.round(size / 1e6)}MB — larger than the `
-            + `${MAX_IMPORT_BYTES / 1e6}MB import limit`
-        );
-      }
-      const content = await readFile(file, "utf8");
+      // The same reader the packaged commands use, so this script cannot
+      // accept a symlink, a FIFO, or a file that grows while it is read.
+      const content = new TextDecoder("utf-8").decode(await readImportBytes(file));
       const lowerFile = file.toLowerCase();
       const isStory = lowerFile.endsWith(".story");
       const isMarkdown = !isStory && (lowerFile.endsWith(".md")

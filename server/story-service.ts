@@ -767,7 +767,10 @@ export class StoryService extends StoryServiceRuntime {
     const lorebook = parseLorebookArchive(archiveBytes);
     const story = await this.stories.load(storyId);
     const room = MAX_FACTS - story.facts.length;
-    const importResult = factsFromLorebook(lorebook, room);
+    // This path sends the Facts as one createFact body, so the body budget
+    // applies here. A container import builds the story in process and does not
+    // pass one.
+    const importResult = factsFromLorebook(lorebook, room, MAX_JSON_BODY_BYTES);
     const payload = await this.createFact(
       storyId,
       { facts: [...importResult.facts] },

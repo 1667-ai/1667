@@ -83,13 +83,18 @@ Use `--format` to write an Archive:
 1667 export --format lorebook
 ```
 
-A `.story` Archive contains the selected prose in order. It does not contain
-Facts, directions, the Author's Note, unselected takes, summary parts, chapter
-boundaries, or retry history.
+A `.story` Archive contains the selected prose in order. It also contains the
+Facts, the Memory, and the Author's Note. It does not contain directions,
+unselected takes, summary parts, chapter boundaries, or retry history.
 
-A `.scenario` Archive contains the selected prose in one prompt. It puts the
-author brief in the instruction context. It puts Facts in the Lorebook. It
-does not include the Author's Note. It does not create placeholder variables.
+A `.scenario` Archive contains the selected prose in one prompt. It contains
+the same Facts, Memory, and Author's Note as a `.story` Archive. It does not
+create placeholder variables. It does not contain the author brief, because a
+Scenario carries the story's own Author's Note.
+
+A Fact tagged `memory` becomes the Archive Memory. Memory is always in context,
+so that Fact loses its activation mode and its keys. The other Facts go to the
+Lorebook. The fidelity report gives this.
 
 A `.lorebook` Archive contains one entry for each Fact. A Fact tag becomes a
 category. The entry keeps the Fact activation mode and Fact keys.
@@ -113,8 +118,9 @@ No option selects a story line. Select the story line in the TUI before export.
 1667 imports `.story` and `.scenario` Archives with `1667 import`. It imports a
 `.lorebook` Archive with `1667 import-lorebook`.
 
-A `.story` import reads Facts, Memory, and the Author's Note. A `.story` export
-does not write these items.
+A `.story` export and a `.story` import carry the same items, so a story that
+1667 exports and then imports keeps its Facts, its Memory, and its Author's
+Note.
 
 ## Import a story
 

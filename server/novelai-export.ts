@@ -4,6 +4,9 @@ import { countNoun } from "../shared/fidelity.js";
 
 export type NovelAiExportFormat = "story" | "scenario" | "lorebook";
 
+/** The tag the importer gives the Container's Memory block. */
+export const MEMORY_FACT_TAG = "memory";
+
 export interface NovelAiArchiveExport {
   readonly extension: `.${NovelAiExportFormat}`;
   readonly text: string;
@@ -17,7 +20,6 @@ export interface NovelAiArchiveExport {
  */
 export function exportNovelAiArchive(
   story: StoryPayload,
-  authorBrief: string,
   format: NovelAiExportFormat
 ): NovelAiArchiveExport {
   const prose = selectedProse(story);
@@ -33,7 +35,7 @@ export function exportNovelAiArchive(
     case "scenario":
       return {
         extension: ".scenario",
-        text: `${JSON.stringify(scenarioArchive(story, prose, authorBrief))}\n`,
+        text: `${JSON.stringify(scenarioArchive(story, prose))}\n`,
         fidelity
       };
     case "lorebook":
@@ -47,6 +49,27 @@ export function exportNovelAiArchive(
 
 function selectedProse(story: StoryPayload): StoryNode[] {
   return story.path.filter((part) => part.role !== "summary");
+}
+
+/** The importer reads Memory as one Fact tagged `memory`, so the exporter has
+ * to take that Fact back out of the Lorebook. Writing it in both places would
+ * import as two Facts saying the same thing.
+ *
+ * Only the first one moves. A writer with several keeps the rest as ordinary
+ * Facts, and they round-trip through the Lorebook with their tag intact. */
+function splitMemoryFact(facts: readonly StoryFact[]): {
+  readonly memory: StoryFact | null;
+  readonly lorebook: readonly StoryFact[];
+  /** How many Facts the Memory Fact moves ahead of. */
+  readonly movedAhead: number;
+} {
+  const index = facts.findIndex((fact) => fact.tag === MEMORY_FACT_TAG);
+  if (index === -1) return { memory: null, lorebook: facts, movedAhead: 0 };
+  return {
+    memory: facts[index]!,
+    lorebook: [...facts.slice(0, index), ...facts.slice(index + 1)],
+    movedAhead: index
+  };
 }
 
 function storyArchive(story: StoryPayload, prose: readonly StoryNode[]): Record<string, unknown> {
@@ -94,8 +117,8 @@ function storyArchive(story: StoryPayload, prose: readonly StoryNode[]): Record<
       storyContentVersion: 6,
       settings: {},
       document: encodeNovelAiDocument(document).toString("base64"),
-      context: [],
-      lorebook: lorebookArchive([]),
+      context: steeringContext(story),
+      lorebook: lorebookArchive(splitMemoryFact(story.facts).lorebook),
       storyContextConfig: storyContextConfig(),
       ephemeralContext: [],
       contextDefaults: {
@@ -115,8 +138,7 @@ function storyArchive(story: StoryPayload, prose: readonly StoryNode[]): Record<
 
 function scenarioArchive(
   story: StoryPayload,
-  prose: readonly StoryNode[],
-  authorBrief: string
+  prose: readonly StoryNode[]
 ): Record<string, unknown> {
   return {
     scenarioVersion: 3,
@@ -124,13 +146,10 @@ function scenarioArchive(
     description: "",
     prompt: prose.map((part) => part.text).join("\n\n"),
     tags: [],
-    context: [
-      scenarioContext("", 800, 0, 0),
-      scenarioContext(authorBrief, -400, 1, -4)
-    ],
+    context: steeringContext(story),
     ephemeralContext: [],
     placeholders: [],
-    lorebook: lorebookArchive(story.facts),
+    lorebook: lorebookArchive(splitMemoryFact(story.facts).lorebook),
     author: "",
     storyContextConfig: storyContextConfig(),
     settings: {},
@@ -143,6 +162,15 @@ function scenarioArchive(
     messageSettings: {},
     userScripts: []
   };
+}
+
+/** NovelAI writes Memory at context[0] and the Author's Note at context[1].
+ * The importer reads those positions, so the exporter writes them. */
+function steeringContext(story: StoryPayload): Record<string, unknown>[] {
+  return [
+    scenarioContext(splitMemoryFact(story.facts).memory?.text ?? "", 800, 0, 0),
+    scenarioContext(story.authorsNote ?? "", -400, 1, -4)
+  ];
 }
 
 function storyContextConfig(): Record<string, unknown> {
@@ -268,34 +296,65 @@ function exportFidelity(
     (part) => part.role !== "summary" && part.hasInstruction
   ).length;
   const summaries = story.nodes.filter((part) => part.role === "summary").length;
-  const authorsNotes = story.authorsNote === undefined ? 0 : 1;
+  const { memory, lorebook, movedAhead } = splitMemoryFact(story.facts);
   const omissions = [
     `${alternateTakes} alternate ${countNoun(alternateTakes, "take")} omitted.`,
     `${story.tags.length} story line ${countNoun(story.tags.length, "tag")} omitted.`,
     `${directions} ${countNoun(directions, "direction")} omitted.`,
     `${summaries} summary ${countNoun(summaries, "part")} omitted.`,
-    `${story.chapterBreaks.length} chapter ${countNoun(story.chapterBreaks.length, "break")} omitted.`,
-    `${authorsNotes} ${countNoun(authorsNotes, "Author's Note")} omitted.`,
-    "NovelAI history omitted."
+    `${story.chapterBreaks.length} chapter ${countNoun(story.chapterBreaks.length, "break")} omitted.`
   ];
+  const history = "NovelAI history omitted.";
+  // Memory is a free-form block in NovelAI, so a Fact that becomes Memory loses
+  // whatever made it conditional. Say that rather than let the writer find out
+  // on import. Keys and activation are stored separately — an always-on Fact
+  // can hold keys for a later switch — so each one is reported on its own.
+  const memoryNotes = memory === null
+    ? []
+    : [
+      "1 fact exported as Memory.",
+      ...(memory.activation === "keyed"
+        ? ["Memory activation omitted; Memory is always in context."]
+        : []),
+      ...(memory.keys.length > 0
+        ? [`${memory.keys.length} Memory ${countNoun(memory.keys.length, "key")} omitted.`]
+        : []),
+      // Facts reach the model in order, and an archive has one Memory slot at
+      // the front. A Memory Fact that was not already first arrives first.
+      ...(movedAhead > 0
+        ? [`Memory moved ahead of ${movedAhead} ${countNoun(movedAhead, "fact")}.`]
+        : [])
+    ];
+  const authorsNote = story.authorsNote === undefined
+    ? "No Author's Note to export."
+    : "Author's Note exported.";
   switch (format) {
     case "story":
       return [
         `${prose.length} active prose ${countNoun(prose.length, "part")} selected.`,
-        `${story.facts.length} ${countNoun(story.facts.length, "fact")} omitted.`,
-        ...omissions
+        `${lorebook.length} ${countNoun(lorebook.length, "fact")} exported in the lorebook.`,
+        ...memoryNotes,
+        authorsNote,
+        ...omissions,
+        history
       ];
     case "scenario":
       return [
         `${prose.length} active prose ${countNoun(prose.length, "part")} flattened into one prompt.`,
-        `${story.facts.length} ${countNoun(story.facts.length, "fact")} exported in the lorebook.`,
-        ...omissions
+        `${lorebook.length} ${countNoun(lorebook.length, "fact")} exported in the lorebook.`,
+        ...memoryNotes,
+        authorsNote,
+        "Author brief omitted; a scenario carries the story's own Author's Note.",
+        ...omissions,
+        history
       ];
     case "lorebook":
       return [
         `${story.facts.length} ${countNoun(story.facts.length, "fact")} exported with activation modes and keys.`,
         `${prose.length} active prose ${countNoun(prose.length, "part")} omitted from the lorebook.`,
-        ...omissions
+        ...omissions,
+        `${story.authorsNote === undefined ? 0 : 1} ${countNoun(story.authorsNote === undefined ? 0 : 1, "Author's Note")} omitted.`,
+        history
       ];
   }
 }
