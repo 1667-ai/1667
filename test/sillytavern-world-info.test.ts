@@ -334,3 +334,51 @@ test("an entry limited to a character says it now applies everywhere", () => {
     report
   );
 });
+
+test("a padded regular expression key is still recognised as a pattern", () => {
+  // The mapping trims a key later, so classifying the raw value would let a
+  // padded pattern through as a literal key that never fires.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Padded",
+    content: "The pass closes.",
+    key: ["  /storm/i  ", "snow"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["snow"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 regular expression key dropped"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("an unknown decorator leaves the prose without promoting the entry", () => {
+  // Only the exact control counts. A decorator this import does not know must
+  // not turn a keyed entry into an always-active Fact on a guess.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Odd",
+    content: "@@activate note\nThe keeper waits.",
+    key: ["keeper"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts[0]?.text, "The keeper waits.");
+  assert.equal(result.facts[0]?.activation, "keyed");
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 activation decorator read and removed"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("a macro says it arrives unexpanded", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Content", content: "{{char}} lives here.", key: ["home"] },
+    { comment: "Key", content: "Plain text.", key: ["{{user}}"] }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("2 entries kept a {{macro}} unexpanded"), report);
+});

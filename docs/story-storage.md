@@ -193,8 +193,8 @@ A World Info Entry uses different names for the same values.
 A Fact is always in context or keyed on one list, and a Fact key is literal.
 So these World Info mechanisms do not import: secondary keys, insertion
 positions, firing probability, recursion controls, timed effects, per-entry
-matching rules, keys written as a regular expression, retrieval by meaning, and
-character or trigger filters. The Fidelity Report gives the number of Entries
+matching rules, keys written as a regular expression, retrieval by meaning,
+character or trigger filters, and `{{macro}}` expansion. The Fidelity Report gives the number of Entries
 that lose each one.
 
 A Fact key matches a whole key and ignores letter case. A World Info Entry can

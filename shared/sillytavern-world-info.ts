@@ -56,6 +56,7 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   let refusedEntries = 0;
   let vectorEntries = 0;
   let filteredEntries = 0;
+  let macroEntries = 0;
   const entries: Record<string, unknown>[] = [];
 
   for (const item of source) {
@@ -111,6 +112,10 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     // would reach the model as text, and @@dont_activate would arrive as a
     // Fact the writer had switched off.
     const rawContent = typeof item.content === "string" ? item.content : "";
+    // SillyTavern expands {{macros}} against a character and a chat before the
+    // text is used. A World Info file carries neither, so the braces stay as
+    // the writer wrote them and a macro key cannot match.
+    if (hasMacro(rawContent) || sourceKeysHaveMacro(item.key)) macroEntries += 1;
     const decorated = readDecorators(rawContent);
     if (decorated.decorators.length > 0) decoratedEntries += 1;
     if (decorated.decorators.includes("@@dont_activate")) {
@@ -120,7 +125,9 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
 
     const sourceKeys = Array.isArray(item.key) ? item.key : [];
     const literalKeys = sourceKeys.filter((key) => {
-      if (typeof key !== "string" || !isRegexKey(key)) return true;
+      // The mapping trims a key later, so classify the trimmed form here or a
+      // padded pattern survives as a literal key that never fires.
+      if (typeof key !== "string" || !isRegexKey(key.trim())) return true;
       regexKeys += 1;
       return false;
     });
@@ -195,6 +202,12 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
         + " skipped for @@dont_activate"
     );
   }
+  if (macroEntries > 0) {
+    fidelity.push(
+      `${macroEntries} ${countNoun(macroEntries, "entry", "entries")}`
+        + " kept a {{macro}} unexpanded; a fact carries no character or chat"
+    );
+  }
   if (vectorEntries > 0) {
     fidelity.push(
       `${vectorEntries} vectorized ${countNoun(vectorEntries, "entry", "entries")}`
@@ -261,7 +274,11 @@ function hasCharacterFilter(value: unknown): boolean {
   return hasEntries(value.names) || hasEntries(value.tags);
 }
 
-/** Read the leading @@decorator lines and return the content without them. */
+/** Read the leading @@decorator lines and return the content without them.
+ *
+ * A decorator is honoured only when the line is exactly the control. Anything
+ * else is still a control line and still leaves the prose, but it does not get
+ * to promote a keyed entry to always active on a guess. */
 function readDecorators(content: string): {
   readonly decorators: readonly string[];
   readonly content: string;
@@ -269,11 +286,20 @@ function readDecorators(content: string): {
   const lines = content.split("\n");
   const decorators: string[] = [];
   let index = 0;
-  while (index < lines.length && lines[index]!.startsWith("@@")) {
-    decorators.push(lines[index]!.trim().split(/\s+/u)[0]!);
+  while (index < lines.length && lines[index]!.trimStart().startsWith("@@")) {
+    decorators.push(lines[index]!.trim());
     index += 1;
   }
   return { decorators, content: lines.slice(index).join("\n") };
+}
+
+function hasMacro(value: string): boolean {
+  return /\{\{[^}]+\}\}/u.test(value);
+}
+
+function sourceKeysHaveMacro(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.some((key) => typeof key === "string" && hasMacro(key));
 }
 
 function isPositive(value: unknown): boolean {
