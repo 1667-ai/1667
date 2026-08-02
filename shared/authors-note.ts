@@ -52,7 +52,11 @@ export function storedAuthorsNoteDepth(
   note: string | undefined,
   depth: number | undefined
 ): number | undefined {
-  if (note === undefined || note === "" || depth === undefined) return undefined;
+  // A note that is only whitespace is no note: the prompt builder already
+  // drops it, so a depth kept beside it would place prose the writer never
+  // sees a note for. Another writer's manifest can hold exactly that.
+  if (note === undefined || normalizeAuthorsNote(note) === null) return undefined;
+  if (depth === undefined) return undefined;
   return normalizeAuthorsNoteDepth(depth) ?? undefined;
 }
 

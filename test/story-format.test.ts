@@ -497,6 +497,13 @@ test("story format: author note depth round-trips and never survives without its
   assert.equal("authorsNoteDepth" in encodedNoteless, false);
   assert.equal("authorsNoteDepth" in buildStoryPayload(noteless), false);
 
+  // A whitespace-only note is no note, so no depth outlives it. Only another
+  // writer's manifest can hold one: this product's routes trim first.
+  const blankNote = { ...base, authorsNote: "  \n", authorsNoteDepth: 3 };
+  const encodedBlank = await encodeStoryBundle(blankNote, objects);
+  assert.equal("authorsNoteDepth" in encodedBlank, false);
+  assert.equal("authorsNoteDepth" in buildStoryPayload(blankNote), false);
+
   // Absence already means the default placement, so an explicit default from
   // another writer canonicalizes away instead of riding along for ever.
   const explicitDefault = { ...base, authorsNote: "Steer it darker.", authorsNoteDepth: 1 };
