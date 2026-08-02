@@ -75,7 +75,7 @@ Each tier is sorted, best ratio first.
 
 | # | Gap | Value | Effort | Issue |
 | --- | --- | --- | --- | --- |
-| 1 | Selection rewrite in the TUI | High | Low | [#277](https://github.com/1667-ai/1667/issues/277) |
+| 1 | Selection rewrite in the TUI | High | Low to medium | [#277](https://github.com/1667-ai/1667/issues/277) |
 | 2 | Per-story author brief | High | Low | [#278](https://github.com/1667-ai/1667/issues/278) |
 | 3 | SillyTavern World Info import | High | Low | [#279](https://github.com/1667-ai/1667/issues/279) |
 | 4 | "Move from NovelAI" guide | High | Low | [#280](https://github.com/1667-ai/1667/issues/280) |
@@ -88,7 +88,9 @@ Each tier is sorted, best ratio first.
 1. **Selection rewrite in the TUI.** The backend has the two-anchor rewrite
    operation. The TUI does not expose it. NovelAI users edit anywhere in the
    document and regenerate. Ship the existing operation as a key and a palette
-   command.
+   command. The seam contract fails on small models; issue 277 records the
+   diagnosis and a staged rework toward bare replacement with statistical
+   seam checks.
 2. **Per-story author brief.** The author brief is machine-wide today. A novel
    and a short story need different instructions. Add a story-level override.
 3. **SillyTavern World Info import.** 1667 imports the NovelAI Lorebook shape
