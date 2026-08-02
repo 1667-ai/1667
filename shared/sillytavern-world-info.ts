@@ -57,6 +57,7 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   let vectorEntries = 0;
   let filteredEntries = 0;
   let macroEntries = 0;
+  let paddedPatternKeys = 0;
   const entries: Record<string, unknown>[] = [];
 
   for (const item of source) {
@@ -125,11 +126,17 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
 
     const sourceKeys = Array.isArray(item.key) ? item.key : [];
     const literalKeys = sourceKeys.filter((key) => {
-      // The mapping trims a key later, so classify the trimmed form here or a
-      // padded pattern survives as a literal key that never fires.
-      if (typeof key !== "string" || !isRegexKey(key.trim())) return true;
-      regexKeys += 1;
-      return false;
+      if (typeof key !== "string") return true;
+      // An exact pattern is a pattern. A padded one is ambiguous: it is
+      // slash-delimited but not anchored, so upstream may read it either way.
+      // Keep it, because a dropped key can cost an entry its only trigger, and
+      // name it so the writer is not left with a key that quietly never fires.
+      if (isRegexKey(key)) {
+        regexKeys += 1;
+        return false;
+      }
+      if (key !== key.trim() && isRegexKey(key.trim())) paddedPatternKeys += 1;
+      return true;
     });
 
     entries.push({
@@ -200,6 +207,12 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     fidelity.push(
       `${refusedEntries} ${countNoun(refusedEntries, "entry", "entries")}`
         + " skipped for @@dont_activate"
+    );
+  }
+  if (paddedPatternKeys > 0) {
+    fidelity.push(
+      `${paddedPatternKeys} spaced ${countNoun(paddedPatternKeys, "key")}`
+        + " looks like a pattern and imports as literal text"
     );
   }
   if (macroEntries > 0) {
@@ -287,7 +300,11 @@ function readDecorators(content: string): {
   const decorators: string[] = [];
   let index = 0;
   while (index < lines.length && lines[index]!.startsWith("@@")) {
-    decorators.push(lines[index]!.replace(/\r$/u, ""));
+    const line = lines[index]!.replace(/\r$/u, "");
+    // `@@@name` is the fallback for the decorator above it: upstream drops one
+    // `@` and reads the rest. Without this an explicit @@@dont_activate would
+    // arrive as an ordinary Fact.
+    decorators.push(line.startsWith("@@@") ? line.slice(1) : line);
     index += 1;
   }
   return { decorators, content: lines.slice(index).join("\n") };

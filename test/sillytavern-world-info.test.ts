@@ -335,9 +335,10 @@ test("an entry limited to a character says it now applies everywhere", () => {
   );
 });
 
-test("a padded regular expression key is still recognised as a pattern", () => {
-  // The mapping trims a key later, so classifying the raw value would let a
-  // padded pattern through as a literal key that never fires.
+test("a spaced key that looks like a pattern is kept and named", () => {
+  // An exact pattern is dropped. A padded one is ambiguous, so it is kept —
+  // losing a key can cost an entry its only trigger — and named, so the writer
+  // is not left with a key that quietly never fires.
   const archive = parseLorebookArchive(Buffer.from(worldInfo([{
     comment: "Padded",
     content: "The pass closes.",
@@ -346,11 +347,10 @@ test("a padded regular expression key is still recognised as a pattern", () => {
 
   const result = factsFromArchive(archive, 128);
 
-  assert.deepEqual(result.facts[0]?.keys, ["snow"]);
-  assert.ok(
-    fidelityReport(result.fidelity).includes("1 regular expression key dropped"),
-    fidelityReport(result.fidelity)
-  );
+  assert.deepEqual(result.facts[0]?.keys, ["/storm/i", "snow"]);
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("1 spaced key looks like a pattern"), report);
+  assert.ok(!report.includes("regular expression key dropped"), report);
 });
 
 test("an unknown decorator leaves the prose without promoting the entry", () => {
@@ -446,4 +446,25 @@ test("a decorator with a trailing space is not the exact control", () => {
   assert.equal(result.facts.length, 1, "the entry survives");
   assert.equal(result.facts[0]?.activation, "keyed");
   assert.equal(result.facts[0]?.text, "The keeper waits.");
+});
+
+test("a fallback decorator is read as the control it stands in for", () => {
+  // `@@@name` is the fallback for the line above it: upstream drops one `@`.
+  // Without that an explicitly suppressed entry would arrive as a Fact.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    {
+      comment: "Suppressed",
+      content: "@@unsupported_thing\n@@@dont_activate\nNot in play.",
+      key: ["k"]
+    },
+    { comment: "Kept", content: "In play.", key: ["j"] }
+  ])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts.map((fact) => fact.tag), ["Kept"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 entry skipped for @@dont_activate"),
+    fidelityReport(result.fidelity)
+  );
 });
