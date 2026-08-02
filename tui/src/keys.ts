@@ -49,7 +49,7 @@ export type KeyAction =
   | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply"
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
-  | "open-authors-note"
+  | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
@@ -320,6 +320,9 @@ export interface ResolveOptions {
   settingsPicker?: boolean;
   /** The full-screen editor owns a Fact tag slider above its text body. */
   factEditor?: boolean;
+  /** The open document editor targets the Author's Note, so its depth chord
+   *  applies. No other editor target binds `⌥-`/`⌥=`. */
+  authorsNoteEditor?: boolean;
   mapView?: MapView;
 }
 
@@ -395,6 +398,19 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   }
   if (mode === "EDITOR") {
     const name = key.name.toLowerCase();
+    // The depth chord is `⌥-`/`⌥=`, not `⌥[`/`⌥]`: alt sends its key as an
+    // ESC prefix, so `⌥[` arrives as ESC-`[`, the CSI introducer, and `⌥]`
+    // arrives as ESC-`]`, the OSC introducer. Without enhanced keyboard
+    // reporting that is swallowed as the start of an escape sequence, or a
+    // control sequence the parser fails to consume surfaces as the plain
+    // chord and silently changes the stored depth. `-`/`=` are not escape
+    // introducers, and reads as decrease/increase. Checked ahead of every
+    // other EDITOR chord, including the plain `ctrl+-` undo alias below,
+    // which answers a different modifier combination.
+    if (options.authorsNoteEditor === true && (key.meta || key.option)
+      && (name === "-" || name === "=")) {
+      return { action: name === "-" ? "note-depth-decrease" : "note-depth-increase" };
+    }
     if (factEditor && key.name === "tab") {
       return { action: "cycle", index: key.shift ? -1 : 1 };
     }

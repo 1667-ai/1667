@@ -475,6 +475,29 @@ test("story format: author note round-trips, omits empty values, and enforces sc
   );
 });
 
+test("story format: author note depth round-trips and never survives without its note", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-authors-note-depth-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const base: Story = {
+    id: "story-authors-note-depth", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [node("root", null, "Opening")],
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+  const withDepth: Story = { ...base, authorsNote: "Steer it darker.", authorsNoteDepth: 3 };
+
+  const stored = await encodeStoryBundle(withDepth, objects);
+  assert.equal(stored.authorsNoteDepth, 3);
+  assert.deepEqual((await decodeStoryBundle(stored, dir)).story, withDepth);
+  assert.equal(buildStoryPayload(withDepth).authorsNoteDepth, 3);
+
+  // A depth with no note means nothing: the codebase never keeps it.
+  const noteless = { ...base, authorsNoteDepth: 3 };
+  const encodedNoteless = await encodeStoryBundle(noteless, objects);
+  assert.equal("authorsNoteDepth" in encodedNoteless, false);
+  assert.equal("authorsNoteDepth" in buildStoryPayload(noteless), false);
+});
+
 test("story format: author brief round-trips, omits empty values, and enforces scalar bounds", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "1667-author-brief-format-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

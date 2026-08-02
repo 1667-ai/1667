@@ -223,7 +223,7 @@ function requestBody(
       ],
       target
     });
-    const source = entrySource(entry.turn.blocks[0]?.kind ?? "source", entry.partId);
+    const source = entrySource(entry);
     const messagePrefix = ` ${String(index + 1).padStart(2, "0")} ${message.role.toUpperCase()} · ${entry.category} · `;
     const tokenSuffix = ` · ${formatTokensEstimate(estimate.messageTokenCounts[index]!)}`;
     const sourceWidth = Math.max(
@@ -270,9 +270,13 @@ function requestRowIdentity(entry: NextRequestEstimate["plan"]["entries"][number
   ])}`;
 }
 
-function entrySource(kind: string, partId: string | undefined): string {
-  if (partId !== undefined) return `${kind} ${partId}`;
-  return kind.replaceAll("-", " ");
+function entrySource(entry: NextRequestEstimate["plan"]["entries"][number]): string {
+  const kind = entry.turn.blocks[0]?.kind ?? "source";
+  if (entry.partId !== undefined) return `${kind} ${entry.partId}`;
+  const label = kind.replaceAll("-", " ");
+  // The effective placement, which may be clamped short of the requested
+  // depth — the request viewer must show what the request actually sent.
+  return entry.category === "note" ? `${label} · depth ${entry.depth}` : label;
 }
 
 function titleLine(title: string, width: number): FrameLine {

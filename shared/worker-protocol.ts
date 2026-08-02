@@ -117,7 +117,7 @@ export interface WorkerMethodContract {
     };
   };
   renameStory: { input: { id: string; title: string }; output: StoryPayload };
-  setAuthorsNote: { input: { storyId: string; note: string }; output: StoryPayload };
+  setAuthorsNote: { input: { storyId: string; note: string; depth?: number }; output: StoryPayload };
   setAuthorBrief: { input: { storyId: string; brief: string }; output: StoryPayload };
   autonameStory: { input: { id: string; expectedTitle: string }; output: StoryPayload };
   acknowledgeUnknownOutcomes: {

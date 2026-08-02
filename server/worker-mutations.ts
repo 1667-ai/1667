@@ -1,7 +1,10 @@
 import { activePath, unusedTakePruneSelection } from "../shared/story-tree.js";
 import {
+  isValidAuthorsNoteDepth,
   MAX_AUTHORS_NOTE_CHARS,
-  normalizeAuthorsNote
+  MAX_AUTHORS_NOTE_DEPTH,
+  normalizeAuthorsNote,
+  resolveAuthorsNoteDepth
 } from "../shared/authors-note.js";
 import {
   MAX_AUTHOR_BRIEF_CHARS,
@@ -118,9 +121,11 @@ const MUTATIONS: MutationRegistry = {
           `Author's Note exceeds the ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} Unicode scalar value limit.`
         );
       }
+      const depth = input.depth === undefined ? undefined : requireAuthorsNoteDepth(input.depth);
       return {
         storyId: requireString(input.storyId, "storyId"),
-        note: normalizeAuthorsNote(raw) ?? ""
+        note: normalizeAuthorsNote(raw) ?? "",
+        ...(depth === undefined ? {} : { depth })
       };
     },
     storyId: (input) => input.storyId,
@@ -129,10 +134,13 @@ const MUTATIONS: MutationRegistry = {
         service.stories,
         input.storyId,
         (story) => (story.authorsNote ?? "") === input.note
+          && (input.depth === undefined
+            || resolveAuthorsNoteDepth(story.authorsNoteDepth) === input.depth)
       );
       return recovered ?? await service.setAuthorsNote(
         input.storyId,
         input.note,
+        input.depth,
         context.storyMutationRequest
       );
     }
@@ -893,6 +901,13 @@ function bodyInputWithId<M extends MutatingWorkerMethod>(
 
 function requireStringValue(value: unknown, label: string): string {
   if (typeof value !== "string") throw badInput(`${label} must be a string`);
+  return value;
+}
+
+function requireAuthorsNoteDepth(value: unknown): number {
+  if (!isValidAuthorsNoteDepth(value)) {
+    throw badInput(`Author's Note depth must be an integer from 1 to ${MAX_AUTHORS_NOTE_DEPTH}.`);
+  }
   return value;
 }
 

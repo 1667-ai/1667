@@ -1,5 +1,9 @@
 import { countWords } from "../../shared/story-text.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../../shared/authors-note.js";
+import {
+  MAX_AUTHORS_NOTE_CHARS,
+  MAX_AUTHORS_NOTE_DEPTH,
+  resolveAuthorsNoteDepth
+} from "../../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../../shared/author-brief.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { AppSource } from "./app.js";
@@ -47,6 +51,16 @@ export async function inlineEditorAction(
   const host = state.mode === "EDITOR" ? state.editor : null;
   if (host === null) return;
   const editor = host;
+
+  if ((resolved.action === "note-depth-decrease" || resolved.action === "note-depth-increase")
+    && editor.kind === "document" && editor.target.kind === "authors-note") {
+    const delta = resolved.action === "note-depth-decrease" ? -1 : 1;
+    editor.target.depth = Math.min(
+      MAX_AUTHORS_NOTE_DEPTH,
+      Math.max(1, editor.target.depth + delta)
+    );
+    return;
+  }
 
   // Fact header grammar owns its commands; the generic path stays target-agnostic.
   if (editor.kind === "fact" && handleFactEditorCommand(resolved, state, editor)) {
@@ -132,7 +146,9 @@ async function saveInlineEditor(
       : "system prompt unchanged";
     return;
   }
-  if (submitted === editor.initial && editor.conflict === null) {
+  // A depth draft alone (unchanged text) still has to save.
+  const pendingDepthChange = target.kind === "authors-note" && target.depth !== target.expectedDepth;
+  if (submitted === editor.initial && editor.conflict === null && !pendingDepthChange) {
     return closeInlineEditor(state, editor);
   }
   if (state.connection.down) {
@@ -146,18 +162,21 @@ async function saveInlineEditor(
       state.toast = "Author's Note must contain at most 4,000 Unicode scalar values.";
       return;
     }
+    const requestedDepth = target.depth;
     try {
       await context.backend.run("saving Author's Note", async (task) => {
-        const payload = await source.api.setAuthorsNote(task.storyId, submitted);
+        const payload = await source.api.setAuthorsNote(task.storyId, submitted, requestedDepth);
         if (!task.storyCurrent()) return;
         adoptSameStoryPayload(state, payload);
         target.expected = payload.authorsNote ?? "";
+        target.expectedDepth = resolveAuthorsNoteDepth(payload.authorsNoteDepth);
         context.cache.invalidate();
         settleInlineSave(
           state,
           editor,
           submitted,
-          submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved"
+          submitted.trim().length === 0 ? "Author's Note cleared" : "Author's Note saved",
+          target.depth === requestedDepth
         );
       });
     } catch (error) {
@@ -391,16 +410,22 @@ function confirmOverwrite(
 }
 
 /** Close only the exact draft that was acknowledged. Input typed while the
- * request was in flight remains visible and becomes the next save. */
+ * request was in flight remains visible and becomes the next save. A target
+ * with a field beyond `composer.text` (the Author's Note depth) passes
+ * `otherFieldsUnchanged` so a live edit to that field also keeps the draft
+ * open, the same way a live text edit does. */
 function settleInlineSave(
   state: RuntimeState,
   editor: DocumentEditorSession,
   submitted: string,
-  toast: string
+  toast: string,
+  otherFieldsUnchanged = true
 ): void {
   if (state.editor !== editor) return;
   if (editor.kind === "fact") return;
-  if (editor.composer.text === submitted) return closeInlineEditor(state, editor, toast);
+  if (editor.composer.text === submitted && otherFieldsUnchanged) {
+    return closeInlineEditor(state, editor, toast);
+  }
   editor.initial = submitted;
   state.toast = `${toast} · newer edits kept`;
 }

@@ -1,4 +1,5 @@
 import type { StoryFact } from "../../shared/types.js";
+import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { createComposer } from "./composer-model.js";
 import {
   formatFactKeys,
@@ -111,8 +112,9 @@ export function openChapterSummaryEditor(
 
 export function openAuthorsNoteEditor(state: RuntimeState): void {
   const initial = state.payload.authorsNote ?? "";
+  const depth = resolveAuthorsNoteDepth(state.payload.authorsNoteDepth);
   openInlineEditor(state, {
-    target: { kind: "authors-note", expected: initial },
+    target: { kind: "authors-note", expected: initial, expectedDepth: depth, depth },
     composer: createComposer(initial),
     initial,
     title: "author's note",

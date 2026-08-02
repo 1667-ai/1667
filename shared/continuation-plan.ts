@@ -1,5 +1,5 @@
 import { assembleChapterContext, type PromptPart } from "./chapters.js";
-import { normalizeAuthorsNote } from "./authors-note.js";
+import { normalizeAuthorsNote, type AuthorsNotePlacement } from "./authors-note.js";
 import type { PromptPlan, PromptTurn } from "./prompt-plan.js";
 import { isOfficialAnthropicBaseUrl } from "./settings-provider-defaults.js";
 import type { ChapterBreak, GenerationSettings, StoryNode } from "./types.js";
@@ -20,7 +20,7 @@ const CONTINUE_CONTRACT = [
 
 export type ContinuationPromptEntry =
   | { category: "voice" | "facts"; turn: PromptTurn; partId?: never }
-  | { category: "note"; turn: PromptTurn; partId?: never }
+  | { category: "note"; turn: PromptTurn; partId?: never; depth: number }
   | { category: "recent" | "summary"; turn: PromptTurn; partId: string };
 
 type PartPromptEntry = Extract<ContinuationPromptEntry, { partId: string }>;
@@ -39,7 +39,7 @@ export interface ContinuationPlan {
 export function continuationPlan(
   systemPrompt: string,
   facts: string | null,
-  authorsNote: string | null,
+  authorsNote: AuthorsNotePlacement | null,
   parts: readonly StoryNode[],
   instruction: string,
   appendLast: boolean,
@@ -48,7 +48,7 @@ export function continuationPlan(
   chapterBreaks: readonly ChapterBreak[],
   nodes: readonly PromptPart[]
 ): ContinuationPlan {
-  const note = authorsNote === null ? null : normalizeAuthorsNote(authorsNote);
+  const note = authorsNote === null ? null : normalizeAuthorsNote(authorsNote.text);
   const sourceContext = assembleChapterContext(parts, chapterBreaks, nodes);
   const contextPartIds = sourceContext.map((part) => part.id);
   const continuePassage = appendLast && (sourceContext.at(-1)?.text.trim().length ?? 0) > 0;
@@ -116,11 +116,20 @@ export function continuationPlan(
         }, partId: part.id }
       ];
     });
+  // Insertion index = max(0, partEntries.length - 2 * depth): each part is a
+  // user/assistant pair, so the index stays even and the entry right after
+  // the note is always a user turn. A depth past the available parts clamps
+  // to the start (right after the prelude); the clamped value is the depth
+  // this placement actually used, which the request viewer reports.
+  const requestedDepth = authorsNote?.depth ?? 0;
+  const insertionIndexRaw = partEntries.length - 2 * requestedDepth;
+  const insertionIndex = Math.max(0, insertionIndexRaw);
+  const effectiveDepth = insertionIndexRaw >= 0 ? requestedDepth : partEntries.length / 2;
   const entries: ContinuationPromptEntry[] = note === null
     ? [...prelude, ...partEntries]
     : [
         ...prelude,
-        ...partEntries.slice(0, -2),
+        ...partEntries.slice(0, insertionIndex),
         {
           category: "note",
           turn: {
@@ -131,9 +140,10 @@ export function continuationPlan(
               text: note,
               boundaryAfter: "none"
             }]
-          }
+          },
+          depth: effectiveDepth
         },
-        ...partEntries.slice(-2).map(sealPartEntry)
+        ...partEntries.slice(insertionIndex).map(sealPartEntry)
       ];
   if (!continuePassage) {
     entries.push({

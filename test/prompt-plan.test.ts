@@ -135,7 +135,7 @@ test("requested continuation defaults an empty instruction before rendering", ()
   });
 });
 
-test("continuation inserts one late Author's Note before the final part at every depth", () => {
+test("continuation inserts one late Author's Note before the final part at every part count", () => {
   for (const count of [0, 1, 2, 3, 5]) {
     const parts = Array.from({ length: count }, (_, index) =>
       node(`part-${index + 1}`, `Direction ${index + 1}.`, `Passage ${index + 1}.`)
@@ -143,7 +143,7 @@ test("continuation inserts one late Author's Note before the final part at every
     const withNote = continuationPlan(
       "Voice.",
       "Facts.",
-      "Guide the next passage.",
+      { text: "Guide the next passage.", depth: 1 },
       parts,
       "Request.",
       false,
@@ -159,6 +159,7 @@ test("continuation inserts one late Author's Note before the final part at every
     const noteIndex = noteIndexes[0]!;
     assert.equal(withNote.entries[noteIndex]!.turn.role, "system");
     assert.equal(withNote.entries[noteIndex + 1]!.turn.role, "user");
+    assert.equal((withNote.entries[noteIndex] as { depth: number }).depth, count === 0 ? 0 : 1);
     assert.deepEqual(
       withNote.prompt.turns,
       withNote.entries.map((entry) => entry.turn)
@@ -176,9 +177,35 @@ test("continuation inserts one late Author's Note before the final part at every
     );
     assert.deepEqual(
       continuationPlan(
-        "Voice.", "Facts.", "  \n\t", parts, "Request.", false, true, "ct-note", [], parts
+        "Voice.", "Facts.", { text: "  \n\t", depth: 1 }, parts, "Request.", false, true, "ct-note", [], parts
       ),
       noNote
+    );
+  }
+});
+
+test("continuation places the Author's Note deeper by depth, and clamps past the available parts", () => {
+  const parts = Array.from({ length: 4 }, (_, index) =>
+    node(`part-${index + 1}`, `Direction ${index + 1}.`, `Passage ${index + 1}.`)
+  );
+  // Depth counts story parts, not entries: each part is a user/assistant
+  // pair, so depth 2 lands the note before the 3rd part (index 3*2=6).
+  for (const [depth, expectedIndex, expectedEffectiveDepth] of [
+    [1, 9, 1],
+    [2, 7, 2],
+    [4, 3, 4],
+    [10, 3, 4] // past the available parts: clamps to the start, right after the prelude.
+  ] as const) {
+    const plan = continuationPlan(
+      "Voice.", "Facts.", { text: "Guide it.", depth }, parts, "Request.", false, true, "ct-depth", [], parts
+    );
+    const noteIndex = plan.entries.findIndex((entry) => entry.category === "note");
+    assert.equal(noteIndex, expectedIndex, `depth ${depth}`);
+    assert.equal(plan.entries[noteIndex + 1]!.turn.role, "user");
+    assert.equal(
+      (plan.entries[noteIndex] as { depth: number }).depth,
+      expectedEffectiveDepth,
+      `depth ${depth} effective`
     );
   }
 });

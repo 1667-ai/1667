@@ -14,6 +14,8 @@ export function buildStoryPayload(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  // A depth with no note means nothing — never send one without the other.
+  const authorsNoteDepth = authorsNote === undefined ? undefined : story.authorsNoteDepth;
   const authorBrief = story.authorBrief === undefined || story.authorBrief === ""
     ? undefined
     : boundedString(story.authorBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
@@ -24,6 +26,7 @@ export function buildStoryPayload(
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
     ...(authorsNote === undefined ? {} : { authorsNote }),
+    ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
     ...(authorBrief === undefined ? {} : { authorBrief }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}

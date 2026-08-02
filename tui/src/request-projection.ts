@@ -7,6 +7,7 @@ import {
 } from "../../shared/chapters.js";
 import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
 import { resolveAuthorBrief } from "../../shared/author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../../shared/authors-note.js";
 import { selectActiveFacts } from "../../shared/fact-activation.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
 import { formatFactsMessage } from "../../shared/story-facts.js";
@@ -94,10 +95,13 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     nodes: promptNodes(payload),
     instruction: intent.instruction
   });
+  const authorsNotePlacement: AuthorsNotePlacement | null = payload.authorsNote === undefined
+    ? null
+    : { text: payload.authorsNote, depth: resolveAuthorsNoteDepth(payload.authorsNoteDepth) };
   const plan = continuationPlan(
     resolveAuthorBrief(payload.authorBrief, request.systemPrompt),
     formatFactsMessage(activeFacts),
-    payload.authorsNote ?? null,
+    authorsNotePlacement,
     intent.contextParts,
     intent.instruction,
     intent.appendLast,

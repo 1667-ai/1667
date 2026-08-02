@@ -249,6 +249,68 @@ describe("inline editor", () => {
     expect(state.toast).toBe("note endpoint unavailable");
   });
 
+  test("Author's Note depth steps with the alt-minus/equals chord, is bounded, and saves with the note", async () => {
+    const { source, state, press } = editorHarness();
+
+    await press(key("a"));
+    const target = documentEditor(state).target as { kind: "authors-note"; depth: number };
+    expect(target.depth).toBe(1);
+
+    await press(key("-", { meta: true }));
+    expect(target.depth).toBe(1);
+    expect(state.editor?.composer.text).toBe("");
+
+    await press(key("=", { meta: true }));
+    await press(key("=", { meta: true }));
+    expect(target.depth).toBe(3);
+
+    for (let step = 0; step < 12; step += 1) await press(key("=", { meta: true }));
+    expect(target.depth).toBe(10);
+
+    await press(key("-", { meta: true }));
+    expect(target.depth).toBe(9);
+
+    let receivedDepth: number | undefined;
+    const forward = source.api.setAuthorsNote.bind(source.api);
+    source.api.setAuthorsNote = async (storyId, note, depth) => {
+      receivedDepth = depth;
+      return await forward(storyId, note, depth);
+    };
+    setComposerText(state.editor!.composer, "Keep the storm distant.");
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(receivedDepth).toBe(9);
+    expect(state.payload.authorsNote).toBe("Keep the storm distant.");
+    expect(state.payload.authorsNoteDepth).toBe(9);
+    expect(state.toast).toBe("Author's Note saved");
+  });
+
+  test("a depth change alone still saves, even when the note text is untouched", async () => {
+    const { source, state, press } = editorHarness();
+    await press(key("a"));
+    setComposerText(state.editor!.composer, "Sparse prose.");
+    await press(key("s", { sequence: "", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorsNoteDepth).toBe(undefined);
+
+    await press(key("a"));
+    expect(state.editor?.composer.text).toBe("Sparse prose.");
+    await press(key("=", { meta: true }));
+    let receivedDepth: number | undefined;
+    const forward = source.api.setAuthorsNote.bind(source.api);
+    source.api.setAuthorsNote = async (storyId, note, depth) => {
+      receivedDepth = depth;
+      return await forward(storyId, note, depth);
+    };
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(receivedDepth).toBe(2);
+    expect(state.payload.authorsNote).toBe("Sparse prose.");
+    expect(state.payload.authorsNoteDepth).toBe(2);
+  });
+
   test("author brief opens from the story palette, saves, clears, and reports save errors", async () => {
     const { source, state, press } = editorHarness();
 

@@ -3,8 +3,38 @@ import { estimateTokens } from "./tokens.js";
 export const MAX_AUTHORS_NOTE_CHARS = 4_000;
 export const AUTHORS_NOTE_WARN_TOKENS = 300;
 
+/** How many story parts from the end the note lands before. 1 is today's
+ *  fixed placement: immediately before the last part. */
+export const DEFAULT_AUTHORS_NOTE_DEPTH = 1;
+export const MAX_AUTHORS_NOTE_DEPTH = 10;
+
 export function normalizeAuthorsNote(note: string): string | null {
   return note.trim().length === 0 ? null : note;
+}
+
+/** The note text and how many story parts from the end it lands before. */
+export interface AuthorsNotePlacement {
+  text: string;
+  depth: number;
+}
+
+/** Depth is an integer from 1 to `MAX_AUTHORS_NOTE_DEPTH`. */
+export function isValidAuthorsNoteDepth(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isInteger(value)
+    && value >= 1
+    && value <= MAX_AUTHORS_NOTE_DEPTH;
+}
+
+/** An absent stored depth means today's fixed placement. */
+export function resolveAuthorsNoteDepth(stored: number | undefined): number {
+  return stored ?? DEFAULT_AUTHORS_NOTE_DEPTH;
+}
+
+/** Store the depth only when it differs from the default placement — the same
+ *  rule an empty `authorsNote` follows: a value that means nothing is absent. */
+export function normalizeAuthorsNoteDepth(depth: number): number | null {
+  return depth === DEFAULT_AUTHORS_NOTE_DEPTH ? null : depth;
 }
 
 /** Choose the longest useful warning that fits the panel status cell. */

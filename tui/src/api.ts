@@ -120,7 +120,7 @@ export interface StoryApi {
   createStory(title?: string): Promise<StoryPayload>;
   loadStory(id: string): Promise<StoryPayload>;
   renameStory(id: string, title: string): Promise<StoryPayload>;
-  setAuthorsNote(storyId: string, note: string): Promise<StoryPayload>;
+  setAuthorsNote(storyId: string, note: string, depth?: number): Promise<StoryPayload>;
   setAuthorBrief(storyId: string, brief: string): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
@@ -554,11 +554,11 @@ export function createApi(
       `/api/stories/${id}`,
       { title }
     ),
-    setAuthorsNote: (storyId, note) => mutateStoryPayload(
+    setAuthorsNote: (storyId, note, depth) => mutateStoryPayload(
       storyId,
       "PUT",
       `/api/stories/${storyId}/authors-note`,
-      { note }
+      { note, ...(depth === undefined ? {} : { depth }) }
     ),
     setAuthorBrief: (storyId, brief) => mutateStoryPayload(
       storyId,

@@ -93,6 +93,45 @@ describe("next request viewer", () => {
     expect(text).toContain(state.payload.authorsNote);
   });
 
+  test("the request viewer shows the effective Author's Note depth, including when it clamps", () => {
+    const { state } = harness();
+    state.payload.authorsNote = "Keep the storm quiet until Maren opens the door.";
+    state.payload.authorsNoteDepth = 3;
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: 0, returnMode: "NAV" };
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const text = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+    const noteEntry = estimate.plan.entries.find((entry) => entry.category === "note");
+
+    expect(noteEntry).toBeDefined();
+    expect((noteEntry as { depth: number }).depth).toBe(3);
+    expect(text).toContain("authors note · depth 3");
+
+    // A depth past the available parts clamps to the start; the viewer shows
+    // the depth the request actually used, not the one that was requested.
+    const hugeDepth = 9_999;
+    state.payload.authorsNoteDepth = hugeDepth;
+    const clampedProjected = projectNextRequest(state);
+    const clampedEstimate = nextRequestEstimate(clampedProjected.payload, clampedProjected.context);
+    const clampedText = frameText(renderStoryScreen(state, { width: 120, height: 1_000 }).lines);
+    const clampedNoteEntry = clampedEstimate.plan.entries.find((entry) => entry.category === "note")!;
+    const clampedDepth = (clampedNoteEntry as { depth: number }).depth;
+    const clampedIndex = clampedEstimate.plan.entries.indexOf(clampedNoteEntry);
+
+    expect(clampedDepth).toBeGreaterThan(0);
+    expect(clampedDepth).toBeLessThan(hugeDepth);
+    expect(clampedText).toContain(`authors note · depth ${clampedDepth}`);
+
+    // The clamp is stable: an even larger depth lands in the same place.
+    state.payload.authorsNoteDepth = hugeDepth + 1;
+    const againProjected = projectNextRequest(state);
+    const againEstimate = nextRequestEstimate(againProjected.payload, againProjected.context);
+    const againNoteEntry = againEstimate.plan.entries.find((entry) => entry.category === "note")!;
+    expect((againNoteEntry as { depth: number }).depth).toBe(clampedDepth);
+    expect(againEstimate.plan.entries.indexOf(againNoteEntry)).toBe(clampedIndex);
+  });
+
   test("a story Author Brief overrides the machine-wide brief in the voice block", () => {
     const { state } = harness();
     state.payload.authorBrief = "Write in short, clipped sentences.";

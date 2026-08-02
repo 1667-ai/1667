@@ -1,4 +1,5 @@
 import type { StoryFact } from "../../shared/types.js";
+import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { setComposerText } from "./composer-model.js";
 import {
   factEditorChanged,
@@ -40,8 +41,15 @@ export function reconcileFactEditor(state: RuntimeState): void {
 export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   const editor = state.editor;
   if (editor?.kind !== "document" || editor.target.kind !== "authors-note") return;
+  const target = editor.target;
   const authoritative = state.payload.authorsNote ?? "";
-  editor.target.expected = authoritative;
+  const authoritativeDepth = resolveAuthorsNoteDepth(state.payload.authorsNoteDepth);
+  // A depth draft the writer never touched rebases quietly; one they changed
+  // stays their own, the same way a pristine vs. dirty text draft behaves.
+  const depthPristine = target.depth === target.expectedDepth;
+  target.expectedDepth = authoritativeDepth;
+  if (depthPristine) target.depth = authoritativeDepth;
+  target.expected = authoritative;
   reconcileEditorDocument(state, editor, authoritative, "Author's Note changed during recovery");
 }
 

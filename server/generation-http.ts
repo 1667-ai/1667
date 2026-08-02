@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { fixedPromptTexts, renderPromptPlan } from "../shared/prompt-plan.js";
 import { resolveAuthorBrief } from "../shared/author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -178,6 +179,9 @@ export async function continueStory(
     instruction
   });
   const authorsNote = story.authorsNote ?? null;
+  const authorsNotePlacement: AuthorsNotePlacement | null = authorsNote === null
+    ? null
+    : { text: authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) };
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
   const authorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
@@ -190,7 +194,7 @@ export async function continueStory(
   const continuation = continuationPlan(
     authorBrief,
     facts,
-    authorsNote,
+    authorsNotePlacement,
     contextParts,
     instruction,
     appendTo !== null,
@@ -206,6 +210,7 @@ export async function continueStory(
     contextPartIds: contextParts.map((part) => part.id),
     facts,
     authorsNote,
+    authorsNoteDepth: story.authorsNoteDepth ?? null,
     authorBrief: story.authorBrief ?? null,
     instruction,
     appendTo,

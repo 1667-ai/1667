@@ -1,4 +1,5 @@
 import { countWords } from "../../shared/story-text.js";
+import { normalizeAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
 import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
@@ -75,7 +76,7 @@ export interface DemoController {
   openStory(id: string): StoryPayload;
   createStory(): StoryPayload;
   renameStory(title: string): StoryPayload;
-  setAuthorsNote(authorsNote: string): StoryPayload;
+  setAuthorsNote(authorsNote: string, depth?: number): StoryPayload;
   setAuthorBrief(authorBrief: string): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
@@ -245,10 +246,19 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     renameStory(title) { story.title = title; story.updatedAt = CREATED; return payloadFrom(story); },
-    setAuthorsNote(authorsNote) {
+    setAuthorsNote(authorsNote, depth) {
       const normalized = authorsNote.trim().length === 0 ? undefined : authorsNote;
-      if (normalized === undefined) delete story.authorsNote;
-      else story.authorsNote = normalized;
+      if (normalized === undefined) {
+        delete story.authorsNote;
+        delete story.authorsNoteDepth;
+      } else {
+        story.authorsNote = normalized;
+        if (depth !== undefined) {
+          const normalizedDepth = normalizeAuthorsNoteDepth(depth);
+          if (normalizedDepth === null) delete story.authorsNoteDepth;
+          else story.authorsNoteDepth = normalizedDepth;
+        }
+      }
       story.updatedAt = EDITED;
       return payloadFrom(story);
     },
@@ -367,6 +377,10 @@ function payloadFrom(story: Story): StoryPayload {
     ...(story.authorsNote === undefined || story.authorsNote.trim() === ""
       ? {}
       : { authorsNote: story.authorsNote }),
+    ...(story.authorsNote === undefined || story.authorsNote.trim() === ""
+      || story.authorsNoteDepth === undefined
+      ? {}
+      : { authorsNoteDepth: story.authorsNoteDepth }),
     ...(story.authorBrief === undefined || story.authorBrief.trim() === ""
       ? {}
       : { authorBrief: story.authorBrief }),
@@ -478,7 +492,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     createStory: async () => demo.createStory(),
     loadStory: async (id) => demo.openStory(id),
     renameStory: async (_id, title) => demo.renameStory(title),
-    setAuthorsNote: async (_storyId, authorsNote) => demo.setAuthorsNote(authorsNote),
+    setAuthorsNote: async (_storyId, authorsNote, depth) => demo.setAuthorsNote(authorsNote, depth),
     setAuthorBrief: async (_storyId, authorBrief) => demo.setAuthorBrief(authorBrief),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),

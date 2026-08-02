@@ -22,6 +22,7 @@ read_when:
 | tag | A name and a status on the end of one story line |
 | Fact | One note that 1667 sends with a provider request |
 | Author's Note | One short instruction that 1667 sends near the end of each provider request |
+| Author's Note depth | The number of story parts from the end where the Author's Note occurs |
 | Author Brief | The story or machine-wide instruction that 1667 sends with each provider request |
 | Archive | A NovelAI `.story`, `.scenario`, or `.lorebook` file |
 | Container | A `.story` Archive that contains prose and settings |

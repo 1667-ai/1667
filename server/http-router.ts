@@ -17,7 +17,7 @@ import {
 } from "../shared/import-markdown-wire.js";
 import type { StoryService } from "./story-service.js";
 import { streamResponse } from "./stream-response.js";
-import { optionalString, requireString, requireStringValue } from "./validation.js";
+import { optionalString, requireNumberValue, requireString, requireStringValue } from "./validation.js";
 import {
   requireAnyHttpCapability,
   requireHttpCapability
@@ -317,7 +317,8 @@ async function handleApi(
       200,
       await mutate("setAuthorsNote", {
         storyId: id,
-        note: requireStringValue(body.note, "note")
+        note: requireStringValue(body.note, "note"),
+        ...(body.depth === undefined ? {} : { depth: requireNumberValue(body.depth, "depth") })
       })
     );
   }

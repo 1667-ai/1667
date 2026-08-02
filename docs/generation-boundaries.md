@@ -27,12 +27,19 @@ between the verified anchors is spliced into the active take in place.
 ## Author's Note boundary
 
 The Author's Note is per-story steering for a continuation or a prompted
-retake. 1667 sends it immediately before the last story part. 1667 sends it
-again for each request.
+retake. 1667 sends it again for each request.
+
+The Author's Note depth sets how many story parts from the end the note comes
+before. The default depth is 1: 1667 sends the note immediately before the
+last story part. A story that sets no depth keeps this default placement. A
+depth larger than the number of story parts clamps: 1667 sends the note
+before every part, right after the stable prefix. `shared/continuation-plan.ts`
+computes the placement and reports the depth it actually used, so the request
+viewer shows the real placement, not only the requested one.
 
 Official OpenAI Chat Completions receives a late `system` message. Anthropic
-Messages and OpenAI-compatible endpoints receive the fold form in the last
-`user` message.
+Messages and OpenAI-compatible endpoints receive the fold form in the message
+that follows the note, at any depth.
 
 A highlighted rewrite does not use the Author's Note. A summary take does not
 use it. The autoname operation does not use it.

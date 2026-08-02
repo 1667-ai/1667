@@ -67,6 +67,8 @@ export async function encodeStoryBundle(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  // A depth with no note means nothing — never encode one without the other.
+  const authorsNoteDepth = authorsNote === undefined ? undefined : story.authorsNoteDepth;
   const authorBrief = story.authorBrief === undefined || story.authorBrief === ""
     ? undefined
     : boundedString(story.authorBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
@@ -124,6 +126,7 @@ export async function encodeStoryBundle(
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
     ...(authorsNote === undefined ? {} : { authorsNote }),
+    ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
     ...(authorBrief === undefined ? {} : { authorBrief }),
     ...(storyAutonameId(story) === undefined ? {} : { autonameId: storyAutonameId(story) }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
@@ -215,6 +218,10 @@ export async function decodeStoryBundle(
     ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
       ? {}
       : { authorsNote: manifest.authorsNote }),
+    ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
+      || manifest.authorsNoteDepth === undefined
+      ? {}
+      : { authorsNoteDepth: manifest.authorsNoteDepth }),
     ...(manifest.authorBrief === undefined || manifest.authorBrief === ""
       ? {}
       : { authorBrief: manifest.authorBrief }),

@@ -14,7 +14,7 @@ import {
   MAX_HUMAN_EDIT_RANGES,
   MAX_RECENT_LINES
 } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
@@ -174,6 +174,9 @@ function strictV5Schema(): Schema {
     origin: ref("Origin"),
     autonameId: ref("Identifier"),
     authorsNote: boundedString(MAX_AUTHORS_NOTE_CHARS),
+    // How many story parts from the end the note lands before. Absent means
+    // the default placement (immediately before the last part).
+    authorsNoteDepth: boundedInteger(1, MAX_AUTHORS_NOTE_DEPTH),
     // Story-scoped override of the machine-wide author brief. Absent falls
     // back to the machine-wide value; absent again whenever it is cleared.
     authorBrief: boundedString(MAX_AUTHOR_BRIEF_CHARS),
@@ -259,6 +262,10 @@ function boundedString(maxLength: number): Schema {
 
 function unsignedInteger(): Schema {
   return { type: "integer", minimum: 0, maximum: SAFE_INTEGER };
+}
+
+function boundedInteger(minimum: number, maximum: number): Schema {
+  return { type: "integer", minimum, maximum };
 }
 
 function paired(trigger: string, required: string[]): Schema {

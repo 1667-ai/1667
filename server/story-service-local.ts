@@ -18,6 +18,7 @@ import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import { createFacts, deleteFact, patchFact } from "./story-facts.js";
 import { setAuthorsNote } from "./story-authors-note.js";
+import { resolveAuthorsNoteDepth } from "../shared/authors-note.js";
 import { setAuthorBrief } from "./story-author-brief.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
@@ -75,6 +76,7 @@ export class StoryServiceLocal {
   async setAuthorsNote(
     id: string,
     note: string,
+    depth?: number,
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
@@ -91,14 +93,19 @@ export class StoryServiceLocal {
         mutationRequest,
         "setAuthorsNote",
         (story) => {
-          if ((story.authorsNote ?? "") === normalized) return STORY_UNCHANGED;
-          setAuthorsNote(story, normalized);
+          // Clearing an already-clear note is unchanged regardless of the
+          // requested depth: a clear ignores depth, so nothing net changes.
+          if (normalized === "" && (story.authorsNote ?? "") === "") return STORY_UNCHANGED;
+          const depthUnchanged = depth === undefined
+            || resolveAuthorsNoteDepth(story.authorsNoteDepth) === depth;
+          if ((story.authorsNote ?? "") === normalized && depthUnchanged) return STORY_UNCHANGED;
+          setAuthorsNote(story, normalized, depth);
         }
       );
     }
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
-      (story) => { setAuthorsNote(story, normalized); }
+      (story) => { setAuthorsNote(story, normalized, depth); }
     ));
   }
 

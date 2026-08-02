@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The Author's Note now has a depth setting.** Depth sets how many story
+  parts from the end the note lands before. The default depth, 1, is today's
+  placement: immediately before the last story part. Open the Author's Note
+  editor and press `⌥-` or `⌥=` to change it. The request viewer shows the
+  placement the note actually used.
 - **Stories can now override the default Author Brief.** Open the command
   palette. Select **Author brief**. A story Author Brief overrides the
   machine-wide default for that story's continuation, prompted retake,
