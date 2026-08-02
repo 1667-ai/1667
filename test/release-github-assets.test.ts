@@ -37,6 +37,7 @@ import {
   formatReleaseChecksums,
   releaseArchiveFileSet,
   releaseContentFileSet,
+  releaseUploadAssetPaths,
   stageReleaseArchive,
   RELEASE_BUILD_MANIFEST_FILE,
   RELEASE_SBOM_FILE
@@ -750,7 +751,24 @@ test("the nightly path builds every target and replaces one rolling release", ()
   assert.ok(nightlyStepMatch !== null);
   const nightlyStep = nightlyStepMatch[1]!;
 
-  assert.match(nightlyStep, /\bnightly\b/u);
+  assert.match(
+    nightlyStep,
+    /readarray -t ASSETS < <\(node --import tsx scripts\/release-github-assets\.ts upload-list "\$VERSION" dist\/assets\)/u
+  );
+  const nightlyVersion = "0.1.0-nightly.20260802.a123456";
+  assert.deepEqual(
+    releaseUploadAssetPaths(nightlyVersion, "dist/assets"),
+    [
+      `dist/assets/1667_${nightlyVersion}_darwin-arm64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_darwin-x64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_linux-arm64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_linux-x64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_windows-x64.tar.gz`,
+      "dist/assets/install-nightly.sh",
+      "dist/assets/install-nightly.ps1",
+      "dist/assets/checksums.txt"
+    ]
+  );
   const deleteIndex = nightlyStep.indexOf("gh release delete-asset");
   const uploadIndex = nightlyStep.indexOf("gh release upload nightly");
   assert.ok(deleteIndex !== -1, "nightly step must call gh release delete-asset");
@@ -759,5 +777,58 @@ test("the nightly path builds every target and replaces one rolling release", ()
 
   assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.nightly\s*!=\s*'true'/u);
   assert.match(releaseJob, /if:\s*needs\.prepare\.outputs\.nightly\s*==\s*'true'/u);
+});
+
+test("the upload-list command outputs expected asset paths for nightly and prerelease versions", () => {
+  const nightlyVersion = "0.1.0-nightly.20260802.a123456";
+  const prereleaseVersion = PRERELEASE_VERSION;
+
+  const nightlyRun = spawnSync(
+    process.execPath,
+    ["--import", "tsx", RELEASE_ASSETS_CLI, "upload-list", nightlyVersion, "dist/assets"],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" }
+  );
+  assert.equal(nightlyRun.status, 0);
+  assert.equal(
+    nightlyRun.stdout,
+    releaseUploadAssetPaths(nightlyVersion, "dist/assets").join("\n") + "\n"
+  );
+  assert.deepEqual(
+    nightlyRun.stdout.trim().split("\n"),
+    [
+      `dist/assets/1667_${nightlyVersion}_darwin-arm64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_darwin-x64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_linux-arm64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_linux-x64.tar.gz`,
+      `dist/assets/1667_${nightlyVersion}_windows-x64.tar.gz`,
+      "dist/assets/install-nightly.sh",
+      "dist/assets/install-nightly.ps1",
+      "dist/assets/checksums.txt"
+    ]
+  );
+
+  const prereleaseRun = spawnSync(
+    process.execPath,
+    ["--import", "tsx", RELEASE_ASSETS_CLI, "upload-list", prereleaseVersion, "dist/assets"],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" }
+  );
+  assert.equal(prereleaseRun.status, 0);
+  assert.equal(
+    prereleaseRun.stdout,
+    releaseUploadAssetPaths(prereleaseVersion, "dist/assets").join("\n") + "\n"
+  );
+  assert.deepEqual(
+    prereleaseRun.stdout.trim().split("\n"),
+    [
+      `dist/assets/1667_${prereleaseVersion}_darwin-arm64.tar.gz`,
+      `dist/assets/1667_${prereleaseVersion}_darwin-x64.tar.gz`,
+      `dist/assets/1667_${prereleaseVersion}_linux-arm64.tar.gz`,
+      `dist/assets/1667_${prereleaseVersion}_linux-x64.tar.gz`,
+      `dist/assets/1667_${prereleaseVersion}_windows-x64.tar.gz`,
+      "dist/assets/install-beta.sh",
+      "dist/assets/install-beta.ps1",
+      "dist/assets/checksums.txt"
+    ]
+  );
 });
 

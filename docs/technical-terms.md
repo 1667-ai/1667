@@ -54,7 +54,6 @@ read_when:
 | Install Root | The directory that holds the managed executable and the Ownership Record |
 | Release Archive | The target-specific native archive in a GitHub release |
 | Nightly Release | The mutable GitHub prerelease that holds the most recent nightly Release Archives |
-| Release Source | The service that supplies a Candidate: npm or GitHub |
 | Platform Package | The target-specific npm package that holds one native executable |
 | Candidate | An executable that an install or upgrade operation has not made active |
 | Transaction Record | The durable file that records an incomplete install, upgrade, or rollback |

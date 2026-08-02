@@ -41,7 +41,6 @@ This document uses these Technical Names:
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
 | Release Archive | The target-specific native archive in a GitHub release |
 | Nightly Release | The mutable GitHub prerelease that holds the most recent nightly Release Archives |
-| Release Source | The service that supplies a Candidate: npm or GitHub |
 | POSIX ustar | The archive format that the release workflows use |
 | build identity | Version, source, time, protocol, and target data in a native executable |
 | source evidence | Trusted source, tag, version, and time data |

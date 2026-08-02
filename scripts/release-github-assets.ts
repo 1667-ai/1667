@@ -17,6 +17,7 @@ import {
 } from "../shared/release-targets.js";
 import { parseSemVer } from "../shared/semver.js";
 import {
+  releaseArchiveFileName,
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
 } from "./release-archive.js";
@@ -41,6 +42,7 @@ import {
   releaseIdentitiesForSource,
   type ReleaseSourceFacts
 } from "./release-source-facts.js";
+import { expectedInstallerNames } from "./release-publication-assets.js";
 
 /** Release asset basenames: a version may carry `+` build metadata. */
 const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
@@ -149,6 +151,15 @@ export function directoryAssetDigests(directory: string): readonly ReleaseAssetD
     }));
 }
 
+export function releaseUploadAssetPaths(version: string, directory: string): readonly string[] {
+  const archives = PUBLISHED_ARTIFACT_TARGETS.map((target) => {
+    return releaseArchiveFileName(version, target);
+  });
+  const installers = expectedInstallerNames(version);
+  const names = [...archives, ...installers, RELEASE_CHECKSUMS_FILE];
+  return Object.freeze(names.map((name) => path.join(directory, name)));
+}
+
 function compareNames(left: string, right: string): number {
   if (left === right) return 0;
   return left < right ? -1 : 1;
@@ -218,6 +229,8 @@ const USAGE = [
   "      the archive directory; prints its name",
   "  checksums <directory>",
   "      checksums.txt for every asset there",
+  "  upload-list <version> <directory>",
+  "      the assets to publish; prints one path per line",
   "  notes <version>",
   "      the release notes, as Markdown"
 ].join("\n");
@@ -279,6 +292,11 @@ function runCommand(argv: readonly string[]): string {
     const [directory] = rest;
     if (rest.length !== 1 || directory === undefined) throw new Error(USAGE);
     return formatReleaseChecksums(directoryAssetDigests(directory));
+  }
+  if (command === "upload-list") {
+    const [version, directory] = rest;
+    if (rest.length !== 2 || version === undefined || directory === undefined) throw new Error(USAGE);
+    return `${releaseUploadAssetPaths(version, directory).join("\n")}\n`;
   }
   if (command === "notes") {
     const [version] = rest;

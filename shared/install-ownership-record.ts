@@ -14,6 +14,15 @@ export const INSTALL_OWNERSHIP_FILE = ".1667-install.json" as const;
 export const INSTALL_ACTIVE_EXECUTABLE = "1667" as const;
 export const INSTALL_CHANNELS = ["stable", "beta"] as const;
 export type InstallChannel = typeof INSTALL_CHANNELS[number];
+
+/**
+ * Derived from INSTALL_CHANNELS so a new channel cannot leave a hand-written
+ * literal behind, the same reason RECORD_KEYS exists below.
+ */
+export function isInstallChannel(value: unknown): value is InstallChannel {
+  return typeof value === "string"
+    && (INSTALL_CHANNELS as readonly string[]).includes(value);
+}
 export type InstallMethod = "shell";
 
 export interface InstallOwnershipRecord {
@@ -66,7 +75,7 @@ export function parseInstallOwnershipRecord(value: unknown): InstallOwnershipRec
   if (typeof input.installationId !== "string" || !INSTALLATION_ID.test(input.installationId)) {
     throw new Error("Ownership Record installation id is invalid");
   }
-  if (input.channel !== "stable" && input.channel !== "beta") {
+  if (!isInstallChannel(input.channel)) {
     throw new Error("Ownership Record channel is invalid");
   }
   if (typeof input.installRoot !== "string" || !isAbsoluteOwnershipPath(input.installRoot)) {

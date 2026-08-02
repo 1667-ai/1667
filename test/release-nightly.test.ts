@@ -118,3 +118,21 @@ test("the nightly run decision refuses a value that is not a commit id", () => {
   );
   assert.notEqual(runInvalid.status, 0);
 });
+
+test("the is-nightly command reports whether a version is a nightly version", () => {
+  const runNightly = spawnSync(
+    process.execPath,
+    ["--import", "tsx", NIGHTLY_CLI, "is-nightly", `${BASE_VERSION}-nightly.20260802.a123456`],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" }
+  );
+  assert.equal(runNightly.status, 0);
+  assert.equal(runNightly.stdout, "true\n");
+
+  const runOrdinary = spawnSync(
+    process.execPath,
+    ["--import", "tsx", NIGHTLY_CLI, "is-nightly", `${BASE_VERSION}-rc.1`],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" }
+  );
+  assert.equal(runOrdinary.status, 0);
+  assert.equal(runOrdinary.stdout, "false\n");
+});

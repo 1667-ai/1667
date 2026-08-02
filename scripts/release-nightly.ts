@@ -3,25 +3,16 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  isNightlyVersion,
   nightlyReleaseVersion,
   nightlyRunDecision
 } from "./release-nightly-version.js";
 import { repositoryPackageVersions } from "./release-source-facts.js";
 
-export {
-  NIGHTLY_CHANNEL,
-  NIGHTLY_RELEASE_TAG,
-  type NightlyVersion,
-  nightlyReleaseVersion,
-  parseNightlyVersion,
-  isNightlyVersion,
-  type NightlyRunDecision,
-  nightlyRunDecision
-} from "./release-nightly-version.js";
-
 const USAGE = [
   "usage: release-nightly.ts version <commit> <timestamp>",
-  "       release-nightly.ts decide <head-commit> [previous-commit]"
+  "       release-nightly.ts decide <head-commit> [previous-commit]",
+  "       release-nightly.ts is-nightly <version>"
 ].join("\n");
 
 function runCommand(argv: readonly string[]): void {
@@ -46,6 +37,11 @@ function runCommand(argv: readonly string[]): void {
     } else {
       process.stdout.write(`skip ${decision.reason}\n`);
     }
+    return;
+  }
+  if (command === "is-nightly") {
+    if (argv.length !== 2) throw new Error(USAGE);
+    process.stdout.write(`${isNightlyVersion(argv[1]!) ? "true" : "false"}\n`);
     return;
   }
   throw new Error(USAGE);

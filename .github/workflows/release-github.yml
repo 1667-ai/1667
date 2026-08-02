@@ -170,11 +170,10 @@ jobs:
           set -euo pipefail
           if [ -z "$INPUT_VERSION" ]; then
             version="$(node --import tsx scripts/release-nightly.ts version "$COMMIT" "$TIMESTAMP")"
-            nightly="true"
           else
             version="$INPUT_VERSION"
-            nightly="false"
           fi
+          nightly="$(node --import tsx scripts/release-nightly.ts is-nightly "$version")"
           node --import tsx scripts/release-github-assets.ts check \
             "$version" "$COMMIT" "$TIMESTAMP"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -413,15 +412,14 @@ jobs:
         run: |
           set -euo pipefail
           node --import tsx scripts/release-github-assets.ts notes "$VERSION" > dist/release-notes.md
+          readarray -t ASSETS < <(node --import tsx scripts/release-github-assets.ts upload-list "$VERSION" dist/assets)
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$COMMIT" \
             --prerelease \
             --title "1667 v$VERSION" \
             --notes-file dist/release-notes.md \
-            dist/assets/*.tar.gz \
-            dist/assets/install-* \
-            dist/assets/checksums.txt
+            "${ASSETS[@]}"
 
       # Move the tag ref first so the release, tag, and assets all name one commit.
       # Assets are deleted before uploading new ones because an archive name
@@ -436,6 +434,7 @@ jobs:
         run: |
           set -euo pipefail
           node --import tsx scripts/release-github-assets.ts notes "$VERSION" > dist/release-notes.md
+          readarray -t ASSETS < <(node --import tsx scripts/release-github-assets.ts upload-list "$VERSION" dist/assets)
           if gh release view nightly --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" \
               -f sha="$COMMIT" -F force=true > /dev/null
@@ -449,17 +448,12 @@ jobs:
               [ -n "$name" ] || continue
               gh release delete-asset nightly "$name" --repo "$GITHUB_REPOSITORY" --yes
             done < dist/previous-assets.txt
-            gh release upload nightly --repo "$GITHUB_REPOSITORY" \
-              dist/assets/*.tar.gz \
-              dist/assets/install-nightly.* \
-              dist/assets/checksums.txt
+            gh release upload nightly --repo "$GITHUB_REPOSITORY" "${ASSETS[@]}"
           else
             gh release create nightly --repo "$GITHUB_REPOSITORY" \
               --target "$COMMIT" \
               --prerelease \
               --title "1667 nightly $VERSION" \
               --notes-file dist/release-notes.md \
-              dist/assets/*.tar.gz \
-              dist/assets/install-nightly.* \
-              dist/assets/checksums.txt
+              "${ASSETS[@]}"
           fi
