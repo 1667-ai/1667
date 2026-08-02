@@ -40,8 +40,8 @@ import {
 } from "./settings-text.js";
 import type { SettingsOverlayState, SettingsRowId } from "./state.js";
 
-/** C-03 groups the form under `── light ──` section rules, and the 13-col rail
- * jumps between them. One list, named once, read by the rail and the rows. */
+/** The form groups under `── light ──` section rules. One list, named once:
+ * the rule is the section heading, and clicking it jumps there. */
 export const SETTINGS_SECTIONS = [
   { id: "app", label: "app" },
   { id: "connection", label: "connection" },
@@ -115,17 +115,14 @@ export function settingsRows(
       value: `[ ${settings.allowInsecureHttp === true ? "on" : "off"} ]`,
       hint: "plain HTTP to a machine you own"
     },
-    // C-14 prefers the env-var form, so it leads: the app holding a key is the
-    // fallback, and the row below says so.
-    {
-      id: "api-key-env", section: "connection", label: "key env",
-      value: settings.apiKeyEnv ?? "—",
-      hint: envVarHint(settings.apiKeyEnv)
-    },
+    // One way to supply a key. C-14 prefers the env-var form, but offering
+    // both put two rows in front of every writer with no answer on screen to
+    // "which one do I fill in". An `apiKeyEnv` already in a config still
+    // resolves at request time; it simply has no row of its own.
     {
       id: "api-key", section: "connection", label: "stored key",
       value: storedApiKeyPresentation(overlay),
-      hint: "kept in ~/.config/1667/keys, never in the vault"
+      hint: "kept on this machine, never in a story"
     },
     {
       id: "profile", section: "model", label: "profile",
@@ -234,16 +231,6 @@ function positionDots<T>(choices: readonly T[], current: T | undefined): string 
   return choices.map((_, at) => at === index ? "●" : "○").join("");
 }
 
-/** C-14's `⚑ found in shell`: the row says whether the name it holds actually
- *  resolves, so a typo does not wait until the next request to show itself.
- *  The shell is the only place that answer exists, and it is one lookup. */
-function envVarHint(name: string | null): string {
-  if (name === null || name.length === 0) return "name an environment variable";
-  const value = process.env[name];
-  return value !== undefined && value.length > 0
-    ? "⚑ found in shell"
-    : "not set in this shell";
-}
 
 export function cycleProfileControl(
   overlay: SettingsOverlayState,
@@ -371,9 +358,12 @@ function modelRowHint(overlay: SettingsOverlayState): string {
   if (choices.length === 0) return "↵ types a model identifier";
   const selected = choices.find((choice) => choice.remoteId === model);
   if (selected === undefined) {
+    // The hint carries the identifier the chip had to truncate. A discovered
+    // model adds its position in the list; one the provider never listed has
+    // no position, and the absence is what says so.
     return model.length === 0
       ? "↵ types a model identifier"
-      : `${settingsModelDisplayText(model)} · custom`;
+      : settingsModelDisplayText(model);
   }
   const count = `${choices.indexOf(selected) + 1} of ${choices.length}`;
   return selected.name === selected.remoteId

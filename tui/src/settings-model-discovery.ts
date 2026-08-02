@@ -151,7 +151,7 @@ async function runModelDiscoveryRequest(
       if (discovery.models.length === 0) {
         overlay.result = {
           state: "warning",
-          message: "model list is empty · enter a custom name"
+          message: `model list is empty · ${namedModelSuffix(overlay)}`
         };
         overlay.resultRow = "model";
       }
@@ -159,7 +159,7 @@ async function runModelDiscoveryRequest(
       if (!task.owns() || !ownsCurrentRequest(state, overlay, request)) return;
       overlay.result = {
         state: "warning",
-        message: "model list unavailable · enter a custom name"
+        message: `model list unavailable · ${namedModelSuffix(overlay)}`
       };
       overlay.resultRow = "model";
       state.toast = error instanceof Error ? error.message : String(error);
@@ -260,4 +260,12 @@ function publishModelDiscovery(
 ): void {
   overlay.modelDiscovery = discovery;
   overlay.modelDiscoveryIdentity = identity;
+}
+
+/** What to say after a discovery failure. Telling a writer to "enter a custom
+ *  name" when they have just entered one reads as the app ignoring them. */
+function namedModelSuffix(overlay: SettingsOverlayState): string {
+  return overlay.draft.generation.model.trim().length === 0
+    ? "type a model name"
+    : "using the name you typed";
 }

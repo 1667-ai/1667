@@ -116,7 +116,9 @@ describe("Settings model picker", () => {
       state,
       { width: 100, height: 30, wrapCache: cache }
     ).lines);
-    expect(rendered).toContain("private-preview-model · custom");
+    // The hint carries the identifier the chip truncated, with no position —
+    // this model is not one the provider listed.
+    expect(rendered).toContain("private-preview-model");
 
     await press(key("left"));
     expect(state.settings?.draft.generation).toMatchObject({

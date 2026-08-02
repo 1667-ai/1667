@@ -86,6 +86,13 @@ export function buildRailModel(
       body: factBody(fact)
     };
   });
+  // The rail is a fixed-height window, so a long list gets cut. Facts the next
+  // request uses outrank dormant ones: the cut falls on facts that are not
+  // firing, never on the ones the rail exists to surface. Payload order breaks
+  // ties, and each row keeps its payload index, so clicks are unaffected.
+  const railRank = (fact: RailFact): number =>
+    fact.activation === "keyed" ? (fact.active ? 0 : 2) : 1;
+  facts.sort((left, right) => railRank(left) - railRank(right) || left.index - right.index);
   // Mirror what generation actually sends: the assembler drops everything
   // before the latest summary, and directions travel with their parts.
   const contextTokens = estimate.tokens;

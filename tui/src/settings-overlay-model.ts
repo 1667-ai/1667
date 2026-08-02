@@ -54,8 +54,6 @@ export const SETTINGS_ROW_IDS = [
   "provider",
   "base-url",
   "allow-insecure-http",
-  // C-14 prefers the env-var form, so it leads the stored key.
-  "api-key-env",
   "api-key",
   "profile",
   "model",
@@ -70,6 +68,13 @@ export const SETTINGS_ROW_IDS = [
   "utility-route",
   "system-prompt"
 ] as const satisfies readonly SettingsRowId[];
+
+/** Where a row sits in the cursor's list, or -1 for one the surface no longer
+ *  shows. `apiKeyEnv` is still a setting a config may carry; it stopped being
+ *  a row, so a semantic shortcut naming it simply leaves the cursor alone. */
+export function settingsRowIndex(row: SettingsRowId): number {
+  return (SETTINGS_ROW_IDS as readonly SettingsRowId[]).indexOf(row);
+}
 
 export {
   reconcileSettingsOverlay,

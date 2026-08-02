@@ -858,7 +858,7 @@ describe("inline settings menu", () => {
     await press(key("right"));
     await draftRow(press, state, "base-url", "https://api.openai.com/v1");
     await draftRow(press, state, "model", "gpt-5.6");
-    await draftRow(press, state, "api-key-env", "NEW_PROVIDER_KEY");
+    await draftRow(press, state, "api-key", "sk-new-provider-key");
     await press(key("s"));
 
     expect(state.toast).toBe("saved, not active · provider check failed");
@@ -910,7 +910,7 @@ describe("inline settings menu", () => {
     await press(key("right"));
     await draftRow(press, state, "base-url", "https://api.openai.com/v1");
     await draftRow(press, state, "model", "gpt-5.6");
-    await draftRow(press, state, "api-key-env", "NEW_PROVIDER_KEY");
+    await draftRow(press, state, "api-key", "sk-new-provider-key");
     await press(key("s"));
 
     expect(state.toast).toBe("settings saved · credentials active");

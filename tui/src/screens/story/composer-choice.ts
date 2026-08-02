@@ -13,6 +13,8 @@ export function renderComposerChoiceRow(options: {
   value: string;
   sourceId: string;
   sourceStart: number | null;
+  /** C-07: rest is a dim label with chrome chevrons; focused lifts both. */
+  focused: boolean;
 }): FrameLine {
   const prefixWidth = visibleWidth("┃   ");
   const labelWidth = Math.max(
@@ -29,15 +31,16 @@ export function renderComposerChoiceRow(options: {
   const displayedValue = truncate(options.value, framedValueWidth);
   const clipped = displayedValue !== options.value && displayedValue.endsWith("…");
   const mappedValue = clipped ? displayedValue.slice(0, -1) : displayedValue;
+  const valueRole = options.focused ? "focus / accent" as const : "prose · dim" as const;
   return composerFieldLine(options.indent, options.fieldWidth, [
     segment("┃ ", "compose accent"),
-    segment("  ", "compose accent"),
-    segment(label, "chrome"),
-    segment("‹ ", "focus / accent"),
+    segment(options.focused ? "▸ " : "  ", "focus / accent"),
+    segment(label, options.focused ? "prose" : "chrome"),
+    segment("‹ ", valueRole),
     ...(mappedValue.length === 0 ? [] : clipped || options.sourceStart === null
       ? [{
           text: mappedValue,
-          role: "focus / accent" as const,
+          role: valueRole,
           composerSource: {
             id: options.sourceId,
             editable: false
@@ -45,14 +48,14 @@ export function renderComposerChoiceRow(options: {
         }]
       : [{
             text: mappedValue,
-            role: "focus / accent" as const,
+            role: valueRole,
             composerStart: options.sourceStart,
             composerSource: {
               id: options.sourceId,
               editable: true
             }
           }]),
-    ...(clipped ? [segment("…", "focus / accent")] : []),
-    segment(" ›", "focus / accent")
+    ...(clipped ? [segment("…", valueRole)] : []),
+    segment(" ›", valueRole)
   ]);
 }
