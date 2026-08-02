@@ -15,6 +15,8 @@ import type {
   SwitchRequest,
   TakeFromCutRequest
 } from "./types.js";
+import type { ChatMessage } from "./prompt-plan.js";
+import type { PromptTokenCount } from "./tokenize-source.js";
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
@@ -168,6 +170,9 @@ export interface WorkerMethodContract {
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
+  /** No settings and no story id: the count always measures the backend's own
+   * effective prose route, the same one a continuation would use. */
+  countPromptTokens: { input: { messages: readonly ChatMessage[] }; output: PromptTokenCount };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
   importNovelAI: { input: { storyContainerJson: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
@@ -210,7 +215,8 @@ export const GENERATION_METHODS: ReadonlySet<WorkerMethod> = new Set([
 export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "checkModelServer",
   "probeContextWindow",
-  "discoverModels"
+  "discoverModels",
+  "countPromptTokens"
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
@@ -444,7 +450,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
-  "discoverModels",
+  "discoverModels", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory",
 
   "rewriteNode", "createSummaryTake"

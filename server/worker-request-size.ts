@@ -131,6 +131,10 @@ function logicalRequestBody(
     case "probeContextWindow":
     case "discoverModels":
       return input.settings;
+    // Bounded upstream by MAX_COUNTED_PROMPT_CHARS (400,000 characters), well
+    // under this ceiling in every realistic script, so no bespoke limit here.
+    case "countPromptTokens":
+      return input.messages;
     case "continueStory": {
       const target = input.target;
       return target === null || typeof target !== "object" || Array.isArray(target)

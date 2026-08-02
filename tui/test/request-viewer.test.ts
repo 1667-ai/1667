@@ -15,11 +15,13 @@ import { resolveKey } from "../src/keys.js";
 import { hitAt } from "../src/hit.js";
 import { projectNextRequest } from "../src/request-context.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
+import { formatTokensScaled } from "../src/rail.js";
 import { renderRequestViewer } from "../src/screens/request-viewer.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { adoptReconciliationSnapshot } from "../src/story-adoption.js";
 import { createWrapCache } from "../src/wrap.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 
 const ctrlR: KeyEvent = {
   name: "r", sequence: "\u0012", ctrl: true, shift: false, meta: false,
@@ -196,6 +198,87 @@ describe("next request viewer", () => {
     expect(route).toContain("…");
     expect(messageHeader).toContain("…");
     expect(messageHeader).toMatch(/ · ~[\d.]+[kmbt]?\s*$/);
+  });
+
+  test("an exact count drops the mark on the header total and names its source on the route line", () => {
+    const { state } = harness();
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const count: PromptTokenCount = {
+      kind: "counted", source: "anthropic-count-tokens", grade: "exact",
+      total: estimate.tokens + 9, perMessage: null
+    };
+    const frame = renderRequestViewer(
+      { payload: projected.payload, model: state.model, contextWindow: state.contextWindow },
+      projected.context, estimate, { cursor: 0, scrollTop: 0, returnMode: "NAV" }, 160, 1_000, count
+    );
+    const text = frameText(frame.lines);
+    const route = plainLine(frame.lines[1]!);
+    const messageHeader = frame.lines.map(plainLine)
+      .find((line) => /^ 01 (SYSTEM|USER|ASSISTANT) ·/.test(line));
+
+    expect(text).toContain(`━ ${formatTokensScaled(count.total)}`);
+    expect(text).not.toContain(`━ ~${formatTokensScaled(count.total)}`);
+    expect(route).toContain("tokens exact");
+    // No per-message split came back, so message rows stay on the client's
+    // own estimate and keep its `~`.
+    expect(messageHeader).toMatch(/ · ~[\d.]+[kmbt]?\s*$/);
+  });
+
+  test("a per-message split marks every message row, and the total can run ahead of their sum", () => {
+    const { state } = harness();
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const perMessage = estimate.messageTokenCounts.map((tokens) => tokens + 1);
+    // The bundled OpenAI tokenizer adds reply-priming tokens that belong to no
+    // message: the total legitimately runs ahead of the per-message sum.
+    const total = perMessage.reduce((sum, tokens) => sum + tokens, 0) + 3;
+    const count: PromptTokenCount = {
+      kind: "counted", source: "bundled-o200k", grade: "exact", total, perMessage
+    };
+    const frame = renderRequestViewer(
+      { payload: projected.payload, model: state.model, contextWindow: state.contextWindow },
+      projected.context, estimate, { cursor: 0, scrollTop: 0, returnMode: "NAV" }, 160, 1_000, count
+    );
+    const text = frameText(frame.lines);
+    const headers = text.split("\n").filter((line) => /^ \d{2} (SYSTEM|USER|ASSISTANT) ·/.test(line));
+
+    expect(headers).toHaveLength(estimate.messages.length);
+    for (const [index, header] of headers.entries()) {
+      const marked = formatTokensScaled(perMessage[index]!);
+      expect(header.trimEnd().endsWith(` · ${marked}`)).toBeTrue();
+      expect(header.trimEnd().endsWith(` · ~${marked}`)).toBeFalse();
+    }
+    expect(total).toBeGreaterThan(perMessage.reduce((sum, tokens) => sum + tokens, 0));
+    expect(text).toContain(`━ ${formatTokensScaled(total)}`);
+  });
+
+  test("the route's token-source statement yields before it costs the model name a cell", () => {
+    const { state } = harness();
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    const count: PromptTokenCount = {
+      kind: "counted", source: "anthropic-count-tokens", grade: "exact",
+      total: estimate.tokens, perMessage: null
+    };
+    const wide = renderRequestViewer(
+      { payload: projected.payload, model: "short-model", contextWindow: 32_768 },
+      projected.context, estimate, { cursor: 0, scrollTop: 0, returnMode: "NAV" }, 120, 1_000, count
+    );
+    const narrow = renderRequestViewer(
+      { payload: projected.payload, model: `model-${"long-identifier-".repeat(20)}`, contextWindow: 32_768 },
+      projected.context, estimate, { cursor: 0, scrollTop: 0, returnMode: "NAV" }, 80, 1_000, count
+    );
+    const wideRoute = plainLine(wide.lines[1]!);
+    const narrowRoute = plainLine(narrow.lines[1]!);
+
+    expect(wideRoute).toContain("tokens exact");
+    expect(wideRoute).toContain("short-model");
+    // At 80 columns the huge model name already needs every cell the route
+    // line can spare; the provenance statement yields rather than truncating
+    // the model further than the plain route already would.
+    expect(narrowRoute).not.toContain("tokens exact");
+    expect(narrowRoute).toContain("…");
   });
 
   test("rejects a queued click when a request row changes identity", () => {

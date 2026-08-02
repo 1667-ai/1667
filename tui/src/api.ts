@@ -8,6 +8,7 @@ import {
   decodeChapterBreakRemovedResponse,
   decodeContextWindowResponse,
   decodeDeleteStoryResponse,
+  decodePromptTokenCount,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
   decodeUnknownOutcomeStatusResponse,
@@ -46,6 +47,8 @@ import type {
   SettingsView
 } from "../../shared/settings-v2-types.js";
 import { decodeModelDiscoveryResult } from "../../shared/settings-response-decoder.js";
+import type { ChatMessage } from "../../shared/prompt-plan.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -158,6 +161,10 @@ export interface StoryApi {
     settings: ProviderProbeTarget,
     signal?: AbortSignal
   ): Promise<ModelDiscoveryResultV2>;
+  countPromptTokens(
+    messages: readonly ChatMessage[],
+    signal?: AbortSignal
+  ): Promise<PromptTokenCount>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
@@ -808,6 +815,15 @@ export function createApi(
       "/api/settings/discover-models",
       decodeModelDiscoveryResult,
       settings,
+      WORKER_PROVIDER_CHECK_TIMEOUT_MS,
+      undefined,
+      signal
+    ),
+    countPromptTokens: (messages, signal) => request(
+      "POST",
+      "/api/settings/count-tokens",
+      decodePromptTokenCount,
+      { messages },
       WORKER_PROVIDER_CHECK_TIMEOUT_MS,
       undefined,
       signal

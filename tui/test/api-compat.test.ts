@@ -784,7 +784,14 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
     [{
       observedAt: "not-a-date",
       models: []
-    }, () => api.discoverModels(settings), "model discovery result"]
+    }, () => api.discoverModels(settings), "model discovery result"],
+    [{
+      kind: "counted",
+      source: "not-a-real-source",
+      grade: "exact",
+      total: 3,
+      perMessage: null
+    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.source"]
   ];
   for (const [payload, request, expected] of malformed) {
     response = payload;
@@ -1054,6 +1061,9 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
         models: []
       });
     }
+    if (path === "/api/settings/count-tokens") {
+      return Response.json({ kind: "estimate", reason: "no-source" });
+    }
     if (path.endsWith("/export")) return new Response("# Story\n");
     if (path === "/api/import/sillytavern") {
       return Response.json(storyPayload("imported"));
@@ -1081,6 +1091,7 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   await api.summarizeChapter("story", "chapter");
   await api.probeContextWindow(DEMO_SETTINGS_VIEW.effective);
   await api.discoverModels(DEMO_SETTINGS_VIEW.effective);
+  await api.countPromptTokens([{ role: "user", content: "Hi" }]);
   await api.exportMarkdown("story");
   await api.importSillyTavern("{}");
   await api.importMarkdown("Opening prose.", "Draft title");
@@ -1094,6 +1105,7 @@ test("HTTP provider operations request their full transport-parity lifetimes", a
   expect(reservations.map((reservation) =>
     reservation.requestedLifetimeMs)).toEqual([
     HTTP_OPERATION_LIFETIME_MS.generation,
+    WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     WORKER_PROVIDER_CHECK_TIMEOUT_MS,
     HTTP_OPERATION_LIFETIME_MS.transfer,

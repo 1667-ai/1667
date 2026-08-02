@@ -7,6 +7,7 @@ import {
   contextSeverity,
   gaugeFill,
   formatTokensEstimate,
+  formatTokensNarrow,
   formatTokensScaled,
   requestWindow,
   type RailModel
@@ -29,6 +30,7 @@ import { assertPromptReadyStoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../src/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 
 function request(
   systemPrompt: string,
@@ -193,6 +195,88 @@ describe("honest next-request context meter", () => {
     expect(expanded).toContain("▮ note");
     expect(expanded).toContain(String(model.breakdown.note));
     expect(frameText(railLines(emptyModel, true))).not.toContain("▮ note");
+  });
+
+  test("an exact count from a complete-array source drops the mark on the total only", () => {
+    // A long note pushes every category past 1,000 tokens, where a mark
+    // actually shows up in the legend — under that threshold the narrow form
+    // never wears one regardless of grade.
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(8_000));
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    const count: PromptTokenCount = {
+      kind: "counted", source: "anthropic-count-tokens", grade: "exact",
+      total: estimate.tokens + 11, perMessage: null
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const collapsed = frameText(railLines(model));
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.contextTokens).toBe(estimate.tokens + 11);
+    expect(model.totalGrade).toBe("exact");
+    expect(model.perMessageGrade).toBe("estimate");
+    expect(collapsed).toContain(`next request  ${formatTokensScaled(model.contextTokens)} /`);
+    expect(collapsed).not.toContain(`~${formatTokensScaled(model.contextTokens)}`);
+    // A source that counts only the complete array leaves every category on
+    // the client's own estimate, and it keeps its `~`.
+    expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a near-exact total earns ≈, and every category keeps ~ with no per-message split", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(8_000));
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    const count: PromptTokenCount = {
+      kind: "counted", source: "llama-cpp-tokenize", grade: "near-exact",
+      total: estimate.tokens + 6, perMessage: null
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const collapsed = frameText(railLines(model));
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.totalGrade).toBe("near-exact");
+    expect(collapsed).toContain(`next request  ≈${formatTokensScaled(model.contextTokens)} /`);
+    expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a per-message split marks the category rows, and the total can run ahead of their sum", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(8_000));
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    const perMessage = estimate.messageTokenCounts.map((tokens) => tokens + 1);
+    // The bundled OpenAI tokenizer adds reply-priming tokens that belong to no
+    // message, so the total legitimately runs ahead of the per-message sum.
+    const total = perMessage.reduce((sum, tokens) => sum + tokens, 0) + 3;
+    const count: PromptTokenCount = {
+      kind: "counted", source: "bundled-o200k", grade: "exact", total, perMessage
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.contextTokens).toBe(total);
+    expect(model.perMessageGrade).toBe("exact");
+    expect(Object.values(model.breakdown).reduce((sum, value) => sum + value, 0)).toBe(total - 3);
+    expect(expanded).toContain(formatTokensNarrow(model.breakdown.note));
+    expect(expanded).not.toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a stale stored shape falls back to the estimate exactly as if there were no count", () => {
+    const source = demoAppSource();
+    const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
+    const state = initialState(source, false);
+    state.promptTokenCount = {
+      // Deliberately does not match the current projection's shape.
+      shape: "assistant:999999",
+      count: {
+        kind: "counted", source: "anthropic-count-tokens", grade: "exact", total: 5, perMessage: null
+      }
+    };
+    const text = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+
+    expect(text).toBe(baseline);
   });
 
   test("formats large request values with bounded k/m/b/t units", () => {

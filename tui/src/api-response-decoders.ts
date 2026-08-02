@@ -11,6 +11,7 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
 } from "../../shared/settings-response-decoder.js";
@@ -151,6 +152,40 @@ export function decodeContextWindowResponse(value: unknown): { contextWindow: nu
   const response = responseRecord(value, "context-window probe");
   return {
     contextWindow: nullablePositiveIntegerField(response, "contextWindow", "context-window probe response")
+  };
+}
+
+export function decodePromptTokenCount(value: unknown): PromptTokenCount {
+  const response = responseRecord(value, "prompt token count");
+  const kind = response.kind;
+  if (kind === "estimate") {
+    const reason = response.reason;
+    if (reason !== "no-source" && reason !== "too-large" && reason !== "probe-failed") {
+      invalidField("prompt token count response", "reason");
+    }
+    return { kind: "estimate", reason };
+  }
+  if (kind !== "counted") invalidField("prompt token count response", "kind");
+  const source = response.source;
+  if (
+    source !== "bundled-o200k"
+    && source !== "anthropic-count-tokens"
+    && source !== "llama-cpp-tokenize"
+    && source !== "koboldcpp-tokencount"
+    && source !== "none"
+  ) {
+    invalidField("prompt token count response", "source");
+  }
+  const grade = response.grade;
+  if (grade !== "exact" && grade !== "near-exact") {
+    invalidField("prompt token count response", "grade");
+  }
+  return {
+    kind: "counted",
+    source,
+    grade,
+    total: nonNegativeIntegerField(response, "total", "prompt token count response"),
+    perMessage: decodePerMessageTokenCounts(response.perMessage, "prompt token count response")
   };
 }
 
@@ -299,6 +334,19 @@ function nullablePositiveIntegerField(
 ): number | null {
   if (value[field] === null) return null;
   return positiveIntegerField(value, field, label);
+}
+
+/** Aligned one-to-one with the counted messages, or null when the source
+ *  counts only a complete array. */
+function decodePerMessageTokenCounts(value: unknown, label: string): readonly number[] | null {
+  if (value === null) return null;
+  if (
+    !Array.isArray(value)
+    || !value.every((entry) => typeof entry === "number" && Number.isSafeInteger(entry) && entry >= 0)
+  ) {
+    invalidField(label, "perMessage");
+  }
+  return value as readonly number[];
 }
 
 function booleanField(value: Record<string, unknown>, field: string, label: string): boolean {

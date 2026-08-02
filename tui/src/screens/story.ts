@@ -19,6 +19,7 @@ import {
 import { buildRailModel } from "../rail.js";
 import { projectNextRequest } from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
+import { promptCountShape, type PromptTokenCount } from "../../../shared/tokenize-source.js";
 import { estimateResponseGrowthTokens } from "../response-growth-estimate.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
 import type {
@@ -104,6 +105,23 @@ export interface StoryScreenFrame extends FrameComposition {
 
 const DEFAULT_CACHE = createWrapCache<ProseStyle>();
 
+/** The lane's stored answer (see prompt-token-count.ts), trusted only while
+ *  its cheap shape still matches this frame's projection — read the doc
+ *  comment on `promptCountShape` for exactly what a match does and does not
+ *  guarantee. A mismatch (a story swap, a message added, removed, or resized
+ *  since the lane last answered) falls back to null, which every reader
+ *  treats as today's plain client estimate. Never counts or hashes anything
+ *  itself: `estimate.messages` is already in hand from the frame's own
+ *  projection. */
+function effectivePromptTokenCount(
+  state: Pick<StoryScreenState, "promptTokenCount">,
+  estimate: NextRequestEstimate
+): PromptTokenCount | null {
+  const record = state.promptTokenCount;
+  if (record === null || record.shape !== promptCountShape(estimate.messages)) return null;
+  return record.count;
+}
+
 export function renderStoryScreen(state: StoryScreenState, options: StoryScreenOptions): StoryScreenFrame {
   const { height } = options;
   if (state.mode === "LOG") return renderLog(state, options.width, height, options.deadlines);
@@ -118,10 +136,11 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
+  const promptTokenCount = effectivePromptTokenCount(state, estimate);
   if (state.mode === "REQUEST" && state.request !== null) {
     return renderRequestViewerScreen(
       state, state.request, projectedRequest.context,
-      estimate, options.width, height, options.deadlines
+      estimate, options.width, height, options.deadlines, promptTokenCount
     );
   }
   const editor = state.mode === "EDITOR" ? state.editor : null;
@@ -265,7 +284,8 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     const growthPulse = !(state.mode === "COMPOSE" && state.config.composeFocus === "on");
     lines = renderFactsRail(lines,
       buildRailModel(
-        state.payload, focusedText, state.contextWindow, estimate, growthTokens, state.maxTokens
+        state.payload, focusedText, state.contextWindow, estimate, growthTokens, state.maxTokens,
+        promptTokenCount
       ),
       hitRows, surfaceRows, frameLayout, state.contextMeterExpanded, state.now, options.deadlines,
       growthPulse);

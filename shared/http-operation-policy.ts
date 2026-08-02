@@ -59,6 +59,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   checkModelServer: "provider-check",
   probeContextWindow: "provider-check",
   discoverModels: "provider-check",
+  countPromptTokens: "provider-check",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
   importNovelAI: "transfer",
@@ -140,6 +141,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "probeContextWindow";
   if (path === "/api/settings/discover-models"
     && httpMethod === "POST") return "discoverModels";
+  if (path === "/api/settings/count-tokens"
+    && httpMethod === "POST") return "countPromptTokens";
   if (path === "/api/import/sillytavern"
     && httpMethod === "POST") return "importSillyTavern";
   if (path === "/api/import/markdown"

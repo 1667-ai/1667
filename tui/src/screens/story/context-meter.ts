@@ -1,15 +1,17 @@
 import {
   contextSeverity,
+  formatTokensGraded,
   formatTokensNarrow,
   formatTokensScaled,
   OFF_SCALE_TOKENS,
-  formatTokensEstimate,
   gaugeFill,
   RAIL_CONTENT_WIDTH,
+  tokenCountMark,
   type ContextSeverity,
   type RailModel,
   type RequestWindow
 } from "../../rail.js";
+import type { TokenCountGrade } from "../../../../shared/tokenize-source.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
 import {
   segment,
@@ -318,7 +320,10 @@ function legendRow(pair: readonly Category[], model: RailModel): FrameLine {
     // Each half owns exactly its cells: the swatch, a space, the label, and
     // whatever the count can spend beside them. No token value may widen it.
     const lead = visibleWidth(GAUGE_INK) + 1 + key.length;
-    const count = truncate(railTokenCount(model.breakdown[key]), Math.max(1, LEGEND_HALF - lead - 1));
+    const count = truncate(
+      railTokenCount(model.breakdown[key], model.perMessageGrade),
+      Math.max(1, LEGEND_HALF - lead - 1)
+    );
     const pad = LEGEND_HALF - lead - visibleWidth(count);
     return [
       ...offset > 0 ? [segment(" ".repeat(LEGEND_GAP))] : [],
@@ -342,18 +347,20 @@ function rule(): FrameLine {
  * secondary cap yields first so the bar estimate stays readable. */
 function requestValue(model: RailModel, available: number): string {
   const window = model.window;
+  const scaled = formatTokensGraded(model.contextTokens, model.totalGrade);
   if (window === null) {
+    const long = `${tokenCountMark(model.totalGrade)}${model.contextTokens.toLocaleString("en-US")}`;
     const candidates = [
-      `~${model.contextTokens.toLocaleString("en-US")}${growthLabel(model)} tokens`,
-      `${formatTokensEstimate(model.contextTokens)}${growthLabel(model, false)} tokens`,
-      `${formatTokensEstimate(model.contextTokens)} tokens`
+      `${long}${growthLabel(model)} tokens`,
+      `${scaled}${growthLabel(model, false)} tokens`,
+      `${scaled} tokens`
     ];
     for (const candidate of candidates) {
       if (visibleWidth(candidate) <= available) return candidate;
     }
-    return truncate(`${formatTokensEstimate(model.contextTokens)} tokens`, available);
+    return truncate(`${scaled} tokens`, available);
   }
-  const current = formatTokensEstimate(model.contextTokens);
+  const current = scaled;
   const size = formatTokensScaled(window.size);
   const candidates = [
     `${current}${growthLabel(model)} / ${size}`,
@@ -389,10 +396,10 @@ function valueRole(severity: ContextSeverity): DisplayRole {
 
 /** Fixed-width rail value: every category remains visible in the legend half.
  * A count below a thousand is exact, and one off the top of the scale already
- * says so itself — neither wants a `~`, and the off-scale form needs the cell
- * that a `~` would cost to keep its unit. */
-function railTokenCount(tokens: number): string {
+ * says so itself — neither wants a mark, and the off-scale form needs the
+ * cell a mark would cost to keep its unit. */
+function railTokenCount(tokens: number, grade: TokenCountGrade): string {
   const value = Math.max(0, tokens);
   const narrow = formatTokensNarrow(value);
-  return value < 1_000 || narrow === OFF_SCALE_TOKENS ? narrow : `~${narrow}`;
+  return value < 1_000 || narrow === OFF_SCALE_TOKENS ? narrow : `${tokenCountMark(grade)}${narrow}`;
 }

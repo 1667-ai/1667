@@ -32,6 +32,7 @@ import type {
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -233,6 +234,15 @@ export interface RequestViewerState {
   returnMode: "NAV" | "COMPOSE";
 }
 
+/** The last answer the token-count lane published, held against the cheap
+ *  shape it was computed for. The render path never trusts this on its own —
+ *  see `promptCountShape` in shared/tokenize-source.ts for exactly what a
+ *  shape match does and does not guarantee. */
+export interface PromptTokenCountRecord {
+  readonly shape: string;
+  readonly count: PromptTokenCount;
+}
+
 export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
@@ -391,6 +401,9 @@ export interface StoryScreenState extends OverlayState {
   storySelectionProjection: StorySelectionProjection | null;
   /** Visible owner for the one unsettled backend action. */
   backendTask: { id: number; kind: BackendTaskKind; label: string; storyId: string } | null;
+  /** The freshest counted (or estimate) answer for the projected next request,
+   *  or null before the lane has ever answered for this story. */
+  promptTokenCount: PromptTokenCountRecord | null;
 }
 
 export type PendingGenerationDraft =

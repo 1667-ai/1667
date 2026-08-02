@@ -11,16 +11,19 @@ export {
 } from "./release-targets.js";
 
 export const AI_1667_PRODUCT = "1667" as const;
-/** v15 adds the Author Brief route and the Author's Note depth field. v14
- * added required Fact activation metadata to story payloads. v13 added the
- * Author's Note route. A client one
+/** v16 adds the prompt token-count route. v15 added the Author Brief route and
+ * the Author's Note depth field. v14 added required Fact activation metadata
+ * to story payloads. v13 added the Author's Note route. A client one
  * version ahead would otherwise pass preflight against an older server and
  * then reject its story payloads. A v15 client that reached a v14 server
  * would keep the worse failure: that server takes the depth field, ignores
- * it, and answers with a payload that says the save succeeded. */
-export const HTTP_API_PROTOCOL_VERSION = 15;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 15;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 15;
+ * it, and answers with a payload that says the save succeeded. A v16 client
+ * that reached a v15 server would take a 404 on the count route, which the
+ * count lane reads as one more failed probe and answers with the estimate — a
+ * quietly worse meter rather than a refusal. */
+export const HTTP_API_PROTOCOL_VERSION = 16;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 16;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 16;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 

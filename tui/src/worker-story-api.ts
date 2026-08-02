@@ -322,6 +322,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { settings },
       { signal }
     ),
+    countPromptTokens: (messages, signal) => transport.call(
+      "countPromptTokens",
+      { messages },
+      { signal }
+    ),
     importSillyTavern: async (jsonl) => rememberPayload(await transport.call(
       "importSillyTavern",
       { jsonl },

@@ -45,17 +45,50 @@ Select the system prompt row to open the full-screen editor. This machine-wide
 value is the default Author Brief. A story that sets its own Author Brief uses
 that value instead.
 
-The context meter shows the estimated next request. Its pulsing segment
+The context meter shows the size of the next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
 output remains the upper limit. The segment changes between two visible
-colors.
+colors. The growth segment is always an estimate, because no tokenizer can
+count text that the model did not write.
+
+## Token counts
+
+A token count has one of three grades. Each grade has its own mark:
+
+| Grade | Mark | Example |
+| --- | --- | --- |
+| exact count | none | `8.1k` |
+| near-exact count | `≈` | `≈8.1k` |
+| token estimate | `~` | `~8.1k` |
+
+The tokenize source of the connection gives the grade:
+
+| Preset | Tokenize source | Grade |
+| --- | --- | --- |
+| OpenAI, official host | The bundled tokenizer | exact count |
+| Anthropic, official host | `POST /v1/messages/count_tokens` | exact count |
+| llama.cpp | `POST /apply-template`, then `POST /tokenize` | near-exact count |
+| KoboldCpp | `POST /api/extra/tokencount` | near-exact count |
+| LM Studio, Ollama, OpenRouter, custom | None | token estimate |
+
+A near-exact count comes from the model server. 1667 cannot prove that the
+server applies the same chat template to a generation request, so it does not
+call the count exact. A token estimate counts four characters for each token.
+
+The Anthropic source and the two local sources count a complete message array.
+They cannot give a count to one message. For these sources the total is a
+counted number. Each category and each message keeps its estimate.
+
+1667 counts the request after you stop typing. It counts the request again when
+you open the request viewer. A count never delays a keystroke. If the model
+server does not answer, 1667 keeps the estimate and shows no error.
 
 ## Request viewer
 
 Press `Ctrl+R` to open the request viewer. You can also select **Next request**
 in the command palette. The request viewer shows the next request plan in
 provider order. It shows the routed model and the context window. It shows each
-message and its estimated token count.
+message and its token count. It also shows the grade of the count.
 
 The request viewer identifies chapter summaries that replace raw story parts.
 It also identifies the latest summary take that resets the raw context. The
