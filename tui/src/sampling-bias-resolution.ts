@@ -5,11 +5,19 @@ import {
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { samplingContextForOverlay } from "./sampling-model.js";
-import type { SamplingBiasResolution, SettingsOverlayState } from "./state.js";
+import type { SettingsOverlayState } from "./state.js";
 
-export function samplingBiasCacheKey(encoding: PromptBiasEncoding, phrase: string): string {
-  return `${encoding} ${phrase}`;
-}
+/** One row's resolved-token display state, looked up by phrase text from
+ * the whole-panel resolveSamplingBias result cached on the nested overlay
+ * (tui/src/state.ts, SamplingBiasResolutionState). "phrase-unencodable"
+ * names the one phrase that failed; every other row in the same batch is
+ * "idle" (not "unavailable") because it is not implicated. */
+export type SamplingBiasRowResolution =
+  | { readonly kind: "idle" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "tokenizer-unavailable" }
+  | { readonly kind: "phrase-unencodable" }
+  | { readonly kind: "resolved"; readonly tokenIds: readonly number[] };
 
 /** The encoding the routed model would use, or null when there is no exact
  * tokenizer to resolve against (the presentation layer already explains why,
@@ -21,31 +29,38 @@ export function samplingEncodingForOverlay(overlay: SettingsOverlayState): Promp
   return promptBiasTokenizerEncoding(context.remoteModelId);
 }
 
-/** A phrase's cached resolution, or null when it has not been requested (or
- * cannot be — see samplingEncodingForOverlay). */
-export function samplingBiasResolution(
+export function samplingBiasRowResolution(
   overlay: SettingsOverlayState,
+  list: "phraseBias" | "bannedStrings",
   phrase: string
-): SamplingBiasResolution | null {
-  if (overlay.sampling === null) return null;
-  const encoding = samplingEncodingForOverlay(overlay);
-  if (encoding === null) return null;
-  return overlay.sampling.biasTokenCache.get(samplingBiasCacheKey(encoding, phrase)) ?? null;
+): SamplingBiasRowResolution {
+  const nested = overlay.sampling;
+  if (nested === null) return { kind: "idle" };
+  const state = nested.biasResolution;
+  if (state.kind === "idle" || state.kind === "pending") return state;
+  const result = state.result;
+  if (result.kind === "tokenizer-unavailable") return { kind: "tokenizer-unavailable" };
+  if (result.kind === "phrase-unencodable") {
+    return result.phrase === phrase ? { kind: "phrase-unencodable" } : { kind: "idle" };
+  }
+  const entry = (list === "phraseBias" ? result.phraseBias : result.bannedStrings)
+    .find((item) => item.phrase === phrase);
+  return entry === undefined ? { kind: "idle" } : { kind: "resolved", tokenIds: entry.tokenIds };
 }
 
 /**
- * Kicks off background resolution for every phraseBias and bannedStrings
- * entry not already cached, via the tokenizeSamplingPhrase worker method — a
- * pure local tokenization (see shared/worker-protocol.ts for why it still
- * crosses the worker boundary: the WASM tokenizer lives in server/ and must
- * not load into the TUI's render process).
+ * Fetches resolveSamplingBias for the current draft's phraseBias and
+ * bannedStrings together — one call, not one per phrase (issue #282 review,
+ * finding E): a phrase-bias panel with 60 entries used to fire 60 worker
+ * round trips just to open. Call this when the sampling editor opens and
+ * again after each list-panel edit commits.
  *
  * Uses `backend.observe`, not `backend.run`: ActionRunner.run is single
- * -flight (tui/src/action-runtime.ts) and would reject concurrent
- * resolutions with a "busy" toast, or contend with whatever the writer does
+ * -flight (tui/src/action-runtime.ts) and would reject a concurrent
+ * resolution with a "busy" toast, or contend with whatever the writer does
  * next. `observe` surfaces only genuine failures, without claiming that slot.
  */
-export function resolveSamplingBiasTokens(
+export function resolveSamplingBias(
   overlay: SettingsOverlayState,
   source: AppSource,
   context: ActionContext
@@ -53,37 +68,31 @@ export function resolveSamplingBiasTokens(
   const nested = overlay.sampling;
   if (nested === null) return;
   const encoding = samplingEncodingForOverlay(overlay);
-  if (encoding === null) return;
-  const phrases = new Set<string>([
-    ...overlay.draft.sampling.phraseBias.map((entry) => entry.phrase),
-    ...overlay.draft.sampling.bannedStrings
-  ]);
-  for (const phrase of phrases) {
-    const key = samplingBiasCacheKey(encoding, phrase);
-    if (nested.biasTokenCache.has(key)) continue;
-    nested.biasTokenCache.set(key, { kind: "pending" });
-    context.backend.observe(resolveOne(overlay, nested, source, context, encoding, phrase, key));
+  if (encoding === null) {
+    nested.biasResolution = { kind: "idle" };
+    return;
   }
+  nested.biasResolution = { kind: "pending" };
+  context.backend.observe(resolveNow(overlay, nested, source, encoding, context));
 }
 
-async function resolveOne(
+async function resolveNow(
   overlay: SettingsOverlayState,
   nested: NonNullable<SettingsOverlayState["sampling"]>,
   source: AppSource,
-  context: ActionContext,
   encoding: PromptBiasEncoding,
-  phrase: string,
-  key: string
+  context: ActionContext
 ): Promise<void> {
-  const { tokenIds } = await source.api.tokenizeSamplingPhrase({ phrase, encoding });
+  const sampling = overlay.draft.sampling;
+  const result = await source.api.resolveSamplingBias({
+    logitBias: sampling.logitBias,
+    phraseBias: sampling.phraseBias,
+    bannedStrings: sampling.bannedStrings,
+    encoding
+  });
   // Stale guard: land the result only if the sampling panel this request
-  // started under is still the live one, and nothing already replaced this
-  // exact cache entry.
+  // started under is still the live one.
   if (overlay.sampling !== nested) return;
-  if (nested.biasTokenCache.get(key)?.kind !== "pending") return;
-  nested.biasTokenCache.set(
-    key,
-    tokenIds === null ? { kind: "unavailable" } : { kind: "resolved", tokenIds }
-  );
+  nested.biasResolution = { kind: "ready", result };
   context.repaint();
 }

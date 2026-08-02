@@ -32,7 +32,7 @@ import {
 } from "../../shared/story-search.js";
 import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
-import { demoTokenIds } from "./demo-token-ids.js";
+import { demoResolveSamplingBias } from "./demo-token-ids.js";
 import { streamFake } from "./fake-stream.js";
 import {
   createDemoChapterBreak,
@@ -541,7 +541,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     checkModelServer: async () => ({ state: "ready", message: "dry-run model server is ready" }),
     probeContextWindow: async () => ({ contextWindow: DEMO_SETTINGS.contextWindow }),
-    tokenizeSamplingPhrase: async ({ phrase }) => ({ tokenIds: demoTokenIds(phrase) }),
+    resolveSamplingBias: async (request) => demoResolveSamplingBias(request),
     discoverModels: async (): Promise<ModelDiscoveryResultV2> => ({
       observedAt: "2026-01-01T00:00:00.000Z",
       models: [

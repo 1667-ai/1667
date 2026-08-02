@@ -58,9 +58,9 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   checkModelServer: "provider-check",
   probeContextWindow: "provider-check",
   discoverModels: "provider-check",
-  // Pure local tokenization: no network call, so it does not need the
+  // Pure local computation: no network call, so it does not need the
   // longer provider-check budget.
-  tokenizeSamplingPhrase: "local",
+  resolveSamplingBias: "local",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
   importNovelAI: "transfer",
@@ -142,8 +142,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "probeContextWindow";
   if (path === "/api/settings/discover-models"
     && httpMethod === "POST") return "discoverModels";
-  if (path === "/api/settings/tokenize-phrase"
-    && httpMethod === "POST") return "tokenizeSamplingPhrase";
+  if (path === "/api/settings/resolve-sampling-bias"
+    && httpMethod === "POST") return "resolveSamplingBias";
   if (path === "/api/import/sillytavern"
     && httpMethod === "POST") return "importSillyTavern";
   if (path === "/api/import/markdown"

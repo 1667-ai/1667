@@ -58,8 +58,11 @@ import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
-import { tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
-import { parseTokenizeSamplingPhraseInput } from "./sampling-phrase-bias.js";
+import {
+  parseResolveSamplingBiasInput,
+  resolveSamplingLogitBias
+} from "./sampling-phrase-bias.js";
+import type { SamplingBiasResolutionResult } from "../shared/sampling-capabilities.js";
 import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
@@ -558,10 +561,10 @@ export class StoryService extends StoryServiceRuntime {
     return await discoverProviderModels(settings, undefined, signal);
   }
 
-  async tokenizeSamplingPhrase(value: unknown): Promise<{ tokenIds: readonly number[] | null }> {
+  async resolveSamplingBias(value: unknown): Promise<SamplingBiasResolutionResult> {
     this.ensureOpen();
-    const { phrase, encoding } = parseTokenizeSamplingPhraseInput(value);
-    return { tokenIds: tokenizePhraseTokenIds(phrase, encoding) };
+    const input = parseResolveSamplingBiasInput(value);
+    return resolveSamplingLogitBias(input, input.encoding);
   }
 
   private async persistImportedStory(

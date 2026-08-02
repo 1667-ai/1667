@@ -24,7 +24,10 @@ import type {
   SettingsView
 } from "./settings-v2-types.js";
 import type { LorebookImport } from "./novelai-lorebook.js";
-import type { PromptBiasEncoding } from "./sampling-capabilities.js";
+import type {
+  PromptBiasEncoding,
+  SamplingBiasResolutionResult
+} from "./sampling-capabilities.js";
 
 import type {
   ListStoriesPageInput,
@@ -168,13 +171,23 @@ export interface WorkerMethodContract {
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
-  /** A pure local tokenization, not a provider probe: no network call, no
+  /** A pure local computation, not a provider probe: no network call, no
    * credentials. It still crosses the worker boundary because the WASM
    * tokenizer lives in server/ (see server/openai-prompt-tokenizer.ts) and
-   * must not load into the TUI's render process. */
-  tokenizeSamplingPhrase: {
-    input: { phrase: string; encoding: PromptBiasEncoding };
-    output: { tokenIds: readonly number[] | null };
+   * must not load into the TUI's render process. Runs the exact same
+   * tokenize-and-merge resolution the provider request uses
+   * (server/sampling-phrase-bias.ts), for one draft's phraseBias and
+   * bannedStrings at a time — one call per editor session or commit, not
+   * one per phrase, so the editor's preview and the request can never
+   * compute different token IDs for the same draft. */
+  resolveSamplingBias: {
+    input: {
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly { readonly phrase: string; readonly weight: number }[];
+      bannedStrings: readonly string[];
+      encoding: PromptBiasEncoding;
+    };
+    output: SamplingBiasResolutionResult;
   };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
@@ -452,7 +465,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
-  "discoverModels", "tokenizeSamplingPhrase",
+  "discoverModels", "resolveSamplingBias",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory",
 
   "rewriteNode", "createSummaryTake"

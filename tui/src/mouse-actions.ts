@@ -225,6 +225,10 @@ function captureSettingsOverlay(
       ...overlay.draft,
       sampling: captureSamplingSettings(overlay.draft.sampling)
     },
+    // biasResolution is never mutated in place — only ever reassigned to a
+    // fresh object (tui/src/sampling-bias-resolution.ts) — so the shallow
+    // spread above already captures it correctly, unlike `edit.composer`
+    // below, which insertComposerText mutates in place.
     sampling: sampling === null
       ? null
       : {
@@ -232,8 +236,7 @@ function captureSettingsOverlay(
           logitBiasOrder: [...sampling.logitBiasOrder],
           edit: sampling.edit === null
             ? null
-            : { ...sampling.edit, composer: { ...sampling.edit.composer } },
-          biasTokenCache: new Map(sampling.biasTokenCache)
+            : { ...sampling.edit, composer: { ...sampling.edit.composer } }
         }
   };
 }

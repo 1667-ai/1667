@@ -29,11 +29,11 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     }
   );
   assert.deepEqual(
-    httpOperationPolicy("POST", "/api/settings/tokenize-phrase"),
+    httpOperationPolicy("POST", "/api/settings/resolve-sampling-bias"),
     {
-      // A pure local tokenization, not a provider probe (no network call),
+      // A pure local computation, not a provider probe (no network call),
       // so it does not need the longer provider-check budget.
-      method: "tokenizeSamplingPhrase",
+      method: "resolveSamplingBias",
       lifetime: "local"
     }
   );

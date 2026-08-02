@@ -11,6 +11,10 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import type {
+  ResolvedPhraseTokens,
+  SamplingBiasResolutionResult
+} from "../../shared/sampling-capabilities.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
 } from "../../shared/settings-response-decoder.js";
@@ -154,16 +158,51 @@ export function decodeContextWindowResponse(value: unknown): { contextWindow: nu
   };
 }
 
-export function decodeTokenizeSamplingPhraseResponse(
+export function decodeSamplingBiasResolutionResponse(
   value: unknown
-): { tokenIds: readonly number[] | null } {
-  const response = responseRecord(value, "phrase tokenization");
-  const tokenIds = response.tokenIds;
-  if (tokenIds === null) return { tokenIds: null };
-  if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
-    invalidField("phrase tokenization response", "tokenIds");
+): SamplingBiasResolutionResult {
+  const label = "sampling bias resolution";
+  const response = responseRecord(value, label);
+  const kind = response.kind;
+  if (kind === "tokenizer-unavailable") return { kind };
+  if (kind === "phrase-unencodable") {
+    return { kind, phrase: stringField(response, "phrase", label) };
   }
-  return { tokenIds };
+  if (kind !== "resolved") invalidField(label, "kind");
+  return {
+    kind: "resolved",
+    logitBias: decodeLogitBiasRecord(response.logitBias, label),
+    phraseBias: decodeResolvedPhraseTokensList(response.phraseBias, label),
+    bannedStrings: decodeResolvedPhraseTokensList(response.bannedStrings, label),
+    resolvedEntryCount: nonNegativeIntegerField(response, "resolvedEntryCount", label)
+  };
+}
+
+function decodeLogitBiasRecord(value: unknown, label: string): Readonly<Record<string, number>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    invalidField(label, "logitBias");
+  }
+  const record = value as Record<string, unknown>;
+  for (const weight of Object.values(record)) {
+    if (typeof weight !== "number" || !Number.isFinite(weight)) invalidField(label, "logitBias");
+  }
+  return record as Readonly<Record<string, number>>;
+}
+
+function decodeResolvedPhraseTokensList(
+  value: unknown,
+  label: string
+): readonly ResolvedPhraseTokens[] {
+  if (!Array.isArray(value)) invalidField(label, "entries");
+  return value.map((entry) => {
+    const record = responseRecord(entry, `${label} entry`);
+    const phrase = stringField(record, "phrase", `${label} entry`);
+    const tokenIds = record.tokenIds;
+    if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+      invalidField(`${label} entry`, "tokenIds");
+    }
+    return { phrase, tokenIds: tokenIds as readonly number[] };
+  });
 }
 
 export function decodeUnknownOutcomeStatusResponse(

@@ -10,14 +10,18 @@ import {
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
-  decodeTokenizeSamplingPhraseResponse,
+  decodeSamplingBiasResolutionResponse,
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
   decodeModelServerCheckResponse,
   decodeStoryResponse,
 } from "./api-response-decoders.js";
-import type { PromptBiasEncoding } from "../../shared/sampling-capabilities.js";
+import type {
+  PromptBiasEncoding,
+  SamplingBiasResolutionResult
+} from "../../shared/sampling-capabilities.js";
+import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import type { LorebookImport } from "../../shared/novelai-lorebook.js";
 
@@ -154,9 +158,14 @@ export interface StoryApi {
   discardPendingSettings(command: DiscardPendingSettingsCommand): Promise<SettingsMutationResult>;
   checkModelServer(settings: ProviderProbeTarget): Promise<ModelServerCheckResult>;
   probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
-  tokenizeSamplingPhrase(
-    request: { phrase: string; encoding: PromptBiasEncoding }
-  ): Promise<{ tokenIds: readonly number[] | null }>;
+  resolveSamplingBias(
+    request: {
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly SamplingPhraseBiasEntryV2[];
+      bannedStrings: readonly string[];
+      encoding: PromptBiasEncoding;
+    }
+  ): Promise<SamplingBiasResolutionResult>;
   discoverModels(
     settings: ProviderProbeTarget,
     signal?: AbortSignal
@@ -817,11 +826,11 @@ export function createApi(
       settings,
       WORKER_PROVIDER_CHECK_TIMEOUT_MS
     ),
-    tokenizeSamplingPhrase: (phraseRequest) => request(
+    resolveSamplingBias: (biasRequest) => request(
       "POST",
-      "/api/settings/tokenize-phrase",
-      decodeTokenizeSamplingPhraseResponse,
-      phraseRequest
+      "/api/settings/resolve-sampling-bias",
+      decodeSamplingBiasResolutionResponse,
+      biasRequest
     ),
     discoverModels: (settings, signal) => request(
       "POST",

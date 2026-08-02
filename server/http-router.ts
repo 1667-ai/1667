@@ -279,11 +279,11 @@ async function handleApi(
       await service.discoverModels(await jsonBody(), operation.signal)
     );
   }
-  if (head === "settings" && id === "tokenize-phrase" && method === "POST") {
+  if (head === "settings" && id === "resolve-sampling-bias" && method === "POST") {
     return sendJson(
       response,
       200,
-      await service.tokenizeSamplingPhrase(await jsonBody())
+      await service.resolveSamplingBias(await jsonBody())
     );
   }
 
