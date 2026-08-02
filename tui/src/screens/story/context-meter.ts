@@ -1,3 +1,5 @@
+import type { FactBudgetDrop } from "../../../../shared/fact-budget.js";
+import { countNoun } from "../../../../shared/fidelity.js";
 import {
   contextSeverity,
   formatTokensNarrow,
@@ -53,8 +55,8 @@ const CATEGORIES: readonly Category[] = [
  * alone, so a thin split pane can be shorter than the expanded block. The forms
  * below are ordered tallest first and shed decoration before meaning — the rule
  * goes, then the gauge, and the request line itself is the last to go. Every
- * form keeps the chapter notice for as long as it has a row to spare, because
- * that notice is the only actionable thing the meter ever says. */
+ * form keeps the fact-drop and chapter notices for as long as it has a row to
+ * spare, because they are the actionable things the meter can say. */
 export function contextMeterLines(
   model: RailModel,
   expanded: boolean,
@@ -76,13 +78,18 @@ export function contextMeterLines(
     [request, gauge],
     [request]
   ];
-  // What to do about it, in the two cases the meter can answer: the request
-  // does not fit, or a chapter is worth summarizing. Both outrank decoration
-  // and both yield to the request line itself.
+  // What the meter can say beyond the numbers, tallest-need first: the request
+  // does not fit; content silently went missing to the story's own Facts
+  // budget; a chapter is worth summarizing. All three outrank decoration and
+  // all three yield to the request line itself.
+  const dropNotice = factDropNotice(model.droppedFacts);
   const tail: FrameLine[] = [
     ...severity === "over"
       ? [[segment(OVER_REMEDY, "danger text")] as FrameLine]
       : [],
+    ...dropNotice === null
+      ? []
+      : [[segment(truncate(dropNotice, RAIL_CONTENT_WIDTH), "context warning")] as FrameLine],
     ...model.chapterNotice === null
       ? []
       : [[segment(truncate(model.chapterNotice, RAIL_CONTENT_WIDTH), "focus / accent")] as FrameLine]
@@ -270,6 +277,33 @@ function totalsLines(
     [segment(primary, valueRole(severity))],
     [free]
   ];
+}
+
+/** Fidelity-Report style (see shared/fidelity.ts): a short count-led clause
+ * naming what changed, reusing `countNoun` rather than inventing a second
+ * "N things happened" vocabulary. Mixed reasons name whichever shed the most
+ * Facts — the meter has one row to spend here, not a itemized breakdown. */
+function factDropNotice(dropped: readonly FactBudgetDrop[]): string | null {
+  if (dropped.length === 0) return null;
+  const counts = new Map<FactBudgetDrop["reason"], number>();
+  for (const drop of dropped) counts.set(drop.reason, (counts.get(drop.reason) ?? 0) + 1);
+  const [dominantReason] = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]!;
+  return `${dropped.length} ${countNoun(dropped.length, "fact")} dropped · ${dropReasonLabel(dominantReason)}`;
+}
+
+/** Kept to 12 cells: worst case is a 3-digit count (MAX_FACTS=128) plus this
+ *  label, and that still has to fit the rail's narrow content width. */
+function dropReasonLabel(reason: FactBudgetDrop["reason"]): string {
+  switch (reason) {
+    case "fact-budget": return "over its cap";
+    case "total-budget": return "over budget";
+    case "priority": return "low priority";
+    default: return assertNeverDropReason(reason);
+  }
+}
+
+function assertNeverDropReason(value: never): never {
+  throw new Error(`Unknown Fact drop reason: ${String(value)}`);
 }
 
 function contextWindowHint(): FrameSegment {

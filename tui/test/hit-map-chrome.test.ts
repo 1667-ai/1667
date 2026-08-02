@@ -944,11 +944,11 @@ describe("hit map clickable chrome", () => {
         setup: (state, source) => { state.mode = "LIBRARY"; state.library = { stories: source.stories, cursor: 0, query: "", prompt: null }; } },
       { name: "facts", expected: (width: number) => width < 100
         ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
-        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: null }; } },
       { name: "facts confirm", expected: (width) => width < 100
         ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps",
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps",
         setup: (state) => { state.mode = "FACTS"; state.facts = { cursor: 0, query: "", chip: 0, selectedTag: null, filtering: false, deleteArmedId: "fact-1" }; } },
       { name: "commands", expected: "↑↓ move · ↵ run · esc close",
         setup: (state) => { state.mode = "COMMANDS"; state.commands = { query: "", cursor: 0, selectedId: null, view: "commands", returnMode: "NAV" }; } },

@@ -107,14 +107,23 @@ describe("embedded backend worker", () => {
       story = await api.patchFact(story.id, factId, {
         text: "The door is midnight blue.",
         activation: "always",
-        keys: ["midnight door", "blue door"]
+        keys: ["midnight door", "blue door"],
+        priority: "high",
+        budgetTokens: 500
       });
       expect(story.facts[0]).toMatchObject({
         text: "The door is midnight blue.",
         activation: "always",
-        keys: ["midnight door", "blue door"]
+        keys: ["midnight door", "blue door"],
+        priority: "high",
+        budgetTokens: 500
       });
+      story = await api.createFact(story.id, { text: "Second fact." });
+      const secondFactId = story.facts[1]!.id;
+      story = await api.reorderFact(story.id, secondFactId, 0);
+      expect(story.facts.map((fact) => fact.id)).toEqual([secondFactId, factId]);
       story = await api.deleteFact(story.id, factId);
+      story = await api.deleteFact(story.id, secondFactId);
       expect(story.facts).toHaveLength(0);
 
       const createdBreak = await api.createChapterBreak(story.id, root.id, "Chapter Two");

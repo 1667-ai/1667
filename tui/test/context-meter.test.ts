@@ -765,6 +765,53 @@ describe("honest next-request context meter", () => {
     expect(unknown(2)).toEqual(["next request  ~953 tokens", "set context window · settings (,)"]);
   });
 
+  test("a fact-drop notice states the count and dominant reason, ahead of the chapter notice", () => {
+    const payload = createDemoController().payload();
+    const base = buildRailModel(payload, "", 8_000,
+      nextRequestEstimate(payload, request("Write vivid prose.", payload.path.at(-1)!.id)));
+    const model = {
+      ...base,
+      droppedFacts: [
+        { factId: "fact-a", reason: "total-budget" as const },
+        { factId: "fact-b", reason: "total-budget" as const },
+        { factId: "fact-c", reason: "fact-budget" as const }
+      ],
+      chapterNotice: "ch 12 · summarize frees ~12.3k"
+    };
+    const meter = (rows: number) => contextMeterLines(model, false, rows).map((line) => plainLine(line).trim());
+
+    // Both notices fit: the drop notice leads, naming the majority reason
+    // among this request's drops ("total-budget", 2 of 3).
+    expect(meter(5)).toEqual([
+      "─".repeat(33), "next request  ~953 / 8k", `▮▮${"▮".repeat(18)}      7k free`,
+      "3 facts dropped · over budget",
+      "ch 12 · summarize frees ~12.3k"
+    ]);
+    expect(meter(3)).toEqual([
+      "next request  ~953 / 8k", "3 facts dropped · over budget", "ch 12 · summarize frees ~12.3k"
+    ]);
+    // Two notices no longer both fit alongside the request line: shedding is
+    // still all-or-nothing per tail (as it already was for remedy+chapter),
+    // so at this height neither notice survives — only the request does.
+    expect(meter(2)).toEqual(["next request  ~953 / 8k"]);
+
+    // With no chapter notice competing for the row, the drop notice alone
+    // survives down to the same floor the chapter notice used to reach.
+    const withoutChapterNotice = { ...model, chapterNotice: null };
+    expect(contextMeterLines(withoutChapterNotice, false, 2).map((line) => plainLine(line).trim()))
+      .toEqual(["next request  ~953 / 8k", "3 facts dropped · over budget"]);
+
+    const single = { ...withoutChapterNotice, droppedFacts: [{ factId: "fact-a", reason: "priority" as const }] };
+    expect(contextMeterLines(single, false, 2).map((line) => plainLine(line).trim())).toEqual([
+      "next request  ~953 / 8k", "1 fact dropped · low priority"
+    ]);
+
+    const none = { ...withoutChapterNotice, droppedFacts: [] };
+    expect(contextMeterLines(none, false, 2).map((line) => plainLine(line).trim())).toEqual([
+      "next request  ~953 / 8k", `▮▮${"▮".repeat(18)}      7k free`
+    ]);
+  });
+
   test("active keyed CJK facts keep their cell-aligned tag at the rail edge", () => {
     const source = demoAppSource();
     const payload = structuredClone(source.payload);

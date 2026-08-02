@@ -121,7 +121,8 @@ describe("chapter view models", () => {
       tokens: 0,
       breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 },
       chapters: [],
-      activeFactIds: []
+      activeFactIds: [],
+      droppedFacts: []
     };
 
     const frame = frameText(renderPanels(base, state, hits, 120, 24, estimate).lines);

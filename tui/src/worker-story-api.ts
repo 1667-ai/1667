@@ -247,6 +247,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, factId },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    reorderFact: async (storyId, factId, toIndex) => rememberPayload(await transport.call(
+      "reorderFact",
+      { storyId, factId, body: { toIndex } },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     createChapterBreak: async (storyId, parentPartId, title = "") => {
       const result = await transport.call(
         "createChapterBreak",

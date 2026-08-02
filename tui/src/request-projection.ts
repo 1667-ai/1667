@@ -7,6 +7,7 @@ import {
 } from "../../shared/chapters.js";
 import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
 import { selectActiveFacts } from "../../shared/fact-activation.js";
+import { selectFactsWithinBudget, type FactBudgetDrop } from "../../shared/fact-budget.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
 import { formatFactsMessage } from "../../shared/story-facts.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
@@ -27,6 +28,12 @@ export interface RequestTokenEstimate {
   breakdown: ContextBreakdown;
   chapters: RequestChapterProjection[];
   activeFactIds: string[];
+  /** Facts that matched activation but the story's own Facts budget shed
+   *  before they would reach the provider. Window-pressure shedding is a
+   *  server-side last resort (see server/generation-admission.ts) and is not
+   *  previewed here — this meter only knows the story's own configured
+   *  budget, not the live fixed-prompt accounting that fallback depends on. */
+  droppedFacts: readonly FactBudgetDrop[];
 }
 
 export interface NextRequestEstimate extends RequestTokenEstimate {
@@ -93,9 +100,12 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     nodes: promptNodes(payload),
     instruction: intent.instruction
   });
+  const budgetedFacts = selectFactsWithinBudget(activeFacts, payload.factsBudgetTokens ?? null, {
+    spaceDropReason: "total-budget"
+  });
   const plan = continuationPlan(
     request.systemPrompt,
-    formatFactsMessage(activeFacts),
+    formatFactsMessage(budgetedFacts.kept),
     payload.authorsNote ?? null,
     intent.contextParts,
     intent.instruction,
@@ -171,7 +181,8 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     tokens: Object.values(breakdown).reduce((sum, tokens) => sum + tokens, 0),
     breakdown,
     chapters,
-    activeFactIds: activeFacts.map((fact) => fact.id)
+    activeFactIds: budgetedFacts.kept.map((fact) => fact.id),
+    droppedFacts: budgetedFacts.dropped
   };
 }
 

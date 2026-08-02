@@ -29,6 +29,7 @@ import type {
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
+  ReorderFactRequest,
   RewriteRequest,
   StoryNode,
   StoryPayload,
@@ -140,6 +141,9 @@ export interface StoryApi {
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
   patchFact(storyId: string, factId: string, body: FactPatch): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
+  /** Move a Fact to a new position among the story's Facts — array order is
+   *  emit order, so this is the Facts surface's "arrange" control. */
+  reorderFact(storyId: string, factId: string, toIndex: number): Promise<StoryPayload>;
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
@@ -716,6 +720,12 @@ export function createApi(
       storyId,
       "DELETE",
       `/api/stories/${storyId}/facts/${factId}`
+    ),
+    reorderFact: (storyId, factId, toIndex) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/reorder`,
+      { toIndex } satisfies ReorderFactRequest
     ),
     createChapterBreak: async (storyId, parentPartId, title = "") => {
       const result = await request(

@@ -142,10 +142,10 @@ export function renderFactsPanel(
     : overlay.deleteArmedId === null
       ? width < 100
         ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
-        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
       : width < 100
         ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
   const activationCount = keyedFacts.length === 0
     ? ""
     : ` · ${activeKeyedCount}/${keyedFacts.length} keyed`;

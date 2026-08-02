@@ -1,3 +1,4 @@
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { countWords } from "../../shared/story-text.js";
 import type { StoryFact, StoryPayload } from "../../shared/types.js";
 import type { UserConfig } from "./config.js";
@@ -63,6 +64,9 @@ export interface RailModel {
   window: RequestWindow | null;
   breakdown: ContextBreakdown;
   chapterNotice: string | null;
+  /** Facts the story's own Facts budget shed out of this request; empty when
+   *  nothing had to give. See RequestTokenEstimate.droppedFacts. */
+  droppedFacts: readonly FactBudgetDrop[];
 }
 
 /** Read-only mirror of the facts store and the next request projection. */
@@ -114,6 +118,7 @@ export function buildRailModel(
     maxOutputTokens: Math.max(0, maxOutputTokens),
     window: requestWindow(contextTokens, contextWindow),
     breakdown: estimate.breakdown,
+    droppedFacts: estimate.droppedFacts,
     chapterNotice: biggest !== null
       ? `ch ${biggest.number} · summarize frees ${formatTokensEstimate(biggest.savings)}`
       : stale !== null ? `ch ${stale.number} summary stale` : null

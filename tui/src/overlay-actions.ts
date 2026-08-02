@@ -38,7 +38,7 @@ import {
 } from "./request-viewer-actions.js";
 
 import type { AppSource } from "./app.js";
-import type { RuntimeState } from "./state.js";
+import type { FactsOverlayState, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 
 export type OverlayActionContext = ActionContext;
@@ -259,8 +259,42 @@ async function factsAction(
     if (state.facts === overlay) {
       Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
     }
+  } else if (
+    (resolved.action === "move-item-up" || resolved.action === "move-item-down")
+    && selected !== undefined
+  ) {
+    await moveFact(resolved, state, overlay, selected.id, source, context);
   }
   return true;
+}
+
+/** Array order is emit order (see shared/story-facts.ts), so reordering only
+ * makes sense against the real, unfiltered list — a tag chip or a live query
+ * reshuffles `rows`, and "up" in that view would not mean "earlier" here. */
+async function moveFact(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  overlay: FactsOverlayState,
+  factId: string,
+  source: AppSource,
+  context: OverlayActionContext
+): Promise<void> {
+  if (overlay.selectedTag !== null || overlay.query.length > 0) {
+    state.toast = "clear the tag and filter to reorder facts";
+    return;
+  }
+  const from = state.payload.facts.findIndex((fact) => fact.id === factId);
+  if (from === -1) return;
+  const toIndex = resolved.action === "move-item-up" ? from - 1 : from + 1;
+  if (toIndex < 0 || toIndex >= state.payload.facts.length) return;
+  await context.backend.run("reordering fact", async (task) => {
+    const payload = await source.api.reorderFact(task.storyId, factId, toIndex);
+    if (!task.storyCurrent()) return;
+    adoptSameStoryPayload(state, payload);
+    if (state.facts === overlay) {
+      overlay.cursor = boundedFactCursor(toIndex, payload.facts.length);
+    }
+  });
 }
 
 async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source: AppSource, context: OverlayActionContext): Promise<boolean> {
