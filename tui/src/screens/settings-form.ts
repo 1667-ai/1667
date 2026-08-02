@@ -24,32 +24,36 @@ import {
   type FrameLine
 } from "./story/frame.js";
 
-/** C-03's jump rail. Thirteen cells, and the `│` after it runs on every row. */
-export const RAIL_WIDTH = 13;
-const DIVIDER = "│";
-/** Cells between the divider and the body's first column. */
-const RAIL_INSET = RAIL_WIDTH + visibleWidth(DIVIDER) + 1;
-/** Below this the rail costs the hint column more than the jump is worth, so
- *  the split collapses and the section rules carry the grouping alone. The
- *  rail is an affordance, not information — nothing is lost by dropping it. */
-const RAIL_MIN_WIDTH = 100;
-
-/** F-3's shared column budget, which is not a per-surface decision: label 12,
- *  so the value column starts at 14 on every surface and stacked components
- *  line up without anyone measuring. The hint truncates; it never wraps. */
+/** F-3's shared column budget: label 12, so the value column starts at 14 on
+ *  every surface and stacked components line up without anyone measuring. The
+ *  hint truncates; it never wraps.
+ *
+ *  There is no jump rail. It repeated every section name beside the rule that
+ *  already carried it, and spent thirteen columns doing so — the grouping the
+ *  rail was there to show is what `── light ──` already says. */
+const LEAD_WIDTH = 2;
 const LABEL_WIDTH = 12;
+/** What a plain value gets before its position dots. */
 const VALUE_WIDTH = 22;
-/** The `▸ ` cursor lead every row carries, which the note line clears. */
-const NOTE_LEAD = 2;
 /** A C-08 chip is short and its track needs the cells the value column would
  *  otherwise reserve, so scalars align on a narrower column of their own. */
 const SCALAR_CHIP_WIDTH = 13;
 /** C-08: 15 cells at 120 columns, dropped below 80. */
 const TRACK_CELLS = 15;
+/** Widest bound label a track prints on either side. */
+const BOUND_WIDTH = 6;
+/** Every control — chip, chip plus dots, chip plus track — is drawn into this
+ *  one column, so the hints beside them line up in a single column too. That
+ *  ragged right edge was the whole reason the form read as chaos. */
+const CONTROL_WIDTH = SCALAR_CHIP_WIDTH + 1 + BOUND_WIDTH + 1 + TRACK_CELLS + 1 + BOUND_WIDTH;
 /** Below this the track goes and the chip keeps the row on its own. */
 const TRACK_MIN_PANEL_WIDTH = 80;
 /** A hint narrower than this says nothing useful, so it yields its cells. */
 const HINT_MIN_WIDTH = 8;
+/** Cells the hint column asks for before the control column may take the rest.
+ *  A narrow panel spends them on the sentence rather than on a track — which
+ *  is also C-08's own degradation: the track drops, the chip stays. */
+const HINT_TARGET_WIDTH = 24;
 
 /** One painted form row and everything the panel needs to make it clickable. */
 export interface SettingsFormRow {
@@ -76,28 +80,25 @@ export interface SettingsFormOptions {
 export function settingsFormRows(options: SettingsFormOptions): SettingsFormRow[] {
   const painted: SettingsFormRow[] = [];
   const cursorSection = options.rows[options.cursor]?.section ?? null;
-  const rail = options.terminalWidth >= RAIL_MIN_WIDTH;
   for (const section of SETTINGS_SECTIONS) {
     const fields = options.rows
       .map((row, index) => ({ row, index }))
       .filter(({ row }) => row.section === section.id);
     if (fields.length === 0) continue;
     painted.push({
-      line: sectionRule(section.id, section.label, cursorSection, options.contentWidth, rail),
-      // The rail jumps — it is not a second focus ring — so its cell lands the
-      // cursor on this section's first field and nothing else.
+      line: sectionRule(section.id, section.label, cursorSection, options.contentWidth),
+      // The rule names the section and jumps to it, so the section heading is
+      // one thing on screen rather than two.
       target: null,
-      overrides: rail
-        ? [{
-          target: { kind: "action", action: "focus-index", index: fields[0]!.index },
-          left: 0,
-          right: RAIL_WIDTH
-        }]
-        : []
+      overrides: [{
+        target: { kind: "action", action: "focus-index", index: fields[0]!.index },
+        left: 0,
+        right: options.contentWidth
+      }]
     });
     for (const { row, index } of fields) {
-      painted.push(fieldRow(row, index, options, rail));
-      painted.push(...noteRows(row, index, options, rail));
+      painted.push(fieldRow(row, index, options));
+      painted.push(...noteRows(row, index, options));
     }
   }
   return painted;
@@ -113,8 +114,7 @@ export function settingsFormRows(options: SettingsFormOptions): SettingsFormRow[
 function noteRows(
   row: SettingsRowPresentation,
   index: number,
-  options: SettingsFormOptions,
-  rail: boolean
+  options: SettingsFormOptions
 ): SettingsFormRow[] {
   if (index !== options.cursor) return [];
   // While a scalar is being typed, its own limit is the note: F-2 says the
@@ -126,7 +126,7 @@ function noteRows(
     const reason = "refused" in typed ? typed.refused : scalarInvalidReason(typed.scalar);
     return reason === null
       ? []
-      : noteLines(index, { text: reason, role: "danger text" }, options, rail);
+      : noteLines(index, { text: reason, role: "danger text" }, options);
   }
   const report = options.actionReport?.row === row.id ? options.actionReport : null;
   const note = row.invalid !== undefined
@@ -138,21 +138,20 @@ function noteRows(
       }
       : null;
   if (note === null) return [];
-  return noteLines(index, note, options, rail);
+  return noteLines(index, note, options);
 }
 
+/** C-07's note line, indented to the value column. */
 function noteLines(
   index: number,
   note: { text: string; role: DisplayRole },
-  options: SettingsFormOptions,
-  rail: boolean
+  options: SettingsFormOptions
 ): SettingsFormRow[] {
-  const inset = bodyInset(rail) + NOTE_LEAD + LABEL_WIDTH;
-  const measure = Math.max(8, options.contentWidth - inset);
+  const inset = LEAD_WIDTH + LABEL_WIDTH;
+  const measure = Math.max(8, options.contentWidth - inset - 2);
   return wrapText(note.text, [], measure).map((line): SettingsFormRow => ({
     line: [
-      ...railGutter("", false, rail),
-      raisedSegment(" ".repeat(NOTE_LEAD + LABEL_WIDTH), "chrome"),
+      raisedSegment(" ".repeat(inset), "chrome"),
       raisedSegment(`· ${line.text}`, note.role)
     ],
     target: { kind: "list", index },
@@ -164,60 +163,37 @@ function sectionRule(
   id: SettingsSectionId,
   label: string,
   cursorSection: SettingsSectionId | null,
-  contentWidth: number,
-  rail: boolean
+  contentWidth: number
 ): FrameLine {
   const here = id === cursorSection;
   const rule = `── ${label} `;
-  const width = Math.max(0, contentWidth - bodyInset(rail));
+  const width = Math.max(0, contentWidth - LEAD_WIDTH);
   return [
-    ...railGutter(label, here, rail),
+    raisedSegment(" ".repeat(LEAD_WIDTH), "chrome"),
     raisedSegment(truncate(rule, width), here ? "accent · deep" : "chrome"),
     raisedSegment("─".repeat(Math.max(0, width - visibleWidth(rule))), "dimmed page")
   ];
 }
 
-function bodyInset(rail: boolean): number {
-  return rail ? RAIL_INSET : 2;
-}
-
-/** The rail cell and the divider that runs on every row, or the plain indent
- *  the collapsed form uses instead. */
-function railGutter(label: string, here: boolean, rail: boolean): FrameLine {
-  if (!rail) return [raisedSegment("  ", "chrome")];
-  return [railCell(label, here), raisedSegment(`${DIVIDER} `, "brass dim")];
-}
-
-function railCell(label: string, here: boolean): FrameLine[number] {
-  const text = label.length === 0 ? "" : ` ${truncate(label, RAIL_WIDTH - 2)}`;
-  return raisedSegment(
-    text + " ".repeat(Math.max(0, RAIL_WIDTH - visibleWidth(text))),
-    here ? "focus / accent" : "chrome"
-  );
-}
-
 function fieldRow(
   row: SettingsRowPresentation,
   index: number,
-  options: SettingsFormOptions,
-  rail: boolean
+  options: SettingsFormOptions
 ): SettingsFormRow {
   const selected = index === options.cursor;
   const edit = selected && options.edit?.kind === "inline" ? options.edit : null;
-  const inset = bodyInset(rail);
-  const bodyWidth = Math.max(1, options.contentWidth - inset);
+  const bodyWidth = Math.max(1, options.contentWidth);
   const lead = selected ? "▸ " : "  ";
   const labelWidth = Math.min(LABEL_WIDTH, Math.max(4, bodyWidth - 8));
-  const valueLeft = inset + visibleWidth(lead) + labelWidth;
+  const valueLeft = LEAD_WIDTH + labelWidth;
   const line: FrameLine = [
-    ...railGutter("", false, rail),
     raisedSegment(lead, selected ? "focus / accent" : "chrome"),
     raisedSegment(
       padTo(truncate(row.label, labelWidth), labelWidth),
       selected ? "prose" : "chrome"
     )
   ];
-  const valueRoom = Math.max(1, bodyWidth - visibleWidth(lead) - labelWidth);
+  const valueRoom = Math.max(1, bodyWidth - LEAD_WIDTH - labelWidth);
   if (edit !== null) {
     // C-07 editing state: `‹ ›` becomes `[ ]` and the block caret takes over.
     // A scalar keeps its track through it, following what is being typed, so
@@ -246,27 +222,41 @@ function fieldRow(
     return { line, target: { kind: "list", index }, overrides: [] };
   }
   const invalid = row.invalid !== undefined;
-  const valueWidth = Math.min(
+  // Never wider than the cells the row actually has: the arrow regions are
+  // measured off this column, and a bracket past the paint bound would leave a
+  // click target on a cell nobody sees.
+  const control = Math.min(
+    valueRoom,
+    CONTROL_WIDTH,
+    Math.max(VALUE_WIDTH, valueRoom - HINT_TARGET_WIDTH)
+  );
+  const chipWidth = Math.min(
     row.scalar === undefined ? VALUE_WIDTH : SCALAR_CHIP_WIDTH,
-    valueRoom
+    control
   );
   const valueRole: DisplayRole = invalid ? "danger text"
     : selected ? "focus / accent" : "prose";
-  const drawn = truncate(row.value, valueWidth);
-  line.push(raisedSegment(padTo(drawn, valueWidth), valueRole));
-  let used = valueWidth;
+  const drawn = truncate(row.value, chipWidth);
+  line.push(raisedSegment(padTo(drawn, chipWidth), valueRole));
+  let used = chipWidth;
   const dots = row.dots ?? "";
-  if (dots.length > 0 && used + visibleWidth(dots) + 2 <= valueRoom) {
+  if (dots.length > 0 && used + visibleWidth(dots) + 2 <= control) {
     line.push(raisedSegment(`${dots}  `, selected ? "accent · deep" : "chrome"));
     used += visibleWidth(dots) + 2;
   }
   const track = row.scalar === undefined
     || options.terminalWidth < TRACK_MIN_PANEL_WIDTH
     ? null
-    : trackSegments(row.scalar, Math.max(0, valueRoom - used));
+    : trackSegments(row.scalar, Math.max(0, control - used));
   if (track !== null) {
     line.push(...track.segments);
     used += track.width;
+  }
+  // Pad the control column out so every hint begins in one column, whatever
+  // the row is carrying.
+  if (used < control) {
+    line.push(raisedSegment(" ".repeat(control - used)));
+    used = control;
   }
   const hintRoom = Math.max(0, valueRoom - used - 2);
   // C-18's action label sits in the value column, where `tab` reaches it. Its

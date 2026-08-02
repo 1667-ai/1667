@@ -58,7 +58,8 @@ export function renderFactEditorLayout(
         label: "tag",
         value: tagLabel,
         sourceId: FACT_TAG_COMPOSER_SOURCE,
-        sourceStart: tagLabel === editor.tag.text ? 0 : null
+        sourceStart: tagLabel === editor.tag.text ? 0 : null,
+        focused: false
       });
   const activation = renderComposerChoiceRow({
     indent: "",
@@ -66,7 +67,8 @@ export function renderFactEditorLayout(
     label: "activation",
     value: editor.activation,
     sourceId: FACT_ACTIVATION_COMPOSER_SOURCE,
-    sourceStart: null
+    sourceStart: null,
+    focused: editor.focus === "activation"
   });
   const keys = renderTextInput(
     editor.keys,
@@ -122,8 +124,8 @@ function renderTextInput(
   const position = composerPosition(composer);
   return composerSource(composerFieldLine("", fieldWidth, [
     segment("┃ ", "compose accent"),
-    segment("  ", "compose accent"),
-    segment(label, "chrome"),
+    segment(focused ? "▸ " : "  ", "focus / accent"),
+    segment(label, focused ? "prose" : "chrome"),
     segment("[ ", focused ? "focus / accent" : "chrome"),
     ...renderComposerInput(
       composer,
