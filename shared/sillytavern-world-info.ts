@@ -5,6 +5,16 @@ import { SUPPORTED_LOREBOOK_VERSION } from "./novelai-lorebook.js";
  * mapping bounds the Facts; this bounds the reading that gets there. */
 const MAX_WORLD_INFO_ENTRIES = 10_000;
 
+/** Places upstream can look for a key that a Fact does not read. */
+const SCAN_SOURCE_FIELDS = [
+  "matchPersonaDescription",
+  "matchCharacterDescription",
+  "matchCharacterPersonality",
+  "matchCharacterDepthPrompt",
+  "matchScenario",
+  "matchCreatorNotes"
+] as const;
+
 export interface WorldInfoLorebook {
   /** The canonical entry shape, so one Entry Mapping serves both archives. */
   readonly lorebook: Record<string, unknown>;
@@ -58,6 +68,7 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   let filteredEntries = 0;
   let macroEntries = 0;
   let paddedPatternKeys = 0;
+  let scanSourceEntries = 0;
   const entries: Record<string, unknown>[] = [];
 
   for (const item of source) {
@@ -92,6 +103,11 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     if (item.caseSensitive === true || item.matchWholeWords === false) {
       matchRuleEntries += 1;
     }
+    // These add places upstream looks for a key. A Fact scans the story
+    // context, the instruction, and the selected text, and nothing else.
+    if (SCAN_SOURCE_FIELDS.some((field) => item[field] === true)) {
+      scanSourceEntries += 1;
+    }
     // A vectorized entry is retrieved by meaning, not by a key, and usually
     // carries no keys at all. There is no such retrieval here.
     if (item.vectorized === true) vectorEntries += 1;
@@ -119,7 +135,13 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     if (hasMacro(rawContent) || sourceKeysHaveMacro(item.key)) macroEntries += 1;
     const decorated = readDecorators(rawContent);
     if (decorated.decorators.length > 0) decoratedEntries += 1;
-    if (decorated.decorators.includes("@@dont_activate")) {
+    // Only the two exact controls are acted on, and @@activate wins when both
+    // are present. Anything else — including a @@@ fallback line — leaves the
+    // prose and is counted, but never decides activation. Reading a decorator
+    // this import does not understand would either drop an entry the writer
+    // kept or promote one they did not.
+    const forced = decorated.decorators.includes("@@activate");
+    if (!forced && decorated.decorators.includes("@@dont_activate")) {
       refusedEntries += 1;
       continue;
     }
@@ -143,8 +165,7 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
       text: decorated.content,
       displayName: typeof item.comment === "string" ? item.comment : "",
       keys: literalKeys,
-      forceActivation: item.constant === true
-        || decorated.decorators.includes("@@activate"),
+      forceActivation: item.constant === true || forced,
       // World Info switches an entry off with `disable`; a Lorebook switches it
       // on with `enabled`. Read both so neither file loses the writer's choice.
       enabled: item.disable !== true
@@ -213,6 +234,12 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     fidelity.push(
       `${paddedPatternKeys} spaced ${countNoun(paddedPatternKeys, "key")}`
         + " looks like a pattern and imports as literal text"
+    );
+  }
+  if (scanSourceEntries > 0) {
+    fidelity.push(
+      `${scanSourceEntries} ${countNoun(scanSourceEntries, "entry", "entries")}`
+        + " lost an extra scan source; a fact scans the story"
     );
   }
   if (macroEntries > 0) {
@@ -300,11 +327,7 @@ function readDecorators(content: string): {
   const decorators: string[] = [];
   let index = 0;
   while (index < lines.length && lines[index]!.startsWith("@@")) {
-    const line = lines[index]!.replace(/\r$/u, "");
-    // `@@@name` is the fallback for the decorator above it: upstream drops one
-    // `@` and reads the rest. Without this an explicit @@@dont_activate would
-    // arrive as an ordinary Fact.
-    decorators.push(line.startsWith("@@@") ? line.slice(1) : line);
+    decorators.push(lines[index]!.replace(/\r$/u, ""));
     index += 1;
   }
   return { decorators, content: lines.slice(index).join("\n") };

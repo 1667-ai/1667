@@ -1,9 +1,10 @@
-import { countNoun } from "../../shared/fidelity.js";
+import { countNoun, fidelityReport } from "../../shared/fidelity.js";
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
 import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
+import { recordNotice } from "./notice-log.js";
 import { publishStories } from "./overlay-publication.js";
 import { adoptSameStoryPayload, adoptStoryState } from "./story-adoption.js";
 import type { ArchiveImportPrompt, RuntimeState } from "./state.js";
@@ -92,7 +93,12 @@ async function applyArchiveImport(
         const keyed = importResult.facts.filter((fact) => fact.activation === "keyed").length;
         const always = importResult.facts.length - keyed;
         state.toast = `${importResult.facts.length} ${countNoun(importResult.facts.length, "Fact")} imported`
-          + ` · ${keyed} keyed · ${always} always`;
+          + ` · ${keyed} keyed · ${always} always · ! full report`;
+        // The toast holds four rows and the report does not. Write the whole
+        // account to the log, or a writer importing in the app never learns
+        // what the archive lost.
+        recordNotice(state.notices, "toast", `${importResult.facts.length} facts imported · `
+          + fidelityReport(importResult.fidelity));
         return;
       }
 

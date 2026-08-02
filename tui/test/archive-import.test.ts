@@ -101,7 +101,7 @@ test("enter on a Lorebook adds Facts to the open story and reports headline coun
 
   expect(calledStoryId).toBe(target);
   expect(state.payload.facts).toHaveLength(before + 2);
-  expect(state.toast).toBe("2 Facts imported · 1 keyed · 1 always");
+  expect(state.toast).toBe("2 Facts imported · 1 keyed · 1 always · ! full report");
   expect(state.archive).toBe(null);
   expect(state.mode).toBe("NAV");
 });
@@ -167,6 +167,31 @@ test("an unsupported extension explains itself in the open panel", async () => {
   // than cutting the list of what the command does accept.
   expect(frame).toContain("· unsupported archive · use .lorebook, .json, .scenario,");
   expect(frame).toContain("or .story");
+});
+
+test("a lossy World Info import writes its whole report to the log", async () => {
+  // The toast holds four rows and the report does not, so a writer importing in
+  // the app must still be able to reach what the archive lost.
+  const root = await temporaryDirectory();
+  const file = path.join(root, "world.json");
+  await writeFile(file, JSON.stringify({
+    entries: { "0": { uid: 0, comment: "Weather", content: "The pass closes.", key: ["storm"] } }
+  }), "utf8");
+
+  const source = demoAppSource();
+  source.api.importLorebook = async () => ({
+    payload: source.payload,
+    importResult: {
+      facts: [{ tag: "Weather", text: "The pass closes.", activation: "keyed" as const, keys: ["storm"] }],
+      fidelity: ["1 entry read", "1 fact imported", "2 regular expression keys dropped; a fact key is literal"]
+    }
+  });
+
+  const state = await runImport(source, file);
+
+  expect(state.toast).toContain("! full report");
+  const logged = state.notices.entries.map((entry) => String(entry.text)).join(" | ");
+  expect(logged).toContain("2 regular expression keys dropped");
 });
 
 test("escape closes the archive panel and restores its previous mode", async () => {

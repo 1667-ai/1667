@@ -448,23 +448,46 @@ test("a decorator with a trailing space is not the exact control", () => {
   assert.equal(result.facts[0]?.text, "The keeper waits.");
 });
 
-test("a fallback decorator is read as the control it stands in for", () => {
-  // `@@@name` is the fallback for the line above it: upstream drops one `@`.
-  // Without that an explicitly suppressed entry would arrive as a Fact.
-  const archive = parseLorebookArchive(Buffer.from(worldInfo([
-    {
-      comment: "Suppressed",
-      content: "@@unsupported_thing\n@@@dont_activate\nNot in play.",
-      key: ["k"]
-    },
-    { comment: "Kept", content: "In play.", key: ["j"] }
-  ])));
+test("a decorator this import does not understand leaves the prose and nothing else", () => {
+  // Reading a decorator we cannot verify would either drop an entry the writer
+  // kept or promote one they did not. Strip it, count it, and let `constant`
+  // and the keys decide.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Fallback",
+    content: "@@unsupported_thing\n@@@dont_activate\nStill in play.",
+    key: ["k"]
+  }])));
 
   const result = factsFromArchive(archive, 128);
 
-  assert.deepEqual(result.facts.map((fact) => fact.tag), ["Kept"]);
-  assert.ok(
-    fidelityReport(result.fidelity).includes("1 entry skipped for @@dont_activate"),
-    fidelityReport(result.fidelity)
-  );
+  assert.equal(result.facts.length, 1, "an unknown decorator does not drop the entry");
+  assert.equal(result.facts[0]?.text, "Still in play.");
+  assert.equal(result.facts[0]?.activation, "keyed");
+  const report = fidelityReport(result.fidelity);
+  assert.ok(report.includes("activation decorator read and removed"), report);
+  assert.ok(!report.includes("skipped for @@dont_activate"), report);
+});
+
+test("@@activate wins when both exact controls are present", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Both",
+    content: "@@activate\n@@dont_activate\nIn play after all.",
+    key: ["k"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts.length, 1);
+  assert.equal(result.facts[0]?.activation, "always");
+});
+
+test("an extra scan source is named", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Persona", content: "Body.", key: ["k"], matchPersonaDescription: true },
+    { comment: "Scenario", content: "Body.", key: ["j"], matchScenario: true }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("2 entries lost an extra scan source"), report);
 });
