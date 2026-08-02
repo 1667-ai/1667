@@ -185,6 +185,7 @@ export function serializeSettings(draft: SettingsTextDraft): string {
     `sampling.frequencyPenalty: ${draft.sampling.frequencyPenalty ?? ""}`,
     `sampling.presencePenalty: ${draft.sampling.presencePenalty ?? ""}`,
     `sampling.repeatPenalty: ${draft.sampling.repeatPenalty ?? ""}`,
+    `sampling.seed: ${draft.sampling.seed ?? ""}`,
     `sampling.stop: ${JSON.stringify(draft.sampling.stop)}`,
     `sampling.logitBias: ${JSON.stringify(draft.sampling.logitBias)}`,
     `systemPrompt: ${settings.systemPrompt.replace(/\n/g, " ")}`

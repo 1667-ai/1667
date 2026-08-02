@@ -13,6 +13,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
+import { samplingLayerRowIndex } from "../src/sampling-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   installSave,
@@ -160,13 +161,55 @@ describe("Sampling Settings user flow", () => {
     await press(key("left"));
     await press(key("left"));
     expect(state.settings?.draft.sampling.repeatPenalty).toBe(null);
+
+    await press(key("down"));
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.seed).toBe(1);
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.seed).toBe(2);
+    await press(key("left"));
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.seed).toBe(null);
+  });
+
+  test("seed accepts direct integer entry and rejects non-integer text", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("seed"));
+    await press(key("return"));
+
+    setSamplingEdit(state, "1.5");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    expect(state.settings?.draft.sampling.seed).toBe(null);
+
+    setSamplingEdit(state, "42");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).toBe(null);
+    expect(state.settings?.draft.sampling.seed).toBe(42);
+  });
+
+  test("seed is disabled for Anthropic with the same protocol reason as other OpenAI-only scalars", async () => {
+    const { source, state, press } = settingsHarness();
+    useAnthropicSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("seed"));
+
+    const frame = render(state, 80, 24);
+    const seedLine = frame.split("\n").find((line) => line.includes("seed"));
+    expect(seedLine).toContain("‹ — ›");
+
+    await press(key("return"));
+    expect(state.settings?.sampling?.result).toBe("seed disabled · not in protocol");
+    expect(state.settings?.draft.sampling.seed).toBe(null);
   });
 
   test("adds, edits, reorders, and deletes stop sequences", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
 
     await press(key("n"));
@@ -192,7 +235,7 @@ describe("Sampling Settings user flow", () => {
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
 
     await press(key("n"));
@@ -253,7 +296,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     const stopFrame = render(state, 80, 24);
     expect(stopFrame).toContain("no stop sequences yet.");
@@ -261,7 +304,7 @@ describe("Sampling Settings user flow", () => {
     expect(stopFrame.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     const logitFrame = render(state, 80, 24);
     expect(logitFrame).toContain("no biased tokens yet.");
@@ -274,7 +317,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     await press(key("n"));
     let frame = render(state, 80, 24);
@@ -291,7 +334,7 @@ describe("Sampling Settings user flow", () => {
 
     await press(key("escape"));
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     await press(key("n"));
     frame = render(state, 80, 24);
@@ -311,7 +354,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("stop");
     await press(key("escape"));
@@ -358,16 +401,13 @@ async function moveLayer2Cursor(
   for (let index = 0; index < target; index += 1) await press(key("down"));
 }
 
-function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
+function useProviderSettings(
+  source: ReturnType<typeof demoAppSource>,
+  provider: { provider: "openai-compatible" | "anthropic"; baseUrl: string; model: string }
+): void {
   const active = source.settingsView;
   if (!active.editable) throw new Error("demo settings must be editable");
-  const generation = {
-    ...source.settings,
-    provider: "openai-compatible" as const,
-    baseUrl: "http://127.0.0.1:8080/v1",
-    model: "gpt-5.2",
-    apiKeyEnv: null
-  };
+  const generation = { ...source.settings, ...provider, apiKeyEnv: null };
   const document = applyBasicSettingsDraft(active.document, generation);
   source.settingsView = {
     ...active,
@@ -375,6 +415,18 @@ function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
     effective: basicSettingsFromDocument(document)
   } satisfies SettingsView;
   source.api.getSettings = async () => source.settingsView;
+}
+
+function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
+  useProviderSettings(source, {
+    provider: "openai-compatible", baseUrl: "http://127.0.0.1:8080/v1", model: "gpt-5.2"
+  });
+}
+
+function useAnthropicSettings(source: ReturnType<typeof demoAppSource>): void {
+  useProviderSettings(source, {
+    provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "claude-fixture"
+  });
 }
 
 function publishSamplingRefresh(

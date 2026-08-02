@@ -58,6 +58,14 @@ export function samplingLayerRowIdentity(
     : `sampling:list:${row.panel}`;
 }
 
+export function samplingLayerRowIndex(
+  target: SamplingScalarKnob | Exclude<SamplingPanelId, "sampling">
+): number {
+  return SAMPLING_LAYER_ROWS.findIndex((row) => (row.kind === "scalar"
+    ? row.knob === target
+    : row.panel === target));
+}
+
 export function samplingContextForOverlay(
   overlay: SettingsOverlayState
 ): SamplingContext {
