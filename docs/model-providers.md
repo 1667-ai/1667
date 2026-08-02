@@ -34,6 +34,10 @@ parts in the assembled request context. It also scans the current instruction.
 An `always` Fact can keep keys. The keys do not control that Fact until you
 select `keyed`.
 
+Below the keys row, the Fact editor shows a priority row and a budget row.
+Use `Up Arrow` or `Down Arrow` to reach them. See
+[Fact priority and Fact budget](#fact-priority-and-fact-budget).
+
 The Facts panel shows `always`, `✓ keyed`, or `· keyed` for each Fact. The
 `✓ keyed` status means that the next request includes the Fact. The side rail
 uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
@@ -54,6 +58,9 @@ Each Fact has a priority: `low`, `normal`, or `high`. The default priority is
 `normal`. 1667 uses priority to choose which Fact to drop first when a
 request does not fit the model's context window.
 
+Open the Fact editor and move to the priority row. Use `Left Arrow` or
+`Right Arrow` to select `low`, `normal`, or `high`.
+
 An `always` Fact at `normal` or `high` priority never drops. A `keyed` Fact
 can drop at any priority. Set an `always` Fact to `low` priority to let it
 drop too.
@@ -62,9 +69,22 @@ A Fact can also have a Fact budget: a limit on its own estimated token count.
 1667 drops a Fact that goes over its Fact budget. 1667 never shortens a
 Fact's text. A Fact rides whole in a request, or 1667 drops it whole.
 
+Open the Fact editor and move to the budget row. Type a whole number of
+tokens. Leave the row empty to remove the Fact budget.
+
 A story can hold a Facts budget: a limit on the combined estimated token
 count of every Fact in a request. When the total goes over the Facts budget,
 1667 drops the lowest-priority Facts first until the total fits.
+
+Open the command palette and select **facts budget**. Type a whole number of
+tokens, then press `Ctrl+S`. Leave the field empty and press `Ctrl+S` to
+remove the Facts budget.
+
+### See a Fact's priority
+
+The Facts panel status column and the side rail show a Fact's priority next
+to its activation status. `↓` marks a `low` priority Fact. `↑` marks a
+`high` priority Fact. A `normal` priority Fact shows no priority mark.
 
 ### Fit a request into the context window
 

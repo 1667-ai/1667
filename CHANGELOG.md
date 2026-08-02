@@ -7,13 +7,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 - **Facts now support a move order, a priority, and a token budget.** Select a
   Fact in the Facts panel and press `Shift+Up Arrow` or `Shift+Down Arrow` to
-  move it. Set a Fact's priority to `low`, `normal`, or `high` to control
-  which Facts drop first when a request does not fit the model's context
-  window. Set a token budget on one Fact, or on the story's total Facts, to
-  cap how many tokens Facts spend. A request that does not fit now drops
-  droppable Facts by priority instead of failing outright, and the context
-  meter states how many Facts a request dropped, and why. Thanks @10fra for
-  the request.
+  move it. The Fact editor gains a priority row (`low`, `normal`, or `high`,
+  selected with the arrow keys) and a budget row (a token count, or empty for
+  no cap), controlling which Facts drop first when a request does not fit
+  the model's context window. Open the command palette and select
+  **facts budget** to cap the combined tokens every Fact in a request may
+  spend. A request that does not fit now drops droppable Facts by priority
+  instead of failing outright, and the context meter and the Facts panel
+  state what was dropped, and why. Thanks @10fra for the request.
 
 - **Settings now includes a collapsed Sampling group.** Open the group to
   edit scalar values, stop sequences, and logit bias rows. The TUI shows a
