@@ -129,6 +129,22 @@ function parseJsonCardText(text: string): CharacterCardCore {
   return normalizeCard(value);
 }
 
+/** A V1 card names its fields at the root; a V2 card wraps them in `data`.
+ *
+ * Matches the shape `normalizeCard` accepts: a name plus one of description,
+ * personality, or scenario, or a `chara_card` spec. The one place that decides
+ * whether a JSON value looks like a character card, so a dispatcher elsewhere
+ * never re-derives this rule and drifts from what actually parses. */
+export function looksLikeCharacterCard(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.spec === "string" && value.spec.startsWith("chara_card")) return true;
+  const root = isRecord(value.data) ? value.data : value;
+  return typeof root.name === "string"
+    && (typeof root.description === "string"
+      || typeof root.personality === "string"
+      || typeof root.scenario === "string");
+}
+
 function normalizeCard(value: unknown): CharacterCardCore {
   if (!isRecord(value)) throw new Error("Character card JSON must be an object.");
   let version: 1 | 2;

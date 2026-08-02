@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
+  `.json` file to the command or to `import archive` in the command palette.
+  1667 reads the file to know its format. A constant Entry becomes an always
+  active Fact, and a keyed Entry keeps its keys. The Fidelity Report gives the
+  World Info mechanisms that a Fact has no place for. Thanks @10fra for the
+  request.
+
 - **Settings now includes a collapsed Sampling group.** Open the group to
   edit scalar values, stop sequences, and logit bias rows. The TUI shows a
   short reason for an unavailable value. An unavailable scalar row shows

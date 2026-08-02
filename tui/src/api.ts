@@ -17,7 +17,7 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
-import type { LorebookImport } from "../../shared/novelai-lorebook.js";
+import type { LorebookImport } from "../../shared/lorebook-entry.js";
 
 import type {
   TagStatus,

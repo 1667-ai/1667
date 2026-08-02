@@ -23,9 +23,9 @@ import {
 } from "../shared/authors-note.js";
 import {
   factsFromLorebook,
-  SUPPORTED_LOREBOOK_VERSION,
-  truncateFactText
+  SUPPORTED_LOREBOOK_VERSION
 } from "../shared/novelai-lorebook.js";
+import { truncateFactText } from "../shared/lorebook-entry.js";
 import {
   hasUnpairedSurrogate,
   sliceUnicodeScalarPrefix,
