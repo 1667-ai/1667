@@ -382,3 +382,39 @@ test("a macro says it arrives unexpanded", () => {
 
   assert.ok(report.includes("2 entries kept a {{macro}} unexpanded"), report);
 });
+
+test("a World Info file with its own name and description is not read as a card", () => {
+  // SillyTavern World Info files carry root metadata. The archive shape decides
+  // the format, so the card heuristic never sees a file that already declared.
+  const archive = parseLorebookArchive(Buffer.from(JSON.stringify({
+    name: "Eldoria",
+    description: "World lore",
+    entries: {
+      "0": { uid: 0, comment: "Capital", content: "The capital is Vale.", key: ["Vale"] }
+    }
+  })));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts.length, 1);
+  assert.equal(result.facts[0]?.tag, "Capital");
+});
+
+test("indented text that looks like a decorator stays prose", () => {
+  // Upstream begins decorator processing only when the content itself starts
+  // with @@, so an indented line is ordinary writing.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Indented",
+    content: "  @@dont_activate is a thing you can write.",
+    key: ["thing"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts.length, 1, "the entry is not refused");
+  assert.equal(result.facts[0]?.text, "@@dont_activate is a thing you can write.");
+  assert.ok(
+    !fidelityReport(result.fidelity).includes("@@dont_activate"),
+    fidelityReport(result.fidelity)
+  );
+});

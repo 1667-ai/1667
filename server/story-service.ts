@@ -771,6 +771,12 @@ export class StoryService extends StoryServiceRuntime {
     // applies here. A container import builds the story in process and does not
     // pass one.
     const importResult = factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
+    // An archive can hold nothing this story can take: no entries, every entry
+    // disabled, or every entry refused. That is a report, not a failure, so the
+    // story is returned unchanged rather than refused for an empty batch.
+    if (importResult.facts.length === 0) {
+      return { payload: buildStoryPayload(story), importResult };
+    }
     const payload = await this.createFact(
       storyId,
       { facts: [...importResult.facts] },

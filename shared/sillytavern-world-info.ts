@@ -286,7 +286,7 @@ function readDecorators(content: string): {
   const lines = content.split("\n");
   const decorators: string[] = [];
   let index = 0;
-  while (index < lines.length && lines[index]!.trimStart().startsWith("@@")) {
+  while (index < lines.length && lines[index]!.startsWith("@@")) {
     decorators.push(lines[index]!.trim());
     index += 1;
   }

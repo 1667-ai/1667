@@ -212,6 +212,33 @@ test("import-lorebook reads a SillyTavern World Info file", async () => {
   }
 });
 
+test("an archive with nothing to import reports zero rather than failing", async () => {
+  // Every entry switched off is a valid file. The writer gets a report, and the
+  // story is left as it was.
+  const { root, stories } = await projectWithStories(["Empty Import Target"]);
+  const target = stories[0]!;
+  const file = path.join(root, "empty.json");
+  await writeFile(file, JSON.stringify({
+    entries: {
+      "0": { uid: 0, comment: "Off", content: "Not in play.", key: ["k"], disable: true }
+    }
+  }), "utf8");
+
+  const out = recorder();
+  const errors = recorder();
+  await runLorebookImport(["--story", target.id, "--data", root, file], out, errors);
+
+  expect(out.text).toContain("imported 0 facts");
+  expect(errors.text).toContain("1 disabled entry skipped");
+
+  const backend = await createWorkerStoryApi({ dataDir: path.join(root, ".1667") });
+  try {
+    expect((await backend.api.loadStory(target.id)).facts).toEqual([]);
+  } finally {
+    await backend.dispose();
+  }
+});
+
 function buildPngLorebook(jsonText: string): Uint8Array {
   const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   const base64Payload = Buffer.from(jsonText, "utf8").toString("base64");

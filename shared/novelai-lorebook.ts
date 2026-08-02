@@ -79,6 +79,12 @@ export function factsFromArchive(
   room: number,
   bodyBudget?: number
 ): LorebookImport {
+  // Recognise an archive before guessing at a card. A World Info file may carry
+  // its own root name and description, which would otherwise read as a card.
+  if (isWorldInfo(value)) return worldInfoFacts(value, room, bodyBudget);
+  if (isRecord(value) && value.lorebookVersion !== undefined) {
+    return factsFromLorebook(value, room, bodyBudget);
+  }
   // A character card is .json as well, and it has its own door. Name that door
   // rather than refuse it as a lorebook with the wrong version.
   if (isCharacterCardShape(value)) {
@@ -87,7 +93,14 @@ export function factsFromArchive(
         + " or the 'import character card' command"
     );
   }
-  if (!isWorldInfo(value)) return factsFromLorebook(value, room, bodyBudget);
+  return factsFromLorebook(value, room, bodyBudget);
+}
+
+function worldInfoFacts(
+  value: unknown,
+  room: number,
+  bodyBudget?: number
+): LorebookImport {
   const converted = lorebookFromWorldInfo(value);
   const imported = factsFromLorebook(converted.lorebook, room, bodyBudget);
   return {
