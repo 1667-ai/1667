@@ -124,6 +124,7 @@ test("paste inserts at the composer cursor and flattens single-line prompts", ()
     composer: retakeComposer,
     retakePrompt: {
       nodeId: "old-retake",
+      intent: { kind: "retake" as const },
       composer: retakeComposer,
       composerScrollTop: 0,
       returnState: {

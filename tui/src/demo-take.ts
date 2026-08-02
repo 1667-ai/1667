@@ -3,18 +3,32 @@ import type { Story, StoryNode } from "../../shared/types.js";
 import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
 import { makeDemoNode } from "./demo-fixture.js";
 
+/** Optional fields `createDemoTake` needs for only some callers, collapsed
+ *  into one object rather than positional params three call sites would
+ *  otherwise thread by position (and skip past with `undefined`) for
+ *  subsets they don't need. */
+export interface CreateDemoTakeOptions {
+  /** Source node metadata to copy — edit-as-sibling and rewrite only. */
+  readonly source?: StoryNode | null;
+  /** Provider commits pass this; human and edit-as-sibling takes omit it. */
+  readonly genId?: string;
+  /** Replaces the default human-edit attribution derivation when given — the
+   *  rewrite path needs the model-replacement shape
+   *  `attributionAfterReplacement` computes, never the human-edit one. */
+  readonly attributionOverride?: StoryNode["attribution"];
+}
+
 /** Mutate the in-memory demo with the same sibling and endpoint-tag
- * behavior as the backend. Source metadata is copied only for edit-as-sibling.
- * Provider commits may pass `genId`; human and edit-as-sibling takes omit it. */
+ * behavior as the backend. */
 export function createDemoTake(
   story: Story,
   parentId: string | null,
   instruction: string,
   text: string,
   human: boolean,
-  source: StoryNode | null = null,
-  genId?: string
-): void {
+  options: CreateDemoTakeOptions = {}
+): StoryNode {
+  const { source = null, genId, attributionOverride } = options;
   if (parentId !== null && !story.nodes.some((node) => node.id === parentId)) {
     throw new Error(`Unknown demo node: ${parentId}`);
   }
@@ -27,15 +41,18 @@ export function createDemoTake(
     ...(source.role === undefined ? {} : { role: source.role }),
     ...(source.coveredExtent === undefined ? {} : { coveredExtent: { ...source.coveredExtent } }),
     ...(source.madeAt === undefined ? {} : { madeAt: source.madeAt }),
-    attribution: text === source.text
-      ? cloneAttribution(source)
-      : attributionAfterHumanEdit(source.attribution, source.text, text)
+    attribution: attributionOverride !== undefined
+      ? attributionOverride
+      : text === source.text
+        ? cloneAttribution(source)
+        : attributionAfterHumanEdit(source.attribution, source.text, text)
   });
   if (human) node.human = true;
   if (genId !== undefined) node.genId = genId;
   story.nodes.push(node);
   if (endpointTag !== undefined) endpointTag.nodeId = id;
   switchToNode(story, id, { stopAtNode: true });
+  return node;
 }
 
 function cloneAttribution(source: StoryNode): StoryNode["attribution"] {

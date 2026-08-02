@@ -287,9 +287,10 @@ export async function rewriteNode(
   signal: AbortSignal,
   providerStarted: () => void | Promise<void> = () => {},
   rewriteId?: string,
+  takeId?: string,
   bindIntent?: BindGenerationIntent
-): Promise<boolean> {
-  if (signal.aborted) return false;
+): Promise<string | null> {
+  if (signal.aborted) return null;
   const start = body.start;
   const end = body.end;
   const expected = requireString(body.expected, "expected");
@@ -310,7 +311,7 @@ export async function rewriteNode(
       ? "Reword this: give a different word or short phrase with the same meaning that fits the sentence seamlessly."
       : "Write this passage again. Keep what happens the same, but find fresh words, images, and rhythm.";
   const story = await stories.loadForMutation(id);
-  if (signal.aborted) return false;
+  if (signal.aborted) return null;
   const part = activePath(story).find((node) => node.id === partId);
   if (part === undefined) throw new HttpError(404, `Node not found on the active path: ${partId}`);
   if (
@@ -324,7 +325,7 @@ export async function rewriteNode(
   const originalText = part.text;
   const facts = rewriteFactsSystemMessage(story, partId, instruction, expected);
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
-  if (signal.aborted) return false;
+  if (signal.aborted) return null;
   // A fresh nonce makes the rewrite markers and output terminator impossible to
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
@@ -385,16 +386,21 @@ export async function rewriteNode(
     providerStarted,
     createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
   );
-  if (replacement === null) return false;
+  if (replacement === null) return null;
+  // Issue #277 stage 1: point a writer whose seam contract just failed at the
+  // reliable fallback — a plain regenerate skips the exact-boundary step
+  // entirely. Remove this pointer once stage 2 gives an instructed rewrite a
+  // bare mode of its own, so the seam contract stops being the only path.
+  const SMALL_MODEL_POINTER = " Smaller models often cannot complete this exact-boundary step; a plain regenerate (a rewrite with no instruction) is the reliable alternative.";
   if (requireLeftAnchor && !output.matchedPrefix) {
-    throw new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved.");
+    throw new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved." + SMALL_MODEL_POINTER);
   }
   // The end marker is required even when nothing follows the selection: without
   // it, a rewrite at the end of the story is an unverifiable free continuation.
   if (plan.endMarker.length > 0 && !output.matchedContract) {
-    throw new GenerationResultError(502, plan.rightAnchor.length > 0
+    throw new GenerationResultError(502, (plan.rightAnchor.length > 0
       ? "The model did not reconnect the replacement to the exact text after it; nothing was saved."
-      : "The model did not finish its replacement cleanly; nothing was saved.");
+      : "The model did not finish its replacement cleanly; nothing was saved.") + SMALL_MODEL_POINTER);
   }
   // Small models echo the markers back despite being told not to; splicing that
   // in would put a literal <rewrite> tag into the prose. Strip them defensively,
@@ -424,7 +430,7 @@ export async function rewriteNode(
   const replacementText =
     plan.leadingWhitespace + cleaned.trim() + plan.trailingWhitespace;
   try {
-    return await stories.commitProviderEffect(id, {
+    const node = await stories.commitProviderEffect(id, {
       kind: "rewrite",
       nodeId: partId,
       expectedText: originalText,
@@ -440,8 +446,10 @@ export async function rewriteNode(
       ),
       updatedAt: new Date().toISOString(),
       rewriteId,
+      takeId,
       cancelled: signal
     });
+    return node.id;
   } catch (error) {
     if (error instanceof HttpError
       && error.code === "story_manifest_requires_successor") {

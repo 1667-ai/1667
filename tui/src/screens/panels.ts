@@ -14,6 +14,7 @@ import {
 } from "../library-model.js";
 import { type HitRows, type HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
+import { canRewriteSelection } from "../selection-projection.js";
 import type { OverlayState, StoryScreenState, StreamView } from "../state.js";
 import { currentPartActions } from "../story-actions.js";
 import { generationBusy } from "../generation-action.js";
@@ -387,11 +388,11 @@ function renderCommands(
   const model = commandPaletteModel(
     overlay.query,
     state.demo,
-    commandContext(
-      state.payload,
-      state.connection.down,
-      state.requestActive
-    )
+    commandContext(state.payload, {
+      connectionDown: state.connection.down,
+      requestActive: state.requestActive,
+      canRewriteSelection: canRewriteSelection(overlay.selection?.spans ?? [])
+    })
   );
   const cursor = retainCommandSelection(model.selectable, overlay.selectedId, overlay.cursor).cursor;
   const targets: Array<HitTarget | null> = [null];

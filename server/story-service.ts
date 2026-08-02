@@ -819,8 +819,8 @@ export class StoryService extends StoryServiceRuntime {
     value: unknown,
     onDelta: DeltaConsumer,
     signal: AbortSignal,
-    options: GenerationMutationHooks & { rewriteId?: string } = {}
-  ): Promise<boolean> {
+    options: GenerationMutationHooks & { rewriteId?: string; takeId?: string } = {}
+  ): Promise<string | null> {
     return await this.storyGeneration.rewriteNode(
       id,
       nodeId,

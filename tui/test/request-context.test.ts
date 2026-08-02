@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { initialState } from "../src/app.js";
+import { setComposerText } from "../src/composer-model.js";
 import { openRetakeComposer, suspendRetakeComposer } from "../src/composer-ownership.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "../src/model.js";
 import { nextRequestContext, projectNextRequest } from "../src/request-context.js";
+import { openRewriteComposer } from "../src/rewrite-action.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
 import { formatTokensEstimate, formatTokensScaled } from "../src/rail.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
@@ -150,7 +152,7 @@ describe("stream-aware next-request projection", () => {
       const payload = createDemoController().payload();
       const state = stateWith(payload);
       const target = payload.path.at(-1)!;
-      const prompt = openRetakeComposer(state, target.id, instruction);
+      const prompt = openRetakeComposer(state, target.id, instruction, { kind: "retake" });
       state.focusIndex = rowIndexForNode(createStoryViewModel(payload), "p5");
 
       const projected = projectNextRequest(state);
@@ -184,6 +186,32 @@ describe("stream-aware next-request projection", () => {
     }
   });
 
+  test("a rewrite composer projects the baseline continue request, never a retake", () => {
+    // PromptIntent exists precisely so `retakePrompt` can hold either
+    // operation; the projection used to infer "retake" from its mere
+    // presence, which was sound only while it could hold nothing else.
+    const payload = createDemoController().payload();
+    const state = stateWith(payload);
+    const target = payload.path.at(-1)!;
+    const start = 0;
+    const end = Math.min(5, target.text.length);
+    openRewriteComposer(state, { node: target, start, end, expected: target.text.slice(start, end) });
+    setComposerText(state.composer, "an instruction that must never leak into this projection");
+
+    const projected = projectNextRequest(state);
+    expect(projected.context.operation).toBe("continue");
+    expect(projected.context.instruction).toBe("");
+    expect(projected.context.targetId).toBe(target.id);
+
+    // Exactly the baseline the story would show at this row with no composer
+    // open at all — a rewrite composer projects no rewrite-specific request,
+    // and does not leak its typed instruction into a continuation either.
+    const navProjected = projectNextRequest(stateWith(payload));
+    expect(nextRequestEstimate(projected.payload, projected.context)).toEqual(
+      nextRequestEstimate(navProjected.payload, navProjected.context)
+    );
+  });
+
   test("exposes rendered entries in wire order without changing continue or retake totals", () => {
     const payload = createDemoController().payload();
     const continueState = stateWith(payload);
@@ -195,7 +223,7 @@ describe("stream-aware next-request projection", () => {
 
     const retakeState = stateWith(payload);
     const target = payload.path.at(-1)!;
-    openRetakeComposer(retakeState, target.id, "Make the lantern answer Maren.");
+    openRetakeComposer(retakeState, target.id, "Make the lantern answer Maren.", { kind: "retake" });
     const retakeProjection = projectNextRequest(retakeState);
     expect(retakeProjection.context.operation).toBe("retake");
     estimates.push(nextRequestEstimate(retakeProjection.payload, retakeProjection.context));

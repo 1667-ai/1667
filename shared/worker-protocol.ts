@@ -177,7 +177,7 @@ export interface WorkerMethodContract {
     input: { storyId: string; instruction: string; genId: string; target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string } };
     output: StoryPayload | null;
   };
-  rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: boolean };
+  rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: string | null };
   createSummaryTake: {
     input: { storyId: string; body: { nodeId: string; offset?: number; expected?: string } };
     output: string | null;

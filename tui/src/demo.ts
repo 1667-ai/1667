@@ -1,7 +1,7 @@
 import { countWords } from "../../shared/story-text.js";
 import { normalizeAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
-import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
+import { activeHumanAttribution, attributionAfterHumanEdit, attributionAfterReplacement } from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -53,6 +53,7 @@ const EDITED = DEMO_EDITED_AT;
 
 export const DEMO_CONTINUE_TEXT = " while the compass needle scratched one small circle in the wood.";
 export const DEMO_GENERATED_TEXT = " The lantern flame bent toward the compass, though no door had opened.";
+export const DEMO_REWRITE_TEXT = "the lantern's flame steadied and held";
 export interface DemoController {
   payload(): StoryPayload;
   switchTo(nodeId: string, options?: { stopAtNode?: boolean }): StoryPayload;
@@ -68,6 +69,14 @@ export interface DemoController {
   createEditedTake(sourceNodeId: string, instruction: string, text: string): StoryPayload;
   addSummaryTake(text: string): StoryPayload;
   editNode(nodeId: string, patch: { instruction?: string; text?: string }): StoryPayload;
+  /** Splice [start, end) with a model replacement, exactly the attribution
+   *  shape `applyRewrite` (server/story-provider-effect.ts) commits — never
+   *  the human-edit path `editNode` uses, which would credit the writer with
+   *  words the model wrote. Commits as a new sibling take, mirroring
+   *  `applyRewrite`. A chapter summary never reaches this: it is not on the
+   *  active path, so nothing upstream can ever resolve one as a rewrite
+   *  target. Returns the id of the new take. */
+  rewriteNode(nodeId: string, start: number, end: number, replacement: string): { payload: StoryPayload; nodeId: string };
   deleteNode(nodeId: string, expectedSubtreeCount: number): StoryPayload;
   pruneUnusedTakes(expected: PruneUnusedTakesRequest): StoryPayload;
   putBookmark(nodeId: string, name: string, status: TagStatus): StoryPayload;
@@ -167,13 +176,13 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     createChild(parentId, instruction, text, human = false, genId) {
-      createDemoTake(story, parentId, instruction, text, human, null, genId);
+      createDemoTake(story, parentId, instruction, text, human, { genId });
       return payloadFrom(story);
     },
     createEditedTake(sourceNodeId, instruction, text) {
       const source = story.nodes.find((node) => node.id === sourceNodeId);
       if (source === undefined) throw new Error(`Unknown demo node: ${sourceNodeId}`);
-      createDemoTake(story, source.parentId, instruction, text, source.human === true, source);
+      createDemoTake(story, source.parentId, instruction, text, source.human === true, { source });
       return payloadFrom(story);
     },
     addSummaryTake(text) {
@@ -195,6 +204,20 @@ export function createDemoController(dense = false): DemoController {
       }
       node.updatedAt = EDITED;
       return payloadFrom(story);
+    },
+    rewriteNode(nodeId, start, end, replacement) {
+      const node = story.nodes.find((candidate) => candidate.id === nodeId);
+      if (node === undefined) throw new Error(`Unknown demo node: ${nodeId}`);
+      const originalText = node.text;
+      const attribution = attributionAfterReplacement(
+        activeHumanAttribution(node), start, end, replacement.length, originalText.length
+      );
+      const text = originalText.slice(0, start) + replacement + originalText.slice(end);
+      const take = createDemoTake(story, node.parentId, node.instruction, text, node.human === true, {
+        source: node,
+        attributionOverride: attribution
+      });
+      return { payload: payloadFrom(story), nodeId: take.id };
     },
     deleteNode(nodeId, expectedSubtreeCount) {
       return deleteDemoNode(nodeId, expectedSubtreeCount);
@@ -518,7 +541,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     editNode: async (_storyId, node, patch) => demo.editNode(node.id, patch),
     deleteNode: async (_storyId, nodeId, expectedSubtreeCount) => demo.deleteNode(nodeId, expectedSubtreeCount),
     pruneUnusedTakes: async (_storyId, expected) => demo.pruneUnusedTakes(expected),
-    takeFromCut: async () => unavailable("Selection rewrite"),
+    takeFromCut: async () => unavailable("Take from cut"),
     putBookmark: async (_storyId, nodeId, name, label) => demo.putBookmark(nodeId, name, label),
     deleteBookmark: async (_storyId, nodeId) => demo.deleteBookmark(nodeId),
     createFact: async (_storyId, body) => {
@@ -610,7 +633,22 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       }
       return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
     },
-    rewriteNode: async () => unavailable("Selection rewrite"),
+    rewriteNode: async (_storyId, nodeId, body, onDelta, signal, onCommitted) => {
+      let landed = "";
+      for await (const delta of streamFake(DEMO_REWRITE_TEXT, { wpm: 700, signal })) {
+        landed += delta;
+        onDelta(delta);
+      }
+      if (signal.aborted) return null;
+      const node = demo.payload().path.find((candidate) => candidate.id === nodeId);
+      if (node === undefined) return null;
+      const result = demo.rewriteNode(nodeId, body.start, body.end, landed);
+      // Mirrors the real adapters: the fixture's own "commit" already
+      // happened above, so tell the caller before returning rather than
+      // pretend it waits on some refresh of its own.
+      onCommitted?.(result.nodeId);
+      return result.nodeId;
+    },
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
       let landed = "";
       for await (const delta of streamFake(DEMO_SUMMARY_TEXT, { wpm: 700, signal })) {
