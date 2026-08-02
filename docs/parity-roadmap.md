@@ -144,6 +144,7 @@ Each tier is sorted, best ratio first.
 12. **Exact token counts.** The context meter estimates four characters per
     token. Technical users compare the meter with provider bills. Use the
     exact tokenizer where one exists, and label estimates as estimates.
+    Issue 288 records where each tokenizer lives and the caching design.
 13. **Keyed Fact logic.** Keyed Facts match plain keys in one pass. NovelAI
     supports regex keys and conditional entries. SillyTavern adds AND, NOT,
     and recursion. Add regex keys first. Add secondary-key logic second.
@@ -153,7 +154,8 @@ Each tier is sorted, best ratio first.
     protocol.
 15. **Token probability viewer.** NovelAI users praise their token probability
     tool. The OpenAI-compatible protocol returns logprobs. A terminal renders
-    this well. This is a visible differentiator.
+    this well. This is a visible differentiator. Issue 291 records the writer
+    use cases and the per-backend availability.
 16. **Long-tail samplers for local servers.** llama.cpp and KoboldCpp accept
     DRY, XTC, dynamic temperature, and Mirostat fields on their
     OpenAI-compatible endpoints. The capability matrix already gates values
