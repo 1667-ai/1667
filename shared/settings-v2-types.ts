@@ -91,7 +91,8 @@ export const SAMPLING_SCALAR_KNOB_V2_VALUES = [
   "minP",
   "frequencyPenalty",
   "presencePenalty",
-  "repeatPenalty"
+  "repeatPenalty",
+  "seed"
 ] as const;
 export type SamplingScalarKnobV2 = (typeof SAMPLING_SCALAR_KNOB_V2_VALUES)[number];
 
@@ -143,6 +144,7 @@ export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
   frequencyPenalty: null,
   presencePenalty: null,
   repeatPenalty: null,
+  seed: null,
   stop: Object.freeze([]) as readonly string[],
   logitBias: Object.freeze({}) as Readonly<Record<string, number>>,
   bannedStrings: Object.freeze([]) as readonly string[],

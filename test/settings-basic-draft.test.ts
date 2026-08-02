@@ -151,6 +151,7 @@ test("sampling edits only the default profile and preserve route-owned settings"
     frequencyPenalty: 0.2,
     presencePenalty: null,
     repeatPenalty: null,
+    seed: null,
     stop: ["END"],
     logitBias: { "15043": 1 },
     bannedStrings: [],

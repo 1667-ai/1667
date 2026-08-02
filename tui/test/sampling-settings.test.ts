@@ -14,6 +14,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText, visibleWidth } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
+import { samplingLayerRowIndex } from "../src/sampling-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   deferred,
@@ -162,13 +163,55 @@ describe("Sampling Settings user flow", () => {
     await press(key("left"));
     await press(key("left"));
     expect(state.settings?.draft.sampling.repeatPenalty).toBe(null);
+
+    await press(key("down"));
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.seed).toBe(1);
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.seed).toBe(2);
+    await press(key("left"));
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.seed).toBe(null);
+  });
+
+  test("seed accepts direct integer entry and rejects non-integer text", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("seed"));
+    await press(key("return"));
+
+    setSamplingEdit(state, "1.5");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    expect(state.settings?.draft.sampling.seed).toBe(null);
+
+    setSamplingEdit(state, "42");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).toBe(null);
+    expect(state.settings?.draft.sampling.seed).toBe(42);
+  });
+
+  test("seed is disabled for Anthropic with the same protocol reason as other OpenAI-only scalars", async () => {
+    const { source, state, press } = settingsHarness();
+    useAnthropicSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("seed"));
+
+    const frame = render(state, 80, 24);
+    const seedLine = frame.split("\n").find((line) => line.includes("seed"));
+    expect(seedLine).toContain("‹ — ›");
+
+    await press(key("return"));
+    expect(state.settings?.sampling?.result).toBe("seed disabled · not in protocol");
+    expect(state.settings?.draft.sampling.seed).toBe(null);
   });
 
   test("adds, edits, reorders, and deletes stop sequences", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
 
     await press(key("n"));
@@ -194,7 +237,7 @@ describe("Sampling Settings user flow", () => {
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
 
     await press(key("n"));
@@ -255,7 +298,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     const stopFrame = render(state, 80, 24);
     expect(stopFrame).toContain("no stop sequences yet.");
@@ -263,7 +306,7 @@ describe("Sampling Settings user flow", () => {
     expect(stopFrame.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     const logitFrame = render(state, 80, 24);
     expect(logitFrame).toContain("no biased tokens yet.");
@@ -276,7 +319,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     await press(key("n"));
     let frame = render(state, 80, 24);
@@ -293,7 +336,7 @@ describe("Sampling Settings user flow", () => {
 
     await press(key("escape"));
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     await press(key("n"));
     frame = render(state, 80, 24);
@@ -318,7 +361,7 @@ describe("Sampling Settings user flow", () => {
     // PRESET_SUBTRACTIONS in shared/sampling-capabilities.ts).
     useKoboldcppSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 8);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("sampling");
     expect(state.settings?.sampling?.result).toContain("not in preset");
@@ -331,7 +374,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 8);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("phrase-bias");
   });
@@ -353,7 +396,7 @@ describe("Sampling Settings user flow", () => {
     source.api.getSettings = async () => source.settingsView;
 
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 8);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("sampling");
     expect(state.settings?.sampling?.result).toContain("no exact tokenizer");
@@ -375,7 +418,7 @@ describe("Sampling Settings user flow", () => {
     };
 
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 8);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("phrase-bias");
 
@@ -431,7 +474,7 @@ describe("Sampling Settings user flow", () => {
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 9);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("banned-strings"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("banned-strings");
 
@@ -459,7 +502,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("stop");
     await press(key("escape"));
@@ -506,16 +549,13 @@ async function moveLayer2Cursor(
   for (let index = 0; index < target; index += 1) await press(key("down"));
 }
 
-function useKoboldcppSettings(source: ReturnType<typeof demoAppSource>): void {
+function useProviderSettings(
+  source: ReturnType<typeof demoAppSource>,
+  provider: { provider: "openai-compatible" | "anthropic"; baseUrl: string; model: string }
+): void {
   const active = source.settingsView;
   if (!active.editable) throw new Error("demo settings must be editable");
-  const generation = {
-    ...source.settings,
-    provider: "openai-compatible" as const,
-    baseUrl: "http://127.0.0.1:5001/v1",
-    model: "gpt-5.2",
-    apiKeyEnv: null
-  };
+  const generation = { ...source.settings, ...provider, apiKeyEnv: null };
   const document = applyBasicSettingsDraft(active.document, generation);
   source.settingsView = {
     ...active,
@@ -525,50 +565,45 @@ function useKoboldcppSettings(source: ReturnType<typeof demoAppSource>): void {
   source.api.getSettings = async () => source.settingsView;
 }
 
+// KoboldCpp has no native tokenize side channel 1667 uses yet (deferred to a
+// follow-up stage) and its reported model name is not trustworthy for
+// tokenizer selection either — phraseBias and bannedStrings stay subtracted
+// for this preset regardless of model (see PRESET_SUBTRACTIONS in
+// shared/sampling-capabilities.ts).
+function useKoboldcppSettings(source: ReturnType<typeof demoAppSource>): void {
+  useProviderSettings(source, {
+    provider: "openai-compatible", baseUrl: "http://127.0.0.1:5001/v1", model: "gpt-5.2"
+  });
+}
+
+// llama.cpp resolves phraseBias/bannedStrings through its own live tokenize
+// probe (server/context-probe.ts) instead of trusting a reported model name,
+// so it is not subtracted — this preset name stays "supported" for that
+// reason, not because the reported name "gpt-5.2" is trustworthy.
 function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {
-  const active = source.settingsView;
-  if (!active.editable) throw new Error("demo settings must be editable");
-  const generation = {
-    ...source.settings,
-    provider: "openai-compatible" as const,
-    baseUrl: "http://127.0.0.1:8080/v1",
-    model: "gpt-5.2",
-    apiKeyEnv: null
-  };
-  const document = applyBasicSettingsDraft(active.document, generation);
-  source.settingsView = {
-    ...active,
-    document,
-    effective: basicSettingsFromDocument(document)
-  } satisfies SettingsView;
-  source.api.getSettings = async () => source.settingsView;
+  useProviderSettings(source, {
+    provider: "openai-compatible", baseUrl: "http://127.0.0.1:8080/v1", model: "gpt-5.2"
+  });
+}
+
+function useAnthropicSettings(source: ReturnType<typeof demoAppSource>): void {
+  useProviderSettings(source, {
+    provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "claude-fixture"
+  });
 }
 
 /** "gpt-4o" is on the closed tokenizer allow-list
  * (shared/sampling-capabilities.ts), so phrase bias and banned strings
- * resolve instead of reporting "no exact tokenizer". */
+ * resolve instead of reporting "no exact tokenizer". The real api.openai.com
+ * host, not a loopback port: phraseBias and bannedStrings are subtracted
+ * for every self-hosted local preset without a trusted tokenizer (KoboldCpp,
+ * LM Studio, Ollama, OpenRouter — see PRESET_SUBTRACTIONS in
+ * shared/sampling-capabilities.ts) regardless of what model name it reports,
+ * so this test needs a preset the model name is trustworthy for. */
 function useEncodedModelSettings(source: ReturnType<typeof demoAppSource>): void {
-  const active = source.settingsView;
-  if (!active.editable) throw new Error("demo settings must be editable");
-  const generation = {
-    ...source.settings,
-    provider: "openai-compatible" as const,
-    // The real api.openai.com host, not a loopback port: phraseBias and
-    // bannedStrings are subtracted for every self-hosted local preset
-    // (llama.cpp, KoboldCpp, LM Studio, Ollama — see PRESET_SUBTRACTIONS in
-    // shared/sampling-capabilities.ts) regardless of what model name it
-    // reports, so this test needs a preset the model name is trustworthy for.
-    baseUrl: "https://api.openai.com/v1",
-    model: "gpt-4o",
-    apiKeyEnv: null
-  };
-  const document = applyBasicSettingsDraft(active.document, generation);
-  source.settingsView = {
-    ...active,
-    document,
-    effective: basicSettingsFromDocument(document)
-  } satisfies SettingsView;
-  source.api.getSettings = async () => source.settingsView;
+  useProviderSettings(source, {
+    provider: "openai-compatible", baseUrl: "https://api.openai.com/v1", model: "gpt-4o"
+  });
 }
 
 function publishSamplingRefresh(

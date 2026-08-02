@@ -4,6 +4,7 @@ import { createComposer, setComposerText } from "../src/composer-model.js";
 import { parsePartFile, serializePart } from "../src/editor.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
+import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { frameText } from "../src/screens/story/frame.js";
 import type { InlineEditorSession, RuntimeState } from "../src/state.js";
 import { editorHarness, key } from "./editor-harness.js";
@@ -12,6 +13,24 @@ function documentEditor(state: RuntimeState): InlineEditorSession {
   const editor = state.editor;
   if (editor?.kind !== "document") throw new Error("expected a document editor");
   return editor;
+}
+
+/** Author Brief has no NAV shortcut; open it the way a writer would, through
+ *  the story palette. */
+async function openAuthorBriefFromPalette(
+  state: RuntimeState,
+  press: (event: ReturnType<typeof key>) => Promise<void>
+): Promise<void> {
+  await press(key("p", { ctrl: true }));
+  expect(state.mode).toBe("COMMANDS");
+  state.commands = {
+    query: "author brief",
+    cursor: 0,
+    selectedId: "author-brief",
+    view: "commands",
+    returnMode: state.commands?.returnMode ?? "NAV"
+  };
+  await press(key("return"));
 }
 
 describe("inline editor", () => {
@@ -229,6 +248,129 @@ describe("inline editor", () => {
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.composer.text).toBe("Keep this draft.");
     expect(state.toast).toBe("note endpoint unavailable");
+  });
+
+  test("Author's Note depth steps with the alt-minus/equals chord, is bounded, and saves with the note", async () => {
+    const { source, state, press } = editorHarness();
+
+    await press(key("a"));
+    const target = documentEditor(state).target as { kind: "authors-note"; depth: number };
+    expect(target.depth).toBe(1);
+
+    await press(key("-", { meta: true }));
+    expect(target.depth).toBe(1);
+    expect(state.editor?.composer.text).toBe("");
+
+    await press(key("=", { meta: true }));
+    await press(key("=", { meta: true }));
+    expect(target.depth).toBe(3);
+
+    for (let step = 0; step < 12; step += 1) await press(key("=", { meta: true }));
+    expect(target.depth).toBe(10);
+
+    await press(key("-", { meta: true }));
+    expect(target.depth).toBe(9);
+
+    let receivedDepth: number | undefined;
+    const forward = source.api.setAuthorsNote.bind(source.api);
+    source.api.setAuthorsNote = async (storyId, note, depth) => {
+      receivedDepth = depth;
+      return await forward(storyId, note, depth);
+    };
+    setComposerText(state.editor!.composer, "Keep the storm distant.");
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(receivedDepth).toBe(9);
+    expect(state.payload.authorsNote).toBe("Keep the storm distant.");
+    expect(state.payload.authorsNoteDepth).toBe(9);
+    expect(state.toast).toBe("Author's Note saved");
+  });
+
+  test("a recovered Author's Note depth requires confirmation before the draft overwrites it", async () => {
+    const { source, state, press } = editorHarness();
+    state.payload.authorsNote = "Keep the storm distant.";
+    await press(key("a"));
+    const target = documentEditor(state).target as {
+      kind: "authors-note";
+      depth: number;
+      expectedDepth: number;
+    };
+
+    // The writer moves the depth, and recovery brings back a different one.
+    // The note text still matches, so only the depth disagrees.
+    await press(key("=", { meta: true }));
+    expect(target.depth).toBe(2);
+    adoptSameStoryPayload(state, { ...state.payload, authorsNoteDepth: 7 });
+
+    expect(target.depth).toBe(2);
+    expect(target.expectedDepth).toBe(7);
+    expect(documentEditor(state).conflict === null).toBe(false);
+
+    let saves = 0;
+    const forward = source.api.setAuthorsNote.bind(source.api);
+    source.api.setAuthorsNote = async (storyId, note, depth) => {
+      saves += 1;
+      return await forward(storyId, note, depth);
+    };
+
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(saves).toBe(0);
+    expect(documentEditor(state).conflict?.armed).toBeTrue();
+  });
+
+  test("a depth change alone still saves, even when the note text is untouched", async () => {
+    const { source, state, press } = editorHarness();
+    await press(key("a"));
+    setComposerText(state.editor!.composer, "Sparse prose.");
+    await press(key("s", { sequence: "", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorsNoteDepth).toBe(undefined);
+
+    await press(key("a"));
+    expect(state.editor?.composer.text).toBe("Sparse prose.");
+    await press(key("=", { meta: true }));
+    let receivedDepth: number | undefined;
+    const forward = source.api.setAuthorsNote.bind(source.api);
+    source.api.setAuthorsNote = async (storyId, note, depth) => {
+      receivedDepth = depth;
+      return await forward(storyId, note, depth);
+    };
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(receivedDepth).toBe(2);
+    expect(state.payload.authorsNote).toBe("Sparse prose.");
+    expect(state.payload.authorsNoteDepth).toBe(2);
+  });
+
+  test("author brief opens from the story palette, saves, clears, and reports save errors", async () => {
+    const { source, state, press } = editorHarness();
+
+    await openAuthorBriefFromPalette(state, press);
+    expect(documentEditor(state).target.kind).toBe("author-brief");
+    setComposerText(state.editor!.composer, "Write in short, clipped sentences.");
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorBrief).toBe("Write in short, clipped sentences.");
+    expect(state.toast).toBe("Author Brief saved");
+
+    await openAuthorBriefFromPalette(state, press);
+    setComposerText(state.editor!.composer, " \n\t ");
+    await press(key("s", { sequence: "", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.authorBrief).toBe(undefined);
+    expect(state.toast).toBe("Author Brief cleared");
+
+    source.api.setAuthorBrief = async () => { throw new Error("brief endpoint unavailable"); };
+    await openAuthorBriefFromPalette(state, press);
+    setComposerText(state.editor!.composer, "Keep this draft.");
+    await press(key("s", { sequence: "", ctrl: true }));
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.composer.text).toBe("Keep this draft.");
+    expect(state.toast).toBe("brief endpoint unavailable");
   });
 
   test("Author's Note enforces the scalar limit on save and paints its status", async () => {

@@ -164,7 +164,8 @@ const SAMPLING_SCALAR_STEPS: Readonly<Record<SamplingScalarKnob, {
   minP: { step: 0.01, neutral: 0, precision: 2 },
   frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
   presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
-  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 }
+  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
+  seed: { step: 1, neutral: 1, precision: 0 }
 };
 
 function roundSamplingValue(value: number, precision: number): number {

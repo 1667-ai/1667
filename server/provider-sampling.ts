@@ -144,6 +144,8 @@ function encodeSamplingValue(
       return configuredScalarValue(sampling.presencePenalty, knob);
     case "repeatPenalty":
       return configuredScalarValue(sampling.repeatPenalty, knob);
+    case "seed":
+      return configuredScalarValue(sampling.seed, knob);
     case "stop":
       return [...sampling.stop];
     default:

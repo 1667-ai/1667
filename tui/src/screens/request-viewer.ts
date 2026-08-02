@@ -223,7 +223,7 @@ function requestBody(
       ],
       target
     });
-    const source = entrySource(entry.turn.blocks[0]?.kind ?? "source", entry.partId);
+    const source = entrySource(entry);
     const messagePrefix = ` ${String(index + 1).padStart(2, "0")} ${message.role.toUpperCase()} · ${entry.category} · `;
     const tokenSuffix = ` · ${formatTokensEstimate(estimate.messageTokenCounts[index]!)}`;
     const sourceWidth = Math.max(
@@ -270,9 +270,17 @@ function requestRowIdentity(entry: NextRequestEstimate["plan"]["entries"][number
   ])}`;
 }
 
-function entrySource(kind: string, partId: string | undefined): string {
-  if (partId !== undefined) return `${kind} ${partId}`;
-  return kind.replaceAll("-", " ");
+function entrySource(entry: NextRequestEstimate["plan"]["entries"][number]): string {
+  const kind = entry.turn.blocks[0]?.kind ?? "source";
+  if (entry.partId !== undefined) return `${kind} ${entry.partId}`;
+  const label = kind.replaceAll("-", " ");
+  // The placement the request really used, which may be clamped short of the
+  // requested depth. No part follows the note when the story has none, and
+  // "depth 0" is not a depth the writer can set, so name that placement.
+  if (entry.category !== "note") return label;
+  return entry.partsAfterNote === 0
+    ? `${label} · before the request`
+    : `${label} · depth ${entry.partsAfterNote}`;
 }
 
 function titleLine(title: string, width: number): FrameLine {

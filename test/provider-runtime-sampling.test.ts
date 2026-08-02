@@ -43,6 +43,7 @@ test("v2 runtime keeps legacy credential positions before explicit sampling", ()
     frequencyPenalty: null,
     presencePenalty: null,
     repeatPenalty: null,
+    seed: null,
     stop: ["END"],
     logitBias: { "2": -1 },
     bannedStrings: [],

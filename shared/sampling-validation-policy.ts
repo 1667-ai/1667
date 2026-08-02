@@ -23,7 +23,8 @@ export const SAMPLING_SCALAR_DESCRIPTORS = {
   minP: { minimum: 0, maximum: 1, integer: false },
   frequencyPenalty: { minimum: -2, maximum: 2, integer: false },
   presencePenalty: { minimum: -2, maximum: 2, integer: false },
-  repeatPenalty: { minimum: 1, maximum: 10, integer: false }
+  repeatPenalty: { minimum: 1, maximum: 10, integer: false },
+  seed: { minimum: 1, maximum: 999_999, integer: true }
 } as const satisfies Readonly<Record<SamplingScalarKnob, SamplingScalarDescriptor>>;
 
 export const SAMPLING_STOP_POLICY = {
@@ -333,6 +334,7 @@ export function validateSamplingSettings(
     frequencyPenalty: validateSamplingScalarOrNull("frequencyPenalty", sampling.frequencyPenalty, `${label}.frequencyPenalty`),
     presencePenalty: validateSamplingScalarOrNull("presencePenalty", sampling.presencePenalty, `${label}.presencePenalty`),
     repeatPenalty: validateSamplingScalarOrNull("repeatPenalty", sampling.repeatPenalty, `${label}.repeatPenalty`),
+    seed: validateSamplingScalarOrNull("seed", sampling.seed, `${label}.seed`),
     stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
     logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`),
     bannedStrings: validateSamplingBannedStrings(sampling.bannedStrings, `${label}.bannedStrings`),

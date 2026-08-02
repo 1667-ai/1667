@@ -1,4 +1,5 @@
 import type { StoryFact } from "../../shared/types.js";
+import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { setComposerText } from "./composer-model.js";
 import {
   factEditorChanged,
@@ -40,9 +41,36 @@ export function reconcileFactEditor(state: RuntimeState): void {
 export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   const editor = state.editor;
   if (editor?.kind !== "document" || editor.target.kind !== "authors-note") return;
+  const target = editor.target;
   const authoritative = state.payload.authorsNote ?? "";
+  const authoritativeDepth = resolveAuthorsNoteDepth(state.payload.authorsNoteDepth);
+  // A depth draft the writer never touched rebases quietly; one they changed
+  // stays their own, the same way a pristine vs. dirty text draft behaves.
+  const depthPristine = target.depth === target.expectedDepth;
+  target.expectedDepth = authoritativeDepth;
+  if (depthPristine) target.depth = authoritativeDepth;
+  target.expected = authoritative;
+  // A depth the writer moved while the authority moved it elsewhere is the
+  // same standoff as two texts that disagree, and it earns the same
+  // confirmation. Without this the draft would save over the recovered depth
+  // with no warning, because the text alone still matches.
+  reconcileEditorDocument(
+    state,
+    editor,
+    authoritative,
+    "Author's Note changed during recovery",
+    target.depth === authoritativeDepth
+  );
+}
+
+/** Reconcile an authoritative Author Brief refresh against the active draft. */
+export function reconcileAuthorBriefEditor(state: RuntimeState): void {
+  const editor = state.editor;
+  if (editor?.kind !== "document" || editor.target.kind !== "author-brief") return;
+  const authoritative = state.payload.authorBrief ?? "";
   editor.target.expected = authoritative;
-  reconcileEditorDocument(state, editor, authoritative, "Author's Note changed during recovery");
+  // The brief is one field: its text is the whole draft.
+  reconcileEditorDocument(state, editor, authoritative, "Author Brief changed during recovery", true);
 }
 
 function reconcileFactDocument(
@@ -79,18 +107,22 @@ function reconcileFactDocument(
   state.toast = editor.conflict.message;
 }
 
+/** `otherFieldsMatch` reports whether every field beyond the text agrees with
+ * the authoritative story. Each caller states it, because a target that gains
+ * a field must not reconcile on its text alone. */
 function reconcileEditorDocument(
   state: RuntimeState,
   editor: InlineEditorSession,
   authoritative: string,
-  message: string
+  message: string,
+  otherFieldsMatch: boolean
 ): void {
-  if (editor.composer.text === authoritative) {
+  if (editor.composer.text === authoritative && otherFieldsMatch) {
     editor.initial = authoritative;
     editor.conflict = null;
     return;
   }
-  if (editor.composer.text === editor.initial) {
+  if (editor.composer.text === editor.initial && otherFieldsMatch) {
     setComposerText(editor.composer, authoritative);
     editor.initial = authoritative;
     editor.conflict = null;

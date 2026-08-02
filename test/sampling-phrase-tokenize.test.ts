@@ -252,6 +252,7 @@ test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias ent
     frequencyPenalty: null,
     presencePenalty: null,
     repeatPenalty: null,
+    seed: null,
     stop: [],
     logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1])),
     bannedStrings: [],

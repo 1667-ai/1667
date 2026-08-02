@@ -69,6 +69,7 @@ export function parseSampling(value: unknown, label: string): SamplingSettingsV2
       sampling.repeatPenalty,
       `${label}.repeatPenalty`
     ),
+    seed: samplingScalarOrNull("seed", sampling.seed, `${label}.seed`),
     stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
     logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`),
     bannedStrings: validateSamplingBannedStrings(

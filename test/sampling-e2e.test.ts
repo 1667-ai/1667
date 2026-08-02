@@ -49,6 +49,7 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: 1.1,
+    seed: 42,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 },
     bannedStrings: [],
@@ -73,6 +74,7 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequency_penalty: body.frequency_penalty,
     presence_penalty: body.presence_penalty,
     repeat_penalty: body.repeat_penalty,
+    seed: body.seed,
     stop: body.stop,
     logit_bias: body.logit_bias
   }, {
@@ -82,6 +84,7 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequency_penalty: 0.2,
     presence_penalty: -0.1,
     repeat_penalty: 1.1,
+    seed: 42,
     stop: ["END", "DONE"],
     logit_bias: { "15043": 1 }
   });
@@ -113,6 +116,7 @@ test("phrase bias and banned strings tokenize and merge into logit_bias, with ex
       frequencyPenalty: null,
       presencePenalty: null,
       repeatPenalty: null,
+      seed: null,
       stop: [],
       logitBias: { "84021": 42 },
       phraseBias: [{ phrase: "dragon", weight: 5 }],
@@ -163,6 +167,7 @@ test("llama.cpp phrase bias resolves through its own tokenize endpoint and reach
       frequencyPenalty: null,
       presencePenalty: null,
       repeatPenalty: null,
+      seed: null,
       stop: [],
       logitBias: {},
       phraseBias: [{ phrase: "griffin", weight: -3 }],
@@ -209,6 +214,7 @@ test("unset sampling knobs stay absent from an activated OpenAI request", {
       frequencyPenalty: null,
       presencePenalty: null,
       repeatPenalty: null,
+      seed: null,
       stop: [],
       logitBias: {},
       bannedStrings: [],
@@ -239,6 +245,7 @@ test("Ollama rejects logit bias at save time without changing the active documen
     frequencyPenalty: null,
     presencePenalty: null,
     repeatPenalty: null,
+    seed: null,
     stop: [],
     logitBias: { "1": 1 },
     bannedStrings: [],
@@ -268,6 +275,7 @@ test("Anthropic lowering uses stop_sequences and does not emit OpenAI stop", {
       frequencyPenalty: null,
       presencePenalty: null,
       repeatPenalty: null,
+      seed: null,
       stop: ["END"],
       logitBias: {},
       bannedStrings: [],
@@ -279,6 +287,31 @@ test("Anthropic lowering uses stop_sequences and does not emit OpenAI stop", {
   const body = fixture.bodies.at(-1)!;
   assert.deepEqual(body.stop_sequences, ["END"]);
   assert.equal("stop" in body, false);
+});
+
+test("Anthropic Messages rejects seed at save time without changing the active document", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-anthropic-seed-save-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const before = (await store.loadView()).document;
+  const candidate = documentFor("https://api.anthropic.com", "anthropic", "claude-opus-4-5", {
+    topP: null,
+    topK: null,
+    minP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+    repeatPenalty: null,
+    seed: 42,
+    stop: [],
+    logitBias: {},
+    bannedStrings: [],
+    phraseBias: []
+  }, "anthropic");
+  await assert.rejects(
+    () => store.save(saveCommand(MUTATION_C, 1, candidate)),
+    /seed.*protocol/u
+  );
+  assert.deepEqual((await store.loadView()).document, before);
 });
 
 function documentFor(
