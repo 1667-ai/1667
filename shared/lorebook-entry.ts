@@ -169,7 +169,14 @@ export function factsFromEntries(
         losses.push("keysTruncated");
       }
 
+      // `parseFactKeys` measures the key again after case folding, and folding
+      // can grow it: 33 dotted capital I fold to 66 scalars. A key that passes
+      // here and fails there would abort the whole import, so it goes now.
       const normalizedKey = normalizeFactText(key);
+      if (unicodeScalarLength(normalizedKey, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
+        losses.push("keysDropped");
+        continue;
+      }
       if (seenKeys.has(normalizedKey)) {
         losses.push("keysDropped");
         continue;

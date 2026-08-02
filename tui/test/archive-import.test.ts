@@ -11,6 +11,7 @@ import {
 import { openArchiveImport } from "../src/archive-import-actions.js";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { recordSessionNotices } from "../src/notice-log.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -190,8 +191,14 @@ test("a lossy World Info import writes its whole report to the log", async () =>
   const state = await runImport(source, file);
 
   expect(state.toast).toContain("! full report");
-  const logged = state.notices.entries.map((entry) => String(entry.text)).join(" | ");
-  expect(logged).toContain("2 regular expression keys dropped");
+
+  // Run the recorder the app runs, so the toast lands in the log the same way
+  // it does at runtime. The headline is newest and the log opens on the notice
+  // the writer came from; the whole report must survive directly under it.
+  recordSessionNotices(state);
+  const texts = state.notices.entries.map((entry) => String(entry.text));
+  expect(texts[0]).toContain("! full report");
+  expect(texts[1]).toContain("2 regular expression keys dropped");
 });
 
 test("escape closes the archive panel and restores its previous mode", async () => {

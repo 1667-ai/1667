@@ -360,3 +360,25 @@ test("an entry that cannot be read at all is still named", () => {
     fidelityReport(result.fidelity)
   );
 });
+
+test("a key that grows past the ceiling when folded is dropped, not left to abort the import", () => {
+  // parseFactKeys measures a key again after case folding, and folding can grow
+  // it: 33 dotted capital I fold to 66 scalars. Passing it on would refuse the
+  // whole batch for one key.
+  const grows = "İ".repeat(33);
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{ enabled: true, text: "the pass closes", keys: [grows, "storm"] }]
+  }, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["storm"]);
+  assert.ok(fidelityReport(result.fidelity).includes("key dropped"), fidelityReport(result.fidelity));
+
+  // The proof: createFacts now accepts what the mapping produced.
+  const story: Story = {
+    id: "s", title: "t", createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z", nodes: [], activeRootId: null,
+    recentNodeIds: [], tags: [], facts: [], chapterBreaks: []
+  };
+  assert.equal(createFacts(story, { facts: [...result.facts] }), true);
+});
