@@ -60,6 +60,11 @@ export function renderFactsRail(
     rows.push([]);
     targets.push(null);
   }
+  // The loop leaves one decorative blank after the last block, but the frame's
+  // padding already provides that air. Drop it so the clip guard below fires
+  // only when content was actually cut, never on an exact fit.
+  rows.pop();
+  targets.pop();
   // The rail is facts *and* meter. The last row is always air; above it the
   // rail keeps the row that names it and, where there are facts, room for one
   // of them with its air — so the expansion waits for a pane that can hold both
@@ -82,6 +87,20 @@ export function renderFactsRail(
       target: { kind: "fact", index }, left: factLeft, right: railRight
     });
   });
+  // A clipped list says so. The slice already reserves one air row between
+  // the facts and the meter; when facts were cut, that row names the count
+  // instead of staying air. No visible fact is traded for it, it registers
+  // no hit, and it can never displace the header — the reserved row sits at
+  // footerTop - 1, which the footerTop > 1 guard keeps below row 0.
+  if (body.length < rows.length && footerTop > 1) {
+    const shown = new Set(
+      body.map((_, row) => targets[row]).filter((target) => target !== null)
+    ).size;
+    const hidden = model.facts.length - shown;
+    if (hidden > 0) {
+      rail[body.length] = [segment("  "), segment(`· ${hidden} more`, "chrome")];
+    }
+  }
   // The column's own name opens the panel it names — the rail is read-only, so
   // without this its header is the one row in the frame that looks like a
   // control and answers nothing.
