@@ -54,6 +54,17 @@ test("each command page opens with its own usage line", () => {
   }
 });
 
+test("a command page does not advertise a form its parser refuses", () => {
+  // `auth show` needs exactly one of --url and --auth-file, and --url always
+  // takes a value. The page said both were optional and that --url could be
+  // bare, which is the app-level flag, not this one.
+  expect(AUTH_HELP).toContain("(--url <base-url> | --auth-file <path>)");
+  expect(AUTH_HELP).toContain("exactly one");
+  expect(AUTH_HELP).not.toContain("bare");
+  // `--from` is only legal with --adopt.
+  expect(INIT_HELP).toContain("requires --adopt");
+});
+
 test("a command that requires a story says so on its own page", () => {
   for (const page of [IMPORT_CARD_HELP, IMPORT_LOREBOOK_HELP]) {
     expect(page).toContain("--story");
@@ -84,9 +95,13 @@ test("help is recognised before a command parser could refuse it", () => {
   // parser saw the flag first.
   expect(wantsHelp(["--help"])).toBeTrue();
   expect(wantsHelp(["-h"])).toBeTrue();
-  expect(wantsHelp(["--story", "x", "--help"])).toBeTrue();
   expect(wantsHelp(["book.md"])).toBeFalse();
   expect(wantsHelp([])).toBeFalse();
+
+  // `--data` and `--from` take the next argument whatever it looks like, so a
+  // later flag may be a value rather than a question.
+  expect(wantsHelp(["--data", "-h"])).toBeFalse();
+  expect(wantsHelp(["--data", "--help"])).toBeFalse();
 });
 
 test("1667 <command> --help prints that command's page instead of refusing the flag", async () => {

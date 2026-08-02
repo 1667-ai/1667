@@ -134,19 +134,22 @@ Use separate project roots for separate story libraries.
 
 Options:
   --adopt            Adopt an existing legacy data directory
-  --from <path>      The legacy data directory to adopt`;
+  --from <path>      The legacy data directory to adopt; requires --adopt`;
 
 export const AUTH_HELP = `1667 auth — show an access record
 
-Usage: 1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
+Usage: 1667 auth show --scope <story|admin> (--url <base-url> | --auth-file <path>)
 
 Prints the access record a client needs to reach a running 1667 HTTP server.
 The story scope reads and writes stories. The admin scope also controls the
 server.
 
+Give exactly one of --url and --auth-file. The command refuses to print a
+capability to output that is not a terminal.
+
 Options:
   --scope <scope>    story or admin; required
-  --url <base-url>   Read the record for this server; bare reads run.json
+  --url <base-url>   Read the record for the server at this base URL
   --auth-file <path> Read the canonical private auth record from this path`;
 
 const COMMAND_HELP: ReadonlyMap<string, string> = new Map([
@@ -163,11 +166,15 @@ export function commandHelp(command: string): string | null {
   return COMMAND_HELP.get(command) ?? null;
 }
 
-/** True when the arguments ask for help rather than for work.
+/** True when the first argument after a command asks for help.
  *
  * A command's own parser refuses an option it does not know, so the request has
  * to be answered before parsing. Otherwise `1667 import --help` reports an
- * unknown option, which is the least useful answer to that question. */
+ * unknown option, which is the least useful answer to that question.
+ *
+ * Only the first position counts. Later on, the flag may belong to the option
+ * before it: `--data` and `--from` take the next argument whatever it looks
+ * like, so `1667 import --data -h` names a directory and is not a question. */
 export function wantsHelp(argv: readonly string[]): boolean {
-  return argv.includes("--help") || argv.includes("-h");
+  return argv[0] === "--help" || argv[0] === "-h";
 }
