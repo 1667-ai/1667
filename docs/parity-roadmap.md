@@ -73,17 +73,17 @@ Each tier is sorted, best ratio first.
 
 ### Tier 1: high value, low or medium effort
 
-| # | Gap | Value | Effort |
-| --- | --- | --- | --- |
-| 1 | Selection rewrite in the TUI | High | Low |
-| 2 | Per-story author brief | High | Low |
-| 3 | SillyTavern World Info import | High | Low |
-| 4 | "Move from NovelAI" guide | High | Low |
-| 5 | Fact order, priority, and budget | High | Medium |
-| 6 | Phrase bias and banned strings | High | Medium |
-| 7 | Author's Note placement control | Medium | Low |
-| 8 | Seed parameter | Medium | Low |
-| 9 | Character card V3 and CHARX | Medium | Medium |
+| # | Gap | Value | Effort | Issue |
+| --- | --- | --- | --- | --- |
+| 1 | Selection rewrite in the TUI | High | Low | [#277](https://github.com/1667-ai/1667/issues/277) |
+| 2 | Per-story author brief | High | Low | [#278](https://github.com/1667-ai/1667/issues/278) |
+| 3 | SillyTavern World Info import | High | Low | [#279](https://github.com/1667-ai/1667/issues/279) |
+| 4 | "Move from NovelAI" guide | High | Low | [#280](https://github.com/1667-ai/1667/issues/280) |
+| 5 | Fact order, priority, and budget | High | Medium | [#281](https://github.com/1667-ai/1667/issues/281) |
+| 6 | Phrase bias and banned strings | High | Medium | [#282](https://github.com/1667-ai/1667/issues/282) |
+| 7 | Author's Note placement control | Medium | Low | [#283](https://github.com/1667-ai/1667/issues/283) |
+| 8 | Seed parameter | Medium | Low | [#284](https://github.com/1667-ai/1667/issues/284) |
+| 9 | Character card V3 and CHARX | Medium | Medium | [#285](https://github.com/1667-ai/1667/issues/285) |
 
 1. **Selection rewrite in the TUI.** The backend has the two-anchor rewrite
    operation. The TUI does not expose it. NovelAI users edit anywhere in the
@@ -117,16 +117,16 @@ Each tier is sorted, best ratio first.
 
 ### Tier 2: high value, higher effort
 
-| # | Gap | Value | Effort |
-| --- | --- | --- | --- |
-| 10 | NovelAI provider protocol | High | High |
-| 11 | Automatic chapter summaries | High | Medium |
-| 12 | Exact token counts | Medium | Medium |
-| 13 | Keyed Fact logic: regex, AND, NOT, recursion | Medium | Medium |
-| 14 | Sampler presets and `.preset` import | Medium | Medium |
-| 15 | Token probability viewer | Medium | Medium |
-| 16 | Long-tail samplers for local servers | Medium | Medium |
-| 17 | Text completion protocol | Medium | High |
+| # | Gap | Value | Effort | Issue |
+| --- | --- | --- | --- | --- |
+| 10 | NovelAI provider protocol | High | High | [#286](https://github.com/1667-ai/1667/issues/286) |
+| 11 | Automatic chapter summaries | High | Medium | [#287](https://github.com/1667-ai/1667/issues/287) |
+| 12 | Exact token counts | Medium | Medium | [#288](https://github.com/1667-ai/1667/issues/288) |
+| 13 | Keyed Fact logic: regex, AND, NOT, recursion | Medium | Medium | [#289](https://github.com/1667-ai/1667/issues/289) |
+| 14 | Sampler presets and `.preset` import | Medium | Medium | [#290](https://github.com/1667-ai/1667/issues/290) |
+| 15 | Token probability viewer | Medium | Medium | [#291](https://github.com/1667-ai/1667/issues/291) |
+| 16 | Long-tail samplers for local servers | Medium | Medium | [#292](https://github.com/1667-ai/1667/issues/292) |
+| 17 | Text completion protocol | Medium | High | [#293](https://github.com/1667-ai/1667/issues/293) |
 
 10. **NovelAI provider protocol.** SillyTavern cannot drive the NovelAI GLM
     models (SillyTavern issue 4575, open since 2025). A NovelAI connection
@@ -176,6 +176,9 @@ Each tier is sorted, best ratio first.
 Summary takes and chapter summaries already cover part of the RAG use case.
 Items 24 to 26 serve chat roleplay or need a plugin surface. They do not serve
 the position above.
+
+Tier 1 and Tier 2 have tracking issues. Tier 3 has no tracking issues. Open an
+issue for a Tier 3 item when work on it starts.
 
 ## Tracked work that overlaps
 
