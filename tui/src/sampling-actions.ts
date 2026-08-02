@@ -193,7 +193,10 @@ function samplingEditAction(
     nested.edit = null;
     nested.result = "draft updated · save in Settings";
     if (edit.kind === "list" && (edit.panel === "phrase-bias" || edit.panel === "banned-strings")) {
-      resolveSamplingBias(settings, source, context);
+      resolveSamplingBias(settings, source, context, {
+        panel: edit.panel === "phrase-bias" ? "phraseBias" : "bannedStrings",
+        phrase: committedPhraseText(edit.panel, edit.composer.text)
+      });
     }
     return;
   }
@@ -205,6 +208,18 @@ function samplingEditAction(
   if (applyComposerEdit(edit.composer, resolved.action, resolved.extendSelection) !== null) {
     if (settings.conflict !== null) settings.conflict.armed = false;
   }
+}
+
+/** The phrase text a phrase-bias/banned-strings commit resolves against,
+ * matching each panel spec's own parse in tui/src/sampling-panel-spec.ts
+ * exactly (last-colon split for phrase-bias, the raw composer text for
+ * banned-strings) — this only needs the identity a resolveSamplingBias
+ * result can be matched against, not full validation, which `spec.set`
+ * above already ran. */
+function committedPhraseText(panel: "phrase-bias" | "banned-strings", raw: string): string {
+  if (panel === "banned-strings") return raw;
+  const divider = raw.lastIndexOf(":");
+  return divider <= 0 ? raw : raw.slice(0, divider).trim();
 }
 
 function commitSamplingEdit(

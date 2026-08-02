@@ -315,7 +315,7 @@ async function invokeReadOnly(
         signal
       );
     case "resolveSamplingBias":
-      return await service.resolveSamplingBias(input);
+      return await service.resolveSamplingBias(input, signal);
     case "discoverModels":
       return await service.discoverModels(
         requireRecord(input.settings, "settings"),

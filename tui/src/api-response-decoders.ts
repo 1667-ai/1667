@@ -11,9 +11,13 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
-import type {
-  ResolvedPhraseTokens,
-  SamplingBiasResolutionResult
+import {
+  SAMPLING_BIAS_VARIANT_VALUES,
+  type SamplingBiasEntryResolution,
+  type SamplingBiasResolutionResult,
+  type SamplingBiasVariant,
+  type SamplingBiasVariantOutcome,
+  type SamplingBiasVariantResolution
 } from "../../shared/sampling-capabilities.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
@@ -165,15 +169,12 @@ export function decodeSamplingBiasResolutionResponse(
   const response = responseRecord(value, label);
   const kind = response.kind;
   if (kind === "tokenizer-unavailable") return { kind };
-  if (kind === "phrase-unencodable") {
-    return { kind, phrase: stringField(response, "phrase", label) };
-  }
   if (kind !== "resolved") invalidField(label, "kind");
   return {
     kind: "resolved",
     logitBias: decodeLogitBiasRecord(response.logitBias, label),
-    phraseBias: decodeResolvedPhraseTokensList(response.phraseBias, label),
-    bannedStrings: decodeResolvedPhraseTokensList(response.bannedStrings, label),
+    phraseBias: decodeSamplingBiasEntryList(response.phraseBias, label),
+    bannedStrings: decodeSamplingBiasEntryList(response.bannedStrings, label),
     resolvedEntryCount: nonNegativeIntegerField(response, "resolvedEntryCount", label)
   };
 }
@@ -189,20 +190,72 @@ function decodeLogitBiasRecord(value: unknown, label: string): Readonly<Record<s
   return record as Readonly<Record<string, number>>;
 }
 
-function decodeResolvedPhraseTokensList(
+function decodeSamplingBiasEntryList(
   value: unknown,
   label: string
-): readonly ResolvedPhraseTokens[] {
+): readonly SamplingBiasEntryResolution[] {
   if (!Array.isArray(value)) invalidField(label, "entries");
-  return value.map((entry) => {
-    const record = responseRecord(entry, `${label} entry`);
-    const phrase = stringField(record, "phrase", `${label} entry`);
+  return value.map((entry) => decodeSamplingBiasEntry(entry, `${label} entry`));
+}
+
+function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEntryResolution {
+  const record = responseRecord(value, label);
+  const phrase = stringField(record, "phrase", label);
+  const variants = decodeSamplingBiasVariantList(record.variants, label);
+  if (record.kind === "rejected") return { kind: "rejected", phrase, variants };
+  if (record.kind !== "resolved") invalidField(label, "kind");
+  const tokenIds = record.tokenIds;
+  if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+    invalidField(label, "tokenIds");
+  }
+  return { kind: "resolved", phrase, variants, tokenIds: tokenIds as readonly number[] };
+}
+
+function decodeSamplingBiasVariantList(
+  value: unknown,
+  label: string
+): readonly SamplingBiasVariantResolution[] {
+  if (!Array.isArray(value)) invalidField(label, "variants");
+  return value.map((entry) => decodeSamplingBiasVariantResolution(entry, `${label} variant`));
+}
+
+function decodeSamplingBiasVariantResolution(
+  value: unknown,
+  label: string
+): SamplingBiasVariantResolution {
+  const record = responseRecord(value, label);
+  const variant = record.variant;
+  if (typeof variant !== "string"
+    || !(SAMPLING_BIAS_VARIANT_VALUES as readonly string[]).includes(variant)
+  ) {
+    invalidField(label, "variant");
+  }
+  const text = stringField(record, "text", label);
+  return {
+    variant: variant as SamplingBiasVariant,
+    text,
+    outcome: decodeSamplingBiasVariantOutcome(record.outcome, label)
+  };
+}
+
+function decodeSamplingBiasVariantOutcome(value: unknown, label: string): SamplingBiasVariantOutcome {
+  const record = responseRecord(value, `${label} outcome`);
+  if (record.kind === "unencodable") return { kind: "unencodable" };
+  if (record.kind === "single-token") {
+    const tokenId = record.tokenId;
+    if (!Number.isSafeInteger(tokenId) || (tokenId as number) < 0) {
+      invalidField(`${label} outcome`, "tokenId");
+    }
+    return { kind: "single-token", tokenId: tokenId as number };
+  }
+  if (record.kind === "multi-token") {
     const tokenIds = record.tokenIds;
     if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
-      invalidField(`${label} entry`, "tokenIds");
+      invalidField(`${label} outcome`, "tokenIds");
     }
-    return { phrase, tokenIds: tokenIds as readonly number[] };
-  });
+    return { kind: "multi-token", tokenIds: tokenIds as readonly number[] };
+  }
+  invalidField(`${label} outcome`, "kind");
 }
 
 export function decodeUnknownOutcomeStatusResponse(

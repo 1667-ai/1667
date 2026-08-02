@@ -6,14 +6,23 @@ This file records notable changes to 1667. Product terms use the definitions in
 ## Unreleased
 
 - **The Sampling group now accepts phrase bias and banned strings.** Type a
-  text phrase and a weight. Or type a banned string. 1667 tokenizes the text
-  for the routed model and shows the token IDs. A phrase entry and a banned
-  string merge into the same logit bias field as a token ID entry. A token
-  ID that a writer sets by hand keeps priority over the merged value. A
-  banned string makes the text unlikely. It does not make the text
-  impossible, because the same text can come from different token
-  boundaries. 1667 shows a clear reason when it has no exact tokenizer for
-  the routed model.
+  text phrase and a weight. Or type a banned string. 1667 tokenizes the
+  phrase four ways: as typed, with a leading space, with a capital letter,
+  and with both. 1667 biases a phrase only when every one of the four forms
+  is one token. Where a phrase needs more than one token in a form, 1667
+  refuses the phrase at commit and shows the token IDs, so a writer can see
+  why. 1667 never spreads one phrase over more than one token, because that
+  action would also change every other place those tokens appear. A phrase
+  entry and a banned string merge into the same logit bias field as a token
+  ID entry. A token ID that a writer sets by hand keeps priority over the
+  merged value. A banned string makes the text unlikely. It does not make
+  the text impossible, because the same text can come from different token
+  boundaries. Phrase bias and banned strings work for an OpenAI model on
+  the tokenizer list, and for llama.cpp, which 1667 asks to tokenize the
+  text directly. They do not yet work for KoboldCpp, LM Studio, Ollama,
+  OpenRouter, or a custom endpoint. 1667 shows a clear reason when a
+  phrase, a banned string, or logit bias itself is not available for the
+  routed model.
 - **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
   `.json` file to the command or to `import archive` in the command palette.
   1667 reads the file to know its format. A constant Entry becomes an always

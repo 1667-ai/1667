@@ -60,8 +60,13 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     repeatPenalty: null,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 },
-    bannedStrings: ["forbidden phrase"],
-    phraseBias: [{ phrase: "raven", weight: 4 }]
+    // Single words, chosen so every one of the four surface variants
+    // (typed, leading-space, capitalized, leading-space-capitalized)
+    // resolves to exactly one o200k_base token — a phrase that needs more
+    // than one token in any variant is rejected at resolution, and this
+    // fixture exercises the accepted path, not the rejected one.
+    bannedStrings: ["spam"],
+    phraseBias: [{ phrase: "wolf", weight: 4 }]
   });
   const emptySampling = withSampling(sampledOpenAi, EMPTY_SAMPLING_V2);
   const legacySamplingText = legacyShapedSamplingDocumentText(sampledOpenAi);

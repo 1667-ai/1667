@@ -94,11 +94,15 @@ test("phrase bias and banned strings tokenize and merge into logit_bias, with ex
   const dataDir = await initializedFormat2Directory(t, "1667-sampling-phrase-bias-e2e-");
   const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
   await store.init(2);
-  // "dragon" tokenizes to a single o200k_base token, 84021 — verified with
-  // tokenizePhraseTokenIds. It appears in both phraseBias and bannedStrings
-  // here to exercise the documented merge order (server/sampling-phrase-bias.ts):
+  // "dragon" and "wolf" are each single-token in every one of the four
+  // surface variants (typed, leading space, capitalized, leading space
+  // capitalized — shared/sampling-capabilities.ts) under o200k_base,
+  // verified with tokenizePhraseTokenIds, so both resolve rather than
+  // being rejected. "dragon" appears in both phraseBias and bannedStrings
+  // to exercise the documented merge order (server/sampling-phrase-bias.ts):
   // bannedStrings outranks phraseBias, and an explicit numeric logitBias
-  // entry outranks both.
+  // entry outranks both — but only for the one token ID it names; "dragon"'s
+  // other three variant IDs still carry bannedStrings' bias.
   await store.save(saveCommand(
     `m1.1767225600004.${"f".repeat(32)}`,
     1,
@@ -112,23 +116,81 @@ test("phrase bias and banned strings tokenize and merge into logit_bias, with ex
       stop: [],
       logitBias: { "84021": 42 },
       phraseBias: [{ phrase: "dragon", weight: 5 }],
-      bannedStrings: ["dragon", "banned phrase test"]
+      bannedStrings: ["dragon", "wolf"]
     })
   ));
   const runtime = await store.loadGeneration();
   await collect(streamCompletion(runtime.settings, PROMPT, new AbortController().signal));
   const body = fixture.bodies.at(-1)!;
   assert.deepEqual(body.logit_bias, {
-    // The explicit numeric entry wins over both text sources for the same token.
+    // The explicit numeric entry wins over both text sources for the one
+    // token ID it names ("dragon" typed).
     "84021": 42,
-    // "banned phrase test" tokenizes to four IDs, each biased to the
-    // documented minimum weight — see SAMPLING_LOGIT_BIAS_POLICY.minimum.
-    "65": -100,
-    "1746": -100,
-    "11768": -100,
-    "27179": -100
+    // "dragon"'s other three variants ( " dragon", "Dragon", " Dragon")
+    // still carry bannedStrings' bias — the documented minimum weight, see
+    // SAMPLING_LOGIT_BIAS_POLICY.minimum.
+    "45342": -100,
+    "91530": -100,
+    "34057": -100,
+    // "wolf"'s four variants, all biased to the same minimum.
+    "92538": -100,
+    "66316": -100,
+    "126693": -100,
+    "35565": -100
   });
 });
+
+// Issue #282 stage 1, point 5: llama.cpp resolves phraseBias/bannedStrings
+// through its own live POST /tokenize endpoint (server/context-probe.ts,
+// probeLlamaCppTokenize) rather than trusting its reported model name. This
+// drives the whole pipeline — save, load, generate — against a fixture
+// server that actually answers /tokenize, proving the resolved bias reaches
+// the real chat-completions wire body.
+test("llama.cpp phrase bias resolves through its own tokenize endpoint and reaches the wire", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, LLAMA_CPP_FIXTURE_TOKENS);
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-llama-tokenize-e2e-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  await store.save(saveCommand(
+    `m1.1767225600005.${"a".repeat(32)}`,
+    1,
+    documentFor(fixture.origin, "llama-cpp", "whatever-this-server-calls-itself", {
+      topP: null,
+      topK: null,
+      minP: null,
+      frequencyPenalty: null,
+      presencePenalty: null,
+      repeatPenalty: null,
+      stop: [],
+      logitBias: {},
+      phraseBias: [{ phrase: "griffin", weight: -3 }],
+      bannedStrings: []
+    })
+  ));
+  const runtime = await store.loadGeneration();
+  await collect(streamCompletion(runtime.settings, PROMPT, new AbortController().signal));
+  const body = fixture.bodies.at(-1)!;
+  assert.deepEqual(body.logit_bias, {
+    "501": -3,
+    "502": -3,
+    "503": -3,
+    "504": -3
+  });
+});
+
+/** llama.cpp's own fictional tokenizer for the fixture server above: an
+ * exact map from surface text to a fake token ID, standing in for a real
+ * model's vocabulary — the fixture is the tokenizer authority here, the
+ * same way a real llama.cpp server is authoritative for whatever model it
+ * has loaded. */
+const LLAMA_CPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
+  griffin: 501,
+  " griffin": 502,
+  Griffin: 503,
+  " Griffin": 504
+};
 
 test("unset sampling knobs stay absent from an activated OpenAI request", {
   skip: !ownedLoopbackHttpSupported()
@@ -246,10 +308,13 @@ function documentFor(
   }, sampling);
 }
 
-async function startProviderFixture(t: { after(callback: () => void | Promise<void>): void }) {
+async function startProviderFixture(
+  t: { after(callback: () => void | Promise<void>): void },
+  tokenizeMap?: Readonly<Record<string, number>>
+) {
   const bodies: Record<string, unknown>[] = [];
   const server = createServer((request, response) => {
-    void handleRequest(request, response, bodies);
+    void handleRequest(request, response, bodies, tokenizeMap);
   });
   await listen(server);
   t.after(() => { server.close(); });
@@ -261,11 +326,19 @@ async function startProviderFixture(t: { after(callback: () => void | Promise<vo
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  bodies: Record<string, unknown>[]
+  bodies: Record<string, unknown>[],
+  tokenizeMap: Readonly<Record<string, number>> | undefined
 ): Promise<void> {
   if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({ data: [{ id: "e2e-model" }] }));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/tokenize" && tokenizeMap !== undefined) {
+    const { content } = JSON.parse(await requestText(request)) as { content: string };
+    const tokenId = tokenizeMap[content];
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ tokens: tokenId === undefined ? [] : [tokenId] }));
     return;
   }
   if (request.method !== "POST") {

@@ -58,9 +58,11 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   checkModelServer: "provider-check",
   probeContextWindow: "provider-check",
   discoverModels: "provider-check",
-  // Pure local computation: no network call, so it does not need the
-  // longer provider-check budget.
-  resolveSamplingBias: "local",
+  // A llama-cpp route resolves against a live tokenize probe on that server
+  // (server/context-probe.ts), so this can be a real provider round trip,
+  // not always the pure local computation it used to be — same budget as
+  // the other provider-probe methods above.
+  resolveSamplingBias: "provider-check",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
   importNovelAI: "transfer",

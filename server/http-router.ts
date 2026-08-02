@@ -283,7 +283,7 @@ async function handleApi(
     return sendJson(
       response,
       200,
-      await service.resolveSamplingBias(await jsonBody())
+      await service.resolveSamplingBias(await jsonBody(), operation.signal)
     );
   }
 

@@ -120,6 +120,11 @@ test("sampling parses as a closed optional profile object and projects to runtim
     "gpt-4o",
     null
   ));
+  // "wolf" and "spam" are each single-token in every one of the four
+  // surface variants (typed, leading space, capitalized, leading space
+  // capitalized) under o200k_base — a phrase that needs more than one
+  // token in any variant is rejected at resolution, and this test exercises
+  // the accepted path.
   const sampling = {
     topP: 0.9,
     topK: null,
@@ -129,8 +134,8 @@ test("sampling parses as a closed optional profile object and projects to runtim
     repeatPenalty: null,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 },
-    bannedStrings: ["forbidden"],
-    phraseBias: [{ phrase: "raven", weight: 4 }]
+    bannedStrings: ["spam"],
+    phraseBias: [{ phrase: "wolf", weight: 4 }]
   } as const;
   const document = parseSettingsDocumentV2({
     ...base,

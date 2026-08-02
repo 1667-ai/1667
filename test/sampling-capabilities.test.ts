@@ -90,6 +90,13 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
     }
   },
   {
+    // OpenRouter's base URL is fixed and real (openrouter.ai), but it
+    // routes a given model ID to arbitrary providers and model families
+    // behind the scenes — the vocabulary that will actually serve a
+    // request is unknowable client-side, so phraseBias/bannedStrings are
+    // subtracted outright, the same as the self-hosted presets with no
+    // trusted tokenizer (see the PRESET_SUBTRACTIONS comment in
+    // shared/sampling-capabilities.ts).
     name: "OpenRouter baseline preset",
     context: samplingContext("openai-chat-completions", "openrouter"),
     expected: {
@@ -101,8 +108,8 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
-      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {
@@ -161,6 +168,16 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
     }
   },
   {
+    // llama.cpp is the one self-hosted preset not subtracted (issue #282
+    // stage 1, point 5): its native POST /tokenize endpoint tokenizes
+    // against whatever model that server instance actually has loaded,
+    // independent of the reported name, so 1667 asks the server instead of
+    // trusting a static allow-list keyed on that name. That live probe is
+    // async and cannot run inside this synchronous capability check, so
+    // phraseBias/bannedStrings read "available" here regardless of model —
+    // resolution, and its own "tokenizer failed" outcome, happens at
+    // request build time and in the editor's resolveSamplingBias preview
+    // (server/sampling-phrase-bias.ts).
     name: "llama.cpp extension preset",
     context: samplingContext("openai-chat-completions", "llama-cpp"),
     expected: {
@@ -172,18 +189,17 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
-      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
+      phraseBias: { kind: "available", wireField: "logit_bias" },
+      bannedStrings: { kind: "available", wireField: "logit_bias" }
     }
   },
   {
-    // Regression test for issue #282 review finding B: llama.cpp's server
-    // documents "-a, --alias STRING" ("set model name aliases ... to be
-    // used by API"), so a self-hosted server can report any model name it
-    // likes. "gpt-4o" is on the tokenizer allow-list
-    // (promptBiasTokenizerEncoding), but the preset subtraction must win
-    // regardless — trusting the reported name here would let an aliased
-    // local model receive real OpenAI token IDs for a different vocabulary.
+    // llama.cpp's server documents "-a, --alias STRING" ("set model name
+    // aliases ... to be used by API"), so a self-hosted server can report
+    // any model name it likes — but that no longer matters for phraseBias/
+    // bannedStrings availability here, because the live tokenize probe
+    // (not the reported name) is what actually resolves text to token IDs.
+    // An allow-listed name like "gpt-4o" changes nothing.
     name: "llama.cpp preset with an allow-listed model name",
     context: samplingContext("openai-chat-completions", "llama-cpp", "gpt-4o"),
     expected: {
@@ -195,8 +211,8 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
-      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
+      phraseBias: { kind: "available", wireField: "logit_bias" },
+      bannedStrings: { kind: "available", wireField: "logit_bias" }
     }
   },
   {
@@ -290,6 +306,49 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       logitBias: { kind: "unavailable", reason: "protocol" },
       phraseBias: { kind: "unavailable", reason: "protocol" },
       bannedStrings: { kind: "unavailable", reason: "protocol" }
+    }
+  },
+  {
+    // Reasoning-family OpenAI models reject logit_bias outright (Microsoft's
+    // Azure OpenAI docs, which mirror OpenAI's model capabilities, list it
+    // explicitly under "Not Supported" for reasoning models — see the
+    // OPENAI_REASONING_FAMILY_MODELS comment in
+    // shared/sampling-capabilities.ts). This gates logitBias itself, not
+    // only phraseBias/bannedStrings, because a raw token ID rides the same
+    // wire field. Every other knob is unaffected.
+    name: "reasoning-family OpenAI model",
+    context: samplingContext("openai-chat-completions", "openai", "o3-mini"),
+    expected: {
+      topP: { kind: "available", wireField: "top_p" },
+      topK: { kind: "unavailable", reason: "preset-unknown" },
+      minP: { kind: "unavailable", reason: "preset-unknown" },
+      frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
+      presencePenalty: { kind: "available", wireField: "presence_penalty" },
+      repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      stop: { kind: "available", wireField: "stop" },
+      logitBias: { kind: "unavailable", reason: "reasoning-model" },
+      phraseBias: { kind: "unavailable", reason: "reasoning-model" },
+      bannedStrings: { kind: "unavailable", reason: "reasoning-model" }
+    }
+  },
+  {
+    // A non-"openai" preset that happens to report the same model ID string
+    // is not gated by this list — the reasoning-family check, like the
+    // tokenizer allow-list, is only an authority for the preset whose
+    // reported ID is trustworthy (see the resolveSamplingKnob comment).
+    name: "a model ID matching the reasoning-family list on an untrusted preset",
+    context: samplingContext("openai-chat-completions", "custom", "o3-mini"),
+    expected: {
+      topP: { kind: "available", wireField: "top_p" },
+      topK: { kind: "unavailable", reason: "preset-unknown" },
+      minP: { kind: "unavailable", reason: "preset-unknown" },
+      frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
+      presencePenalty: { kind: "available", wireField: "presence_penalty" },
+      repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      stop: { kind: "available", wireField: "stop" },
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {

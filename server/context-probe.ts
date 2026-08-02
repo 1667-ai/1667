@@ -1,5 +1,5 @@
 import type { GenerationSettings } from "../shared/types.js";
-import { getProviderJson } from "./provider-json.js";
+import { getProviderJson, postProviderJson } from "./provider-json.js";
 import {
   hasProviderRuntime,
   providerRuntimeFor
@@ -133,6 +133,48 @@ export async function probeContextWindow(
   }
   signal?.throwIfAborted();
   return null;
+}
+
+/**
+ * Ask a llama.cpp server to tokenize `text` against whatever model it
+ * actually has loaded — authoritative by construction, unlike trusting the
+ * server's reported model name (see the PRESET_SUBTRACTIONS comment in
+ * shared/sampling-capabilities.ts for why the reported name is not trusted
+ * for phraseBias/bannedStrings on any other self-hosted preset). Returns
+ * null on any failure (network, timeout, malformed response) — the caller
+ * (server/sampling-phrase-bias.ts) treats null as "tokenizer unavailable",
+ * the same systemic outcome a failed local tokenizer load already reports.
+ *
+ * Request and response shapes are llama.cpp's own, quoted from
+ * https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
+ * ("POST /tokenize: Tokenize a given text"):
+ *   `content`: (Required) The text to tokenize.
+ *   Returns a JSON object with a `tokens` field containing the
+ *   tokenization result — plain token IDs when `with_pieces` is omitted
+ *   (default `false`), which is what 1667 sends.
+ */
+export async function probeLlamaCppTokenize(
+  settings: GenerationSettings,
+  text: string,
+  signal?: AbortSignal
+): Promise<readonly number[] | null> {
+  const root = settings.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+  try {
+    const data = await postProviderJson(
+      settings,
+      `${root}/tokenize`,
+      { content: text },
+      {},
+      { signal, timeoutMs: probeTimeout(settings) }
+    );
+    if (!isObject(data) || !Array.isArray(data.tokens)) return null;
+    const tokens = data.tokens.filter((token): token is number =>
+      typeof token === "number" && Number.isSafeInteger(token) && token >= 0);
+    return tokens.length === data.tokens.length ? tokens : null;
+  } catch {
+    signal?.throwIfAborted();
+    return null;
+  }
 }
 
 function ollamaModelMatches(

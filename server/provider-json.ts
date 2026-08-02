@@ -30,6 +30,45 @@ export async function getProviderJson(
     readonly timeoutMs?: number;
   } = {}
 ): Promise<unknown> {
+  return await requestProviderJson(settings, url, baseHeaders, {}, options);
+}
+
+/** Same request/response handling as `getProviderJson` (timeouts, secret
+ * redaction, bounded read), for a native side channel that takes a JSON
+ * body instead of query parameters — currently only llama.cpp's POST
+ * /tokenize (server/context-probe.ts, probeLlamaCppTokenize). */
+export async function postProviderJson(
+  settings: GenerationSettings,
+  url: string,
+  body: unknown,
+  baseHeaders: Readonly<Record<string, string>> = {},
+  options: {
+    readonly maxBytes?: number;
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+  } = {}
+): Promise<unknown> {
+  return await requestProviderJson(
+    settings,
+    url,
+    { "content-type": "application/json", ...baseHeaders },
+    { method: "POST", body: JSON.stringify(body) },
+    options
+  );
+}
+
+async function requestProviderJson(
+  settings: GenerationSettings,
+  url: string,
+  baseHeaders: Readonly<Record<string, string>>,
+  requestInit: Readonly<Pick<RequestInit, "method" | "body">>,
+  options: {
+    readonly allowPresetQuery?: boolean;
+    readonly maxBytes?: number;
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+  }
+): Promise<unknown> {
   const runtime = providerRuntimeFor(settings);
   const { headers, secrets } = resolveProviderHeaders(settings, {
     accept: "application/json",
@@ -53,6 +92,7 @@ export async function getProviderJson(
         ? providerFetchWithPresetQuery
         : providerFetch;
       response = await fetchProvider(url, {
+        ...requestInit,
         headers,
         signal: AbortSignal.any([
           headerDeadline.signal,

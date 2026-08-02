@@ -24,10 +24,7 @@ import type {
   SettingsView
 } from "./settings-v2-types.js";
 import type { LorebookImport } from "./lorebook-entry.js";
-import type {
-  PromptBiasEncoding,
-  SamplingBiasResolutionResult
-} from "./sampling-capabilities.js";
+import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 
 import type {
   ListStoriesPageInput,
@@ -171,21 +168,22 @@ export interface WorkerMethodContract {
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
-  /** A pure local computation, not a provider probe: no network call, no
-   * credentials. It still crosses the worker boundary because the WASM
-   * tokenizer lives in server/ (see server/openai-prompt-tokenizer.ts) and
-   * must not load into the TUI's render process. Runs the exact same
-   * tokenize-and-merge resolution the provider request uses
-   * (server/sampling-phrase-bias.ts), for one draft's phraseBias and
+  /** Runs the exact same tokenize-and-merge resolution the provider request
+   * uses (server/sampling-phrase-bias.ts), for one draft's phraseBias and
    * bannedStrings at a time — one call per editor session or commit, not
    * one per phrase, so the editor's preview and the request can never
-   * compute different token IDs for the same draft. */
+   * compute different token IDs for the same draft. `settings` is a
+   * provider-probe target, the same shape checkModelServer/
+   * probeContextWindow take, because a llama-cpp route resolves against a
+   * live tokenize probe on that server (server/context-probe.ts) rather
+   * than a local allow-list — this is a provider probe for that preset, not
+   * always the pure local computation it used to be. */
   resolveSamplingBias: {
     input: {
+      settings: ProviderProbeTarget;
       logitBias: Readonly<Record<string, number>>;
       phraseBias: readonly { readonly phrase: string; readonly weight: number }[];
       bannedStrings: readonly string[];
-      encoding: PromptBiasEncoding;
     };
     output: SamplingBiasResolutionResult;
   };
@@ -231,7 +229,8 @@ export const GENERATION_METHODS: ReadonlySet<WorkerMethod> = new Set([
 export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "checkModelServer",
   "probeContextWindow",
-  "discoverModels"
+  "discoverModels",
+  "resolveSamplingBias"
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([

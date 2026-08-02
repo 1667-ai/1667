@@ -461,7 +461,8 @@ const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableRe
   "preset-unknown": "unknown endpoint",
   "model-unsupported": "model unsupported",
   "model-unknown": "model unknown",
-  "no-exact-tokenizer": "no exact tokenizer"
+  "no-exact-tokenizer": "no exact tokenizer",
+  "reasoning-model": "reasoning model"
 };
 
 /** A credential-touching save activates inside the save request, so the

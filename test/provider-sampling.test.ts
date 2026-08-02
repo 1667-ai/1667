@@ -5,7 +5,7 @@ import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
-test("sampling lowering does not partially mutate a body on resolution failure", () => {
+test("sampling lowering does not partially mutate a body on resolution failure", async () => {
   const sampling = {
     ...EMPTY_SAMPLING_V2,
     topP: 0.9,
@@ -37,7 +37,7 @@ test("sampling lowering does not partially mutate a body on resolution failure",
   };
   const before = { ...body };
 
-  assert.throws(
+  await assert.rejects(
     () => applySamplingFields(body, settings, "openai-chat-completions"),
     /Configured sampling parameter top k/u
   );

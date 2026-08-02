@@ -309,19 +309,31 @@ describe("Sampling Settings user flow", () => {
     expect(selectedNestedHit(state, 1)).not.toBe(null);
   });
 
-  test("phrase bias is unavailable for a self-hosted local preset", async () => {
+  test("phrase bias is unavailable for a self-hosted preset with no trusted tokenizer", async () => {
     const { source, state, press } = settingsHarness();
-    // llama.cpp's server documents an --alias flag, so its reported model
-    // name is not trustworthy for tokenizer selection — phraseBias and
-    // bannedStrings are subtracted for this preset outright, regardless of
-    // model (issue #282 review finding B; see PRESET_SUBTRACTIONS in
-    // shared/sampling-capabilities.ts).
-    useSupportedSettings(source);
+    // KoboldCpp has no native tokenize side channel 1667 uses yet (deferred
+    // to a follow-up stage) and its reported model name is not trustworthy
+    // for tokenizer selection either — phraseBias and bannedStrings stay
+    // subtracted for this preset regardless of model (see
+    // PRESET_SUBTRACTIONS in shared/sampling-capabilities.ts).
+    useKoboldcppSettings(source);
     await enterSampling(state, press);
     await moveLayer2Cursor(press, 8);
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("sampling");
     expect(state.settings?.sampling?.result).toContain("not in preset");
+  });
+
+  // Issue #282 stage 1, point 5: llama.cpp is no longer subtracted — it
+  // resolves phraseBias/bannedStrings through its own live tokenize probe
+  // (server/context-probe.ts) instead of trusting a reported model name.
+  test("phrase bias opens for the llama.cpp preset instead of reporting it unavailable", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, 8);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("phrase-bias");
   });
 
   test("phrase bias is unavailable for a model with no exact tokenizer", async () => {
@@ -352,10 +364,10 @@ describe("Sampling Settings user flow", () => {
     useEncodedModelSettings(source);
     const pending = deferred<SamplingBiasResolutionResult>();
     const calls: Array<{
+      settings: unknown;
       logitBias: Readonly<Record<string, number>>;
       phraseBias: readonly { phrase: string; weight: number }[];
       bannedStrings: readonly string[];
-      encoding: string;
     }> = [];
     source.api.resolveSamplingBias = async (request) => {
       calls.push(request);
@@ -371,24 +383,40 @@ describe("Sampling Settings user flow", () => {
     setSamplingEdit(state, "dragon:5");
     await press(key("return"));
     expect(state.settings?.draft.sampling.phraseBias).toEqual([{ phrase: "dragon", weight: 5 }]);
-    // One worker call for the whole draft, in the model's encoding — this is
-    // the boundary crossing design decision #6 calls out as the main
-    // integration risk: the WASM tokenizer lives in server/, so the editor
-    // reaches it through this call rather than importing it directly. Issue
-    // #282 review finding E: one call per commit, not one per phrase.
-    expect(calls.at(-1)).toEqual({
+    // One worker call for the whole draft, carrying the routed connection
+    // as a provider-probe target — this is the boundary crossing design
+    // decision #6 calls out as the main integration risk: the WASM
+    // tokenizer lives in server/, so the editor reaches it through this
+    // call rather than importing it directly. Issue #282 review finding E:
+    // one call per commit, not one per phrase.
+    const lastCall = calls.at(-1)!;
+    expect(lastCall.settings).toBeDefined();
+    expect({ ...lastCall, settings: undefined }).toEqual({
+      settings: undefined,
       logitBias: {},
       phraseBias: [{ phrase: "dragon", weight: 5 }],
-      bannedStrings: [],
-      encoding: "o200k_base"
+      bannedStrings: []
     });
 
+    // Exact IDs confirmed against the compiled tiktoken o200k_base encoder
+    // for "dragon" typed, " dragon", "Dragon", and " Dragon" — "dragon" is
+    // single-token in every surface variant, so it resolves.
     pending.resolve({
       kind: "resolved",
-      logitBias: { "84021": 5 },
-      phraseBias: [{ phrase: "dragon", tokenIds: [84021] }],
+      logitBias: { "84021": 5, "45342": 5, "91530": 5, "34057": 5 },
+      phraseBias: [{
+        kind: "resolved",
+        phrase: "dragon",
+        tokenIds: [84021, 45342, 91530, 34057],
+        variants: [
+          { variant: "typed", text: "dragon", outcome: { kind: "single-token", tokenId: 84021 } },
+          { variant: "leading-space", text: " dragon", outcome: { kind: "single-token", tokenId: 45342 } },
+          { variant: "capitalized", text: "Dragon", outcome: { kind: "single-token", tokenId: 91530 } },
+          { variant: "leading-space-capitalized", text: " Dragon", outcome: { kind: "single-token", tokenId: 34057 } }
+        ]
+      }],
       bannedStrings: [],
-      resolvedEntryCount: 1
+      resolvedEntryCount: 4
     });
     await pending.promise;
     await Promise.resolve();
@@ -476,6 +504,25 @@ async function moveLayer2Cursor(
   target: number
 ): Promise<void> {
   for (let index = 0; index < target; index += 1) await press(key("down"));
+}
+
+function useKoboldcppSettings(source: ReturnType<typeof demoAppSource>): void {
+  const active = source.settingsView;
+  if (!active.editable) throw new Error("demo settings must be editable");
+  const generation = {
+    ...source.settings,
+    provider: "openai-compatible" as const,
+    baseUrl: "http://127.0.0.1:5001/v1",
+    model: "gpt-5.2",
+    apiKeyEnv: null
+  };
+  const document = applyBasicSettingsDraft(active.document, generation);
+  source.settingsView = {
+    ...active,
+    document,
+    effective: basicSettingsFromDocument(document)
+  } satisfies SettingsView;
+  source.api.getSettings = async () => source.settingsView;
 }
 
 function useSupportedSettings(source: ReturnType<typeof demoAppSource>): void {

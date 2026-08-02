@@ -160,7 +160,7 @@ function renderSamplingRow(
   return fieldRow(
     lead,
     row.row.label,
-    `[${row.row.value}]`,
+    row.row.available ? `[${row.row.value}]` : "‹ — ›",
     row.row.available ? "↵ open" : reasonShared ? "" : `disabled · ${row.row.reasonCompact}`,
     width,
     selected,

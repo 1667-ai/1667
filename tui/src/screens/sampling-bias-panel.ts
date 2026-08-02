@@ -1,18 +1,22 @@
+import type { SamplingBiasVariant } from "../../../shared/sampling-capabilities.js";
 import type { SamplingPhraseBiasEntryV2 } from "../../../shared/settings-v2-types.js";
-import { samplingBiasRowResolution } from "../sampling-bias-resolution.js";
+import { samplingBiasRowResolution, type SamplingBiasRowResolution } from "../sampling-bias-resolution.js";
 import type { SettingsOverlayState } from "../state.js";
 import { cellPad, cellPadStart } from "./panel-table-layout.js";
 import { raisedSegment } from "./overlay.js";
 import { truncate, visibleWidth, type FrameLine } from "./story/frame.js";
 
 /**
- * Row rendering for the two panels issue #282 added: phrase bias and banned
- * strings. Split out of sampling-panel.ts to keep that file under the
- * repository's file-size guideline. Both panels show the resolved token IDs
- * next to each entry (design goal: the mapping from typed text to what the
- * provider actually biases stays inspectable) — resolution itself runs
- * server-side and lands in `settings.sampling.biasResolution` via
- * ../sampling-bias-resolution.js; this module only reads that cache.
+ * Row rendering for the two panels issue #282 added: phrase bias and
+ * banned strings. Split out of sampling-panel.ts to keep that file under
+ * the repository's file-size guideline. Both panels show the resolved
+ * token IDs next to each entry, one per surface variant (design goal,
+ * stage 1: "the editor must show the resolved IDs per variant, not one
+ * list per phrase" — that is what keeps the mapping inspectable, since a
+ * phrase only biases what it means once every variant resolves).
+ * Resolution itself runs server-side and lands in
+ * `settings.sampling.biasResolution` via ../sampling-bias-resolution.js;
+ * this module only reads that cache.
  */
 
 export function phraseBiasValueRow(
@@ -49,11 +53,40 @@ export function bannedStringValueRow(
   ];
 }
 
-function resolvedTokensText(resolution: ReturnType<typeof samplingBiasRowResolution>): string {
+/** Short tags for the four surface variants (shared/sampling-capabilities.ts,
+ * SAMPLING_BIAS_VARIANT_VALUES) — a label a row has room for, in the fixed
+ * order every entry expands in: typed, leading space, capitalized, leading
+ * space capitalized. */
+function variantTag(variant: SamplingBiasVariant): string {
+  switch (variant) {
+    case "typed": return "t";
+    case "leading-space": return "␣";
+    case "capitalized": return "Cap";
+    case "leading-space-capitalized": return "␣Cap";
+  }
+}
+
+function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
   if (resolution.kind === "idle") return "";
   if (resolution.kind === "pending") return "resolving…";
-  if (resolution.kind === "tokenizer-unavailable") return "tokenizer unavailable";
-  if (resolution.kind === "phrase-unencodable") return "could not be tokenized";
-  if (resolution.tokenIds.length === 0) return "0 tokens";
-  return `→ ${resolution.tokenIds.join(",")}`;
+  if (resolution.kind === "tokenizer-unavailable") return "‹ — › tokenizer unavailable";
+  if (resolution.kind === "rejected") {
+    return `‹ — › ${resolution.entry.variants.map(variantOutcomeText).join(" ")}`;
+  }
+  return resolution.tokenIds.length === 0
+    ? "0 tokens"
+    : `→ ${resolution.tokenIds.join(",")}`;
+}
+
+function variantOutcomeText(variant: {
+  readonly variant: SamplingBiasVariant;
+  readonly outcome:
+    | { readonly kind: "single-token"; readonly tokenId: number }
+    | { readonly kind: "multi-token"; readonly tokenIds: readonly number[] }
+    | { readonly kind: "unencodable" };
+}): string {
+  const tag = variantTag(variant.variant);
+  if (variant.outcome.kind === "single-token") return `${tag}:${variant.outcome.tokenId}`;
+  if (variant.outcome.kind === "multi-token") return `${tag}:${variant.outcome.tokenIds.length}tok`;
+  return `${tag}:×`;
 }

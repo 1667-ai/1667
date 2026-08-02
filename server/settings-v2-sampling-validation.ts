@@ -29,9 +29,13 @@ import {
 import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
 import {
+  samplingBiasEntryRejectionMessage,
+  samplingBiasResolutionFailureMessage,
+  type SamplingBiasEntryResolution
+} from "../shared/sampling-capabilities.js";
+import {
   isLogitBiasMergeKnob,
-  resolveSamplingLogitBias,
-  samplingBiasResolutionFailureMessage
+  resolveSamplingLogitBiasForEncoding
 } from "./sampling-phrase-bias.js";
 
 // SAMPLING_KNOB_V2_ADDITIVE_VALUES are optional on the wire: a settings
@@ -122,10 +126,30 @@ export function validateSamplingRoute(
   // with 17 plain numeric entries save cleanly.
   if (context.protocol === "legacy-v1" || context.preset === "legacy-v1") return;
   if (!configured.some(({ knob }) => isLogitBiasMergeKnob(knob))) return;
+  // llama-cpp resolves phraseBias/bannedStrings through a live tokenize
+  // probe (server/context-probe.ts, probeLlamaCppTokenize) instead of a
+  // local allow-list, and this function must stay synchronous — see
+  // resolveSamplingLogitBiasForEncoding's own comment for why. Every entry
+  // on a llama-cpp profile was already individually verified when the
+  // writer committed it in the editor (server/story-service.ts,
+  // resolveSamplingBias), and request-time application
+  // (server/provider-sampling.ts) re-verifies against the live server and
+  // enforces the resolved-count bound before every request — so this one
+  // preset trades an early, offline check here for one that can actually
+  // reach the server it is checking, instead of failing save time on a
+  // server that happens to be unreachable right now.
+  if (context.preset === "llama-cpp") return;
   const encoding = promptBiasTokenizerEncoding(context.remoteModelId);
-  const resolved = resolveSamplingLogitBias(profile.sampling, encoding);
+  const resolved = resolveSamplingLogitBiasForEncoding(profile.sampling, encoding);
   if (resolved.kind !== "resolved") {
     throw new SettingsFormatError(`profile ${profileId} could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}`);
+  }
+  const rejected = firstRejectedEntry(resolved.phraseBias, resolved.bannedStrings);
+  if (rejected !== undefined) {
+    throw new SettingsFormatError(
+      `profile ${profileId} cannot use ${JSON.stringify(rejected.phrase)} as configured: `
+      + samplingBiasEntryRejectionMessage(rejected)
+    );
   }
   const bound = maxResolvedLogitBiasEntries(context.preset);
   if (resolved.resolvedEntryCount > bound) {
@@ -134,6 +158,16 @@ export function validateSamplingRoute(
       + `exceeding the ${bound}-entry limit for preset ${context.preset}`
     );
   }
+}
+
+function firstRejectedEntry(
+  phraseBias: readonly SamplingBiasEntryResolution[],
+  bannedStrings: readonly SamplingBiasEntryResolution[]
+): Extract<SamplingBiasEntryResolution, { kind: "rejected" }> | undefined {
+  for (const entry of [...phraseBias, ...bannedStrings]) {
+    if (entry.kind === "rejected") return entry;
+  }
+  return undefined;
 }
 
 function samplingValidationMessage(
@@ -149,7 +183,8 @@ function samplingValidationMessage(
     "preset-unknown": "for an endpoint with undocumented extension fields",
     "model-unsupported": "for a model that does not declare sampling support",
     "model-unknown": "for a model without a documented sampling contract",
-    "no-exact-tokenizer": "for a model with no exact tokenizer to resolve text to token IDs"
+    "no-exact-tokenizer": "for a model with no exact tokenizer to resolve text to token IDs",
+    "reasoning-model": "for a reasoning model, which rejects logit bias"
   };
   return `profile ${profileId} sets ${samplingKnobLabel(knob)} ${details[reason]}`;
 }

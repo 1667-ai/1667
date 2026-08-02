@@ -18,7 +18,6 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type {
-  PromptBiasEncoding,
   SamplingBiasResolutionResult
 } from "../../shared/sampling-capabilities.js";
 import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.js";
@@ -160,10 +159,10 @@ export interface StoryApi {
   probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
   resolveSamplingBias(
     request: {
+      settings: ProviderProbeTarget;
       logitBias: Readonly<Record<string, number>>;
       phraseBias: readonly SamplingPhraseBiasEntryV2[];
       bannedStrings: readonly string[];
-      encoding: PromptBiasEncoding;
     }
   ): Promise<SamplingBiasResolutionResult>;
   discoverModels(
@@ -830,7 +829,8 @@ export function createApi(
       "POST",
       "/api/settings/resolve-sampling-bias",
       decodeSamplingBiasResolutionResponse,
-      biasRequest
+      biasRequest,
+      WORKER_PROVIDER_CHECK_TIMEOUT_MS
     ),
     discoverModels: (settings, signal) => request(
       "POST",

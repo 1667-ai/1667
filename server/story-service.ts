@@ -62,9 +62,10 @@ import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import {
   parseResolveSamplingBiasInput,
-  resolveSamplingLogitBias
+  resolveSamplingBiasForSettings
 } from "./sampling-phrase-bias.js";
 import type { SamplingBiasResolutionResult } from "../shared/sampling-capabilities.js";
+import { requireRecord } from "./validation.js";
 import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
@@ -563,10 +564,15 @@ export class StoryService extends StoryServiceRuntime {
     return await discoverProviderModels(settings, undefined, signal);
   }
 
-  async resolveSamplingBias(value: unknown): Promise<SamplingBiasResolutionResult> {
+  async resolveSamplingBias(
+    value: unknown,
+    signal?: AbortSignal
+  ): Promise<SamplingBiasResolutionResult> {
     this.ensureOpen();
-    const input = parseResolveSamplingBiasInput(value);
-    return resolveSamplingLogitBias(input, input.encoding);
+    const record = requireRecord(value, "resolveSamplingBias input");
+    const settings = await this.settings.resolveProviderProbe(record.settings);
+    const input = parseResolveSamplingBiasInput(record);
+    return await resolveSamplingBiasForSettings(input, settings, signal);
   }
 
   private async persistImportedStory(

@@ -8,9 +8,20 @@ import {
   type SettingsProtocolV2
 } from "./settings-v2-types.js";
 import type { SelectedSettingsRouteV2 } from "./settings-route.js";
+import {
+  isLogitBiasFamilyKnob,
+  OPENAI_REASONING_FAMILY_MODELS,
+  promptBiasTokenizerEncoding
+} from "./sampling-phrase-resolution.js";
 
 export { SAMPLING_KNOB_V2_VALUES } from "./settings-v2-types.js";
 export type { SamplingKnobV2 } from "./settings-v2-types.js";
+// Text-to-token-ID resolution lives in its own module (file-size guideline)
+// but stays part of this module's public surface: every existing caller
+// imports these names from "sampling-capabilities.js", and there is no
+// reason to make them chase a split that is an internal organization
+// detail, not a meaning change.
+export * from "./sampling-phrase-resolution.js";
 
 /**
  * Sampling capability matrix for the exact endpoints used by 1667.
@@ -39,7 +50,8 @@ export type SamplingUnavailableReason =
   | "preset-unknown"
   | "model-unsupported"
   | "model-unknown"
-  | "no-exact-tokenizer";
+  | "no-exact-tokenizer"
+  | "reasoning-model";
 
 export type SamplingResolution =
   | Readonly<{ kind: "available"; wireField: string }>
@@ -91,146 +103,71 @@ const PRESET_EXTENSIONS: Readonly<
 // phraseBias and bannedStrings ride the same wire field, so they inherit the
 // subtraction rather than repeating it under a different unavailable reason.
 //
-// The trust boundary below is not "self-hosted" as a label — it is whether
-// 1667 can trust a preset's reported model ID to identify the actual
-// tokenizer vocabulary. promptBiasTokenizerEncoding is a closed allow-list
-// keyed on that reported ID, built to prevent a wrong token ID from
-// silently biasing the wrong token — but a closed list is only as
-// trustworthy as the key it is looked up by.
+// The rule below is not "self-hosted" as a label — it is whether 1667 can
+// identify the vocabulary that will actually serve the request. There are
+// two ways to clear that bar, and each preset below fails both:
 //
-// llama.cpp, KoboldCpp, and LM Studio are self-hosted local servers whose
-// operator controls what "model" string the API reports, independent of
-// the weights actually loaded. llama.cpp's server documents this directly:
-// "-a, --alias STRING  set model name aliases, comma-separated (to be used
-// by API)" (tools/server/README.md, --alias). LM Studio's `lms load
-// --identifier` does the same (https://lmstudio.ai/docs/cli/local-models/load).
-// KoboldCpp is the same category of self-hosted server.
+// 1. A closed allow-list keyed on the reported model ID
+//    (promptBiasTokenizerEncoding), for a preset whose reported ID is tied
+//    to a fixed, real, first-party endpoint.
+// 2. Asking the serving backend itself to tokenize, authoritative by
+//    construction (probeLlamaCppTokenize, server/context-probe.ts),
+//    for a preset that exposes such a native side channel.
+//
+// llama.cpp clears route 2 — see the "llama-cpp" comment below — and is not
+// subtracted. Every other preset here clears neither:
+//
+// KoboldCpp and LM Studio are self-hosted local servers whose operator
+// controls what "model" string the API reports, independent of the weights
+// actually loaded, and neither exposes a tokenize side channel 1667 uses yet
+// (KoboldCpp's `/api/extra/tokencount` is deferred to a follow-up stage).
+// LM Studio's `lms load --identifier` sets an arbitrary reported name
+// (https://lmstudio.ai/docs/cli/local-models/load).
 //
 // "custom" carries the same risk in its strongest form: it is by
 // definition an arbitrary OpenAI-compatible endpoint at an arbitrary base
 // URL — the exact preset a writer uses to point 1667 at a self-hosted
 // server that is none of the three named above. A local build told to
 // call itself "gpt-4o" would otherwise pass the allow-list and receive
-// real OpenAI token IDs for a completely different vocabulary, the same
-// as an aliased llama.cpp server. There is no single "custom" endpoint to
-// cite, because there is no fixed endpoint at all — that absence of a
-// fixed, verifiable host is exactly why it cannot be trusted.
+// real OpenAI token IDs for a completely different vocabulary. There is no
+// single "custom" endpoint to cite, because there is no fixed endpoint at
+// all, and no shared native tokenize route to fall back on either.
 //
-// "openai" and "openrouter" are excluded from this subtraction because
-// their preset is only ever assigned when the connection's base URL
-// actually resolves to their one fixed, real host (api.openai.com or
-// openrouter.ai — see presetFor in shared/settings-basic-draft.ts); a
-// writer cannot retarget a "custom" base URL while keeping one of those
-// preset labels. For OpenRouter specifically, the reported model ID is
-// also not a free-form label: it is OpenRouter's own routing key, the
-// same string that determines which real backend serves the request.
+// "openai" clears route 1: its preset is only ever assigned when the
+// connection's base URL actually resolves to its one fixed, real host
+// (api.openai.com — see presetFor in shared/settings-basic-draft.ts), so
+// the reported model ID is trustworthy against the tiktoken allow-list.
 //
-// So phraseBias and bannedStrings are subtracted for every preset whose
-// reported model ID is not tied to a fixed, real, first-party endpoint —
-// llama-cpp, koboldcpp, lm-studio, ollama, and custom — regardless of what
-// model name any of them reports. logitBias itself is unaffected: it
-// takes a raw token ID the writer already resolved by hand, so it never
-// depends on which tokenizer produced it.
+// "openrouter" clears neither route, for a reason distinct from the alias
+// risk above: OpenRouter routes a given model ID to arbitrary providers and
+// model families behind the scenes, so the vocabulary that actually serves
+// a request is unknowable client-side even though the base URL itself is
+// fixed (openrouter.ai) and the model ID is OpenRouter's own routing key.
+// A token ID guessed from that ID could corrupt output on whichever family
+// OpenRouter happens to route to. It has no native tokenize side channel
+// either, so it is subtracted the same as the self-hosted presets.
+//
+// llama.cpp's server documents an operator-settable alias the same as the
+// self-hosted presets above ("-a, --alias STRING  set model name aliases,
+// comma-separated (to be used by API)", tools/server/README.md, --alias),
+// so its reported model ID is not trusted for the allow-list either — but
+// its native POST /tokenize endpoint tokenizes against whatever model that
+// server instance actually has loaded, independent of the reported name,
+// which is why it is the one self-hosted preset not subtracted here.
+//
+// logitBias itself is unaffected by any of this: it takes a raw token ID
+// the writer already resolved by hand, so it never depends on which
+// tokenizer produced it. (Reasoning-family OpenAI models still reject it —
+// see the reasoning-family gate in resolveSamplingKnob.)
 const PRESET_SUBTRACTIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
   "lm-studio": ["minP", "phraseBias", "bannedStrings"],
   ollama: ["logitBias", "phraseBias", "bannedStrings"],
   koboldcpp: ["frequencyPenalty", "phraseBias", "bannedStrings"],
-  "llama-cpp": ["phraseBias", "bannedStrings"],
-  custom: ["phraseBias", "bannedStrings"]
+  custom: ["phraseBias", "bannedStrings"],
+  openrouter: ["phraseBias", "bannedStrings"]
 };
-
-/**
- * Tokenizer encodings 1667 can resolve a text phrase against. tiktoken ships
- * several named encodings; these are the two relevant to the OpenAI model
- * families 1667 routes to. Closed, `as const`-derived list (not a
- * hand-written union) so a new encoding is added in exactly one place and a
- * caller that only checks a hand-written type can't silently drift from it.
- */
-export const PROMPT_BIAS_ENCODING_VALUES = ["o200k_base", "cl100k_base"] as const;
-export type PromptBiasEncoding = (typeof PROMPT_BIAS_ENCODING_VALUES)[number];
-
-export function isPromptBiasEncoding(value: unknown): value is PromptBiasEncoding {
-  return typeof value === "string"
-    && (PROMPT_BIAS_ENCODING_VALUES as readonly string[]).includes(value);
-}
-
-// The authoritative source for which encoding an OpenAI model uses is
-// tiktoken's own table: https://github.com/openai/tiktoken/blob/main/tiktoken/model.py
-// (MODEL_TO_ENCODING / MODEL_PREFIX_TO_ENCODING, fetched from the main
-// branch). Kept here as a closed allow-list of exact model IDs rather than a
-// prefix match: an unlisted model resolves to "no exact tokenizer" instead of
-// a guessed encoding, because a wrong token ID would silently bias the wrong
-// token. Dated snapshot IDs (e.g. "gpt-4o-2024-08-06") are intentionally
-// omitted until individually confirmed against that table; add them as
-// needed rather than guessing. "gpt-5.1" and "gpt-5.2" are omitted for the
-// same reason — tiktoken's prefix match only covers "gpt-5-", which does not
-// match a dotted point release, and no exact entry for them exists yet.
-const OPENAI_PROMPT_BIAS_ENCODING: ReadonlyMap<string, PromptBiasEncoding> = new Map([
-  ["gpt-4o", "o200k_base"],
-  ["gpt-4o-mini", "o200k_base"],
-  ["chatgpt-4o-latest", "o200k_base"],
-  ["gpt-4.1", "o200k_base"],
-  ["gpt-4.1-mini", "o200k_base"],
-  ["gpt-4.1-nano", "o200k_base"],
-  ["gpt-4.5-preview", "o200k_base"],
-  ["gpt-5", "o200k_base"],
-  ["gpt-5-mini", "o200k_base"],
-  ["gpt-5-nano", "o200k_base"],
-  ["o1", "o200k_base"],
-  ["o1-mini", "o200k_base"],
-  ["o1-preview", "o200k_base"],
-  ["o3", "o200k_base"],
-  ["o3-mini", "o200k_base"],
-  ["o4-mini", "o200k_base"],
-  ["gpt-4", "cl100k_base"],
-  ["gpt-4-turbo", "cl100k_base"],
-  ["gpt-4-32k", "cl100k_base"],
-  ["gpt-3.5-turbo", "cl100k_base"],
-  ["gpt-3.5-turbo-16k", "cl100k_base"]
-]);
-
-/** The exact tokenizer encoding for a routed model, or null when it is not on
- * the closed allow-list above. Resolution logic (below) turns null into the
- * "no-exact-tokenizer" unavailable reason rather than guessing. */
-export function promptBiasTokenizerEncoding(remoteModelId: string): PromptBiasEncoding | null {
-  return OPENAI_PROMPT_BIAS_ENCODING.get(remoteModelId) ?? null;
-}
-
-/** One phraseBias or bannedStrings entry's resolved token IDs. Always
- * populated: `resolveSamplingLogitBias` (server/sampling-phrase-bias.ts)
- * returns a "resolved" result only once every entry succeeded, so there is
- * no per-entry failure state to represent here — a single unresolved entry
- * fails the whole batch instead (see SamplingBiasResolutionResult). */
-export interface ResolvedPhraseTokens {
-  readonly phrase: string;
-  readonly tokenIds: readonly number[];
-}
-
-/**
- * The result of tokenizing and merging phraseBias and bannedStrings — the
- * one computation shared by the actual provider request
- * (server/provider-sampling.ts), save-time validation
- * (server/settings-v2-sampling-validation.ts), and the editor's token-ID
- * preview (the resolveSamplingBias worker method), so the request and the
- * editor can never compute different token IDs for the same draft.
- *
- * "tokenizer-unavailable" means the WASM tokenizer itself failed to load —
- * systemic, not specific to any phrase. "phrase-unencodable" names the one
- * phrase that could not be tokenized, distinct from "unavailable" so the
- * message a writer sees is honest about what actually failed.
- */
-export type SamplingBiasResolutionResult =
-  | {
-      readonly kind: "resolved";
-      readonly logitBias: Readonly<Record<string, number>>;
-      readonly phraseBias: readonly ResolvedPhraseTokens[];
-      readonly bannedStrings: readonly ResolvedPhraseTokens[];
-      readonly resolvedEntryCount: number;
-    }
-  | { readonly kind: "tokenizer-unavailable" }
-  | { readonly kind: "phrase-unencodable"; readonly phrase: string };
 
 function needsExactTokenizer(knob: SamplingKnobV2): boolean {
   return knob === "phraseBias" || knob === "bannedStrings";
@@ -313,6 +250,27 @@ export function resolveSamplingKnob(
 
   if (
     context.protocol === "openai-chat-completions"
+    && context.preset === "openai"
+    && isLogitBiasFamilyKnob(knob)
+    && OPENAI_REASONING_FAMILY_MODELS.has(context.remoteModelId)
+  ) {
+    return { kind: "unavailable", reason: "reasoning-model" };
+  }
+
+  // The tiktoken allow-list is the tokenizer authority for every preset
+  // that reaches this point except "llama-cpp": every other preset with a
+  // trust problem was already subtracted above (PRESET_SUBTRACTIONS), so
+  // what is left here is "openai" (a trustworthy reported model ID) and
+  // any other preset/protocol combination with no tokenizer strategy at
+  // all, both of which the allow-list correctly gates. llama-cpp resolves
+  // phraseBias/bannedStrings through its own live tokenize probe instead
+  // (server/context-probe.ts, probeLlamaCppTokenize), which this
+  // synchronous capability check cannot run — that resolution, and its own
+  // "tokenizer failed" outcome, happens where the async work already
+  // lives: request build time and the editor's resolveSamplingBias preview.
+  if (
+    context.protocol === "openai-chat-completions"
+    && context.preset !== "llama-cpp"
     && needsExactTokenizer(knob)
     && promptBiasTokenizerEncoding(context.remoteModelId) === null
   ) {
@@ -472,5 +430,9 @@ const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
   "no-exact-tokenizer": {
     reason: "1667 has no exact tokenizer for this model, so it cannot resolve text to token IDs.",
     compact: "no exact tokenizer"
+  },
+  "reasoning-model": {
+    reason: "This reasoning model rejects logit bias.",
+    compact: "reasoning model"
   }
 };
