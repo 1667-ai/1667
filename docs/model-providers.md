@@ -170,6 +170,22 @@ a stop string. Press `d` to delete a stop string. Press `Left Arrow` or
 Select `logit bias`. Press `n` to add a token-ID and integer-bias row. Press
 `Enter` to edit a row. Press `d` to delete a row.
 
+Select `phrase bias`. Press `n` to add a phrase and an integer weight. Press
+`Enter` to edit a row. Press `d` to delete a row. 1667 tokenizes the phrase
+four ways: as typed, with a leading space, with a capital letter, and with
+both. 1667 accepts the phrase only when every one of the four forms is one
+token. 1667 shows the token IDs for each form.
+
+Select `banned strings`. Press `n` to add a text phrase. Press `Enter` to
+edit a phrase. Press `d` to delete a phrase. 1667 tokenizes a banned string
+the same way as a phrase bias entry, and gives it a strong negative weight.
+A banned string makes the text unlikely. It does not make the text
+impossible, because the same text can come from different token boundaries.
+
+Phrase bias and banned strings work only where 1667 can find the exact
+tokenizer for the routed model. 1667 shows a clear reason next to a row when
+it cannot.
+
 Press `Esc` to return to Settings. Press `s` to save the Settings draft.
 
 The TUI checks each value against the selected protocol, preset, and model.
