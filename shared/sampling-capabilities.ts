@@ -52,9 +52,11 @@ interface SamplingPresentation {
   readonly reasonCompact: string;
 }
 
-const PROTOCOL_WIRE: Readonly<
-  Record<SettingsProtocolV2, Partial<Record<SamplingKnobV2, string>>>
-> = {
+const PROTOCOL_WIRE: Readonly<{
+  "dry-run": Partial<Record<SamplingKnobV2, string>>;
+  "openai-chat-completions": Readonly<Record<SamplingKnobV2, string>>;
+  "anthropic-messages": Partial<Record<SamplingKnobV2, string>>;
+}> = {
   "dry-run": {},
   "openai-chat-completions": {
     topP: "top_p",
@@ -180,6 +182,14 @@ export function samplingUnavailableReason(reason: SamplingUnavailableReason): st
 /** The same fact, in the words a status line has room for. */
 export function samplingUnavailableReasonCompact(reason: SamplingUnavailableReason): string {
   return UNAVAILABLE_REASON_TEXT[reason].compact;
+}
+
+/** The same fact again, phrased as a clause that follows a knob's name — e.g.
+ *  `dry multiplier` + `for a protocol that does not document it`. Used only
+ *  by the server's route-validation error, which names the offending knob
+ *  itself before this text. */
+export function samplingUnavailableReasonClause(reason: SamplingUnavailableReason): string {
+  return UNAVAILABLE_REASON_TEXT[reason].clause;
 }
 
 export function samplingContextForRoute(route: SelectedSettingsRouteV2): SamplingContext {
@@ -340,37 +350,46 @@ export function samplingSettingsEqual(
 const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
   readonly reason: string;
   readonly compact: string;
+  readonly clause: string;
 }>> = {
   "legacy-v1": {
     reason: "Format 1 settings are read-only.",
-    compact: "read-only"
+    compact: "read-only",
+    clause: "for read-only format 1 settings"
   },
   "dry-run": {
     reason: "Dry run does not send provider requests.",
-    compact: "dry run"
+    compact: "dry run",
+    clause: "for a dry-run connection"
   },
   protocol: {
     reason: "This protocol does not document this parameter.",
-    compact: "not in protocol"
+    compact: "not in protocol",
+    clause: "for a protocol that does not document it"
   },
   "preset-unsupported": {
     reason: "This preset does not document this parameter.",
-    compact: "not in preset"
+    compact: "not in preset",
+    clause: "for a preset that does not document it"
   },
   "preset-unknown": {
     reason: "This endpoint does not document extension parameters.",
-    compact: "unknown endpoint"
+    compact: "unknown endpoint",
+    clause: "for an endpoint with undocumented extension fields"
   },
   "model-unsupported": {
     reason: "This model does not declare sampling support.",
-    compact: "model unsupported"
+    compact: "model unsupported",
+    clause: "for a model that does not declare sampling support"
   },
   "model-unknown": {
     reason: "This model has no documented support for this parameter.",
-    compact: "model unknown"
+    compact: "model unknown",
+    clause: "for a model without a documented sampling contract"
   },
   "mirostat-off": {
     reason: "Mirostat is off.",
-    compact: "mirostat off"
+    compact: "mirostat off",
+    clause: "while mirostat is off"
   }
 };

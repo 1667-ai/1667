@@ -11,7 +11,8 @@ import {
   resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
   samplingKnobValueIsSet,
-  samplingKnobLabel
+  samplingKnobLabel,
+  samplingUnavailableReasonClause
 } from "../shared/sampling-capabilities.js";
 import type { SamplingUnavailableReason } from "../shared/sampling-capabilities.js";
 import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
@@ -87,15 +88,5 @@ function samplingValidationMessage(
   knob: SamplingKnobV2,
   reason: SamplingUnavailableReason
 ): string {
-  const details: Readonly<Record<SamplingUnavailableReason, string>> = {
-    "legacy-v1": "for read-only format 1 settings",
-    "dry-run": "for a dry-run connection",
-    protocol: "for a protocol that does not document it",
-    "preset-unsupported": "for a preset that does not document it",
-    "preset-unknown": "for an endpoint with undocumented extension fields",
-    "model-unsupported": "for a model that does not declare sampling support",
-    "model-unknown": "for a model without a documented sampling contract",
-    "mirostat-off": "while mirostat is off"
-  };
-  return `profile ${profileId} sets ${samplingKnobLabel(knob)} ${details[reason]}`;
+  return `profile ${profileId} sets ${samplingKnobLabel(knob)} ${samplingUnavailableReasonClause(reason)}`;
 }

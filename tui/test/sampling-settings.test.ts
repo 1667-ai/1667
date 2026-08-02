@@ -15,9 +15,9 @@ import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import {
   SAMPLING_LAYER_ROWS,
-  samplingListPanelInfo,
   type SamplingLayerRowSpec
 } from "../src/sampling-model.js";
+import { samplingListPanelInfo } from "../src/sampling-list-model.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   installSave,

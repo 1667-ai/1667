@@ -7,15 +7,17 @@ import {
   beginNewSamplingEdit,
   beginSamplingEdit,
   boundedSamplingCursor,
-  deleteSamplingItem,
-  moveSamplingListItem,
   SAMPLING_LAYER_ROWS,
+  SAMPLING_SCALAR_PRESENTATION,
   samplingListRows,
   samplingScalarRows,
-  setSamplingListItem,
-  setSamplingScalar,
-  type SamplingScalarKnob
+  setSamplingScalar
 } from "./sampling-model.js";
+import {
+  deleteSamplingItem,
+  moveSamplingListItem,
+  setSamplingListItem
+} from "./sampling-list-model.js";
 import { disarmSettingsConflict } from "./settings-overlay-model.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
@@ -130,7 +132,7 @@ function stepSamplingScalar(
       : `${presentation.label} disabled · ${presentation.reasonCompact}`;
     return;
   }
-  const spec = SAMPLING_SCALAR_STEPS[knob];
+  const spec = SAMPLING_SCALAR_PRESENTATION[knob];
   const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
   const current = settings.draft.sampling[knob];
   if (current === null) {
@@ -152,32 +154,6 @@ function stepSamplingScalar(
   const error = setSamplingScalar(settings, knob, String(next));
   if (error !== null) nested.result = `row kept · ${error}`;
 }
-
-const SAMPLING_SCALAR_STEPS: Readonly<Record<SamplingScalarKnob, {
-  readonly step: number;
-  readonly neutral: number;
-  readonly precision: number;
-}>> = {
-  topP: { step: 0.05, neutral: 1, precision: 2 },
-  topK: { step: 1, neutral: 0, precision: 0 },
-  minP: { step: 0.01, neutral: 0, precision: 2 },
-  frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
-  presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
-  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
-  dryMultiplier: { step: 0.05, neutral: 0, precision: 2 },
-  dryBase: { step: 0.05, neutral: 1.75, precision: 2 },
-  dryRange: { step: 64, neutral: 0, precision: 0 },
-  xtcThreshold: { step: 0.01, neutral: 0.1, precision: 2 },
-  xtcProbability: { step: 0.05, neutral: 0, precision: 2 },
-  dynatempRange: { step: 0.05, neutral: 0, precision: 2 },
-  // Mirostat is the existing stepper, not new cycler machinery: `neutral: 1`
-  // and `step: 1` make `←→` walk off (null) to v1 to v2 and back off through
-  // the same crossing/clamping stepSamplingScalar already does for every
-  // other scalar.
-  mirostat: { step: 1, neutral: 1, precision: 0 },
-  mirostatTau: { step: 0.1, neutral: 5, precision: 1 },
-  mirostatEta: { step: 0.01, neutral: 0.1, precision: 2 }
-};
 
 function roundSamplingValue(value: number, precision: number): number {
   const factor = 10 ** precision;

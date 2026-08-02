@@ -4,16 +4,18 @@ import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
   samplingLayerRowIdentity,
+  type SamplingScalarRow,
+  samplingListRows,
+  samplingScalarRows
+} from "../sampling-model.js";
+import {
   samplingListItemIdentity,
   samplingListPanelInfo,
   samplingListValues,
   type SamplingListPanelId,
   type SamplingListRow,
-  type SamplingListValue,
-  type SamplingScalarRow,
-  samplingListRows,
-  samplingScalarRows
-} from "../sampling-model.js";
+  type SamplingListValue
+} from "../sampling-list-model.js";
 import type { OverlayState } from "../state.js";
 import {
   dimPage,
@@ -94,35 +96,39 @@ function renderSamplingLayer(
   const sharedLine: FrameLine[] = shared === null
     ? []
     : [[raisedSegment(truncate(`  ${shared}`, width), "prose · dim")]];
-  // A section-leading row costs two physical lines: the rule above it, then
-  // the row itself. Every other row costs one. Headings are never their own
-  // focus stop, so this heights array stays index-aligned with `rows`.
-  const heights = SAMPLING_LAYER_ROWS.map((spec) => spec.section === undefined ? 1 : 2);
+  // Each row's block is its section rule (if it opens a C-04 group) followed
+  // by the row itself, so a section-leading row's two-line cost is read off
+  // the block rather than kept as a second, index-aligned fact beside it.
+  const blocks = SAMPLING_LAYER_ROWS.map((spec, index) => {
+    const row = rows[index]!;
+    const lines: FrameLine[] = [];
+    const targets: Array<HitTarget | null> = [];
+    if (spec.section !== undefined) {
+      lines.push(samplingSectionRule(spec.section, width));
+      targets.push(null);
+    }
+    lines.push(renderSamplingRow(row, index === cursor, settings, width, shared !== null));
+    targets.push({
+      kind: "list",
+      index,
+      rowId: row.kind === "scalar"
+        ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
+        : samplingLayerRowIdentity({ kind: "list", panel: row.row.panel }),
+      selected: index === cursor
+    });
+    return { lines, targets };
+  });
   const capacity = Math.max(1,
     panelContentRows(height) - status.length - sharedLine.length);
-  const window = panelRowWindow(heights, cursor, capacity);
+  const window = panelRowWindow(blocks.map((block) => block.lines.length), cursor, capacity);
   const lines: FrameLine[] = [...status, ...sharedLine];
   const targets: Array<HitTarget | null> = [
     ...status.map(() => null),
     ...sharedLine.map(() => null)
   ];
-  for (const [offset, row] of rows.slice(window.start, window.end).entries()) {
-    const index = window.start + offset;
-    const section = SAMPLING_LAYER_ROWS[index]!.section;
-    if (section !== undefined) {
-      lines.push(samplingSectionRule(section, width));
-      targets.push(null);
-    }
-    lines.push(renderSamplingRow(row, index === cursor, settings, width, shared !== null));
-    const rowIdentity = row.kind === "scalar"
-      ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
-      : samplingLayerRowIdentity({ kind: "list", panel: row.row.panel });
-    targets.push({
-      kind: "list",
-      index,
-      rowId: rowIdentity,
-      selected: index === cursor
-    });
+  for (const block of blocks.slice(window.start, window.end)) {
+    lines.push(...block.lines);
+    targets.push(...block.targets);
   }
   return { lines, targets };
 }
