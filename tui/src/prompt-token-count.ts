@@ -3,10 +3,9 @@ import {
   countedPromptChars,
   MAX_COUNTED_PROMPT_CHARS,
   promptCountFingerprint,
-  promptCountShape,
   type PromptTokenCount
 } from "../../shared/tokenize-source.js";
-import { projectNextRequest } from "./request-context.js";
+import { projectNextRequest, promptProjectionIdentity } from "./request-context.js";
 import { nextRequestEstimate } from "./request-projection.js";
 import type { RuntimeState } from "./state.js";
 
@@ -144,7 +143,7 @@ export function startPromptTokenCountLane(
     if (countedPromptChars(estimate.messages) > MAX_COUNTED_PROMPT_CHARS) {
       lastAskedFingerprint = fingerprint;
       state.promptTokenCount = {
-        shape: promptCountShape(estimate.messages),
+        identity: promptProjectionIdentity(state),
         route,
         count: { kind: "estimate", reason: "too-large" }
       };
@@ -152,7 +151,6 @@ export function startPromptTokenCountLane(
       return;
     }
     lastAskedFingerprint = fingerprint;
-    const shape = promptCountShape(estimate.messages);
     abortInFlight();
     const active = new AbortController();
     controller = active;
@@ -201,7 +199,11 @@ export function startPromptTokenCountLane(
         // again.
         settledRoute = route;
       }
-      state.promptTokenCount = { shape, route, count };
+      // Taken now, not before the call: the fingerprint check above already
+      // proved the messages are the ones counted, and reading the identity
+      // here describes the live state exactly, so an unrelated move of the
+      // cursor while the answer was in flight cannot retire a good count.
+      state.promptTokenCount = { identity: promptProjectionIdentity(state), route, count };
       repaint();
     })();
   };

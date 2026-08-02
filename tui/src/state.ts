@@ -33,6 +33,7 @@ import type {
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import type { PromptProjectionIdentity } from "./request-context.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -234,19 +235,12 @@ export interface RequestViewerState {
   returnMode: "NAV" | "COMPOSE";
 }
 
-/** The last answer the token-count lane published, held against the cheap
- *  shape it was computed for, and against the route that counted it. The
- *  render path never trusts this on its own — see `promptCountShape` in
- *  shared/tokenize-source.ts for exactly what a shape match does and does not
- *  guarantee.
- *
- *  The route is what stops a count outliving the connection that produced it.
- *  The same prose sent to another preset is a different number, and often a
- *  different grade. Without it, a move from the official OpenAI host to Ollama
- *  would leave the bundled tokenizer's unmarked exact total on screen until the
- *  writer happened to change the text. */
+/** The last answer the token-count lane published, held against the exact
+ *  projection inputs and the route that produced it. The render path trusts it
+ *  only while both still match, so a rendered mark always describes the prompt
+ *  on screen and the connection that would receive it. */
 export interface PromptTokenCountRecord {
-  readonly shape: string;
+  readonly identity: PromptProjectionIdentity;
   readonly route: string;
   readonly count: PromptTokenCount;
 }

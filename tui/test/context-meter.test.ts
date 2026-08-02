@@ -14,7 +14,11 @@ import {
 } from "../src/rail.js";
 import type { HitRows } from "../src/hit.js";
 import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
-import { nextRequestContext, projectNextRequest } from "../src/request-context.js";
+import {
+  nextRequestContext,
+  projectNextRequest,
+  promptProjectionIdentity
+} from "../src/request-context.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { contextMeterLines } from "../src/screens/story/context-meter.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";
@@ -30,7 +34,7 @@ import { assertPromptReadyStoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../src/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
-import { promptCountShape, type PromptTokenCount } from "../../shared/tokenize-source.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 
 function request(
   systemPrompt: string,
@@ -288,8 +292,8 @@ describe("honest next-request context meter", () => {
     const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
     const state = initialState(source, false);
     state.promptTokenCount = {
-      // Deliberately does not match the current projection's shape.
-      shape: "assistant:999999",
+      // Deliberately does not describe the current projection.
+      identity: { ...promptProjectionIdentity(state), composerText: "a stale draft" },
       route: state.generationRoute,
       count: {
         kind: "counted", source: "anthropic-count-tokens", grade: "exact", total: 5, perMessage: null
@@ -304,12 +308,10 @@ describe("honest next-request context meter", () => {
     const source = demoAppSource();
     const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
     const state = initialState(source, false);
-    const projected = projectNextRequest(state);
-    const estimate = nextRequestEstimate(projected.payload, projected.context);
-    // The prose is untouched, so the shape still matches exactly. Only the
-    // route moved — which is enough to retire the count it produced.
+    // The prose is untouched, so the projection still matches exactly. Only
+    // the route moved — which is enough to retire the count it produced.
     state.promptTokenCount = {
-      shape: promptCountShape(estimate.messages),
+      identity: promptProjectionIdentity(state),
       route: state.generationRoute,
       count: {
         kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
@@ -322,6 +324,32 @@ describe("honest next-request context meter", () => {
     const afterRouteChange = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
 
     expect(afterRouteChange).toBe(baseline);
+  });
+
+  test("a count is retired by an edit that keeps every message the same length", () => {
+    const source = demoAppSource();
+    const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
+    const state = initialState(source, false);
+    state.promptTokenCount = {
+      identity: promptProjectionIdentity(state),
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
+      }
+    };
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines)).not.toBe(baseline);
+
+    // Same message count, same roles, same UTF-16 lengths — and a token count
+    // that is nothing like the one on screen, because these characters cost
+    // about twice what the ASCII they replace does. Swapping one take for
+    // another of equal length does this in a single keypress, so a check that
+    // only measured lengths would keep painting the old number as exact.
+    const replaced = "あ".repeat(state.systemPrompt.length);
+    expect(replaced.length).toBe(state.systemPrompt.length);
+    state.systemPrompt = replaced;
+
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines))
+      .not.toContain(formatTokensScaled(4_242));
   });
 
   test("formats large request values with bounded k/m/b/t units", () => {

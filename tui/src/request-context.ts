@@ -39,6 +39,63 @@ export interface ProjectedNextRequest {
   context: NextRequestContext;
 }
 
+/**
+ * Every state field the next-request projection reads. Two states with the
+ * same identity project the same messages, so a token count taken under one
+ * describes the other exactly.
+ *
+ * This is what a token count is held against. Comparing the rendered messages
+ * instead would mean hashing the whole prompt on every frame; comparing only
+ * their roles and lengths is cheap but blind — swapping a take for another of
+ * the same length, or ASCII for the same length of CJK, changes the token
+ * count while leaving those lengths alone. Reading the inputs costs nothing
+ * and misses nothing: `payload` is replaced whole on every mutation, and the
+ * stream's text is taken by value because deltas append to it in place.
+ */
+export interface PromptProjectionIdentity {
+  readonly payload: StoryPayload;
+  readonly streamText: string | null;
+  readonly streamTargetId: string | null;
+  readonly focusIndex: number;
+  readonly mode: string;
+  readonly composerText: string;
+  readonly retakeNodeId: string | null;
+  readonly systemPrompt: string;
+  readonly assistantPrefill: boolean;
+  readonly returnMode: string | null;
+}
+
+export function promptProjectionIdentity(state: RequestContextState): PromptProjectionIdentity {
+  return {
+    payload: state.payload,
+    streamText: state.stream?.text ?? null,
+    streamTargetId: state.stream?.targetId ?? null,
+    focusIndex: state.focusIndex,
+    mode: state.mode,
+    composerText: state.composer.text,
+    retakeNodeId: state.retakePrompt?.nodeId ?? null,
+    systemPrompt: state.systemPrompt,
+    assistantPrefill: state.assistantPrefill,
+    returnMode: state.request?.returnMode ?? null
+  };
+}
+
+export function sameProjectionIdentity(
+  left: PromptProjectionIdentity,
+  right: PromptProjectionIdentity
+): boolean {
+  return left.payload === right.payload
+    && left.streamText === right.streamText
+    && left.streamTargetId === right.streamTargetId
+    && left.focusIndex === right.focusIndex
+    && left.mode === right.mode
+    && left.composerText === right.composerText
+    && left.retakeNodeId === right.retakeNodeId
+    && left.systemPrompt === right.systemPrompt
+    && left.assistantPrefill === right.assistantPrefill
+    && left.returnMode === right.returnMode;
+}
+
 /** Project an in-flight generation as the prompt-ready story it will become,
  * then derive the next request from that same snapshot. */
 export function projectNextRequest(

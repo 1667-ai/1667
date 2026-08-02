@@ -17,9 +17,13 @@ import {
   type StoryViewModel
 } from "../model.js";
 import { buildRailModel } from "../rail.js";
-import { projectNextRequest } from "../request-context.js";
+import {
+  projectNextRequest,
+  promptProjectionIdentity,
+  sameProjectionIdentity
+} from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
-import { promptCountShape, type PromptTokenCount } from "../../../shared/tokenize-source.js";
+import type { PromptTokenCount } from "../../../shared/tokenize-source.js";
 import { estimateResponseGrowthTokens } from "../response-growth-estimate.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
 import type {
@@ -107,19 +111,17 @@ const DEFAULT_CACHE = createWrapCache<ProseStyle>();
 
 /** The lane's stored answer (see prompt-token-count.ts), trusted only while it
  *  still describes this frame: the same route, so it cannot be a count the
- *  previous connection gave, and the same cheap shape — read the doc
- *  comment on `promptCountShape` for exactly what a match does and does not
- *  guarantee. Either mismatch falls back to null, which every reader treats as
- *  today's plain client estimate. Never counts or hashes anything itself:
- *  `estimate.messages` is already in hand from the frame's own projection. */
+ *  previous connection gave, and the same projection inputs, so it cannot
+ *  describe prose that has since changed. Either mismatch falls back to null,
+ *  which every reader treats as the plain client estimate. Costs a handful of
+ *  reference comparisons — it never hashes or re-counts anything. */
 function effectivePromptTokenCount(
-  state: Pick<StoryScreenState, "promptTokenCount" | "generationRoute">,
-  estimate: NextRequestEstimate
+  state: StoryScreenState
 ): PromptTokenCount | null {
   const record = state.promptTokenCount;
   if (record === null
     || record.route !== state.generationRoute
-    || record.shape !== promptCountShape(estimate.messages)) return null;
+    || !sameProjectionIdentity(record.identity, promptProjectionIdentity(state))) return null;
   return record.count;
 }
 
@@ -137,7 +139,7 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
-  const promptTokenCount = effectivePromptTokenCount(state, estimate);
+  const promptTokenCount = effectivePromptTokenCount(state);
   if (state.mode === "REQUEST" && state.request !== null) {
     return renderRequestViewerScreen(
       state, state.request, projectedRequest.context,

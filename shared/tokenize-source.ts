@@ -137,21 +137,6 @@ export function countedPromptChars(messages: readonly ChatMessage[]): number {
 }
 
 /**
- * A cheap statement of the request's shape, for the render path, which cannot
- * afford to hash a whole prompt on every frame. Its cost is one pass over the
- * message list, not over the text.
- *
- * It changes whenever a message is added, removed, re-roled, or changed in
- * length. It does not change when one character replaces another, so a view can
- * hold a count over that one edit until the next pass corrects it. The count is
- * wrong by about one token for that moment, which is what the cheaper check
- * buys. Use `promptCountFingerprint` wherever a complete answer is affordable.
- */
-export function promptCountShape(messages: readonly ChatMessage[]): string {
-  return messages.map((message) => `${message.role}:${message.content.length}`).join("|");
-}
-
-/**
  * The identity of one counted request. The views hold a count against the exact
  * content it counted, so a late answer can never describe newer text, and the
  * backend caches a count under the same identity.
