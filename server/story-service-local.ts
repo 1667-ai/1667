@@ -406,6 +406,23 @@ export class StoryServiceLocal {
     ));
   }
 
+  /** Commit nothing, and still answer with a versioned payload.
+   *
+   * An import can find no Facts to add. That is a result, not a failure, but it
+   * still has to pass the aggregate-version check so a client cannot keep a
+   * stale token and meet a conflict on its next edit. */
+  async unchangedFacts(id: string, mutationRequest?: unknown): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      return buildStoryPayload(await this.dependencies.stories.load(id));
+    }
+    return await this.localStoryPayload(
+      mutationRequest,
+      "createFact",
+      () => STORY_UNCHANGED
+    );
+  }
+
   async patchFact(
     id: string,
     factId: string,

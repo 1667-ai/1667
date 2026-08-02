@@ -418,3 +418,32 @@ test("indented text that looks like a decorator stays prose", () => {
     fidelityReport(result.fidelity)
   );
 });
+
+test("a zero recursion delay is no delay", () => {
+  // Current files write numeric 0 for "no delay". Counting it would tell every
+  // ordinary import that it lost a recursion setting it never had.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "Plain", content: "Ordinary.", key: ["k"], delayUntilRecursion: 0 },
+    { comment: "Also plain", content: "Ordinary.", key: ["j"], delayUntilRecursion: false }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(!report.includes("recursion"), report);
+});
+
+test("a decorator with a trailing space is not the exact control", () => {
+  // Upstream compares the token as written, so a padded decorator is not the
+  // suppression control and must not throw the entry away.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Padded",
+    content: "@@dont_activate \nThe keeper waits.",
+    key: ["keeper"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.equal(result.facts.length, 1, "the entry survives");
+  assert.equal(result.facts[0]?.activation, "keyed");
+  assert.equal(result.facts[0]?.text, "The keeper waits.");
+});

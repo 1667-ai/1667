@@ -74,9 +74,9 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     }
     // `delayUntilRecursion` holds an entry back from the first scan, and it is
     // a number as often as a boolean.
-    const delayed = item.delayUntilRecursion !== undefined
-      && item.delayUntilRecursion !== false
-      && item.delayUntilRecursion !== null;
+    // Current files write numeric 0 for "no delay", so only true or a positive
+    // level counts. Otherwise an ordinary file reports a loss it never had.
+    const delayed = isPositive(item.delayUntilRecursion);
     if (item.recursion === true || item.excludeRecursion === true
       || item.preventRecursion === true || delayed) {
       recursiveEntries += 1;
@@ -287,7 +287,7 @@ function readDecorators(content: string): {
   const decorators: string[] = [];
   let index = 0;
   while (index < lines.length && lines[index]!.startsWith("@@")) {
-    decorators.push(lines[index]!.trim());
+    decorators.push(lines[index]!.replace(/\r$/u, ""));
     index += 1;
   }
   return { decorators, content: lines.slice(index).join("\n") };

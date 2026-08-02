@@ -772,10 +772,14 @@ export class StoryService extends StoryServiceRuntime {
     // pass one.
     const importResult = factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
     // An archive can hold nothing this story can take: no entries, every entry
-    // disabled, or every entry refused. That is a report, not a failure, so the
-    // story is returned unchanged rather than refused for an empty batch.
+    // disabled, or every entry refused. That is a report, not a failure. It
+    // still goes through the mutation boundary, so the version check runs and
+    // the answer carries a version the client can keep using.
     if (importResult.facts.length === 0) {
-      return { payload: buildStoryPayload(story), importResult };
+      return {
+        payload: await this.storyLocal.unchangedFacts(storyId, mutationRequest),
+        importResult
+      };
     }
     const payload = await this.createFact(
       storyId,
