@@ -40,9 +40,13 @@ type WorldInfoLoss =
   | "macro"
   | "vector"
   | "filtered"
-  | "unreadable";
+  | "unreadable"
+  | "role";
 
 const WORLD_INFO_LOSS_PHRASES: LossPhrases<WorldInfoLoss> = {
+  role: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")}`
+      + " lost a prompt role; a fact speaks as the system",
   unreadable: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} could not be read`,
   secondaryKey: (count) =>
@@ -169,6 +173,11 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   // Position 4 is "at depth"; the rest name a place in the prompt that a Fact
   // does not choose. Either way the Fact lands where 1667 puts Facts.
   if (item.position !== undefined && item.position !== null) losses.push("positioned");
+  // An at-depth entry can speak as the user or the assistant. A Fact always
+  // enters as the system, which is a different authority, not a different place.
+  if (item.role !== undefined && item.role !== null && item.role !== 0) {
+    losses.push("role");
+  }
   if (item.useProbability === true && typeof item.probability === "number"
     && item.probability < 100) {
     losses.push("chance");

@@ -287,5 +287,8 @@ test("an import started from the composer names a way to the report that works",
 
   expect(state.archive?.error ?? null).toBe(null);
   expect(state.mode).toBe("COMPOSE");
-  expect(state.toast).toContain("esc then ! full report");
+  expect(state.toast).toContain("full report in the log");
+  // No keystroke is promised: from a fullscreen composer the first esc only
+  // leaves fullscreen, so a count of presses would be wrong.
+  expect(state.toast).not.toContain("esc then");
 });

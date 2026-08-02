@@ -93,10 +93,12 @@ async function applyArchiveImport(
         const keyed = importResult.facts.filter((fact) => fact.activation === "keyed").length;
         const always = importResult.facts.length - keyed;
         // `!` opens the log in NAV and MAP only. An import started from the
-        // composer returns there, where `!` would type into the draft, so the
-        // toast names the way out first rather than a key that does nothing.
+        // composer returns there, where `!` would type into the draft. How many
+        // times esc is needed depends on whether the composer was fullscreen,
+        // so name the place the report is rather than a keystroke that may be
+        // wrong.
         const report = overlay.returnMode === "COMPOSE"
-          ? "esc then ! full report"
+          ? "full report in the log"
           : "! full report";
         state.toast = `${importResult.facts.length} ${countNoun(importResult.facts.length, "Fact")} imported`
           + ` · ${keyed} keyed · ${always} always · ${report}`;

@@ -569,3 +569,16 @@ test("an entry that never becomes a Fact does not report what it would have lost
     "grouped"
   ]) assert.ok(!report.includes(absent), `${absent} should not be reported: ${report}`);
 });
+
+test("an entry that speaks as the user or assistant says it lost that role", () => {
+  // An at-depth entry can carry a prompt role. A Fact always enters as the
+  // system, which is a different authority, not a different place.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    { comment: "AsUser", content: "Body.", key: ["k"], position: 4, role: 1 },
+    { comment: "AsSystem", content: "Body.", key: ["j"], position: 4, role: 0 }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("1 entry lost a prompt role"), report);
+});
