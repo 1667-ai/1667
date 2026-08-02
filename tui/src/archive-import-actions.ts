@@ -92,8 +92,14 @@ async function applyArchiveImport(
         adopted = true;
         const keyed = importResult.facts.filter((fact) => fact.activation === "keyed").length;
         const always = importResult.facts.length - keyed;
+        // `!` opens the log in NAV and MAP only. An import started from the
+        // composer returns there, where `!` would type into the draft, so the
+        // toast names the way out first rather than a key that does nothing.
+        const report = overlay.returnMode === "COMPOSE"
+          ? "esc then ! full report"
+          : "! full report";
         state.toast = `${importResult.facts.length} ${countNoun(importResult.facts.length, "Fact")} imported`
-          + ` · ${keyed} keyed · ${always} always · ! full report`;
+          + ` · ${keyed} keyed · ${always} always · ${report}`;
         // The toast holds four rows and the report does not. Write the whole
         // account to the log, or a writer importing in the app never learns
         // what the archive lost.

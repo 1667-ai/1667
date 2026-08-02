@@ -203,6 +203,10 @@ test("a lossy World Info import writes its whole report to the log", async () =>
 
 test("escape closes the archive panel and restores its previous mode", async () => {
   const source = demoAppSource();
+  source.api.importLorebook = async () => ({
+    payload: source.payload,
+    importResult: { facts: [], fidelity: ["1 entry read", "0 facts imported"] }
+  });
   const state = initialState(source, false);
   state.mode = "COMPOSE";
   openArchiveImport(state);
@@ -256,3 +260,32 @@ async function temporaryDirectory(): Promise<string> {
 function key(name: string, sequence = name): KeyEvent {
   return { name, sequence, shift: false, ctrl: false, meta: false } as KeyEvent;
 }
+
+test("an import started from the composer names a way to the report that works", async () => {
+  // `!` opens the log in NAV and MAP only. Returning to COMPOSE it would type
+  // into the draft, so the toast must not advertise it bare.
+  const root = await temporaryDirectory();
+  const file = path.join(root, "world.json");
+  await writeFile(file, JSON.stringify({
+    entries: { "0": { uid: 0, comment: "Weather", content: "The pass closes.", key: ["storm"] } }
+  }), "utf8");
+
+  const source = demoAppSource();
+  source.api.importLorebook = async () => ({
+    payload: source.payload,
+    importResult: { facts: [], fidelity: ["1 entry read", "0 facts imported"] }
+  });
+  const state = initialState(source, false);
+  state.mode = "COMPOSE";
+  openArchiveImport(state);
+  expect(state.archive?.returnMode).toBe("COMPOSE");
+
+  await pressSequence(state, source, [
+    ...file.split("").map((value) => key(value)),
+    key("return", "\r")
+  ]);
+
+  expect(state.archive?.error ?? null).toBe(null);
+  expect(state.mode).toBe("COMPOSE");
+  expect(state.toast).toContain("esc then ! full report");
+});
