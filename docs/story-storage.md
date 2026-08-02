@@ -89,7 +89,7 @@ unselected takes, summary parts, chapter boundaries, or retry history.
 
 A `.scenario` Archive contains the selected prose in one prompt. It contains
 the same Facts, Memory, and Author's Note as a `.story` Archive. It does not
-create placeholder variables. It does not contain the author brief, because a
+create placeholder variables. It does not contain the Author Brief, because a
 Scenario carries the story's own Author's Note.
 
 A Fact tagged `memory` becomes the Archive Memory. Memory is always in context,

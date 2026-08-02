@@ -116,6 +116,7 @@ test("sampling parses as a closed optional profile object and projects to runtim
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: null,
+    seed: 7,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 }
   } as const;
@@ -165,6 +166,7 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
     frequencyPenalty: null,
     presencePenalty: null,
     repeatPenalty: null,
+    seed: null,
     stop: [],
     logitBias: {}
   };
@@ -178,6 +180,8 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   assert.throws(() => parseSettingsDocumentV2(withSampling({ topP: 2 })), /topP/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ topK: 100_001 })), /topK/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ repeatPenalty: 0.9 })), /repeatPenalty/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ seed: 0 })), /seed/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ seed: 1_000_000 })), /seed/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["", "END"] })), /stop/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["END", "END"] })), /repeats/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ logitBias: { "01": 1 } })), /logitBias/);
@@ -217,6 +221,7 @@ test("save-time sampling validation refuses unavailable preset and model cells",
           frequencyPenalty: null,
           presencePenalty: null,
           repeatPenalty: null,
+          seed: null,
           stop: [],
           logitBias: { "1": 1 }
         }
@@ -244,6 +249,7 @@ test("save-time sampling validation refuses unavailable preset and model cells",
           frequencyPenalty: null,
           presencePenalty: null,
           repeatPenalty: null,
+          seed: null,
           stop: [],
           logitBias: {}
         }

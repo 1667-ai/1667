@@ -17,6 +17,7 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
+import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
 import type { CardImportPlan } from "../../shared/card-import.js";
 
@@ -121,7 +122,8 @@ export interface StoryApi {
   createStory(title?: string): Promise<StoryPayload>;
   loadStory(id: string): Promise<StoryPayload>;
   renameStory(id: string, title: string): Promise<StoryPayload>;
-  setAuthorsNote(storyId: string, note: string): Promise<StoryPayload>;
+  setAuthorsNote(storyId: string, note: string, depth?: number): Promise<StoryPayload>;
+  setAuthorBrief(storyId: string, brief: string): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
@@ -549,18 +551,7 @@ export function createApi(
       }
     },
     loadStory: loadVersionedStory,
-    renameStory: (id, title) => mutateStoryPayload(
-      id,
-      "PATCH",
-      `/api/stories/${id}`,
-      { title }
-    ),
-    setAuthorsNote: (storyId, note) => mutateStoryPayload(
-      storyId,
-      "PUT",
-      `/api/stories/${storyId}/authors-note`,
-      { note }
-    ),
+    ...storyFieldApi(mutateStoryPayload),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = await loadVersionedStory(id);

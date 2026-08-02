@@ -1,5 +1,6 @@
 import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "./authors-note.js";
+import { isValidAuthorsNoteDepth, MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "./authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 import { FactActivationError, parseFactMetadata } from "./fact-activation.js";
 import type { FactActivation } from "./fact-activation.js";
@@ -170,6 +171,13 @@ export interface StoryPayload {
   updatedAt: string;
   origin?: StoryOrigin;
   authorsNote?: string;
+  /** How many story parts from the end the note lands before. Absent means
+   *  the default placement (immediately before the last part). See
+   *  `resolveAuthorsNoteDepth`. */
+  authorsNoteDepth?: number;
+  /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
+   *  to the machine-wide value. See `resolveAuthorBrief`. */
+  authorBrief?: string;
   firstChapterTitle?: string;
   nodes: NodeStub[];
   path: StoryNode[];
@@ -224,6 +232,8 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
     throw new Error("The server returned an invalid story payload.firstChapterTitle.");
   }
   assertAuthorsNote(candidate.authorsNote);
+  assertAuthorsNoteDepth(candidate.authorsNoteDepth);
+  assertAuthorBrief(candidate.authorBrief);
   if (candidate.aggregateVersion !== undefined) {
     assertStoryAggregateVersion(
       candidate.aggregateVersion,
@@ -379,6 +389,13 @@ export interface Story {
   updatedAt: string;
   origin?: StoryOrigin;
   authorsNote?: string;
+  /** How many story parts from the end the note lands before. Absent means
+   *  the default placement (immediately before the last part). See
+   *  `resolveAuthorsNoteDepth`. */
+  authorsNoteDepth?: number;
+  /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
+   *  to the machine-wide value. See `resolveAuthorBrief`. */
+  authorBrief?: string;
   /** Chapter one has no opening break to carry a name, so it carries one here.
    * Absent means unnamed, and an unnamed chapter one reads as the story. */
   firstChapterTitle?: string;
@@ -399,6 +416,28 @@ function assertAuthorsNote(value: unknown): void {
   if (unicodeScalarLength(value, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
     throw new Error(
       `The server returned an invalid story payload.authorsNote: must contain at most ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} Unicode scalar values.`
+    );
+  }
+}
+
+function assertAuthorsNoteDepth(value: unknown): void {
+  if (value === undefined) return;
+  if (!isValidAuthorsNoteDepth(value)) {
+    throw new Error(
+      `The server returned an invalid story payload.authorsNoteDepth: must be an integer from 1 to ${MAX_AUTHORS_NOTE_DEPTH}.`
+    );
+  }
+}
+
+function assertAuthorBrief(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== "string") invalidField("story payload", "authorBrief");
+  if (hasUnpairedSurrogate(value)) {
+    throw new Error("The server returned an invalid story payload.authorBrief: contains an unpaired Unicode surrogate.");
+  }
+  if (unicodeScalarLength(value, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
+    throw new Error(
+      `The server returned an invalid story payload.authorBrief: must contain at most ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar values.`
     );
   }
 }

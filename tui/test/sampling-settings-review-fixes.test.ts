@@ -14,6 +14,7 @@ import { frameText } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
 import {
   samplingContextForOverlay,
+  samplingLayerRowIndex,
   samplingScalarRows
 } from "../src/sampling-model.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
@@ -99,7 +100,7 @@ describe("Sampling Settings review regressions", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     await press(key("n"));
     setSamplingEdit(state, "END");
@@ -111,7 +112,7 @@ describe("Sampling Settings review regressions", () => {
     expect(state.settings?.draft.sampling.stop).toEqual([]);
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     await press(key("n"));
     setSamplingEdit(state, "42:7");
@@ -130,13 +131,13 @@ describe("Sampling Settings review regressions", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, 6);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     const stopFrame = render(state, 120, 24);
     expect(stopFrame).toContain("reorder");
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, 7);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     const logitFrame = render(state, 120, 24);
     expect(logitFrame).not.toContain("reorder");

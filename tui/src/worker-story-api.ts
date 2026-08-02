@@ -119,9 +119,14 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { id, title },
       { expectedAggregateVersion: await expectedVersion(id) }
     )),
-    setAuthorsNote: async (storyId, note) => rememberPayload(await transport.call(
+    setAuthorsNote: async (storyId, note, depth) => rememberPayload(await transport.call(
       "setAuthorsNote",
-      { storyId, note },
+      { storyId, note, ...(depth === undefined ? {} : { depth }) },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
+    setAuthorBrief: async (storyId, brief) => rememberPayload(await transport.call(
+      "setAuthorBrief",
+      { storyId, brief },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
     autonameStory: async (id) => {

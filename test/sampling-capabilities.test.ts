@@ -31,6 +31,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "dry-run" },
       presencePenalty: { kind: "unavailable", reason: "dry-run" },
       repeatPenalty: { kind: "unavailable", reason: "dry-run" },
+      seed: { kind: "unavailable", reason: "dry-run" },
       stop: { kind: "unavailable", reason: "dry-run" },
       logitBias: { kind: "unavailable", reason: "dry-run" }
     }
@@ -45,6 +46,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "dry-run" },
       presencePenalty: { kind: "unavailable", reason: "dry-run" },
       repeatPenalty: { kind: "unavailable", reason: "dry-run" },
+      seed: { kind: "unavailable", reason: "dry-run" },
       stop: { kind: "unavailable", reason: "dry-run" },
       logitBias: { kind: "unavailable", reason: "dry-run" }
     }
@@ -59,6 +61,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -73,6 +76,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -87,6 +91,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -101,6 +106,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -115,6 +121,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "unavailable", reason: "preset-unsupported" }
     }
@@ -129,6 +136,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -143,6 +151,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -157,6 +166,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      seed: { kind: "available", wireField: "seed" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" }
     }
@@ -171,6 +181,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "protocol" },
       presencePenalty: { kind: "unavailable", reason: "protocol" },
       repeatPenalty: { kind: "unavailable", reason: "protocol" },
+      seed: { kind: "unavailable", reason: "protocol" },
       stop: { kind: "available", wireField: "stop_sequences" },
       logitBias: { kind: "unavailable", reason: "protocol" }
     }
@@ -185,6 +196,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "protocol" },
       presencePenalty: { kind: "unavailable", reason: "protocol" },
       repeatPenalty: { kind: "unavailable", reason: "protocol" },
+      seed: { kind: "unavailable", reason: "protocol" },
       stop: { kind: "available", wireField: "stop_sequences" },
       logitBias: { kind: "unavailable", reason: "protocol" }
     }
@@ -204,6 +216,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "model-unsupported" },
       presencePenalty: { kind: "unavailable", reason: "model-unsupported" },
       repeatPenalty: { kind: "unavailable", reason: "model-unsupported" },
+      seed: { kind: "unavailable", reason: "model-unsupported" },
       stop: { kind: "unavailable", reason: "model-unsupported" },
       logitBias: { kind: "unavailable", reason: "model-unsupported" }
     }
@@ -223,6 +236,7 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       frequencyPenalty: { kind: "unavailable", reason: "legacy-v1" },
       presencePenalty: { kind: "unavailable", reason: "legacy-v1" },
       repeatPenalty: { kind: "unavailable", reason: "legacy-v1" },
+      seed: { kind: "unavailable", reason: "legacy-v1" },
       stop: { kind: "unavailable", reason: "legacy-v1" },
       logitBias: { kind: "unavailable", reason: "legacy-v1" }
     }

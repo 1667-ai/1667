@@ -12,6 +12,7 @@ interface MutationEntityNamespaces {
   createStory: "story";
   renameStory: never;
   setAuthorsNote: never;
+  setAuthorBrief: never;
   autonameStory: "autoname";
   acknowledgeUnknownOutcomes: never;
   deleteStory: never;

@@ -297,6 +297,7 @@ function sampling(overrides: Partial<SamplingSettingsV2> = {}): SamplingSettings
     frequencyPenalty: null,
     presencePenalty: null,
     repeatPenalty: null,
+    seed: null,
     stop: overrides.stop ?? [],
     logitBias: overrides.logitBias ?? {}
   };

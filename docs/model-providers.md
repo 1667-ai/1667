@@ -41,7 +41,9 @@ uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
 
-Select the system prompt row to open the full-screen editor.
+Select the system prompt row to open the full-screen editor. This machine-wide
+value is the default Author Brief. A story that sets its own Author Brief uses
+that value instead.
 
 The context meter shows the estimated next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
@@ -79,6 +81,22 @@ rewrite a story. It does not create a summary. It does not name a story.
 
 1667 shows a warning when the Author's Note is above 300 estimated tokens.
 1667 does not save an Author's Note that has more than 4,000 Unicode scalar
+values.
+
+## Author Brief
+
+Each story can hold one Author Brief. Open the command palette with `Ctrl+P`
+or `:`. Select **Author brief**. This command has no direct key.
+
+A story Author Brief overrides the default Author Brief when you set it. The
+default Author Brief is the system prompt row in Settings. 1667 falls back to
+the default Author Brief when a story has none of its own.
+
+1667 sends the resolved Author Brief with every continuation request, prompted
+retake, highlighted rewrite, and autoname request. The Author's Note applies to
+fewer operations: only continuation and prompted retake requests.
+
+1667 does not save an Author Brief that has more than 65,536 Unicode scalar
 values.
 
 ## Provider support
