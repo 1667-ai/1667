@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
+  `.json` file to the command or to `import archive` in the command palette.
+  1667 reads the file to know its format. A constant Entry becomes an always
+  active Fact, and a keyed Entry keeps its keys. The Fidelity Report gives the
+  World Info mechanisms that a Fact has no place for. Thanks @10fra for the
+  request.
+
 - **A NovelAI `.story` or `.scenario` export now carries the Facts, the Memory,
   and the Author's Note.** An export and an import carry the same items, so a
   story that leaves 1667 and comes back keeps the world that steers it. A

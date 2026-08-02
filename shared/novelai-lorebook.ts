@@ -20,6 +20,7 @@ import { factImportRequestBytes } from "./character-card.js";
 
 import { hasPngSignature, readPngTextChunk } from "./png-text-chunk.js";
 import { parseJsonRejectingDuplicateKeys } from "./strict-json.js";
+import { isWorldInfo, lorebookFromWorldInfo } from "./sillytavern-world-info.js";
 
 export const SUPPORTED_LOREBOOK_VERSION = 6;
 export const MAX_LOREBOOK_JSON_BYTES = 1_000_000;
@@ -68,6 +69,33 @@ export function parseLorebookArchive(bytes: Uint8Array): unknown {
   return value;
 }
 
+/** Turn a parsed archive into Facts, whichever product wrote it.
+ *
+ * A SillyTavern World Info file becomes the canonical Lorebook entry shape
+ * first, so the Entry Mapping below stays the only place an entry becomes a
+ * Fact. Its own losses are named before the mapping names its own. */
+export function factsFromArchive(
+  value: unknown,
+  room: number,
+  bodyBudget?: number
+): LorebookImport {
+  // A character card is .json as well, and it has its own door. Name that door
+  // rather than refuse it as a lorebook with the wrong version.
+  if (isCharacterCardShape(value)) {
+    throw new Error(
+      "this is a character card, not a lorebook · use 1667 import-card"
+        + " or the 'import character card' command"
+    );
+  }
+  if (!isWorldInfo(value)) return factsFromLorebook(value, room, bodyBudget);
+  const converted = lorebookFromWorldInfo(value);
+  const imported = factsFromLorebook(converted.lorebook, room, bodyBudget);
+  return {
+    facts: imported.facts,
+    fidelity: [...imported.fidelity, ...converted.fidelity]
+  };
+}
+
 /** Turn a parsed Lorebook into Facts, bounded by the room the story has left.
  *
  * `bodyBudget` is the size of the request the caller will send. Only the
@@ -83,7 +111,8 @@ export function factsFromLorebook(
   }
   if (value.lorebookVersion !== SUPPORTED_LOREBOOK_VERSION) {
     throw new Error(
-      `unsupported lorebookVersion ${value.lorebookVersion ?? "missing"} · export the lorebook again from NovelAI`
+      `unsupported lorebookVersion ${value.lorebookVersion ?? "missing"}`
+        + " · expected a NovelAI lorebook or a SillyTavern World Info file"
     );
   }
 
@@ -381,6 +410,15 @@ function lastBoundary(text: string, boundary: string, start: number, end: number
 }
 
 
+
+/** A V1 card names its fields at the root; a V2 card wraps them in `data`. */
+function isCharacterCardShape(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.spec === "string" && value.spec.startsWith("chara_card")) return true;
+  const root = isRecord(value.data) ? value.data : value;
+  return typeof root.name === "string"
+    && (typeof root.description === "string" || typeof root.personality === "string");
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

@@ -63,7 +63,7 @@ async function applyArchiveImport(
 
   const extension = archiveExtension(overlay.path);
   if (extension === null) {
-    overlay.error = "unsupported archive extension · use .lorebook, .scenario, or .story";
+    overlay.error = "unsupported archive · use .lorebook, .json, .scenario, or .story";
     return;
   }
 
@@ -130,6 +130,9 @@ function archiveExtension(value: string): ".lorebook" | ".scenario" | ".story" |
   if (lower.endsWith(".lorebook")) return ".lorebook";
   if (lower.endsWith(".scenario")) return ".scenario";
   if (lower.endsWith(".story")) return ".story";
+  // SillyTavern writes World Info as plain .json. A character card is .json
+  // too, so the reader tells them apart by shape and says which door to use.
+  if (lower.endsWith(".json")) return ".lorebook";
   return null;
 }
 

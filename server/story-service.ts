@@ -52,7 +52,7 @@ import { partsFromNovelAiScenario } from "./import-scenario.js";
 import { createFacts } from "./story-facts.js";
 import { setAuthorsNote } from "./story-authors-note.js";
 
-import { factsFromLorebook, parseLorebookArchive, type LorebookImport } from "../shared/novelai-lorebook.js";
+import { factsFromArchive, parseLorebookArchive, type LorebookImport } from "../shared/novelai-lorebook.js";
 import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 
 import type { CreationMethod } from "./story-creation-record.js";
@@ -770,7 +770,7 @@ export class StoryService extends StoryServiceRuntime {
     // This path sends the Facts as one createFact body, so the body budget
     // applies here. A container import builds the story in process and does not
     // pass one.
-    const importResult = factsFromLorebook(lorebook, room, MAX_JSON_BODY_BYTES);
+    const importResult = factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
     const payload = await this.createFact(
       storyId,
       { facts: [...importResult.facts] },

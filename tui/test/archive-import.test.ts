@@ -43,7 +43,7 @@ test("the palette lists import archive and opens its panel", async () => {
   });
   const frame = rendered(state);
   expect(frame).toContain("┏━ import archive ━");
-  expect(frame).toContain(".lorebook → Facts here · .scenario · .story → a new story");
+  expect(frame).toContain(".lorebook .json → Facts · .scenario .story → new story");
 });
 
 test("tab completes an archive path and names candidates beyond the first six", async () => {
@@ -160,11 +160,13 @@ test("an unsupported extension explains itself in the open panel", async () => {
 
   expect(state.mode).toBe("ARCHIVE");
   expect(state.archive?.error).toBe(
-    "unsupported archive extension · use .lorebook, .scenario, or .story"
+    "unsupported archive · use .lorebook, .json, .scenario, or .story"
   );
   const frame = rendered(state);
-  expect(frame).toContain("· unsupported archive extension · use .lorebook,");
-  expect(frame).toContain(".scenario, or .story");
+  // The reason is longer than the value column, so the panel wraps it rather
+  // than cutting the list of what the command does accept.
+  expect(frame).toContain("· unsupported archive · use .lorebook, .json, .scenario,");
+  expect(frame).toContain("or .story");
 });
 
 test("escape closes the archive panel and restores its previous mode", async () => {

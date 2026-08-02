@@ -145,7 +145,7 @@ describe("run C overlay frames", () => {
     expect(rest).toContain("┏━ import archive ━");
     expect(rest).toContain("file    █");
     expect(rest).toContain(
-      ".lorebook → Facts here · .scenario · .story → a new story"
+      ".lorebook .json → Facts · .scenario .story → new story"
     );
     expect(rest).toContain("tab completes · ↵ imports · esc closes");
     expect(rest).toContain(" ARCHIVE ");

@@ -148,8 +148,8 @@ generation settings and retry history are not imported.
 also adds Facts to a story that exists.
 
 Select `import archive` in the command palette to import an Archive in the TUI.
-A `.lorebook` file adds Facts to the open story. A `.scenario` file or a
-`.story` file creates a new story.
+A `.lorebook` file or a World Info `.json` file adds Facts to the open story. A
+`.scenario` file or a `.story` file creates a new story.
 
 Use this command to import a Container or a Scenario:
 
@@ -163,6 +163,10 @@ Use this command to import a Lorebook:
 1667 import-lorebook --story <id-or-title> <file.lorebook>
 ```
 
+The command also reads a SillyTavern World Info file, which uses the `.json`
+name. 1667 reads the file to know which format it has. It does not use the file
+name.
+
 The Entry Mapping makes one Fact from each enabled Lorebook Entry.
 
 | Lorebook Entry value | Fact value |
@@ -173,6 +177,22 @@ The Entry Mapping makes one Fact from each enabled Lorebook Entry.
 | `keys` | Fact keys |
 | `forceActivation: true` | Always active |
 | Other `forceActivation` values | Keyed activation |
+| `enabled: false` | No Fact |
+
+A World Info Entry uses different names for the same values.
+
+| World Info Entry value | Fact value |
+| --- | --- |
+| `content` | Fact text |
+| `comment` | Fact tag |
+| `key` | Fact keys |
+| `constant: true` | Always active |
+| Other `constant` values | Keyed activation |
+| `disable: true` | No Fact |
+
+A Fact is always in context or keyed on one list. So World Info secondary keys,
+insertion positions, firing probability, and recursion controls do not import.
+The Fidelity Report gives the number of Entries that lose each one.
 | `enabled: false` | No Fact |
 
 Memory becomes one always active Fact. The Fact tag is `memory`. Memory uses

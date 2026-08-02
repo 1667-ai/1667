@@ -164,6 +164,54 @@ test("import-lorebook without --story fails and says so", async () => {
     .toContain("import-lorebook requires --story");
 });
 
+test("import-lorebook reads a SillyTavern World Info file", async () => {
+  const { root, stories } = await projectWithStories(["World Info Target"]);
+  const target = stories[0]!;
+  const file = path.join(root, "world.json");
+  await writeFile(file, JSON.stringify({
+    entries: {
+      "0": {
+        uid: 0,
+        comment: "Weather",
+        content: "The pass closes in winter.",
+        key: ["storm"],
+        keysecondary: ["night"],
+        constant: false,
+        disable: false,
+        position: 0,
+        probability: 100,
+        useProbability: true
+      },
+      "1": {
+        uid: 1,
+        comment: "Premise",
+        content: "The keeper never leaves the light.",
+        key: [],
+        keysecondary: [],
+        constant: true,
+        disable: false
+      }
+    }
+  }), "utf8");
+
+  const out = recorder();
+  const errors = recorder();
+  await runLorebookImport(["--story", target.id, "--data", root, file], out, errors);
+
+  expect(out.text).toContain("imported 2 facts");
+  expect(errors.text).toContain("lost secondary keys");
+
+  const backend = await createWorkerStoryApi({ dataDir: path.join(root, ".1667") });
+  try {
+    const payload = await backend.api.loadStory(target.id);
+    expect(payload.facts.map((fact) => fact.tag)).toEqual(["Weather", "Premise"]);
+    expect(payload.facts.map((fact) => fact.activation)).toEqual(["keyed", "always"]);
+    expect(payload.facts[0]!.keys).toEqual(["storm"]);
+  } finally {
+    await backend.dispose();
+  }
+});
+
 function buildPngLorebook(jsonText: string): Uint8Array {
   const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
   const base64Payload = Buffer.from(jsonText, "utf8").toString("base64");
@@ -219,6 +267,15 @@ function collector(): {
   return {
     stream: { write: (text) => { parts.push(String(text)); return true; } },
     text: () => parts.join("")
+  };
+}
+
+/** A sink that keeps what was written, for the lines a writer actually reads. */
+function recorder(): { write: (text: string) => boolean; text: string } {
+  const lines: string[] = [];
+  return {
+    write: (text: string) => { lines.push(text); return true; },
+    get text() { return lines.join(""); }
   };
 }
 
