@@ -1,5 +1,6 @@
 import { addHit, type HitRows } from "../../hit.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
+import { factPriorityGlyph } from "../../facts-model.js";
 import { RAIL_CONTENT_WIDTH, type RailModel } from "../../rail.js";
 import type { StoryFrameLayout } from "../../story-frame-layout.js";
 import { wrapText } from "../../wrap.js";
@@ -35,13 +36,21 @@ export function renderFactsRail(
     const tagWidth = visibleWidth(tag);
     const tagGap = tagWidth > 0 ? 1 : 0;
     const name = truncate(fact.name, Math.max(0, RAIL_CONTENT_WIDTH - 2 - tagGap - tagWidth));
-    const marker = fact.activation === "always"
-      ? segment("  ")
+    // Two one-cell glyphs share the marker's fixed two-cell budget: activation
+    // state first, then priority — blank for "normal", the common case, so a
+    // priority worth noticing is the only thing that ever draws there.
+    const activationGlyph = fact.activation === "always"
+      ? segment(" ")
       : fact.active
-        ? segment("✓ ", "focus / accent")
-        : segment("· ", "chrome");
+        ? segment("✓", "focus / accent")
+        : segment("·", "chrome");
+    const priorityChar = factPriorityGlyph(fact.priority);
+    const priorityGlyph = priorityChar.length === 0
+      ? segment(" ")
+      : segment(priorityChar, fact.priority === "low" ? "prose · dim" : "chrome");
     const namePart = [
-      marker,
+      activationGlyph,
+      priorityGlyph,
       segment(name, fact.activation === "keyed" && !fact.active
         ? "prose · dim"
         : "prose")

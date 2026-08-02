@@ -25,6 +25,8 @@ export interface RailFact {
   /** Included in the next generation request. */
   active: boolean;
   body: string;
+  /** Shedding rank under window pressure; "normal" is the default. */
+  priority: NonNullable<StoryFact["priority"]>;
 }
 
 export interface RequestWindow {
@@ -87,7 +89,8 @@ export function buildRailModel(
       tag: fact.tag ?? "",
       activation: fact.activation,
       active: activeFactIds.has(fact.id),
-      body: factBody(fact)
+      body: factBody(fact),
+      priority: fact.priority ?? "normal"
     };
   });
   // The rail is a fixed-height window, so a long list gets cut. Facts the next

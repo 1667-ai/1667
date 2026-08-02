@@ -3,6 +3,7 @@ import {
   boundedFactSelection,
   factBody,
   factName,
+  factPriorityGlyph,
   factRows,
   factTags
 } from "../facts-model.js";
@@ -112,6 +113,13 @@ export function renderFactsPanel(
     const body = factBody(fact);
     const selected = index === selection.cursor;
     const activeKeyed = fact.activation === "keyed" && activeFactIds.has(fact.id);
+    const statusBase = fact.activation === "always"
+      ? "always"
+      : activeKeyed ? "✓ keyed" : "· keyed";
+    const priorityChar = factPriorityGlyph(fact.priority);
+    // A blank glyph for "normal" priority keeps the column at its established
+    // width for the common case; low/high only cost one more cell.
+    const status = priorityChar.length === 0 ? statusBase : `${statusBase} ${priorityChar}`;
     content.push([
       raisedSegment(cellPad(selected ? "  ▸ " : "", columns.lead),
         selected ? "focus / accent" : "chrome"),
@@ -120,9 +128,7 @@ export function renderFactsPanel(
       raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag),
         "accent · deep"),
       raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome"),
-      raisedSegment(cellPad(fact.activation === "always"
-        ? "always"
-        : activeKeyed ? "✓ keyed" : "· keyed", columns.status),
+      raisedSegment(cellPad(status, columns.status),
       activeKeyed ? "focus / accent" : "chrome")
     ]);
     targets.push({ kind: "list", index });

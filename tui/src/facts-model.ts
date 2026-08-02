@@ -68,6 +68,14 @@ export function factBody(fact: StoryFact): string {
   return lines.slice(nameIndex + 1).join(" ").replace(/\s+/g, " ").trim();
 }
 
+/** One cell that says "this Fact sheds first" or "this Fact resists shedding"
+ *  — the two priority states worth a glyph. `normal`, the common case, is
+ *  blank so it never competes with the marker it sits beside. */
+export function factPriorityGlyph(priority: StoryFact["priority"]): string {
+  const effective = priority ?? "normal";
+  return effective === "low" ? "↓" : effective === "high" ? "↑" : "";
+}
+
 function reusableFactTag(tag: string | null): tag is string {
   return tag !== null && tag.length > 0 && !/[\r\n\u2028\u2029]/u.test(tag);
 }
