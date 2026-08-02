@@ -19,6 +19,9 @@ export interface WorldInfoEntries {
   /** The canonical entry shape, so one Entry Mapping serves both archives. */
   readonly entries: readonly LorebookEntry[];
   readonly fidelity: readonly string[];
+  /** Entries the file held, including any this reader refused. The headline
+   * counts what the writer wrote, not what survived the reader. */
+  readonly sourceCount: number;
 }
 
 type WorldInfoLoss =
@@ -129,7 +132,7 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoEntries {
   fidelity.push("a fact key matches a whole key and ignores letter case");
   fidelity.push("scan depth, order, and other World Info settings omitted");
 
-  return { entries, fidelity };
+  return { entries, fidelity, sourceCount: source.length };
 }
 
 function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
@@ -238,7 +241,7 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
  * is literal text upstream, so treating it as a pattern would delete a key that
  * works. When in doubt the key stays. */
 function isRegexKey(key: string): boolean {
-  const match = /^\/(.+)\/([a-z]*)$/u.exec(key);
+  const match = /^\/([\s\S]+)\/([a-z]*)$/u.exec(key);
   if (match === null) return false;
   const pattern = match[1]!;
   const flags = match[2]!;

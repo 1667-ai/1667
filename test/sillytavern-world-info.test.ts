@@ -506,3 +506,37 @@ test("a World Info entry that cannot be read at all is still named", () => {
     fidelityReport(result.fidelity)
   );
 });
+
+test("a refused entry still counts as one the file held", () => {
+  // The headline counts what the writer wrote. Otherwise the report reads
+  // "0 entries read" beside a reason for skipping one of them.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Off",
+    content: "@@dont_activate\nNot in play.",
+    key: ["k"]
+  }])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("1 entry read"), report);
+  assert.ok(report.includes("1 entry skipped for @@dont_activate"), report);
+  assert.ok(!report.includes("0 entries read"), report);
+});
+
+test("a pattern that spans lines is named as a pattern", () => {
+  // A slash-delimited key can hold a line break, and the loss reason has to say
+  // what it was rather than fall through to the generic key drop.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Multiline",
+    content: "Body.",
+    key: ["/foo\nbar/m", "snow"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["snow"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 regular expression key dropped"),
+    fidelityReport(result.fidelity)
+  );
+});

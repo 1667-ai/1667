@@ -38,7 +38,12 @@ function worldInfoFacts(
   bodyBudget?: number
 ): LorebookImport {
   const converted = lorebookFromWorldInfo(value);
-  const imported = factsFromEntries(converted.entries, room, bodyBudget);
+  const imported = factsFromEntries(
+    converted.entries,
+    room,
+    bodyBudget,
+    converted.sourceCount
+  );
   return {
     facts: imported.facts,
     fidelity: [...imported.fidelity, ...converted.fidelity]

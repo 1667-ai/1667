@@ -73,9 +73,13 @@ const ENTRY_LOSS_PHRASES: LossPhrases<EntryLoss> = {
 export function factsFromEntries(
   entries: readonly LorebookEntry[],
   room: number,
-  bodyBudget?: number
+  bodyBudget?: number,
+  sourceCount?: number
 ): LorebookImport {
-  const entriesRead = entries.length;
+  // A reader may refuse an entry before it reaches here. The headline counts
+  // what the file held, or it would say "0 entries read" beside a reason for
+  // skipping one of them.
+  const entriesRead = sourceCount ?? entries.length;
   const losses: EntryLoss[] = [];
   const facts: FactInput[] = [];
 
