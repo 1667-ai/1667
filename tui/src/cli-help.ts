@@ -24,7 +24,7 @@ Options:
   --data <path>      Open this project root instead of discovering one
   --global           Open the machine-wide project instead of a folder
   --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
-  -h, --help         Show help
+  --auth-file <path> Use the canonical private auth record for --url
   --version [--json] Print embedded build identity
 
 Run '1667 <command> --help' for one command, or read docs/development.md.`;

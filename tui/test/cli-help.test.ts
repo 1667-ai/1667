@@ -38,6 +38,15 @@ test("the front page sends the reader to the page that holds the detail", () => 
   expect(HELP).toContain("1667 <command> --help");
 });
 
+test("the front page keeps every root option that the root parser accepts", () => {
+  // Trimming the page to fit a short terminal must not take an option's only
+  // documentation with it. These are accepted by the default command and are
+  // written up nowhere else.
+  for (const option of ["--story", "--data", "--global", "--url", "--auth-file", "--version"]) {
+    expect(`${option}:${HELP.includes(option)}`).toBe(`${option}:true`);
+  }
+});
+
 test("each command page opens with its own usage line", () => {
   const pages: ReadonlyArray<readonly [string, string]> = [
     ["1667 init", INIT_HELP],
