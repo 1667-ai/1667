@@ -18,10 +18,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 - **The context meter and the request viewer now count tokens.** Before, they
   counted four characters for each token. 1667 now uses the tokenize source of
-  the connection: the bundled tokenizer for the official OpenAI host, the count
+  the preset: the bundled tokenizer for the official OpenAI host, the count
   endpoint for the official Anthropic host, and the tokenize endpoint of
   llama.cpp or KoboldCpp. An exact count shows no mark. A near-exact count
-  shows `≈`. A connection with no tokenize source keeps the `~` estimate. 1667
+  shows `≈`. A preset with no tokenize source keeps the `~` estimate. 1667
   counts the request after you stop typing, so a count never delays a
   keystroke. If the model server does not answer, 1667 keeps the estimate.
   Thanks @10fra for the request.

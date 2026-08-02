@@ -235,11 +235,19 @@ export interface RequestViewerState {
 }
 
 /** The last answer the token-count lane published, held against the cheap
- *  shape it was computed for. The render path never trusts this on its own —
- *  see `promptCountShape` in shared/tokenize-source.ts for exactly what a
- *  shape match does and does not guarantee. */
+ *  shape it was computed for, and against the route that counted it. The
+ *  render path never trusts this on its own — see `promptCountShape` in
+ *  shared/tokenize-source.ts for exactly what a shape match does and does not
+ *  guarantee.
+ *
+ *  The route is what stops a count outliving the connection that produced it.
+ *  The same prose sent to another preset is a different number, and often a
+ *  different grade. Without it, a move from the official OpenAI host to Ollama
+ *  would leave the bundled tokenizer's unmarked exact total on screen until the
+ *  writer happened to change the text. */
 export interface PromptTokenCountRecord {
   readonly shape: string;
+  readonly route: string;
   readonly count: PromptTokenCount;
 }
 
@@ -404,6 +412,10 @@ export interface StoryScreenState extends OverlayState {
   /** The freshest counted (or estimate) answer for the projected next request,
    *  or null before the lane has ever answered for this story. */
   promptTokenCount: PromptTokenCountRecord | null;
+  /** Identity of the prose route the backend counts against. A token count
+   *  belongs to the route that produced it, and this is what tells two routes
+   *  apart — see `generationRouteKey` and PromptTokenCountRecord. */
+  generationRoute: string;
 }
 
 export type PendingGenerationDraft =

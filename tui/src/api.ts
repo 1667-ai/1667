@@ -6,15 +6,12 @@ import {
   decodeChapterBreakCreatedResponse,
   decodeChapterBreakRemovalPreview,
   decodeChapterBreakRemovedResponse,
-  decodeContextWindowResponse,
   decodeDeleteStoryResponse,
-  decodePromptTokenCount,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
-  decodeModelServerCheckResponse,
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
@@ -46,7 +43,6 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
-import { decodeModelDiscoveryResult } from "../../shared/settings-response-decoder.js";
 import type { ChatMessage } from "../../shared/prompt-plan.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {
@@ -67,9 +63,6 @@ import type {
 import {
   HTTP_OPERATION_LIFETIME_MS
 } from "../../shared/http-operation-protocol.js";
-import {
-  WORKER_PROVIDER_CHECK_TIMEOUT_MS
-} from "../../shared/worker-protocol.js";
 import { isWorkerMutationMethod } from "../../shared/worker-protocol.js";
 import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
@@ -92,6 +85,7 @@ import {
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
 import { importMethods } from "./api-import-methods.js";
+import { providerMethods } from "./api-provider-methods.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -802,32 +796,7 @@ export function createApi(
         undefined,
         command.mutationId
       ),
-    checkModelServer: (settings) => request("POST", "/api/settings/check-server", decodeModelServerCheckResponse, settings),
-    probeContextWindow: (settings) => request(
-      "POST",
-      "/api/settings/probe-context",
-      decodeContextWindowResponse,
-      settings,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS
-    ),
-    discoverModels: (settings, signal) => request(
-      "POST",
-      "/api/settings/discover-models",
-      decodeModelDiscoveryResult,
-      settings,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS,
-      undefined,
-      signal
-    ),
-    countPromptTokens: (messages, signal) => request(
-      "POST",
-      "/api/settings/count-tokens",
-      decodePromptTokenCount,
-      { messages },
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS,
-      undefined,
-      signal
-    ),
+    ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(

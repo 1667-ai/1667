@@ -1,5 +1,7 @@
 import type { ChatMessage } from "../../shared/prompt-plan.js";
 import {
+  countedPromptChars,
+  MAX_COUNTED_PROMPT_CHARS,
   promptCountFingerprint,
   promptCountShape,
   type PromptTokenCount
@@ -82,9 +84,11 @@ export function startPromptTokenCountLane(
   let cooldownTimer: TimerHandle | null = null;
   let controller: AbortController | null = null;
   let disposed = false;
-  let coolingDown = false;
   let lastMode = state.mode;
   let lastStoryId = state.payload.id;
+  let lastRoute = state.generationRoute;
+  /** The route that already answered `no-source`; nothing to ask it again. */
+  let settledRoute: string | null = null;
   // The fingerprint last asked about (successfully dispatched or already
   // answered), so a debounce firing on an unrelated repaint — a scroll, a
   // cursor move — never re-asks the backend about a prompt that has not
@@ -104,22 +108,49 @@ export function startPromptTokenCountLane(
     controller?.abort();
     controller = null;
   };
+  /** The live timer is the cooldown; there is no separate flag to fall out of
+   * step with it. */
   const armCooldown = () => {
     if (disposed) return;
-    coolingDown = true;
     clearCooldownTimer();
     cooldownTimer = schedule(() => {
       cooldownTimer = null;
-      coolingDown = false;
     }, FAILURE_COOLDOWN_MS);
   };
 
   const runCount = () => {
-    if (disposed || coolingDown) return;
+    if (disposed) return;
     const projected = projectNextRequest(state);
     const estimate = nextRequestEstimate(projected.payload, projected.context);
-    const fingerprint = promptCountFingerprint(estimate.messages);
+    const route = state.generationRoute;
+    const fingerprint = promptCountFingerprint(estimate.messages, route);
     if (fingerprint === lastAskedFingerprint) return;
+    // The prompt moved. Retire the answer to the old one before anything can
+    // refuse the replacement — a shape match alone cannot tell a
+    // length-preserving edit from no edit at all, and the cooldown below must
+    // not be able to hold a stale mark on screen for its whole five seconds.
+    if (state.promptTokenCount !== null) {
+      state.promptTokenCount = null;
+      repaint();
+    }
+    if (cooldownTimer !== null) return;
+    // This route has already answered that it has no tokenizer. That does not
+    // change while the route stands, so asking again would ship the whole
+    // prompt for a number already known.
+    if (settledRoute === route) return;
+    // The ceiling belongs on this side of the wire. The backend refuses an
+    // oversized array too, but only after it has been serialized, sent,
+    // parsed, and validated — for an answer 1667 can reach without asking.
+    if (countedPromptChars(estimate.messages) > MAX_COUNTED_PROMPT_CHARS) {
+      lastAskedFingerprint = fingerprint;
+      state.promptTokenCount = {
+        shape: promptCountShape(estimate.messages),
+        route,
+        count: { kind: "estimate", reason: "too-large" }
+      };
+      repaint();
+      return;
+    }
     lastAskedFingerprint = fingerprint;
     const shape = promptCountShape(estimate.messages);
     abortInFlight();
@@ -136,7 +167,7 @@ export function startPromptTokenCountLane(
         // (a thrown error, a disconnected backend) forgets the ask so the
         // next pass retries, but only after the cooldown above.
         if (!active.signal.aborted) {
-          if (lastAskedFingerprint === fingerprint) lastAskedFingerprint = null;
+          forgetAsk(fingerprint);
           armCooldown();
         }
         return;
@@ -144,14 +175,40 @@ export function startPromptTokenCountLane(
         if (controller === active) controller = null;
       }
       if (disposed || active.signal.aborted) return;
-      // A late answer must never describe newer text: recompute the live
-      // projection and discard anything that no longer matches what was asked.
+      // A late answer must never describe newer text, and must never describe
+      // another connection: recompute the live projection under the live route
+      // and discard anything that no longer matches what was asked.
       const current = projectNextRequest(state);
       const currentEstimate = nextRequestEstimate(current.payload, current.context);
-      if (promptCountFingerprint(currentEstimate.messages) !== fingerprint) return;
-      state.promptTokenCount = { shape, count };
+      if (promptCountFingerprint(currentEstimate.messages, state.generationRoute)
+        !== fingerprint) return;
+      if (count.kind === "estimate" && count.reason === "probe-failed") {
+        // A probe that failed resolves rather than rejects, so it arrives
+        // looking like an answer. It is not one: the backend refuses to cache
+        // it because "a server that came back must be reachable on the next
+        // pass", and pinning it here would undo that. Show the estimate, then
+        // let the cooldown release another attempt.
+        forgetAsk(fingerprint);
+        armCooldown();
+      } else if (count.kind === "estimate" && count.reason === "no-source") {
+        // Settled for as long as the route stands: this preset has no
+        // tokenizer, and no retry invents one. Half the presets answer this,
+        // and without it each would ship the whole prompt again after every
+        // pause in typing, for a number that cannot change.
+        //
+        // `too-large` is deliberately not settled here. It describes the
+        // prompt, not the route, and a prompt that shrinks becomes countable
+        // again.
+        settledRoute = route;
+      }
+      state.promptTokenCount = { shape, route, count };
       repaint();
     })();
+  };
+
+  /** Let the same prompt be asked about again after a failure. */
+  const forgetAsk = (fingerprint: string) => {
+    if (lastAskedFingerprint === fingerprint) lastAskedFingerprint = null;
   };
 
   const queueDebounced = () => {
@@ -164,8 +221,13 @@ export function startPromptTokenCountLane(
 
   const notify = () => {
     if (disposed) return;
-    if (state.payload.id !== lastStoryId) {
+    // A new story or a new route retires the stored answer at once. Waiting
+    // for the debounce would leave a count from the old story, or from the old
+    // connection, marked as though it described this one.
+    if (state.payload.id !== lastStoryId || state.generationRoute !== lastRoute) {
       lastStoryId = state.payload.id;
+      lastRoute = state.generationRoute;
+      settledRoute = null;
       state.promptTokenCount = null;
       lastAskedFingerprint = null;
       abortInFlight();

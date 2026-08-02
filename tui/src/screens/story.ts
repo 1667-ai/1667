@@ -105,20 +105,21 @@ export interface StoryScreenFrame extends FrameComposition {
 
 const DEFAULT_CACHE = createWrapCache<ProseStyle>();
 
-/** The lane's stored answer (see prompt-token-count.ts), trusted only while
- *  its cheap shape still matches this frame's projection — read the doc
+/** The lane's stored answer (see prompt-token-count.ts), trusted only while it
+ *  still describes this frame: the same route, so it cannot be a count the
+ *  previous connection gave, and the same cheap shape — read the doc
  *  comment on `promptCountShape` for exactly what a match does and does not
- *  guarantee. A mismatch (a story swap, a message added, removed, or resized
- *  since the lane last answered) falls back to null, which every reader
- *  treats as today's plain client estimate. Never counts or hashes anything
- *  itself: `estimate.messages` is already in hand from the frame's own
- *  projection. */
+ *  guarantee. Either mismatch falls back to null, which every reader treats as
+ *  today's plain client estimate. Never counts or hashes anything itself:
+ *  `estimate.messages` is already in hand from the frame's own projection. */
 function effectivePromptTokenCount(
-  state: Pick<StoryScreenState, "promptTokenCount">,
+  state: Pick<StoryScreenState, "promptTokenCount" | "generationRoute">,
   estimate: NextRequestEstimate
 ): PromptTokenCount | null {
   const record = state.promptTokenCount;
-  if (record === null || record.shape !== promptCountShape(estimate.messages)) return null;
+  if (record === null
+    || record.route !== state.generationRoute
+    || record.shape !== promptCountShape(estimate.messages)) return null;
   return record.count;
 }
 

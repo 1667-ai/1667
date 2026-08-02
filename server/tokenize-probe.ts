@@ -13,7 +13,7 @@ import type { GenerationSettings } from "../shared/types.js";
 import { countO200kPromptTextTokens } from "./openai-prompt-tokenizer.js";
 import { postProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { providerUrl } from "./providers.js";
+import { providerRoot, providerUrl } from "./providers.js";
 
 /** OpenAI's documented chat framing, for exactly the messages 1667 sends:
  * three fixed tokens for each message, plus the message's own role, which
@@ -40,10 +40,11 @@ const MAX_CACHED_PROMPT_COUNTS = 8;
  * on the next pass. */
 const promptCountCache = new Map<string, PromptTokenCount>();
 
+/** What a probe knows: how many tokens, and the split when it can attribute
+ * one. What grade that earns, and whether the split is admissible at all, are
+ * the tokenize source's to state — see shared/tokenize-source.ts. A probe that
+ * named its own grade would let the shared declaration drift out of use. */
 interface CountedProbe {
-  readonly kind: "counted";
-  readonly source: TokenizeSourceKind;
-  readonly grade: "exact" | "near-exact";
   readonly total: number;
   readonly perMessage: readonly number[] | null;
 }
@@ -87,8 +88,17 @@ export async function countPromptTokens(
   }
   if (counted.total <= 0) return { kind: "estimate", reason: "probe-failed" };
 
-  cacheSet(fingerprint, counted);
-  return counted;
+  // The source stamps the answer. Every grade decision stays in the one file
+  // that declares it, so changing a grade there changes what ships.
+  const answer: PromptTokenCount = {
+    kind: "counted",
+    source: kind,
+    grade: source.grade,
+    total: counted.total,
+    perMessage: source.perMessage ? counted.perMessage : null
+  };
+  cacheSet(fingerprint, answer);
+  return answer;
 }
 
 function protocolFor(settings: GenerationSettings): SettingsProtocolV2 {
@@ -128,9 +138,6 @@ function countBundledO200k(messages: readonly ChatMessage[]): CountedProbe {
     perMessage.push(textTokens + MESSAGE_FRAMING_TOKENS);
   }
   return {
-    kind: "counted",
-    source: "bundled-o200k",
-    grade: "exact",
     total: perMessage.reduce((sum, count) => sum + count, 0) + REPLY_PRIMING_TOKENS,
     perMessage
   };
@@ -169,9 +176,6 @@ async function countAnthropic(
     throw new Error("Anthropic count_tokens returned an unusable response shape");
   }
   return {
-    kind: "counted",
-    source: "anthropic-count-tokens",
-    grade: "exact",
     total: data.input_tokens,
     perMessage: null
   };
@@ -205,9 +209,6 @@ async function countLlamaCpp(
     throw new Error("llama.cpp tokenize returned an unusable response shape");
   }
   return {
-    kind: "counted",
-    source: "llama-cpp-tokenize",
-    grade: "near-exact",
     total: tokenized.tokens.length,
     perMessage: null
   };
@@ -229,18 +230,9 @@ async function countKoboldCpp(
     throw new Error("KoboldCpp tokencount returned an unusable response shape");
   }
   return {
-    kind: "counted",
-    source: "koboldcpp-tokencount",
-    grade: "near-exact",
     total: data.value,
     perMessage: null
   };
-}
-
-/** Matches probeContextWindow's `root`: the server's origin, without a
- * trailing /v1 or trailing slashes, since these routes live outside /v1. */
-function providerRoot(settings: GenerationSettings): string {
-  return settings.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
 }
 
 function probeTimeoutMs(settings: GenerationSettings): number {

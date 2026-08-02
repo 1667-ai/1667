@@ -11,7 +11,11 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
-import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import {
+  COUNTED_TOKENIZE_SOURCE_VALUES,
+  TOKEN_COUNT_FALLBACK_VALUES,
+  type PromptTokenCount
+} from "../../shared/tokenize-source.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
 } from "../../shared/settings-response-decoder.js";
@@ -160,20 +164,15 @@ export function decodePromptTokenCount(value: unknown): PromptTokenCount {
   const kind = response.kind;
   if (kind === "estimate") {
     const reason = response.reason;
-    if (reason !== "no-source" && reason !== "too-large" && reason !== "probe-failed") {
+    if (!isMember(TOKEN_COUNT_FALLBACK_VALUES, reason)) {
       invalidField("prompt token count response", "reason");
     }
     return { kind: "estimate", reason };
   }
   if (kind !== "counted") invalidField("prompt token count response", "kind");
   const source = response.source;
-  if (
-    source !== "bundled-o200k"
-    && source !== "anthropic-count-tokens"
-    && source !== "llama-cpp-tokenize"
-    && source !== "koboldcpp-tokencount"
-    && source !== "none"
-  ) {
+  // `none` is not among them: a counted answer names the source that counted it.
+  if (!isMember(COUNTED_TOKENIZE_SOURCE_VALUES, source)) {
     invalidField("prompt token count response", "source");
   }
   const grade = response.grade;
@@ -347,6 +346,12 @@ function decodePerMessageTokenCounts(value: unknown, label: string): readonly nu
     invalidField(label, "perMessage");
   }
   return value as readonly number[];
+}
+
+/** Narrow a wire value against the shared list that declares it, so a decoder
+ * never carries its own copy of a union that can grow without it. */
+function isMember<T extends string>(values: readonly T[], candidate: unknown): candidate is T {
+  return typeof candidate === "string" && (values as readonly string[]).includes(candidate);
 }
 
 function booleanField(value: Record<string, unknown>, field: string, label: string): boolean {

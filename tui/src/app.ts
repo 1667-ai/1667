@@ -50,7 +50,7 @@ import { searchAction } from "./search-actions.js";
 import { abortPendingSearch } from "./search-request.js";
 import { actionsMenuAction, armPrune, tagAction, composeAction, generate, generationBusy, navAction, openTag, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
 import { createWrapCache, type ProseStyle } from "./wrap.js";
-import { deriveContinuationRuntime } from "./runtime-settings.js";
+import { deriveContinuationRuntime, generationRouteKey } from "./runtime-settings.js";
 import {
   ActionRuntime,
   beginInteraction,
@@ -731,7 +731,8 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     quitArmed: false,
     interactionVersion: 0,
     backendTask: null,
-    promptTokenCount: null
+    promptTokenCount: null,
+    generationRoute: generationRouteKey(source.settingsView.effectiveProse)
   };
   bindLiveReadingPositionState(state);
   return state;

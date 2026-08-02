@@ -98,11 +98,18 @@ export function resolveTokenCount(
       perMessageGrade: "estimate"
     };
   }
+  // A split has to line up with the messages it claims to describe. A shorter
+  // one would leave a message row reading its count from past the end of the
+  // array; the total still stands on its own, so only the split is refused.
+  const split = count.perMessage !== null
+    && count.perMessage.length === estimate.messageTokenCounts.length
+    ? count.perMessage
+    : null;
   return {
     total: count.total,
     totalGrade: count.grade,
-    perMessage: count.perMessage ?? estimate.messageTokenCounts,
-    perMessageGrade: count.perMessage !== null ? count.grade : "estimate"
+    perMessage: split ?? estimate.messageTokenCounts,
+    perMessageGrade: split !== null ? count.grade : "estimate"
   };
 }
 

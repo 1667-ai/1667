@@ -247,6 +247,133 @@ describe("prompt token count lane", () => {
     lane.dispose();
   });
 
+  test("a resolved probe failure is retried too, not pinned like a settled answer", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    let failing = true;
+    const api: PromptTokenCountApi = {
+      // The backend answers a failed probe rather than rejecting, so this
+      // reaches the lane looking exactly like a completed count.
+      countPromptTokens: async () => {
+        calls += 1;
+        return failing
+          ? { kind: "estimate", reason: "probe-failed" }
+          : countedAnswer(55);
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    state.mode = "REQUEST";
+    lane.notify();
+    await flush();
+    expect(calls).toBe(1);
+    expect(state.promptTokenCount?.count).toEqual({ kind: "estimate", reason: "probe-failed" });
+
+    failing = false;
+    clock.fireDelay(5_000);
+    lane.notify();
+    clock.fireDelay(250);
+    await flush();
+
+    // Same prompt, same route: a transient server failure must not pin it to
+    // the estimate until the writer happens to edit the text.
+    expect(calls).toBe(2);
+    expect(state.promptTokenCount?.count).toEqual(countedAnswer(55));
+    lane.dispose();
+  });
+
+  test("a preset with no tokenizer is asked once, not after every typing pause", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => {
+        calls += 1;
+        return { kind: "estimate", reason: "no-source" };
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(calls).toBe(1);
+
+    // Writing changes the prompt every time, so the fingerprint guard alone
+    // would let each pause ship the whole prompt again. Ollama, LM Studio,
+    // OpenRouter and custom all answer no-source, and no retry invents a
+    // tokenizer for them.
+    for (const suffix of [" one", " two", " three"]) {
+      state.systemPrompt += suffix;
+      lane.notify();
+      clock.fireAll();
+      await flush();
+    }
+
+    expect(calls).toBe(1);
+    lane.dispose();
+  });
+
+  test("a route change asks the new preset even though it settled the old one", async () => {
+    const { state, clock, repaint } = fixture();
+    const asked: string[] = [];
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => {
+        asked.push(state.generationRoute);
+        return { kind: "estimate", reason: "no-source" };
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(asked).toHaveLength(1);
+
+    state.generationRoute = "anthropic https://api.anthropic.com claude-opus-5";
+    lane.notify();
+    clock.fireAll();
+    await flush();
+
+    // The old preset having no tokenizer says nothing about the new one.
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toBe("anthropic https://api.anthropic.com claude-opus-5");
+    lane.dispose();
+  });
+
+  test("a route change retires the count and asks again for the same prose", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => { calls += 1; return countedAnswer(44); }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(calls).toBe(1);
+    expect(state.promptTokenCount).not.toBe(null);
+
+    // Settings reached the runtime state. The prose did not move, but the
+    // connection that counted it did.
+    state.generationRoute = "openai-compatible http://localhost:11434/v1 llama3";
+    lane.notify();
+
+    expect(state.promptTokenCount).toBe(null);
+    clock.fireAll();
+    await flush();
+    expect(calls).toBe(2);
+    lane.dispose();
+  });
+
   test("dispose aborts an in-flight call and leaves no timer pending", async () => {
     const { state, clock, repaint } = fixture();
     const signals: AbortSignal[] = [];

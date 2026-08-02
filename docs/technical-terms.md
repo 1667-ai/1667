@@ -35,6 +35,8 @@ read_when:
 | context meter | The side-rail view of the next provider request size |
 | request viewer | The read-only view of the next provider request plan |
 | tokenize source | The bundled tokenizer or the server endpoint that counts the tokens in one provider request |
+| grade | The quality of a token count: exact count, near-exact count, or token estimate |
+| mark | The symbol that shows a token count's grade |
 | exact count | A token count from a bundled tokenizer, or a server count of a complete message array |
 | near-exact count | A token count of server-tokenized content that 1667 cannot prove against the serving path |
 | token estimate | A token count of four characters for each token |

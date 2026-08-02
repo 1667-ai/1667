@@ -14,7 +14,7 @@ import {
 } from "../src/rail.js";
 import type { HitRows } from "../src/hit.js";
 import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
-import { nextRequestContext } from "../src/request-context.js";
+import { nextRequestContext, projectNextRequest } from "../src/request-context.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { contextMeterLines } from "../src/screens/story/context-meter.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";
@@ -30,7 +30,7 @@ import { assertPromptReadyStoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../src/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
-import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import { promptCountShape, type PromptTokenCount } from "../../shared/tokenize-source.js";
 
 function request(
   systemPrompt: string,
@@ -270,6 +270,7 @@ describe("honest next-request context meter", () => {
     state.promptTokenCount = {
       // Deliberately does not match the current projection's shape.
       shape: "assistant:999999",
+      route: state.generationRoute,
       count: {
         kind: "counted", source: "anthropic-count-tokens", grade: "exact", total: 5, perMessage: null
       }
@@ -277,6 +278,30 @@ describe("honest next-request context meter", () => {
     const text = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
 
     expect(text).toBe(baseline);
+  });
+
+  test("a count from the previous connection is not shown against the new one", () => {
+    const source = demoAppSource();
+    const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
+    const state = initialState(source, false);
+    const projected = projectNextRequest(state);
+    const estimate = nextRequestEstimate(projected.payload, projected.context);
+    // The prose is untouched, so the shape still matches exactly. Only the
+    // route moved — which is enough to retire the count it produced.
+    state.promptTokenCount = {
+      shape: promptCountShape(estimate.messages),
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "bundled-o200k", grade: "exact", total: 4_242, perMessage: null
+      }
+    };
+    const counted = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+    expect(counted).not.toBe(baseline);
+
+    state.generationRoute = "openai-compatible http://localhost:11434/v1 llama3";
+    const afterRouteChange = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+
+    expect(afterRouteChange).toBe(baseline);
   });
 
   test("formats large request values with bounded k/m/b/t units", () => {

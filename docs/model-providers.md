@@ -61,7 +61,7 @@ A token count has one of three grades. Each grade has its own mark:
 | near-exact count | `≈` | `≈8.1k` |
 | token estimate | `~` | `~8.1k` |
 
-The tokenize source of the connection gives the grade:
+The tokenize source of the preset gives the grade:
 
 | Preset | Tokenize source | Grade |
 | --- | --- | --- |
