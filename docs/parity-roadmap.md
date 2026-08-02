@@ -106,7 +106,9 @@ Each tier is sorted, best ratio first.
 6. **Phrase bias and banned strings.** 1667 logit bias accepts numeric token
    identifiers only, with a cap of 16. NovelAI users bias and ban phrases as
    text, in large sets. Accept text phrases, tokenize per model, and raise the
-   caps where the protocol allows.
+   caps where the protocol allows. Tokenization is model-dependent, so support
+   differs per backend; issue 282 records the per-backend design, the
+   server-side tokenize probe, and the multi-token limits.
 7. **Author's Note placement control.** The placement is fixed before the last
    story part. NovelAI and SillyTavern both offer depth control. Add a small
    depth setting.
