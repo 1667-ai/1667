@@ -112,6 +112,10 @@ export function factsFromLorebook(
   let keyedNoKeysCount = 0;
   let keysDroppedCount = 0;
   let keysTrimmedCount = 0;
+  let keysTruncatedCount = 0;
+  let textRelinedCount = 0;
+  let tagDroppedCount = 0;
+  let tagTrimmedCount = 0;
 
   const facts: FactInput[] = [];
 
@@ -134,7 +138,11 @@ export function factsFromLorebook(
     // trim is right for a foreign archive, but it is a change either way, so
     // the report names it rather than letting it happen quietly.
     if (rawText.trim() !== rawText) textTrimmedCount += 1;
-    const normalizedText = rawText.trim().replace(/\r\n|\r|\u2028|\u2029/g, "\n");
+    const trimmedText = rawText.trim();
+    const normalizedText = trimmedText.replace(/\r\n|\r|\u2028|\u2029/g, "\n");
+    // A Fact can hold CRLF, CR, or a Unicode separator exactly, so folding them
+    // to LF is a change to the writer's text and not only a parsing detail.
+    if (normalizedText !== trimmedText) textRelinedCount += 1;
     if (normalizedText.length === 0) {
       textEmptyCount += 1;
       continue;
@@ -149,6 +157,7 @@ export function factsFromLorebook(
     let rawTag: string | null = null;
     if (typeof item.displayName === "string" && item.displayName.trim().length > 0) {
       rawTag = item.displayName.trim();
+      if (rawTag !== item.displayName) tagTrimmedCount += 1;
     } else if (typeof item.category === "string" && categoryMap.has(item.category)) {
       rawTag = categoryMap.get(item.category)!;
     }
@@ -159,6 +168,7 @@ export function factsFromLorebook(
       // entry, so an unusable tag becomes no tag.
       if (hasUnpairedSurrogate(tag)) {
         tag = null;
+        tagDroppedCount += 1;
       } else if (unicodeScalarLength(tag, MAX_FACT_TAG_CHARS + 1) > MAX_FACT_TAG_CHARS) {
         tag = sliceUnicodeScalarPrefix(tag, MAX_FACT_TAG_CHARS);
         tagCutCount += 1;
@@ -198,6 +208,7 @@ export function factsFromLorebook(
       let key = trimmedKey;
       if (unicodeScalarLength(key, MAX_FACT_KEY_SCALARS + 1) > MAX_FACT_KEY_SCALARS) {
         key = sliceUnicodeScalarPrefix(key, MAX_FACT_KEY_SCALARS);
+        keysTruncatedCount += 1;
       }
 
       const normalizedKey = normalizeFactText(key);
@@ -210,7 +221,7 @@ export function factsFromLorebook(
       // A key is matched literally inside the scanned text, and the match
       // normalizes case but not spacing. So " storm " and "storm" activate at
       // different moments, and trimming one into the other is a real change.
-      if (key !== keyCandidate) keysTrimmedCount += 1;
+      if (trimmedKey !== keyCandidate) keysTrimmedCount += 1;
       keys.push(key);
     }
 
@@ -269,6 +280,11 @@ export function factsFromLorebook(
       `${textInvalidCount} ${countNoun(textInvalidCount, "entry", "entries")} dropped for invalid Unicode`
     );
   }
+  if (textRelinedCount > 0) {
+    fidelity.push(
+      `${textRelinedCount} fact ${countNoun(textRelinedCount, "body", "bodies")} changed to line feeds`
+    );
+  }
   if (textTrimmedCount > 0) {
     fidelity.push(
       `${textTrimmedCount} fact ${countNoun(textTrimmedCount, "body", "bodies")} trimmed of surrounding whitespace`
@@ -276,6 +292,21 @@ export function factsFromLorebook(
   }
   if (tagCutCount > 0) {
     fidelity.push(`${tagCutCount} ${countNoun(tagCutCount, "tag")} cut to 48 characters`);
+  }
+  if (tagDroppedCount > 0) {
+    fidelity.push(
+      `${tagDroppedCount} ${countNoun(tagDroppedCount, "tag")} dropped for invalid Unicode`
+    );
+  }
+  if (tagTrimmedCount > 0) {
+    fidelity.push(
+      `${tagTrimmedCount} ${countNoun(tagTrimmedCount, "tag")} trimmed of surrounding whitespace`
+    );
+  }
+  if (keysTruncatedCount > 0) {
+    fidelity.push(
+      `${keysTruncatedCount} ${countNoun(keysTruncatedCount, "key")} cut to 64 characters`
+    );
   }
   if (keysTrimmedCount > 0) {
     fidelity.push(

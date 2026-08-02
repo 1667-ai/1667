@@ -278,3 +278,56 @@ test("a trimmed key is named, because spacing decides when a keyed fact activate
     fidelityReport(result.fidelity)
   );
 });
+
+test("every change the import makes to a fact is named in the report", () => {
+  // The report is the only place a writer learns what the import altered, so
+  // each transformation gets its own reason rather than a shared one.
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{
+      enabled: true,
+      text: "  a body\r\nwith carriage returns  ",
+      displayName: "  padded tag  ",
+      keys: [" padded ", "k".repeat(80)]
+    }]
+  }, 128);
+
+  const report = fidelityReport(result.fidelity);
+  const fact = result.facts[0]!;
+
+  assert.equal(fact.text, "a body\nwith carriage returns");
+  assert.equal(fact.tag, "padded tag");
+  assert.deepEqual(fact.keys, ["padded", "k".repeat(64)]);
+
+  for (const reason of [
+    "1 fact body changed to line feeds",
+    "1 fact body trimmed of surrounding whitespace",
+    "1 tag trimmed of surrounding whitespace",
+    "1 key cut to 64 characters",
+    "1 key trimmed of surrounding whitespace"
+  ]) assert.ok(report.includes(reason), `${reason} missing from: ${report}`);
+});
+
+test("a key cut to the ceiling is not reported as whitespace trimming", () => {
+  const report = fidelityReport(factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{ enabled: true, text: "body", keys: ["k".repeat(80)] }]
+  }, 128).fidelity);
+
+  assert.ok(report.includes("1 key cut to 64 characters"), report);
+  assert.ok(!report.includes("key trimmed of surrounding whitespace"), report);
+});
+
+test("a tag dropped for invalid Unicode is named, and the entry survives", () => {
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [{ enabled: true, text: "the keeper trims the wick", displayName: "bad \udfff tag" }]
+  }, 128);
+
+  assert.equal(result.facts.length, 1);
+  assert.equal(result.facts[0]?.tag, null);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 tag dropped for invalid Unicode"),
+    fidelityReport(result.fidelity)
+  );
+});
