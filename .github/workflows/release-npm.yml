@@ -770,7 +770,12 @@ jobs:
             printf '# 1667 v%s\n\n' "$VERSION"
             printf 'This release retains all npm packages and native Release Archives.\n'
             printf 'It also retains the channel-specific Shell and PowerShell Installers.\n\n'
-            printf 'npm publication uses the `next` tag. Promotion is a separate maintainer action.\n'
+            channel="$(node --import tsx --input-type=module -e '
+              import { npmDistTagForVersion } from "./scripts/release-npm-registry.ts";
+              process.stdout.write(npmDistTagForVersion(process.argv[1]));
+            ' "$VERSION")"
+            printf 'npm publication uses the `%s` tag. The version selects it:\n' "$channel"
+            printf 'a prerelease publishes to `beta`, and every other version to `latest`.\n'
             printf 'The homepage serves the selected Installers after a separate promotion gate.\n'
           } > dist/release-notes.md
 

@@ -552,12 +552,12 @@ interface ProvenanceStatement {
   };
 }
 
-function provenanceStatement(): ProvenanceStatement {
+function provenanceStatement(version: string = VERSION): ProvenanceStatement {
   return {
     _type: "https://in-toto.io/Statement/v1",
     predicateType: "https://slsa.dev/provenance/v1",
     subject: [{
-      name: `pkg:npm/%401667-ai/cli@${VERSION}`,
+      name: `pkg:npm/%401667-ai/cli@${version}`,
       digest: { sha512: "01".repeat(64) }
     }],
     predicate: {
@@ -613,3 +613,74 @@ function jsonResponse(value: unknown): Response {
     status: 200
   });
 }
+
+/**
+ * The channel is decided at publish and cannot be moved afterwards, so the tag
+ * npm is actually invoked with is the whole of the guarantee. Asserting the
+ * selector in isolation would pass even if the publish call ignored it, and the
+ * verification that follows has to look for the same tag or a prerelease would
+ * publish and then report that it never settled.
+ */
+test("a prerelease publishes to beta and verifies against beta", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-beta-publish-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const previousToken = process.env["NODE_AUTH_TOKEN"];
+  delete process.env["NODE_AUTH_TOKEN"];
+  t.after(() => restoreEnvironment("NODE_AUTH_TOKEN", previousToken));
+
+  const prerelease: NpmPublicationPackage = {
+    ...publicationMatrix()[0]!,
+    version: "0.3.0-rc.1"
+  };
+  const log = path.join(root, "npm.log");
+  const npmCli = path.join(root, "npm.cjs");
+  const audit = provenanceAudit(prerelease, provenanceStatement(prerelease.version));
+  await writeFile(npmCli, [
+    'const fs = require("node:fs");',
+    `fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({`,
+    "  args: process.argv.slice(2)",
+    "}) + \"\\n\");",
+    `if (process.argv[2] === "audit") process.stdout.write(${
+      JSON.stringify(JSON.stringify(audit))
+    });`,
+    ""
+  ].join("\n"));
+
+  const registry = new NpmReleaseRegistry({
+    npm: { nodeExecutable: process.execPath, npmCli },
+    sourceCommit: COMMIT,
+    sourceRef: SOURCE_REF,
+    visibilityTimeoutMs: 1_000,
+    pollIntervalMs: 1,
+    fetch: async (input) => {
+      if (new URL(String(input)).pathname.endsWith(`/${prerelease.version}`)) {
+        return jsonResponse({
+          name: prerelease.name,
+          version: prerelease.version,
+          dist: {
+            integrity: prerelease.integrity,
+            attestations: { url: "https://registry.npmjs.org/-/npm/v1/attestations/x" }
+          }
+        });
+      }
+      // Only beta names it. A check that looked for latest would never settle.
+      return jsonResponse({
+        name: prerelease.name,
+        "dist-tags": { beta: prerelease.version, latest: "0.2.1" }
+      });
+    },
+    sleep: async () => {}
+  });
+
+  await registry.publish(prerelease);
+  const published = (await readFile(log, "utf8")).trimEnd().split("\n")
+    .map((line) => JSON.parse(line) as { args: string[] });
+  assert.equal(published[0]?.args[0], "publish");
+  assert.ok(
+    published[0]?.args.includes("--tag=beta"),
+    `prerelease published with ${JSON.stringify(published[0]?.args)}`
+  );
+  assert.ok(!published[0]?.args.includes("--tag=latest"));
+
+  await registry.waitUntilVerified([prerelease]);
+});
