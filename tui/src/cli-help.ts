@@ -6,9 +6,6 @@
 
 export const HELP = `1667 — a full-screen terminal environment for writing fiction
 
-Stories live in .1667/ beside your writing, found by walking up from the
-current directory the way git finds .git.
-
 Usage: 1667 [options]
        1667 <command> [options]
 
@@ -27,15 +24,10 @@ Options:
   --data <path>      Open this project root instead of discovering one
   --global           Open the machine-wide project instead of a folder
   --url [base-url]   Connect to a loopback 1667 HTTP server; bare reads run.json
-  --auth-file <path> Use the canonical private auth record for --url
-  --demo             Use the in-memory lantern keeper fixture
   -h, --help         Show help
   --version [--json] Print embedded build identity
 
-Development options: --embedded, --diagnostic, --print-logs, --render-once,
---size, --keys, --debug-density.
-
-Run '1667 <command> --help' for what one command accepts.`;
+Run '1667 <command> --help' for one command, or read docs/development.md.`;
 
 export const EXPORT_HELP = `1667 export — write a story to a file
 
@@ -130,16 +122,45 @@ Options:
   --data <path>          Open this project root instead of discovering one
   --global               Open the machine-wide project instead of a folder`;
 
-const COMMAND_HELP: Readonly<Record<string, string>> = {
-  export: EXPORT_HELP,
-  import: IMPORT_HELP,
-  "import-card": IMPORT_CARD_HELP,
-  "import-lorebook": IMPORT_LOREBOOK_HELP
-};
+export const INIT_HELP = `1667 init — make a project in this directory
+
+Usage: 1667 init [--adopt [--from <legacy-data-dir>]]
+
+Makes .1667/ in the current directory. Stories live there, beside your writing,
+and 1667 finds them by walking up from the current directory the way git finds
+.git.
+
+Use separate project roots for separate story libraries.
+
+Options:
+  --adopt            Adopt an existing legacy data directory
+  --from <path>      The legacy data directory to adopt`;
+
+export const AUTH_HELP = `1667 auth — show an access record
+
+Usage: 1667 auth show --scope <story|admin> [--url <base-url> | --auth-file <path>]
+
+Prints the access record a client needs to reach a running 1667 HTTP server.
+The story scope reads and writes stories. The admin scope also controls the
+server.
+
+Options:
+  --scope <scope>    story or admin; required
+  --url <base-url>   Read the record for this server; bare reads run.json
+  --auth-file <path> Read the canonical private auth record from this path`;
+
+const COMMAND_HELP: ReadonlyMap<string, string> = new Map([
+  ["init", INIT_HELP],
+  ["auth", AUTH_HELP],
+  ["export", EXPORT_HELP],
+  ["import", IMPORT_HELP],
+  ["import-card", IMPORT_CARD_HELP],
+  ["import-lorebook", IMPORT_LOREBOOK_HELP]
+]);
 
 /** The help page for a command, or null when the command has none. */
 export function commandHelp(command: string): string | null {
-  return COMMAND_HELP[command] ?? null;
+  return COMMAND_HELP.get(command) ?? null;
 }
 
 /** True when the arguments ask for help rather than for work.
