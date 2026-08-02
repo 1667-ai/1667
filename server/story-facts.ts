@@ -5,10 +5,17 @@ import {
   parseFactActivation,
   parseFactKeys,
   parseFactMetadata,
+  parseFactPriority,
   selectActiveFacts,
   selectActiveFactsForRewrite,
+  type FactPriority,
   type FactScanContext
 } from "../shared/fact-activation.js";
+import {
+  MAX_FACT_BUDGET_TOKENS,
+  selectFactsWithinBudget,
+  type FactBudgetSelection
+} from "../shared/fact-budget.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
 import { activePath, isChapterSummary } from "../shared/story-tree.js";
 import { hasUnpairedSurrogate } from "./story-format.js";
@@ -36,7 +43,8 @@ export function createFacts(
     tag: parseTag(input.tag),
     text: parseText(input.text),
     sourcePartId: parseSourcePartId(story, input.sourcePartId),
-    ...parseMetadata(input.activation, input.keys)
+    budgetTokens: parseCreateBudgetTokens(input.budgetTokens),
+    ...parseMetadata(input.activation, input.keys, input.priority)
   }));
   const ids = parsed.map((_, index) => idForIndex(index));
   const existingIds = new Set(story.facts.map((fact) => fact.id));
@@ -52,8 +60,10 @@ export function createFacts(
     throw new HttpError(409, `This story has room for ${remaining} more facts; the import contains ${inputs.length}.`);
   }
   const now = new Date().toISOString();
-  story.facts.push(...parsed.map(({ tag, text, sourcePartId, activation, keys }, index) => ({
+  story.facts.push(...parsed.map(({ tag, text, sourcePartId, activation, keys, priority, budgetTokens }, index) => ({
     id: ids[index]!, tag, text, activation, keys, createdAt: now, updatedAt: now,
+    ...(priority === "normal" ? {} : { priority }),
+    ...(budgetTokens === undefined ? {} : { budgetTokens }),
     ...(sourcePartId === undefined ? {} : { sourcePartId })
   })));
   return true;
@@ -63,7 +73,8 @@ function factInputs(body: Body): Body[] {
   const hasBatch = hasDefinedProperty(body, "facts");
   const hasSingle = hasDefinedProperty(body, "tag") || hasDefinedProperty(body, "text")
     || hasDefinedProperty(body, "sourcePartId") || hasDefinedProperty(body, "activation")
-    || hasDefinedProperty(body, "keys");
+    || hasDefinedProperty(body, "keys") || hasDefinedProperty(body, "priority")
+    || hasDefinedProperty(body, "budgetTokens");
   if (!hasBatch) return [body];
   if (hasSingle) throw new HttpError(400, "Provide one fact or a facts batch, not both.");
   if (!Array.isArray(body.facts)) throw new HttpError(400, "Facts batch must be an array.");
@@ -86,13 +97,24 @@ export function patchFact(story: Story, factId: string, value: unknown): void {
   const hasText = hasDefinedProperty(body, "text");
   const hasActivation = hasDefinedProperty(body, "activation");
   const hasKeys = hasDefinedProperty(body, "keys");
-  if (!hasTag && !hasText && !hasActivation && !hasKeys) {
+  const hasPriority = hasDefinedProperty(body, "priority");
+  const hasBudgetTokens = hasDefinedProperty(body, "budgetTokens");
+  if (!hasTag && !hasText && !hasActivation && !hasKeys && !hasPriority && !hasBudgetTokens) {
     throw new HttpError(400, "Provide fact fields to update the fact.");
   }
   if (hasTag) fact.tag = parseTag(body.tag);
   if (hasText) fact.text = parseText(body.text);
   if (hasActivation) fact.activation = parseActivation(body.activation);
   if (hasKeys) fact.keys = parseKeys(body.keys);
+  if (hasPriority) {
+    const priority = parsePriority(body.priority);
+    if (priority === "normal") delete fact.priority;
+    else fact.priority = priority;
+  }
+  if (hasBudgetTokens) {
+    if (body.budgetTokens === null) delete fact.budgetTokens;
+    else fact.budgetTokens = parseCreateBudgetTokens(body.budgetTokens);
+  }
   fact.updatedAt = new Date().toISOString();
 }
 
@@ -102,8 +124,69 @@ export function deleteFact(story: Story, factId: string): void {
   story.facts.splice(index, 1);
 }
 
+/** Move one Fact to a new position among `story.facts` — array order is emit
+ * order (see shared/story-facts.ts), so this is the "arrange Facts" control.
+ * `toIndex` clamps into range rather than rejecting an out-of-date bound, so a
+ * concurrent delete cannot turn a reasonable "move to the end" into an error. */
+export function reorderFact(story: Story, factId: string, value: unknown): void {
+  const toIndex = requireToIndex(value);
+  const from = story.facts.findIndex((fact) => fact.id === factId);
+  if (from === -1) throw new HttpError(404, `Fact not found: ${factId}`);
+  const clamped = reorderedIndex(toIndex, story.facts.length);
+  if (clamped === from) return;
+  const [fact] = story.facts.splice(from, 1);
+  story.facts.splice(clamped, 0, fact!);
+}
+
+/** Where `toIndex` actually lands once clamped into range — shared by the
+ * mutation itself and by worker replay's idempotency check, so the two never
+ * disagree about what "already applied" means. */
+export function reorderedIndex(toIndex: number, factCount: number): number {
+  return Math.max(0, Math.min(toIndex, factCount - 1));
+}
+
+function requireToIndex(value: unknown): number {
+  const body = requireRecord(value, "fact reorder");
+  const toIndex = body.toIndex;
+  if (!Number.isSafeInteger(toIndex)) throw new HttpError(400, "toIndex must be an integer");
+  return toIndex as number;
+}
+
+/** Facts whose activation matches, further shed against the story's own Facts
+ * budget (if any). This is the set a request would actually admit before
+ * model-context-window pressure gets a further say — see
+ * server/generation-admission.ts for that second, provider-window-sized pass. */
+export function activeBudgetedFacts(story: Story, context?: FactScanContext): FactBudgetSelection {
+  return selectFactsWithinBudget(
+    selectActiveFacts(story.facts, context),
+    story.factsBudgetTokens ?? null,
+    { spaceDropReason: "total-budget" }
+  );
+}
+
+export function activeBudgetedFactsForRewrite(
+  story: Story,
+  partId: string,
+  instruction: string,
+  selectedText: string
+): FactBudgetSelection {
+  return selectFactsWithinBudget(
+    selectActiveFactsForRewrite(
+      story.facts,
+      activePath(story),
+      partId,
+      story.chapterBreaks,
+      story.nodes,
+      instruction,
+      selectedText
+    ),
+    story.factsBudgetTokens ?? null,
+    { spaceDropReason: "total-budget" }
+  );
+}
+
 export function factsSystemMessage(story: Story, context?: FactScanContext): string | null {
-  return formatFactsMessage(selectActiveFacts(story.facts, context));
+  return formatFactsMessage(activeBudgetedFacts(story, context).kept);
 }
 
 export function rewriteFactsSystemMessage(
@@ -112,15 +195,9 @@ export function rewriteFactsSystemMessage(
   instruction: string,
   selectedText: string
 ): string | null {
-  return formatFactsMessage(selectActiveFactsForRewrite(
-    story.facts,
-    activePath(story),
-    partId,
-    story.chapterBreaks,
-    story.nodes,
-    instruction,
-    selectedText
-  ));
+  return formatFactsMessage(
+    activeBudgetedFactsForRewrite(story, partId, instruction, selectedText).kept
+  );
 }
 
 function findFact(story: Story, factId: string): StoryFact {
@@ -163,9 +240,13 @@ function assertWellFormed(value: string, label: string): void {
   if (hasUnpairedSurrogate(value)) throw new HttpError(400, `${label} contains invalid Unicode.`);
 }
 
-function parseMetadata(activation: unknown, keys: unknown): { activation: StoryFact["activation"], keys: string[] } {
+function parseMetadata(
+  activation: unknown,
+  keys: unknown,
+  priority: unknown
+): { activation: StoryFact["activation"], keys: string[], priority: FactPriority } {
   try {
-    return parseFactMetadata(activation, keys);
+    return parseFactMetadata(activation, keys, "Fact", priority);
   } catch (error) {
     if (error instanceof FactActivationError) throw new HttpError(400, error.message);
     throw error;
@@ -188,4 +269,23 @@ function parseKeys(value: unknown): string[] {
     if (error instanceof FactActivationError) throw new HttpError(400, error.message);
     throw error;
   }
+}
+
+function parsePriority(value: unknown): FactPriority {
+  try {
+    return parseFactPriority(value);
+  } catch (error) {
+    if (error instanceof FactActivationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+/** Shared by create (undefined = uncapped) and patch (undefined never reaches
+ *  here; null clears the cap, handled by the caller before this runs). */
+function parseCreateBudgetTokens(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > MAX_FACT_BUDGET_TOKENS) {
+    throw new HttpError(400, `Fact budgetTokens must be an integer between 1 and ${MAX_FACT_BUDGET_TOKENS}.`);
+  }
+  return value;
 }

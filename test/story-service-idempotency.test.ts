@@ -207,14 +207,27 @@ test("pending destructive mutations converge and clear without repeat writes", a
     story = await service.createNode(story.id, { parentId: null, text: "Active root." });
     const activeId = story.path[0]!.id;
     story = await service.putBookmark(story.id, activeId, "Active", "");
-    story = await service.createFact(story.id, { text: "Temporary fact" });
+    story = await service.createFact(story.id, { text: "First fact" });
+    story = await service.createFact(story.id, { text: "Second fact" });
+    const secondFactId = story.facts[1]!.id;
+
+    // A replayed reorder must not shift the Fact a second time — the ledger
+    // recovery check clones the story and re-runs the real move to confirm
+    // it would already be a no-op (see worker-mutations.ts's reorderFact).
+    const reorderInput = { storyId: story.id, factId: secondFactId, body: { toIndex: 0 } };
+    const reorderMutationId = mutationId("1a0");
+    const reorderFirst = await leavePendingAfterCommit(service, reorderMutationId, "reorderFact", reorderInput);
+    assert.deepEqual(reorderFirst.facts.map((fact) => fact.id), [secondFactId, story.facts[0]!.id]);
+    const reorderReplay = await runWorkerMutation(service, reorderMutationId, "reorderFact", reorderInput);
+    assert.equal(reorderReplay.updatedAt, reorderFirst.updatedAt);
+    assert.deepEqual(reorderReplay.facts.map((fact) => fact.id), [secondFactId, story.facts[0]!.id]);
 
     const factInput = { storyId: story.id, factId: story.facts[0]!.id };
     const factMutationId = mutationId("1a");
     const factFirst = await leavePendingAfterCommit(service, factMutationId, "deleteFact", factInput);
     const factReplay = await runWorkerMutation(service, factMutationId, "deleteFact", factInput);
     assert.equal(factReplay.updatedAt, factFirst.updatedAt);
-    assert.equal(factReplay.facts.length, 0);
+    assert.equal(factReplay.facts.length, 1);
 
     const tagInput = { storyId: story.id, nodeId: activeId };
     const tagId = mutationId("1b");

@@ -613,6 +613,14 @@ async function handleApi(
       }));
     }
   }
+  if (head === "stories" && id !== undefined && sub === "facts"
+    && subId !== undefined && action === "reorder" && method === "POST") {
+    return sendJson(response, 200, await mutate("reorderFact", {
+      storyId: id,
+      factId: subId,
+      body: await jsonBody()
+    }));
+  }
   if (head === "stories" && id !== undefined && sub === "import-lorebook" && method === "POST") {
     const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);
     return sendJson(

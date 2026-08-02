@@ -14,7 +14,8 @@ import { assertFixedContextFits, type GenerationAdmissionRegistry } from "./gene
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
-import { factsSystemMessage, rewriteFactsSystemMessage } from "./story-facts.js";
+import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "./story-facts.js";
+import { formatFactsMessage } from "../shared/story-facts.js";
 import {
   streamModel,
   type DeltaConsumer
@@ -54,7 +55,8 @@ export async function autonameStory(
   // covers facts plus the builder-owned fixed texts, so a long story with a
   // small fact is shortened rather than refused. Factless stories keep the
   // pre-facts 24k excerpt byte-for-byte.
-  const titleFacts = factsSystemMessage(snapshot);
+  const titleBudgeted = activeBudgetedFacts(snapshot);
+  const titleFacts = formatFactsMessage(titleBudgeted.kept);
   const briefChars = Math.min(settings.systemPrompt.trim().length, 2_000);
   const promptCharBudget = titleFacts === null || settings.contextWindow === null
     ? MAX_STORY_CONTEXT_CHARS
@@ -63,8 +65,15 @@ export async function autonameStory(
         Math.max(1_000, (settings.contextWindow - titleSettings.maxTokens) * 3
           - titleFacts.length - briefChars - 800)
       );
-  const { prompt: titlePrompt } = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleFacts);
-  assertFixedContextFits(titleSettings, titleFacts, null, fixedPromptTexts(titlePrompt));
+  let { prompt: titlePrompt } = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleFacts);
+  const titleAdmission = assertFixedContextFits(titleSettings, titleBudgeted.kept, null, fixedPromptTexts(titlePrompt));
+  if (titleAdmission.factsMessage !== titleFacts) {
+    // Window pressure shed a Fact after the prompt above was already built;
+    // rebuild with the reduced set so the streamed prompt matches admission.
+    // The char budget stays as computed — a few Facts shorter than assumed
+    // only makes it more conservative, never wrong.
+    titlePrompt = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleAdmission.factsMessage).prompt;
+  }
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
   try {
     for await (const delta of streamCompletion(
@@ -169,12 +178,13 @@ export async function continueStory(
     }
     contextParts = parentId === null ? [] : pathTo(story, parentId);
   }
-  const facts = factsSystemMessage(story, {
+  const budgetedFacts = activeBudgetedFacts(story, {
     contextParts,
     chapterBreaks: story.chapterBreaks,
     nodes: story.nodes,
     instruction
   });
+  const facts = formatFactsMessage(budgetedFacts.kept);
   const authorsNote = story.authorsNote ?? null;
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
@@ -184,9 +194,9 @@ export async function continueStory(
   generationAdmission.rememberModel(id, genId, model);
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.
-  const continuation = continuationPlan(
+  const buildContinuation = (factsMessage: string | null) => continuationPlan(
     settings.systemPrompt,
-    facts,
+    factsMessage,
     authorsNote,
     contextParts,
     instruction,
@@ -196,12 +206,19 @@ export async function continueStory(
     story.chapterBreaks,
     story.nodes
   );
-  assertFixedContextFits(settings, facts, authorsNote, fixedPromptTexts(continuation.prompt));
+  let continuation = buildContinuation(facts);
+  const admission = assertFixedContextFits(settings, budgetedFacts.kept, authorsNote, fixedPromptTexts(continuation.prompt));
+  if (admission.factsMessage !== facts) {
+    // Window pressure shed a Fact after the plan above was already built with
+    // the larger set; rebuild so the streamed prompt matches what admission
+    // actually let through.
+    continuation = buildContinuation(admission.factsMessage);
+  }
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
     contextPartIds: contextParts.map((part) => part.id),
-    facts,
+    facts: admission.factsMessage,
     authorsNote,
     instruction,
     appendTo,
@@ -313,30 +330,40 @@ export async function rewriteNode(
     throw new HttpError(409, "The selection no longer matches the stored text — reload the story.");
   }
   const originalText = part.text;
-  const facts = rewriteFactsSystemMessage(story, partId, instruction, expected);
+  const budgetedFacts = activeBudgetedFactsForRewrite(story, partId, instruction, expected);
+  const facts = formatFactsMessage(budgetedFacts.kept);
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return false;
   // A fresh nonce makes the rewrite markers and output terminator impossible to
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
-  const common = {
-    story,
-    facts,
-    partId,
-    start,
-    end,
-    expected,
-    instruction,
-    lengthTarget: lengthTarget(expected, requested !== ""),
-    authorBrief: settings.systemPrompt,
-    tag
+  const buildRewritePlan = (factsMessage: string | null) => {
+    const common = {
+      story,
+      facts: factsMessage,
+      partId,
+      start,
+      end,
+      expected,
+      instruction,
+      lengthTarget: lengthTarget(expected, requested !== ""),
+      authorBrief: settings.systemPrompt,
+      tag
+    };
+    return bareMode
+      ? phraseRewritePlan({ ...common, passage: !phraseMode })
+      : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
   };
-  const plan = bareMode
-    ? phraseRewritePlan({ ...common, passage: !phraseMode })
-    : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
+  let plan = buildRewritePlan(facts);
   // Measure the fixed rewrite prompt from the semantic plan so admission cannot
   // drift from later prompt wording.
-  assertFixedContextFits(settings, facts, null, fixedPromptTexts(plan.prompt));
+  const admission = assertFixedContextFits(settings, budgetedFacts.kept, null, fixedPromptTexts(plan.prompt));
+  if (admission.factsMessage !== facts) {
+    // Window pressure shed a Fact after the plan above was already built;
+    // rebuild so the streamed prompt matches what admission actually let
+    // through — the anchors below must describe the prompt that was sent.
+    plan = buildRewritePlan(admission.factsMessage);
+  }
   // Rewriting is a precision task: high temperatures break exact seam copying
   // long before they improve prose. A plain regenerate also gets a hard output
   // budget, so a model that ignores the word band runs out after a few dozen
@@ -352,7 +379,7 @@ export async function rewriteNode(
   await bindIntent?.(rewriteSettings, {
     kind: "rewrite",
     story: { title: story.title, nodes: activePath(story), chapterBreaks: story.chapterBreaks },
-    facts,
+    facts: admission.factsMessage,
     partId,
     start,
     end,

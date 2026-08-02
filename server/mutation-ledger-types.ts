@@ -34,6 +34,7 @@ export const STORY_MUTATION_METHODS = [
   "createFact",
   "patchFact",
   "deleteFact",
+  "reorderFact",
   "createChapterBreak",
   "renameChapterBreak",
   "removeChapterBreak",

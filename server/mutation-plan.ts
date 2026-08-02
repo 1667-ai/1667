@@ -26,6 +26,7 @@ interface MutationEntityNamespaces {
   createFact: "fact";
   patchFact: never;
   deleteFact: never;
+  reorderFact: never;
   createChapterBreak: "chapter-break";
   renameChapterBreak: never;
   removeChapterBreak: never;

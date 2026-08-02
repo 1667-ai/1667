@@ -8,7 +8,8 @@ import {
   type StoryNode,
   type StoryOrigin,
 } from "../shared/types.js";
-import type { FactActivation } from "../shared/fact-activation.js";
+import type { FactActivation, FactPriority } from "../shared/fact-activation.js";
+import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import { parseChapterBreaks, validateChapterRecords } from "./story-format-chapters.js";
 import { assertWellFormedUnicode } from "./story-format-unicode.js";
 import {
@@ -17,6 +18,7 @@ import {
   arrayField,
   arrayValue,
   integerField,
+  integerValue,
   optionalString,
   parseVersionAttributions,
   recordValue,
@@ -65,6 +67,10 @@ export interface StoredFactV1 {
   activation?: FactActivation;
   /** Optional in V5 manifests written before fact keys existed. */
   keys?: string[];
+  /** Optional in V5 manifests written before Fact priority existed; absent means "normal". */
+  priority?: FactPriority;
+  /** Optional in V5 manifests written before a per-Fact budget existed. */
+  budgetTokens?: number;
   revisionId: ObjectHash;
   createdAt: string;
   updatedAt: string;
@@ -178,6 +184,8 @@ export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> 
   autonameId?: string;
   /** Chapter one's name. It has no opening break to carry one. */
   firstChapterTitle?: string;
+  /** Estimated-token cap across every emitted Fact; absent means uncapped. */
+  factsBudgetTokens?: number;
   chapterBreaks: ChapterBreak[];
 }
 
@@ -364,6 +372,9 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   const authorsNote = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalString(value.authorsNote, "authorsNote")
     : undefined;
+  const factsBudgetTokens = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    ? optionalFactsBudgetTokens(value.factsBudgetTokens)
+    : undefined;
   validateChapterRecords(chapterBreaks, stored.nodes);
   const parsed: StoryManifestV5 = {
     ...stored,
@@ -375,6 +386,7 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(authorsNote === undefined || authorsNote === ""
       ? {}
       : { authorsNote }),
+    ...(factsBudgetTokens === undefined ? {} : { factsBudgetTokens }),
     chapterBreaks
   };
   return {
@@ -578,4 +590,13 @@ function parseJsonObject(raw: string, label: string): Record<string, unknown> {
 
 function manifestSizeError(): StoryFormatError {
   return new StoryFormatError(`Story manifest exceeds its ${MAX_STORY_MANIFEST_BYTES}-byte size limit`);
+}
+
+function optionalFactsBudgetTokens(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const result = integerValue(value, "factsBudgetTokens");
+  if (result < 1 || result > MAX_STORY_FACTS_BUDGET_TOKENS) {
+    throw new StoryFormatError(`factsBudgetTokens must be between 1 and ${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}`);
+  }
+  return result;
 }

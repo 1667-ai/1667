@@ -29,7 +29,7 @@ import {
   parseSwitchOptions
 } from "./service-input.js";
 import { HASH_PATTERN } from "./story-format.js";
-import { patchFact } from "./story-facts.js";
+import { patchFact, reorderFact } from "./story-facts.js";
 import { nodeRewriteId } from "./story-node-text.js";
 import { storyAutonameId } from "./story-metadata.js";
 import { hasCommittedGeneration } from "./story-nodes.js";
@@ -397,6 +397,27 @@ const MUTATIONS: MutationRegistry = {
       return await service.deleteFact(
         input.storyId,
         input.factId,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  reorderFact: define<"reorderFact">({
+    parse: (value) => bodyInputWithId<"reorderFact">(value, "reorderFact", "factId"),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      // Replay the real mutation on a scratch copy rather than re-deriving its
+      // clamp rule here — the two must never disagree about "already applied".
+      const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) => {
+        if (!story.facts.some((fact) => fact.id === input.factId)) return false;
+        const candidate = structuredClone(story);
+        reorderFact(candidate, input.factId, input.body);
+        return candidate.facts.map((fact) => fact.id)
+          .every((factId, index) => factId === story.facts[index]?.id);
+      });
+      return recovered ?? await service.reorderFact(
+        input.storyId,
+        input.factId,
+        input.body,
         context.storyMutationRequest
       );
     }

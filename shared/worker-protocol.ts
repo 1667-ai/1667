@@ -8,6 +8,7 @@ import type {
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
+  ReorderFactRequest,
   RewriteRequest,
   StoryPayload,
   StoryNode,
@@ -47,7 +48,8 @@ export const PREDECESSOR_WORKER_PROTOCOL_VERSION = 5;
 export const PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION = 6;
 export const PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION = 7;
 export const PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION = 8;
-export const WORKER_PROTOCOL_VERSION = 9;
+export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
+export const WORKER_PROTOCOL_VERSION = 10;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -77,6 +79,7 @@ export function isCurrentWorkerInputProtocolVersion(
   return value === PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
     || value === PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION
+    || value === PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 
@@ -140,6 +143,10 @@ export interface WorkerMethodContract {
   createFact: { input: { storyId: string; body: CreateFactsRequest }; output: StoryPayload };
   patchFact: { input: { storyId: string; factId: string; body: FactPatch }; output: StoryPayload };
   deleteFact: { input: { storyId: string; factId: string }; output: StoryPayload };
+  reorderFact: {
+    input: { storyId: string; factId: string; body: ReorderFactRequest };
+    output: StoryPayload;
+  };
   createChapterBreak: {
     input: { storyId: string; parentPartId: string; title: string };
     output: { payload: StoryPayload; breakId: string };
@@ -191,7 +198,7 @@ export type MutatingWorkerMethod =
   | "createStory" | "renameStory" | "setAuthorsNote" | "autonameStory" | "acknowledgeUnknownOutcomes"
   | "deleteStory" | "switchLine"
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
-  | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact"
+  | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "continueStory" | "rewriteNode" | "createSummaryTake";
 
@@ -216,7 +223,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "createStory", "renameStory", "setAuthorsNote", "autonameStory", "acknowledgeUnknownOutcomes",
   "deleteStory", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory", "rewriteNode", "createSummaryTake"
 ]);
@@ -239,7 +246,7 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook"
 ] as const satisfies readonly MutatingWorkerMethod[];
 
@@ -440,7 +447,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "renameStory", "setAuthorsNote", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
   "exportMarkdown", "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "getSettings",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
   "discoverModels",

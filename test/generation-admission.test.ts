@@ -7,7 +7,7 @@ import {
 } from "../server/generation-admission.js";
 import { ServiceError } from "../server/errors.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
-import type { GenerationSettings } from "../shared/types.js";
+import type { GenerationSettings, StoryFact } from "../shared/types.js";
 
 test("generation admission rejects one in-flight story/gen tuple without invoking it", async () => {
   const registry = new GenerationAdmissionRegistry();
@@ -104,19 +104,58 @@ test("worker continuation targets cannot shadow the authoritative generation env
 test("fixed-context admission checks a note-only prompt and names its owner", () => {
   const settings = smallWindowSettings();
   assert.throws(
-    () => assertFixedContextFits(settings, null, "x".repeat(100), []),
+    () => assertFixedContextFits(settings, [], "x".repeat(100), []),
     (error) => error instanceof ServiceError
       && error.status === 400
       && error.message.includes("Author's Note")
   );
+  assert.doesNotThrow(() => assertFixedContextFits(settings, [], null, []));
+});
+
+test("fixed-context admission still throws when the only Fact left is exempt from shedding", () => {
+  const settings = smallWindowSettings();
+  // "always" at the default "normal" priority is never dropped, so a single
+  // oversized one leaves nothing droppable and the request still fails.
+  const facts = [fact({ id: "exempt", text: "x".repeat(100) })];
   assert.throws(
-    () => assertFixedContextFits(settings, "x".repeat(100), null, []),
+    () => assertFixedContextFits(settings, facts, null, []),
     (error) => error instanceof ServiceError
       && error.status === 400
       && error.message.includes("story facts")
+      && error.message.includes("every droppable fact")
   );
-  assert.doesNotThrow(() => assertFixedContextFits(settings, null, null, []));
 });
+
+test("fixed-context admission sheds a droppable Fact before throwing", () => {
+  // A window generous enough for one small Fact's wrapper text, but not for a
+  // second, much larger one riding along with it.
+  const settings: GenerationSettings = { ...smallWindowSettings(), contextWindow: 1_000 };
+  const exempt = fact({ id: "exempt", text: "k", activation: "always" });
+  const shed = fact({ id: "shed-me", text: "x".repeat(10_000), activation: "keyed", keys: ["x"] });
+  const admission = assertFixedContextFits(settings, [exempt, shed], null, []);
+  assert.deepEqual(admission.dropped, [{ factId: "shed-me", reason: "priority" }]);
+  assert.deepEqual(admission.facts.map((candidate) => candidate.id), ["exempt"]);
+  assert.equal(admission.factsMessage?.includes("x".repeat(10_000)), false);
+});
+
+test("fixed-context admission returns the candidates unchanged once everything fits", () => {
+  const settings: GenerationSettings = { ...smallWindowSettings(), contextWindow: 1_000 };
+  const facts = [fact({ id: "one", text: "A short fact." })];
+  const admission = assertFixedContextFits(settings, facts, null, []);
+  assert.deepEqual(admission.dropped, []);
+  assert.deepEqual(admission.facts, facts);
+});
+
+function fact(overrides: Partial<StoryFact> & Pick<StoryFact, "id" | "text">): StoryFact {
+  return {
+    tag: null,
+    activation: "always",
+    keys: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
 
 function smallWindowSettings(): GenerationSettings {
   return {

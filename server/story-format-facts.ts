@@ -7,8 +7,10 @@ import {
 import {
   FactActivationError,
   parseFactMetadata,
-  type FactActivation
+  type FactActivation,
+  type FactPriority
 } from "../shared/fact-activation.js";
+import { MAX_FACT_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import type { ObjectHash, StoredFactV1 } from "./story-format.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
@@ -53,6 +55,7 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
     }
     const createdAt = timestampField(fact, "createdAt", `facts[${factIndex}]`);
     const metadata = parseStoredFactMetadata(fact, factIndex);
+    const budgetTokens = optionalFactBudgetTokens(fact.budgetTokens, `facts[${factIndex}].budgetTokens`);
     const sourcePartId = optionalString(fact.sourcePartId, `facts[${factIndex}].sourcePartId`);
     if (sourcePartId !== undefined && !partPositions.has(sourcePartId)) {
       throw new StoryFormatError(`facts[${factIndex}].sourcePartId references an unknown part`);
@@ -65,6 +68,7 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
         id,
         tag,
         ...metadata,
+        ...(budgetTokens === undefined ? {} : { budgetTokens }),
         revisionId: requireHash(fact.revisionId, `facts[${factIndex}].revisionId`),
         createdAt,
         updatedAt: timestampField(fact, "updatedAt", `facts[${factIndex}]`),
@@ -107,6 +111,7 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
       id,
       tag,
       ...metadata,
+      ...(budgetTokens === undefined ? {} : { budgetTokens }),
       revisionId: latest.revisionId,
       createdAt,
       updatedAt: latest.updatedAt,
@@ -118,12 +123,13 @@ export function parseStoredFacts(value: unknown, partIds: readonly string[]): St
 function parseStoredFactMetadata(
   fact: Record<string, unknown>,
   factIndex: number
-): { activation?: FactActivation; keys?: string[] } {
+): { activation?: FactActivation; keys?: string[]; priority?: FactPriority } {
   try {
-    const metadata = parseFactMetadata(fact.activation, fact.keys, `facts[${factIndex}]`);
+    const metadata = parseFactMetadata(fact.activation, fact.keys, `facts[${factIndex}]`, fact.priority);
     return {
       ...(fact.activation === undefined ? {} : { activation: metadata.activation }),
-      ...(fact.keys === undefined ? {} : { keys: metadata.keys })
+      ...(fact.keys === undefined ? {} : { keys: metadata.keys }),
+      ...(fact.priority === undefined ? {} : { priority: metadata.priority })
     };
   } catch (error) {
     if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
@@ -286,6 +292,15 @@ export function integerField(value: Record<string, unknown>, field: string): num
 export function integerValue(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value)) throw new StoryFormatError(`${label} must be an integer`);
   return value as number;
+}
+
+export function optionalFactBudgetTokens(value: unknown, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  const result = integerValue(value, label);
+  if (result < 1 || result > MAX_FACT_BUDGET_TOKENS) {
+    throw new StoryFormatError(`${label} must be between 1 and ${MAX_FACT_BUDGET_TOKENS.toLocaleString()}`);
+  }
+  return result;
 }
 
 function optionalDeletedCharacters(value: unknown, label: string): number | undefined {

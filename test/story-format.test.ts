@@ -389,6 +389,47 @@ test("story format: default Fact metadata stays omitted and keys do not change i
   assert.deepEqual((await decodeStoryBundle(keyedManifest, dir)).story, keyed);
 });
 
+test("story format: Fact priority and budget round-trip, and an old manifest without them still decodes", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-fact-priority-budget-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  const fact = {
+    id: "fact",
+    tag: null,
+    text: "The red door is locked.",
+    activation: "always" as const,
+    keys: [] as string[],
+    createdAt: NOW,
+    updatedAt: NOW
+  };
+
+  // The default priority, and no per-Fact or story Facts budget, never reach
+  // disk — this manifest is byte-for-byte what an old story already has, so
+  // decoding it stands in for "an old manifest without these fields".
+  const plainStory = { ...runtimeStory([node("root", null, "Opening")]), facts: [fact] };
+  const plain = await encodeStoryBundle(plainStory, objects);
+  assert.equal("priority" in plain.facts[0]!, false);
+  assert.equal("budgetTokens" in plain.facts[0]!, false);
+  assert.equal("factsBudgetTokens" in plain, false);
+  const plainDecoded = await decodeStoryBundle(plain, dir);
+  assert.equal(plainDecoded.story.facts[0]!.priority, undefined);
+  assert.equal(plainDecoded.story.facts[0]!.budgetTokens, undefined);
+  assert.equal(plainDecoded.story.factsBudgetTokens, undefined);
+
+  // A non-default priority, a per-Fact budget, and a story-level Facts budget
+  // all survive encode -> decode exactly.
+  const richStory = {
+    ...plainStory,
+    facts: [{ ...fact, priority: "high" as const, budgetTokens: 250 }],
+    factsBudgetTokens: 4_000
+  };
+  const richManifest = await encodeStoryBundle(richStory, objects);
+  assert.equal(richManifest.facts[0]!.priority, "high");
+  assert.equal(richManifest.facts[0]!.budgetTokens, 250);
+  assert.equal(richManifest.factsBudgetTokens, 4_000);
+  assert.deepEqual((await decodeStoryBundle(richManifest, dir)).story, richStory);
+});
+
 function node(id: string, parentId: string | null, text: string, activeChildId: string | null = null): StoryNode {
   return { id, parentId, instruction: "Continue", text, model: "test", createdAt: NOW, activeChildId };
 }

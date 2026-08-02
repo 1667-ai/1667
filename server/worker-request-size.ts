@@ -118,6 +118,7 @@ function logicalRequestBody(
     case "takeFromCut":
     case "createFact":
     case "patchFact":
+    case "reorderFact":
     case "rewriteNode":
     case "createSummaryTake":
       return input.body;

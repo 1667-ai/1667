@@ -47,6 +47,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   createFact: "local",
   patchFact: "local",
   deleteFact: "local",
+  reorderFact: "local",
   createChapterBreak: "local",
   renameChapterBreak: "local",
   removeChapterBreak: "local",
@@ -224,5 +225,7 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (subId !== undefined && parts.length === 6
       && httpMethod === "DELETE") return "deleteFact";
   }
+  if (sub === "facts" && subId !== undefined && action === "reorder"
+    && parts.length === 7 && httpMethod === "POST") return "reorderFact";
   throw new Error(`No HTTP operation policy for ${httpMethod} ${path}`);
 }

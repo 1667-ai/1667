@@ -520,6 +520,15 @@ export class StoryService extends StoryServiceRuntime {
     return await this.storyLocal.deleteFact(id, factId, mutationRequest);
   }
 
+  async reorderFact(
+    id: string,
+    factId: string,
+    body: unknown,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.reorderFact(id, factId, body, mutationRequest);
+  }
+
   async getSettings(): Promise<SettingsView> {
     this.ensureOpen();
     return await this.settings.loadView();
