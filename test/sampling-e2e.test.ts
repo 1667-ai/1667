@@ -50,7 +50,9 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     presencePenalty: -0.1,
     repeatPenalty: 1.1,
     stop: ["END", "DONE"],
-    logitBias: { "15043": 1 }
+    logitBias: { "15043": 1 },
+    bannedStrings: [],
+    phraseBias: []
   };
   await first.save(saveCommand(
     MUTATION_A,
@@ -85,6 +87,49 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
   });
 });
 
+test("phrase bias and banned strings tokenize and merge into logit_bias, with explicit entries winning", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t);
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-phrase-bias-e2e-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  // "dragon" tokenizes to a single o200k_base token, 84021 — verified with
+  // tokenizePhraseTokenIds. It appears in both phraseBias and bannedStrings
+  // here to exercise the documented merge order (server/sampling-phrase-bias.ts):
+  // bannedStrings outranks phraseBias, and an explicit numeric logitBias
+  // entry outranks both.
+  await store.save(saveCommand(
+    `m1.1767225600004.${"f".repeat(32)}`,
+    1,
+    documentFor(fixture.origin, "openai", "gpt-4o", {
+      topP: null,
+      topK: null,
+      minP: null,
+      frequencyPenalty: null,
+      presencePenalty: null,
+      repeatPenalty: null,
+      stop: [],
+      logitBias: { "84021": 42 },
+      phraseBias: [{ phrase: "dragon", weight: 5 }],
+      bannedStrings: ["dragon", "banned phrase test"]
+    })
+  ));
+  const runtime = await store.loadGeneration();
+  await collect(streamCompletion(runtime.settings, PROMPT, new AbortController().signal));
+  const body = fixture.bodies.at(-1)!;
+  assert.deepEqual(body.logit_bias, {
+    // The explicit numeric entry wins over both text sources for the same token.
+    "84021": 42,
+    // "banned phrase test" tokenizes to four IDs, each biased to the
+    // documented minimum weight — see SAMPLING_LOGIT_BIAS_POLICY.minimum.
+    "65": -100,
+    "1746": -100,
+    "11768": -100,
+    "27179": -100
+  });
+});
+
 test("unset sampling knobs stay absent from an activated OpenAI request", {
   skip: !ownedLoopbackHttpSupported()
 }, async (t) => {
@@ -103,7 +148,9 @@ test("unset sampling knobs stay absent from an activated OpenAI request", {
       presencePenalty: null,
       repeatPenalty: null,
       stop: [],
-      logitBias: {}
+      logitBias: {},
+      bannedStrings: [],
+      phraseBias: []
     })
   ));
   const runtime = await store.loadGeneration();
@@ -131,7 +178,9 @@ test("Ollama rejects logit bias at save time without changing the active documen
     presencePenalty: null,
     repeatPenalty: null,
     stop: [],
-    logitBias: { "1": 1 }
+    logitBias: { "1": 1 },
+    bannedStrings: [],
+    phraseBias: []
   });
   await assert.rejects(
     () => store.save(saveCommand(MUTATION_C, 1, candidate)),
@@ -158,7 +207,9 @@ test("Anthropic lowering uses stop_sequences and does not emit OpenAI stop", {
       presencePenalty: null,
       repeatPenalty: null,
       stop: ["END"],
-      logitBias: {}
+      logitBias: {},
+      bannedStrings: [],
+      phraseBias: []
     }, "anthropic")
   ));
   const runtime = await store.loadGeneration();
