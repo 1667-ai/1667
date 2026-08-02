@@ -540,3 +540,32 @@ test("a pattern that spans lines is named as a pattern", () => {
     fidelityReport(result.fidelity)
   );
 });
+
+test("an entry that never becomes a Fact does not report what it would have lost", () => {
+  // A mechanism an entry never got to use is not a loss. Reporting one for an
+  // entry that produced no Fact makes every count untrustworthy.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Off",
+    content: "Not in play.",
+    key: ["k"],
+    disable: true,
+    position: 0,
+    probability: 40,
+    useProbability: true,
+    keysecondary: ["night"],
+    group: "weather"
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+  const report = fidelityReport(result.fidelity);
+
+  assert.equal(result.facts.length, 0);
+  assert.ok(report.includes("1 entry read"), report);
+  assert.ok(report.includes("1 disabled entry skipped"), report);
+  for (const absent of [
+    "insertion position",
+    "always fire",
+    "secondary keys",
+    "grouped"
+  ]) assert.ok(!report.includes(absent), `${absent} should not be reported: ${report}`);
+});

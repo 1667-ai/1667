@@ -137,6 +137,31 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoEntries {
 
 function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   const losses: WorldInfoLoss[] = [];
+  const rawContent = typeof item.content === "string" ? item.content : "";
+  const decorated = readDecorators(rawContent);
+  if (decorated.decorators.length > 0) losses.push("decorated");
+
+  // Decide whether the entry arrives at all before naming what it would have
+  // lost. A mechanism an entry never got to use is not a loss, and reporting
+  // one for an entry that produced no Fact makes every count untrustworthy.
+  const forced = decorated.decorators.includes("@@activate");
+  if (!forced && decorated.decorators.includes("@@dont_activate")) {
+    losses.push("refused");
+    return { entry: null, losses };
+  }
+  if (item.disable === true) {
+    // The mapper reports the skip, so this entry needs no reason of its own.
+    return {
+      entry: {
+        text: decorated.content,
+        displayName: typeof item.comment === "string" ? item.comment : "",
+        keys: [],
+        forceActivation: false,
+        enabled: false
+      },
+      losses
+    };
+  }
 
   if (Array.isArray(item.keysecondary) && item.keysecondary.length > 0) {
     losses.push("secondaryKey");
@@ -185,28 +210,11 @@ function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   // SillyTavern reads a key written as /pattern/flags as a regular
   // expression. A Fact key is literal, so keeping one would leave a key that
   // fires only on the pattern's own text. Drop it and say so.
-  // A leading @@decorator line is a control, not prose. Left in place it
-  // would reach the model as text, and @@dont_activate would arrive as a
-  // Fact the writer had switched off.
-  const rawContent = typeof item.content === "string" ? item.content : "";
   const sourceKeys = Array.isArray(item.key) ? item.key : [];
   // SillyTavern expands {{macros}} against a character and a chat before the
   // text is used. A World Info file carries neither, so the braces stay as
   // the writer wrote them and a macro key cannot match.
   if (hasMacro(rawContent) || sourceKeys.some(hasMacro)) losses.push("macro");
-  const decorated = readDecorators(rawContent);
-  if (decorated.decorators.length > 0) losses.push("decorated");
-  // Only the two exact controls are acted on, and @@activate wins when both
-  // are present. Anything else — including a @@@ fallback line — leaves the
-  // prose and is counted, but never decides activation. Reading a decorator
-  // this import does not understand would either drop an entry the writer
-  // kept or promote one they did not.
-  const forced = decorated.decorators.includes("@@activate");
-  if (!forced && decorated.decorators.includes("@@dont_activate")) {
-    losses.push("refused");
-    return { entry: null, losses };
-  }
-
   const literalKeys = sourceKeys.filter((key) => {
     if (typeof key !== "string") return true;
     // An exact pattern is a pattern. A padded one is ambiguous: it is
