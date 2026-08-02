@@ -48,6 +48,10 @@ import {
   SettingsFormatError
 } from "../server/settings-v2-scalars.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import {
+  SAMPLING_BANNED_STRINGS_POLICY,
+  SAMPLING_LOGIT_BIAS_POLICY
+} from "../shared/sampling-validation-policy.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   SETTINGS_V2_CORPUS_SHA256,
@@ -103,10 +107,13 @@ test("fixed initial document and state bytes have raw and domain-separated hashe
 });
 
 test("sampling parses as a closed optional profile object and projects to runtime", () => {
+  // gpt-4o, not the usual model-fixture placeholder: phraseBias and
+  // bannedStrings only validate as available for a model on the closed
+  // tokenizer allow-list (shared/sampling-capabilities.ts).
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",
     "https://models.example/v1",
-    "model-fixture",
+    "gpt-4o",
     null
   ));
   const sampling = {
@@ -117,7 +124,9 @@ test("sampling parses as a closed optional profile object and projects to runtim
     presencePenalty: -0.1,
     repeatPenalty: null,
     stop: ["END", "DONE"],
-    logitBias: { "15043": 1 }
+    logitBias: { "15043": 1 },
+    bannedStrings: ["forbidden"],
+    phraseBias: [{ phrase: "raven", weight: 4 }]
   } as const;
   const document = parseSettingsDocumentV2({
     ...base,
@@ -132,6 +141,37 @@ test("sampling parses as a closed optional profile object and projects to runtim
     parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
     document
   );
+});
+
+test("a document saved before phraseBias and bannedStrings existed still decodes", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const legacySampling = {
+    topP: 0.9,
+    topK: null,
+    minP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+    repeatPenalty: null,
+    stop: ["END"],
+    logitBias: { "15043": 1 }
+  };
+  const document = parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, sampling: legacySampling }
+    }
+  });
+  assert.deepEqual(document.profiles.default?.sampling, {
+    ...legacySampling,
+    bannedStrings: [],
+    phraseBias: []
+  });
 });
 
 test("all-empty sampling normalizes away and preserves the initial settings identity", () => {
@@ -182,8 +222,22 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["END", "END"] })), /repeats/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ logitBias: { "01": 1 } })), /logitBias/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({
-    logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+    logitBias: Object.fromEntries(
+      Array.from({ length: SAMPLING_LOGIT_BIAS_POLICY.maxEntries + 1 }, (_, index) => [String(index), 1])
+    )
   })), /logitBias/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    bannedStrings: Array.from({ length: SAMPLING_BANNED_STRINGS_POLICY.maxEntries + 1 }, (_, index) => `word-${index}`)
+  })), /bannedStrings/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    bannedStrings: ["repeat", "repeat"]
+  })), /repeats/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    phraseBias: [{ phrase: "raven", weight: 200 }]
+  })), /phraseBias/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    phraseBias: [{ phrase: "raven", weight: 1 }, { phrase: "raven", weight: 2 }]
+  })), /repeats/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({
     extra: true
   })), /unknown key/);

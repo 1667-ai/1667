@@ -32,7 +32,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "unavailable", reason: "dry-run" },
       repeatPenalty: { kind: "unavailable", reason: "dry-run" },
       stop: { kind: "unavailable", reason: "dry-run" },
-      logitBias: { kind: "unavailable", reason: "dry-run" }
+      logitBias: { kind: "unavailable", reason: "dry-run" },
+      phraseBias: { kind: "unavailable", reason: "dry-run" },
+      bannedStrings: { kind: "unavailable", reason: "dry-run" }
     }
   },
   {
@@ -46,10 +48,16 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "unavailable", reason: "dry-run" },
       repeatPenalty: { kind: "unavailable", reason: "dry-run" },
       stop: { kind: "unavailable", reason: "dry-run" },
-      logitBias: { kind: "unavailable", reason: "dry-run" }
+      logitBias: { kind: "unavailable", reason: "dry-run" },
+      phraseBias: { kind: "unavailable", reason: "dry-run" },
+      bannedStrings: { kind: "unavailable", reason: "dry-run" }
     }
   },
   {
+    // "fixture-model" is deliberately not on the tokenizer allow-list, so
+    // phraseBias/bannedStrings are unavailable here even though logitBias
+    // (which needs no tokenizer) is available. See "known encoded model"
+    // below for the case where an allow-listed model makes them available.
     name: "OpenAI baseline preset",
     context: samplingContext("openai-chat-completions", "openai"),
     expected: {
@@ -60,7 +68,25 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
+    }
+  },
+  {
+    name: "known encoded model on the OpenAI baseline preset",
+    context: samplingContext("openai-chat-completions", "openai", "gpt-4o"),
+    expected: {
+      topP: { kind: "available", wireField: "top_p" },
+      topK: { kind: "unavailable", reason: "preset-unknown" },
+      minP: { kind: "unavailable", reason: "preset-unknown" },
+      frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
+      presencePenalty: { kind: "available", wireField: "presence_penalty" },
+      repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
+      stop: { kind: "available", wireField: "stop" },
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "available", wireField: "logit_bias" },
+      bannedStrings: { kind: "available", wireField: "logit_bias" }
     }
   },
   {
@@ -74,7 +100,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
     }
   },
   {
@@ -88,7 +116,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
     }
   },
   {
@@ -102,10 +132,15 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
     }
   },
   {
+    // Ollama's OpenAI-compatible endpoint documents logit_bias as
+    // unsupported, so the phrase/banned shortcuts that ride the same wire
+    // field are subtracted too — before the tokenizer check ever runs.
     name: "Ollama subtraction preset",
     context: samplingContext("openai-chat-completions", "ollama"),
     expected: {
@@ -116,7 +151,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "unavailable", reason: "preset-unsupported" }
+      logitBias: { kind: "unavailable", reason: "preset-unsupported" },
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {
@@ -130,7 +167,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
     }
   },
   {
@@ -144,7 +183,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
     }
   },
   {
@@ -158,7 +199,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "available", wireField: "presence_penalty" },
       repeatPenalty: { kind: "unavailable", reason: "preset-unknown" },
       stop: { kind: "available", wireField: "stop" },
-      logitBias: { kind: "available", wireField: "logit_bias" }
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
+      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
     }
   },
   {
@@ -172,7 +215,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "unavailable", reason: "protocol" },
       repeatPenalty: { kind: "unavailable", reason: "protocol" },
       stop: { kind: "available", wireField: "stop_sequences" },
-      logitBias: { kind: "unavailable", reason: "protocol" }
+      logitBias: { kind: "unavailable", reason: "protocol" },
+      phraseBias: { kind: "unavailable", reason: "protocol" },
+      bannedStrings: { kind: "unavailable", reason: "protocol" }
     }
   },
   {
@@ -186,7 +231,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "unavailable", reason: "protocol" },
       repeatPenalty: { kind: "unavailable", reason: "protocol" },
       stop: { kind: "available", wireField: "stop_sequences" },
-      logitBias: { kind: "unavailable", reason: "protocol" }
+      logitBias: { kind: "unavailable", reason: "protocol" },
+      phraseBias: { kind: "unavailable", reason: "protocol" },
+      bannedStrings: { kind: "unavailable", reason: "protocol" }
     }
   },
   {
@@ -205,7 +252,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "unavailable", reason: "model-unsupported" },
       repeatPenalty: { kind: "unavailable", reason: "model-unsupported" },
       stop: { kind: "unavailable", reason: "model-unsupported" },
-      logitBias: { kind: "unavailable", reason: "model-unsupported" }
+      logitBias: { kind: "unavailable", reason: "model-unsupported" },
+      phraseBias: { kind: "unavailable", reason: "model-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "model-unsupported" }
     }
   },
   {
@@ -224,7 +273,9 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       presencePenalty: { kind: "unavailable", reason: "legacy-v1" },
       repeatPenalty: { kind: "unavailable", reason: "legacy-v1" },
       stop: { kind: "unavailable", reason: "legacy-v1" },
-      logitBias: { kind: "unavailable", reason: "legacy-v1" }
+      logitBias: { kind: "unavailable", reason: "legacy-v1" },
+      phraseBias: { kind: "unavailable", reason: "legacy-v1" },
+      bannedStrings: { kind: "unavailable", reason: "legacy-v1" }
     }
   }
 ];

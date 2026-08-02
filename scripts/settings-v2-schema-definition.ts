@@ -32,7 +32,9 @@ import {
   type SamplingScalarKnobV2
 } from "../shared/settings-v2-types.js";
 import {
+  SAMPLING_BANNED_STRINGS_POLICY,
   SAMPLING_LOGIT_BIAS_POLICY,
+  SAMPLING_PHRASE_BIAS_POLICY,
   SAMPLING_SCALAR_DESCRIPTORS,
   SAMPLING_STOP_POLICY
 } from "../shared/sampling-validation-policy.js";
@@ -125,6 +127,10 @@ export function settingsV2Schema(): Schema {
       cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES },
       sampling: ref("Sampling")
     }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
+    PhraseBiasEntry: closed({
+      phrase: boundedString(SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars, 1),
+      weight: integer(SAMPLING_PHRASE_BIAS_POLICY.minimum, SAMPLING_PHRASE_BIAS_POLICY.maximum)
+    }),
     Sampling: closed({
       ...Object.fromEntries(
         SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => [knob, samplingScalar(knob)])
@@ -145,8 +151,25 @@ export function settingsV2Schema(): Schema {
           SAMPLING_LOGIT_BIAS_POLICY.minimum,
           SAMPLING_LOGIT_BIAS_POLICY.maximum
         )
+      },
+      // Additive fields (issue #282): absent on a document written before
+      // they existed, so they are not in Sampling's required list below.
+      bannedStrings: {
+        type: "array",
+        maxItems: SAMPLING_BANNED_STRINGS_POLICY.maxEntries,
+        uniqueItems: true,
+        items: boundedString(SAMPLING_BANNED_STRINGS_POLICY.maxScalars, 1)
+      },
+      phraseBias: {
+        type: "array",
+        maxItems: SAMPLING_PHRASE_BIAS_POLICY.maxEntries,
+        items: ref("PhraseBiasEntry")
       }
-    }),
+    }, [
+      ...SAMPLING_SCALAR_KNOB_V2_VALUES,
+      "stop",
+      "logitBias"
+    ]),
     Connections: settingsMap("Connection"),
     Models: settingsMap("Model"),
     Profiles: settingsMap("Profile"),

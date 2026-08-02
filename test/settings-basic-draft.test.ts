@@ -152,7 +152,9 @@ test("sampling edits only the default profile and preserve route-owned settings"
     presencePenalty: null,
     repeatPenalty: null,
     stop: ["END"],
-    logitBias: { "15043": 1 }
+    logitBias: { "15043": 1 },
+    bannedStrings: [],
+    phraseBias: []
   };
   const updated = applySamplingSettings(DOCUMENT, sampling);
   assert.deepEqual(updated.profiles.default?.sampling, sampling);

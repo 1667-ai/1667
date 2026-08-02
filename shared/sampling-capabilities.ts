@@ -38,7 +38,8 @@ export type SamplingUnavailableReason =
   | "preset-unsupported"
   | "preset-unknown"
   | "model-unsupported"
-  | "model-unknown";
+  | "model-unknown"
+  | "no-exact-tokenizer";
 
 export type SamplingResolution =
   | Readonly<{ kind: "available"; wireField: string }>
@@ -51,6 +52,9 @@ interface SamplingPresentation {
   readonly reasonCompact: string;
 }
 
+// phraseBias and bannedStrings never appear on the wire under their own name:
+// both resolve to token IDs and merge into the same logit_bias object
+// (server/provider-sampling.ts), so they share logit_bias's wire field here.
 const PROTOCOL_WIRE: Readonly<
   Record<SettingsProtocolV2, Partial<Record<SamplingKnobV2, string>>>
 > = {
@@ -63,7 +67,9 @@ const PROTOCOL_WIRE: Readonly<
     presencePenalty: "presence_penalty",
     repeatPenalty: "repeat_penalty",
     stop: "stop",
-    logitBias: "logit_bias"
+    logitBias: "logit_bias",
+    phraseBias: "logit_bias",
+    bannedStrings: "logit_bias"
   },
   "anthropic-messages": {
     topP: "top_p",
@@ -80,13 +86,70 @@ const PRESET_EXTENSIONS: Readonly<
   koboldcpp: ["topK", "minP", "repeatPenalty"]
 };
 
+// Ollama's OpenAI-compatible endpoint documents logit_bias as unsupported
+// (checklist item left unchecked): https://ollama.readthedocs.io/en/openai/
+// phraseBias and bannedStrings ride the same wire field, so they inherit the
+// subtraction rather than repeating it under a different unavailable reason.
 const PRESET_SUBTRACTIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
   "lm-studio": ["minP"],
-  ollama: ["logitBias"],
+  ollama: ["logitBias", "phraseBias", "bannedStrings"],
   koboldcpp: ["frequencyPenalty"]
 };
+
+/**
+ * Tokenizer encodings 1667 can resolve a text phrase against. tiktoken ships
+ * several named encodings; these are the two relevant to the OpenAI model
+ * families 1667 routes to.
+ */
+export type PromptBiasEncoding = "o200k_base" | "cl100k_base";
+
+// The authoritative source for which encoding an OpenAI model uses is
+// tiktoken's own table: https://github.com/openai/tiktoken/blob/main/tiktoken/model.py
+// (MODEL_TO_ENCODING / MODEL_PREFIX_TO_ENCODING, fetched from the main
+// branch). Kept here as a closed allow-list of exact model IDs rather than a
+// prefix match: an unlisted model resolves to "no exact tokenizer" instead of
+// a guessed encoding, because a wrong token ID would silently bias the wrong
+// token. Dated snapshot IDs (e.g. "gpt-4o-2024-08-06") are intentionally
+// omitted until individually confirmed against that table; add them as
+// needed rather than guessing. "gpt-5.1" and "gpt-5.2" are omitted for the
+// same reason — tiktoken's prefix match only covers "gpt-5-", which does not
+// match a dotted point release, and no exact entry for them exists yet.
+const OPENAI_PROMPT_BIAS_ENCODING: ReadonlyMap<string, PromptBiasEncoding> = new Map([
+  ["gpt-4o", "o200k_base"],
+  ["gpt-4o-mini", "o200k_base"],
+  ["chatgpt-4o-latest", "o200k_base"],
+  ["gpt-4.1", "o200k_base"],
+  ["gpt-4.1-mini", "o200k_base"],
+  ["gpt-4.1-nano", "o200k_base"],
+  ["gpt-4.5-preview", "o200k_base"],
+  ["gpt-5", "o200k_base"],
+  ["gpt-5-mini", "o200k_base"],
+  ["gpt-5-nano", "o200k_base"],
+  ["o1", "o200k_base"],
+  ["o1-mini", "o200k_base"],
+  ["o1-preview", "o200k_base"],
+  ["o3", "o200k_base"],
+  ["o3-mini", "o200k_base"],
+  ["o4-mini", "o200k_base"],
+  ["gpt-4", "cl100k_base"],
+  ["gpt-4-turbo", "cl100k_base"],
+  ["gpt-4-32k", "cl100k_base"],
+  ["gpt-3.5-turbo", "cl100k_base"],
+  ["gpt-3.5-turbo-16k", "cl100k_base"]
+]);
+
+/** The exact tokenizer encoding for a routed model, or null when it is not on
+ * the closed allow-list above. Resolution logic (below) turns null into the
+ * "no-exact-tokenizer" unavailable reason rather than guessing. */
+export function promptBiasTokenizerEncoding(remoteModelId: string): PromptBiasEncoding | null {
+  return OPENAI_PROMPT_BIAS_ENCODING.get(remoteModelId) ?? null;
+}
+
+function needsExactTokenizer(knob: SamplingKnobV2): boolean {
+  return knob === "phraseBias" || knob === "bannedStrings";
+}
 
 // Anthropic documents top_p/top_k restrictions by exact model ID. Keep this
 // allow-list closed so a new model cannot cause an unexpected 400 response.
@@ -108,7 +171,9 @@ const KNOB_LABELS: Readonly<Record<SamplingKnobV2, string>> = {
   presencePenalty: "presence penalty",
   repeatPenalty: "repeat penalty",
   stop: "stop sequences",
-  logitBias: "logit bias"
+  logitBias: "logit bias",
+  phraseBias: "phrase bias",
+  bannedStrings: "banned strings"
 };
 
 export function samplingKnobLabel(knob: SamplingKnobV2): string {
@@ -159,6 +224,14 @@ export function resolveSamplingKnob(
     && !ANTHROPIC_TRUNCATION_SAMPLING.has(context.remoteModelId)
   ) {
     return { kind: "unavailable", reason: "model-unknown" };
+  }
+
+  if (
+    context.protocol === "openai-chat-completions"
+    && needsExactTokenizer(knob)
+    && promptBiasTokenizerEncoding(context.remoteModelId) === null
+  ) {
+    return { kind: "unavailable", reason: "no-exact-tokenizer" };
   }
   return { kind: "available", wireField };
 }
@@ -246,7 +319,9 @@ export function samplingSettingsEqual(
   return SAMPLING_KNOB_V2_VALUES.every((knob) => {
     const a = left[knob];
     const b = right[knob];
-    if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => v === b[i]);
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((value, index) => samplingArrayItemEqual(value, b[index]));
+    }
     if (a !== null && b !== null && typeof a === "object" && typeof b === "object") {
       const leftEntries = Object.entries(a);
       const rightEntries = Object.entries(b);
@@ -256,6 +331,25 @@ export function samplingSettingsEqual(
     }
     return a === b;
   });
+}
+
+/** `stop` and `bannedStrings` hold primitive strings, which compare with
+ * `===`. `phraseBias` holds `{ phrase, weight }` value objects that a draft
+ * edit always recreates with a fresh reference, so a reference comparison
+ * would report every unedited draft as changed. */
+function samplingArrayItemEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (
+    left !== null && right !== null
+    && typeof left === "object" && typeof right === "object"
+    && "phrase" in left && "weight" in left
+    && "phrase" in right && "weight" in right
+  ) {
+    const leftEntry = left as { phrase: unknown; weight: unknown };
+    const rightEntry = right as { phrase: unknown; weight: unknown };
+    return leftEntry.phrase === rightEntry.phrase && leftEntry.weight === rightEntry.weight;
+  }
+  return false;
 }
 
 const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
@@ -289,5 +383,9 @@ const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
   "model-unknown": {
     reason: "This model has no documented support for this parameter.",
     compact: "model unknown"
+  },
+  "no-exact-tokenizer": {
+    reason: "1667 has no exact tokenizer for this model, so it cannot resolve text to token IDs.",
+    compact: "no exact tokenizer"
   }
 };

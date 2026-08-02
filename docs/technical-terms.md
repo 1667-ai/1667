@@ -36,6 +36,8 @@ read_when:
 | sampling parameter | One provider request field that changes how the model selects tokens |
 | stop sequence | One text sequence that stops generation |
 | logit bias | A token identifier and a weight that changes token probability |
+| phrase bias | A text phrase and a weight that changes the probability of its tokens |
+| banned string | A text phrase that gets a strong negative token bias |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

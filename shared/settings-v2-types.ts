@@ -98,15 +98,42 @@ export type SamplingScalarKnobV2 = (typeof SAMPLING_SCALAR_KNOB_V2_VALUES)[numbe
 export const SAMPLING_KNOB_V2_VALUES = [
   ...SAMPLING_SCALAR_KNOB_V2_VALUES,
   "stop",
-  "logitBias"
+  "logitBias",
+  "phraseBias",
+  "bannedStrings"
 ] as const;
 export type SamplingKnobV2 = (typeof SAMPLING_KNOB_V2_VALUES)[number];
+
+/** Knobs added after the initial release. The wire decoder treats these as
+ * optional so a settings document written before they existed still loads —
+ * see `parseSampling` in server/settings-v2-sampling-validation.ts. Every
+ * other knob stays required on the wire, unchanged from the original schema. */
+export const SAMPLING_KNOB_V2_ADDITIVE_VALUES = [
+  "phraseBias",
+  "bannedStrings"
+] as const satisfies readonly SamplingKnobV2[];
+export type SamplingKnobV2Additive = (typeof SAMPLING_KNOB_V2_ADDITIVE_VALUES)[number];
+
+/** One text phrase and the weight applied to every token it tokenizes to.
+ * Resolution happens at request time (`server/provider-sampling.ts`) and in
+ * the editor preview (`server/sampling-phrase-bias.ts`); this shape never
+ * stores token IDs, only the phrase a writer typed. */
+export interface SamplingPhraseBiasEntryV2 {
+  readonly phrase: string;
+  readonly weight: number;
+}
 
 export type SamplingSettingsV2 = {
   readonly [Knob in SamplingScalarKnobV2]: number | null;
 } & {
   readonly stop: readonly string[];
   readonly logitBias: Readonly<Record<string, number>>;
+  /** A negative-bias shortcut: each string resolves to token IDs biased by
+   * the most negative allowed weight. This makes the string unlikely, not
+   * impossible — the same text can still appear through different token
+   * boundaries than the ones resolution found. */
+  readonly bannedStrings: readonly string[];
+  readonly phraseBias: readonly SamplingPhraseBiasEntryV2[];
 };
 
 export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
@@ -117,7 +144,9 @@ export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
   presencePenalty: null,
   repeatPenalty: null,
   stop: Object.freeze([]) as readonly string[],
-  logitBias: Object.freeze({}) as Readonly<Record<string, number>>
+  logitBias: Object.freeze({}) as Readonly<Record<string, number>>,
+  bannedStrings: Object.freeze([]) as readonly string[],
+  phraseBias: Object.freeze([]) as readonly SamplingPhraseBiasEntryV2[]
 });
 
 export interface GenerationProfileV2 {

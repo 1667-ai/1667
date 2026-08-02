@@ -1,8 +1,10 @@
 import {
   SAMPLING_SCALAR_KNOB_V2_VALUES,
+  type SamplingPhraseBiasEntryV2,
   type SamplingScalarKnobV2,
   type SamplingSettingsV2
 } from "./settings-v2-types.js";
+import type { SettingsPresetV2 } from "./settings-v2-types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 
 export type SamplingScalarKnob = SamplingScalarKnobV2;
@@ -29,8 +31,27 @@ export const SAMPLING_STOP_POLICY = {
   maxScalars: 64
 } as const;
 
+// 16 used to be an unsourced, self-imposed number. The endpoints 1667 speaks
+// to document very different ceilings for the *raw* logit_bias map:
+//  - OpenAI documents only the per-entry range, no count limit:
+//    "Accepts a JSON object that maps tokens ... to an associated bias value
+//    from -100 to 100." (CreateChatCompletionRequest.logit_bias)
+//    https://github.com/openai/openai-openapi/blob/master/openapi.yaml
+//  - llama.cpp's server documents the same shape with no count limit:
+//    https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
+//  - KoboldCpp is the one exception. Its own docs state a specific number:
+//    "An dictionary of key-value pairs, which indicate the token IDs (int)
+//    and logit bias (float) to apply for that token. Up to 16 value can be
+//    provided." https://github.com/LostRuins/koboldcpp/blob/concedo/embd_res/kcpp_docs.embd
+// 200 below is 1667's own operational ceiling for every preset except
+// KoboldCpp — generous headroom over a hand-curated list while keeping the
+// request body and the editor list bounded. KoboldCpp's tighter, documented
+// 16-entry cap is enforced per preset in
+// server/settings-v2-sampling-validation.ts (SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES
+// below), because a JSON-schema constant here cannot see which preset saved
+// the document.
 export const SAMPLING_LOGIT_BIAS_POLICY = {
-  maxEntries: 16,
+  maxEntries: 200,
   keyPatternSource: "(0|[1-9][0-9]{0,6})",
   minimum: -100,
   maximum: 100
@@ -42,6 +63,54 @@ export const SAMPLING_LOGIT_BIAS_KEY_PATTERN = new RegExp(
   `^(?:${SAMPLING_LOGIT_BIAS_KEY_PATTERN_SOURCE})$`,
   "u"
 );
+
+/** A phrase can expand to several token IDs at resolution time (issue #282),
+ * so the list itself can stay generous: writers asked for sets "far larger"
+ * than the old 16-entry logit-bias cap. `maxPhraseScalars` reuses the stop
+ * -sequence sizing precedent (`SAMPLING_STOP_POLICY.maxScalars`) — a phrase is
+ * text a writer types by hand, not a passage. The weight range matches
+ * OpenAI's documented per-token logit_bias range, because each resolved
+ * token receives this same weight. */
+export const SAMPLING_PHRASE_BIAS_POLICY = {
+  maxEntries: 256,
+  maxPhraseScalars: 64,
+  minimum: -100,
+  maximum: 100
+} as const;
+
+/** Banned strings are a negative-bias shortcut (see the field comment on
+ * `SamplingSettingsV2.bannedStrings`), not a native provider field — see the
+ * research note next to `SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES` in
+ * server/settings-v2-sampling-validation.ts for why. Sizing mirrors
+ * SAMPLING_PHRASE_BIAS_POLICY for the same reason. */
+export const SAMPLING_BANNED_STRINGS_POLICY = {
+  maxEntries: 256,
+  maxScalars: 64
+} as const;
+
+/** The bound that actually protects a provider request: phrase-bias and
+ * banned-string entries tokenize to zero or more IDs each and merge with the
+ * raw `logitBias` map into one `logit_bias` object
+ * (shared/sampling-capabilities.ts documents the merge order). This is the
+ * cap on that merged object's size, checked server-side once tokenization is
+ * available — see `resolveSamplingLogitBias` in server/sampling-phrase-bias.ts. */
+export const SAMPLING_RESOLVED_LOGIT_BIAS_POLICY = {
+  maxEntries: 200
+} as const;
+
+/** KoboldCpp's documented 16-entry logit_bias cap (quoted above) is the only
+ * one of 1667's supported endpoints with a specific documented number. Every
+ * other preset uses SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries. */
+export const SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES: Readonly<
+  Partial<Record<SettingsPresetV2, number>>
+> = {
+  koboldcpp: 16
+};
+
+export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
+  return SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES[preset]
+    ?? SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries;
+}
 
 // Compatibility names for server/schema callers. The policy above remains the
 // only owner of these values.
@@ -98,34 +167,98 @@ export function validateSamplingStopSequences(
   value: unknown,
   label: string
 ): readonly string[] {
+  return validateSamplingTextList(value, label, SAMPLING_STOP_POLICY.maxSequences, SAMPLING_STOP_POLICY.maxScalars);
+}
+
+/** Shared shape behind `stop`, `bannedStrings`, and each `phraseBias.phrase`:
+ * a bounded list of unique, well-formed NFC strings a writer typed by hand. */
+function validateSamplingTextList(
+  value: unknown,
+  label: string,
+  maxItems: number,
+  maxScalars: number
+): readonly string[] {
   if (!Array.isArray(value)) throw new SamplingValidationError(`${label} must be an array`);
-  if (value.length > SAMPLING_STOP_POLICY.maxSequences) {
+  if (value.length > maxItems) {
+    throw new SamplingValidationError(`${label} exceeds the ${maxItems}-item limit`);
+  }
+  const seen = new Set<string>();
+  return value.map((entry, index) => {
+    const text = validateSamplingText(entry, `${label}[${index}]`, maxScalars);
+    if (seen.has(text)) {
+      throw new SamplingValidationError(`${label} repeats ${JSON.stringify(text)}`);
+    }
+    seen.add(text);
+    return text;
+  });
+}
+
+function validateSamplingText(value: unknown, label: string, maxScalars: number): string {
+  if (typeof value !== "string" || hasUnpairedSurrogate(value)) {
+    throw new SamplingValidationError(`${label} must be a well-formed NFC string`);
+  }
+  if (value.normalize("NFC") !== value) {
+    throw new SamplingValidationError(`${label} must be NFC-normalized`);
+  }
+  const scalarLength = unicodeScalarLength(value, maxScalars);
+  if (scalarLength < 1 || scalarLength > maxScalars) {
+    throw new SamplingValidationError(`${label} must contain 1..${maxScalars} Unicode scalars`);
+  }
+  return value;
+}
+
+export function validateSamplingBannedStrings(
+  value: unknown,
+  label: string
+): readonly string[] {
+  return validateSamplingTextList(
+    value,
+    label,
+    SAMPLING_BANNED_STRINGS_POLICY.maxEntries,
+    SAMPLING_BANNED_STRINGS_POLICY.maxScalars
+  );
+}
+
+export function validateSamplingPhraseBias(
+  value: unknown,
+  label: string
+): readonly SamplingPhraseBiasEntryV2[] {
+  if (!Array.isArray(value)) throw new SamplingValidationError(`${label} must be an array`);
+  if (value.length > SAMPLING_PHRASE_BIAS_POLICY.maxEntries) {
     throw new SamplingValidationError(
-      `${label} exceeds the ${SAMPLING_STOP_POLICY.maxSequences}-item limit`
+      `${label} exceeds the ${SAMPLING_PHRASE_BIAS_POLICY.maxEntries}-item limit`
     );
   }
   const seen = new Set<string>();
   return value.map((entry, index) => {
-    if (typeof entry !== "string" || hasUnpairedSurrogate(entry)) {
-      throw new SamplingValidationError(
-        `${label}[${index}] must be a well-formed NFC string`
-      );
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new SamplingValidationError(`${label}[${index}] must be an object`);
     }
-    if (entry.normalize("NFC") !== entry) {
-      throw new SamplingValidationError(`${label}[${index}] must be NFC-normalized`);
+    const record = entry as Record<string, unknown>;
+    const parsed = validateSamplingPhraseBiasEntry(record.phrase, record.weight, `${label}[${index}]`);
+    if (seen.has(parsed.phrase)) {
+      throw new SamplingValidationError(`${label} repeats ${JSON.stringify(parsed.phrase)}`);
     }
-    const scalarLength = unicodeScalarLength(entry, SAMPLING_STOP_POLICY.maxScalars);
-    if (scalarLength < 1 || scalarLength > SAMPLING_STOP_POLICY.maxScalars) {
-      throw new SamplingValidationError(
-        `${label}[${index}] must contain 1..${SAMPLING_STOP_POLICY.maxScalars} Unicode scalars`
-      );
-    }
-    if (seen.has(entry)) {
-      throw new SamplingValidationError(`${label} repeats ${JSON.stringify(entry)}`);
-    }
-    seen.add(entry);
-    return entry;
+    seen.add(parsed.phrase);
+    return parsed;
   });
+}
+
+/** Single-entry validator, exported for the editor's inline phrase:weight
+ * form — the same split the whole-list `validateSamplingPhraseBias` and
+ * `validateSamplingLogitBiasEntry` (the token-ID equivalent) both use. */
+export function validateSamplingPhraseBiasEntry(
+  phrase: unknown,
+  weight: unknown,
+  label: string
+): SamplingPhraseBiasEntryV2 {
+  const validPhrase = validateSamplingText(phrase, `${label}.phrase`, SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars);
+  const validWeight = validateSamplingNumber(weight, `${label}.weight`, {
+    minimum: SAMPLING_PHRASE_BIAS_POLICY.minimum,
+    maximum: SAMPLING_PHRASE_BIAS_POLICY.maximum,
+    integer: true
+  });
+  return { phrase: validPhrase, weight: validWeight };
 }
 
 export function validateSamplingLogitBias(
@@ -180,6 +313,8 @@ export function validateSamplingSettings(
     presencePenalty: validateSamplingScalarOrNull("presencePenalty", sampling.presencePenalty, `${label}.presencePenalty`),
     repeatPenalty: validateSamplingScalarOrNull("repeatPenalty", sampling.repeatPenalty, `${label}.repeatPenalty`),
     stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
-    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`)
+    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`),
+    bannedStrings: validateSamplingBannedStrings(sampling.bannedStrings, `${label}.bannedStrings`),
+    phraseBias: validateSamplingPhraseBias(sampling.phraseBias, `${label}.phraseBias`)
   };
 }
