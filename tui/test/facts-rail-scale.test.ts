@@ -40,7 +40,10 @@ function paintRail(state: RuntimeState, height: number) {
     instruction: "",
     assistantPrefill: true,
     operation: "continue",
-    targetId: payload.path.at(-1)!.id
+    targetId: payload.path.at(-1)!.id,
+    // Scale, not window pressure, is what this suite exercises.
+    contextWindow: null,
+    maxTokens: 0
   };
   const model = buildRailModel(payload, "", 10_000, nextRequestEstimate(payload, next));
   const hits: HitRows = Array.from({ length: height }, () => null);

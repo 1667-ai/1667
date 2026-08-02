@@ -3,8 +3,6 @@ import {
   MAX_AUTHORS_NOTE_CHARS,
   resolveAuthorsNoteDepth
 } from "../../shared/authors-note.js";
-import { MAX_AUTHOR_BRIEF_CHARS } from "../../shared/author-brief.js";
-import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../../shared/fact-budget.js";
 import { unicodeScalarLength } from "../../shared/unicode.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { AppSource } from "./app.js";
@@ -13,19 +11,17 @@ import { recordHumanWords } from "./config.js";
 import { parsePartFile, stripGuidance } from "./editor.js";
 import { editorBufferAction } from "./editor-buffer-action.js";
 import { editorInsertionPolicy } from "./editor-text-insertion.js";
+import { factEditorChanged, factEditorSavePayload } from "./fact-editor-draft.js";
 import {
   factEditorBuffer,
-  factEditorChanged,
-  factEditorSavePayload,
-  formatFactBudget,
   handleFactEditorVerticalMove,
   handleFactEditorCommand,
-  handleFactEditorHistory,
-  parseBudgetText
+  handleFactEditorHistory
 } from "./fact-editor-policy.js";
 import type { ResolvedKey } from "./keys.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
+import { storyScalarFieldSpec } from "./story-scalar-fields.js";
 import type { DocumentEditorSession, InlineEditorTarget, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 import { textHash } from "./api.js";
@@ -186,31 +182,16 @@ async function saveInlineEditor(
     return;
   }
 
-  if (target.kind === "author-brief") {
-    if (unicodeScalarLength(submitted, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
-      state.toast = `Author Brief must contain at most ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar values.`;
-      return;
-    }
-    await saveScalarFieldEditor(
-      state, context, editor, target, submitted,
-      "saving Author Brief",
-      (storyId) => source.api.setAuthorBrief(storyId, submitted),
-      (payload) => payload.authorBrief ?? "",
-      submitted.trim().length === 0 ? "Author Brief cleared" : "Author Brief saved"
-    );
-    return;
-  }
-
-  if (target.kind === "facts-budget") {
-    const parsed = parseBudgetText(submitted, MAX_STORY_FACTS_BUDGET_TOKENS, "facts budget");
-    if (!parsed.ok) return void (state.toast = parsed.toast);
-    await saveScalarFieldEditor(
-      state, context, editor, target, submitted,
-      "saving facts budget",
-      (storyId) => source.api.setFactsBudget(storyId, parsed.budgetTokens ?? null),
-      (payload) => formatFactBudget(payload.factsBudgetTokens),
-      parsed.budgetTokens === undefined ? "facts budget cleared" : "facts budget saved"
-    );
+  if (target.kind === "story-scalar") {
+    const spec = storyScalarFieldSpec(target.field);
+    const validated = spec.validate(submitted);
+    if (!validated.ok) return void (state.toast = validated.toast);
+    await saveScalarFieldEditor(state, context, editor, target, submitted, {
+      backendLabel: `saving ${spec.title}`,
+      save: (storyId) => spec.save(source.api, storyId, validated.value),
+      nextExpected: (payload) => spec.read(payload),
+      toast: spec.toast(validated.value)
+    });
     return;
   }
 
@@ -397,30 +378,35 @@ async function saveFactEditor(
   });
 }
 
-/** Author Brief and the Facts budget are both a single scalar saved straight
- *  to the story, with no field beyond `expected` to reconcile — unlike the
- *  Author's Note, which also carries a depth. This is their one shared save
- *  path: field-specific validation and parsing stay with each caller, but
- *  the request/adopt/settle shell is not worth writing out twice. */
+/** Every field in STORY_SCALAR_FIELDS (see story-scalar-fields.ts) is saved
+ *  straight to the story, with no field beyond `expected` to reconcile —
+ *  unlike the Author's Note, which also carries a depth. This is their one
+ *  shared save path: field-specific validation, parsing, and messaging stay
+ *  in the table, but the request/adopt/settle shell is not worth writing out
+ *  once per field. An options object rather than a run of positional
+ *  parameters, three of them same-typed strings, so a call site cannot
+ *  transpose two of them and have the type checker miss it. */
 async function saveScalarFieldEditor(
   state: RuntimeState,
   context: ActionContext,
   editor: DocumentEditorSession,
-  target: Extract<InlineEditorTarget, { kind: "author-brief" | "facts-budget" }>,
+  target: Extract<InlineEditorTarget, { kind: "story-scalar" }>,
   submitted: string,
-  backendLabel: string,
-  save: (storyId: string) => Promise<StoryPayload>,
-  nextExpected: (payload: StoryPayload) => string,
-  toast: string
+  options: {
+    backendLabel: string;
+    save: (storyId: string) => Promise<StoryPayload>;
+    nextExpected: (payload: StoryPayload) => string;
+    toast: string;
+  }
 ): Promise<void> {
   try {
-    await context.backend.run(backendLabel, async (task) => {
-      const payload = await save(task.storyId);
+    await context.backend.run(options.backendLabel, async (task) => {
+      const payload = await options.save(task.storyId);
       if (!task.storyCurrent()) return;
       adoptSameStoryPayload(state, payload);
-      target.expected = nextExpected(payload);
+      target.expected = options.nextExpected(payload);
       context.cache.invalidate();
-      settleInlineSave(state, editor, submitted, toast, true);
+      settleInlineSave(state, editor, submitted, options.toast, true);
     });
   } catch (error) {
     if (state.editor === editor) {

@@ -2,14 +2,9 @@ import type { StoryFact } from "../../shared/types.js";
 import { factDraftOf, sameFactDraft } from "../../shared/fact-draft.js";
 import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { setComposerText } from "./composer-model.js";
-import {
-  applyFactDraftToEditor,
-  factEditorChanged,
-  formatFactBudget,
-  formatFactKeys,
-  factEditorPersistedTag,
-  resetFactEditorHistory
-} from "./fact-editor-policy.js";
+import { applyFactDraftToEditor, factDraftFromEditor, factEditorChanged } from "./fact-editor-draft.js";
+import { resetFactEditorHistory } from "./fact-editor-policy.js";
+import { storyScalarFieldSpec } from "./story-scalar-fields.js";
 import type {
   FactEditorSession,
   InlineEditorSession,
@@ -66,24 +61,19 @@ export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   );
 }
 
-/** Reconcile an authoritative Author Brief refresh against the active draft. */
-export function reconcileAuthorBriefEditor(state: RuntimeState): void {
+/** Reconcile an authoritative story-scalar refresh (Author Brief, the Facts
+ *  budget — see story-scalar-fields.ts) against the active draft. One
+ *  reconciler for every field in STORY_SCALAR_FIELDS, table-driven the same
+ *  way opening and saving are — each field is one field, so its text is
+ *  always the whole draft. */
+export function reconcileStoryScalarEditor(state: RuntimeState): void {
   const editor = state.editor;
-  if (editor?.kind !== "document" || editor.target.kind !== "author-brief") return;
-  const authoritative = state.payload.authorBrief ?? "";
-  editor.target.expected = authoritative;
-  // The brief is one field: its text is the whole draft.
-  reconcileEditorDocument(state, editor, authoritative, "Author Brief changed during recovery", true);
-}
-
-/** Reconcile an authoritative Facts budget refresh against the active draft. */
-export function reconcileFactsBudgetEditor(state: RuntimeState): void {
-  const editor = state.editor;
-  if (editor?.kind !== "document" || editor.target.kind !== "facts-budget") return;
-  const authoritative = formatFactBudget(state.payload.factsBudgetTokens);
-  editor.target.expected = authoritative;
-  // The budget is one field: its text is the whole draft.
-  reconcileEditorDocument(state, editor, authoritative, "facts budget changed during recovery", true);
+  if (editor?.kind !== "document" || editor.target.kind !== "story-scalar") return;
+  const target = editor.target;
+  const spec = storyScalarFieldSpec(target.field);
+  const authoritative = spec.read(state.payload);
+  target.expected = authoritative;
+  reconcileEditorDocument(state, editor, authoritative, `${spec.title} changed during recovery`, true);
 }
 
 function reconcileFactDocument(
@@ -93,15 +83,14 @@ function reconcileFactDocument(
   message: string
 ): void {
   const draft = factDraftOf(current);
-  // The tag half of "does the live draft already match" goes through the
-  // persisted-tag projection rather than a raw text compare — trimming
-  // still counts as a match, the same trim save itself would apply.
-  const draftMatches = factEditorPersistedTag(editor) === draft.tag
-    && editor.activation === draft.activation
-    && editor.keys.text === formatFactKeys(draft.keys)
-    && editor.priority === draft.priority
-    && editor.budget.text === formatFactBudget(draft.budgetTokens)
-    && editor.composer.text === draft.text;
+  // "Does the live editor already show exactly this Fact" goes through the
+  // same FactDraft equality every other Fact comparison in the app uses
+  // (see shared/fact-draft.ts), rather than a field-by-field compare hand-
+  // listed here a third time — issue #281 review finding A. An editor whose
+  // buffers do not currently parse to any FactDraft (empty body, an invalid
+  // keys or budget entry) plainly is not already showing this one.
+  const liveDraft = factDraftFromEditor(editor);
+  const draftMatches = liveDraft !== null && sameFactDraft(liveDraft, draft);
   if (draftMatches) {
     editor.initialFact = draft;
     editor.conflict = null;

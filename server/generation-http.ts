@@ -224,7 +224,12 @@ export async function continueStory(
       story.nodes
     )
   );
-  onFactsDropped?.(admission.dropped);
+  // `admission.dropped` alone misses whatever the story's own Facts budget or
+  // a Fact's own budgetTokens cap already removed from `budgetedFacts.kept`
+  // before admission ever saw it — combine both so a Fact that never reached
+  // the prompt is never reported as if nothing had been dropped (issue #281
+  // review finding I).
+  onFactsDropped?.([...budgetedFacts.dropped, ...admission.dropped]);
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
@@ -350,10 +355,29 @@ export async function rewriteNode(
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
   const rewriteAuthorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
+  // Rewriting is a precision task: high temperatures break exact seam copying
+  // long before they improve prose. A plain regenerate also gets a hard output
+  // budget, so a model that ignores the word band runs out after a few dozen
+  // tokens and fails cleanly instead of streaming paragraphs first.
+  //
+  // Computed before admission, and passed to it below, so admission reserves
+  // the output budget this request actually sends. Passing the unmodified
+  // `settings` there instead once reserved the far larger global maxTokens —
+  // Facts could be shed, or the rewrite refused outright, to make room for an
+  // output the request was never going to produce (issue #281 review finding
+  // G).
+  const rewriteSettings: GenerationSettings = {
+    ...settings,
+    // A null temperature normally defers to the provider default — too hot here.
+    temperature: Math.min(settings.temperature ?? REWRITE_MAX_TEMPERATURE, REWRITE_MAX_TEMPERATURE),
+    maxTokens: requested === "" && selectionWords !== null
+      ? Math.min(settings.maxTokens, rewriteOutputBudget(selectionWords))
+      : settings.maxTokens
+  };
   // Measure the fixed rewrite prompt from the semantic plan so admission cannot
   // drift from later prompt wording.
   const { plan, admission } = admitFactsIntoPrompt(
-    settings,
+    rewriteSettings,
     budgetedFacts.kept,
     null,
     (factsMessage) => {
@@ -374,18 +398,6 @@ export async function rewriteNode(
         : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
     }
   );
-  // Rewriting is a precision task: high temperatures break exact seam copying
-  // long before they improve prose. A plain regenerate also gets a hard output
-  // budget, so a model that ignores the word band runs out after a few dozen
-  // tokens and fails cleanly instead of streaming paragraphs first.
-  const rewriteSettings: GenerationSettings = {
-    ...settings,
-    // A null temperature normally defers to the provider default — too hot here.
-    temperature: Math.min(settings.temperature ?? REWRITE_MAX_TEMPERATURE, REWRITE_MAX_TEMPERATURE),
-    maxTokens: requested === "" && selectionWords !== null
-      ? Math.min(settings.maxTokens, rewriteOutputBudget(selectionWords))
-      : settings.maxTokens
-  };
   await bindIntent?.(rewriteSettings, {
     kind: "rewrite",
     story: { title: story.title, nodes: activePath(story), chapterBreaks: story.chapterBreaks },

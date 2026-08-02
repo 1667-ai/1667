@@ -22,8 +22,8 @@ import {
 } from "../shared/provider-recovery.js";
 import {
   FactBudgetError,
-  MAX_STORY_FACTS_BUDGET_TOKENS,
-  parseStoryFactsBudgetTokens
+  parseStoryFactsBudgetTokens,
+  storyFactsBudgetRangeMessage
 } from "../shared/fact-budget.js";
 import { factDraftOf, sameFactDraft } from "../shared/fact-draft.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
@@ -445,8 +445,11 @@ const MUTATIONS: MutationRegistry = {
         // Compare through the shared FactDraft equality rather than listing
         // fields here — that is what let a `patchFact` touching only priority
         // or budgetTokens go undetected and read as "already applied" (issue
-        // #281 review finding A). A new editable field is now compared here
-        // automatically, because sameFactDraft already accounts for it.
+        // #281 review finding A). sameFactDraft folds over a mapped-type
+        // table keyed by every FactDraft field (shared/fact-draft.ts), so a
+        // new editable field cannot compile there without a comparison —
+        // this call site does not have to trust that it "already accounts
+        // for it"; the compiler enforces it.
         return sameFactDraft(factDraftOf(current), factDraftOf(desired));
       });
       return recovered ?? await service.patchFact(
@@ -972,9 +975,7 @@ function parseFactsBudgetTokensInput(value: unknown): number | null {
     return parseStoryFactsBudgetTokens(value, "budgetTokens");
   } catch (error) {
     if (!(error instanceof FactBudgetError)) throw error;
-    throw badInput(
-      `budgetTokens must be an integer between 1 and ${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}, or null to clear it.`
-    );
+    throw badInput(storyFactsBudgetRangeMessage("budgetTokens"));
   }
 }
 

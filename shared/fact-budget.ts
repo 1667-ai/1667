@@ -36,7 +36,9 @@ export function parseFactBudgetTokens(value: unknown, label = "Fact budgetTokens
 }
 
 /** A story's total Facts budget — same shape as `parseFactBudgetTokens`, the
- *  story-wide bound. */
+ *  story-wide bound. This judges only the value handed to it; a caller where
+ *  `null` clears the budget (see `storyFactsBudgetRangeMessage` below) still
+ *  decides that meaning itself before calling in. */
 export function parseStoryFactsBudgetTokens(value: unknown, label = "factsBudgetTokens"): number {
   if (!isBudgetTokensInRange(value, MAX_STORY_FACTS_BUDGET_TOKENS)) {
     throw new FactBudgetError(
@@ -44,6 +46,18 @@ export function parseStoryFactsBudgetTokens(value: unknown, label = "factsBudget
     );
   }
   return value;
+}
+
+/** The message a caller that accepts `null` to clear the story Facts budget
+ *  reports for every other invalid value — the ", or null to clear it" suffix
+ *  in one exported place instead of copied by hand at each such caller. Used
+ *  by server/story-facts-budget.ts's direct setter and
+ *  server/worker-mutations.ts's crash-recovery input parser; a manifest
+ *  decode (server/story-format.ts) has no "clear" operation to mention, so it
+ *  keeps `parseStoryFactsBudgetTokens`'s own plainer message instead. */
+export function storyFactsBudgetRangeMessage(label: string): string {
+  return `${label} must be an integer between 1 and ` +
+    `${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}, or null to clear it.`;
 }
 
 function isBudgetTokensInRange(value: unknown, max: number): value is number {

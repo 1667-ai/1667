@@ -652,19 +652,23 @@ describe("Fact editor", () => {
     expect(state.commands?.selectedId).toBe("facts-budget");
     await press(key("return"));
     const budgetEditor = activeDocumentEditor(state);
-    expect(budgetEditor.target.kind).toBe("facts-budget");
+    expect(budgetEditor.target).toMatchObject({ kind: "story-scalar", field: "facts-budget" });
     setComposerText(budgetEditor.composer, String(budget));
     await press(key("s", { sequence: SAVE_SEQUENCE, ctrl: true }));
     expect(state.mode).toBe("NAV");
     expect(state.payload.factsBudgetTokens).toBe(budget);
 
     // The ranked-low Fact leaves the next request; every other Fact stays.
+    // No window here: this is about the story's own Facts budget, not
+    // window-pressure shedding.
     const estimate = nextRequestEstimate(state.payload, {
       systemPrompt: "Write vivid prose.",
       instruction: "",
       assistantPrefill: true,
       operation: "continue",
-      targetId: state.payload.path.at(-1)!.id
+      targetId: state.payload.path.at(-1)!.id,
+      contextWindow: null,
+      maxTokens: 0
     });
     expect(estimate.factStatuses.get(shedId)).toEqual({ kind: "dropped", reason: "total-budget" });
     expect([...estimate.factStatuses.values()].filter((status) => status.kind === "sent"))

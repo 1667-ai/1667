@@ -1,4 +1,5 @@
 import { composerPosition } from "../../composer-model.js";
+import { factEditorTagLabel } from "../../fact-editor-draft.js";
 import {
   FACT_ACTIVATION_COMPOSER_SOURCE,
   FACT_BUDGET_COMPOSER_SOURCE,
@@ -6,8 +7,7 @@ import {
   FACT_BODY_COMPOSER_SOURCE,
   FACT_KEYS_COMPOSER_SOURCE,
   FACT_PRIORITY_COMPOSER_SOURCE,
-  FACT_TAG_COMPOSER_SOURCE,
-  factEditorTagLabel
+  FACT_TAG_COMPOSER_SOURCE
 } from "../../fact-editor-policy.js";
 import { FACT_EDITOR_ROWS } from "../../fact-editor-rows.js";
 import type { ComposerState } from "../../composer-model.js";

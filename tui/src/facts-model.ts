@@ -157,12 +157,22 @@ export function factDropNotice(dropped: readonly FactBudgetDrop[]): string | nul
 }
 
 /** Kept short: worst case is a 3-digit count (MAX_FACTS=128) plus this label,
- *  and the rail's context-meter use still has to fit its narrow content width. */
+ *  and the rail's context-meter use still has to fit its narrow content width.
+ *
+ * "priority" is model-context-window pressure — the reason
+ * server/generation-admission.ts's shed loop reports (see
+ * shared/fact-budget.ts's `spaceDropReason`). It does not mean the dropped
+ * Fact was ranked "low": a `keyed` Fact is droppable under window pressure at
+ * any priority (see `isDroppable`), so a tight window can drop one ranked
+ * `high`. Calling that "low priority" told the writer something false about
+ * their own Fact (issue #281 review finding J) — "over window" states the
+ * real cause without needing the Fact's priority alongside it, and stays the
+ * same short shape as its two siblings. */
 function dropReasonLabel(reason: FactDropReason): string {
   switch (reason) {
     case "fact-budget": return "over its cap";
     case "total-budget": return "over budget";
-    case "priority": return "low priority";
+    case "priority": return "over window";
     default: return assertNeverDropReason(reason);
   }
 }

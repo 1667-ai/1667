@@ -2,17 +2,14 @@ import type { StoryFact } from "../../shared/types.js";
 import { EMPTY_FACT_DRAFT, factDraftOf } from "../../shared/fact-draft.js";
 import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { createComposer } from "./composer-model.js";
-import {
-  formatFactBudget,
-  formatFactKeys,
-  initializeFactEditorHistory
-} from "./fact-editor-policy.js";
+import { formatFactBudget, formatFactKeys } from "./fact-editor-draft.js";
+import { initializeFactEditorHistory } from "./fact-editor-policy.js";
 import { serializePart, stripGuidance } from "./editor.js";
 import { createStoryViewModel, rowPart } from "./model.js";
+import { storyScalarFieldSpec, type StoryScalarField } from "./story-scalar-fields.js";
 import type {
   FactEditorSession,
   InlineEditorSession,
-  InlineEditorTarget,
   RuntimeState
 } from "./state.js";
 
@@ -130,37 +127,27 @@ export function openAuthorsNoteEditor(state: RuntimeState): void {
 }
 
 export function openAuthorBriefEditor(state: RuntimeState): void {
-  const initial = state.payload.authorBrief ?? "";
-  openScalarFieldEditor(state, { kind: "author-brief", expected: initial }, {
-    title: "author brief",
-    placeholder: "Override the machine-wide author brief for this story. ⌃s keeps it."
-  });
+  openStoryScalarEditor(state, "author-brief");
 }
 
 /** The story's total Facts budget. Its text field follows the same "empty
  *  means unset" convention as the per-Fact budget field. */
 export function openFactsBudgetEditor(state: RuntimeState): void {
-  const initial = formatFactBudget(state.payload.factsBudgetTokens);
-  openScalarFieldEditor(state, { kind: "facts-budget", expected: initial }, {
-    title: "facts budget",
-    placeholder: "Cap the combined estimated tokens of every Fact in a request. Empty means uncapped."
-  });
+  openStoryScalarEditor(state, "facts-budget");
 }
 
-/** Author Brief and Facts budget are both a single scalar riding on the
- *  generic document editor, with no field beyond `expected` — unlike the
- *  Author's Note, which also carries a depth. This is their one shared shape. */
-function openScalarFieldEditor(
-  state: RuntimeState,
-  target: Extract<InlineEditorTarget, { kind: "author-brief" | "facts-budget" }>,
-  options: { title: string; placeholder: string }
-): void {
+/** Author Brief and the Facts budget both open through this one path,
+ *  table-driven by STORY_SCALAR_FIELDS (see story-scalar-fields.ts) — the
+ *  next story-level scalar is a table row, not a new open function. */
+function openStoryScalarEditor(state: RuntimeState, field: StoryScalarField): void {
+  const spec = storyScalarFieldSpec(field);
+  const expected = spec.read(state.payload);
   openInlineEditor(state, {
-    target,
-    composer: createComposer(target.expected),
-    initial: target.expected,
-    title: options.title,
-    placeholder: options.placeholder,
+    target: { kind: "story-scalar", field, expected },
+    composer: createComposer(expected),
+    initial: expected,
+    title: spec.title,
+    placeholder: spec.placeholder,
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null

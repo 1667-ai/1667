@@ -35,6 +35,7 @@ import type {
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
+import type { StoryScalarField } from "./story-scalar-fields.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -249,11 +250,12 @@ export type InlineEditorTarget =
       /** Current draft depth. Saving the note sends this alongside the text. */
       depth: number;
     }
-  | { kind: "author-brief"; expected: string }
-  /** `expected` is the budget as typed text — empty means "no budget set",
-   *  matching the composer's own text, so reconciliation compares like the
-   *  Author's Note editor does. */
-  | { kind: "facts-budget"; expected: string }
+  /** Author Brief or the Facts budget — see story-scalar-fields.ts, whose
+   *  table is the one place their difference lives. `expected` is the
+   *  field's authoritative value as composer text — for facts-budget that
+   *  means "empty is unset", matching the composer's own text, so
+   *  reconciliation compares like the Author's Note editor does. */
+  | { kind: "story-scalar"; field: StoryScalarField; expected: string }
   | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
 
 export interface FactEditorTarget {

@@ -3,20 +3,14 @@ import {
   redoComposerEditOwner,
   replaceComposerTextRange,
   resetComposerEditHistory,
-  setComposerText,
   shareComposerEditHistory,
   undoComposerEditOwner,
   type ComposerState
 } from "./composer-model.js";
-import {
-  FACT_PRIORITIES,
-  FactActivationError,
-  parseFactKeys
-} from "../../shared/fact-activation.js";
-import { MAX_FACT_BUDGET_TOKENS } from "../../shared/fact-budget.js";
-import type { FactDraft } from "../../shared/fact-draft.js";
+import { FACT_PRIORITIES } from "../../shared/fact-activation.js";
 import { graphemeCells } from "./cell-width.js";
 import { wrappedComposerLayout } from "./composer-wrapping.js";
+import { factEditorTag } from "./fact-editor-draft.js";
 import { nextFactEditorRow, type FactEditorRow } from "./fact-editor-rows.js";
 import { factTagPresets } from "./facts-model.js";
 import type { ResolvedKey } from "./keys.js";
@@ -36,22 +30,76 @@ interface FactEditorRowSpec {
   readonly sourceId: string;
   /** A choice row has no text composer of its own — it borrows a neighbor's
    *  buffer identity only for cut-confirmation and undo grouping, never for
-   *  actual text input, so a click there gets no composer to type into. */
+   *  actual text input, so a click there gets no composer to type into. Only
+   *  a "text" row is that buffer's real owner: focusing a "choice" row always
+   *  resets the buffer it borrows (see setFactEditorFocus), because a choice
+   *  row never has a selection or cut of its own to preserve there. */
   readonly kind: "text" | "choice";
   readonly composer: (editor: FactEditorSession) => ComposerState;
+  readonly cutConfirmation: {
+    get(editor: FactEditorSession): FactEditorSession["cutConfirmation"];
+    set(editor: FactEditorSession, value: FactEditorSession["cutConfirmation"]): void;
+  };
 }
 
-/** One row per FACT_EDITOR_ROWS entry, in the same order — the table finding
- *  D's row order describes. Every "which buffer backs this row" and
- *  "which row does this click source belong to" lookup derives from here. */
-const FACT_EDITOR_ROW_TABLE: readonly FactEditorRowSpec[] = [
-  { row: "tag", sourceId: FACT_TAG_COMPOSER_SOURCE, kind: "text", composer: (editor) => editor.tag },
-  { row: "activation", sourceId: FACT_ACTIVATION_COMPOSER_SOURCE, kind: "choice", composer: (editor) => editor.keys },
-  { row: "keys", sourceId: FACT_KEYS_COMPOSER_SOURCE, kind: "text", composer: (editor) => editor.keys },
-  { row: "priority", sourceId: FACT_PRIORITY_COMPOSER_SOURCE, kind: "choice", composer: (editor) => editor.budget },
-  { row: "budget", sourceId: FACT_BUDGET_COMPOSER_SOURCE, kind: "text", composer: (editor) => editor.budget },
-  { row: "body", sourceId: FACT_BODY_COMPOSER_SOURCE, kind: "text", composer: (editor) => editor.composer }
-];
+/** One entry per FACT_EDITOR_ROWS row, typed as a record so every row has one
+ *  — an array looked up with `.find(...)!` let a row be added to
+ *  FACT_EDITOR_ROWS without a table entry and fail only at runtime, the
+ *  first time focus reached it (issue #281 review finding C). Every "which
+ *  buffer backs this row", "which row does this click source belong to", and
+ *  "which cut-confirmation belongs to this row" lookup derives from here —
+ *  see setFactEditorFocus and handleFactEditorHistory below, which used to
+ *  re-encode this same mapping by hand. */
+const FACT_EDITOR_ROW_TABLE: Record<FactEditorRow, FactEditorRowSpec> = {
+  tag: {
+    row: "tag", sourceId: FACT_TAG_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.tag,
+    cutConfirmation: {
+      get: (editor) => editor.tagCutConfirmation,
+      set: (editor, value) => { editor.tagCutConfirmation = value; }
+    }
+  },
+  activation: {
+    row: "activation", sourceId: FACT_ACTIVATION_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.keys,
+    cutConfirmation: {
+      get: (editor) => editor.keysCutConfirmation,
+      set: (editor, value) => { editor.keysCutConfirmation = value; }
+    }
+  },
+  keys: {
+    row: "keys", sourceId: FACT_KEYS_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.keys,
+    cutConfirmation: {
+      get: (editor) => editor.keysCutConfirmation,
+      set: (editor, value) => { editor.keysCutConfirmation = value; }
+    }
+  },
+  priority: {
+    row: "priority", sourceId: FACT_PRIORITY_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.budget,
+    cutConfirmation: {
+      get: (editor) => editor.budgetCutConfirmation,
+      set: (editor, value) => { editor.budgetCutConfirmation = value; }
+    }
+  },
+  budget: {
+    row: "budget", sourceId: FACT_BUDGET_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.budget,
+    cutConfirmation: {
+      get: (editor) => editor.budgetCutConfirmation,
+      set: (editor, value) => { editor.budgetCutConfirmation = value; }
+    }
+  },
+  body: {
+    row: "body", sourceId: FACT_BODY_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.composer,
+    cutConfirmation: {
+      get: (editor) => editor.cutConfirmation,
+      set: (editor, value) => { editor.cutConfirmation = value; }
+    }
+  }
+};
 
 const ACTIVATION_TEXT_ACTIONS = new Set<ResolvedKey["action"]>([
   "input", "backspace", "delete-forward", "delete-word-left", "delete-word-right",
@@ -154,29 +202,24 @@ export function selectFactEditorTag(
   state.toast = "type a custom tag · saved tags join this slider";
 }
 
-/** Centralize Fact editor focus changes and clear sibling selection/cut ownership. */
+/** Centralize Fact editor focus changes and clear sibling selection/cut
+ *  ownership. Iterates FACT_EDITOR_ROW_TABLE's text rows, the buffer-owning
+ *  rows, clearing each one's selection and cut-confirmation, except the
+ *  buffer the new focus itself owns. A choice row (activation, priority)
+ *  never owns a buffer, so focusing one always resets whichever buffer it
+ *  borrows: it has no selection or cut of its own there to preserve. */
 export function setFactEditorFocus(
   editor: FactEditorSession,
   focus: FactEditorSession["focus"]
 ): void {
   editor.focus = focus;
-  if (focus !== "tag") {
-    editor.tag.anchor = null;
-    editor.tagCutConfirmation = null;
-  }
-  if (focus !== "keys") {
-    editor.keys.anchor = null;
-    editor.keysCutConfirmation = null;
-  }
-  // Priority has no composer of its own \u2014 like activation and keys, it
-  // borrows its neighbor's (budget's) buffer identity for the duration.
-  if (focus !== "budget") {
-    editor.budget.anchor = null;
-    editor.budgetCutConfirmation = null;
-  }
-  if (focus !== "body") {
-    editor.composer.anchor = null;
-    editor.cutConfirmation = null;
+  const focusSpec = factEditorRowSpec(focus);
+  const focusedComposer = focusSpec.composer(editor);
+  for (const spec of Object.values(FACT_EDITOR_ROW_TABLE)) {
+    if (spec.kind !== "text") continue;
+    if (focusSpec.kind === "text" && spec.composer(editor) === focusedComposer) continue;
+    spec.composer(editor).anchor = null;
+    spec.cutConfirmation.set(editor, null);
   }
 }
 
@@ -214,7 +257,7 @@ export function factEditorComposerForSource(
   sourceId: string | undefined
 ): ComposerState | null {
   if (sourceId === undefined) return factEditorActiveComposer(editor);
-  const spec = FACT_EDITOR_ROW_TABLE.find((candidate) => candidate.sourceId === sourceId);
+  const spec = Object.values(FACT_EDITOR_ROW_TABLE).find((candidate) => candidate.sourceId === sourceId);
   if (spec === undefined) return null;
   setFactEditorFocus(editor, spec.row);
   // A choice row (activation, priority) has no text composer of its own to
@@ -223,7 +266,7 @@ export function factEditorComposerForSource(
 }
 
 function factEditorRowSpec(row: FactEditorRow): FactEditorRowSpec {
-  return FACT_EDITOR_ROW_TABLE.find((candidate) => candidate.row === row)!;
+  return FACT_EDITOR_ROW_TABLE[row];
 }
 
 export function factEditorSelectionMessage(
@@ -251,11 +294,19 @@ export function handleFactEditorHistory(
     state.toast = redo ? "nothing to redo" : "nothing to undo";
     return true;
   }
-  setFactEditorFocus(editor,
-    owner === editor.tag ? "tag" : owner === editor.keys ? "keys"
-      : owner === editor.budget ? "budget" : "body");
+  setFactEditorFocus(editor, factEditorRowForComposer(editor, owner));
   disarmFactEditor(editor);
   return true;
+}
+
+/** Which row owns `composer` as its buffer — the text row, never a choice
+ *  row that only borrows it (see FactEditorRowSpec.kind). `owner` always
+ *  comes from one of the four text buffers, so this always finds one; the
+ *  fallback exists only to keep the return type total. */
+function factEditorRowForComposer(editor: FactEditorSession, owner: ComposerState): FactEditorRow {
+  return Object.values(FACT_EDITOR_ROW_TABLE).find(
+    (candidate) => candidate.kind === "text" && candidate.composer(editor) === owner
+  )?.row ?? "body";
 }
 
 /** Link the editable Fact fields to one bounded delta journal. */
@@ -332,133 +383,6 @@ export function handleFactEditorVerticalMove(
   return false;
 }
 
-export function factEditorTag(editor: FactEditorSession): string | null {
-  const tag = editor.tag.text.trim();
-  return tag.length === 0 ? null : tag;
-}
-
-export function factEditorTagLabel(editor: FactEditorSession): string {
-  return factEditorTag(editor)?.replace(/[\r\n\u2028\u2029]+/gu, "↵") ?? "none";
-}
-
-export function factEditorChanged(editor: FactEditorSession): boolean {
-  return factEditorTagChanged(editor)
-    || editor.activation !== editor.initialFact.activation
-    || factEditorKeysChanged(editor)
-    || editor.priority !== editor.initialFact.priority
-    || editor.budget.text !== formatFactBudget(editor.initialFact.budgetTokens)
-    || editor.composer.text !== editor.initialFact.text;
-}
-
-/** Preserve the stored tag until the writer changes the tag field. */
-export function factEditorPersistedTag(editor: FactEditorSession): string | null {
-  return factEditorTagChanged(editor)
-    ? factEditorTag(editor)
-    : editor.initialFact.tag;
-}
-
-/** The editor's current draft-of-editor projection: total in the FP sense —
- *  always returns, never throws — but validation can still fail, so the
- *  result carries either the draft or the toast that explains why not. */
-export function factEditorSavePayload(
-  editor: FactEditorSession
-): { ok: true; draft: FactDraft } | { ok: false; toast: string } {
-  if (editor.composer.text.trim().length === 0) {
-    return { ok: false, toast: "fact text cannot be empty" };
-  }
-  const parsedKeys = factEditorKeys(editor);
-  if (!parsedKeys.ok) return parsedKeys;
-  const parsedBudget = factEditorBudget(editor);
-  if (!parsedBudget.ok) return parsedBudget;
-  return {
-    ok: true,
-    draft: {
-      tag: factEditorPersistedTag(editor),
-      activation: editor.activation,
-      keys: factEditorKeysChanged(editor) ? parsedKeys.keys : [...editor.initialFact.keys],
-      priority: editor.priority,
-      budgetTokens: parsedBudget.budgetTokens,
-      text: editor.composer.text
-    }
-  };
-}
-
-/** Apply-draft: copy a `FactDraft` into an editor's live buffers — the
- *  inverse of reading the editor. Used to rebase a pristine draft onto a
- *  fresh authoritative Fact (see editor-reconciliation.ts). */
-export function applyFactDraftToEditor(editor: FactEditorSession, draft: FactDraft): void {
-  setComposerText(editor.tag, draft.tag ?? "");
-  editor.activation = draft.activation;
-  setComposerText(editor.keys, formatFactKeys(draft.keys));
-  editor.priority = draft.priority;
-  setComposerText(editor.budget, formatFactBudget(draft.budgetTokens));
-  setComposerText(editor.composer, draft.text);
-}
-
-export function formatFactKeys(keys: readonly string[]): string {
-  return keys.join(", ");
-}
-
-/** Empty text means "no budget set" — the same convention the wire uses
- *  (absent budgetTokens), so the composer's own emptiness is the source of
- *  truth and no separate "cleared" flag is needed. */
-export function formatFactBudget(budgetTokens: number | undefined): string {
-  return budgetTokens === undefined ? "" : String(budgetTokens);
-}
-
-function factEditorTagChanged(editor: FactEditorSession): boolean {
-  return editor.tag.text !== (editor.initialFact.tag ?? "");
-}
-
-function factEditorKeysChanged(editor: FactEditorSession): boolean {
-  return editor.keys.text !== formatFactKeys(editor.initialFact.keys);
-}
-
-function factEditorKeys(
-  editor: FactEditorSession
-): { ok: true; keys: string[] } | { ok: false; toast: string } {
-  if (editor.keys.text.trim().length === 0) return { ok: true, keys: [] };
-  const keys = editor.keys.text.split(",").map((key) => key.trim());
-  if (keys.some((key) => key.length === 0)) {
-    return { ok: false, toast: "fact keys cannot contain an empty entry" };
-  }
-  try {
-    return { ok: true, keys: parseFactKeys(keys) };
-  } catch (error) {
-    if (error instanceof FactActivationError) {
-      return { ok: false, toast: error.message };
-    }
-    throw error;
-  }
-}
-
-/** Empty clears the budget; anything else must be a whole token count within
- *  the same bound the server enforces (shared/fact-budget.ts). Validated on
- *  commit rather than live, matching how Fact keys are only parsed on save. */
-function factEditorBudget(
-  editor: FactEditorSession
-): { ok: true; budgetTokens: number | undefined } | { ok: false; toast: string } {
-  return parseBudgetText(editor.budget.text, MAX_FACT_BUDGET_TOKENS, "fact budget");
-}
-
-/** Shared by the per-Fact budget field and the story's total Facts budget
- *  editor — same "empty means unset" convention, different bound and label. */
-export function parseBudgetText(
-  raw: string,
-  max: number,
-  label: string
-): { ok: true; budgetTokens: number | undefined } | { ok: false; toast: string } {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return { ok: true, budgetTokens: undefined };
-  if (!/^[0-9]+$/.test(trimmed)) {
-    return { ok: false, toast: `${label} must be a whole number of tokens, or empty` };
-  }
-  const parsed = Number(trimmed);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) {
-    return { ok: false, toast: `${label} must be between 1 and ${max.toLocaleString()}` };
-  }
-  return { ok: true, budgetTokens: parsed };
-}
 
 function cycleFactEditorActivation(editor: FactEditorSession): void {
   disarmFactEditor(editor);

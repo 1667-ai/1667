@@ -35,9 +35,14 @@ function request(
   targetId: string | null,
   instruction = "",
   assistantPrefill = true,
-  retakeNodeId: string | null = null
+  retakeNodeId: string | null = null,
+  // Most cases here are about the estimate's own arithmetic, not window-pressure
+  // shedding, so the default leaves that preview switched off; a case that
+  // exercises it passes its own window and cap.
+  contextWindow: number | null = null,
+  maxTokens = 0
 ): NextRequestContext {
-  const base = { systemPrompt, instruction, assistantPrefill };
+  const base = { systemPrompt, instruction, assistantPrefill, contextWindow, maxTokens };
   return retakeNodeId === null
     ? { ...base, operation: "continue", targetId }
     : { ...base, operation: "retake", targetId: retakeNodeId };
@@ -803,9 +808,14 @@ describe("honest next-request context meter", () => {
     expect(contextMeterLines(withoutChapterNotice, false, 2).map((line) => plainLine(line).trim()))
       .toEqual(["next request  ~953 / 8k", "3 facts dropped · over budget"]);
 
+    // Review finding J: "priority" means window pressure selected a droppable
+    // Fact, not that the Fact itself is ranked low — a keyed Fact at any
+    // priority, including "high", is droppable under window pressure. The
+    // label says what actually happened instead of guessing at the Fact's
+    // own rank.
     const single = { ...withoutChapterNotice, droppedFacts: [{ factId: "fact-a", reason: "priority" as const }] };
     expect(contextMeterLines(single, false, 2).map((line) => plainLine(line).trim())).toEqual([
-      "next request  ~953 / 8k", "1 fact dropped · low priority"
+      "next request  ~953 / 8k", "1 fact dropped · over window"
     ]);
 
     const none = { ...withoutChapterNotice, droppedFacts: [] };

@@ -114,17 +114,41 @@ test("fixed-context admission checks a note-only prompt and names its owner", ()
   assert.doesNotThrow(() => assertFixedContextFits(settings, [], null, []));
 });
 
-test("fixed-context admission still throws when the only Fact left is exempt from shedding", () => {
+test("fixed-context admission names the priority-marking remedy when nothing was droppable at all", () => {
+  // Review finding E: a default "always"/"normal" Fact is never droppable, so
+  // a story of default Facts has zero droppable Facts and the shed loop never
+  // runs. The old message claimed shedding was exhausted ("even after
+  // dropping every droppable fact") when nothing had ever been dropped — this
+  // is the common case that message got wrong, not an edge case.
   const settings = smallWindowSettings();
-  // "always" at the default "normal" priority is never dropped, so a single
-  // oversized one leaves nothing droppable and the request still fails.
   const facts = [fact({ id: "exempt", text: "x".repeat(100) })];
   assert.throws(
     () => assertFixedContextFits(settings, facts, null, []),
     (error) => error instanceof ServiceError
       && error.status === 400
       && error.message.includes("story facts")
+      && error.message.includes("none of them can be dropped")
+      && error.message.includes("low")
+      && !error.message.includes("every droppable fact")
+  );
+});
+
+test("fixed-context admission keeps the shed-exhausted wording when something actually was droppable", () => {
+  // The companion case to the one above: at least one Fact was droppable, it
+  // was shed, and the request still does not fit. That is a different writer
+  // situation from "nothing was eligible" and keeps the original wording.
+  const settings = smallWindowSettings();
+  const facts = [
+    fact({ id: "exempt", text: "x".repeat(100) }),
+    fact({ id: "shed-me", text: "y".repeat(100), activation: "keyed", keys: ["y"] })
+  ];
+  assert.throws(
+    () => assertFixedContextFits(settings, facts, null, []),
+    (error) => error instanceof ServiceError
+      && error.status === 400
+      && error.message.includes("story facts")
       && error.message.includes("every droppable fact")
+      && !error.message.includes("none of them can be dropped")
   );
 });
 
@@ -164,6 +188,25 @@ test("fixed-context admission sheds down to what actually fits instead of throwi
   // the old code kept all three and then threw.
   assert.equal(admission.facts.length, 1);
   assert.equal(admission.dropped.length, 2);
+  assert.equal(admission.dropped.every((drop) => drop.reason === "priority"), true);
+});
+
+test("fixed-context admission finds the exact shed count across many sheddable Facts", () => {
+  // Review finding K: the shed loop now binary-searches the smallest shed
+  // count instead of trying one Fact at a time, so this exercises several
+  // probes (16 equal-cost Facts needs about 4). Each kept-count's real,
+  // rendered cost was measured directly (not estimated) to pick a window
+  // that admits exactly 6 of 16 — tight enough that 7 does not fit.
+  const settings: GenerationSettings = { ...smallWindowSettings(), contextWindow: 900 };
+  const facts = Array.from({ length: 16 }, (_, index) => fact({
+    id: `f${index}`, text: "x".repeat(400), activation: "keyed", keys: ["x"]
+  }));
+  const admission = assertFixedContextFits(settings, facts, null, []);
+  // Later emit position sheds first (shared/fact-budget.ts's tiebreak), so
+  // the survivors are the earliest Facts in emit order, not an arbitrary six.
+  assert.deepEqual(admission.facts.map((candidate) => candidate.id),
+    ["f0", "f1", "f2", "f3", "f4", "f5"]);
+  assert.equal(admission.dropped.length, 10);
   assert.equal(admission.dropped.every((drop) => drop.reason === "priority"), true);
 });
 

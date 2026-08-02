@@ -7,7 +7,7 @@ import { streamHasSubstantiveText } from "./stream-text.js";
 type RequestContextState = Pick<
   StoryScreenState,
   "payload" | "stream" | "focusIndex" | "mode" | "composer" | "retakePrompt"
-  | "systemPrompt" | "assistantPrefill" | "request"
+  | "systemPrompt" | "assistantPrefill" | "request" | "contextWindow" | "maxTokens"
 >;
 
 /** The generation seam and prompt settings used by every next-request meter. */
@@ -22,7 +22,9 @@ export function nextRequestContext(
   const base = {
     systemPrompt: state.systemPrompt,
     instruction: composeRequest ? state.composer.text : "",
-    assistantPrefill: state.assistantPrefill
+    assistantPrefill: state.assistantPrefill,
+    contextWindow: state.contextWindow,
+    maxTokens: state.maxTokens
   };
   return activeRetakeNodeId !== null
     && view.visiblePayload.path.some((node) => node.id === activeRetakeNodeId)

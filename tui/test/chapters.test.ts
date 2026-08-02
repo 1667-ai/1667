@@ -164,7 +164,11 @@ function requestFor(payload: StoryPayload, targetId = payload.path.at(-1)?.id ??
     instruction: "",
     operation: "continue",
     targetId,
-    assistantPrefill: true
+    assistantPrefill: true,
+    // No window: these tests are about chapter structure, not window-pressure
+    // shedding, so leave that preview switched off.
+    contextWindow: null,
+    maxTokens: 0
   };
 }
 
