@@ -17,7 +17,7 @@ export function renderArchiveImportPanel(
     {
       title: "import archive",
       fieldPrefix: "  file    ",
-      note: ".lorebook → Facts here · .scenario · .story → a new story"
+      note: ".lorebook .json → Facts · .scenario .story → new story"
     },
     state.hitRows,
     width,

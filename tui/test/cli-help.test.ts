@@ -130,7 +130,15 @@ test("1667 <command> --help prints that command's page instead of refusing the f
   }
   const output = captured.join("");
   expect(output).toContain("1667 import — make a new story from a file");
-  expect(output).toContain("1667 import-lorebook — add NovelAI lorebook Facts");
+  expect(output).toContain("1667 import-lorebook — add lorebook Facts");
   expect(output).toContain("1667 export — write a story to a file");
   expect(output).not.toContain("unknown import option");
+});
+
+test("the import-lorebook page names every format the command reads", () => {
+  // A command that grows a format and not its page is the failure this split
+  // was made to fix.
+  for (const format of ["NovelAI", "World Info", ".lorebook", ".json", "PNG"]) {
+    expect(`${format}:${IMPORT_LOREBOOK_HELP.includes(format)}`).toBe(`${format}:true`);
+  }
 });

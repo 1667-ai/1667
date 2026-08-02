@@ -52,7 +52,9 @@ import { partsFromNovelAiScenario } from "./import-scenario.js";
 import { createFacts } from "./story-facts.js";
 import { setAuthorsNote } from "./story-authors-note.js";
 
-import { factsFromLorebook, parseLorebookArchive, type LorebookImport } from "../shared/novelai-lorebook.js";
+import { factsFromArchive } from "../shared/archive-import.js";
+import { parseLorebookArchive } from "../shared/novelai-lorebook.js";
+import type { LorebookImport } from "../shared/lorebook-entry.js";
 import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 
 import type { CreationMethod } from "./story-creation-record.js";
@@ -779,7 +781,12 @@ export class StoryService extends StoryServiceRuntime {
     // This path sends the Facts as one createFact body, so the body budget
     // applies here. A container import builds the story in process and does not
     // pass one.
-    const importResult = factsFromLorebook(lorebook, room, MAX_JSON_BODY_BYTES);
+    const importResult = factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
+    // An archive can hold nothing this story can take: no entries, every entry
+    // disabled, or every entry refused. That is a report, not a failure, and
+    // `createFacts` already answers `false` (-> STORY_UNCHANGED) for a request
+    // that asks for what already holds. An empty batch is the degenerate member
+    // of that family, so this call needs no branch of its own.
     const payload = await this.createFact(
       storyId,
       { facts: [...importResult.facts] },
