@@ -87,6 +87,7 @@ test("rewrite admission reserves the rewrite's own output budget, not the global
       new AbortController().signal,
       undefined,
       undefined,
+      undefined,
       bindIntent
     ),
     (error) => error === stop

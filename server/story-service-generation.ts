@@ -179,8 +179,8 @@ export class StoryServiceGeneration {
     value: unknown,
     onDelta: DeltaConsumer,
     signal: AbortSignal,
-    options: GenerationMutationHooks & { rewriteId?: string } = {}
-  ): Promise<boolean> {
+    options: GenerationMutationHooks & { rewriteId?: string; takeId?: string } = {}
+  ): Promise<string | null> {
     const body = parseRewrite(value);
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
@@ -205,9 +205,10 @@ export class StoryServiceGeneration {
                   await options.providerStarted?.();
                 },
                 options.rewriteId,
+                options.takeId,
                 options.bindIntent
               ),
-            replayValue: () => true
+            replayValue: () => options.takeId ?? null
           }
         );
         return committed.value;
@@ -226,6 +227,7 @@ export class StoryServiceGeneration {
         active,
         options.providerStarted,
         options.rewriteId,
+        options.takeId,
         options.bindIntent
       )
     );

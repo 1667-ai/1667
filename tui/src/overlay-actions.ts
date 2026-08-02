@@ -23,6 +23,9 @@ import { createStoryViewModel, lastPartRowIndex } from "./model.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import { cancelSummary, startSummary } from "./summary-action.js";
+import { openRewriteComposer, partIdFromTextSelection, resolveRewriteTarget } from "./rewrite-action.js";
+import { canRewriteSelection, type ProjectedStorySelection } from "./selection-projection.js";
+import { storySelectionFromRendererSelection } from "./copy-actions.js";
 import { libraryAction, openLibrary } from "./library-actions.js";
 import { openSearch } from "./search-actions.js";
 import { cardImportAction, openCardImport } from "./card-import-actions.js";
@@ -48,6 +51,15 @@ import type { ActionContext } from "./action-context.js";
 
 export type OverlayActionContext = ActionContext;
 
+/** A rewrite composer's request has no honest projection yet — see the
+ *  comment on `nextRequestContext` (request-context.ts) — so both entry
+ *  points to the viewer (the `open-request` action below and the
+ *  `next-request` palette command in `runCommand`) refuse to open it while
+ *  one owns the composer, rather than show the baseline continuation
+ *  request under a "next request" label that implies it describes the
+ *  rewrite. */
+const REWRITE_REQUEST_NOT_PROJECTED_TOAST = "a highlighted rewrite's request is not projected yet";
+
 export async function handleOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
@@ -61,7 +73,13 @@ export async function handleOverlayAction(
   }
   if (resolved.action === "open-request") {
     if (state.mode === "REQUEST") requestViewerAction(resolved, state, context.renderer?.height);
-    else if (state.mode === "NAV" || state.mode === "COMPOSE") openRequestViewer(state);
+    else if (state.mode === "NAV" || state.mode === "COMPOSE") {
+      if (state.retakePrompt?.intent.kind === "rewrite") {
+        state.toast = REWRITE_REQUEST_NOT_PROJECTED_TOAST;
+      } else {
+        openRequestViewer(state);
+      }
+    }
     return true;
   }
   if (resolved.action === "open-log") {
@@ -85,11 +103,17 @@ export async function handleOverlayAction(
     return true;
   }
   if (resolved.action === "open-commands") {
+    // The NAV projection this reads is only built for that one frame, so the
+    // selection has to be captured now — a later keystroke cannot rebuild it.
+    const selection = context.renderer === null
+      ? null
+      : storySelectionFromRendererSelection(context.renderer, state.storySelectionProjection);
     state.commands = {
       query: "",
-      ...retainCommandSelection(liveCommandMatches(state, ""), null, 0),
       view: "commands",
-      returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV"
+      returnMode: state.mode === "COMPOSE" ? "COMPOSE" : "NAV",
+      selection,
+      ...retainCommandSelection(liveCommandMatches(state, "", selection), null, 0)
     };
     state.mode = "COMMANDS";
     return true;
@@ -370,9 +394,22 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
   if (command.id === "tags") { state.commands!.view = "tags"; state.commands!.cursor = 0; return; }
   const returnMode = state.commands!.returnMode;
+  const selection = state.commands!.selection ?? null;
   state.commands = null;
   state.mode = "NAV";
-  if (command.id === "next-request") openRequestViewer(state, returnMode);
+  if (command.id === "next-request") {
+    if (state.retakePrompt?.intent.kind === "rewrite") {
+      // The unconditional `state.mode = "NAV"` above assumed every command
+      // either runs or falls through to a toast in NAV; this one refuses
+      // instead, so it has to put the writer back where the palette found
+      // them — otherwise the rewrite composer is still open in `retakePrompt`
+      // but no longer visible, stranded behind a NAV screen.
+      state.mode = returnMode;
+      state.toast = REWRITE_REQUEST_NOT_PROJECTED_TOAST;
+    } else {
+      openRequestViewer(state, returnMode);
+    }
+  }
   else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "author-brief") openAuthorBriefEditor(state);
@@ -388,6 +425,23 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
   else if (command.id === "direct-take") openDirectComposer(state);
   else if (command.id === "retake") await runPartAction("retake", state, source, context);
+  else if (command.id === "rewrite-selection") {
+    // The palette's own filtering already requires a captured selection, but
+    // that only means one existed at open time — re-resolve it against the
+    // live story exactly as the part-actions menu does.
+    if (selection === null) {
+      state.toast = "highlight story text before rewriting it";
+    } else if (state.connection.down) {
+      state.toast = "offline · reading still works";
+    } else {
+      const partId = partIdFromTextSelection(selection.spans);
+      const resolved = partId === null
+        ? { error: "highlight story text before rewriting it" }
+        : resolveRewriteTarget(state.payload, partId, selection.spans);
+      if ("error" in resolved) state.toast = resolved.error;
+      else openRewriteComposer(state, resolved);
+    }
+  }
   else if (command.id === "export") {
     const title = state.payload.title;
     await context.backend.run("exporting story", async (task) => {
@@ -438,11 +492,19 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   }
 }
 
-function liveCommandMatches(state: RuntimeState, query: string): CommandMatch[] {
+function liveCommandMatches(
+  state: RuntimeState,
+  query: string,
+  selection: ProjectedStorySelection | null = state.commands?.selection ?? null
+): CommandMatch[] {
   return commandMatches(
     query,
     state.demo,
-    commandContext(state.payload, state.connection.down, generationBusy(state) || state.summary !== null)
+    commandContext(state.payload, {
+      connectionDown: state.connection.down,
+      requestActive: generationBusy(state) || state.summary !== null,
+      canRewriteSelection: canRewriteSelection(selection?.spans ?? [])
+    })
   );
 }
 

@@ -585,7 +585,9 @@ describe("demo action runtime and input", () => {
       stopInteractionVersion: null
     };
     const active = commandMatches(
-      "", state.demo, commandContext(state.payload, state.connection.down, true)
+      "", state.demo, commandContext(state.payload, {
+        connectionDown: state.connection.down, requestActive: true, canRewriteSelection: false
+      })
     );
     const cursor = active.findIndex(({ command }) => command.id === "switch-story");
     expect(cursor).toBeGreaterThan(-1);

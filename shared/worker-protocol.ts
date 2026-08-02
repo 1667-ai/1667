@@ -190,7 +190,7 @@ export interface WorkerMethodContract {
      *  has no way to know. See server/generation-admission.ts. */
     output: { payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null;
   };
-  rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: boolean };
+  rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: string | null };
   createSummaryTake: {
     input: { storyId: string; body: { nodeId: string; offset?: number; expected?: string } };
     output: string | null;

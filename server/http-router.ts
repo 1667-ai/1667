@@ -559,7 +559,7 @@ async function handleApi(
         onDelta,
         signal
       ),
-      () => ({ type: "done" }),
+      (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
       context.errorReporter,
       "rewriteNode");

@@ -59,6 +59,7 @@ import {
 } from "./action-runtime.js";
 import { startRecoveryOrchestration } from "./recovery-orchestration.js";
 import { inlineEditorAction } from "./editor-action.js";
+import { requestRewriteStop } from "./rewrite-action.js";
 import { emptyStreamText } from "./stream-text.js";
 import { selectionAwarePartMenuAction } from "./selection-menu.js";
 import {
@@ -298,10 +299,12 @@ export async function runInteractive(source: AppSource): Promise<void> {
     invalidateCache: () => wrapCache.invalidate(),
     repaint
   });
-  // The generation task owns partial-save/reload reconciliation. Escape only
-  // restores responsive UI and signals it; ownership remains until settlement.
+  // The generation or rewrite task owns partial-save/reload reconciliation.
+  // Escape only restores responsive UI and signals it; ownership remains
+  // until settlement.
   const cancelStream = async () => {
-    requestGenerationStop(state, repaint);
+    if (state.abort?.kind === "rewrite") requestRewriteStop(state, repaint);
+    else requestGenerationStop(state, repaint);
   };
   const requestQuit = () => {
     if (state.stream === null && state.abort === null) return quit();

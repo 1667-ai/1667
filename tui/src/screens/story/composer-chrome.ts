@@ -50,6 +50,10 @@ export function renderComposerTop(
   ]);
 }
 
+/** Which prompt session, if any, owns the composer — drives the send/escape
+ *  wording. `null` is the persistent Direct composer. */
+export type ComposerPromptKind = "retake" | "rewrite" | null;
+
 export function renderComposerFooter(
   indent: string,
   width: number,
@@ -57,7 +61,7 @@ export function renderComposerFooter(
   narrow: boolean,
   notice: string | null,
   override?: string,
-  retaking = false
+  promptKind: ComposerPromptKind = null
 ): FrameLine[] {
   const lead = segment("┗━ ", "compose accent");
   const budget = Math.max(0, width - visibleWidth("┗━ "));
@@ -85,7 +89,7 @@ export function renderComposerFooter(
   }
   return [composerFieldLine(indent, width, [
     lead,
-    ...joinHints(composerFooterKeys(fullscreen, narrow, retaking), budget)
+    ...joinHints(composerFooterKeys(fullscreen, narrow, promptKind), budget)
   ])];
 }
 
@@ -110,17 +114,19 @@ export function composerFieldLine(
 function composerFooterKeys(
   fullscreen: boolean,
   narrow: boolean,
-  retaking: boolean
+  promptKind: ComposerPromptKind
 ): HintItem[] {
   const key = (token: string, action: KeyAction, rank = 0): HintItem =>
     hintItem([segment(token, "chrome", { kind: "action", action })], rank);
-  const send = retaking ? "enter retakes with this prompt" : "enter send";
-  const escape = fullscreen ? "esc inline" : retaking ? "esc cancels" : "esc nav";
+  const send = promptKind === "retake" ? "enter retakes with this prompt"
+    : promptKind === "rewrite" ? "enter rewrites this passage"
+    : "enter send";
+  const escape = fullscreen ? "esc inline" : promptKind !== null ? "esc cancels" : "esc nav";
   const exit = fullscreen ? "⌃f exit" : narrow ? "⌃f full" : "⌃f fullscreen";
   return [
     key(send, "send"),
     key("⇧enter newline", "newline", 1),
-    ...(retaking && !fullscreen
+    ...(promptKind !== null && !fullscreen
       ? []
       : [key(exit, "toggle-compose-fullscreen", 2)]),
     key(escape, "cancel")

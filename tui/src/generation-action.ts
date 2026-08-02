@@ -327,7 +327,7 @@ export function restoreStoppedGenerationDraft(
       if (revealIfUnclaimed && isPlainNavigation(state)) state.mode = "COMPOSE";
     } else {
       const restoredRetake = createRestoredRetakeComposer(
-        state, stream.retakeNodeId, stream.instruction
+        state, stream.retakeNodeId, stream.instruction, { kind: "retake" }
       );
       stream.restoredRetakePrompt = restoredRetake;
       if (revealIfUnclaimed && isPlainNavigation(state)) {
@@ -430,7 +430,11 @@ function focusLandedGeneration(
   rememberFocus(state, source);
 }
 
-function clearPendingGenerationDraft(
+/** Exported so the rewrite composer's send path (rewrite-action.ts) can
+ *  finalize its own `retake`-kind draft on success, the same as `generate()`
+ *  does here — the function only ever looks at the session object a draft
+ *  wraps, never at what operation produced it. */
+export function clearPendingGenerationDraft(
   state: RuntimeState,
   draft: PendingGenerationDraft | null,
   stream?: StreamView

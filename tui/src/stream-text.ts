@@ -12,6 +12,14 @@ export function emptyStreamText(): Pick<StreamView, "text" | "trimStart" | "trim
   return { text: "", trimStart: 0, trimEnd: 0 };
 }
 
+/** The three shapes a stream can commit as: a fresh sibling take, an append
+ * to the settled leaf, or a splice into an existing node's settled text. */
+export type StreamMode = "take" | "append" | "rewrite";
+
+export function streamMode(stream: StreamView): StreamMode {
+  return stream.rewrite !== undefined ? "rewrite" : stream.append ? "append" : "take";
+}
+
 /** Provider deltas are bounded by the worker protocol. Track trim boundaries
  * from the new bytes only so every later render can read them in O(1). */
 export function appendStreamText(stream: StreamView, delta: string): void {

@@ -64,7 +64,7 @@ describe("generation draft restoration", () => {
     const state = initialState(source, false);
     state.composer = createComposer("unrelated Direct draft");
     const directComposer = state.composer;
-    const prompt = openRetakeComposer(state, "p12", "original prompt");
+    const prompt = openRetakeComposer(state, "p12", "original prompt", { kind: "retake" });
     setComposerText(state.composer, "edited retake prompt");
     source.api.continueStory = async () => { throw new Error("provider request failed"); };
 
@@ -84,7 +84,7 @@ describe("generation draft restoration", () => {
     const state = initialState(source, false);
     state.composer = createComposer("persistent Direct draft");
     const directComposer = state.composer;
-    const prompt = openRetakeComposer(state, "p12", "edited failed retake");
+    const prompt = openRetakeComposer(state, "p12", "edited failed retake", { kind: "retake" });
     const draft = {
       kind: "retake" as const,
       text: prompt.composer.text,
@@ -127,7 +127,7 @@ describe("generation draft restoration", () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.composer = createComposer("persistent Direct draft");
-    const prompt = openRetakeComposer(state, "p12", "edited failed retake");
+    const prompt = openRetakeComposer(state, "p12", "edited failed retake", { kind: "retake" });
     setComposerText(prompt.composer, "edited failed retake with cursor");
     prompt.composer.cursor = 6;
     const draft = {
@@ -227,7 +227,7 @@ describe("generation draft restoration", () => {
     const gate = deferred<{ payload: typeof state.payload; droppedFacts: [] }>();
     state.composer = createComposer("persistent Direct draft");
     const directComposer = state.composer;
-    const prompt = openRetakeComposer(state, "p12", "submitted retake");
+    const prompt = openRetakeComposer(state, "p12", "submitted retake", { kind: "retake" });
     source.api.continueStory = async () => gate.promise;
 
     const pending = composeAction({ action: "send" }, state, source, context(state));
@@ -361,7 +361,7 @@ describe("generation draft restoration", () => {
     const state = initialState(source, false);
     state.composer = createComposer("Direct survives the stopped retake");
     const directComposer = state.composer;
-    const prompt = openRetakeComposer(state, "p12", "edited retake prompt");
+    const prompt = openRetakeComposer(state, "p12", "edited retake prompt", { kind: "retake" });
     const draft = {
       kind: "retake" as const,
       text: prompt.composer.text,
@@ -461,7 +461,7 @@ describe("generation draft restoration", () => {
     const retakeState = initialState(demoAppSource(), false);
     const retakeEpoch = retakeState.composerClaimEpoch;
     const directComposer = retakeState.composer;
-    const newerRetake = openRetakeComposer(retakeState, "p11", "");
+    const newerRetake = openRetakeComposer(retakeState, "p11", "", { kind: "retake" });
     retakeState.mode = "NAV";
     expect(restoreStoppedGenerationDraft(retakeState, stream(retakeEpoch))).toBeFalse();
     expect(retakeState.retakePrompt).toBe(newerRetake);
@@ -539,7 +539,7 @@ describe("generation draft restoration", () => {
     const submittedDirect = capturePendingDirectDraft(promptedRetake, "older Direct");
     promptedRetake.pendingGenerationDraft = submittedDirect;
     setComposerText(promptedRetake.composer, "");
-    const newerRetake = openRetakeComposer(promptedRetake, "p11", "");
+    const newerRetake = openRetakeComposer(promptedRetake, "p11", "", { kind: "retake" });
     expect(restorePendingGenerationDraft(promptedRetake, submittedDirect)).toBeFalse();
     expect(promptedRetake.retakePrompt).toBe(newerRetake);
     expect(promptedRetake.composer).toBe(newerRetake.composer);

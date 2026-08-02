@@ -42,7 +42,7 @@ interface MutationEntityNamespaces {
   importLorebook: never;
   continueStory: never;
 
-  rewriteNode: "rewrite";
+  rewriteNode: "rewrite" | "rewrite-take";
   createSummaryTake: "summary-node" | "summary-cut";
 }
 

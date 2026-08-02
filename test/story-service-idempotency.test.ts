@@ -384,7 +384,7 @@ test("pending pre-provider summaries resume with deterministic commit IDs", asyn
   }
 });
 
-test("pending dry-run rewrites reconcile a committed replacement", async (t) => {
+test("pending dry-run rewrites reconcile a committed take without duplicating it", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-rewrite-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const service = StoryService.withoutDiagnostics({ dataDir });
@@ -396,7 +396,9 @@ test("pending dry-run rewrites reconcile a committed replacement", async (t) => 
     const body = { start: 4, end: 8, expected: "blue", instruction: "Change the color" };
     const input = { storyId: story.id, nodeId, body };
     const rewriteMutationId = mutationId("d");
-    await leavePendingAfterCommit(service, rewriteMutationId, "rewriteNode", input);
+    const takeId = await leavePendingAfterCommit(service, rewriteMutationId, "rewriteNode", input);
+    assert.equal(typeof takeId, "string");
+    assert.notEqual(takeId, nodeId);
     const committed = await service.loadStory(story.id);
     let replayDeltas = 0;
 
@@ -405,10 +407,15 @@ test("pending dry-run rewrites reconcile a committed replacement", async (t) => 
     );
     const after = await service.loadStory(story.id);
 
-    assert.equal(recovered, true);
+    // The replay finds the take already committed and never re-enters the
+    // provider, exactly like `createSummaryTake` recovery above.
+    assert.equal(recovered, takeId);
     assert.equal(replayDeltas, 0);
+    assert.equal(after.nodes.length, committed.nodes.length);
+    assert.equal(after.path[0]!.id, takeId);
     assert.equal(after.path[0]!.text, committed.path[0]!.text);
-    assert.equal(after.path[0]!.updatedAt, committed.path[0]!.updatedAt);
+    // The source survives, unrewritten, reachable as a sibling of the take.
+    assert.equal(after.nodes.find((node) => node.id === nodeId)?.preview, "The blue door.");
   } finally {
     await service.dispose();
   }
