@@ -15,7 +15,11 @@ import type {
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { resolveSamplingLogitBias, resolvedLogitBiasExceedsBound } from "./sampling-phrase-bias.js";
+import {
+  isLogitBiasMergeKnob,
+  resolveSamplingLogitBias,
+  samplingBiasResolutionFailureMessage
+} from "./sampling-phrase-bias.js";
 
 export function applySamplingFields(
   body: Record<string, unknown>,
@@ -40,14 +44,12 @@ export function applySamplingFields(
       );
     }
   }
-  const mergeKnobs = new Set(
-    configured.map(({ knob }) => knob).filter(isLogitBiasMergeKnob)
-  );
-  if (mergeKnobs.size > 0) {
-    body.logit_bias = mergedLogitBiasValue(sampling, context, mergeKnobs);
+  if (configured.some(({ knob }) => isLogitBiasMergeKnob(knob))) {
+    body.logit_bias = mergedLogitBiasValue(sampling, context);
   }
   for (const { knob, resolution } of configured) {
-    if (isLogitBiasMergeKnob(knob) || resolution.kind !== "available") continue;
+    if (resolution.kind !== "available") continue;
+    if (isLogitBiasMergeKnob(knob)) continue;
     body[resolution.wireField] = encodeSamplingValue(knob, sampling);
   }
 }
@@ -63,42 +65,27 @@ const PROVIDER_UNAVAILABLE_REASON: Readonly<Record<SamplingUnavailableReason, st
   "no-exact-tokenizer": "1667 has no exact tokenizer for this model."
 };
 
-function isLogitBiasMergeKnob(
-  knob: SamplingKnobV2
-): knob is "logitBias" | "phraseBias" | "bannedStrings" {
-  return knob === "logitBias" || knob === "phraseBias" || knob === "bannedStrings";
-}
-
-/** phraseBias and bannedStrings only ever reach "available" resolution when
- * the routed model is on the closed tokenizer allow-list (see
- * `needsExactTokenizer` in shared/sampling-capabilities.js), so tokenization
- * is only attempted, and an encoding is only required, when one of those two
- * was actually configured. */
+/** Runs the shared tokenize-and-merge resolution (server/sampling-phrase-bias.ts)
+ * and its preset-aware bound unconditionally — even when phraseBias and
+ * bannedStrings are both empty, resolution just sorts the raw numeric map,
+ * which still needs the same bound check: a raw logitBias map alone can
+ * carry more entries than a preset (KoboldCpp) documents. There is one cap,
+ * on one object, checked one way. */
 function mergedLogitBiasValue(
   sampling: SamplingSettingsV2,
-  context: SamplingContext,
-  mergeKnobs: ReadonlySet<SamplingKnobV2>
+  context: SamplingContext
 ): Readonly<Record<string, number>> {
-  if (!mergeKnobs.has("phraseBias") && !mergeKnobs.has("bannedStrings")) {
-    return sortedLogitBias(sampling.logitBias);
-  }
   const preset = requirePreset(context.preset);
   const encoding = promptBiasTokenizerEncoding(context.remoteModelId);
-  if (encoding === null) {
-    // Unreachable in practice: resolution above already rejected this case
-    // as "no-exact-tokenizer" before body construction started.
-    throw new ProviderError(
-      `${samplingKnobLabel("phraseBias")} and ${samplingKnobLabel("bannedStrings")} require an exact tokenizer, and none is available for this model.`
-    );
-  }
   const resolved = resolveSamplingLogitBias(sampling, encoding);
-  if (resolved === null) {
-    throw new ProviderError("The tokenizer needed to resolve phrase bias or banned strings failed to load.");
+  if (resolved.kind !== "resolved") {
+    throw new ProviderError(`Could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}.`);
   }
-  if (resolvedLogitBiasExceedsBound(resolved.resolvedEntryCount, preset)) {
+  const bound = maxResolvedLogitBiasEntries(preset);
+  if (resolved.resolvedEntryCount > bound) {
     throw new ProviderError(
-      `Resolved logit bias has ${resolved.resolvedEntryCount} entries after tokenizing phrase bias and banned strings, `
-      + `exceeding the ${maxResolvedLogitBiasEntries(preset)}-entry limit for preset ${preset}.`
+      `Resolved logit bias has ${resolved.resolvedEntryCount} entries, `
+      + `exceeding the ${bound}-entry limit for preset ${preset}.`
     );
   }
   return sortedLogitBias(resolved.logitBias);
@@ -118,9 +105,9 @@ function sortedLogitBias(logitBias: Readonly<Record<string, number>>): Readonly<
 }
 
 function encodeSamplingValue(
-  knob: SamplingKnobV2,
+  knob: Exclude<SamplingKnobV2, "logitBias" | "phraseBias" | "bannedStrings">,
   sampling: SamplingSettingsV2
-): number | readonly string[] | Readonly<Record<string, number>> {
+): number | readonly string[] {
   switch (knob) {
     case "topP":
       return configuredScalarValue(sampling.topP, knob);
@@ -136,10 +123,6 @@ function encodeSamplingValue(
       return configuredScalarValue(sampling.repeatPenalty, knob);
     case "stop":
       return [...sampling.stop];
-    case "logitBias":
-    case "phraseBias":
-    case "bannedStrings":
-      throw new Error(`${knob} is handled by mergedLogitBiasValue, not encodeSamplingValue`);
     default:
       return assertNever(knob);
   }

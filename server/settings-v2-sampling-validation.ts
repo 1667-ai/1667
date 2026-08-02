@@ -28,7 +28,11 @@ import {
 } from "../shared/sampling-validation-policy.js";
 import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
-import { resolveSamplingLogitBias } from "./sampling-phrase-bias.js";
+import {
+  isLogitBiasMergeKnob,
+  resolveSamplingLogitBias,
+  samplingBiasResolutionFailureMessage
+} from "./sampling-phrase-bias.js";
 
 // SAMPLING_KNOB_V2_ADDITIVE_VALUES are optional on the wire: a settings
 // document written before issue #282 has a `sampling` object without them,
@@ -108,22 +112,26 @@ export function validateSamplingRoute(
       throw new SettingsFormatError(samplingValidationMessage(profileId, knob, resolution.reason));
     }
   }
-  // Tokenize now, at save time, so a phrase list that would exceed the
-  // resolved bound (shared/sampling-validation-policy.ts) is rejected with a
-  // clear message instead of failing later mid-generation.
-  const needsResolution = configured.some(({ knob }) => knob === "phraseBias" || knob === "bannedStrings");
-  if (!needsResolution || context.protocol === "legacy-v1" || context.preset === "legacy-v1") return;
+  // Resolve now, at save time, unconditionally whenever logitBias,
+  // phraseBias, or bannedStrings is configured — even when only the raw
+  // numeric logitBias map is set, so a phrase list (or a raw map alone)
+  // that would exceed the preset-aware resolved bound
+  // (shared/sampling-validation-policy.ts) is rejected here with a clear
+  // message instead of failing later mid-generation. A gate that only
+  // covered phraseBias/bannedStrings previously let a KoboldCpp profile
+  // with 17 plain numeric entries save cleanly.
+  if (context.protocol === "legacy-v1" || context.preset === "legacy-v1") return;
+  if (!configured.some(({ knob }) => isLogitBiasMergeKnob(knob))) return;
   const encoding = promptBiasTokenizerEncoding(context.remoteModelId);
-  if (encoding === null) return; // already rejected above as "no-exact-tokenizer"
   const resolved = resolveSamplingLogitBias(profile.sampling, encoding);
-  if (resolved === null) {
-    throw new SettingsFormatError(`profile ${profileId} could not resolve phrase bias or banned strings: the tokenizer is unavailable`);
+  if (resolved.kind !== "resolved") {
+    throw new SettingsFormatError(`profile ${profileId} could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}`);
   }
   const bound = maxResolvedLogitBiasEntries(context.preset);
   if (resolved.resolvedEntryCount > bound) {
     throw new SettingsFormatError(
-      `profile ${profileId} resolves to ${resolved.resolvedEntryCount} logit-bias entries after tokenizing `
-      + `phrase bias and banned strings, exceeding the ${bound}-entry limit for preset ${context.preset}`
+      `profile ${profileId} resolves to ${resolved.resolvedEntryCount} logit-bias entries, `
+      + `exceeding the ${bound}-entry limit for preset ${context.preset}`
     );
   }
 }

@@ -32,7 +32,7 @@ export const SAMPLING_STOP_POLICY = {
 } as const;
 
 // 16 used to be an unsourced, self-imposed number. The endpoints 1667 speaks
-// to document very different ceilings for the *raw* logit_bias map:
+// to document very different ceilings for the logit_bias map:
 //  - OpenAI documents only the per-entry range, no count limit:
 //    "Accepts a JSON object that maps tokens ... to an associated bias value
 //    from -100 to 100." (CreateChatCompletionRequest.logit_bias)
@@ -43,15 +43,40 @@ export const SAMPLING_STOP_POLICY = {
 //    "An dictionary of key-value pairs, which indicate the token IDs (int)
 //    and logit bias (float) to apply for that token. Up to 16 value can be
 //    provided." https://github.com/LostRuins/koboldcpp/blob/concedo/embd_res/kcpp_docs.embd
-// 200 below is 1667's own operational ceiling for every preset except
-// KoboldCpp — generous headroom over a hand-curated list while keeping the
-// request body and the editor list bounded. KoboldCpp's tighter, documented
-// 16-entry cap is enforced per preset in
-// server/settings-v2-sampling-validation.ts (SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES
-// below), because a JSON-schema constant here cannot see which preset saved
-// the document.
+//
+// There is one cap, on one object: the *resolved* logit_bias the provider
+// request actually sends, after phraseBias and bannedStrings are tokenized
+// and merged with the raw numeric map (shared/sampling-capabilities.ts
+// documents that merge). It is preset-aware because only KoboldCpp
+// documents a number smaller than 1667's own operational ceiling; every
+// other preset gets that same 200 headroom. Enforced unconditionally —
+// server/provider-sampling.ts and server/settings-v2-sampling-validation.ts
+// both run it even when phraseBias and bannedStrings are empty and the
+// object is just the raw numeric map sorted, because a raw map alone can
+// still carry more entries than a preset documents.
+export const SAMPLING_RESOLVED_LOGIT_BIAS_POLICY = {
+  maxEntries: 200
+} as const;
+
+export const SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES: Readonly<
+  Partial<Record<SettingsPresetV2, number>>
+> = {
+  koboldcpp: 16
+};
+
+export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
+  return SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES[preset]
+    ?? SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries;
+}
+
+// The JSON schema still needs a structural, preset-agnostic ceiling on the
+// raw wire object — ajv has no way to see which preset a document targets.
+// Reuses SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries as that ceiling
+// rather than a second literal 200, but it is a cheap structural bound
+// only: the resolved, preset-aware cap above is what actually protects a
+// request, and it is checked separately even when this one is satisfied.
 export const SAMPLING_LOGIT_BIAS_POLICY = {
-  maxEntries: 200,
+  maxEntries: SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries,
   keyPatternSource: "(0|[1-9][0-9]{0,6})",
   minimum: -100,
   maximum: 100
@@ -70,7 +95,9 @@ export const SAMPLING_LOGIT_BIAS_KEY_PATTERN = new RegExp(
  * -sequence sizing precedent (`SAMPLING_STOP_POLICY.maxScalars`) — a phrase is
  * text a writer types by hand, not a passage. The weight range matches
  * OpenAI's documented per-token logit_bias range, because each resolved
- * token receives this same weight. */
+ * token receives this same weight. The list length itself is rarely the
+ * binding constraint — SAMPLING_RESOLVED_LOGIT_BIAS_POLICY almost always
+ * binds first, since each entry expands to one or more resolved tokens. */
 export const SAMPLING_PHRASE_BIAS_POLICY = {
   maxEntries: 256,
   maxPhraseScalars: 64,
@@ -79,38 +106,16 @@ export const SAMPLING_PHRASE_BIAS_POLICY = {
 } as const;
 
 /** Banned strings are a negative-bias shortcut (see the field comment on
- * `SamplingSettingsV2.bannedStrings`), not a native provider field — see the
- * research note next to `SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES` in
- * server/settings-v2-sampling-validation.ts for why. Sizing mirrors
- * SAMPLING_PHRASE_BIAS_POLICY for the same reason. */
+ * `SamplingSettingsV2.bannedStrings`), not a native provider field — none of
+ * the endpoints 1667 calls documents one (checked against the llama.cpp
+ * server README, the KoboldCpp API doc, LM Studio, and Ollama — the same
+ * sources cited in shared/sampling-capabilities.ts). Sizing mirrors
+ * SAMPLING_PHRASE_BIAS_POLICY for the same reason: the resolved bound binds
+ * before the list length does. */
 export const SAMPLING_BANNED_STRINGS_POLICY = {
   maxEntries: 256,
   maxScalars: 64
 } as const;
-
-/** The bound that actually protects a provider request: phrase-bias and
- * banned-string entries tokenize to zero or more IDs each and merge with the
- * raw `logitBias` map into one `logit_bias` object
- * (shared/sampling-capabilities.ts documents the merge order). This is the
- * cap on that merged object's size, checked server-side once tokenization is
- * available — see `resolveSamplingLogitBias` in server/sampling-phrase-bias.ts. */
-export const SAMPLING_RESOLVED_LOGIT_BIAS_POLICY = {
-  maxEntries: 200
-} as const;
-
-/** KoboldCpp's documented 16-entry logit_bias cap (quoted above) is the only
- * one of 1667's supported endpoints with a specific documented number. Every
- * other preset uses SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries. */
-export const SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES: Readonly<
-  Partial<Record<SettingsPresetV2, number>>
-> = {
-  koboldcpp: 16
-};
-
-export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
-  return SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES[preset]
-    ?? SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries;
-}
 
 // Compatibility names for server/schema callers. The policy above remains the
 // only owner of these values.
@@ -231,10 +236,7 @@ export function validateSamplingPhraseBias(
   }
   const seen = new Set<string>();
   return value.map((entry, index) => {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new SamplingValidationError(`${label}[${index}] must be an object`);
-    }
-    const record = entry as Record<string, unknown>;
+    const record = closedPhraseBiasEntryShape(entry, `${label}[${index}]`);
     const parsed = validateSamplingPhraseBiasEntry(record.phrase, record.weight, `${label}[${index}]`);
     if (seen.has(parsed.phrase)) {
       throw new SamplingValidationError(`${label} repeats ${JSON.stringify(parsed.phrase)}`);
@@ -242,6 +244,25 @@ export function validateSamplingPhraseBias(
     seen.add(parsed.phrase);
     return parsed;
   });
+}
+
+const PHRASE_BIAS_ENTRY_KEYS: ReadonlySet<string> = new Set(["phrase", "weight"]);
+
+/** The generated JSON schema declares PhraseBiasEntry with
+ * `additionalProperties: false` (scripts/settings-v2-schema-definition.ts);
+ * this decoder has to agree, or a document the schema rejects can still be
+ * accepted here and silently lose the extra key on the next round trip. */
+function closedPhraseBiasEntryShape(entry: unknown, label: string): Record<string, unknown> {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new SamplingValidationError(`${label} must be an object`);
+  }
+  const record = entry as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!PHRASE_BIAS_ENTRY_KEYS.has(key)) {
+      throw new SamplingValidationError(`${label} contains unknown key: ${key}`);
+    }
+  }
+  return record;
 }
 
 /** Single-entry validator, exported for the editor's inline phrase:weight

@@ -18,7 +18,7 @@ import {
 import { SettingsStore } from "../server/settings.js";
 
 /**
- * Integration coverage for the tokenizeSamplingPhrase worker method
+ * Integration coverage for the resolveSamplingBias worker method
  * (shared/worker-protocol.ts) and the resolved-bias bound it exists to
  * support. This is the path the TUI sampling editor calls to show resolved
  * token IDs (design goal for issue #282): the WASM tokenizer lives in
@@ -26,9 +26,9 @@ import { SettingsStore } from "../server/settings.js";
  * the worker boundary actually reaches it, not just the pure functions.
  */
 
-test("tokenizeSamplingPhrase resolves real, encoding-specific token IDs through the service", async (t) => {
+test("resolveSamplingBias resolves real, encoding-specific token IDs through the service", async (t) => {
   const service = StoryService.withoutDiagnostics({
-    dataDir: await temporaryDataDirectory(t, "1667-tokenize-phrase-")
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-")
   });
   await service.init();
   t.after(() => service.dispose());
@@ -38,40 +38,132 @@ test("tokenizeSamplingPhrase resolves real, encoding-specific token IDs through 
   // the same phrase). Different encodings produce different IDs for the
   // same text, which is the whole point of routing on the model's encoding.
   assert.deepEqual(
-    await service.tokenizeSamplingPhrase({ phrase: "hello world", encoding: "o200k_base" }),
-    { tokenIds: [24912, 2375] }
+    await service.resolveSamplingBias({
+      logitBias: {},
+      phraseBias: [{ phrase: "hello world", weight: 3 }],
+      bannedStrings: [],
+      encoding: "o200k_base"
+    }),
+    {
+      kind: "resolved",
+      logitBias: { "24912": 3, "2375": 3 },
+      phraseBias: [{ phrase: "hello world", tokenIds: [24912, 2375] }],
+      bannedStrings: [],
+      resolvedEntryCount: 2
+    }
   );
   assert.deepEqual(
-    await service.tokenizeSamplingPhrase({ phrase: "hello world", encoding: "cl100k_base" }),
-    { tokenIds: [15339, 1917] }
+    await service.resolveSamplingBias({
+      logitBias: {},
+      phraseBias: [{ phrase: "hello world", weight: 3 }],
+      bannedStrings: [],
+      encoding: "cl100k_base"
+    }),
+    {
+      kind: "resolved",
+      logitBias: { "15339": 3, "1917": 3 },
+      phraseBias: [{ phrase: "hello world", tokenIds: [15339, 1917] }],
+      bannedStrings: [],
+      resolvedEntryCount: 2
+    }
   );
 });
 
-test("tokenizeSamplingPhrase rejects a blank phrase, an oversized phrase, and an unknown encoding", async (t) => {
+// Regression test for issue #282 review finding C: tiktoken's encode()
+// defaults disallowed_special to "all", so a schema-valid phrase that spells
+// a special token used to throw and get reported as "the tokenizer failed
+// to load" — a phrase-specific failure misreported as a systemic one. This
+// phrase must resolve normally, as ordinary text, not fail at all.
+test("a phrase spelling a tiktoken special token resolves as ordinary text", async (t) => {
   const service = StoryService.withoutDiagnostics({
-    dataDir: await temporaryDataDirectory(t, "1667-tokenize-phrase-invalid-")
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-special-token-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const result = await service.resolveSamplingBias({
+    logitBias: {},
+    phraseBias: [{ phrase: "<|endoftext|>", weight: -10 }],
+    bannedStrings: ["<|endoftext|>"],
+    encoding: "o200k_base"
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.ok(result.phraseBias[0]!.tokenIds.length > 0);
+  assert.ok(result.bannedStrings[0]!.tokenIds.length > 0);
+});
+
+test("resolveSamplingBias rejects a blank phrase, an oversized phrase, and an unknown encoding", async (t) => {
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-invalid-")
   });
   await service.init();
   t.after(() => service.dispose());
 
   await assert.rejects(
-    service.tokenizeSamplingPhrase({ phrase: "", encoding: "o200k_base" }),
+    service.resolveSamplingBias({
+      logitBias: {},
+      phraseBias: [{ phrase: "", weight: 1 }],
+      bannedStrings: [],
+      encoding: "o200k_base"
+    }),
     (error: unknown) => error instanceof ServiceError && error.status === 400
   );
   await assert.rejects(
-    service.tokenizeSamplingPhrase({ phrase: "x".repeat(65), encoding: "o200k_base" }),
+    service.resolveSamplingBias({
+      logitBias: {},
+      phraseBias: [],
+      bannedStrings: ["x".repeat(65)],
+      encoding: "o200k_base"
+    }),
     (error: unknown) => error instanceof ServiceError && error.status === 400
   );
   await assert.rejects(
-    service.tokenizeSamplingPhrase({ phrase: "hello", encoding: "p50k_base" }),
+    service.resolveSamplingBias({
+      logitBias: {},
+      phraseBias: [],
+      bannedStrings: [],
+      encoding: "p50k_base"
+    }),
     (error: unknown) => error instanceof ServiceError && error.status === 400
   );
 });
 
-test("KoboldCpp's documented 16-entry logit_bias cap rejects an over-budget phrase list at save time", async (t) => {
-  const dataDir = await initializedFormat2Directory(t, "1667-tokenize-phrase-kobold-bound-");
+// Regression test for issue #282 review finding A: raising
+// SAMPLING_LOGIT_BIAS_POLICY.maxEntries from 16 to 200 removed the guard
+// that used to cover every preset, because the replacement preset-aware
+// bound only ran when phraseBias or bannedStrings were configured. A
+// KoboldCpp profile with plain numeric entries and empty phrase lists — the
+// exact shape that was impossible to save before this change — must still
+// be rejected.
+test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias entries at save time", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-resolve-bias-kobold-numeric-");
   const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
   await store.init(2);
+  const koboldDocument = koboldcppDocument();
+  const sampling: SamplingSettingsV2 = {
+    topP: null,
+    topK: null,
+    minP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+    repeatPenalty: null,
+    stop: [],
+    logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1])),
+    bannedStrings: [],
+    phraseBias: []
+  };
+  await assert.rejects(
+    () => store.save(saveCommand(
+      MUTATION_A,
+      1,
+      applySamplingSettings(koboldDocument, sampling)
+    )),
+    /16-entry limit for preset koboldcpp/
+  );
+});
+
+function koboldcppDocument() {
   const base = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {
     provider: "openai-compatible",
     baseUrl: "http://127.0.0.1:5001/v1",
@@ -83,40 +175,14 @@ test("KoboldCpp's documented 16-entry logit_bias cap rejects an over-budget phra
     contextWindow: 8_192
   });
   const connectionId = base.models[base.profiles.default!.modelId]!.connectionId;
-  const koboldDocument = {
+  return {
     ...base,
     connections: {
       ...base.connections,
       [connectionId]: { ...base.connections[connectionId]!, preset: "koboldcpp" as const }
     }
   };
-  // Seventeen single-token phrases resolve to seventeen distinct logit_bias
-  // entries, one over KoboldCpp's documented 16-entry cap (see
-  // SAMPLING_LOGIT_BIAS_POLICY in shared/sampling-validation-policy.ts).
-  const sampling: SamplingSettingsV2 = {
-    topP: null,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    stop: [],
-    logitBias: {},
-    bannedStrings: [],
-    phraseBias: Array.from({ length: 17 }, (_, index) => ({
-      phrase: `word${index}`,
-      weight: 1
-    }))
-  };
-  await assert.rejects(
-    () => store.save(saveCommand(
-      MUTATION_A,
-      1,
-      applySamplingSettings(koboldDocument, sampling)
-    )),
-    /16-entry limit for preset koboldcpp/
-  );
-});
+}
 
 async function temporaryDataDirectory(
   t: test.TestContext,

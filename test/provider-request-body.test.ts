@@ -499,6 +499,38 @@ test("serializers refuse configured sampling values that the selected route cann
   );
 });
 
+// Regression test for issue #282 review finding A: raising
+// SAMPLING_LOGIT_BIAS_POLICY.maxEntries from 16 to 200 removed the guard
+// that used to cover every preset, because the replacement preset-aware
+// bound only ran when phraseBias or bannedStrings were configured. A
+// KoboldCpp request with 17 plain numeric logitBias entries and empty
+// phrase lists — the exact shape that was impossible to build before this
+// change — must still be refused when the request body is actually built,
+// not just at settings-save time.
+test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias entries in a built request", () => {
+  const koboldSettings = withSampling(
+    settings("openai-compatible"),
+    "koboldcpp",
+    sampling({
+      logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+    })
+  );
+  assert.throws(
+    () => buildOpenAiChatRequestBody(koboldSettings, PROMPT, OMIT_PLANS[0]!),
+    /16-entry limit for preset koboldcpp/
+  );
+
+  const withinBudget = withSampling(
+    settings("openai-compatible"),
+    "koboldcpp",
+    sampling({
+      logitBias: Object.fromEntries(Array.from({ length: 16 }, (_, index) => [String(index), 1]))
+    })
+  );
+  const body = buildOpenAiChatRequestBody(withinBudget, PROMPT, OMIT_PLANS[0]!);
+  assert.equal(Object.keys(body.logit_bias as Record<string, number>).length, 16);
+});
+
 function withTemperatureSupport(
   value: GenerationSettings,
   temperature: ProviderRuntime["capabilities"]["temperature"]

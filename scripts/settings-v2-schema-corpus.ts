@@ -205,6 +205,14 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
         Array.from({ length: SAMPLING_LOGIT_BIAS_POLICY.maxEntries + 1 }, (_, index) => [String(index), 1])
       )
     }), false),
+    // The generated PhraseBiasEntry schema sets additionalProperties: false;
+    // the codec has to agree (issue #282 review finding D), or a document
+    // the schema rejects could still be accepted and silently lose "typo"
+    // on the next round trip.
+    invalid("document-sampling-phrase-bias-extra-key", "document", withRawSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      phraseBias: [{ phrase: "raven", weight: 4, typo: true }]
+    }), false),
     invalid("document-nfd-string", "document", {
       ...INITIAL_SETTINGS_DOCUMENT_V2,
       writing: { defaultAuthorBrief: "Cafe\u0301" }
@@ -276,6 +284,22 @@ function withSampling(
   document: SettingsDocumentV2,
   sampling: SamplingSettingsV2
 ): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
+  return {
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: { ...profile, sampling }
+    }
+  };
+}
+
+/** Same as withSampling, but for a deliberately malformed sampling shape a
+ * corpus "invalid" case needs — e.g. an extra key the SamplingSettingsV2
+ * type itself would reject at compile time. */
+function withRawSampling(document: SettingsDocumentV2, sampling: unknown): unknown {
   const profileId = document.routing.default;
   const profile = document.profiles[profileId];
   if (profile === undefined) throw new Error("Canonical settings are missing the default profile");

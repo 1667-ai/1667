@@ -238,6 +238,14 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   assert.throws(() => parseSettingsDocumentV2(withSampling({
     phraseBias: [{ phrase: "raven", weight: 1 }, { phrase: "raven", weight: 2 }]
   })), /repeats/);
+  // Regression test for issue #282 review finding D: the generated schema
+  // declares PhraseBiasEntry with additionalProperties: false, so the codec
+  // must reject the same shape the schema does — accepting it here would
+  // silently drop "typo" on the next round trip instead of rejecting it up
+  // front.
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    phraseBias: [{ phrase: "raven", weight: 1, typo: true }]
+  })), /unknown key/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({
     extra: true
   })), /unknown key/);

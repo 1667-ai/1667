@@ -32,24 +32,38 @@ export function countO200kPromptTextTokens(messageContents: readonly string[]): 
   }
 }
 
+/** Two distinct reasons a phrase can fail to tokenize, kept apart so the
+ * message a writer sees is true: "tokenizer-unavailable" is systemic (the
+ * WASM tokenizer itself failed to load, so nothing can resolve), while
+ * "phrase-unencodable" names one specific phrase without implicating the
+ * tokenizer as a whole. */
+export type PhraseTokenizeOutcome =
+  | { readonly kind: "resolved"; readonly tokenIds: readonly number[] }
+  | { readonly kind: "tokenizer-unavailable" }
+  | { readonly kind: "phrase-unencodable"; readonly phrase: string };
+
 /**
  * Exact token IDs for a text phrase, for the sampling editor's phrase-bias
- * and banned-string entries (shared/settings-v2-types.ts). Returns null only
- * when the WASM tokenizer failed to load; an encoding the caller supplies is
- * assumed to already be a supported one — see
+ * and banned-string entries (shared/settings-v2-types.ts). An encoding the
+ * caller supplies is assumed to already be a supported one — see
  * `promptBiasTokenizerEncoding` in shared/sampling-capabilities.ts for the
  * closed allow-list that produces it.
  */
 export function tokenizePhraseTokenIds(
   phrase: string,
   encoding: PromptBiasEncoding
-): readonly number[] | null {
+): PhraseTokenizeOutcome {
   const encoder = loadEncoding(encoding);
-  if (encoder === null) return null;
+  if (encoder === null) return { kind: "tokenizer-unavailable" };
   try {
-    return [...encoder.encode(phrase)];
+    // encode_ordinary never interprets tiktoken's special-token syntax
+    // (e.g. "<|endoftext|>") — encode()'s default disallowed_special="all"
+    // would throw on a schema-valid phrase that happens to spell one, and
+    // that throw used to get reported as the tokenizer itself failing,
+    // which was never true (issue #282 review).
+    return { kind: "resolved", tokenIds: [...encoder.encode_ordinary(phrase)] };
   } catch {
-    return null;
+    return { kind: "phrase-unencodable", phrase };
   }
 }
 

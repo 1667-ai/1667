@@ -90,20 +90,46 @@ const PRESET_EXTENSIONS: Readonly<
 // (checklist item left unchecked): https://ollama.readthedocs.io/en/openai/
 // phraseBias and bannedStrings ride the same wire field, so they inherit the
 // subtraction rather than repeating it under a different unavailable reason.
+//
+// llama.cpp, KoboldCpp, and LM Studio are self-hosted local servers whose
+// operator controls what "model" string the API reports, independent of the
+// weights actually loaded. llama.cpp's server documents this directly:
+// "-a, --alias STRING  set model name aliases, comma-separated (to be used
+// by API)" (tools/server/README.md, --alias). LM Studio's `lms load
+// --identifier` does the same (https://lmstudio.ai/docs/cli/local-models/load).
+// KoboldCpp is the same category of self-hosted server. promptBiasTokenizerEncoding
+// below is a closed allow-list keyed on that reported model ID, built to
+// prevent a wrong token ID from silently biasing the wrong token — but a
+// closed list is only as trustworthy as the key it is looked up by. A local
+// server told to call its Llama build "gpt-4o" would otherwise pass the
+// allow-list and receive real OpenAI token IDs for a completely different
+// vocabulary. So phraseBias and bannedStrings are subtracted for every
+// self-hosted preset, regardless of what model name it reports. logitBias
+// itself is unaffected: it takes a raw token ID the writer already resolved
+// by hand, so it never depends on which tokenizer produced it.
 const PRESET_SUBTRACTIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
-  "lm-studio": ["minP"],
+  "lm-studio": ["minP", "phraseBias", "bannedStrings"],
   ollama: ["logitBias", "phraseBias", "bannedStrings"],
-  koboldcpp: ["frequencyPenalty"]
+  koboldcpp: ["frequencyPenalty", "phraseBias", "bannedStrings"],
+  "llama-cpp": ["phraseBias", "bannedStrings"]
 };
 
 /**
  * Tokenizer encodings 1667 can resolve a text phrase against. tiktoken ships
  * several named encodings; these are the two relevant to the OpenAI model
- * families 1667 routes to.
+ * families 1667 routes to. Closed, `as const`-derived list (not a
+ * hand-written union) so a new encoding is added in exactly one place and a
+ * caller that only checks a hand-written type can't silently drift from it.
  */
-export type PromptBiasEncoding = "o200k_base" | "cl100k_base";
+export const PROMPT_BIAS_ENCODING_VALUES = ["o200k_base", "cl100k_base"] as const;
+export type PromptBiasEncoding = (typeof PROMPT_BIAS_ENCODING_VALUES)[number];
+
+export function isPromptBiasEncoding(value: unknown): value is PromptBiasEncoding {
+  return typeof value === "string"
+    && (PROMPT_BIAS_ENCODING_VALUES as readonly string[]).includes(value);
+}
 
 // The authoritative source for which encoding an OpenAI model uses is
 // tiktoken's own table: https://github.com/openai/tiktoken/blob/main/tiktoken/model.py
@@ -146,6 +172,40 @@ const OPENAI_PROMPT_BIAS_ENCODING: ReadonlyMap<string, PromptBiasEncoding> = new
 export function promptBiasTokenizerEncoding(remoteModelId: string): PromptBiasEncoding | null {
   return OPENAI_PROMPT_BIAS_ENCODING.get(remoteModelId) ?? null;
 }
+
+/** One phraseBias or bannedStrings entry's resolved token IDs. Always
+ * populated: `resolveSamplingLogitBias` (server/sampling-phrase-bias.ts)
+ * returns a "resolved" result only once every entry succeeded, so there is
+ * no per-entry failure state to represent here — a single unresolved entry
+ * fails the whole batch instead (see SamplingBiasResolutionResult). */
+export interface ResolvedPhraseTokens {
+  readonly phrase: string;
+  readonly tokenIds: readonly number[];
+}
+
+/**
+ * The result of tokenizing and merging phraseBias and bannedStrings — the
+ * one computation shared by the actual provider request
+ * (server/provider-sampling.ts), save-time validation
+ * (server/settings-v2-sampling-validation.ts), and the editor's token-ID
+ * preview (the resolveSamplingBias worker method), so the request and the
+ * editor can never compute different token IDs for the same draft.
+ *
+ * "tokenizer-unavailable" means the WASM tokenizer itself failed to load —
+ * systemic, not specific to any phrase. "phrase-unencodable" names the one
+ * phrase that could not be tokenized, distinct from "unavailable" so the
+ * message a writer sees is honest about what actually failed.
+ */
+export type SamplingBiasResolutionResult =
+  | {
+      readonly kind: "resolved";
+      readonly logitBias: Readonly<Record<string, number>>;
+      readonly phraseBias: readonly ResolvedPhraseTokens[];
+      readonly bannedStrings: readonly ResolvedPhraseTokens[];
+      readonly resolvedEntryCount: number;
+    }
+  | { readonly kind: "tokenizer-unavailable" }
+  | { readonly kind: "phrase-unencodable"; readonly phrase: string };
 
 function needsExactTokenizer(knob: SamplingKnobV2): boolean {
   return knob === "phraseBias" || knob === "bannedStrings";

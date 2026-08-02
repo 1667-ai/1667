@@ -122,6 +122,10 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
     }
   },
   {
+    // LM Studio is a self-hosted local server (`lms load --identifier` lets
+    // the operator report an arbitrary model name — see the PRESET_SUBTRACTIONS
+    // comment in shared/sampling-capabilities.ts), so phraseBias/bannedStrings
+    // are subtracted outright: "preset-unsupported", not "no-exact-tokenizer".
     name: "LM Studio extension preset",
     context: samplingContext("openai-chat-completions", "lm-studio"),
     expected: {
@@ -133,8 +137,8 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
-      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {
@@ -168,8 +172,31 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
-      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
+    }
+  },
+  {
+    // Regression test for issue #282 review finding B: llama.cpp's server
+    // documents "-a, --alias STRING" ("set model name aliases ... to be
+    // used by API"), so a self-hosted server can report any model name it
+    // likes. "gpt-4o" is on the tokenizer allow-list
+    // (promptBiasTokenizerEncoding), but the preset subtraction must win
+    // regardless — trusting the reported name here would let an aliased
+    // local model receive real OpenAI token IDs for a different vocabulary.
+    name: "llama.cpp preset with an allow-listed model name",
+    context: samplingContext("openai-chat-completions", "llama-cpp", "gpt-4o"),
+    expected: {
+      topP: { kind: "available", wireField: "top_p" },
+      topK: { kind: "available", wireField: "top_k" },
+      minP: { kind: "available", wireField: "min_p" },
+      frequencyPenalty: { kind: "available", wireField: "frequency_penalty" },
+      presencePenalty: { kind: "available", wireField: "presence_penalty" },
+      repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
+      stop: { kind: "available", wireField: "stop" },
+      logitBias: { kind: "available", wireField: "logit_bias" },
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {
@@ -184,8 +211,8 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       repeatPenalty: { kind: "available", wireField: "repeat_penalty" },
       stop: { kind: "available", wireField: "stop" },
       logitBias: { kind: "available", wireField: "logit_bias" },
-      phraseBias: { kind: "unavailable", reason: "no-exact-tokenizer" },
-      bannedStrings: { kind: "unavailable", reason: "no-exact-tokenizer" }
+      phraseBias: { kind: "unavailable", reason: "preset-unsupported" },
+      bannedStrings: { kind: "unavailable", reason: "preset-unsupported" }
     }
   },
   {
