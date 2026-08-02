@@ -7,7 +7,7 @@ import {
 } from "../shared/novelai-lorebook.js";
 import { createFacts } from "../server/story-facts.js";
 import { fidelityReport } from "../shared/fidelity.js";
-import type { Story } from "../shared/types.js";
+import { MAX_JSON_BODY_BYTES, type Story } from "../shared/types.js";
 
 test("factsFromLorebook maps every row of the §2.2 table", () => {
   const lorebook = {
@@ -203,11 +203,34 @@ test("facts dropped for the request body limit are named separately from the fac
   }));
 
   const report = fidelityReport(
-    factsFromLorebook({ lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries }, 128).fidelity
+    factsFromLorebook(
+      { lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries },
+      128,
+      MAX_JSON_BODY_BYTES
+    ).fidelity
   );
 
   assert.ok(report.includes("dropped to fit the 1 MB request limit"), report);
   assert.ok(!report.includes("did not fit the 128-fact limit"), report);
+});
+
+test("a container import keeps every fact, because it sends no request", () => {
+  // The same lorebook that overflows a createFact body imports whole when the
+  // story is built in process. A request limit must not shrink a round trip
+  // that never made a request.
+  const entries = Array.from({ length: 128 }, (_unused, index) => ({
+    enabled: true,
+    text: `${index} `.padEnd(4_000, "銀"),
+    displayName: `tag ${index}`
+  }));
+
+  const result = factsFromLorebook(
+    { lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries },
+    128
+  );
+
+  assert.equal(result.facts.length, 128);
+  assert.ok(!fidelityReport(result.fidelity).includes("1 MB request limit"));
 });
 
 test("a lorebook PNG reports a lorebook error and never a character-card error", () => {
