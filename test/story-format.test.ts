@@ -533,6 +533,12 @@ test("story format: author brief round-trips, omits empty values, and enforces s
   assert.equal("authorBrief" in absent, false);
   assert.equal("authorBrief" in buildStoryPayload({ ...base, authorBrief: "" }), false);
 
+  // A whitespace-only brief overrides nothing, because the prompt falls back
+  // to the machine-wide brief. No boundary may report it as an override.
+  const blank = { ...base, authorBrief: " \n\t" };
+  assert.equal("authorBrief" in (await encodeStoryBundle(blank, objects)), false);
+  assert.equal("authorBrief" in buildStoryPayload(blank), false);
+
   const brief = "😀 Write in short, clipped sentences.";
   const stored = await encodeStoryBundle({ ...base, authorBrief: brief }, objects);
   assert.equal(stored.authorBrief, brief);

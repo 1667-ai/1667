@@ -50,7 +50,17 @@ export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   target.expectedDepth = authoritativeDepth;
   if (depthPristine) target.depth = authoritativeDepth;
   target.expected = authoritative;
-  reconcileEditorDocument(state, editor, authoritative, "Author's Note changed during recovery");
+  // A depth the writer moved while the authority moved it elsewhere is the
+  // same standoff as two texts that disagree, and it earns the same
+  // confirmation. Without this the draft would save over the recovered depth
+  // with no warning, because the text alone still matches.
+  reconcileEditorDocument(
+    state,
+    editor,
+    authoritative,
+    "Author's Note changed during recovery",
+    target.depth === authoritativeDepth
+  );
 }
 
 /** Reconcile an authoritative Author Brief refresh against the active draft. */
@@ -59,7 +69,8 @@ export function reconcileAuthorBriefEditor(state: RuntimeState): void {
   if (editor?.kind !== "document" || editor.target.kind !== "author-brief") return;
   const authoritative = state.payload.authorBrief ?? "";
   editor.target.expected = authoritative;
-  reconcileEditorDocument(state, editor, authoritative, "Author Brief changed during recovery");
+  // The brief is one field: its text is the whole draft.
+  reconcileEditorDocument(state, editor, authoritative, "Author Brief changed during recovery", true);
 }
 
 function reconcileFactDocument(
@@ -96,18 +107,22 @@ function reconcileFactDocument(
   state.toast = editor.conflict.message;
 }
 
+/** `otherFieldsMatch` reports whether every field beyond the text agrees with
+ * the authoritative story. Each caller states it, because a target that gains
+ * a field must not reconcile on its text alone. */
 function reconcileEditorDocument(
   state: RuntimeState,
   editor: InlineEditorSession,
   authoritative: string,
-  message: string
+  message: string,
+  otherFieldsMatch: boolean
 ): void {
-  if (editor.composer.text === authoritative) {
+  if (editor.composer.text === authoritative && otherFieldsMatch) {
     editor.initial = authoritative;
     editor.conflict = null;
     return;
   }
-  if (editor.composer.text === editor.initial) {
+  if (editor.composer.text === editor.initial && otherFieldsMatch) {
     setComposerText(editor.composer, authoritative);
     editor.initial = authoritative;
     editor.conflict = null;

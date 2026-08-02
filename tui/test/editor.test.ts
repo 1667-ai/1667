@@ -4,6 +4,7 @@ import { createComposer, setComposerText } from "../src/composer-model.js";
 import { parsePartFile, serializePart } from "../src/editor.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
+import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { frameText } from "../src/screens/story/frame.js";
 import type { InlineEditorSession, RuntimeState } from "../src/state.js";
 import { editorHarness, key } from "./editor-harness.js";
@@ -284,6 +285,39 @@ describe("inline editor", () => {
     expect(state.payload.authorsNote).toBe("Keep the storm distant.");
     expect(state.payload.authorsNoteDepth).toBe(9);
     expect(state.toast).toBe("Author's Note saved");
+  });
+
+  test("a recovered Author's Note depth requires confirmation before the draft overwrites it", async () => {
+    const { source, state, press } = editorHarness();
+    state.payload.authorsNote = "Keep the storm distant.";
+    await press(key("a"));
+    const target = documentEditor(state).target as {
+      kind: "authors-note";
+      depth: number;
+      expectedDepth: number;
+    };
+
+    // The writer moves the depth, and recovery brings back a different one.
+    // The note text still matches, so only the depth disagrees.
+    await press(key("=", { meta: true }));
+    expect(target.depth).toBe(2);
+    adoptSameStoryPayload(state, { ...state.payload, authorsNoteDepth: 7 });
+
+    expect(target.depth).toBe(2);
+    expect(target.expectedDepth).toBe(7);
+    expect(documentEditor(state).conflict === null).toBe(false);
+
+    let saves = 0;
+    const forward = source.api.setAuthorsNote.bind(source.api);
+    source.api.setAuthorsNote = async (storyId, note, depth) => {
+      saves += 1;
+      return await forward(storyId, note, depth);
+    };
+
+    await press(key("s", { sequence: "", ctrl: true }));
+
+    expect(saves).toBe(0);
+    expect(documentEditor(state).conflict?.armed).toBeTrue();
   });
 
   test("a depth change alone still saves, even when the note text is untouched", async () => {
