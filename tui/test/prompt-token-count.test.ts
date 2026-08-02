@@ -52,7 +52,7 @@ async function flush(): Promise<void> {
 }
 
 function countedAnswer(total: number): PromptTokenCount {
-  return { kind: "counted", source: "bundled-o200k", grade: "exact", total, perMessage: null };
+  return { kind: "counted", source: "bundled-openai", grade: "exact", total, perMessage: null };
 }
 
 function fixture() {

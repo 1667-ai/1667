@@ -31,13 +31,60 @@ test("an OpenAI official preset returns an exact count with a per-message split"
 
   assert.equal(result.kind, "counted");
   if (result.kind !== "counted") return;
-  assert.equal(result.source, "bundled-o200k");
+  assert.equal(result.source, "bundled-openai");
   assert.equal(result.grade, "exact");
   // OpenAI's documented chat framing: three fixed tokens and one role token
   // for each message, then three more to prime the reply. "Write closely."
   // is three o200k tokens and the instruction is seven.
   assert.deepEqual(result.perMessage, [3 + 4, 7 + 4]);
   assert.equal(result.total, 3 + 4 + 7 + 4 + 3);
+});
+
+test("an OpenAI model on the older encoding is counted with that encoding", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("the bundled tokenizer must not reach the network");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  // Not every official model is o200k: gpt-4, gpt-4-turbo and gpt-3.5-turbo
+  // are cl100k. This sentence costs 8 tokens under o200k and 15 under cl100k,
+  // so counting it with the wrong encoding would be nearly twice out — and it
+  // would carry no mark to say the number was approximate.
+  const messages: ChatMessage[] = [
+    { role: "user", content: "こんにちは世界、今日はいい天気ですね" }
+  ];
+  const official = { preset: "openai", baseUrl: "https://api.openai.com" } as const;
+
+  const modern = await countPromptTokens(settings({ ...official, model: "gpt-5" }), messages);
+  const older = await countPromptTokens(settings({ ...official, model: "gpt-4" }), messages);
+
+  assert.equal(modern.kind, "counted");
+  assert.equal(older.kind, "counted");
+  if (modern.kind !== "counted" || older.kind !== "counted") return;
+  assert.equal(modern.total, 8 + 4 + 3);
+  assert.equal(older.total, 15 + 4 + 3);
+});
+
+test("an OpenAI model this build cannot tokenize keeps the estimate", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("an untokenizable model must not reach the network");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  // An unreleased model or a fine-tune. Guessing an encoding here would print
+  // a wrong number with no mark on it, so the meter keeps its estimate.
+  const result = await countPromptTokens(
+    settings({
+      preset: "openai",
+      baseUrl: "https://api.openai.com",
+      model: "ft:gpt-4o:acme::a1b2c3"
+    }),
+    [{ role: "user", content: "Continue the story about the lantern." }]
+  );
+
+  assert.deepEqual(result, { kind: "estimate", reason: "no-source" });
 });
 
 test("an Anthropic official preset returns the endpoint's exact total, no split, and lifts system into system", async (t) => {

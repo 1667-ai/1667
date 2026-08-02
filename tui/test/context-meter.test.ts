@@ -241,6 +241,26 @@ describe("honest next-request context meter", () => {
     expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
   });
 
+  test("a small estimated category keeps its mark, so it cannot read as counted", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("a short note");
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    // A complete-array source: the total is counted, every category stays an
+    // estimate. The note category needs no rounding, which is exactly where a
+    // bare number would be indistinguishable from an exact count of that size.
+    const count: PromptTokenCount = {
+      kind: "counted", source: "anthropic-count-tokens", grade: "exact",
+      total: estimate.tokens + 6, perMessage: null
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.breakdown.note).toBeLessThan(1_000);
+    expect(model.perMessageGrade).toBe("estimate");
+    expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
   test("a per-message split marks the category rows, and the total can run ahead of their sum", () => {
     const demo = createDemoController();
     const payload = demo.setAuthorsNote("x".repeat(8_000));
@@ -251,7 +271,7 @@ describe("honest next-request context meter", () => {
     // message, so the total legitimately runs ahead of the per-message sum.
     const total = perMessage.reduce((sum, tokens) => sum + tokens, 0) + 3;
     const count: PromptTokenCount = {
-      kind: "counted", source: "bundled-o200k", grade: "exact", total, perMessage
+      kind: "counted", source: "bundled-openai", grade: "exact", total, perMessage
     };
     const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
     const expanded = frameText(railLines(model, true));
@@ -292,7 +312,7 @@ describe("honest next-request context meter", () => {
       shape: promptCountShape(estimate.messages),
       route: state.generationRoute,
       count: {
-        kind: "counted", source: "bundled-o200k", grade: "exact", total: 4_242, perMessage: null
+        kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
       }
     };
     const counted = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);

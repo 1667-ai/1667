@@ -75,6 +75,11 @@ A near-exact count comes from the model server. 1667 cannot prove that the
 server applies the same chat template to a generation request, so it does not
 call the count exact. A token estimate counts four characters for each token.
 
+The bundled tokenizer counts with the encoding of the selected model. Different
+OpenAI models use different encodings. If the bundled tokenizer does not know
+the model, 1667 keeps the token estimate. A new model and a fine-tuned model
+can have this result.
+
 The Anthropic source and the two local sources count a complete message array.
 They cannot give a count to one message. For these sources the total is a
 counted number. Each category and each message keeps its estimate.

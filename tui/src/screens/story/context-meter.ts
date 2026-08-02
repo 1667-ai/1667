@@ -395,11 +395,19 @@ function valueRole(severity: ContextSeverity): DisplayRole {
 }
 
 /** Fixed-width rail value: every category remains visible in the legend half.
- * A count below a thousand is exact, and one off the top of the scale already
- * says so itself — neither wants a mark, and the off-scale form needs the
- * cell a mark would cost to keep its unit. */
+ *
+ * A value under a thousand needs no rounding, so it used to print bare — safe
+ * while every number in this legend was an estimate. It is not safe now: an
+ * exact count prints bare, so a bare `84` would say it had been counted. The
+ * mark is the only thing separating the two, so every reachable value keeps
+ * it and only an exact count earns the bare form.
+ *
+ * The off-scale form is the exception, and stays bare. It is the sentinel for
+ * more than 999 trillion tokens — beyond any context window, so no request
+ * reaches it — and it already carries its own "more than" in the `+`. Marking
+ * it would cost the cell that `+` needs, and a clipped `~999t` would claim an
+ * exact 999 trillion, which is worse than either. */
 function railTokenCount(tokens: number, grade: TokenCountGrade): string {
-  const value = Math.max(0, tokens);
-  const narrow = formatTokensNarrow(value);
-  return value < 1_000 || narrow === OFF_SCALE_TOKENS ? narrow : `${tokenCountMark(grade)}${narrow}`;
+  const narrow = formatTokensNarrow(Math.max(0, tokens));
+  return narrow === OFF_SCALE_TOKENS ? narrow : `${tokenCountMark(grade)}${narrow}`;
 }

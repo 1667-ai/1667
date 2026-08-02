@@ -15,7 +15,7 @@ import type {
  * with no source keeps the four-characters-per-token estimate.
  */
 export type TokenizeSourceKind =
-  | "bundled-o200k"
+  | "bundled-openai"
   | "anthropic-count-tokens"
   | "llama-cpp-tokenize"
   | "koboldcpp-tokencount"
@@ -78,7 +78,7 @@ export function tokenizeSourceFor(
   if (preset === "openai"
     && protocol === "openai-chat-completions"
     && isOfficialOpenAiBaseUrl(baseUrl ?? "")) {
-    return { kind: "bundled-o200k", grade: "exact", perMessage: true };
+    return { kind: "bundled-openai", grade: "exact", perMessage: true };
   }
   if (preset === "llama-cpp") {
     return { kind: "llama-cpp-tokenize", grade: "near-exact", perMessage: false };
@@ -97,7 +97,7 @@ export type TokenCountFallback = (typeof TOKEN_COUNT_FALLBACK_VALUES)[number];
  * rather than re-spelling the union, so a new source cannot reach the views
  * through a decoder that still refuses it. */
 export const COUNTED_TOKENIZE_SOURCE_VALUES = [
-  "bundled-o200k",
+  "bundled-openai",
   "anthropic-count-tokens",
   "llama-cpp-tokenize",
   "koboldcpp-tokencount"
@@ -155,15 +155,24 @@ export function promptCountShape(messages: readonly ChatMessage[]): string {
  * The identity of one counted request. The views hold a count against the exact
  * content it counted, so a late answer can never describe newer text, and the
  * backend caches a count under the same identity.
+ *
+ * Every field is written with its length in front of it. A separator character
+ * cannot do this job, because no character is barred from story prose: a single
+ * message holding the separator would otherwise hash the same as two messages
+ * either side of one, and the cache would answer the second prompt with the
+ * first prompt's count.
  */
 export function promptCountFingerprint(
   messages: readonly ChatMessage[],
   ...scope: readonly string[]
 ): string {
   const hash = createHash("sha256");
-  for (const part of scope) hash.update(`${part}\u0000`);
+  const field = (value: string) => hash.update(`${value.length}:${value}`);
+  field(String(scope.length));
+  for (const part of scope) field(part);
   for (const message of messages) {
-    hash.update(`${message.role}\u0000${message.content}\u0000`);
+    field(message.role);
+    field(message.content);
   }
   return hash.digest("hex");
 }

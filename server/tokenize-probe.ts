@@ -10,7 +10,7 @@ import {
   type TokenizeSourceKind
 } from "../shared/tokenize-source.js";
 import type { GenerationSettings } from "../shared/types.js";
-import { countO200kPromptTextTokens } from "./openai-prompt-tokenizer.js";
+import { countModelPromptTextTokens } from "./openai-prompt-tokenizer.js";
 import { postProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 import { providerRoot, providerUrl } from "./providers.js";
@@ -79,13 +79,17 @@ export async function countPromptTokens(
   if (cached !== undefined) return cached;
 
   signal?.throwIfAborted();
-  let counted: CountedProbe;
+  let counted: CountedProbe | null;
   try {
     counted = await probeByKind(kind, settings, messages, signal);
   } catch {
     signal?.throwIfAborted();
     return { kind: "estimate", reason: "probe-failed" };
   }
+  // A null count is the source saying it cannot serve this model at all — an
+  // unreleased name, or a fine-tune. That is settled, not a transient failure,
+  // so it answers `no-source` and is not retried against the same route.
+  if (counted === null) return ESTIMATED_TOKEN_COUNT;
   if (counted.total <= 0) return { kind: "estimate", reason: "probe-failed" };
 
   // The source stamps the answer. Every grade decision stays in the one file
@@ -114,29 +118,26 @@ async function probeByKind(
   settings: GenerationSettings,
   messages: readonly ChatMessage[],
   signal: AbortSignal | undefined
-): Promise<CountedProbe> {
+): Promise<CountedProbe | null> {
   switch (kind) {
-    case "bundled-o200k": return countBundledO200k(messages);
+    case "bundled-openai": return countBundled(settings.model, messages);
     case "anthropic-count-tokens": return await countAnthropic(settings, messages, signal);
     case "llama-cpp-tokenize": return await countLlamaCpp(settings, messages, signal);
     case "koboldcpp-tokencount": return await countKoboldCpp(settings, messages, signal);
   }
 }
 
-/** Text-only: chat framing is added back here. A null result means the wasm
- * tokenizer failed to load, which the caller treats the same as any other
- * probe failure.
+/** Text-only: chat framing is added back here, under the encoding the named
+ * model uses. A null result means this build cannot tokenize that model, which
+ * the caller answers with the estimate rather than a wrong exact number.
  *
  * The total carries the reply priming, which belongs to no message, so it is
  * larger than the sum of the per-message counts. That difference is the exact
  * shape of the request, not a rounding error. */
-function countBundledO200k(messages: readonly ChatMessage[]): CountedProbe {
-  const perMessage: number[] = [];
-  for (const message of messages) {
-    const textTokens = countO200kPromptTextTokens([message.content]);
-    if (textTokens === null) throw new Error("o200k tokenizer is unavailable");
-    perMessage.push(textTokens + MESSAGE_FRAMING_TOKENS);
-  }
+function countBundled(model: string, messages: readonly ChatMessage[]): CountedProbe | null {
+  const textTokens = countModelPromptTextTokens(model, messages.map((message) => message.content));
+  if (textTokens === null) return null;
+  const perMessage = textTokens.map((tokens) => tokens + MESSAGE_FRAMING_TOKENS);
   return {
     total: perMessage.reduce((sum, count) => sum + count, 0) + REPLY_PRIMING_TOKENS,
     perMessage

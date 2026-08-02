@@ -234,7 +234,7 @@ describe("next request viewer", () => {
     // message: the total legitimately runs ahead of the per-message sum.
     const total = perMessage.reduce((sum, tokens) => sum + tokens, 0) + 3;
     const count: PromptTokenCount = {
-      kind: "counted", source: "bundled-o200k", grade: "exact", total, perMessage
+      kind: "counted", source: "bundled-openai", grade: "exact", total, perMessage
     };
     const frame = renderRequestViewer(
       { payload: projected.payload, model: state.model, contextWindow: state.contextWindow },
