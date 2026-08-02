@@ -12,7 +12,8 @@ import {
   type FactScanContext
 } from "../shared/fact-activation.js";
 import {
-  MAX_FACT_BUDGET_TOKENS,
+  FactBudgetError,
+  parseFactBudgetTokens,
   selectFactsWithinBudget,
   type FactBudgetSelection
 } from "../shared/fact-budget.js";
@@ -132,17 +133,14 @@ export function reorderFact(story: Story, factId: string, value: unknown): void 
   const toIndex = requireToIndex(value);
   const from = story.facts.findIndex((fact) => fact.id === factId);
   if (from === -1) throw new HttpError(404, `Fact not found: ${factId}`);
-  const clamped = reorderedIndex(toIndex, story.facts.length);
+  // Where toIndex actually lands once clamped into range. Worker replay does
+  // not call this separately — it clones the story and replays this whole
+  // function (see server/worker-mutations.ts's reorderFact), so there is
+  // nothing else here for a second copy of the clamp to agree or disagree with.
+  const clamped = Math.max(0, Math.min(toIndex, story.facts.length - 1));
   if (clamped === from) return;
   const [fact] = story.facts.splice(from, 1);
   story.facts.splice(clamped, 0, fact!);
-}
-
-/** Where `toIndex` actually lands once clamped into range — shared by the
- * mutation itself and by worker replay's idempotency check, so the two never
- * disagree about what "already applied" means. */
-export function reorderedIndex(toIndex: number, factCount: number): number {
-  return Math.max(0, Math.min(toIndex, factCount - 1));
 }
 
 function requireToIndex(value: unknown): number {
@@ -187,17 +185,6 @@ export function activeBudgetedFactsForRewrite(
 
 export function factsSystemMessage(story: Story, context?: FactScanContext): string | null {
   return formatFactsMessage(activeBudgetedFacts(story, context).kept);
-}
-
-export function rewriteFactsSystemMessage(
-  story: Story,
-  partId: string,
-  instruction: string,
-  selectedText: string
-): string | null {
-  return formatFactsMessage(
-    activeBudgetedFactsForRewrite(story, partId, instruction, selectedText).kept
-  );
 }
 
 function findFact(story: Story, factId: string): StoryFact {
@@ -284,8 +271,10 @@ function parsePriority(value: unknown): FactPriority {
  *  here; null clears the cap, handled by the caller before this runs). */
 function parseCreateBudgetTokens(value: unknown): number | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > MAX_FACT_BUDGET_TOKENS) {
-    throw new HttpError(400, `Fact budgetTokens must be an integer between 1 and ${MAX_FACT_BUDGET_TOKENS}.`);
+  try {
+    return parseFactBudgetTokens(value);
+  } catch (error) {
+    if (error instanceof FactBudgetError) throw new HttpError(400, error.message);
+    throw error;
   }
-  return value;
 }

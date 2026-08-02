@@ -10,7 +10,7 @@ import {
   type FactActivation,
   type FactPriority
 } from "../shared/fact-activation.js";
-import { MAX_FACT_BUDGET_TOKENS } from "../shared/fact-budget.js";
+import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
 import type { ObjectHash, StoredFactV1 } from "./story-format.js";
 import { unicodeScalarLength } from "../shared/unicode.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
@@ -296,11 +296,12 @@ export function integerValue(value: unknown, label: string): number {
 
 export function optionalFactBudgetTokens(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined;
-  const result = integerValue(value, label);
-  if (result < 1 || result > MAX_FACT_BUDGET_TOKENS) {
-    throw new StoryFormatError(`${label} must be between 1 and ${MAX_FACT_BUDGET_TOKENS.toLocaleString()}`);
+  try {
+    return parseFactBudgetTokens(value, label);
+  } catch (error) {
+    if (error instanceof FactBudgetError) throw new StoryFormatError(error.message);
+    throw error;
   }
-  return result;
 }
 
 function optionalDeletedCharacters(value: unknown, label: string): number | undefined {

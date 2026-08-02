@@ -14,7 +14,12 @@ import {
 import {
   isProviderRecoveryContext
 } from "../shared/provider-recovery.js";
-import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
+import {
+  FactBudgetError,
+  MAX_STORY_FACTS_BUDGET_TOKENS,
+  parseStoryFactsBudgetTokens
+} from "../shared/fact-budget.js";
+import { factDraftOf, sameFactDraft } from "../shared/fact-draft.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
 import {
@@ -395,11 +400,12 @@ const MUTATIONS: MutationRegistry = {
         const candidate = structuredClone(story);
         patchFact(candidate, input.factId, input.body);
         const desired = candidate.facts.find((fact) => fact.id === input.factId)!;
-        return current.tag === desired.tag
-          && current.text === desired.text
-          && current.activation === desired.activation
-          && current.keys.length === desired.keys.length
-          && current.keys.every((key, index) => key === desired.keys[index]);
+        // Compare through the shared FactDraft equality rather than listing
+        // fields here — that is what let a `patchFact` touching only priority
+        // or budgetTokens go undetected and read as "already applied" (issue
+        // #281 review finding A). A new editable field is now compared here
+        // automatically, because sameFactDraft already accounts for it.
+        return sameFactDraft(factDraftOf(current), factDraftOf(desired));
       });
       return recovered ?? await service.patchFact(
         input.storyId,
@@ -734,7 +740,9 @@ const MUTATIONS: MutationRegistry = {
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         if (plan.generationAction(hasCommittedGeneration(story, input.genId)) === "return-committed") {
-          return await loadMutationPayload(service, input.storyId);
+          // Recovery has no way to know what a prior attempt's admission
+          // shed — only that the generation itself committed.
+          return { payload: await loadMutationPayload(service, input.storyId), droppedFacts: [] };
         }
       }
       return await service.continueStory(input.storyId, {
@@ -911,12 +919,14 @@ function badInput(message: string): ServiceError {
 
 function parseFactsBudgetTokensInput(value: unknown): number | null {
   if (value === null) return null;
-  if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > MAX_STORY_FACTS_BUDGET_TOKENS) {
+  try {
+    return parseStoryFactsBudgetTokens(value, "budgetTokens");
+  } catch (error) {
+    if (!(error instanceof FactBudgetError)) throw error;
     throw badInput(
       `budgetTokens must be an integer between 1 and ${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}, or null to clear it.`
     );
   }
-  return value as number;
 }
 
 function requireProviderRecoveryContext(value: unknown) {

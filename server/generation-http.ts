@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { fixedPromptTexts, renderPromptPlan } from "../shared/prompt-plan.js";
+import { renderPromptPlan } from "../shared/prompt-plan.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -10,7 +10,8 @@ import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalize
 import { activeHumanAttribution, attributionAfterReplacement } from "../shared/human-edit.js";
 import { streamCompletion } from "./providers.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
-import { assertFixedContextFits, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
@@ -65,15 +66,15 @@ export async function autonameStory(
         Math.max(1_000, (settings.contextWindow - titleSettings.maxTokens) * 3
           - titleFacts.length - briefChars - 800)
       );
-  let { prompt: titlePrompt } = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleFacts);
-  const titleAdmission = assertFixedContextFits(titleSettings, titleBudgeted.kept, null, fixedPromptTexts(titlePrompt));
-  if (titleAdmission.factsMessage !== titleFacts) {
-    // Window pressure shed a Fact after the prompt above was already built;
-    // rebuild with the reduced set so the streamed prompt matches admission.
-    // The char budget stays as computed — a few Facts shorter than assumed
-    // only makes it more conservative, never wrong.
-    titlePrompt = autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, titleAdmission.factsMessage).prompt;
-  }
+  // The char budget stays fixed across a possible rebuild below — a few Facts
+  // shorter than assumed only makes it more conservative, never wrong.
+  const { plan: titlePlan } = admitFactsIntoPrompt(
+    titleSettings,
+    titleBudgeted.kept,
+    null,
+    (factsMessage) => autonamePrompt(snapshot, settings.systemPrompt, promptCharBudget, factsMessage)
+  );
+  const titlePrompt = titlePlan.prompt;
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
   try {
     for await (const delta of streamCompletion(
@@ -130,7 +131,13 @@ export async function continueStory(
   onDelta: DeltaConsumer,
   signal: AbortSignal,
   providerStarted: () => void | Promise<void> = () => {},
-  bindIntent?: BindGenerationIntent
+  bindIntent?: BindGenerationIntent,
+  /** Fired once, synchronously, with whatever admission actually shed to fit
+   *  the fixed prompt — the only place this real, post-shedding drop set
+   *  exists. A caller that wants to tell the writer what happened (rather
+   *  than the pre-flight guess the context meter shows before the request is
+   *  sent) reads it here; the committed Story carries no trace of it. */
+  onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void
 ): Promise<Story | null> {
   if (signal.aborted) return null;
   const requestedInstruction = (optionalString(body.instruction) ?? "").trim();
@@ -184,7 +191,6 @@ export async function continueStory(
     nodes: story.nodes,
     instruction
   });
-  const facts = formatFactsMessage(budgetedFacts.kept);
   const authorsNote = story.authorsNote ?? null;
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return null;
@@ -194,26 +200,24 @@ export async function continueStory(
   generationAdmission.rememberModel(id, genId, model);
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.
-  const buildContinuation = (factsMessage: string | null) => continuationPlan(
-    settings.systemPrompt,
-    factsMessage,
+  const { plan: continuation, admission } = admitFactsIntoPrompt(
+    settings,
+    budgetedFacts.kept,
     authorsNote,
-    contextParts,
-    instruction,
-    appendTo !== null,
-    supportsAssistantPrefill(settings),
-    null,
-    story.chapterBreaks,
-    story.nodes
+    (factsMessage) => continuationPlan(
+      settings.systemPrompt,
+      factsMessage,
+      authorsNote,
+      contextParts,
+      instruction,
+      appendTo !== null,
+      supportsAssistantPrefill(settings),
+      null,
+      story.chapterBreaks,
+      story.nodes
+    )
   );
-  let continuation = buildContinuation(facts);
-  const admission = assertFixedContextFits(settings, budgetedFacts.kept, authorsNote, fixedPromptTexts(continuation.prompt));
-  if (admission.factsMessage !== facts) {
-    // Window pressure shed a Fact after the plan above was already built with
-    // the larger set; rebuild so the streamed prompt matches what admission
-    // actually let through.
-    continuation = buildContinuation(admission.factsMessage);
-  }
+  onFactsDropped?.(admission.dropped);
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
@@ -331,39 +335,35 @@ export async function rewriteNode(
   }
   const originalText = part.text;
   const budgetedFacts = activeBudgetedFactsForRewrite(story, partId, instruction, expected);
-  const facts = formatFactsMessage(budgetedFacts.kept);
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
   if (signal.aborted) return false;
   // A fresh nonce makes the rewrite markers and output terminator impossible to
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
-  const buildRewritePlan = (factsMessage: string | null) => {
-    const common = {
-      story,
-      facts: factsMessage,
-      partId,
-      start,
-      end,
-      expected,
-      instruction,
-      lengthTarget: lengthTarget(expected, requested !== ""),
-      authorBrief: settings.systemPrompt,
-      tag
-    };
-    return bareMode
-      ? phraseRewritePlan({ ...common, passage: !phraseMode })
-      : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
-  };
-  let plan = buildRewritePlan(facts);
   // Measure the fixed rewrite prompt from the semantic plan so admission cannot
   // drift from later prompt wording.
-  const admission = assertFixedContextFits(settings, budgetedFacts.kept, null, fixedPromptTexts(plan.prompt));
-  if (admission.factsMessage !== facts) {
-    // Window pressure shed a Fact after the plan above was already built;
-    // rebuild so the streamed prompt matches what admission actually let
-    // through — the anchors below must describe the prompt that was sent.
-    plan = buildRewritePlan(admission.factsMessage);
-  }
+  const { plan, admission } = admitFactsIntoPrompt(
+    settings,
+    budgetedFacts.kept,
+    null,
+    (factsMessage) => {
+      const common = {
+        story,
+        facts: factsMessage,
+        partId,
+        start,
+        end,
+        expected,
+        instruction,
+        lengthTarget: lengthTarget(expected, requested !== ""),
+        authorBrief: settings.systemPrompt,
+        tag
+      };
+      return bareMode
+        ? phraseRewritePlan({ ...common, passage: !phraseMode })
+        : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
+    }
+  );
   // Rewriting is a precision task: high temperatures break exact seam copying
   // long before they improve prose. A plain regenerate also gets a hard output
   // budget, so a model that ignores the word band runs out after a few dozen

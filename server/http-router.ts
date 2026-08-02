@@ -418,7 +418,7 @@ async function handleApi(
           })
         }
       }, onDelta, signal),
-      (story) => ({ type: "done", story }),
+      (result) => ({ type: "done", story: result.payload, droppedFacts: result.droppedFacts }),
       operation.signal,
       context.errorReporter,
       "continueStory");

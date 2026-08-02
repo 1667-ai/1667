@@ -9,6 +9,47 @@ export const MAX_FACT_BUDGET_TOKENS = 100_000;
  * a nonsensical wire value rather than acting as a real-world ceiling. */
 export const MAX_STORY_FACTS_BUDGET_TOKENS = 1_000_000;
 
+export class FactBudgetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FactBudgetError";
+  }
+}
+
+/**
+ * A Fact's own token cap: a whole number of tokens from 1 up to
+ * MAX_FACT_BUDGET_TOKENS. The house pattern for `activation` and `priority`
+ * (see shared/fact-activation.ts) is one parser beside the constant it
+ * enforces, with every boundary mapping its error the same way — budgetTokens
+ * used to have four bespoke bounds checks instead, two per cap, that could
+ * silently drift apart. This function judges only a value that is already
+ * present; each boundary still decides what an absent or null value means
+ * (uncapped, unset, "leave alone") before calling it.
+ */
+export function parseFactBudgetTokens(value: unknown, label = "Fact budgetTokens"): number {
+  if (!isBudgetTokensInRange(value, MAX_FACT_BUDGET_TOKENS)) {
+    throw new FactBudgetError(
+      `${label} must be an integer between 1 and ${MAX_FACT_BUDGET_TOKENS.toLocaleString()}.`
+    );
+  }
+  return value;
+}
+
+/** A story's total Facts budget — same shape as `parseFactBudgetTokens`, the
+ *  story-wide bound. */
+export function parseStoryFactsBudgetTokens(value: unknown, label = "factsBudgetTokens"): number {
+  if (!isBudgetTokensInRange(value, MAX_STORY_FACTS_BUDGET_TOKENS)) {
+    throw new FactBudgetError(
+      `${label} must be an integer between 1 and ${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}.`
+    );
+  }
+  return value;
+}
+
+function isBudgetTokensInRange(value: unknown, max: number): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= max;
+}
+
 /** Why one Fact did not make it into the emitted block. */
 export type FactDropReason = "priority" | "fact-budget" | "total-budget";
 
@@ -58,6 +99,21 @@ function sheddingOrder(
   return b.position - a.position;
 }
 
+/** The droppable Facts among `facts`, ordered lowest-value first — the same
+ *  order `selectFactsWithinBudget` sheds in. Exposed so a caller that must
+ *  fit an exact, externally-measured cost (see server/generation-admission.ts,
+ *  which sheds one Fact at a time and re-measures the real rendered message
+ *  rather than modeling its size) can shed in this order without re-deriving
+ *  it — priority, keyed-before-always, and the position tiebreak would
+ *  otherwise have to stay in sync by hand in a second place. */
+export function factsInSheddingOrder(facts: readonly StoryFact[]): readonly StoryFact[] {
+  return facts
+    .map((fact, position) => ({ fact, position }))
+    .filter(({ fact }) => isDroppable(fact))
+    .sort(sheddingOrder)
+    .map(({ fact }) => fact);
+}
+
 /**
  * Select which candidate Facts fit inside `availableTokens`, shedding the
  * lowest-value ones first. Never truncates a Fact's text — `formatFactsMessage`
@@ -86,7 +142,15 @@ export function selectFactsWithinBudget(
   const dropped: FactBudgetDrop[] = [];
   const survivors: StoryFact[] = [];
   for (const fact of facts) {
-    if (fact.budgetTokens !== undefined && estimate(fact) > fact.budgetTokens) {
+    // A Fact's own budgetTokens is the writer's declared cap, stated in the
+    // same estimated-token unit every other surface shows (rail, meter,
+    // docs) — so it is always judged by the canonical `estimateTokens`,
+    // never by whichever cost model a caller passes for sizing space against
+    // a window. `assertFixedContextFits` sizes that space with a conservative
+    // bound that doubles non-ASCII text; without this split, a CJK Fact
+    // could score under its cap everywhere the writer looks and still be
+    // reported as over-cap the one time it actually reaches a provider.
+    if (fact.budgetTokens !== undefined && estimateTokens(fact.text) > fact.budgetTokens) {
       dropped.push({ factId: fact.id, reason: "fact-budget" });
       continue;
     }

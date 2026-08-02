@@ -146,6 +146,47 @@ test("fixed-context admission returns the candidates unchanged once everything f
   assert.deepEqual(admission.facts, facts);
 });
 
+test("fixed-context admission sheds down to what actually fits instead of throwing having dropped nothing", () => {
+  // Review finding B, reproduced with the reviewer's own numbers: the old
+  // selector measured a Fact's raw text against room sized for the whole
+  // rendered Facts block (id-json line, delimiters, text-utf16-length line,
+  // and the block preamble), so it could conclude nothing needed to go even
+  // though the real formatFactsMessage output did not fit. That produced a
+  // throw claiming every droppable Fact was already gone when none had been.
+  const settings: GenerationSettings = { ...smallWindowSettings(), contextWindow: 331 };
+  const facts = ["a", "b", "c"].map((id) => fact({
+    id, text: "x".repeat(400), activation: "keyed", keys: ["x"]
+  }));
+  const admission = assertFixedContextFits(settings, facts, null, []);
+  // Exactly one Fact fits once the real per-Fact wrapper cost is counted;
+  // the old code kept all three and then threw.
+  assert.equal(admission.facts.length, 1);
+  assert.equal(admission.dropped.length, 2);
+  assert.equal(admission.dropped.every((drop) => drop.reason === "priority"), true);
+});
+
+test("fixed-context admission never blames a Fact's own cap on a different estimator than the cap was set against", () => {
+  // Review finding C: the selector's own-cap gate used to take whichever
+  // per-Fact cost model the caller passed for sizing space against the
+  // window — admission passed a conservative estimator that doubles
+  // non-ASCII text, so it could score a CJK Fact over its own cap even
+  // though the plain ~4-chars-per-token estimate every other surface uses
+  // for budgetTokens (the rail, the meter, the docs) scores it well under.
+  // A tight window here forces admission to actually shed something; the
+  // fix is that whatever it sheds, a Fact under its real cap is never the
+  // one blamed with reason "fact-budget".
+  const settings: GenerationSettings = { ...smallWindowSettings(), contextWindow: 60 };
+  const cjk = fact({
+    id: "cjk", text: "玲".repeat(100), activation: "keyed", keys: ["x"], budgetTokens: 50
+  });
+  // ceil(100 / 4) = 25 <= 50 under the canonical estimator — well under cap.
+  const admission = assertFixedContextFits(settings, [cjk], null, []);
+  assert.equal(
+    admission.dropped.some((drop) => drop.factId === "cjk" && drop.reason === "fact-budget"),
+    false
+  );
+});
+
 function fact(overrides: Partial<StoryFact> & Pick<StoryFact, "id" | "text">): StoryFact {
   return {
     tag: null,

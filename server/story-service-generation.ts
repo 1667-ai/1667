@@ -1,4 +1,5 @@
 import type { StoryPayload } from "../shared/types.js";
+import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import { summarizeChapter } from "./chapter-summary.js";
 import {
   autonameStory,
@@ -108,9 +109,17 @@ export class StoryServiceGeneration {
     onDelta: DeltaConsumer,
     signal: AbortSignal,
     hooks: GenerationMutationHooks = {}
-  ): Promise<StoryPayload | null> {
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null> {
     this.dependencies.ensureOpen();
     const genId = requireString(body.genId, "genId");
+    // Admission's real, post-shedding drop set lives only inside continueStory's
+    // call stack — this closure is how it survives past the provider-operation
+    // boundary below, since the committed Story it produces carries no trace of
+    // what admission shed to make the fixed prompt fit (see issue #281 review
+    // finding C). A crash-recovery replay that skips straight to the committed
+    // story never reaches this callback, so it stays empty rather than guessing.
+    let droppedFacts: readonly FactBudgetDrop[] = [];
+    const onFactsDropped = (dropped: readonly FactBudgetDrop[]): void => { droppedFacts = dropped; };
     return await this.dependencies.generationAdmission.run(id, genId, () =>
       this.dependencies.cancellable(signal, async (active) => {
         if (hooks.mutationRequest !== undefined) {
@@ -134,16 +143,17 @@ export class StoryServiceGeneration {
                     await providerStarted();
                     await hooks.providerStarted?.();
                   },
-                  hooks.bindIntent
+                  hooks.bindIntent,
+                  onFactsDropped
                 )) !== null,
               replayValue: () => true
             }
           );
           if (!committed.value) return null;
-          return buildStoryPayload(
-            committed.story,
-            committed.aggregateVersion
-          );
+          return {
+            payload: buildStoryPayload(committed.story, committed.aggregateVersion),
+            droppedFacts
+          };
         }
         const story = await continueStory(
           id,
@@ -155,9 +165,10 @@ export class StoryServiceGeneration {
           onDelta,
           active,
           hooks.providerStarted,
-          hooks.bindIntent
+          hooks.bindIntent,
+          onFactsDropped
         );
-        return story === null ? null : buildStoryPayload(story);
+        return story === null ? null : { payload: buildStoryPayload(story), droppedFacts };
       })
     );
   }

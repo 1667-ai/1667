@@ -85,6 +85,32 @@ test("fact budget labels space-driven drops with the caller's reason", () => {
   assert.deepEqual(selection.dropped, [{ factId: "shed-me", reason: "priority" }]);
 });
 
+test("fact budget judges a Fact's own cap by the canonical estimator, never the caller's space estimator", () => {
+  // Review finding C: a Fact's own budgetTokens cap must read the same way
+  // everywhere the writer sees an estimate (rail, meter, docs) — ceil(chars
+  // / 4) — even when the caller measuring space against a window passes a
+  // different, more conservative estimator for that separate purpose. A
+  // 100-character CJK Fact with a 50-token budget scores 25 under the
+  // canonical estimator (kept) and 200 under an estimator that doubles
+  // non-ASCII text — the two must not disagree about which one applies to
+  // the Fact's own cap.
+  const cjk = fact({ id: "cjk", text: "玲".repeat(100), budgetTokens: 50 });
+  const conservativeNonAsciiDoubling = (candidate: StoryFact): number => {
+    let ascii = 0;
+    let wide = 0;
+    for (const char of candidate.text) {
+      if (char.charCodeAt(0) < 128) ascii += 1;
+      else wide += 1;
+    }
+    return Math.ceil(ascii / 4) + wide * 2;
+  };
+  const selection = selectFactsWithinBudget([cjk], 1_000_000, {
+    estimateFactTokens: conservativeNonAsciiDoubling
+  });
+  assert.deepEqual(selection.dropped, []);
+  assert.deepEqual(selection.kept, [cjk]);
+});
+
 function fact(overrides: Partial<StoryFact> & Pick<StoryFact, "id" | "text">): StoryFact {
   return {
     tag: null,

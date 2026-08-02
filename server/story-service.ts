@@ -16,6 +16,7 @@ import type {
   StoryPayload,
   StorySummary
 } from "../shared/types.js";
+import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
@@ -804,7 +805,7 @@ export class StoryService extends StoryServiceRuntime {
     onDelta: DeltaConsumer,
     signal: AbortSignal,
     hooks: GenerationMutationHooks = {}
-  ): Promise<StoryPayload | null> {
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null> {
     return await this.storyGeneration.continueStory(
       id,
       body,

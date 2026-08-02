@@ -173,6 +173,56 @@ test("deterministic fact recovery wins before the capacity guard", async (t) => 
   }
 });
 
+test("a patchFact replay does not mistake a priority/budget-only edit for one already applied", async (t) => {
+  // Review finding A: the replay predicate compared tag, text, activation,
+  // and keys, but not the two fields this issue added. A patch that touched
+  // only priority or budgetTokens left every compared field unchanged, so a
+  // genuinely pending (never-applied) patch read as "already matches" —
+  // reconcileStory returned the untouched story as a *success*, silently
+  // discarding the edit, instead of the safe mutation_outcome_unknown escalation
+  // every other field already got when the predicate could not confirm a
+  // prior attempt had committed.
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-fact-patch-recovery-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    const story = await service.createFact(
+      (await service.createStory("Fact patch recovery")).id,
+      { text: "A fact that will gain priority and a budget." }
+    );
+    const factId = story.facts[0]!.id;
+    const input = { storyId: story.id, factId, body: { priority: "high", budgetTokens: 40 } };
+    const mutationIdValue = mutationId("fa");
+    // A receipt exists, but the patch was never actually applied — the
+    // scenario a real crash before commit produces.
+    await writePendingReceipt(service, mutationIdValue, "patchFact", input);
+
+    await assert.rejects(
+      runWorkerMutation(service, mutationIdValue, "patchFact", input),
+      hasCode("mutation_outcome_unknown")
+    );
+    // No false "success" happened, and the Fact was never touched — the
+    // caller's mutation_outcome_unknown recovery flow decides what to retry.
+    assert.equal(
+      (await service.loadStory(story.id)).facts.find((fact) => fact.id === factId)?.priority,
+      undefined
+    );
+
+    // Control case: a patch that also changes text has always correctly
+    // escalated the same way for a genuinely pending replay.
+    const textInput = { storyId: story.id, factId, body: { text: "Different text entirely.", priority: "low" } };
+    const textMutationId = mutationId("fb");
+    await writePendingReceipt(service, textMutationId, "patchFact", textInput);
+    await assert.rejects(
+      runWorkerMutation(service, textMutationId, "patchFact", textInput),
+      hasCode("mutation_outcome_unknown")
+    );
+  } finally {
+    await service.dispose();
+  }
+});
+
 test("pending overwrite recovery never clobbers newer authoritative state", async (t) => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "1667-overwrite-recovery-"));
   t.after(() => rm(dataDir, { recursive: true, force: true }));

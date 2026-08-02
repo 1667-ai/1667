@@ -9,7 +9,7 @@ import {
   type StoryOrigin,
 } from "../shared/types.js";
 import type { FactActivation, FactPriority } from "../shared/fact-activation.js";
-import { MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
+import { FactBudgetError, parseStoryFactsBudgetTokens } from "../shared/fact-budget.js";
 import { parseChapterBreaks, validateChapterRecords } from "./story-format-chapters.js";
 import { assertWellFormedUnicode } from "./story-format-unicode.js";
 import {
@@ -18,7 +18,6 @@ import {
   arrayField,
   arrayValue,
   integerField,
-  integerValue,
   optionalString,
   parseVersionAttributions,
   recordValue,
@@ -594,9 +593,10 @@ function manifestSizeError(): StoryFormatError {
 
 function optionalFactsBudgetTokens(value: unknown): number | undefined {
   if (value === undefined) return undefined;
-  const result = integerValue(value, "factsBudgetTokens");
-  if (result < 1 || result > MAX_STORY_FACTS_BUDGET_TOKENS) {
-    throw new StoryFormatError(`factsBudgetTokens must be between 1 and ${MAX_STORY_FACTS_BUDGET_TOKENS.toLocaleString()}`);
+  try {
+    return parseStoryFactsBudgetTokens(value);
+  } catch (error) {
+    if (error instanceof FactBudgetError) throw new StoryFormatError(error.message);
+    throw error;
   }
-  return result;
 }

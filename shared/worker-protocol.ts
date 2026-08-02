@@ -25,6 +25,7 @@ import type {
   SettingsView
 } from "./settings-v2-types.js";
 import type { LorebookImport } from "./novelai-lorebook.js";
+import type { FactBudgetDrop } from "./fact-budget.js";
 
 import type {
   ListStoriesPageInput,
@@ -183,7 +184,10 @@ export interface WorkerMethodContract {
   importLorebook: { input: { storyId: string; archiveBytes: Uint8Array }; output: { payload: StoryPayload; importResult: LorebookImport } };
   continueStory: {
     input: { storyId: string; instruction: string; genId: string; target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string } };
-    output: StoryPayload | null;
+    /** droppedFacts is what admission actually shed to fit the fixed prompt —
+     *  empty both when nothing had to give and when a crash-recovery replay
+     *  has no way to know. See server/generation-admission.ts. */
+    output: { payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null;
   };
   rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: boolean };
   createSummaryTake: {

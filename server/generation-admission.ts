@@ -1,4 +1,5 @@
-import { selectFactsWithinBudget, type FactBudgetDrop } from "../shared/fact-budget.js";
+import { factsInSheddingOrder, selectFactsWithinBudget, type FactBudgetDrop } from "../shared/fact-budget.js";
+import { fixedPromptTexts, type PromptPlan } from "../shared/prompt-plan.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
 import type { GenerationSettings, StoryFact } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
@@ -51,8 +52,12 @@ export interface FixedContextAdmission {
  * so it stays accurate about the actual remaining cause.
  *
  * `candidateFacts` should already reflect activation matching and the story's
- * own Facts budget (see server/story-facts.ts's `activeBudgetedFacts`) — this
- * function only handles the window-pressure fallback on top of that.
+ * own Facts budget (see server/story-facts.ts's `activeBudgetedFacts`); this
+ * function's main job is the window-pressure fallback on top of that. It also
+ * re-applies each Fact's own `budgetTokens` cap itself rather than trusting
+ * the caller to have done so — both gates go through the same canonical
+ * estimator (shared/fact-budget.ts), so a Fact judged under its cap anywhere
+ * else in the app is judged the same way here.
  */
 export function assertFixedContextFits(
   settings: GenerationSettings,
@@ -61,34 +66,41 @@ export function assertFixedContextFits(
   otherFixed: readonly string[]
 ): FixedContextAdmission {
   const notePresent = authorsNote !== null && authorsNote.trim().length > 0;
-  const initialMessage = formatFactsMessage(candidateFacts);
+  // A Fact over its own declared cap is dropped outright, independent of
+  // window pressure — already exact, since shared/fact-budget.ts judges it by
+  // the same canonical estimator every other surface uses for budgetTokens.
+  const { kept: ownCapSurvivors, dropped: ownCapDrops } = selectFactsWithinBudget(candidateFacts, null);
+  const initialMessage = formatFactsMessage(ownCapSurvivors);
   if (settings.contextWindow === null || (initialMessage === null && !notePresent)) {
-    return { facts: candidateFacts, factsMessage: initialMessage, dropped: [] };
+    return { facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops };
   }
   const usable = settings.contextWindow - settings.maxTokens;
   if (fixedContextTokens(initialMessage, authorsNote, otherFixed) <= usable) {
-    return { facts: candidateFacts, factsMessage: initialMessage, dropped: [] };
+    return { facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops };
   }
 
-  // The fixed prompt does not fit. Work out how much room Facts could have —
-  // window minus everything else fixed — and shed the lowest-value Facts
-  // first until what remains fits that room, or nothing droppable is left.
-  const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
-  const otherCost = otherFixed.reduce((sum, text) => sum + upperBoundTokens(text), 0);
-  // Mirrors fixedContextTokens' framing for a prompt that still has a Facts
-  // block: otherFixed's blocks, the Author's Note if present, one for Facts,
-  // plus the same +2 constant. Shedding down to zero Facts only makes this a
-  // few tokens more conservative than necessary, never less.
-  const framingBlocks = otherFixed.length + (notePresent ? 1 : 0) + 1 + 2;
-  const availableForFacts = usable - noteCost - otherCost - framingBlocks * 4;
-  const { kept, dropped } = selectFactsWithinBudget(candidateFacts, Math.max(0, availableForFacts), {
-    spaceDropReason: "priority",
-    estimateFactTokens: (fact) => upperBoundTokens(fact.text)
-  });
+  // The fixed prompt still does not fit. formatFactsMessage is the single
+  // authority on what a Fact block actually costs — its per-fact delimiters,
+  // id-json, and length line are not modeled here a second time. Instead,
+  // shed the lowest-value Fact, render the real message again, and repeat
+  // until the real, re-measured prompt fits or nothing droppable is left.
+  // This can never drift from what the request actually sends, because it
+  // never estimates that cost — it always measures it.
+  let kept = ownCapSurvivors;
+  const spaceDrops: FactBudgetDrop[] = [];
+  const fits = (facts: readonly StoryFact[]): boolean =>
+    fixedContextTokens(formatFactsMessage(facts), authorsNote, otherFixed) <= usable;
+  for (const fact of factsInSheddingOrder(ownCapSurvivors)) {
+    if (fits(kept)) break;
+    kept = kept.filter((candidate) => candidate.id !== fact.id);
+    spaceDrops.push({ factId: fact.id, reason: "priority" });
+  }
   const factsMessage = formatFactsMessage(kept);
   const fixed = fixedContextTokens(factsMessage, authorsNote, otherFixed);
+  const dropped = [...ownCapDrops, ...spaceDrops];
   if (fixed <= usable) return { facts: kept, factsMessage, dropped };
 
+  const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
   const factsTokens = factsMessage === null ? 0 : upperBoundTokens(factsMessage);
   if (noteCost > factsTokens) {
     throw new ServiceError(
@@ -104,6 +116,33 @@ export function assertFixedContextFits(
     `droppable fact (~${fixed.toLocaleString()} fixed prompt tokens, ~${Math.max(0, usable).toLocaleString()} usable). ` +
     `Shorten or consolidate facts, or raise the context window in Settings.`
   );
+}
+
+/**
+ * Build a prompt from a Facts message, admit it, and rebuild only if
+ * admission actually shed a Fact. `build` runs at most twice: `fixedPromptTexts`
+ * excludes the facts block itself (see shared/prompt-plan.ts), so the first
+ * build's non-Fact text never depends on which Facts were used and is never
+ * wasted work. This is the one build/admit/compare/rebuild shape every
+ * generation call in server/generation-http.ts needs — collecting it here
+ * also gives it one place to report what admission dropped.
+ */
+export function admitFactsIntoPrompt<P extends { prompt: PromptPlan }>(
+  settings: GenerationSettings,
+  candidateFacts: readonly StoryFact[],
+  authorsNote: string | null,
+  build: (factsMessage: string | null) => P
+): { plan: P; admission: FixedContextAdmission } {
+  const initialFactsMessage = formatFactsMessage(candidateFacts);
+  const initial = build(initialFactsMessage);
+  const admission = assertFixedContextFits(
+    settings,
+    candidateFacts,
+    authorsNote,
+    fixedPromptTexts(initial.prompt)
+  );
+  const plan = admission.factsMessage === initialFactsMessage ? initial : build(admission.factsMessage);
+  return { plan, admission };
 }
 
 interface GenerationModelAttribution {

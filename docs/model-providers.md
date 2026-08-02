@@ -66,8 +66,11 @@ can drop at any priority. Set an `always` Fact to `low` priority to let it
 drop too.
 
 A Fact can also have a Fact budget: a limit on its own estimated token count.
-1667 drops a Fact that goes over its Fact budget. 1667 never shortens a
-Fact's text. A Fact rides whole in a request, or 1667 drops it whole.
+1667 drops a Fact that goes over its Fact budget. This rule applies even to
+an `always` Fact at `normal` or `high` priority. A Fact budget is an
+instruction on that one Fact. It always overrides the priority exemption.
+1667 never shortens a Fact's text. A Fact rides whole in a request, or 1667
+drops it whole.
 
 Open the Fact editor and move to the budget row. Type a whole number of
 tokens. Leave the row empty to remove the Fact budget.
