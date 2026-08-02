@@ -337,25 +337,15 @@ waits for the first write to become visible. If the wait expires, the job tries
 the same immutable version again. npm rejects an existing version without a
 replacement. The job then continues the visibility check.
 
+The workflow publishes with the npm tag the version selects. A prerelease
+publishes to `beta`. Every other version publishes to `latest`. npm performs its
+Trusted Publishing exchange inside `npm publish` and nowhere else, so a dist-tag
+cannot move afterwards, and the version therefore decides the channel.
 
-`.github/workflows/release-npm-operation.yml` holds the shared lock for a manual operation.
-The `authorize` job runs before the `hold` job.
-The `authorize` job verifies the default branch.
-It verifies the requested release.
-It requires the dispatcher to be a repository administrator.
-It builds the dependency-free holder program.
-The `hold` job enters the shared lock only with the exact authorization output.
-One maintainer then verifies the live holder.
-The maintainer then creates immutable active and claim markers.
-The tag helper verifies the exact claim and the release refs before each npm write.
-The helper creates a complete or failed marker.
-An administrator can create an abandoned marker after the stale lease recovery procedure.
-No procedure updates or deletes an operation marker.
-
-The workflow publishes with the npm `latest` tag. It waits for the platform
-packages before it publishes the launcher package. It creates
+The workflow waits for the platform packages before it publishes the launcher
+package. It creates
 `released/v<version>` only after npm and GitHub publication are complete.
-The final registry check requires `latest` to name this version for all six
+The final registry check requires that same tag to name this version for all six
 packages.
 The workflow fully verifies each package before it writes the next package.
 

@@ -35,6 +35,7 @@ import {
 } from "../scripts/release-npm-publish.js";
 import {
   NpmReleaseRegistry,
+  npmDistTagForVersion,
   validateNpmAuditProvenance,
   validateRegistryVersion
 } from "../scripts/release-npm-registry.js";
@@ -342,7 +343,7 @@ test("registry polling retries unsettled responses but stops on a digest refusal
   assert.equal(sleeps, 2);
 });
 
-test("registry verification waits for the next tag and audits package bytes", async (t) => {
+test("registry verification waits for the channel tag and audits package bytes", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-npm-registry-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const previousGhToken = process.env.GH_TOKEN;
@@ -394,7 +395,8 @@ test("registry verification waits for the next tag and audits package bytes", as
       return jsonResponse({
         name: expected.name,
         "dist-tags": {
-          next: nextTagRequests === 1 ? "1.2.2" : expected.version
+          [npmDistTagForVersion(expected.version)]:
+            nextTagRequests === 1 ? "1.2.2" : expected.version
         }
       });
     },
