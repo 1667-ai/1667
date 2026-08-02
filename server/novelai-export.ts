@@ -60,12 +60,15 @@ function selectedProse(story: StoryPayload): StoryNode[] {
 function splitMemoryFact(facts: readonly StoryFact[]): {
   readonly memory: StoryFact | null;
   readonly lorebook: readonly StoryFact[];
+  /** How many Facts the Memory Fact moves ahead of. */
+  readonly movedAhead: number;
 } {
   const index = facts.findIndex((fact) => fact.tag === MEMORY_FACT_TAG);
-  if (index === -1) return { memory: null, lorebook: facts };
+  if (index === -1) return { memory: null, lorebook: facts, movedAhead: 0 };
   return {
     memory: facts[index]!,
-    lorebook: [...facts.slice(0, index), ...facts.slice(index + 1)]
+    lorebook: [...facts.slice(0, index), ...facts.slice(index + 1)],
+    movedAhead: index
   };
 }
 
@@ -293,7 +296,7 @@ function exportFidelity(
     (part) => part.role !== "summary" && part.hasInstruction
   ).length;
   const summaries = story.nodes.filter((part) => part.role === "summary").length;
-  const { memory, lorebook } = splitMemoryFact(story.facts);
+  const { memory, lorebook, movedAhead } = splitMemoryFact(story.facts);
   const omissions = [
     `${alternateTakes} alternate ${countNoun(alternateTakes, "take")} omitted.`,
     `${story.tags.length} story line ${countNoun(story.tags.length, "tag")} omitted.`,
@@ -315,6 +318,11 @@ function exportFidelity(
         : []),
       ...(memory.keys.length > 0
         ? [`${memory.keys.length} Memory ${countNoun(memory.keys.length, "key")} omitted.`]
+        : []),
+      // Facts reach the model in order, and an archive has one Memory slot at
+      // the front. A Memory Fact that was not already first arrives first.
+      ...(movedAhead > 0
+        ? [`Memory moved ahead of ${movedAhead} ${countNoun(movedAhead, "fact")}.`]
         : [])
     ];
   const authorsNote = story.authorsNote === undefined

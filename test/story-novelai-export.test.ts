@@ -358,3 +358,42 @@ test("a story with no Memory fact and no Author's Note writes empty steering slo
   assert.equal(reimported.authorsNote, null);
   assert.ok(result.fidelity.includes("No Author's Note to export."));
 });
+
+test("a Memory fact that was not first says what its move costs", () => {
+  // Facts reach the model in order, and an archive has one Memory slot at the
+  // front, so a Memory Fact from the middle arrives first on the way back.
+  const story = fixtureStory();
+  const memoryFact = {
+    id: "fact-memory",
+    tag: "memory",
+    text: "Winter. The keeper is Maren.",
+    activation: "always" as const,
+    keys: [],
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z"
+  };
+  story.facts = [story.facts[0]!, memoryFact, story.facts[1]!];
+
+  const result = exportNovelAiArchive(story, "story");
+
+  assert.ok(result.fidelity.includes("Memory moved ahead of 1 fact."));
+  const reimported = partsFromNovelAiStory(result.text);
+  assert.deepEqual(reimported.facts.map((fact) => fact.tag), ["memory", "People", null]);
+});
+
+test("a Memory fact that was already first reports no move", () => {
+  const story = fixtureStory();
+  story.facts = [{
+    id: "fact-memory",
+    tag: "memory",
+    text: "Winter. The keeper is Maren.",
+    activation: "always",
+    keys: [],
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z"
+  }, ...story.facts];
+
+  const fidelity = exportNovelAiArchive(story, "story").fidelity;
+
+  assert.ok(!fidelity.some((line) => line.includes("Memory moved ahead")));
+});

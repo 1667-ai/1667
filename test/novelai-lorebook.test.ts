@@ -111,7 +111,7 @@ test("fidelity report text for a Lorebook that fires every counter at once asser
   const importResult = factsFromLorebook(lorebook, 34);
   const formattedReport = fidelityReport(importResult.fidelity);
 
-  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; search range, bias groups, and advanced conditions omitted";
+  const expected = "41 entries read; 34 facts imported; 3 disabled entries skipped; 2 entries truncated to 4,000 characters; 2 fact bodies trimmed of surrounding whitespace; 1 tag cut to 48 characters; 2 keys dropped; 2 keyed entries have no keys and will not activate; 4 entries did not fit the 128-fact limit; search range, bias groups, and advanced conditions omitted";
   assert.equal(formattedReport, expected);
 
 });
@@ -240,5 +240,21 @@ test("a lorebook PNG reports a lorebook error and never a character-card error",
   assert.throws(
     () => parseLorebookArchive(truncated),
     (error: Error) => error.message.startsWith("Lorebook PNG") && !error.message.includes("Character card")
+  );
+});
+
+test("a trimmed fact body is named, because 1667 stores fact text exactly", () => {
+  const result = factsFromLorebook({
+    lorebookVersion: SUPPORTED_LOREBOOK_VERSION,
+    entries: [
+      { enabled: true, text: "  indented and padded  ", displayName: "padded" },
+      { enabled: true, text: "already exact", displayName: "exact" }
+    ]
+  }, 128);
+
+  assert.equal(result.facts[0]?.text, "indented and padded");
+  assert.ok(
+    fidelityReport(result.fidelity).includes("1 fact body trimmed of surrounding whitespace"),
+    fidelityReport(result.fidelity)
   );
 });

@@ -107,6 +107,7 @@ export function factsFromLorebook(
   let textTruncatedCount = 0;
   let textEmptyCount = 0;
   let textInvalidCount = 0;
+  let textTrimmedCount = 0;
   let tagCutCount = 0;
   let keyedNoKeysCount = 0;
   let keysDroppedCount = 0;
@@ -128,6 +129,10 @@ export function factsFromLorebook(
       continue;
     }
 
+    // 1667 stores Fact text exactly, and the prompt tells the model so. The
+    // trim is right for a foreign archive, but it is a change either way, so
+    // the report names it rather than letting it happen quietly.
+    if (rawText.trim() !== rawText) textTrimmedCount += 1;
     const normalizedText = rawText.trim().replace(/\r\n|\r|\u2028|\u2029/g, "\n");
     if (normalizedText.length === 0) {
       textEmptyCount += 1;
@@ -257,6 +262,11 @@ export function factsFromLorebook(
   if (textInvalidCount > 0) {
     fidelity.push(
       `${textInvalidCount} ${countNoun(textInvalidCount, "entry", "entries")} dropped for invalid Unicode`
+    );
+  }
+  if (textTrimmedCount > 0) {
+    fidelity.push(
+      `${textTrimmedCount} fact ${countNoun(textTrimmedCount, "body", "bodies")} trimmed of surrounding whitespace`
     );
   }
   if (tagCutCount > 0) {
