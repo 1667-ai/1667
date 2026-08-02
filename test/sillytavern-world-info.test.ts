@@ -96,7 +96,7 @@ test("the mechanisms a Fact has no place for are named, not approximated", () =>
     "3 insertion positions omitted",
     "1 entry will always fire; a fact has no probability",
     "1 recursion setting omitted",
-    "scan depth, order, and group weighting omitted"
+    "scan depth, order, and other World Info settings omitted"
   ]) assert.ok(report.includes(reason), `${reason} missing from: ${report}`);
 });
 
@@ -281,6 +281,56 @@ test("the report states the matching rule for every World Info import", () => {
   // the rule 1667 uses is stated rather than guessed at per entry.
   assert.ok(
     report.includes("a fact key matches a whole key and ignores letter case"),
+    report
+  );
+});
+
+test("a key with a second delimiter or an unsupported flag stays a key", () => {
+  // A pattern ends at its first unescaped delimiter, so `/foo/bar/` is literal
+  // text upstream. `d` is a host flag SillyTavern does not accept.
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Literal",
+    content: "Still keys.",
+    key: ["/foo/bar/", "/storm/d", "/storm/i", "/a\\/b/i"]
+  }])));
+
+  const result = factsFromArchive(archive, 128);
+
+  assert.deepEqual(result.facts[0]?.keys, ["/foo/bar/", "/storm/d"]);
+  assert.ok(
+    fidelityReport(result.fidelity).includes("2 regular expression keys dropped"),
+    fidelityReport(result.fidelity)
+  );
+});
+
+test("a vectorized entry says it lost retrieval by meaning", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([{
+    comment: "Semantic",
+    content: "Found by meaning.",
+    key: [],
+    vectorized: true
+  }])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(report.includes("1 vectorized entry lost retrieval by meaning"), report);
+});
+
+test("an entry limited to a character says it now applies everywhere", () => {
+  const archive = parseLorebookArchive(Buffer.from(worldInfo([
+    {
+      comment: "Scoped",
+      content: "Only for Mira.",
+      key: ["k"],
+      characterFilter: { isExclude: false, names: ["Mira"], tags: [] }
+    },
+    { comment: "Triggered", content: "Only on continue.", key: ["j"], triggers: ["continue"] }
+  ])));
+
+  const report = fidelityReport(factsFromArchive(archive, 128).fidelity);
+
+  assert.ok(
+    report.includes("2 entries lost a character or trigger filter and now applies everywhere"),
     report
   );
 });

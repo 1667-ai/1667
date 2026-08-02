@@ -54,6 +54,8 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
   let groupedEntries = 0;
   let decoratedEntries = 0;
   let refusedEntries = 0;
+  let vectorEntries = 0;
+  let filteredEntries = 0;
   const entries: Record<string, unknown>[] = [];
 
   for (const item of source) {
@@ -87,6 +89,14 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
     // for something else will fire at different moments.
     if (item.caseSensitive === true || item.matchWholeWords === false) {
       matchRuleEntries += 1;
+    }
+    // A vectorized entry is retrieved by meaning, not by a key, and usually
+    // carries no keys at all. There is no such retrieval here.
+    if (item.vectorized === true) vectorEntries += 1;
+    // An entry can be limited to a character or to a kind of generation. A Fact
+    // has no such condition, so an entry that was narrow becomes universal.
+    if (hasEntries(item.triggers) || hasCharacterFilter(item.characterFilter)) {
+      filteredEntries += 1;
     }
     // Entries sharing a group are exclusive upstream: one of them is used.
     // Independent Facts have no such contest, so they can all be active.
@@ -185,10 +195,22 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
         + " skipped for @@dont_activate"
     );
   }
+  if (vectorEntries > 0) {
+    fidelity.push(
+      `${vectorEntries} vectorized ${countNoun(vectorEntries, "entry", "entries")}`
+        + " lost retrieval by meaning; a fact is always on or keyed"
+    );
+  }
+  if (filteredEntries > 0) {
+    fidelity.push(
+      `${filteredEntries} ${countNoun(filteredEntries, "entry", "entries")}`
+        + " lost a character or trigger filter and now applies everywhere"
+    );
+  }
   // True of every entry, whatever the file asked for, so it is stated once
   // rather than counted.
   fidelity.push("a fact key matches a whole key and ignores letter case");
-  fidelity.push("scan depth, order, and group weighting omitted");
+  fidelity.push("scan depth, order, and other World Info settings omitted");
 
   return {
     lorebook: { lorebookVersion: SUPPORTED_LOREBOOK_VERSION, entries, categories: [] },
@@ -204,12 +226,39 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoLorebook {
 function isRegexKey(key: string): boolean {
   const match = /^\/(.+)\/([a-z]*)$/u.exec(key);
   if (match === null) return false;
+  const [, pattern, flags] = match as unknown as [string, string, string];
+  // A pattern ends at its first unescaped delimiter, so `/foo/bar/` is not one
+  // pattern. Upstream reads it as literal text, and so does this.
+  if (hasUnescapedSlash(pattern)) return false;
+  // Only the flags SillyTavern accepts. A host that supports more, such as `d`,
+  // must not make a literal key look like a pattern.
+  if (!/^[gimsuy]*$/u.test(flags) || new Set(flags).size !== flags.length) return false;
   try {
-    new RegExp(match[1]!, match[2]!);
+    new RegExp(pattern, flags);
     return true;
   } catch {
     return false;
   }
+}
+
+function hasUnescapedSlash(pattern: string): boolean {
+  for (let index = 0; index < pattern.length; index += 1) {
+    if (pattern[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (pattern[index] === "/") return true;
+  }
+  return false;
+}
+
+function hasEntries(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function hasCharacterFilter(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return hasEntries(value.names) || hasEntries(value.tags);
 }
 
 /** Read the leading @@decorator lines and return the content without them. */
