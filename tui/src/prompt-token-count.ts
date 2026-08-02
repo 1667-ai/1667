@@ -143,7 +143,7 @@ export function startPromptTokenCountLane(
     if (countedPromptChars(estimate.messages) > MAX_COUNTED_PROMPT_CHARS) {
       lastAskedFingerprint = fingerprint;
       state.promptTokenCount = {
-        identity: promptProjectionIdentity(state),
+        identity: promptProjectionIdentity(state, projected.context),
         route,
         count: { kind: "estimate", reason: "too-large" }
       };
@@ -203,7 +203,11 @@ export function startPromptTokenCountLane(
       // proved the messages are the ones counted, and reading the identity
       // here describes the live state exactly, so an unrelated move of the
       // cursor while the answer was in flight cannot retire a good count.
-      state.promptTokenCount = { identity: promptProjectionIdentity(state), route, count };
+      state.promptTokenCount = {
+        identity: promptProjectionIdentity(state, current.context),
+        route,
+        count
+      };
       repaint();
     })();
   };

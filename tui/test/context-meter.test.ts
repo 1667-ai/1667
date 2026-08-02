@@ -293,7 +293,10 @@ describe("honest next-request context meter", () => {
     const state = initialState(source, false);
     state.promptTokenCount = {
       // Deliberately does not describe the current projection.
-      identity: { ...promptProjectionIdentity(state), composerText: "a stale draft" },
+      identity: {
+        ...promptProjectionIdentity(state, projectNextRequest(state).context),
+        instruction: "a stale draft"
+      },
       route: state.generationRoute,
       count: {
         kind: "counted", source: "anthropic-count-tokens", grade: "exact", total: 5, perMessage: null
@@ -311,7 +314,7 @@ describe("honest next-request context meter", () => {
     // The prose is untouched, so the projection still matches exactly. Only
     // the route moved — which is enough to retire the count it produced.
     state.promptTokenCount = {
-      identity: promptProjectionIdentity(state),
+      identity: promptProjectionIdentity(state, projectNextRequest(state).context),
       route: state.generationRoute,
       count: {
         kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
@@ -326,12 +329,35 @@ describe("honest next-request context meter", () => {
     expect(afterRouteChange).toBe(baseline);
   });
 
+  test("a count taken on the page still stands when the request viewer opens", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.promptTokenCount = {
+      identity: promptProjectionIdentity(state, projectNextRequest(state).context),
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
+      }
+    };
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines))
+      .toContain(formatTokensScaled(4_242));
+
+    // Ctrl+R moves `mode` but sends the very same messages to the very same
+    // route. The viewer exists to show the request the meter just counted, so
+    // it must show that count rather than falling back to `~`.
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: -1, returnMode: "NAV" };
+
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines))
+      .toContain(formatTokensScaled(4_242));
+  });
+
   test("a count is retired by an edit that keeps every message the same length", () => {
     const source = demoAppSource();
     const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
     const state = initialState(source, false);
     state.promptTokenCount = {
-      identity: promptProjectionIdentity(state),
+      identity: promptProjectionIdentity(state, projectNextRequest(state).context),
       route: state.generationRoute,
       count: {
         kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null

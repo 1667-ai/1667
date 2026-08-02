@@ -20,7 +20,8 @@ import { buildRailModel } from "../rail.js";
 import {
   projectNextRequest,
   promptProjectionIdentity,
-  sameProjectionIdentity
+  sameProjectionIdentity,
+  type ProjectedNextRequest
 } from "../request-context.js";
 import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
 import type { PromptTokenCount } from "../../../shared/tokenize-source.js";
@@ -116,12 +117,16 @@ const DEFAULT_CACHE = createWrapCache<ProseStyle>();
  *  which every reader treats as the plain client estimate. Costs a handful of
  *  reference comparisons — it never hashes or re-counts anything. */
 function effectivePromptTokenCount(
-  state: StoryScreenState
+  state: StoryScreenState,
+  projected: ProjectedNextRequest
 ): PromptTokenCount | null {
   const record = state.promptTokenCount;
   if (record === null
     || record.route !== state.generationRoute
-    || !sameProjectionIdentity(record.identity, promptProjectionIdentity(state))) return null;
+    || !sameProjectionIdentity(
+      record.identity,
+      promptProjectionIdentity(state, projected.context)
+    )) return null;
   return record.count;
 }
 
@@ -139,7 +144,7 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
   const view = createStoryViewModel(state.payload, state.stream);
   const projectedRequest = projectNextRequest(state, view);
   const estimate = nextRequestEstimate(projectedRequest.payload, projectedRequest.context);
-  const promptTokenCount = effectivePromptTokenCount(state);
+  const promptTokenCount = effectivePromptTokenCount(state, projectedRequest);
   if (state.mode === "REQUEST" && state.request !== null) {
     return renderRequestViewerScreen(
       state, state.request, projectedRequest.context,

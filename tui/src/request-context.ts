@@ -40,43 +40,47 @@ export interface ProjectedNextRequest {
 }
 
 /**
- * Every state field the next-request projection reads. Two states with the
- * same identity project the same messages, so a token count taken under one
- * describes the other exactly.
+ * Everything the next-request projection reads, in the derived form it reads
+ * it. Two identities that match project the same messages, so a token count
+ * taken under one describes the other exactly.
  *
  * This is what a token count is held against. Comparing the rendered messages
  * instead would mean hashing the whole prompt on every frame; comparing only
  * their roles and lengths is cheap but blind — swapping a take for another of
  * the same length, or ASCII for the same length of CJK, changes the token
- * count while leaving those lengths alone. Reading the inputs costs nothing
- * and misses nothing: `payload` is replaced whole on every mutation, and the
- * stream's text is taken by value because deltas append to it in place.
+ * count while leaving those lengths alone.
+ *
+ * It takes the derived context rather than raw state on purpose. `mode` moves
+ * when the request viewer opens, and the composer's draft only reaches the
+ * prompt in some modes, so raw fields would retire a count that still
+ * describes the very request the viewer was opened to inspect. `payload` is
+ * replaced whole on every mutation, and the stream's text is taken by value
+ * because deltas append to it in place.
  */
 export interface PromptProjectionIdentity {
   readonly payload: StoryPayload;
   readonly streamText: string | null;
   readonly streamTargetId: string | null;
-  readonly focusIndex: number;
-  readonly mode: string;
-  readonly composerText: string;
-  readonly retakeNodeId: string | null;
   readonly systemPrompt: string;
+  readonly instruction: string;
   readonly assistantPrefill: boolean;
-  readonly returnMode: string | null;
+  readonly operation: string;
+  readonly targetId: string | null;
 }
 
-export function promptProjectionIdentity(state: RequestContextState): PromptProjectionIdentity {
+export function promptProjectionIdentity(
+  state: RequestContextState,
+  context: NextRequestContext
+): PromptProjectionIdentity {
   return {
     payload: state.payload,
     streamText: state.stream?.text ?? null,
     streamTargetId: state.stream?.targetId ?? null,
-    focusIndex: state.focusIndex,
-    mode: state.mode,
-    composerText: state.composer.text,
-    retakeNodeId: state.retakePrompt?.nodeId ?? null,
-    systemPrompt: state.systemPrompt,
-    assistantPrefill: state.assistantPrefill,
-    returnMode: state.request?.returnMode ?? null
+    systemPrompt: context.systemPrompt,
+    instruction: context.instruction,
+    assistantPrefill: context.assistantPrefill,
+    operation: context.operation,
+    targetId: context.targetId
   };
 }
 
@@ -87,13 +91,11 @@ export function sameProjectionIdentity(
   return left.payload === right.payload
     && left.streamText === right.streamText
     && left.streamTargetId === right.streamTargetId
-    && left.focusIndex === right.focusIndex
-    && left.mode === right.mode
-    && left.composerText === right.composerText
-    && left.retakeNodeId === right.retakeNodeId
     && left.systemPrompt === right.systemPrompt
+    && left.instruction === right.instruction
     && left.assistantPrefill === right.assistantPrefill
-    && left.returnMode === right.returnMode;
+    && left.operation === right.operation
+    && left.targetId === right.targetId;
 }
 
 /** Project an in-flight generation as the prompt-ready story it will become,

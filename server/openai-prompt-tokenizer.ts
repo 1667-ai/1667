@@ -74,13 +74,19 @@ const modelTokenizers = new Map<string, Tiktoken | null>();
 function modelTokenizer(model: string): Tiktoken | null {
   const cached = modelTokenizers.get(model);
   if (cached !== undefined) return cached;
-  let encoder: Tiktoken | null;
+  let encoder: Tiktoken;
   try {
     encoder = encoding_for_model(model as TiktokenModel);
   } catch {
     // tiktoken raises for a model it does not know. That is an answer, not a
     // fault: 1667 cannot count this model and says so by keeping the estimate.
-    encoder = null;
+    //
+    // The refusal is deliberately not cached. It is indistinguishable here
+    // from a failure to build an encoder for a model that is supported, and
+    // caching that would mark a countable model unsupported for the life of
+    // the process. Asking again costs one throw, and only once for each route,
+    // because the client settles a source-less answer against its route.
+    return null;
   }
   if (modelTokenizers.size >= MAX_CACHED_MODEL_TOKENIZERS) {
     const oldest = modelTokenizers.keys().next().value;
