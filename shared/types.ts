@@ -23,6 +23,11 @@ export interface HumanEditAttribution {
 /** Keep persisted and rendered attribution bounded for pathological edits. */
 export const MAX_HUMAN_EDIT_RANGES = 256;
 
+/** Keep persisted and rendered rewritten spans bounded, in the spirit of
+ *  MAX_HUMAN_EDIT_RANGES — the two lists are unrelated in meaning but face
+ *  the same pathological-edit risk. */
+export const MAX_REWRITTEN_SPANS = 256;
+
 export const MAX_FACTS = 128;
 export const MAX_FACT_TEXT_CHARS = 4_000;
 export const MAX_FACT_TAG_CHARS = 48;
@@ -99,6 +104,11 @@ export interface StoryNode {
   updatedAt?: string;
   /** Human-edit spans of the current text. */
   attribution?: HumanEditAttribution | null;
+  /** Spans of the current text that a rewrite replaced. A node can carry both
+   *  human spans and rewritten spans at once — writing over a rewritten span
+   *  reclaims it as human, and the two lists move independently — so this
+   *  cannot live inside `attribution`. Absent means no rewritten spans. */
+  rewrittenSpans?: TextRange[];
   /** This take began when the user typed at a seam (or composer Write). */
   human?: true;
   genId?: string;
@@ -307,6 +317,15 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
     }
     if (attribution.deletedCharacters !== undefined) {
       requireNumber(attribution.deletedCharacters, "human attribution", "deletedCharacters");
+    }
+  }
+  if (node.rewrittenSpans !== undefined) {
+    if (!Array.isArray(node.rewrittenSpans)) {
+      throw new Error("The server returned an invalid rewritten span list.");
+    }
+    for (const value of node.rewrittenSpans) {
+      const range = requireRecord(value, "The server returned an invalid rewritten span.");
+      requireNumbers(range, "rewritten span", "start", "end");
     }
   }
 }
@@ -546,6 +565,20 @@ export interface TakeFromCutRequest {
   expected?: string;
 }
 
+/** Where a rewrite's result lands. "in-place" replaces the highlighted text in
+ *  the current take; "take" forks a sibling instead, the way a manual edit's
+ *  fork key does. One term, one meaning each — never call the fork "new" or
+ *  the splice "default" elsewhere, so a reader only has one name to learn. */
+export const REWRITE_DESTINATIONS = ["in-place", "take"] as const;
+export type RewriteDestination = (typeof REWRITE_DESTINATIONS)[number];
+
+/** An absent or unrecognized destination means "in-place": a client older
+ *  than this field must keep replacing in place, never start forking takes
+ *  it never asked for. */
+export function resolveRewriteDestination(value: unknown): RewriteDestination {
+  return value === "take" ? "take" : "in-place";
+}
+
 /** Wire body of POST /api/stories/:id/nodes/:nodeId/rewrite. */
 export interface RewriteRequest {
   start: number;
@@ -553,6 +586,8 @@ export interface RewriteRequest {
   instruction: string;
   /** The exact text currently at [start, end) — the server rejects stale selections. */
   expected: string;
+  /** Absent means "in-place" — see `resolveRewriteDestination`. */
+  destination?: RewriteDestination;
 }
 
 /** The largest imported file any entry point will read before format-specific validation. */

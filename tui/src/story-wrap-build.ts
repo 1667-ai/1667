@@ -383,6 +383,7 @@ function wrapInput(node: StoryNode): StoryPartWrapInput {
     id: node.id,
     node,
     isSummary: node.role === "summary",
-    humanSpans: node.attribution?.source === "human" ? node.attribution.ranges : []
+    humanSpans: node.attribution?.source === "human" ? node.attribution.ranges : [],
+    rewrittenSpans: node.rewrittenSpans ?? []
   };
 }

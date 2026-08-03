@@ -18,6 +18,7 @@ read_when:
 | project | A project root and its `.1667/` directory |
 | story part | One unit of story prose |
 | take | One alternative version of a story part |
+| rewritten span | The range of prose in a story part that a rewrite replaced |
 | story line | The selected path through story parts |
 | tag | A name and a status on the end of one story line |
 | Fact | One note that 1667 sends with a provider request |

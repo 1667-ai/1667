@@ -329,7 +329,7 @@ test("late provider-effect cancellation is a definitive terminal conflict", asyn
   assert.equal(current.nodes[0]?.text, "Opening.");
 });
 
-test("rewrite transfers only provider-owned fields and its rewrite ID", async () => {
+test("a chapter summary rewrite always replaces in place, even when a take is requested", async () => {
   const target = node("root", null, "Opening.", {
     attribution: { source: "human", ranges: [{ start: 0, end: 7 }] },
     human: true,
@@ -350,11 +350,16 @@ test("rewrite transfers only provider-owned fields and its rewrite ID", async ()
     expectedInstruction: "",
     text: "Model rewrite.",
     attribution: null,
+    rewrittenSpans: [{ start: 0, end: 5 }],
     updatedAt: LATER,
-    rewriteId: "rewrite-2"
+    rewriteId: "rewrite-2",
+    // A chapter summary cannot take a sibling — this proves the override
+    // wins even when the caller asks for one.
+    destination: "take"
   }, hydrate);
   assert.equal(target.text, "Model rewrite.");
   assert.equal(target.attribution, null);
+  assert.deepEqual(target.rewrittenSpans, [{ start: 0, end: 5 }]);
   assert.equal(target.updatedAt, LATER);
   assert.equal(nodeRewriteId(target), "rewrite-2");
   assert.equal(target.activeChildId, "writer-child");
@@ -387,7 +392,42 @@ test("rewrite rejects instruction-only and timestamp-only concurrent edits", asy
   }
 });
 
-test("rewrite of an ordinary take commits as a new sibling and keeps the source reachable", async () => {
+test("rewrite of an ordinary take replaces in place by default and adds no node to the story line", async () => {
+  const target = node("root", null, "Opening.", {
+    attribution: { source: "human", ranges: [{ start: 0, end: 7 }] },
+    human: true,
+    genId: "original-gen",
+    model: "writer-model",
+    activeChildId: "writer-child"
+  });
+  const current = story([target, node("writer-child", "root", "Writer.")]);
+  const applied = await applyProviderStoryEffect(current, {
+    kind: "rewrite",
+    nodeId: "root",
+    expectedText: "Opening.",
+    expectedInstruction: "",
+    text: "Model rewrite.",
+    attribution: null,
+    rewrittenSpans: [{ start: 0, end: 5 }],
+    updatedAt: LATER,
+    rewriteId: "rewrite-2"
+    // destination absent: in-place is the default.
+  }, hydrate);
+
+  assert.equal(applied.changed, true);
+  // The target's own id comes back, not a new node's.
+  assert.equal(applied.value.id, "root");
+  assert.equal(applied.value.text, "Model rewrite.");
+  assert.equal(applied.value.attribution, null);
+  assert.deepEqual(applied.value.rewrittenSpans, [{ start: 0, end: 5 }]);
+  assert.equal(nodeRewriteId(applied.value), "rewrite-2");
+  // No sibling take: the story keeps exactly the two nodes it started with,
+  // and the writer's continuation below the target is undisturbed.
+  assert.equal(current.nodes.length, 2);
+  assert.equal(target.activeChildId, "writer-child");
+});
+
+test("rewrite of an ordinary take opts into a new sibling and keeps the source reachable", async () => {
   const target = node("root", null, "Opening.", {
     attribution: { source: "human", ranges: [{ start: 0, end: 7 }] },
     human: true,
@@ -405,7 +445,8 @@ test("rewrite of an ordinary take commits as a new sibling and keeps the source 
     attribution: null,
     updatedAt: LATER,
     rewriteId: "rewrite-2",
-    takeId: "take-1"
+    takeId: "take-1",
+    destination: "take"
   }, hydrate);
 
   assert.equal(applied.changed, true);
@@ -430,7 +471,7 @@ test("rewrite of an ordinary take commits as a new sibling and keeps the source 
   assert.equal(current.activeRootId, "take-1");
 });
 
-test("replaying a committed rewrite take id leaves the story unchanged", async () => {
+test("replaying a committed take-mode rewrite leaves the story unchanged", async () => {
   const target = node("root", null, "Opening.");
   const alreadyCommitted = node("take-1", null, "Model rewrite.");
   const current = story([target, alreadyCommitted], "take-1");
@@ -442,7 +483,8 @@ test("replaying a committed rewrite take id leaves the story unchanged", async (
     text: "A different replay text — must not land.",
     updatedAt: LATER,
     rewriteId: "rewrite-2",
-    takeId: "take-1"
+    takeId: "take-1",
+    destination: "take"
   }, hydrate);
 
   assert.equal(applied.changed, false);
@@ -450,6 +492,28 @@ test("replaying a committed rewrite take id leaves the story unchanged", async (
   assert.equal(applied.value.text, "Model rewrite.");
   assert.equal(current.nodes.length, 2);
   assert.equal(target.text, "Opening.");
+});
+
+test("replaying a committed in-place rewrite leaves the story unchanged", async () => {
+  const target = node("root", null, "Model rewrite.");
+  setNodeRewriteId(target, "rewrite-2");
+  const current = story([target]);
+  const applied = await applyProviderStoryEffect(current, {
+    kind: "rewrite",
+    nodeId: "root",
+    // Deliberately stale: the marker must short-circuit before this is
+    // ever checked, exactly like take mode's takeId presence does above.
+    expectedText: "Opening.",
+    expectedInstruction: "",
+    text: "A different replay text — must not land.",
+    updatedAt: LATER,
+    rewriteId: "rewrite-2"
+  }, hydrate);
+
+  assert.equal(applied.changed, false);
+  assert.equal(applied.value.id, "root");
+  assert.equal(applied.value.text, "Model rewrite.");
+  assert.equal(current.nodes.length, 1);
 });
 
 test("summary take validates current source and never changes navigation", async () => {

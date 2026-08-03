@@ -16,6 +16,12 @@ export interface CreateDemoTakeOptions {
    *  rewrite path needs the model-replacement shape
    *  `attributionAfterReplacement` computes, never the human-edit one. */
   readonly attributionOverride?: StoryNode["attribution"];
+  /** The take-destination rewrite path only (issue #319) — the new take's
+   *  rewritten spans, already recomputed against the replacement by the
+   *  caller (mirrors `attributionOverride`, and the server's own take branch
+   *  in `applyRewrite`, server/story-provider-effect.ts, which stamps
+   *  `effect.rewrittenSpans` on the fresh node the same way). */
+  readonly rewrittenSpansOverride?: StoryNode["rewrittenSpans"];
 }
 
 /** Mutate the in-memory demo with the same sibling and endpoint-tag
@@ -28,7 +34,7 @@ export function createDemoTake(
   human: boolean,
   options: CreateDemoTakeOptions = {}
 ): StoryNode {
-  const { source = null, genId, attributionOverride } = options;
+  const { source = null, genId, attributionOverride, rewrittenSpansOverride } = options;
   if (parentId !== null && !story.nodes.some((node) => node.id === parentId)) {
     throw new Error(`Unknown demo node: ${parentId}`);
   }
@@ -45,7 +51,8 @@ export function createDemoTake(
       ? attributionOverride
       : text === source.text
         ? cloneAttribution(source)
-        : attributionAfterHumanEdit(source.attribution, source.text, text)
+        : attributionAfterHumanEdit(source.attribution, source.text, text),
+    ...(rewrittenSpansOverride === undefined ? {} : { rewrittenSpans: rewrittenSpansOverride })
   });
   if (human) node.human = true;
   if (genId !== undefined) node.genId = genId;
