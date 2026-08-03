@@ -201,7 +201,12 @@ export function validateSamplingRoute(
   // review, second pass, "not required" item) — see
   // SAMPLING_NATIVE_BANNED_STRINGS_POLICY's own comment for why this is a
   // separate bound from the one just above, which binds only `logitBias`.
-  const nativeCount = new Set(resolved.nativeBannedStrings.map((entry) => entry.phrase)).size;
+  // Counts only "native" entries — an "overridden" one (issue #311 review,
+  // third pass, finding G) never reaches `banned_tokens` at all, so it
+  // never counts against what the wire actually carries.
+  const nativeCount = new Set(
+    resolved.nativeBannedStrings.flatMap((entry) => entry.kind === "native" ? [entry.phrase] : [])
+  ).size;
   if (nativeCount > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
     throw new SettingsFormatError(
       `profile ${profileId} resolves to ${nativeCount} banned-string entries, exceeding the `

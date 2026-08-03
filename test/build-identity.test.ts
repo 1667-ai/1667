@@ -30,11 +30,13 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // adds the Author Brief route and the Author's Note depth field. v16 adds the
   // prompt token-count route. v17 adds the per-story phrase-bias and
   // banned-strings routes and makes `scope` required on every resolved
-  // sampling-bias entry. An older peer must fail at preflight.
+  // sampling-bias entry. v18 makes `nativeBannedStrings` required on a
+  // "resolved" resolveSamplingBias response (KoboldCpp's native bannedStrings
+  // transport, issue #311). An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    17,
-    "The per-story phrase-bias and banned-strings routes require HTTP API v17"
+    18,
+    "KoboldCpp's native bannedStrings transport requires HTTP API v18"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

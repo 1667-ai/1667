@@ -212,8 +212,15 @@ function decodeNativeBannedString(
   const phrase = stringField(record, "phrase", label);
   const scope = decodeSamplingBiasScope(record.scope, label);
   if (record.kind === "native") return { kind: "native", phrase, scope };
-  if (record.kind !== "blocked") invalidField(label, "kind");
-  return { kind: "blocked", phrase, scope, conflictingPhrase: stringField(record, "conflictingPhrase", label) };
+  // "blocked" (same-scope, issue #311 second pass) and "overridden"
+  // (cross-scope, issue #311 review, third pass, finding G) both name
+  // whoever actually won the contested token — reusing `decodeShadowOwner`,
+  // the same decoder a "shadowed"/"overridden" SamplingBiasEntryResolution's
+  // own conflicts already use, since the winner is not always a phraseBias
+  // entry (it can be another banned string, or an explicit numeric
+  // logitBias entry).
+  if (record.kind !== "blocked" && record.kind !== "overridden") invalidField(label, "kind");
+  return { kind: record.kind, phrase, scope, conflict: decodeShadowOwner(record.conflict, label) };
 }
 
 function decodeTokenizerUnavailableCause(value: unknown, label: string): TokenizerUnavailableCause {

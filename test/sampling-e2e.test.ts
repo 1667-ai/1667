@@ -425,8 +425,12 @@ test("llama.cpp save-time validation rejects a phrase the live server cannot res
 // resolution through the save path's own async probe
 // (server/settings-v2-save-bias-check.ts), so this needs a real reachable
 // fixture the way the llama.cpp save-time test above does, not the
-// synchronous fallback the numeric-only save-time test uses.
-test("KoboldCpp save-time validation rejects a banned string that contradicts a same-scope phrase bias", {
+// synchronous fallback the numeric-only save-time test uses. Issue #311
+// review, third pass, findings G/H reworked the native path to reuse
+// `settleTokenOwnership` itself, so the phraseBias entry now reports the
+// same "shadowed" message every token-merge preset already uses for the
+// identical contradiction, not a bespoke native-only message.
+test("KoboldCpp save-time validation rejects a phrase bias that contradicts a same-scope banned string", {
   skip: !ownedLoopbackHttpSupported()
 }, async (t) => {
   const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
@@ -444,7 +448,7 @@ test("KoboldCpp save-time validation rejects a banned string that contradicts a 
     (error: unknown) => {
       assert.match(
         (error as Error).message,
-        /"ember" conflicts with phrase bias "ember" in the same scope/
+        /"ember" loses its bias on .* to banned string "ember", which takes precedence there/
       );
       assert.ok(error instanceof ServiceError, "expected a ServiceError, not a raw SettingsFormatError");
       assert.equal(error.status, 400);

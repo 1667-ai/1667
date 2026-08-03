@@ -1337,12 +1337,15 @@ test("a KoboldCpp request sends phrase bias and a banned string on their own sep
 // "ember" together used to ship both fields on KoboldCpp (boosting and
 // banning the identical word, both editor rows reading healthy) while every
 // other preset already refuses this exact self-contradiction (there, the
-// two entries fight over the same resolved token and the phraseBias entry
-// loses, "shadowed" — bannedStrings intentionally outranks phraseBias
-// within a scope, server/sampling-phrase-bias.ts). The request must refuse
-// here too, naming the conflict, not ship a body that boosts and bans the
-// same word.
-test("a KoboldCpp request refuses a banned string that contradicts a same-scope phrase bias", async (t) => {
+// two entries fight over the same resolved token, bannedStrings
+// intentionally outranks phraseBias within a scope, and the phraseBias
+// entry loses, "shadowed" — server/sampling-phrase-bias.ts). The request
+// must refuse here too, naming the conflict with the same "shadowed"
+// message shape the token-merge presets already use (issue #311 review,
+// third pass, findings G/H reworked the native path to reuse
+// `settleTokenOwnership` itself, so the message is now byte-identical, not
+// merely similarly shaped).
+test("a KoboldCpp request refuses a phrase bias that contradicts a same-scope banned string", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
@@ -1366,15 +1369,20 @@ test("a KoboldCpp request refuses a banned string that contradicts a same-scope 
       PROMPT,
       OMIT_PLANS[0]!
     ),
-    /"ember" conflicts with phrase bias "ember" in the same scope/
+    /"ember" loses its bias on .* to banned string "ember", which takes precedence there/
   );
 });
 
 // The genuine cross-scope case: settled rule 2 says a cross-scope conflict
-// is a non-blocking override, never told apart from a same-scope
-// contradiction. A story banning a word the profile separately boosts must
-// still ship both — the story's own reason to exist.
-test("a KoboldCpp request ships a banned string that only contradicts a different scope's phrase bias", async (t) => {
+// is a non-blocking "override" — the story's own reason to exist — never
+// told apart from a same-scope contradiction. Unlike a same-scope
+// collision, only one side's effect reaches the wire: the story's banned
+// string, written after the profile's own phrase bias in the merge's
+// scope-major order, wins the shared word, and the profile's own weight
+// for it is dropped from `logit_bias` — the same way a losing phraseBias
+// entry's weight is dropped on every other preset (issue #311 review,
+// third pass, finding G).
+test("a KoboldCpp request ships only the story's banned string when it overrides a profile phrase bias", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
@@ -1395,8 +1403,43 @@ test("a KoboldCpp request ships a banned string that only contradicts a differen
     OMIT_PLANS[0]!,
     { storySampling: storySampling({ bannedStrings: ["ember"] }) }
   );
-  assert.deepEqual(body.logit_bias, { "601": 5, "602": 5, "603": 5, "604": 5 });
+  assert.deepEqual(body.logit_bias, {});
   assert.deepEqual(body.banned_tokens, ["ember"]);
+});
+
+// The mirror direction of the same cross-scope case (issue #311 review,
+// third pass, coordinator's note: the other reviewer's own repro was this
+// exact pairing) — a profile banned string that a story's own phrase bias
+// overrides. The story again wins (it always writes last), so the
+// profile's banned string is dropped from `banned_tokens` and the story's
+// boost reaches `logit_bias` unopposed.
+test("a KoboldCpp request ships only the story's phrase bias when it overrides a profile banned string", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ bannedStrings: ["ember"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "ember", weight: 5 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, { "601": 5, "602": 5, "603": 5, "604": 5 });
+  // The profile's banned string lost the word to the story's boost, so it
+  // never reaches the wire at all — not an empty array, entirely absent,
+  // the same "only written when non-empty" contract every native banned
+  // string already keeps (server/provider-sampling.ts).
+  assert.equal("banned_tokens" in body, false);
 });
 
 // Issue #311, point 3: a KoboldCpp server that does not answer the

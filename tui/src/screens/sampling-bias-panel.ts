@@ -90,12 +90,14 @@ function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
   // SamplingSettingsV2.bannedStrings).
   if (resolution.kind === "native") return "→ literal text (KoboldCpp anti-slop)";
   // "blocked" (issue #311, second pass): the literal-text counterpart to
-  // "shadowed" — a same-scope phrase bias claims the identical word this
-  // banned string names, so KoboldCpp would boost and ban it at once. Named
-  // the same way "shadowed" names its own conflict, one clause instead of a
-  // token-ID breakdown this outcome never had to begin with.
+  // "shadowed" — a same-scope entry claims the identical word this banned
+  // string names, so KoboldCpp would act on both at once. Reuses
+  // `samplingBiasShadowOwnerText`, the same owner-naming text a "shadowed"
+  // row's own conflict already uses, since the winner is not always a
+  // phraseBias entry (it can be another banned string, or an explicit
+  // numeric logit-bias entry).
   if (resolution.kind === "blocked") {
-    return `‹ — › conflicts with phrase bias ${JSON.stringify(resolution.conflictingPhrase)}`;
+    return `‹ — › conflicts with ${samplingBiasShadowOwnerText(resolution.conflict)}`;
   }
   // `SamplingBiasRowResolution` has no "overridden" member at all — the
   // settings overlay never combines a story, so `samplingBiasRowResolution`

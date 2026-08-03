@@ -317,12 +317,18 @@ async function mergedSamplingBiasValue(
       + `exceeding the ${bound}-entry limit for preset ${resolvedPreset}.`
     );
   }
-  // Every "blocked" native entry was already refused above, so what remains
-  // here is unconditionally "native" — a plain read (issue #311 review,
-  // second pass, finding F2), not the per-source ternary this used to be
-  // when a native entry rode `resolved.bannedStrings` alongside every other
-  // kind that list can hold.
-  const nativeBannedStrings = [...new Set(resolved.nativeBannedStrings.map((entry) => entry.phrase))];
+  // Every "blocked" native entry was already refused above (a plain read,
+  // issue #311 review, second pass, finding F2, rather than the per-source
+  // ternary this used to be when a native entry rode `resolved.bannedStrings`
+  // alongside every other kind that list can hold) — but "overridden" is
+  // not: it is non-blocking, and a losing native banned string must not
+  // reach `banned_tokens` at all, the same way a losing phraseBias entry's
+  // own weight never reaches `logit_bias` (issue #311 review, third pass,
+  // finding G — server/sampling-phrase-bias.ts already excludes it from
+  // `logitBias`; this is that same exclusion for the other wire field).
+  const nativeBannedStrings = [...new Set(
+    resolved.nativeBannedStrings.flatMap((entry) => entry.kind === "native" ? [entry.phrase] : [])
+  )];
   if (nativeBannedStrings.length > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
     throw new ProviderError(
       `Resolved banned strings has ${nativeBannedStrings.length} entries, exceeding the `

@@ -4,7 +4,9 @@ import {
   samplingBiasNativeBlockedMessage,
   samplingBiasResolutionFailureMessage,
   type SamplingBiasEntryResolution,
-  type SamplingBiasResolutionResult
+  type SamplingBiasNativeBannedStringResolution,
+  type SamplingBiasResolutionResult,
+  type SamplingBiasShadowOwner
 } from "../../shared/sampling-capabilities.js";
 import { settingsProviderProbeTarget } from "./settings-provider-probe.js";
 import { updateSamplingDraft } from "./sampling-panel-spec.js";
@@ -30,9 +32,15 @@ import type { SettingsOverlayState } from "./state.js";
  * `result.nativeBannedStrings`, a separate field on the whole-panel result
  * (shared/sampling-phrase-resolution.ts) — never from a bannedStrings
  * entry's own `kind`, which cannot be "native" at all (issue #311 review,
- * second pass, finding A). "blocked" is its one refusal (finding B): a
- * same-scope contradiction with a phraseBias phrase, named by
- * `conflictingPhrase`. */
+ * second pass, finding A). "blocked" is its same-scope refusal (finding B);
+ * `conflict` names whoever actually won the contested token, the same
+ * `SamplingBiasShadowOwner` a "shadowed"/"overridden" phraseBias entry's own
+ * conflicts already carry. `nativeBannedStrings` also has an "overridden"
+ * kind (issue #311 review, third pass, finding G, the cross-scope half of
+ * the same check) — like a phraseBias entry's own "overridden", it requires
+ * a story in the combined set, which this profile-only panel never
+ * supplies, so `samplingBiasRowResolution` throws rather than producing one,
+ * the same way it already does for phraseBias (`unhandledOverriddenRow`). */
 export type SamplingBiasRowResolution =
   | { readonly kind: "idle" }
   | { readonly kind: "pending" }
@@ -42,7 +50,7 @@ export type SamplingBiasRowResolution =
   | { readonly kind: "shadowed"; readonly entry: Extract<SamplingBiasEntryResolution, { kind: "shadowed" }> }
   | { readonly kind: "resolved"; readonly tokenIds: readonly number[] }
   | { readonly kind: "native" }
-  | { readonly kind: "blocked"; readonly conflictingPhrase: string };
+  | { readonly kind: "blocked"; readonly conflict: SamplingBiasShadowOwner };
 
 /** Whether this route has any tokenizer strategy at all for phraseBias or
  * bannedStrings — the presentation layer already explains why through
@@ -76,9 +84,9 @@ export function samplingBiasRowResolution(
   if (list === "bannedStrings") {
     const native = result.nativeBannedStrings.find((item) => item.phrase === phrase);
     if (native !== undefined) {
-      return native.kind === "native"
-        ? { kind: "native" }
-        : { kind: "blocked", conflictingPhrase: native.conflictingPhrase };
+      if (native.kind === "native") return { kind: "native" };
+      if (native.kind === "blocked") return { kind: "blocked", conflict: native.conflict };
+      return unhandledOverriddenNativeRow(native);
     }
   }
   const entry = (list === "phraseBias" ? result.phraseBias : result.bannedStrings)
@@ -112,6 +120,20 @@ function unhandledOverriddenRow(
   throw new Error(
     `sampling-bias resolution row unexpectedly overridden: ${JSON.stringify(entry.phrase)} `
     + "— the settings overlay never combines a story, so no entry here can lose to one"
+  );
+}
+
+/** The `SamplingBiasNativeBannedStringResolution` counterpart to
+ * `unhandledOverriddenRow` above (issue #311 review, third pass, finding G):
+ * a native banned string's "overridden" outcome is, like a phraseBias
+ * entry's, only reachable when a story is in the combined set, which this
+ * profile-only panel never supplies. */
+function unhandledOverriddenNativeRow(
+  entry: Extract<SamplingBiasNativeBannedStringResolution, { kind: "overridden" }>
+): never {
+  throw new Error(
+    `sampling-bias resolution row unexpectedly overridden: ${JSON.stringify(entry.phrase)} `
+    + "— the settings overlay never combines a story, so no native banned string here can lose to one"
   );
 }
 
@@ -252,7 +274,12 @@ function justCommittedKeptOutReason(
   if (justCommitted.panel === "bannedStrings") {
     const native = result.nativeBannedStrings.find((item) => item.phrase === justCommitted.phrase);
     if (native !== undefined) {
-      return native.kind === "blocked" ? samplingBiasNativeBlockedMessage(native) : null;
+      if (native.kind === "blocked") return samplingBiasNativeBlockedMessage(native);
+      // "overridden" needs a story in the combined set, which this
+      // profile-only panel never supplies (see unhandledOverriddenNativeRow's
+      // own comment) — "native" and the unreachable "overridden" both mean
+      // nothing here un-commits the entry.
+      return null;
     }
   }
   const list = justCommitted.panel === "phraseBias" ? result.phraseBias : result.bannedStrings;

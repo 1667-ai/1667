@@ -257,29 +257,53 @@ export type SamplingBiasEntryResolution =
  * why keeping it structurally separate is the point, not an organizational
  * preference.
  *
- * "native" ships as literal text, unconditionally — KoboldCpp's anti-slop
- * `banned_tokens` field takes the phrase itself and backtracks the generated
- * stream when it appears (field description quoted in
- * shared/sampling-capabilities.ts), so it needs no tokenizer and is never
- * rejected for being multi-token the way a token-ID bias would be.
+ * "native" ships as literal text — KoboldCpp's anti-slop `banned_tokens`
+ * field takes the phrase itself and backtracks the generated stream when it
+ * appears (field description quoted in shared/sampling-capabilities.ts), so
+ * it needs no tokenizer and is never rejected for being multi-token the way
+ * a token-ID bias would be.
  *
- * "blocked" (issue #311, second pass) is the one way a native banned string
- * still refuses: when any of its own four surface variants textually
- * matches any of a same-scope `phraseBias` phrase's own four surface
- * variants — a writer who configured a direct self-contradiction (boost
- * "ember", ban "ember") is refused on every other preset already, because
+ * A native banned string never resolves a token of its own to contest, so it
+ * cannot reuse `settleTokenOwnership` directly — but
+ * `server/sampling-phrase-bias.ts`'s `nativeBannedStringWrites` borrows the
+ * real tokens of whichever `phraseBias` entry it textually collides with
+ * (literal overlap between both entries' own four surface variants — a
+ * phraseBias "ember" and a bannedStrings "Ember" collide exactly as a
+ * same-case pair does, since "Ember" is a shared surface form of both) and
+ * feeds them into the very same ownership tracking every other collision
+ * already goes through, so "who wins" is decided once, the same way,
+ * everywhere — not by a second, hand-rolled copy that could quietly
+ * disagree (issue #311 review, third pass, finding G: an earlier version's
+ * own copy silently skipped every cross-scope case).
+ *
+ * "blocked" (issue #311, second pass) is a same-scope contradiction — a
+ * writer who configured a direct self-contradiction (boost "ember", ban
+ * "ember") in one scope is refused on every other preset already, because
  * the two entries fight over the same resolved token there
- * (`settleTokenOwnership` marks the phraseBias entry "shadowed"). A native
- * banned string never resolves a token to compare, so it cannot reuse that
- * token-ownership machinery honestly; this checks the same contradiction
- * the only way available to it — literal text overlap between both
- * entries' own variant sets, not only the banned string's (a phraseBias
- * "ember" and a bannedStrings "Ember" collide on the token-merge presets
- * exactly as a same-case pair does, since "Ember" is a shared surface form
- * of both) — and blocks on it the same as "rejected" or "shadowed" does for
- * the other four (`firstBlockedNativeBannedString`). `conflictingPhrase`
- * names the phraseBias phrase it collided with, for the message the caller
- * builds around it (`samplingBiasNativeBlockedMessage`).
+ * (`settleTokenOwnership` marks the phraseBias entry "shadowed"); this
+ * blocks on it the same as "rejected" or "shadowed" does for the other four
+ * (`firstBlockedNativeBannedString`). Only reachable when the colliding
+ * phraseBias entry's own weight actually differs from this banned string's
+ * fixed minimum (issue #311 review, third pass, finding H): two entries
+ * that already agree are not a contradiction to refuse, on this preset or
+ * any other — `settleTokenOwnership` never flags mere agreement, and
+ * neither does this.
+ *
+ * "overridden" (issue #311 review, third pass, finding G) is the *cross*
+ * -scope half settled rule 2 already promises for phraseBias/bannedStrings
+ * everywhere else: non-blocking, and the losing side (by the same
+ * scope-major "story wins" order the token path uses) does not reach the
+ * wire — a losing native banned string is dropped from the final
+ * `banned_tokens`, exactly as a losing phraseBias entry's own weight is
+ * dropped from `logit_bias`.
+ *
+ * `conflict` names whoever actually won the contested token — reusing
+ * `SamplingBiasShadowOwner` rather than a bare phrase string, because the
+ * winner is not always a phraseBias entry: it can be an explicit numeric
+ * `logitBias` entry, or another banned string, exactly as for a "shadowed"
+ * or "overridden" `SamplingBiasEntryResolution`. `samplingBiasNativeBlockedMessage`
+ * reuses `samplingBiasShadowOwnerText` to name it, the same wording every
+ * other conflict message already uses.
  */
 export type SamplingBiasNativeBannedStringResolution =
   | { readonly kind: "native"; readonly phrase: string; readonly scope: SamplingBiasScope }
@@ -287,7 +311,13 @@ export type SamplingBiasNativeBannedStringResolution =
       readonly kind: "blocked";
       readonly phrase: string;
       readonly scope: SamplingBiasScope;
-      readonly conflictingPhrase: string;
+      readonly conflict: SamplingBiasShadowOwner;
+    }
+  | {
+      readonly kind: "overridden";
+      readonly phrase: string;
+      readonly scope: SamplingBiasScope;
+      readonly conflict: SamplingBiasShadowOwner;
     };
 
 /** Reads the way `resolveSamplingLogitBias` decides a preset's bannedStrings
@@ -558,12 +588,15 @@ export function firstBlockedNativeBannedString(
 
 /** The message for a blocked native bannedStrings entry — the
  * `SamplingBiasNativeBannedStringResolution` counterpart to
- * `samplingBiasEntryRejectionMessage`, in the same shape: names the literal
- * text conflict a native entry can detect (it has no token IDs to name the
- * way a "shadowed" phraseBias entry's message does). */
+ * `samplingBiasEntryRejectionMessage`, in the same shape and reusing the
+ * same owner-naming text (`samplingBiasShadowOwnerText`) a "shadowed"
+ * phraseBias entry's message already uses: a native entry has no token IDs
+ * of its own to name, but `conflict` already names whoever actually won the
+ * contested token, phraseBias, another banned string, or an explicit
+ * numeric entry alike. */
 export function samplingBiasNativeBlockedMessage(
   entry: Extract<SamplingBiasNativeBannedStringResolution, { kind: "blocked" }>
 ): string {
-  return `${JSON.stringify(entry.phrase)} conflicts with phrase bias `
-    + `${JSON.stringify(entry.conflictingPhrase)} in the same scope`;
+  return `${JSON.stringify(entry.phrase)} conflicts with ${samplingBiasShadowOwnerText(entry.conflict)} `
+    + "in the same scope";
 }
