@@ -65,18 +65,25 @@ interface SamplingPresentation {
   readonly reasonCompact: string;
 }
 
-// phraseBias and bannedStrings never appear on the wire under their own name:
-// both resolve to token IDs and merge into the same logit_bias object
-// (server/provider-sampling.ts), so they share logit_bias's wire field here.
+// phraseBias and bannedStrings never appear on the wire under their own name.
+// On every preset but one, both resolve to token IDs and merge into the same
+// logit_bias object (server/provider-sampling.ts), so they share logit_bias's
+// wire field here. KoboldCpp is the one exception (issue #311):
+// PRESET_WIRE_OVERRIDES below redirects its bannedStrings to banned_tokens,
+// its native anti-slop field, which takes literal phrase text and needs no
+// token resolution at all — see the GenerationInput.banned_tokens
+// description quoted further down.
 //
 // This table models field *names*, not field *shapes* — every preset that
 // reaches "available" is assumed to accept the one OpenAI-style logit_bias
-// object shape server/provider-sampling.ts always sends. That is a real gap
-// once a preset needs a different encoding for the same knob (llama.cpp's
-// native pair-array form also accepts raw strings tokenized server-side,
-// with no client tokenization at all — a capability issue #311 will want).
-// Left as a comment rather than an abstraction until a preset actually needs
-// it (issue #282 review round 2, finding 2).
+// object shape server/provider-sampling.ts always sends for the entries this
+// table still routes there. That is a real gap once a preset needs a
+// different encoding for the same knob (llama.cpp's native pair-array form
+// also accepts raw strings tokenized server-side, with no client
+// tokenization at all — issue #311 did not build this; it remains a future
+// gap, not a shipped capability). Left as a comment rather than an
+// abstraction until a preset actually needs it (issue #282 review round 2,
+// finding 2).
 const PROTOCOL_WIRE: Readonly<{
   "dry-run": Partial<Record<SamplingKnobV2, string>>;
   "openai-chat-completions": Readonly<Record<SamplingKnobV2, string>>;
@@ -149,16 +156,28 @@ const PRESET_EXTENSIONS: Readonly<
 // over `mirostat`, so a request that names `mirostat` arrives as mode 0 and
 // the tau and eta beside it do nothing. llama.cpp reads `mirostat` and does
 // not know `mirostat_mode`, so the spelling has to follow the preset.
+//
+// KoboldCpp's `bannedStrings` override (issue #311) is a different kind of
+// divergence: not a differently-spelled version of the same field, but a
+// genuinely different wire field with a different shape. Every other preset
+// merges bannedStrings into the numeric logit_bias map the same as
+// phraseBias; KoboldCpp instead sends the literal phrase text to
+// `banned_tokens`, its native anti-slop field — see the resolveSamplingKnob
+// comment on `needsExactTokenizer` and the transport note on
+// PRESET_SUBTRACTIONS below for why, and server/provider-sampling.ts for
+// where the two wire fields are actually assembled.
 const PRESET_WIRE_OVERRIDES: Readonly<
   Partial<Record<SettingsPresetV2, Partial<Record<SamplingKnobV2, string>>>>
 > = {
-  koboldcpp: { mirostat: "mirostat_mode" }
+  koboldcpp: { mirostat: "mirostat_mode", bannedStrings: "banned_tokens" }
 };
 
 // Ollama's OpenAI-compatible endpoint documents logit_bias as unsupported
 // (checklist item left unchecked): https://ollama.readthedocs.io/en/openai/
-// phraseBias and bannedStrings ride the same wire field, so they inherit the
-// subtraction rather than repeating it under a different unavailable reason.
+// phraseBias and bannedStrings ride the same wire field on Ollama (there is
+// no wire field to speak of, since the whole family is subtracted), so they
+// inherit the subtraction rather than repeating it under a different
+// unavailable reason.
 //
 // The rule below is not "self-hosted" as a label — it is whether 1667 can
 // identify the vocabulary that will actually serve the request. There are
@@ -168,17 +187,18 @@ const PRESET_WIRE_OVERRIDES: Readonly<
 //    (promptBiasTokenizerEncoding), for a preset whose reported ID is tied
 //    to a fixed, real, first-party endpoint.
 // 2. Asking the serving backend itself to tokenize, authoritative by
-//    construction (probeLlamaCppTokenize, server/context-probe.ts),
-//    for a preset that exposes such a native side channel.
+//    construction (probeLlamaCppTokenize / probeKoboldCppTokenize,
+//    server/context-probe.ts), for a preset that exposes such a native side
+//    channel.
 //
-// llama.cpp clears route 2 — see the "llama-cpp" comment below — and is not
-// subtracted. Every other preset here clears neither:
+// llama.cpp and KoboldCpp (issue #311) both clear route 2 for phraseBias —
+// see the two preset-specific paragraphs below — and are not subtracted for
+// it. Every other preset here clears neither:
 //
-// KoboldCpp and LM Studio are self-hosted local servers whose operator
-// controls what "model" string the API reports, independent of the weights
-// actually loaded, and neither exposes a tokenize side channel 1667 uses yet
-// (KoboldCpp's `/api/extra/tokencount` is deferred to a follow-up stage).
-// LM Studio's `lms load --identifier` sets an arbitrary reported name
+// LM Studio is a self-hosted local server whose operator controls what
+// "model" string the API reports, independent of the weights actually
+// loaded, and exposes no tokenize side channel 1667 uses.
+// `lms load --identifier` sets an arbitrary reported name
 // (https://lmstudio.ai/docs/cli/local-models/load).
 //
 // "custom" carries the same risk in its strongest form: it is by
@@ -210,7 +230,44 @@ const PRESET_WIRE_OVERRIDES: Readonly<
 // so its reported model ID is not trusted for the allow-list either — but
 // its native POST /tokenize endpoint tokenizes against whatever model that
 // server instance actually has loaded, independent of the reported name,
-// which is why it is the one self-hosted preset not subtracted here.
+// which clears route 2 for both phraseBias and bannedStrings there: llama.cpp
+// documents no native banned-string field, so bannedStrings still resolves
+// through the same token-ID merge as phraseBias, just against the live
+// probe instead of the tiktoken allow-list.
+//
+// KoboldCpp (issue #311) clears route 2 the same way, through its own
+// `/api/extra/tokencount` probe (server/context-probe.ts,
+// probeKoboldCppTokenize) — its documented response carries `ids` alongside
+// the token count. That is what makes phraseBias available here.
+//
+// KoboldCpp's bannedStrings is available for a different reason that route
+// 1/2 framing does not capture: its `banned_tokens` field needs no
+// vocabulary trust at all, because it needs no tokenization. KoboldCpp's own
+// API document
+// (https://github.com/LostRuins/koboldcpp/blob/concedo/embd_res/kcpp_docs.embd)
+// describes it, verbatim, on the `GenerationInput` schema `/api/v1/generate`
+// and `/api/extra/generate/stream` use: "An array of string sequences, each
+// entry represents a word or phrase prevented from being generated, either
+// modifying model vocab or by backtracking and regenerating when they
+// appear." 1667 never calls either of those native endpoints — it streams
+// KoboldCpp through `/v1/chat/completions`, the same OpenAI-compatible
+// endpoint it already sends `top_k`, `min_p`, and `repeat_penalty` through,
+// none of which is an OpenAI chat-completions field either. Those three
+// already reach KoboldCpp's native handler today; that is real evidence
+// `banned_tokens` will too, and it is not proof, because the document shows
+// no OpenAI-compatible endpoint schema that accepts `banned_tokens` by name.
+// The document's own description of `/v1/chat/completions` reads, verbatim:
+// "This is an OpenAI compatibility endpoint. ... All KoboldCpp samplers are
+// supported, please refer to /api/v1/generate for more details" — `banned_
+// tokens` sits in that same GenerationInput schema alongside every sampler
+// the document does show passed through, which is why 1667 sends it there
+// rather than leaving KoboldCpp's best-documented banned-string mechanism
+// unused. It remains an unverified pass-through, never confirmed against a
+// running KoboldCpp build (issue #311 review note: a fixture can assert
+// 1667's own assumption about the wire shape, not a real server's
+// behavior — see test/sampling-e2e-fixtures.ts). A banned string on
+// KoboldCpp, like on every other preset, makes the text unlikely, never
+// impossible — see the field comment on SamplingSettingsV2.bannedStrings.
 //
 // logitBias itself is unaffected by any of this: it takes a raw token ID
 // the writer already resolved by hand, so it never depends on which
@@ -221,7 +278,7 @@ const PRESET_SUBTRACTIONS: Readonly<
 > = {
   "lm-studio": ["minP", "phraseBias", "bannedStrings"],
   ollama: ["logitBias", "phraseBias", "bannedStrings"],
-  koboldcpp: ["frequencyPenalty", "phraseBias", "bannedStrings"],
+  koboldcpp: ["frequencyPenalty"],
   custom: ["phraseBias", "bannedStrings"],
   openrouter: ["phraseBias", "bannedStrings"]
 };
@@ -347,19 +404,25 @@ export function resolveSamplingKnob(
   }
 
   // The tiktoken allow-list is the tokenizer authority for every preset
-  // that reaches this point except "llama-cpp": every other preset with a
-  // trust problem was already subtracted above (PRESET_SUBTRACTIONS), so
-  // what is left here is "openai" (a trustworthy reported model ID) and
-  // any other preset/protocol combination with no tokenizer strategy at
-  // all, both of which the allow-list correctly gates. llama-cpp resolves
-  // phraseBias/bannedStrings through its own live tokenize probe instead
-  // (server/context-probe.ts, probeLlamaCppTokenize), which this
-  // synchronous capability check cannot run — that resolution, and its own
-  // "tokenizer failed" outcome, happens where the async work already
-  // lives: request build time and the editor's resolveSamplingBias preview.
+  // that reaches this point except "llama-cpp" and "koboldcpp": every other
+  // preset with a trust problem was already subtracted above
+  // (PRESET_SUBTRACTIONS), so what is left here is "openai" (a trustworthy
+  // reported model ID) and any other preset/protocol combination with no
+  // tokenizer strategy at all, both of which the allow-list correctly gates.
+  // llama-cpp and KoboldCpp resolve phraseBias through their own live
+  // tokenize probe instead (server/context-probe.ts, probeLlamaCppTokenize /
+  // probeKoboldCppTokenize), which this synchronous capability check cannot
+  // run — that resolution, and its own "tokenizer failed" outcome, happens
+  // where the async work already lives: request build time and the editor's
+  // resolveSamplingBias preview. KoboldCpp's bannedStrings needs no
+  // tokenizer at all (issue #311 — see the PRESET_SUBTRACTIONS comment
+  // above), so excluding it here is correct for a different reason than
+  // llama-cpp's: not "the check runs elsewhere", but "there is no check to
+  // run".
   if (
     context.protocol === "openai-chat-completions"
     && context.preset !== "llama-cpp"
+    && context.preset !== "koboldcpp"
     && needsExactTokenizer(knob)
     && promptBiasTokenizerEncoding(context.remoteModelId) === null
   ) {

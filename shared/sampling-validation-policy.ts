@@ -133,13 +133,18 @@ export const SAMPLING_PHRASE_BIAS_POLICY = {
   maximum: 100
 } as const;
 
-/** Banned strings are a negative-bias shortcut (see the field comment on
- * `SamplingSettingsV2.bannedStrings`), not a native provider field — none of
- * the endpoints 1667 calls documents one (checked against the llama.cpp
- * server README, the KoboldCpp API doc, LM Studio, and Ollama — the same
- * sources cited in shared/sampling-capabilities.ts). Sizing mirrors
- * SAMPLING_PHRASE_BIAS_POLICY for the same reason: the resolved bound binds
- * before the list length does. */
+/** Banned strings are a negative-bias shortcut on every preset but one (see
+ * the field comment on `SamplingSettingsV2.bannedStrings`) — not a native
+ * provider field on the llama.cpp server README, LM Studio, or Ollama (the
+ * same sources cited in shared/sampling-capabilities.ts). KoboldCpp is the
+ * documented exception (issue #311): its `banned_tokens` field is native,
+ * takes literal text, and carries no per-request count limit of its own in
+ * its API document — this list-length cap still applies there, as the
+ * structural bound on what a writer can configure, but it is not standing
+ * in for a provider-documented ceiling the way it is on every other preset.
+ * Sizing mirrors SAMPLING_PHRASE_BIAS_POLICY for the same reason: the
+ * resolved bound binds before the list length does, on the presets where a
+ * resolved bound applies at all. */
 export const SAMPLING_BANNED_STRINGS_POLICY = {
   maxEntries: 256,
   maxScalars: 64

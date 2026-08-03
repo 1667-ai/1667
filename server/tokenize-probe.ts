@@ -10,7 +10,7 @@ import {
   type TokenizeSourceKind
 } from "../shared/tokenize-source.js";
 import type { GenerationSettings } from "../shared/types.js";
-import { postLlamaCppTokenize } from "./context-probe.js";
+import { postKoboldCppTokenCount, postLlamaCppTokenize } from "./context-probe.js";
 import { countModelPromptTextTokens } from "./openai-prompt-tokenizer.js";
 import { postProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
@@ -264,13 +264,14 @@ async function countKoboldCpp(
   messages: readonly ChatMessage[],
   signal: AbortSignal | undefined
 ): Promise<CountedProbe> {
-  const data = await postProviderJson(
-    settings,
-    `${providerRoot(settings)}/api/extra/tokencount`,
-    { messages },
-    {},
-    { signal, timeoutMs: probeTimeoutMs(settings) }
-  );
+  // Shares its endpoint call with probeKoboldCppTokenize
+  // (server/context-probe.ts, issue #311) through postKoboldCppTokenCount —
+  // one function owns the URL, so a phrase-bias probe and a prompt count can
+  // never quietly diverge on it. The two send different bodies: this one
+  // sends `{ messages }` (see the comment below on why), the phrase-bias
+  // probe sends `{ prompt }`, the one field the API document's own request
+  // schema names for this endpoint.
+  const data = await postKoboldCppTokenCount(settings, { messages }, signal);
   // A release old enough to read only `prompt` ignores the messages, tokenizes
   // an empty string, and still answers with a small positive count and an empty
   // compiled prompt. Taking that at face value would paint a whole story as

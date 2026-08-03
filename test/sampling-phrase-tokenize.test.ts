@@ -18,6 +18,7 @@ import {
 } from "./settings-store-fixtures.js";
 import {
   documentFor,
+  KOBOLDCPP_FIXTURE_TOKENS,
   LLAMA_CPP_FIXTURE_TOKENS,
   startProviderFixture
 } from "./sampling-e2e-fixtures.js";
@@ -342,6 +343,90 @@ test("resolveSamplingBias resolves llama.cpp phrase bias when the routed model n
       "a blank model name must be left out of the body, never sent as model: \"\""
     );
   }
+});
+
+// Issue #311: the worker-boundary counterpart to the request-serializer
+// tests in test/provider-request-body.test.ts — proves the WASM tokenizer
+// stays server-side and the editor's own preview (this worker method) reads
+// through the exact same probe and merge the request itself uses. Uses the
+// real loopback fixture (test/sampling-e2e-fixtures.ts), not a mocked
+// fetch, so this is the closest 1667's own test suite gets to a round trip
+// — but the fixture still only asserts 1667's own assumption about
+// KoboldCpp's `/api/extra/tokencount` and `/v1/chat/completions` wire
+// shapes, not a real KoboldCpp server's behavior (see the KoboldCppFixtureTokenizeMap
+// and assertBannedTokensBodyShape comments in that file).
+test("resolveSamplingBias resolves KoboldCpp phrase bias through the tokencount probe, and reports a banned string as native", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: -3 }],
+    bannedStrings: ["a phrase with several words"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual(result.logitBias, {
+    "601": -3,
+    "602": -3,
+    "603": -3,
+    "604": -3
+  });
+  assert.equal(result.phraseBias.length, 1);
+  const phraseEntry = result.phraseBias[0]!;
+  assert.equal(phraseEntry.kind, "resolved");
+  if (phraseEntry.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual([...phraseEntry.tokenIds].sort((a, b) => a - b), [601, 602, 603, 604]);
+
+  // The banned string reaches "native" — no token IDs, no variants — rather
+  // than the tokenized "resolved" outcome a phraseBias entry gets.
+  assert.equal(result.bannedStrings.length, 1);
+  const bannedEntry = result.bannedStrings[0]!;
+  assert.equal(bannedEntry.kind, "native");
+  assert.equal(bannedEntry.phrase, "a phrase with several words");
+
+  // Exactly phraseBias's four surface variants reached the probe — the
+  // banned string, needing no tokenizer at all, never queued a call.
+  assert.equal(fixture.koboldTokenizeBodies.length, 4);
+  assert.deepEqual(
+    fixture.koboldTokenizeBodies.map((body) => body.prompt).sort(),
+    [" Ember", " ember", "Ember", "ember"]
+  );
+});
+
+// Issue #311: a KoboldCpp server that never answers /api/extra/tokencount
+// must report the tokenizer as unavailable for phraseBias, the same
+// "probe-failed" outcome llama.cpp's own failed probe reports above — the
+// editor's preview must show the same failure the request would hit, never
+// a silently approximated one.
+test("resolveSamplingBias reports the KoboldCpp tokenizer as unavailable when the probe does not answer", async (t) => {
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-probe-failed-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  // "provider.example" is an RFC 2606 reserved domain that never resolves —
+  // the same fixture-free failure source test/provider-request-body.test.ts
+  // uses for the equivalent llama.cpp and KoboldCpp request-level tests.
+  const document = documentFor("https://provider.example", "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: -3 }],
+    bannedStrings: []
+  });
+  assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "probe-failed" });
 });
 
 // Regression test for issue #282 review finding A: raising

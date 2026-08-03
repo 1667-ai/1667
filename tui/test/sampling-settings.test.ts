@@ -371,12 +371,14 @@ describe("Sampling Settings user flow", () => {
 
   test("phrase bias is unavailable for a self-hosted preset with no trusted tokenizer", async () => {
     const { source, state, press } = settingsHarness();
-    // KoboldCpp has no native tokenize side channel 1667 uses yet (deferred
-    // to a follow-up stage) and its reported model name is not trustworthy
-    // for tokenizer selection either — phraseBias and bannedStrings stay
-    // subtracted for this preset regardless of model (see
-    // PRESET_SUBTRACTIONS in shared/sampling-capabilities.ts).
-    useKoboldcppSettings(source);
+    // LM Studio has no native tokenize side channel 1667 uses, and its
+    // reported model name is not trustworthy for tokenizer selection either
+    // — phraseBias and bannedStrings stay subtracted for this preset
+    // regardless of model (see PRESET_SUBTRACTIONS in
+    // shared/sampling-capabilities.ts). KoboldCpp used to be the example
+    // here too, before issue #311 gave it its own live tokenize probe — see
+    // "phrase bias opens for the KoboldCpp preset" below.
+    useLmStudioSettings(source);
     await enterSampling(state, press);
     await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
@@ -390,6 +392,19 @@ describe("Sampling Settings user flow", () => {
   test("phrase bias opens for the llama.cpp preset instead of reporting it unavailable", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("phrase-bias");
+  });
+
+  // Issue #311: KoboldCpp is no longer subtracted for phraseBias either — it
+  // resolves through its own live tokenize probe (POST
+  // /api/extra/tokencount, server/context-probe.ts), the same reasoning that
+  // already applies to llama.cpp above.
+  test("phrase bias opens for the KoboldCpp preset instead of reporting it unavailable", async () => {
+    const { source, state, press } = settingsHarness();
+    useKoboldcppSettings(source);
     await enterSampling(state, press);
     await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
@@ -483,6 +498,44 @@ describe("Sampling Settings user flow", () => {
     await Promise.resolve();
     const frame = render(state, 80, 24);
     expect(frame).toContain("84021");
+  });
+
+  // Issue #311: a KoboldCpp banned string reaches the panel as a "native"
+  // entry — no token IDs, no variant breakdown — because 1667 sends it as
+  // literal text to KoboldCpp's own anti-slop field rather than tokenizing
+  // it. The row must show that plainly, and the entry must stay committed:
+  // "native" never blocks a commit (server/sampling-phrase-bias.ts,
+  // resolveKoboldCppSamplingBias), unlike "rejected" or "shadowed".
+  test("a KoboldCpp banned string renders as native text, not resolved token IDs", async () => {
+    const { source, state, press } = settingsHarness();
+    useEncodedModelSettings(source);
+    const pending = deferred<SamplingBiasResolutionResult>();
+    source.api.resolveSamplingBias = async () => await pending.promise;
+
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("banned-strings"));
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("banned-strings");
+
+    await press(key("n"));
+    setSamplingEdit(state, "a phrase with several words");
+    await press(key("return"));
+
+    pending.resolve({
+      kind: "resolved",
+      logitBias: {},
+      phraseBias: [],
+      bannedStrings: [{ kind: "native", phrase: "a phrase with several words", scope: "profile" }],
+      resolvedEntryCount: 0
+    });
+    await pending.promise;
+    await Promise.resolve();
+
+    // Never un-committed: "native" is not a rejection.
+    expect(state.settings?.draft.sampling.bannedStrings).toEqual(["a phrase with several words"]);
+    const frame = render(state, 100, 24);
+    expect(frame).toContain("literal text");
+    expect(frame).not.toContain("‹ — ›");
   });
 
   // Regression test for issue #282 review round 2, finding 4: the panel
@@ -961,14 +1014,25 @@ function useProviderSettings(
   source.api.getSettings = async () => source.settingsView;
 }
 
-// KoboldCpp has no native tokenize side channel 1667 uses yet (deferred to a
-// follow-up stage) and its reported model name is not trustworthy for
-// tokenizer selection either — phraseBias and bannedStrings stay subtracted
-// for this preset regardless of model (see PRESET_SUBTRACTIONS in
-// shared/sampling-capabilities.ts).
+// KoboldCpp resolves phraseBias through its own live tokenize probe (POST
+// /api/extra/tokencount, server/context-probe.ts — issue #311) instead of
+// trusting a reported model name, the same reason llama.cpp is not
+// subtracted either. bannedStrings is available too, sent to KoboldCpp's
+// native anti-slop field instead of being tokenized (PRESET_SUBTRACTIONS,
+// PRESET_WIRE_OVERRIDES in shared/sampling-capabilities.ts).
 function useKoboldcppSettings(source: ReturnType<typeof demoAppSource>): void {
   useProviderSettings(source, {
     provider: "openai-compatible", baseUrl: "http://127.0.0.1:5001/v1", model: "gpt-5.2"
+  });
+}
+
+// LM Studio has no native tokenize side channel 1667 uses, and its reported
+// model name is not trustworthy for tokenizer selection either — phraseBias
+// and bannedStrings stay subtracted for this preset regardless of model
+// (see PRESET_SUBTRACTIONS in shared/sampling-capabilities.ts).
+function useLmStudioSettings(source: ReturnType<typeof demoAppSource>): void {
+  useProviderSettings(source, {
+    provider: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", model: "gpt-5.2"
   });
 }
 
@@ -995,10 +1059,14 @@ function useAnthropicSettings(source: ReturnType<typeof demoAppSource>): void {
  * (shared/sampling-capabilities.ts), so phrase bias and banned strings
  * resolve instead of reporting "no exact tokenizer". The real api.openai.com
  * host, not a loopback port: phraseBias and bannedStrings are subtracted
- * for every self-hosted local preset without a trusted tokenizer (KoboldCpp,
- * LM Studio, Ollama, OpenRouter — see PRESET_SUBTRACTIONS in
- * shared/sampling-capabilities.ts) regardless of what model name it reports,
- * so this test needs a preset the model name is trustworthy for. */
+ * for every self-hosted local preset without a trusted tokenizer or a live
+ * probe of its own (LM Studio, Ollama, OpenRouter — see
+ * PRESET_SUBTRACTIONS in shared/sampling-capabilities.ts) regardless of
+ * what model name it reports, so this test needs a preset the model name is
+ * trustworthy for. KoboldCpp and llama.cpp are not in that list — issue
+ * #311 gave KoboldCpp the same live tokenize probe llama.cpp already had —
+ * but this test still picks "openai" specifically to exercise the
+ * allow-list path itself, not either preset's live-probe path. */
 function useEncodedModelSettings(source: ReturnType<typeof demoAppSource>): void {
   useProviderSettings(source, {
     provider: "openai-compatible", baseUrl: "https://api.openai.com/v1", model: "gpt-4o"

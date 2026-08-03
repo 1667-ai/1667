@@ -161,10 +161,21 @@ export interface SamplingBiasVariantResolution {
 /** One phraseBias or bannedStrings entry, resolved against all four surface
  * variants. "resolved" only when every variant is single-token — a phrase
  * counts as usable exactly when 1667 can honestly bias every form the writer
- * means, never a subset. `variants` is always populated on every outcome, so
- * the editor can show the per-variant breakdown either way (issue #282,
- * stage 1: "the editor must show the resolved IDs per variant, not one list
- * per phrase").
+ * means, never a subset. `variants` is always populated on every outcome that
+ * carries it, so the editor can show the per-variant breakdown either way
+ * (issue #282, stage 1: "the editor must show the resolved IDs per variant,
+ * not one list per phrase").
+ *
+ * "native" is the fifth outcome (issue #311), and it never carries variants
+ * or token IDs at all — not because tokenization failed, but because none
+ * was attempted. It is reachable only for a KoboldCpp bannedStrings entry:
+ * KoboldCpp's anti-slop `banned_tokens` field takes the literal phrase text
+ * and backtracks the generated stream when it appears (see the field
+ * description quoted in shared/sampling-capabilities.ts), so a multi-token
+ * phrase is not rejected the way it would be for a token-ID bias, and every
+ * well-formed banned string reaches this outcome unconditionally. It never
+ * blocks a save or a request, the same as "overridden" — see
+ * `firstBlockingSamplingBiasEntry`.
  *
  * "shadowed" is the third outcome, and it never fires from overlap alone.
  * Two entries can share a token — variant expansion makes that unavoidable,
@@ -231,6 +242,11 @@ export type SamplingBiasEntryResolution =
       readonly variants: readonly SamplingBiasVariantResolution[];
       readonly tokenIds: readonly number[];
       readonly conflicts: readonly SamplingBiasShadowConflict[];
+    }
+  | {
+      readonly kind: "native";
+      readonly phrase: string;
+      readonly scope: SamplingBiasScope;
     };
 
 /** One of a "shadowed" or "overridden" entry's own tokens, joined to the
@@ -263,8 +279,14 @@ export type SamplingBiasShadowOwner =
  *   preset at all — not on the tiktoken allow-list, and no live-probe
  *   preset either.
  * - "probe-failed": a live-tokenize preset's own server (llama.cpp's
- *   POST /tokenize, server/context-probe.ts) did not answer — a network or
- *   server failure, not a fact about any phrase. */
+ *   POST /tokenize or KoboldCpp's POST /api/extra/tokencount,
+ *   server/context-probe.ts — issue #311 added the second) did not answer —
+ *   a network or server failure, not a fact about any phrase. Shared by both
+ *   presets rather than split per preset (issue #282 review round 2, finding
+ *   6b already settled this cause list as "materially different situations",
+ *   not "one entry per preset"): the message text
+ *   (TOKENIZER_UNAVAILABLE_CAUSE_TEXT below) names the transport generically
+ *   for the same reason. */
 export const TOKENIZER_UNAVAILABLE_CAUSE_VALUES = [
   "encoder-unavailable",
   "model-unknown",
@@ -297,10 +319,16 @@ export type SamplingBiasResolutionResult =
     }
   | { readonly kind: "tokenizer-unavailable"; readonly cause: TokenizerUnavailableCause };
 
+// "probe-failed" names the transport generically rather than a specific
+// preset (issue #311): llama.cpp and KoboldCpp both reach this cause through
+// their own live tokenize probe (see the comment on TokenizerUnavailableCause
+// above), and naming one of the two by name here would misname the other's
+// failure — a KoboldCpp server that did not answer is not a fact about
+// llama.cpp.
 const TOKENIZER_UNAVAILABLE_CAUSE_TEXT: Readonly<Record<TokenizerUnavailableCause, string>> = {
   "encoder-unavailable": "the bundled tokenizer failed to load",
   "model-unknown": "1667 has no exact tokenizer for this model",
-  "probe-failed": "the llama.cpp tokenize probe did not answer"
+  "probe-failed": "the live tokenize probe did not answer"
 };
 
 export function samplingBiasResolutionFailureMessage(
@@ -417,7 +445,10 @@ export function samplingBiasEntryRejectionMessage(
  * server/provider-sampling.ts (request-time application) and
  * server/settings-v2-sampling-validation.ts (save-time validation), which
  * used to each keep a byte-identical private copy of this walk (finding
- * 6). */
+ * 6). "overridden" and "native" (issue #311) both pass through unblocked,
+ * for different reasons: an override is a deliberate story value, and a
+ * native entry never attempted tokenization in the first place, so neither
+ * one is a fact about a phrase 1667 failed to resolve. */
 export function firstBlockingSamplingBiasEntry(
   phraseBias: readonly SamplingBiasEntryResolution[],
   bannedStrings: readonly SamplingBiasEntryResolution[]

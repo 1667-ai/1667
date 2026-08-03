@@ -22,7 +22,10 @@ import type { SettingsOverlayState } from "./state.js";
  * round 3, finding 1); every other row in the same batch is "idle" (not
  * "unavailable") because it is not implicated. "failed" is a transport
  * failure, not a per-phrase outcome (finding 5) — every row shows it
- * identically, the same way every row shares "tokenizer-unavailable". */
+ * identically, the same way every row shares "tokenizer-unavailable".
+ * "native" (issue #311) is reachable only for a KoboldCpp bannedStrings row:
+ * the entry never attempted tokenization, so there is no per-variant
+ * breakdown to carry the way "resolved" does. */
 export type SamplingBiasRowResolution =
   | { readonly kind: "idle" }
   | { readonly kind: "pending" }
@@ -30,7 +33,8 @@ export type SamplingBiasRowResolution =
   | { readonly kind: "failed"; readonly message: string }
   | { readonly kind: "rejected"; readonly entry: Extract<SamplingBiasEntryResolution, { kind: "rejected" }> }
   | { readonly kind: "shadowed"; readonly entry: Extract<SamplingBiasEntryResolution, { kind: "shadowed" }> }
-  | { readonly kind: "resolved"; readonly tokenIds: readonly number[] };
+  | { readonly kind: "resolved"; readonly tokenIds: readonly number[] }
+  | { readonly kind: "native" };
 
 /** Whether this route has any tokenizer strategy at all for phraseBias or
  * bannedStrings — the presentation layer already explains why through
@@ -63,6 +67,7 @@ export function samplingBiasRowResolution(
   if (entry.kind === "rejected") return { kind: "rejected", entry };
   if (entry.kind === "shadowed") return { kind: "shadowed", entry };
   if (entry.kind === "resolved") return { kind: "resolved", tokenIds: entry.tokenIds };
+  if (entry.kind === "native") return { kind: "native" };
   return unhandledOverriddenRow(entry);
 }
 

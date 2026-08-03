@@ -68,6 +68,17 @@ export const LLAMA_CPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
   " Griffin": 504
 };
 
+/** KoboldCpp's own fictional tokenizer for the fixture server below — the
+ * same role LLAMA_CPP_FIXTURE_TOKENS plays for llama.cpp's `/tokenize`, kept
+ * as a distinct word and a distinct ID range so a test mixing both fixtures
+ * in one request can tell which probe answered which entry. */
+export const KOBOLDCPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
+  ember: 601,
+  " ember": 602,
+  Ember: 603,
+  " Ember": 604
+};
+
 /** Model-keyed: the tokenize handler below requires an exact `model` match
  * (issue #282 review round 2, finding 3) — a fixture keyed on content alone
  * could not have caught the tokenize probe forgetting to send it. This
@@ -76,6 +87,17 @@ export const LLAMA_CPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
  * `/tokenize` field (issue #282 review round 3, finding 4c), so this fixture
  * cannot stand in for a verified round trip against a real server. */
 export type LlamaCppFixtureTokenizeMap = Readonly<Record<string, Readonly<Record<string, number>>>>;
+
+/** Flat, content-keyed: unlike llama.cpp's `/tokenize`, KoboldCpp's own API
+ * document names no `model` field on `/api/extra/tokencount` at all (its
+ * request schema is `{ prompt: string }` only — see the quote in
+ * server/context-probe.ts), and KoboldCpp is a single loaded model per
+ * server instance, so there is no router-mode case to model here. This
+ * asserts 1667's own assumption about the response shape (`{ value, ids }`,
+ * quoted from the same API document) — not a verified round trip against a
+ * real KoboldCpp server (issue #311, following the same caveat
+ * `LlamaCppFixtureTokenizeMap` above already carries for its own fixture). */
+export type KoboldCppFixtureTokenizeMap = Readonly<Record<string, number>>;
 
 export interface ProviderFixtureOptions {
   /** Issue #282 review round 5, finding 1: a genuine single-model llama.cpp
@@ -89,6 +111,11 @@ export interface ProviderFixtureOptions {
    * mask the regression it exists to catch — `model: ""` still has no match
    * in a map keyed by real names. */
   readonly allowBlankModel?: boolean;
+  /** Issue #311: a fake KoboldCpp `/api/extra/tokencount` vocabulary, keyed
+   * by literal prompt text. Undefined (the default) means the fixture does
+   * not answer that route at all, the same "unset means absent" shape
+   * `tokenizeMap` already uses for llama.cpp's `/tokenize`. */
+  readonly koboldTokenizeMap?: KoboldCppFixtureTokenizeMap;
 }
 
 export async function startProviderFixture(
@@ -99,12 +126,24 @@ export async function startProviderFixture(
   readonly origin: string;
   readonly bodies: Record<string, unknown>[];
   readonly tokenizeBodies: Record<string, unknown>[];
+  readonly koboldTokenizeBodies: Record<string, unknown>[];
 }> {
   const bodies: Record<string, unknown>[] = [];
   const tokenizeBodies: Record<string, unknown>[] = [];
+  const koboldTokenizeBodies: Record<string, unknown>[] = [];
   const allowBlankModel = options.allowBlankModel === true;
+  const koboldTokenizeMap = options.koboldTokenizeMap;
   const server = createServer((request, response) => {
-    handleRequest(request, response, bodies, tokenizeBodies, tokenizeMap, allowBlankModel).catch((error: unknown) => {
+    handleRequest(
+      request,
+      response,
+      bodies,
+      tokenizeBodies,
+      koboldTokenizeBodies,
+      tokenizeMap,
+      koboldTokenizeMap,
+      allowBlankModel
+    ).catch((error: unknown) => {
       // A fixture assertion failing (assertLogitBiasBodyShape below) throws
       // rather than silently accepting a malformed body — respond with the
       // failure instead of leaving the client to hang until its own
@@ -117,7 +156,7 @@ export async function startProviderFixture(
   t.after(() => { server.close(); });
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fixture has no address");
-  return { origin: `http://127.0.0.1:${address.port}`, bodies, tokenizeBodies };
+  return { origin: `http://127.0.0.1:${address.port}`, bodies, tokenizeBodies, koboldTokenizeBodies };
 }
 
 async function handleRequest(
@@ -125,7 +164,9 @@ async function handleRequest(
   response: ServerResponse,
   bodies: Record<string, unknown>[],
   tokenizeBodies: Record<string, unknown>[],
+  koboldTokenizeBodies: Record<string, unknown>[],
   tokenizeMap: LlamaCppFixtureTokenizeMap | undefined,
+  koboldTokenizeMap: KoboldCppFixtureTokenizeMap | undefined,
   allowBlankModel: boolean
 ): Promise<void> {
   if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
@@ -157,12 +198,33 @@ async function handleRequest(
     response.end(JSON.stringify({ tokens: tokenId === undefined ? [] : [tokenId] }));
     return;
   }
+  if (
+    request.method === "POST"
+    && request.url === "/api/extra/tokencount"
+    && koboldTokenizeMap !== undefined
+  ) {
+    const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
+    koboldTokenizeBodies.push(body);
+    const prompt = body.prompt;
+    if (typeof prompt !== "string") {
+      response.writeHead(400).end();
+      return;
+    }
+    const tokenId = koboldTokenizeMap[prompt];
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      value: tokenId === undefined ? 0 : 1,
+      ids: tokenId === undefined ? [] : [tokenId]
+    }));
+    return;
+  }
   if (request.method !== "POST") {
     response.writeHead(404).end();
     return;
   }
   const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
   assertLogitBiasBodyShape(body);
+  assertBannedTokensBodyShape(body);
   bodies.push(body);
   if (request.url === "/v1/messages") {
     response.setHeader("content-type", "text/event-stream");
@@ -215,6 +277,24 @@ function assertLogitBiasBodyShape(body: Record<string, unknown>): void {
   for (const [token, weight] of Object.entries(logitBias as Record<string, unknown>)) {
     if (!/^\d+$/.test(token)) throw new Error(`fixture expected a numeric token-ID key, got ${JSON.stringify(token)}`);
     if (typeof weight !== "number") throw new Error(`fixture expected a numeric bias for token ${token}`);
+  }
+}
+
+/** Issue #311: this asserts 1667's own assumption about the shape it sends,
+ * not a documented request schema — KoboldCpp's API document shows
+ * `banned_tokens` only on the native `GenerationInput` schema
+ * (`/api/v1/generate`, `/api/extra/generate/stream`), never on the
+ * OpenAI-compatible `/v1/chat/completions` body this fixture stands in for
+ * (see the PRESET_SUBTRACTIONS comment in shared/sampling-capabilities.ts
+ * for the full transport reasoning). What is checked here is only that 1667
+ * sends the shape that schema documents — a plain array of strings — to
+ * whichever field name it chooses, in case KoboldCpp's pass-through does
+ * accept it. */
+function assertBannedTokensBodyShape(body: Record<string, unknown>): void {
+  const bannedTokens = body.banned_tokens;
+  if (bannedTokens === undefined) return;
+  if (!Array.isArray(bannedTokens) || bannedTokens.some((entry) => typeof entry !== "string")) {
+    throw new Error(`fixture expected banned_tokens to be an array of strings, got ${JSON.stringify(bannedTokens)}`);
   }
 }
 

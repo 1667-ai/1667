@@ -51,12 +51,19 @@ This file records notable changes to 1667. Product terms use the definitions in
   refuses to send the request. 1667 names the entry that kept the token and
   the exact forms that lost their bias. A banned string makes the text
   unlikely. It does not make the text impossible, because the same text can
-  come from different token boundaries. Phrase bias and banned strings work
-  for an OpenAI model on the tokenizer list, and for llama.cpp, which 1667
-  asks to tokenize the text directly. They do not yet work for KoboldCpp,
-  LM Studio, Ollama, OpenRouter, or a custom endpoint. 1667 shows a clear
-  reason when a phrase, a banned string, or logit bias itself is not
-  available for the routed model.
+  come from different token boundaries. Phrase bias works for an OpenAI
+  model on the tokenizer list, for llama.cpp, and for KoboldCpp, which 1667
+  asks to tokenize the text directly. Banned strings work the same way for
+  OpenAI and llama.cpp. They do not yet work for LM Studio, Ollama,
+  OpenRouter, or a custom endpoint. 1667 shows a clear reason when a
+  phrase, a banned string, or logit bias itself is not available for the
+  routed model.
+- **KoboldCpp banned strings send the literal text, not a token bias.** 1667
+  sends a KoboldCpp banned string to its own banned-string field instead of
+  tokenizing it. This needs no tokenizer at all, so 1667 accepts a banned
+  string of more than one token on KoboldCpp, where every other preset
+  refuses it. A banned string on KoboldCpp still only makes the text
+  unlikely, the same promise as every other preset.
 - **A story can now set its own phrase bias and banned strings.** Open the
   command palette. Select **phrase bias** or **banned strings**. Each list
   adds to the profile's own list; it does not replace it. 1667 merges the

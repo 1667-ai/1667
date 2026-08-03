@@ -140,10 +140,12 @@ export async function probeContextWindow(
  * actually has loaded — authoritative by construction, unlike trusting the
  * server's reported model name (see the PRESET_SUBTRACTIONS comment in
  * shared/sampling-capabilities.ts for why the reported name is not trusted
- * for phraseBias/bannedStrings on any other self-hosted preset). Returns
- * null on any failure (network, timeout, malformed response) — the caller
- * (server/sampling-phrase-bias.ts) treats null as "tokenizer unavailable",
- * the same systemic outcome a failed local tokenizer load already reports.
+ * for phraseBias on a preset with no live tokenize probe of its own).
+ * KoboldCpp clears the same bar its own way — see `probeKoboldCppTokenize`
+ * below. Returns null on any failure (network, timeout, malformed
+ * response) — the caller (server/sampling-phrase-bias.ts) treats null as
+ * "tokenizer unavailable", the same systemic outcome a failed local
+ * tokenizer load already reports.
  *
  * Response shape is llama.cpp's own, quoted from
  * https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
@@ -227,6 +229,74 @@ export async function postLlamaCppTokenize(
     settings,
     `${root}/tokenize`,
     { ...route, content, ...extras },
+    {},
+    { signal, timeoutMs: probeTimeout(settings) }
+  );
+}
+
+/**
+ * Ask a KoboldCpp server to tokenize `text` against whatever model it
+ * actually has loaded — the same authority-by-construction llama.cpp's
+ * `/tokenize` gives `probeLlamaCppTokenize` above, and the second caller of
+ * `postKoboldCppTokenCount` below (server/tokenize-probe.ts's `countKoboldCpp`
+ * is the first). Returns null on any failure (network, timeout, malformed
+ * response) — the caller (server/sampling-phrase-bias.ts) treats null as
+ * "tokenizer unavailable", the same contract `probeLlamaCppTokenize` keeps.
+ *
+ * Response shape is KoboldCpp's own, quoted from its API document
+ * (https://github.com/LostRuins/koboldcpp/blob/concedo/embd_res/kcpp_docs.embd,
+ * the `/api/extra/tokencount` schema — "Counts the number of tokens in a
+ * string, and returns their token IDs"): a JSON object with a `value` field
+ * (the count) and an `ids` field, `"type": "array", "items": { "type":
+ * "integer" }`, example `"ids": [1, 22557, 28725, …]`. Issue #311 is the
+ * first caller to read `ids` — `countKoboldCpp` already posts to this same
+ * endpoint and already validates `value`, but only ever reads that field.
+ *
+ * KoboldCpp is a single loaded model per server instance, unlike llama.cpp's
+ * router mode, so unlike `postLlamaCppTokenize` this sends no `model`
+ * routing field at all — matching the existing `countKoboldCpp` and
+ * `probeContextWindow`'s koboldcpp branch (both above/below in this file's
+ * neighborhood), neither of which sends one either.
+ */
+export async function probeKoboldCppTokenize(
+  settings: GenerationSettings,
+  text: string,
+  signal?: AbortSignal
+): Promise<readonly number[] | null> {
+  try {
+    const data = await postKoboldCppTokenCount(settings, { prompt: text }, signal);
+    if (!isObject(data) || !Array.isArray(data.ids)) return null;
+    const tokens = data.ids.filter((token): token is number =>
+      typeof token === "number" && Number.isSafeInteger(token) && token >= 0);
+    return tokens.length === data.ids.length ? tokens : null;
+  } catch {
+    signal?.throwIfAborted();
+    return null;
+  }
+}
+
+/**
+ * The one call site for KoboldCpp's `POST /api/extra/tokencount`, shared by
+ * the two callers that need it — `probeKoboldCppTokenize` above (phrase-bias
+ * resolution) and `countKoboldCpp` (server/tokenize-probe.ts, prompt token
+ * counting) — the same one-endpoint, two-caller shape
+ * `postLlamaCppTokenize` already keeps for llama.cpp's `/tokenize`, so a
+ * phrase-bias probe and a prompt count can never quietly diverge on the URL.
+ * `body` is the caller's own: `countKoboldCpp` sends `{ messages }`, an
+ * undocumented but already-shipped form (see its own comment in
+ * server/tokenize-probe.ts) that lets a release compile a full chat
+ * template; `probeKoboldCppTokenize` sends `{ prompt }`, the one field the
+ * API document's own request schema names for this endpoint.
+ */
+export async function postKoboldCppTokenCount(
+  settings: GenerationSettings,
+  body: Readonly<Record<string, unknown>>,
+  signal?: AbortSignal
+): Promise<unknown> {
+  return await postProviderJson(
+    settings,
+    `${providerRoot(settings)}/api/extra/tokencount`,
+    body,
     {},
     { signal, timeoutMs: probeTimeout(settings) }
   );

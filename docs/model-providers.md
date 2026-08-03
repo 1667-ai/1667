@@ -311,14 +311,29 @@ both. 1667 accepts the phrase only when every one of the four forms is one
 token. 1667 shows the token IDs for each form.
 
 Select `banned strings`. Press `n` to add a text phrase. Press `Enter` to
-edit a phrase. Press `d` to delete a phrase. 1667 tokenizes a banned string
-the same way as a phrase bias entry, and gives it a strong negative weight.
-A banned string makes the text unlikely. It does not make the text
-impossible, because the same text can come from different token boundaries.
+edit a phrase. Press `d` to delete a phrase.
 
-Phrase bias and banned strings work only where 1667 can find the exact
-tokenizer for the routed model. 1667 shows a clear reason next to a row when
-it cannot.
+On most presets, 1667 tokenizes a banned string the same way as a phrase
+bias entry, and gives it a strong negative weight. A banned string makes the
+text unlikely. It does not make the text impossible, because the same text
+can come from different token boundaries.
+
+KoboldCpp sends a banned string a different way. 1667 sends the literal text
+to KoboldCpp's own banned-string field. KoboldCpp needs no token for this.
+So 1667 accepts a banned string of more than one token on KoboldCpp. Every
+other preset rejects a banned string of more than one token.
+
+KoboldCpp's own document describes two ways it can stop a banned string. It
+can change the model's vocabulary. Or it can back up the generated text and
+try again. 1667 has not confirmed this behavior against a running KoboldCpp
+server. A banned string on KoboldCpp makes the text unlikely, the same
+promise as every other preset. It does not make the text impossible.
+
+Phrase bias works only where 1667 can find the exact tokenizer for the
+routed model, or ask the model server to tokenize a phrase for it. Banned
+strings need the same tokenizer, except on KoboldCpp. A banned string on
+KoboldCpp needs no tokenizer. 1667 shows a clear reason next to a row when a
+phrase bias or a banned string is not available.
 
 Press `Esc` to return to Settings. Press `s` to save the Settings draft.
 

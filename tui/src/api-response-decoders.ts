@@ -226,6 +226,12 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
   const record = responseRecord(value, label);
   const phrase = stringField(record, "phrase", label);
   const scope = decodeSamplingBiasScope(record.scope, label);
+  // "native" (issue #311) carries no variants and no token IDs at all — it
+  // never attempted tokenization, so decoding either field here would be
+  // decoding data the wire response never has. Checked before
+  // decodeSamplingBiasVariantList runs, unlike every other kind below, which
+  // all carry variants unconditionally.
+  if (record.kind === "native") return { kind: "native", phrase, scope };
   const variants = decodeSamplingBiasVariantList(record.variants, label);
   if (record.kind === "rejected") return { kind: "rejected", phrase, scope, variants };
   if (record.kind === "shadowed" || record.kind === "overridden") {

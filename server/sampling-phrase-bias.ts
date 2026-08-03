@@ -21,7 +21,7 @@ import type { GenerationSettings, Story } from "../shared/types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
 import { promptBiasEncoderAvailable, tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
-import { probeLlamaCppTokenize } from "./context-probe.js";
+import { probeKoboldCppTokenize, probeLlamaCppTokenize } from "./context-probe.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 
 /** One phraseBias entry or bannedStrings phrase, tagged with the scope
@@ -554,10 +554,13 @@ function neverCalledTokenizer(): SamplingBiasVariantOutcome {
  * fast. "llama-cpp" has no such allow-list to trust (server/context-probe.ts,
  * probeLlamaCppTokenize) — instead every distinct surface-variant text the
  * draft needs is tokenized by asking that server directly, once each, before
- * the (still synchronous) merge runs. Every other preset has no tokenizer
- * strategy at all: "tokenizer-unavailable" whenever phraseBias or
- * bannedStrings is non-empty, matching what resolveSamplingKnob already
- * reports as unavailable for those presets ahead of reaching here.
+ * the (still synchronous) merge runs. "koboldcpp" resolves phraseBias the
+ * same live-probe way, through its own `/api/extra/tokencount`
+ * (probeKoboldCppTokenize) — see `resolveKoboldCppSamplingBias` below for why
+ * its bannedStrings takes a third path neither of those two use. Every other
+ * preset has no tokenizer strategy at all: "tokenizer-unavailable" whenever
+ * phraseBias or bannedStrings is non-empty, matching what resolveSamplingKnob
+ * already reports as unavailable for those presets ahead of reaching here.
  *
  * The "nothing to tokenize" guard is hoisted above every preset branch
  * (issue #282 review round 2, finding 7): a raw numeric logitBias map alone
@@ -591,29 +594,97 @@ export async function resolveSamplingBiasForSettings(
     return resolveSamplingLogitBiasForEncoding(combined, promptBiasTokenizerEncoding(settings.model));
   }
   if (runtime.preset === "llama-cpp") {
-    const tokenizer = await llamaCppVariantTokenizer(combined, settings, signal);
+    const tokenizer = await liveProbeVariantTokenizer(combined, probeLlamaCppTokenize, settings, signal);
     return tokenizer === null
       ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
       : resolveSamplingLogitBias(combined, tokenizer);
   }
+  if (runtime.preset === "koboldcpp") {
+    return await resolveKoboldCppSamplingBias(combined, settings, signal);
+  }
   return { kind: "tokenizer-unavailable", cause: "model-unknown" };
+}
+
+/**
+ * KoboldCpp's bannedStrings resolves neither like llama-cpp's (a live probe
+ * feeding the same token-ID merge) nor like a preset with no tokenizer
+ * strategy at all: it needs no tokenizer, because KoboldCpp's anti-slop
+ * `banned_tokens` field takes the literal phrase text and backtracks the
+ * generated stream when it appears (see the field description quoted in
+ * shared/sampling-capabilities.ts) — a multi-token phrase is not rejected
+ * the way it would be for a token-ID bias. Every configured banned string
+ * therefore reaches the "native" outcome unconditionally; `resolveSamplingLogitBias`
+ * never even sees them (`tokenInput.bannedStrings` below is always empty),
+ * so a token-ownership conflict — "shadowed"/"overridden" — cannot occur for
+ * a banned string on this preset, because it never contests a token with
+ * anything.
+ *
+ * phraseBias still resolves the same live-probe way llama-cpp's does — see
+ * `resolveSamplingBiasForSettings` above — through `probeKoboldCppTokenize`
+ * (server/context-probe.ts). That probe only runs when phraseBias is
+ * actually configured: a writer who configured only bannedStrings must not
+ * have their request blocked by an unreachable KoboldCpp server that a
+ * text-only ban never needed to ask anything of.
+ */
+async function resolveKoboldCppSamplingBias(
+  combined: SamplingBiasMergeInput,
+  settings: GenerationSettings,
+  signal: AbortSignal | undefined
+): Promise<SamplingBiasResolutionResult> {
+  const tokenInput: SamplingBiasMergeInput = { ...combined, bannedStrings: [] };
+  const tokenResolved = combined.phraseBias.length === 0
+    ? resolveSamplingLogitBias(tokenInput, neverCalledTokenizer)
+    : await resolveWithKoboldCppProbe(tokenInput, settings, signal);
+  if (tokenResolved.kind !== "resolved") return tokenResolved;
+  return {
+    ...tokenResolved,
+    bannedStrings: combined.bannedStrings.map((entry): SamplingBiasEntryResolution => (
+      { kind: "native", phrase: entry.phrase, scope: entry.scope }
+    ))
+  };
+}
+
+async function resolveWithKoboldCppProbe(
+  tokenInput: SamplingBiasMergeInput,
+  settings: GenerationSettings,
+  signal: AbortSignal | undefined
+): Promise<SamplingBiasResolutionResult> {
+  const tokenizer = await liveProbeVariantTokenizer(tokenInput, probeKoboldCppTokenize, settings, signal);
+  return tokenizer === null
+    ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
+    : resolveSamplingLogitBias(tokenInput, tokenizer);
 }
 
 /** A local server answering a handful of small POSTs in parallel is normal;
  * an unbounded burst against it (a full 256-entry list times four variants)
- * is not a request 1667 should make in one breath. */
-const LLAMA_CPP_TOKENIZE_CONCURRENCY = 8;
+ * is not a request 1667 should make in one breath. Shared by every live
+ * -tokenize preset (llama-cpp, KoboldCpp), not sized per preset. */
+const LIVE_TOKENIZE_PROBE_CONCURRENCY = 8;
 
-/** Pre-fetches every distinct surface-variant text the draft needs from the
- * llama.cpp server's own /tokenize endpoint, then returns a plain
- * synchronous lookup over the results — reusing the exact same merge/reject
- * core (resolveSamplingLogitBias) the local-tokenizer path uses. Returns
- * null when any probe call fails outright: a network or server failure is
- * systemic (the tokenizer is unavailable), not a fact about any one phrase,
- * the same distinction the local WASM tokenizer's load failure already
- * draws. */
-async function llamaCppVariantTokenizer(
+/** One text tokenized against a live server, returning its token IDs or null
+ * on failure — the shape `probeLlamaCppTokenize` and `probeKoboldCppTokenize`
+ * (server/context-probe.ts) both already have. */
+type LiveTokenizeProbe = (
+  settings: GenerationSettings,
+  text: string,
+  signal?: AbortSignal
+) => Promise<readonly number[] | null>;
+
+/** Pre-fetches every distinct surface-variant text the draft needs from a
+ * live tokenize probe, then returns a plain synchronous lookup over the
+ * results — reusing the exact same merge/reject core (resolveSamplingLogitBias)
+ * the local-tokenizer path uses. Returns null when any probe call fails
+ * outright: a network or server failure is systemic (the tokenizer is
+ * unavailable), not a fact about any one phrase, the same distinction the
+ * local WASM tokenizer's load failure already draws.
+ *
+ * Generalized over `probe` (issue #311) so llama-cpp and KoboldCpp share one
+ * implementation instead of two copies that could quietly drift apart —
+ * the two presets differ only in which endpoint answers the tokenize call,
+ * never in how the results get merged. */
+async function liveProbeVariantTokenizer(
   sampling: Pick<SamplingBiasMergeInput, "phraseBias" | "bannedStrings">,
+  probe: LiveTokenizeProbe,
   settings: GenerationSettings,
   signal?: AbortSignal
 ): Promise<SyncVariantTokenizer | null> {
@@ -631,7 +702,7 @@ async function llamaCppVariantTokenizer(
     for (;;) {
       const text = queue.pop();
       if (text === undefined || failed) return;
-      const tokenIds = await probeLlamaCppTokenize(settings, text, signal);
+      const tokenIds = await probe(settings, text, signal);
       if (tokenIds === null) {
         failed = true;
         return;
@@ -645,7 +716,7 @@ async function llamaCppVariantTokenizer(
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(LLAMA_CPP_TOKENIZE_CONCURRENCY, queue.length) }, worker)
+    Array.from({ length: Math.min(LIVE_TOKENIZE_PROBE_CONCURRENCY, queue.length) }, worker)
   );
   if (failed) return null;
   // Every text queued above was either recorded in `outcomes` or caused
@@ -658,7 +729,7 @@ async function llamaCppVariantTokenizer(
   return (text) => {
     const outcome = outcomes.get(text);
     if (outcome === undefined) {
-      throw new Error(`llama.cpp tokenize probe never queued ${JSON.stringify(text)}`);
+      throw new Error(`live tokenize probe never queued ${JSON.stringify(text)}`);
     }
     return outcome;
   };
