@@ -40,8 +40,9 @@ export type SamplingBiasRowResolution =
 export function samplingBiasAvailableForOverlay(overlay: SettingsOverlayState): boolean {
   if (!overlay.view.editable) return false;
   const context = samplingContextForOverlay(overlay);
-  return resolveSamplingKnob(context, "phraseBias").kind === "available"
-    || resolveSamplingKnob(context, "bannedStrings").kind === "available";
+  const sampling = overlay.draft.sampling;
+  return resolveSamplingKnob(context, sampling, "phraseBias").kind === "available"
+    || resolveSamplingKnob(context, sampling, "bannedStrings").kind === "available";
 }
 
 export function samplingBiasRowResolution(

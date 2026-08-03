@@ -43,6 +43,9 @@ read_when:
 | logit bias | A token identifier and a weight that changes token probability |
 | phrase bias | A text phrase and a weight that changes the probability of its tokens |
 | banned string | A text phrase that gets a strong negative token bias |
+| DRY | A sampling parameter group that lowers the probability of a token sequence that would repeat |
+| XTC | A sampling parameter group that removes the model's top token choices at random |
+| Mirostat | A sampling algorithm that holds output perplexity near a target value |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

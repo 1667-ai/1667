@@ -51,6 +51,13 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   // phraseBias/bannedStrings only validate as available for a model on the
   // closed tokenizer allow-list (shared/sampling-capabilities.ts); every
   // other corpus case keeps the plain "test-model" placeholder.
+  //
+  // topK/minP/repeatPenalty and the new DRY/XTC/temperature-shaping knobs are
+  // llama.cpp/KoboldCpp extensions the "openai" preset does not document, so
+  // this fixture's connection preset leaves them null; the schema still needs
+  // every key present (and its null branch exercised). llama.cpp/KoboldCpp
+  // preset coverage of real configured values lives in
+  // test/sampling-e2e.test.ts and test/sampling-capabilities.test.ts.
   const sampledOpenAi = withSampling(withKnownTokenizerModel(convertedOpenAi), {
     topP: 0.9,
     topK: null,
@@ -59,6 +66,15 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     presencePenalty: -0.1,
     repeatPenalty: null,
     seed: 7,
+    dryMultiplier: null,
+    dryBase: null,
+    dryRange: null,
+    xtcThreshold: null,
+    xtcProbability: null,
+    dynatempRange: null,
+    mirostat: null,
+    mirostatTau: null,
+    mirostatEta: null,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 },
     // Single words, chosen so every one of the four surface variants
@@ -67,7 +83,8 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     // than one token in any variant is rejected at resolution, and this
     // fixture exercises the accepted path, not the rejected one.
     bannedStrings: ["spam"],
-    phraseBias: [{ phrase: "wolf", weight: 4 }]
+    phraseBias: [{ phrase: "wolf", weight: 4 }],
+    dryBreakers: []
   });
   const emptySampling = withSampling(sampledOpenAi, EMPTY_SAMPLING_V2);
   const legacySamplingText = legacyShapedSamplingDocumentText(sampledOpenAi);
@@ -218,6 +235,10 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     invalid("document-sampling-phrase-bias-extra-key", "document", withRawSampling(sampledOpenAi, {
       ...sampledOpenAi.profiles.default!.sampling!,
       phraseBias: [{ phrase: "raven", weight: 4, typo: true }]
+    }), false),
+    invalid("document-sampling-invalid-mirostat", "document", withSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      mirostat: 3
     }), false),
     invalid("document-nfd-string", "document", {
       ...INITIAL_SETTINGS_DOCUMENT_V2,

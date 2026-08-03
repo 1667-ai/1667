@@ -33,6 +33,7 @@ import {
 } from "../shared/settings-v2-types.js";
 import {
   SAMPLING_BANNED_STRINGS_POLICY,
+  SAMPLING_DRY_BREAKERS_POLICY,
   SAMPLING_LOGIT_BIAS_POLICY,
   SAMPLING_PHRASE_BIAS_POLICY,
   SAMPLING_SCALAR_DESCRIPTORS,
@@ -164,11 +165,18 @@ export function settingsV2Schema(): Schema {
         type: "array",
         maxItems: SAMPLING_PHRASE_BIAS_POLICY.maxEntries,
         items: ref("PhraseBiasEntry")
+      },
+      dryBreakers: {
+        type: "array",
+        maxItems: SAMPLING_DRY_BREAKERS_POLICY.maxSequences,
+        uniqueItems: true,
+        items: boundedString(SAMPLING_DRY_BREAKERS_POLICY.maxScalars, 1)
       }
     }, [
       ...SAMPLING_SCALAR_KNOB_V2_VALUES,
       "stop",
-      "logitBias"
+      "logitBias",
+      "dryBreakers"
     ]),
     Connections: settingsMap("Connection"),
     Models: settingsMap("Model"),

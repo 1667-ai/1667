@@ -126,12 +126,10 @@ test("sampling parses as a closed optional profile object and projects to runtim
   // token in any variant is rejected at resolution, and this test exercises
   // the accepted path.
   const sampling = {
+    ...EMPTY_SAMPLING_V2,
     topP: 0.9,
-    topK: null,
-    minP: null,
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
-    repeatPenalty: null,
     seed: 7,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 },
@@ -183,13 +181,23 @@ test("a phrase-bias entry with a real weight conflict on some of its tokens fail
           presencePenalty: null,
           repeatPenalty: null,
           seed: null,
+          dryMultiplier: null,
+          dryBase: null,
+          dryRange: null,
+          xtcThreshold: null,
+          xtcProbability: null,
+          dynatempRange: null,
+          mirostat: null,
+          mirostatTau: null,
+          mirostatEta: null,
           stop: [],
           logitBias: {},
           bannedStrings: [],
           phraseBias: [
             { phrase: "hello", weight: 20 },
             { phrase: "Hello", weight: -20 }
-          ]
+          ],
+          dryBreakers: []
         }
       }
     }
@@ -210,14 +218,25 @@ test("a document saved before phraseBias and bannedStrings existed still decodes
     frequencyPenalty: null,
     presencePenalty: null,
     repeatPenalty: null,
-    // seed is required (unlike phraseBias/bannedStrings below): it was
-    // added after this document's era, but not as an additive-optional
-    // field, so a document from before phraseBias/bannedStrings existed
-    // still needs it explicitly — this test's own claim is scoped to
+    // seed, and every scalar and dryBreakers below down to logitBias, are
+    // required (unlike phraseBias/bannedStrings below): each was added
+    // after this document's era, but not as an additive-optional field, so
+    // a document from before phraseBias/bannedStrings existed still needs
+    // them explicitly — this test's own claim is scoped to
     // phraseBias/bannedStrings, not every field ever added later.
     seed: null,
+    dryMultiplier: null,
+    dryBase: null,
+    dryRange: null,
+    xtcThreshold: null,
+    xtcProbability: null,
+    dynatempRange: null,
+    mirostat: null,
+    mirostatTau: null,
+    mirostatEta: null,
     stop: ["END"],
-    logitBias: { "15043": 1 }
+    logitBias: { "15043": 1 },
+    dryBreakers: []
   };
   const document = parseSettingsDocumentV2({
     ...base,
@@ -258,15 +277,8 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   ));
   const profile = base.profiles.default!;
   const sampling = {
-    topP: 0.9,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    seed: null,
-    stop: [],
-    logitBias: {}
+    ...EMPTY_SAMPLING_V2,
+    topP: 0.9
   };
   const withSampling = (next: Record<string, unknown>) => ({
     ...base,
@@ -335,14 +347,7 @@ test("save-time sampling validation refuses unavailable preset and model cells",
       default: {
         ...profile,
         sampling: {
-          topP: null,
-          topK: null,
-          minP: null,
-          frequencyPenalty: null,
-          presencePenalty: null,
-          repeatPenalty: null,
-          seed: null,
-          stop: [],
+          ...EMPTY_SAMPLING_V2,
           logitBias: { "1": 1 }
         }
       }
@@ -363,15 +368,8 @@ test("save-time sampling validation refuses unavailable preset and model cells",
       default: {
         ...anthropic.profiles.default!,
         sampling: {
-          topP: 0.9,
-          topK: null,
-          minP: null,
-          frequencyPenalty: null,
-          presencePenalty: null,
-          repeatPenalty: null,
-          seed: null,
-          stop: [],
-          logitBias: {}
+          ...EMPTY_SAMPLING_V2,
+          topP: 0.9
         }
       }
     }

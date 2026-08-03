@@ -4,6 +4,7 @@ import {
 } from "../../shared/sampling-capabilities.js";
 import {
   maxResolvedLogitBiasEntries,
+  SAMPLING_DRY_BREAKERS_POLICY,
   SAMPLING_RESOLVED_LOGIT_BIAS_POLICY,
   SAMPLING_STOP_POLICY,
   validateSamplingLogitBiasEntry,
@@ -29,7 +30,9 @@ export interface SamplingListPanelSpec<Value> {
    * (shared/sampling-capabilities.ts) reasons about availability per knob,
    * not per panel. */
   readonly knob: SamplingKnobV2;
-  /** Only the stop-sequence panel supports ←→ reordering. */
+  /** The status bar's name for this panel while it is open, e.g. `STOP`. */
+  readonly statusLabel: string;
+  /** Only a plain-string list (stop, dry breakers) supports ←→ reordering. */
   readonly reorderable: boolean;
   maximum(context: SamplingContext): number;
   values(overlay: SettingsOverlayState): readonly Value[];
@@ -39,6 +42,9 @@ export interface SamplingListPanelSpec<Value> {
    * past the end). Returns an error message, or null on success. */
   set(overlay: SettingsOverlayState, index: number, raw: string): string | null;
   remove(overlay: SettingsOverlayState, index: number): boolean;
+  /** Reorders the entry at the current cursor by `step`. Every panel that is
+   * not `reorderable` returns false unconditionally. */
+  move(overlay: SettingsOverlayState, step: -1 | 1): boolean;
 }
 
 /** Every logit-bias-family panel's displayed ceiling is the *resolved*
@@ -58,9 +64,30 @@ function resolvedBiasMaximum(context: SamplingContext): number {
     : maxResolvedLogitBiasEntries(context.preset);
 }
 
+/** Reorders a plain string list at the panel's current cursor by `step` —
+ * shared by every reorderable panel (`stop`, `dry-breakers`) so the swap
+ * logic exists once. */
+function moveStringListEntry(
+  overlay: SettingsOverlayState,
+  field: "stop" | "dryBreakers",
+  step: -1 | 1
+): boolean {
+  const list = [...overlay.draft.sampling[field]];
+  const index = overlay.sampling?.cursor ?? 0;
+  const nextIndex = index + step;
+  if (index < 0 || index >= list.length || nextIndex < 0 || nextIndex >= list.length) {
+    return false;
+  }
+  [list[index], list[nextIndex]] = [list[nextIndex]!, list[index]!];
+  updateSamplingDraft(overlay, { ...overlay.draft.sampling, [field]: list });
+  if (overlay.sampling !== null) overlay.sampling.cursor = nextIndex;
+  return true;
+}
+
 const STOP_SPEC: SamplingListPanelSpec<string> = {
   panel: "stop",
   knob: "stop",
+  statusLabel: "STOP",
   reorderable: true,
   maximum: () => SAMPLING_STOP_POLICY.maxSequences,
   values: (overlay) => overlay.draft.sampling.stop,
@@ -78,12 +105,42 @@ const STOP_SPEC: SamplingListPanelSpec<string> = {
     if (index < 0 || index >= sampling.stop.length) return false;
     updateSamplingDraft(overlay, { ...sampling, stop: sampling.stop.filter((_, item) => item !== index) });
     return true;
-  }
+  },
+  move: (overlay, step) => moveStringListEntry(overlay, "stop", step)
+};
+
+const DRY_BREAKERS_SPEC: SamplingListPanelSpec<string> = {
+  panel: "dry-breakers",
+  knob: "dryBreakers",
+  statusLabel: "DRY BREAKERS",
+  reorderable: true,
+  maximum: () => SAMPLING_DRY_BREAKERS_POLICY.maxSequences,
+  values: (overlay) => overlay.draft.sampling.dryBreakers,
+  identityKey: (value) => value,
+  editableText: (value) => value,
+  set: (overlay, index, raw) => {
+    const nextBreakers = [...overlay.draft.sampling.dryBreakers];
+    if (index > nextBreakers.length) return "dry breaker row is no longer available";
+    if (index === nextBreakers.length) nextBreakers.push(raw);
+    else nextBreakers[index] = raw;
+    return applySamplingUpdate(overlay, { ...overlay.draft.sampling, dryBreakers: nextBreakers });
+  },
+  remove: (overlay, index) => {
+    const sampling = overlay.draft.sampling;
+    if (index < 0 || index >= sampling.dryBreakers.length) return false;
+    updateSamplingDraft(overlay, {
+      ...sampling,
+      dryBreakers: sampling.dryBreakers.filter((_, item) => item !== index)
+    });
+    return true;
+  },
+  move: (overlay, step) => moveStringListEntry(overlay, "dryBreakers", step)
 };
 
 const LOGIT_BIAS_SPEC: SamplingListPanelSpec<readonly [string, number]> = {
   panel: "logit-bias",
   knob: "logitBias",
+  statusLabel: "LOGIT BIAS",
   reorderable: false,
   maximum: resolvedBiasMaximum,
   values: (overlay) => samplingLogitBiasEntries(overlay),
@@ -120,12 +177,14 @@ const LOGIT_BIAS_SPEC: SamplingListPanelSpec<readonly [string, number]> = {
     updateSamplingDraft(overlay, { ...overlay.draft.sampling, logitBias: Object.fromEntries(entries) });
     if (overlay.sampling !== null) overlay.sampling.logitBiasOrder = entries.map(([key]) => key);
     return true;
-  }
+  },
+  move: () => false
 };
 
 const PHRASE_BIAS_SPEC: SamplingListPanelSpec<SamplingPhraseBiasEntryV2> = {
   panel: "phrase-bias",
   knob: "phraseBias",
+  statusLabel: "PHRASE BIAS",
   reorderable: false,
   maximum: resolvedBiasMaximum,
   values: (overlay) => overlay.draft.sampling.phraseBias,
@@ -157,12 +216,14 @@ const PHRASE_BIAS_SPEC: SamplingListPanelSpec<SamplingPhraseBiasEntryV2> = {
       phraseBias: sampling.phraseBias.filter((_, item) => item !== index)
     });
     return true;
-  }
+  },
+  move: () => false
 };
 
 const BANNED_STRINGS_SPEC: SamplingListPanelSpec<string> = {
   panel: "banned-strings",
   knob: "bannedStrings",
+  statusLabel: "BANNED STRINGS",
   reorderable: false,
   maximum: resolvedBiasMaximum,
   values: (overlay) => overlay.draft.sampling.bannedStrings,
@@ -183,25 +244,34 @@ const BANNED_STRINGS_SPEC: SamplingListPanelSpec<string> = {
       bannedStrings: sampling.bannedStrings.filter((_, item) => item !== index)
     });
     return true;
-  }
+  },
+  move: () => false
 };
 
 export const SAMPLING_LIST_PANEL_ORDER = [
   "stop",
   "logit-bias",
   "phrase-bias",
-  "banned-strings"
+  "banned-strings",
+  "dry-breakers"
 ] as const satisfies readonly SamplingListPanel[];
 
 const SAMPLING_LIST_PANEL_SPECS: Readonly<Record<SamplingListPanel, SamplingListPanelSpec<unknown>>> = {
   stop: STOP_SPEC as SamplingListPanelSpec<unknown>,
   "logit-bias": LOGIT_BIAS_SPEC as SamplingListPanelSpec<unknown>,
   "phrase-bias": PHRASE_BIAS_SPEC as SamplingListPanelSpec<unknown>,
-  "banned-strings": BANNED_STRINGS_SPEC as SamplingListPanelSpec<unknown>
+  "banned-strings": BANNED_STRINGS_SPEC as SamplingListPanelSpec<unknown>,
+  "dry-breakers": DRY_BREAKERS_SPEC as SamplingListPanelSpec<unknown>
 };
 
 export function samplingListPanelSpec(panel: SamplingListPanel): SamplingListPanelSpec<unknown> {
   return SAMPLING_LIST_PANEL_SPECS[panel];
+}
+
+/** The status bar's short name for a list panel while it is open, e.g.
+ * `STOP` — read by tui/src/screens/story/status.ts. */
+export function samplingListPanelStatusLabel(panel: SamplingListPanel): string {
+  return samplingListPanelSpec(panel).statusLabel;
 }
 
 /** logitBias is a Record, not an ordered list; `logitBiasOrder` on the

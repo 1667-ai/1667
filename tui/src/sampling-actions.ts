@@ -8,12 +8,12 @@ import {
   beginSamplingEdit,
   boundedSamplingCursor,
   deleteSamplingItem,
-  moveStopSequence,
+  moveSamplingListItem,
   SAMPLING_LAYER_ROWS,
+  SAMPLING_SCALAR_PRESENTATION,
   samplingListRows,
   samplingScalarRows,
-  setSamplingScalar,
-  type SamplingScalarKnob
+  setSamplingScalar
 } from "./sampling-model.js";
 import { samplingListPanelSpec } from "./sampling-panel-spec.js";
 import { resolveSamplingBias } from "./sampling-bias-resolution.js";
@@ -87,8 +87,11 @@ export async function samplingOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     if (nested.panel === "sampling") {
       stepSamplingScalar(settings, step);
-    } else if (samplingListPanelSpec(nested.panel).reorderable) {
-      moveStopSequence(settings, step);
+    } else {
+      // `reorderable` panels' `.move()` (tui/src/sampling-panel-spec.ts)
+      // reorders; every other panel's `.move()` is a no-op `() => false`, so
+      // this needs no separate reorderable check of its own.
+      moveSamplingListItem(settings, nested.panel, step);
     }
   }
 }
@@ -131,7 +134,7 @@ function stepSamplingScalar(
       : `${presentation.label} disabled · ${presentation.reasonCompact}`;
     return;
   }
-  const spec = SAMPLING_SCALAR_STEPS[knob];
+  const spec = SAMPLING_SCALAR_PRESENTATION[knob];
   const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
   const current = settings.draft.sampling[knob];
   if (current === null) {
@@ -153,20 +156,6 @@ function stepSamplingScalar(
   const error = setSamplingScalar(settings, knob, String(next));
   if (error !== null) nested.result = `row kept · ${error}`;
 }
-
-const SAMPLING_SCALAR_STEPS: Readonly<Record<SamplingScalarKnob, {
-  readonly step: number;
-  readonly neutral: number;
-  readonly precision: number;
-}>> = {
-  topP: { step: 0.05, neutral: 1, precision: 2 },
-  topK: { step: 1, neutral: 0, precision: 0 },
-  minP: { step: 0.01, neutral: 0, precision: 2 },
-  frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
-  presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
-  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
-  seed: { step: 1, neutral: 1, precision: 0 }
-};
 
 function roundSamplingValue(value: number, precision: number): number {
   const factor = 10 ** precision;

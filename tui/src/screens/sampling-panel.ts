@@ -41,7 +41,8 @@ const SAMPLING_PANEL_TITLES: Readonly<Record<SamplingListPanel, string>> = {
   stop: "stop sequences",
   "logit-bias": "logit bias",
   "phrase-bias": "phrase bias",
-  "banned-strings": "banned strings"
+  "banned-strings": "banned strings",
+  "dry-breakers": "dry breakers"
 };
 
 export function renderSamplingPanel(
@@ -81,42 +82,65 @@ function renderSamplingLayer(
   height: number,
   status: FrameLine[]
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const scalarRows = samplingScalarRows(settings);
-  const listRows = samplingListRows(settings);
-  const rows = [
-    ...scalarRows.map((row) => ({ kind: "scalar" as const, row })),
-    ...listRows.map((row) => ({ kind: "list" as const, row }))
-  ];
+  const scalarByKnob = new Map(samplingScalarRows(settings).map((row) => [row.knob, row] as const));
+  const listByPanel = new Map(samplingListRows(settings).map((row) => [row.panel, row] as const));
   const cursor = boundedSamplingCursor(settings);
   // One reason held by every knob is a fact about the provider, not about any
   // row. Repeated down the column it was the loudest thing on the panel and
   // pushed each row's own value out of alignment.
-  const shared = sharedDisabledReason(scalarRows, listRows);
+  const shared = sharedDisabledReason([...scalarByKnob.values()], [...listByPanel.values()]);
   const sharedLine: FrameLine[] = shared === null
     ? []
     : [[raisedSegment(truncate(`  ${shared}`, width), "prose · dim")]];
+  // SAMPLING_LAYER_ROWS is the one ordering both the cursor and the paint use,
+  // so a knob's place in the section list can never drift from its focus
+  // stop. Each row's block is its section rule (if it opens a C-04 group)
+  // followed by the row itself, so a section-leading row's two-line cost is
+  // read off the block rather than kept as a second, index-aligned fact
+  // beside it.
+  const blocks = SAMPLING_LAYER_ROWS.map((spec, index) => {
+    const row: SamplingLayerRow = spec.kind === "scalar"
+      ? { kind: "scalar" as const, row: scalarByKnob.get(spec.knob)! }
+      : { kind: "list" as const, row: listByPanel.get(spec.panel)! };
+    const lines: FrameLine[] = [];
+    const targets: Array<HitTarget | null> = [];
+    if (spec.section !== undefined) {
+      lines.push(samplingSectionRule(spec.section, width));
+      targets.push(null);
+    }
+    lines.push(renderSamplingRow(row, index === cursor, settings, width, shared !== null));
+    targets.push({
+      kind: "list",
+      index,
+      rowId: samplingLayerRowIdentity(spec),
+      selected: index === cursor
+    });
+    return { lines, targets };
+  });
   const capacity = Math.max(1,
     panelContentRows(height) - status.length - sharedLine.length);
-  const window = panelRowWindow(rows.map(() => 1), cursor, capacity);
+  const window = panelRowWindow(blocks.map((block) => block.lines.length), cursor, capacity);
   const lines: FrameLine[] = [...status, ...sharedLine];
   const targets: Array<HitTarget | null> = [
     ...status.map(() => null),
     ...sharedLine.map(() => null)
   ];
-  for (const [offset, row] of rows.slice(window.start, window.end).entries()) {
-    const index = window.start + offset;
-    lines.push(renderSamplingRow(row, index === cursor, settings, width, shared !== null));
-    const rowIdentity = row.kind === "scalar"
-      ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
-      : samplingLayerRowIdentity({ kind: "list", panel: row.row.panel });
-    targets.push({
-      kind: "list",
-      index,
-      rowId: rowIdentity,
-      selected: index === cursor
-    });
+  for (const block of blocks.slice(window.start, window.end)) {
+    lines.push(...block.lines);
+    targets.push(...block.targets);
   }
   return { lines, targets };
+}
+
+/** C-04's rule: `── <title> ` padded with `─` to the content width, in the
+ *  `chrome` role, truncated rather than wrapped on a narrow panel. */
+function samplingSectionRule(title: string, width: number): FrameLine {
+  const rule = `── ${title} `;
+  const fill = width - visibleWidth(rule);
+  return [raisedSegment(
+    fill > 0 ? `${rule}${"─".repeat(fill)}` : truncate(rule, width),
+    "chrome"
+  )];
 }
 
 /** The one reason every knob is disabled for, when there is exactly one. */
@@ -150,7 +174,7 @@ function renderSamplingRow(
       lead,
       row.row.label,
       row.row.available ? `‹ ${row.row.value} ›` : "‹ — ›",
-      row.row.available || reasonShared ? "" : row.row.reason,
+      row.row.available ? row.row.hint : reasonShared ? "" : row.row.reason,
       width,
       selected,
       row.row.available ? "chrome" : "prose · dim"
@@ -221,6 +245,17 @@ const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingLis
     header: (count, maximum) => `  banned string             resolved tokens · ${count}/${maximum}`,
     formatValue: (value, settings, _index, selected, width) =>
       bannedStringValueRow(value as string, settings, selected, width)
+  },
+  "dry-breakers": {
+    emptyCopy: [
+      "  no dry breakers yet.",
+      // An empty list is not sent, and the provider then uses its own
+      // breakers — so the empty state must not read as "dry has none".
+      "  n writes one · until then the provider uses its own list"
+    ],
+    header: (count, maximum) => `  #   breaker · ${count}/${maximum}`,
+    formatValue: (value, _settings, index, selected, width) =>
+      listValueRow(index, value as string, selected, width)
   }
 };
 

@@ -12,7 +12,7 @@ import {
   resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
   samplingKnobLabel,
-  type SamplingUnavailableReason
+  samplingUnavailableReasonCompact
 } from "../../shared/sampling-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
@@ -448,23 +448,11 @@ function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: s
   for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
     if (resolution.kind === "unavailable") {
       throw new Error(
-        `${samplingKnobLabel(knob)} is unavailable · ${SAMPLING_UNAVAILABLE_REASON_COMPACT[resolution.reason]}`
+        `${samplingKnobLabel(knob)} is unavailable · ${samplingUnavailableReasonCompact(resolution.reason)}`
       );
     }
   }
 }
-
-const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableReason, string>> = {
-  "legacy-v1": "read-only",
-  "dry-run": "dry run",
-  protocol: "not in protocol",
-  "preset-unsupported": "not in preset",
-  "preset-unknown": "unknown endpoint",
-  "model-unsupported": "model unsupported",
-  "model-unknown": "model unknown",
-  "no-exact-tokenizer": "no exact tokenizer",
-  "reasoning-model": "reasoning model"
-};
 
 /** A credential-touching save activates inside the save request, so the
  * mutation result itself reports this save's activation outcome. */

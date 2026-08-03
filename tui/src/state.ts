@@ -173,7 +173,13 @@ export interface SettingsInlineEditState extends SettingsEditBufferState {
   mode: "text" | "secret";
 }
 
-export type SamplingPanelId = "sampling" | "stop" | "logit-bias" | "phrase-bias" | "banned-strings";
+export type SamplingPanelId =
+  | "sampling"
+  | "stop"
+  | "logit-bias"
+  | "phrase-bias"
+  | "banned-strings"
+  | "dry-breakers";
 export type SamplingListPanel = Exclude<SamplingPanelId, "sampling">;
 
 /** One shape for every list panel's inline editor, discriminated by `panel`

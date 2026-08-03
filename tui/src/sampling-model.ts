@@ -34,6 +34,9 @@ export interface SamplingScalarRow {
   readonly reasonCompact: string;
   readonly knob: SamplingScalarKnob;
   readonly value: string;
+  /** A standing hint shown only while the row is available — e.g. `0 disables`.
+   *  Blank for every knob that has none. An unavailable reason always wins. */
+  readonly hint: string;
 }
 
 export interface SamplingListRow {
@@ -47,13 +50,101 @@ export interface SamplingListRow {
   readonly reasonCompact: string;
 }
 
-export const SAMPLING_LAYER_ROWS = [
-  ...SAMPLING_SCALAR_KNOBS.map((knob) => ({ kind: "scalar" as const, knob })),
-  ...SAMPLING_LIST_PANEL_ORDER.map((panel) => ({ kind: "list" as const, panel }))
+export interface SamplingScalarPresentation {
+  /** Amount `←→` moves the value by, in the knob's own unit. */
+  readonly step: number;
+  /** Where `←→` lands when nudging off a blank (`null`) field. */
+  readonly neutral: number;
+  readonly precision: number;
+  /** How the numeric value reads when it is not a plain number — e.g.
+   *  Mirostat's three states read `off` / `v1` / `v2`. Absent for every knob
+   *  whose value is its own display string. */
+  readonly format?: (value: number | null) => string;
+  /** A standing hint shown only while the row is available. Absent for every
+   *  knob whose zero has no documented, non-obvious meaning. */
+  readonly hint?: string;
+}
+
+/** One entry per scalar knob, covering both its stepper geometry (read by
+ *  `sampling-actions.ts`'s `←→` handler) and its presentation (read by
+ *  `samplingScalarRows` below). A knob earns a `format` or `hint` entry here
+ *  instead of a special case in the renderer, so the two tables this branch
+ *  once kept alongside `sampling-actions.ts`'s stepper table cannot drift
+ *  from each other or from the table they were merged into. */
+export const SAMPLING_SCALAR_PRESENTATION: Readonly<Record<SamplingScalarKnob, SamplingScalarPresentation>> = {
+  topP: { step: 0.05, neutral: 1, precision: 2 },
+  topK: { step: 1, neutral: 0, precision: 0 },
+  minP: { step: 0.01, neutral: 0, precision: 2 },
+  frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
+  presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
+  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
+  seed: { step: 1, neutral: 1, precision: 0 },
+  dryMultiplier: { step: 0.05, neutral: 0, precision: 2, hint: "0 disables" },
+  dryBase: { step: 0.05, neutral: 1.75, precision: 2 },
+  dryRange: { step: 64, neutral: 0, precision: 0, hint: "0 disables" },
+  xtcThreshold: { step: 0.01, neutral: 0.1, precision: 2 },
+  xtcProbability: { step: 0.05, neutral: 0, precision: 2, hint: "0 disables" },
+  dynatempRange: { step: 0.05, neutral: 0, precision: 2, hint: "0 disables" },
+  // Mirostat is the existing stepper, not new cycler machinery: `neutral: 1`
+  // and `step: 1` make `←→` walk off (null) to v1 to v2 and back off through
+  // the same crossing/clamping stepSamplingScalar already does for every
+  // other scalar.
+  mirostat: {
+    step: 1,
+    neutral: 1,
+    precision: 0,
+    format: (value) => value === null ? "off" : value === 1 ? "v1" : value === 2 ? "v2" : String(value)
+  },
+  mirostatTau: { step: 0.1, neutral: 5, precision: 1 },
+  mirostatEta: { step: 0.01, neutral: 0.1, precision: 2 }
+};
+
+function samplingScalarDisplay(knob: SamplingScalarKnob, value: number | null): string {
+  const format = SAMPLING_SCALAR_PRESENTATION[knob].format;
+  if (format !== undefined) return format(value);
+  return value === null ? "default" : String(value);
+}
+
+function samplingScalarHint(knob: SamplingScalarKnob): string {
+  return SAMPLING_SCALAR_PRESENTATION[knob].hint ?? "";
+}
+
+export type SamplingLayerRowSpec =
+  | { readonly kind: "scalar"; readonly knob: SamplingScalarKnob; readonly section?: string }
+  | { readonly kind: "list"; readonly panel: SamplingListPanel; readonly section?: string };
+
+/** The Sampling panel's focus stops, top to bottom. One entry per row —
+ *  headings are never a focus stop. `section` marks the first row of a C-04
+ *  group and carries the rule text the renderer paints above it; every other
+ *  row leaves it unset. The four issue #282 list panels (stop, logit bias,
+ *  phrase bias, banned strings) keep their existing order; every #292 knob
+ *  is appended after them, per that branch's own ordering rule. */
+export const SAMPLING_LAYER_ROWS: readonly SamplingLayerRowSpec[] = [
+  { kind: "scalar", knob: "topP" },
+  { kind: "scalar", knob: "topK" },
+  { kind: "scalar", knob: "minP" },
+  { kind: "scalar", knob: "frequencyPenalty" },
+  { kind: "scalar", knob: "presencePenalty" },
+  { kind: "scalar", knob: "repeatPenalty" },
+  { kind: "scalar", knob: "seed" },
+  { kind: "list", panel: "stop" },
+  { kind: "list", panel: "logit-bias" },
+  { kind: "list", panel: "phrase-bias" },
+  { kind: "list", panel: "banned-strings" },
+  { kind: "scalar", knob: "dryMultiplier", section: "dry · don't repeat yourself" },
+  { kind: "scalar", knob: "dryBase" },
+  { kind: "scalar", knob: "dryRange" },
+  { kind: "list", panel: "dry-breakers" },
+  { kind: "scalar", knob: "xtcThreshold", section: "xtc · exclude top choices" },
+  { kind: "scalar", knob: "xtcProbability" },
+  { kind: "scalar", knob: "dynatempRange", section: "temperature shaping" },
+  { kind: "scalar", knob: "mirostat" },
+  { kind: "scalar", knob: "mirostatTau" },
+  { kind: "scalar", knob: "mirostatEta" }
 ];
 
 export function samplingLayerRowIdentity(
-  row: (typeof SAMPLING_LAYER_ROWS)[number]
+  row: SamplingLayerRowSpec
 ): string {
   return row.kind === "scalar"
     ? `sampling:scalar:${row.knob}`
@@ -92,12 +183,13 @@ export function samplingScalarRows(
 ): readonly SamplingScalarRow[] {
   const context = samplingContextForOverlay(overlay);
   return SAMPLING_SCALAR_KNOBS.map((knob) => {
-    const presentation = samplingKnobPresentation(context, knob);
+    const presentation = samplingKnobPresentation(context, overlay.draft.sampling, knob);
     const value = overlay.draft.sampling[knob];
     return {
       ...presentation,
       knob,
-      value: value === null ? "default" : String(value)
+      value: samplingScalarDisplay(knob, value),
+      hint: samplingScalarHint(knob)
     };
   });
 }
@@ -126,7 +218,7 @@ export function samplingListRows(
       value: rawCount === 0 ? "empty" : `${count}/${maximum}`,
       count,
       maximum,
-      ...samplingKnobPresentation(context, spec.knob)
+      ...samplingKnobPresentation(context, overlay.draft.sampling, spec.knob)
     };
   });
 }
@@ -172,32 +264,21 @@ export function samplingSelectedRowIdentity(
 }
 
 export function samplingSummary(sampling: SamplingSettingsV2): string {
-  const fields = SAMPLING_KNOB_V2_VALUES.map((knob) => samplingSummaryField(sampling, knob))
-    .filter((value): value is string => value !== null);
+  // Every line names its own knob. The counted lines used to be spelled `stop`
+  // and `bias`, which held only while `stop` was the one list and `logitBias`
+  // the one record — a second list read as a second `stop`.
+  const fields = SAMPLING_KNOB_V2_VALUES.map((knob) => {
+    const value = sampling[knob];
+    if (typeof value === "number") return `${samplingKnobLabel(knob)} ${value}`;
+    if (Array.isArray(value)) {
+      return value.length === 0 ? null : `${samplingKnobLabel(knob)} ${value.length}`;
+    }
+    if (value !== null && Object.keys(value).length > 0) {
+      return `${samplingKnobLabel(knob)} ${Object.keys(value).length}`;
+    }
+    return null;
+  }).filter((value): value is string => value !== null);
   return fields.length === 0 ? "default" : fields.join(" · ");
-}
-
-/** Kept as one explicit branch per knob, not a generic "any array/object is
- * non-empty" check: stop, logitBias, phraseBias, and bannedStrings are all
- * array- or object-shaped, and a shape-based check cannot tell them apart. */
-function samplingSummaryField(
-  sampling: SamplingSettingsV2,
-  knob: (typeof SAMPLING_KNOB_V2_VALUES)[number]
-): string | null {
-  const value = sampling[knob];
-  if (typeof value === "number") return `${samplingKnobLabel(knob)} ${value}`;
-  if (knob === "stop") return sampling.stop.length > 0 ? `stop ${sampling.stop.length}` : null;
-  if (knob === "logitBias") {
-    const count = Object.keys(sampling.logitBias).length;
-    return count > 0 ? `bias ${count}` : null;
-  }
-  if (knob === "phraseBias") {
-    return sampling.phraseBias.length > 0 ? `phrase bias ${sampling.phraseBias.length}` : null;
-  }
-  if (knob === "bannedStrings") {
-    return sampling.bannedStrings.length > 0 ? `banned ${sampling.bannedStrings.length}` : null;
-  }
-  return null;
 }
 
 export function samplingRowValue(overlay: SettingsOverlayState): string {
@@ -255,20 +336,12 @@ export function deleteSamplingItem(
   return samplingListPanelSpec(panel).remove(overlay, index);
 }
 
-export function moveStopSequence(
+export function moveSamplingListItem(
   overlay: SettingsOverlayState,
+  panel: SamplingListPanel,
   step: -1 | 1
 ): boolean {
-  const stop = [...overlay.draft.sampling.stop];
-  const index = overlay.sampling?.cursor ?? 0;
-  const nextIndex = index + step;
-  if (index < 0 || index >= stop.length || nextIndex < 0 || nextIndex >= stop.length) {
-    return false;
-  }
-  [stop[index], stop[nextIndex]] = [stop[nextIndex]!, stop[index]!];
-  updateSamplingDraft(overlay, { ...overlay.draft.sampling, stop });
-  if (overlay.sampling !== null) overlay.sampling.cursor = nextIndex;
-  return true;
+  return samplingListPanelSpec(panel).move(overlay, step);
 }
 
 export function beginSamplingEdit(overlay: SettingsOverlayState): string | null {

@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
-import type { SamplingSettingsV2 } from "../shared/settings-v2-types.js";
+import { EMPTY_SAMPLING_V2, type SamplingSettingsV2 } from "../shared/settings-v2-types.js";
 import { ServiceError } from "../server/errors.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { StoryService } from "../server/story-service.js";
@@ -246,17 +246,8 @@ test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias ent
   await store.init(2);
   const koboldDocument = koboldcppDocument();
   const sampling: SamplingSettingsV2 = {
-    topP: null,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    seed: null,
-    stop: [],
-    logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1])),
-    bannedStrings: [],
-    phraseBias: []
+    ...EMPTY_SAMPLING_V2,
+    logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
   };
   await assert.rejects(
     () => store.save(saveCommand(

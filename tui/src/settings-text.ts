@@ -30,6 +30,7 @@ import { storedCredentialSecretId } from "../../shared/settings-stored-credentia
 import {
   SAMPLING_SCALAR_KNOBS,
   validateSamplingBannedStrings,
+  validateSamplingDryBreakers,
   validateSamplingLogitBias,
   validateSamplingPhraseBias,
   validateSamplingScalar,
@@ -40,6 +41,18 @@ import {
 const SAMPLING_SCALAR_KEYS: ReadonlySet<string> = new Set(
   SAMPLING_SCALAR_KNOBS.map((key) => `sampling.${key}`)
 );
+
+/** The two sampling knobs that hold a list of strings. Both parse the same
+ *  way, so the key carries its own field and bound rather than growing a
+ *  second copy of the branch. A Map keeps an object key such as
+ *  `constructor` from resolving to something that is not a setting. */
+const SAMPLING_STRING_LISTS: ReadonlyMap<string, {
+  readonly field: "stop" | "dryBreakers";
+  readonly validate: (value: unknown, label: string) => readonly string[];
+}> = new Map([
+  ["sampling.stop", { field: "stop" as const, validate: validateSamplingStopSequences }],
+  ["sampling.dryBreakers", { field: "dryBreakers" as const, validate: validateSamplingDryBreakers }]
+]);
 
 export interface SettingsTextDraft {
   /** Full editable document plus the selected profile's form projection.
@@ -181,14 +194,11 @@ export function serializeSettings(draft: SettingsTextDraft): string {
     `maxTokens: ${settings.maxTokens}`,
     `contextWindow: ${settings.contextWindow ?? ""}`,
     `cachePolicy: ${draft.cachePolicy}`,
-    `sampling.topP: ${draft.sampling.topP ?? ""}`,
-    `sampling.topK: ${draft.sampling.topK ?? ""}`,
-    `sampling.minP: ${draft.sampling.minP ?? ""}`,
-    `sampling.frequencyPenalty: ${draft.sampling.frequencyPenalty ?? ""}`,
-    `sampling.presencePenalty: ${draft.sampling.presencePenalty ?? ""}`,
-    `sampling.repeatPenalty: ${draft.sampling.repeatPenalty ?? ""}`,
-    `sampling.seed: ${draft.sampling.seed ?? ""}`,
+    // Derived from the knob list, so a new sampling parameter reaches this
+    // surface with the rest of them rather than going missing here alone.
+    ...SAMPLING_SCALAR_KNOBS.map((knob) => `sampling.${knob}: ${draft.sampling[knob] ?? ""}`),
     `sampling.stop: ${JSON.stringify(draft.sampling.stop)}`,
+    `sampling.dryBreakers: ${JSON.stringify(draft.sampling.dryBreakers)}`,
     `sampling.logitBias: ${JSON.stringify(draft.sampling.logitBias)}`,
     `sampling.bannedStrings: ${JSON.stringify(draft.sampling.bannedStrings)}`,
     `sampling.phraseBias: ${JSON.stringify(draft.sampling.phraseBias)}`,
@@ -208,6 +218,7 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
     const key = line.slice(0, divider).trim();
     const text = line.slice(divider + 1).trim();
     const scalarKnob = samplingScalarKnobForKey(key);
+    const stringList = SAMPLING_STRING_LISTS.get(key);
     if (key === "provider") {
       if (!PROVIDER_VALUES.includes(text as Provider)) {
         return { error: `provider must be openai-compatible, anthropic, or dry-run — "${text}"` };
@@ -261,7 +272,7 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
         }
       }
       sampling = { ...sampling, [scalarKnob]: parsed } as SamplingSettingsV2;
-    } else if (key === "sampling.stop") {
+    } else if (stringList !== undefined) {
       const parsed = parseJsonValue(text, key, []);
       if (parsed.error !== undefined) return parsed;
       if (!Array.isArray(parsed.value) || parsed.value.some((item) => typeof item !== "string")) {
@@ -270,7 +281,7 @@ export function parseSettings(value: string, base: SettingsTextDraft): SettingsT
       try {
         sampling = {
           ...sampling,
-          stop: validateSamplingStopSequences(parsed.value, key)
+          [stringList.field]: stringList.validate(parsed.value, key)
         };
       } catch (error) {
         return samplingParseError(error);

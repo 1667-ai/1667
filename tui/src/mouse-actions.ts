@@ -249,7 +249,8 @@ function captureSamplingSettings(
     stop: [...sampling.stop],
     logitBias: { ...sampling.logitBias },
     bannedStrings: [...sampling.bannedStrings],
-    phraseBias: sampling.phraseBias.map((entry) => ({ ...entry }))
+    phraseBias: sampling.phraseBias.map((entry) => ({ ...entry })),
+    dryBreakers: [...sampling.dryBreakers]
   };
 }
 

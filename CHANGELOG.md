@@ -61,6 +61,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   short reason for an unavailable value. An unavailable scalar row shows
   `‹ — ›`. A save keeps the draft when a configured value is unavailable.
   Thanks @10fra for the report.
+- **The Sampling group now offers DRY, XTC, dynamic temperature, and
+  Mirostat.** llama.cpp and KoboldCpp are the presets that accept these
+  parameters. The panel groups the new rows under a rule line for each
+  parameter family. `mirostat` reads `off`, `v1`, or `v2`. `mirostat tau` and
+  `mirostat eta` open once Mirostat is on. Thanks @10fra for the request.
 - **A NovelAI `.story` or `.scenario` export now carries the Facts, the Memory,
   and the Author's Note.** An export and an import carry the same items, so a
   story that leaves 1667 and comes back keeps the world that steers it. A
