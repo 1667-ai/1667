@@ -374,10 +374,9 @@ describe("prompt token count lane", () => {
     lane.dispose();
   });
 
-  test("a model-server count is asked again once it has aged, an unchanged prompt notwithstanding", async () => {
+  test("a model-server count is retired at its age bound, then counted again", async () => {
     const { state, clock, repaint } = fixture();
     let calls = 0;
-    let clockNow = 1_000;
     const api: PromptTokenCountApi = {
       countPromptTokens: async () => {
         calls += 1;
@@ -388,32 +387,83 @@ describe("prompt token count lane", () => {
       }
     };
     const lane = startPromptTokenCountLane({
-      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel, now: () => clockNow
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
     });
 
     lane.notify();
-    clock.fireAll();
+    clock.fireDelay(250);
     await flush();
     expect(calls).toBe(1);
+    expect(state.promptTokenCount?.count.kind).toBe("counted");
 
-    lane.notify();
-    clock.fireAll();
+    // The same local server can be running a different model by now, and an
+    // idle session repaints rarely — so the bound has to fire on its own.
+    clock.fireDelay(30_000);
+    expect(state.promptTokenCount).toBe(null);
+
+    clock.fireDelay(250);
     await flush();
-    expect(calls).toBe(1);
-
-    // The same local server can be running a different model by now. Without
-    // this the client would never ask again, and the backend's own age bound
-    // would never be reached.
-    clockNow += 60_000;
-    lane.notify();
-    clock.fireAll();
-    await flush();
-
     expect(calls).toBe(2);
     expect(state.promptTokenCount?.count).toEqual({
       kind: "counted", source: "koboldcpp-tokencount", grade: "near-exact",
       total: 102, perMessage: null
     });
+    lane.dispose();
+  });
+
+  test("an aged count is not still shown when its refresh fails", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => {
+        calls += 1;
+        if (calls > 1) throw new Error("the model server went away");
+        return {
+          kind: "counted", source: "llama-cpp-tokenize", grade: "near-exact",
+          total: 900, perMessage: null
+        };
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireDelay(250);
+    await flush();
+    expect(state.promptTokenCount?.count.kind).toBe("counted");
+
+    clock.fireDelay(30_000);
+    clock.fireDelay(250);
+    await flush();
+
+    // The refresh failed, so there is nothing to vouch for. A number 1667 has
+    // already declared too old must not stay on screen wearing its mark.
+    expect(calls).toBe(2);
+    expect(state.promptTokenCount).toBe(null);
+    lane.dispose();
+  });
+
+  test("a bundled count is not retired by the model-server age bound", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => { calls += 1; return countedAnswer(64); }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireDelay(250);
+    await flush();
+    expect(calls).toBe(1);
+
+    // The bundled tokenizer is a pure function of the model and the text, so
+    // nothing about waiting can make its answer wrong.
+    clock.fireDelay(30_000);
+    expect(state.promptTokenCount?.count).toEqual(countedAnswer(64));
+    expect(calls).toBe(1);
     lane.dispose();
   });
 

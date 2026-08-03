@@ -50,8 +50,6 @@ export interface PromptTokenCountDependencies {
   readonly repaint: () => void;
   readonly schedule?: (callback: () => void, delayMs: number) => TimerHandle;
   readonly cancel?: (timer: TimerHandle) => void;
-  /** Injectable only so a test can age a count without waiting. */
-  readonly now?: () => number;
 }
 
 export interface PromptTokenCountLane {
@@ -90,7 +88,6 @@ export function startPromptTokenCountLane(
   const { state, api, repaint } = dependencies;
   const schedule = dependencies.schedule ?? setTimeout;
   const cancel = dependencies.cancel ?? clearTimeout;
-  const now = dependencies.now ?? Date.now;
 
   let timer: TimerHandle | null = null;
   let cooldownTimer: TimerHandle | null = null;
@@ -107,9 +104,10 @@ export function startPromptTokenCountLane(
   // actually changed. A genuine failure clears this (see runCount), so the
   // same unchanged prompt is retried once the cooldown lets it.
   let lastAskedFingerprint: string | null = null;
-  /** When the answer to `lastAskedFingerprint` stops being worth keeping, or
-   *  null when nothing can invalidate it. */
-  let askExpiresAt: number | null = null;
+  /** Retires a model server's count when it reaches its age bound. Only a
+   *  timer makes that bound real: an idle session repaints rarely, and a bound
+   *  nothing observes is a promise the meter does not keep. */
+  let expiryTimer: TimerHandle | null = null;
 
   const clearTimer = () => {
     if (timer !== null) cancel(timer);
@@ -118,6 +116,24 @@ export function startPromptTokenCountLane(
   const clearCooldownTimer = () => {
     if (cooldownTimer !== null) cancel(cooldownTimer);
     cooldownTimer = null;
+  };
+  const clearExpiryTimer = () => {
+    if (expiryTimer !== null) cancel(expiryTimer);
+    expiryTimer = null;
+  };
+  /** At the bound, the count stops being shown and the same prompt becomes
+   * askable again. Retiring it first is what keeps a mark off a number 1667 is
+   * no longer willing to vouch for, whether or not the refresh then succeeds. */
+  const armExpiry = () => {
+    clearExpiryTimer();
+    expiryTimer = schedule(() => {
+      expiryTimer = null;
+      if (disposed) return;
+      state.promptTokenCount = null;
+      lastAskedFingerprint = null;
+      repaint();
+      queueDebounced();
+    }, REMOTE_COUNT_MAX_AGE_MS);
   };
   const abortInFlight = () => {
     controller?.abort();
@@ -147,9 +163,8 @@ export function startPromptTokenCountLane(
     // model server's and has aged past what it is worth. Opening the request
     // viewer also asks again: it is on demand, and it is the one surface a
     // writer opens to check the number.
-    const expired = askExpiresAt !== null && askExpiresAt <= now();
     const moved = fingerprint !== lastAskedFingerprint;
-    if (!moved && !expired && !onDemand) return;
+    if (!moved && !onDemand) return;
     // Retire the answer to the previous prompt before anything can refuse the
     // replacement: the cooldown below must not be able to hold a stale mark on
     // screen for its whole five seconds. Only a prompt that actually moved
@@ -168,7 +183,7 @@ export function startPromptTokenCountLane(
     // oversized array too, but only after it has been serialized, sent,
     // parsed, and validated — for an answer 1667 can reach without asking.
     if (countedPromptChars(estimate.messages) > MAX_COUNTED_PROMPT_CHARS) {
-      rememberAsk(fingerprint, null);
+      lastAskedFingerprint = fingerprint;
       state.promptTokenCount = {
         identity: promptProjectionIdentity(state, projected.context),
         route,
@@ -177,7 +192,7 @@ export function startPromptTokenCountLane(
       repaint();
       return;
     }
-    rememberAsk(fingerprint, null);
+    lastAskedFingerprint = fingerprint;
     abortInFlight();
     const active = new AbortController();
     controller = active;
@@ -232,9 +247,8 @@ export function startPromptTokenCountLane(
       // cursor while the answer was in flight cannot retire a good count.
       // A model server's answer is only worth keeping for a while; a bundled
       // one is worth keeping until the prompt or the route moves.
-      if (count.kind === "counted" && count.source !== "bundled-openai") {
-        rememberAsk(fingerprint, now() + REMOTE_COUNT_MAX_AGE_MS);
-      }
+      if (count.kind === "counted" && count.source !== "bundled-openai") armExpiry();
+      else clearExpiryTimer();
       state.promptTokenCount = {
         identity: promptProjectionIdentity(state, current.context),
         route,
@@ -244,16 +258,9 @@ export function startPromptTokenCountLane(
     })();
   };
 
-  const rememberAsk = (fingerprint: string, expiresAt: number | null) => {
-    lastAskedFingerprint = fingerprint;
-    askExpiresAt = expiresAt;
-  };
-
   /** Let the same prompt be asked about again after a failure. */
   const forgetAsk = (fingerprint: string) => {
-    if (lastAskedFingerprint !== fingerprint) return;
-    lastAskedFingerprint = null;
-    askExpiresAt = null;
+    if (lastAskedFingerprint === fingerprint) lastAskedFingerprint = null;
   };
 
   const queueDebounced = () => {
@@ -275,7 +282,7 @@ export function startPromptTokenCountLane(
       settledRoute = null;
       state.promptTokenCount = null;
       lastAskedFingerprint = null;
-      askExpiresAt = null;
+      clearExpiryTimer();
       abortInFlight();
       clearTimer();
       // A failure against the story or the route just left says nothing about
@@ -298,6 +305,7 @@ export function startPromptTokenCountLane(
     notify,
     dispose() {
       disposed = true;
+      clearExpiryTimer();
       clearTimer();
       clearCooldownTimer();
       abortInFlight();
