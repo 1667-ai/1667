@@ -11,7 +11,7 @@ import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../../shared
 import { previewFixedContextAdmission } from "../../shared/fact-admission.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
-import { activeBudgetedFacts } from "../../server/story-facts.js";
+import { activeBudgetedFacts } from "../../shared/fact-selection.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
