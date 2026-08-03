@@ -19,6 +19,10 @@ import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/author
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { FACT_PRIORITIES, MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
 import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
+import {
+  SAMPLING_BANNED_STRINGS_POLICY,
+  SAMPLING_PHRASE_BIAS_POLICY
+} from "../shared/sampling-validation-policy.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
@@ -98,6 +102,10 @@ export function storyManifestSchema(): Schema {
       parentPartId: ref("Identifier"),
       title: boundedString(MAX_STORY_TITLE_CHARS),
       createdAt: ref("V5Timestamp")
+    }),
+    PhraseBiasEntryV5: closed({
+      phrase: { type: "string", minLength: 1, maxLength: SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars },
+      weight: boundedInteger(SAMPLING_PHRASE_BIAS_POLICY.minimum, SAMPLING_PHRASE_BIAS_POLICY.maximum)
     }),
     StrictV5Payload: strictV5Schema(),
     ProviderPointer: closed({ mutationId: ref("MutationId"), fingerprintHash: ref("Hash256") }),
@@ -189,6 +197,20 @@ function strictV5Schema(): Schema {
     // Story-scoped override of the machine-wide author brief. Absent falls
     // back to the machine-wide value; absent again whenever it is cleared.
     authorBrief: boundedString(MAX_AUTHOR_BRIEF_CHARS),
+    // Adds to the routed profile's own phraseBias/bannedStrings rather than
+    // replacing it (issue #341). Absent means the story contributes nothing
+    // beyond the profile's own value; absent again once cleared back to empty.
+    phraseBias: {
+      type: "array",
+      maxItems: SAMPLING_PHRASE_BIAS_POLICY.maxEntries,
+      items: ref("PhraseBiasEntryV5")
+    },
+    bannedStrings: {
+      type: "array",
+      maxItems: SAMPLING_BANNED_STRINGS_POLICY.maxEntries,
+      uniqueItems: true,
+      items: { type: "string", minLength: 1, maxLength: SAMPLING_BANNED_STRINGS_POLICY.maxScalars }
+    },
     // Every other chapter is named by the break that opens it. The first
     // chapter has no such break, so its name lives here. Absent on every
     // manifest written before chapter one could be named, and absent again

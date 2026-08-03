@@ -1,4 +1,5 @@
 import type { StoryPayload } from "../../shared/types.js";
+import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.js";
 
 /** The story-payload mutation primitive `createApi` owns. */
 export type MutateStoryPayload = (
@@ -16,6 +17,8 @@ export function storyFieldApi(mutate: MutateStoryPayload): {
   setAuthorsNote: (storyId: string, note: string, depth?: number) => Promise<StoryPayload>;
   setAuthorBrief: (storyId: string, brief: string) => Promise<StoryPayload>;
   setFactsBudget: (storyId: string, budgetTokens: number | null) => Promise<StoryPayload>;
+  setPhraseBias: (storyId: string, phraseBias: readonly SamplingPhraseBiasEntryV2[]) => Promise<StoryPayload>;
+  setBannedStrings: (storyId: string, bannedStrings: readonly string[]) => Promise<StoryPayload>;
 } {
   return {
     renameStory: (id, title) => mutate(id, "PATCH", `/api/stories/${id}`, { title }),
@@ -37,6 +40,18 @@ export function storyFieldApi(mutate: MutateStoryPayload): {
       "PUT",
       `/api/stories/${storyId}/facts-budget`,
       { budgetTokens }
+    ),
+    setPhraseBias: (storyId, phraseBias) => mutate(
+      storyId,
+      "PUT",
+      `/api/stories/${storyId}/phrase-bias`,
+      { phraseBias }
+    ),
+    setBannedStrings: (storyId, bannedStrings) => mutate(
+      storyId,
+      "PUT",
+      `/api/stories/${storyId}/banned-strings`,
+      { bannedStrings }
     )
   };
 }

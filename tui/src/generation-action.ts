@@ -1,5 +1,6 @@
-import type { StoryNode, StoryPayload } from "../../shared/types.js";
+import type { CreateNodeRequest, StoryNode, StoryPayload } from "../../shared/types.js";
 import type { ActionTask } from "./action-runtime.js";
+import { ApiFailureError } from "./api-error.js";
 import { textHash } from "./api.js";
 import type { AppSource } from "./app.js";
 import { setComposerText } from "./composer-model.js";
@@ -13,6 +14,7 @@ import { continuationIntent } from "./continuation-intent.js";
 import { factDropNotice } from "./facts-model.js";
 import { isPlainNavigation } from "./keys.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode, rowPart } from "./model.js";
+import { recordNotice } from "./notice-log.js";
 import type { PendingGenerationDraft, RuntimeState, StoryScreenState, StreamView } from "./state.js";
 import {
   adoptSameStoryPayload,
@@ -58,6 +60,40 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
   reconcileMapNavigation(state);
   state.toast = null;
   repaint();
+}
+
+/** Matches exactly one shape: a clean worker stream deadline
+ *  (server/worker-request-cancellation.ts's `deadlineError`) — status 408,
+ *  code "mutation_outcome_unknown" for a mutation (continueStory/
+ *  rewriteNode/createSummaryTake always are; every other producer of that
+ *  code in this codebase uses status 409 or 500, never 408) — with no
+ *  `diagnosticRef`.
+ *
+ *  The status/code pair alone is not proof: `WorkerRequestCancellation
+ *  .failure()` rebuilds *any* other in-flight failure as a deadline once
+ *  one has fired, so an exact-echo rejection racing the same deadline
+ *  would otherwise wear this exact pair too. `diagnosticRef` tells them
+ *  apart: a clean deadline is a plain `ServiceError` with no diagnostic
+ *  (reaches the client as a `PlainFailureEnvelope`, `diagnosticRef`
+ *  absent); a deadline masking another failure is a `DiagnosticServiceError`
+ *  whose logged cause surfaces as a real reference —
+ *  `diagnosticReferenceFromFailure` (shared/failure-envelope.ts) returns
+ *  non-null exactly when `failure.kind === "diagnostic"`. A masked deadline
+ *  must not commit, so this requires `diagnosticRef === null`.
+ *
+ *  An allowlist, not a denylist: everything else — including a provider
+ *  outright rejecting the continuation, e.g. a failed exact-echo check
+ *  (server/generation-http.ts) — takes the plain restore-and-toast path,
+ *  because committing that prose would durably save output the server
+ *  refused. A new failure type must default to *not* matching here. The
+ *  other two timeout sources issue #326 names (the HTTP operation lease,
+ *  the provider idle/total timeout) have no equivalent discriminator today
+ *  and are not covered; tracked in #345. */
+function isCleanWorkerMutationDeadline(error: unknown): boolean {
+  return error instanceof ApiFailureError
+    && error.status === 408
+    && error.code === "mutation_outcome_unknown"
+    && error.diagnosticRef === null;
 }
 
 export async function generate(
@@ -160,6 +196,9 @@ export async function generate(
     followStoryViewport(state);
   } else restoreStoryFocus(state, preStreamFocus);
   repaint();
+  // Set only for a genuine failure (not the writer's Escape) that leaves
+  // substantive prose behind.
+  let failedWithText: string | null = null;
   try {
     const apiTarget = append
       ? { appendTo: leaf!.id, expectedTextHash: appendBaseHash! }
@@ -199,15 +238,27 @@ export async function generate(
     }
   } catch (error) {
     if (!signal.aborted && storyCurrent()) {
-      restorePendingGenerationDraft(
-        state,
-        pendingDraft,
-        settlementMayOwnFocus()
-      );
-      state.toast = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      // A rejection this late that isCleanWorkerMutationDeadline positively
+      // identifies as a timeout — never the writer's Escape — still leaves
+      // prose in `stream.text` that is exactly as real as a Stop's, and just
+      // as worth keeping (issue #326). Everything else, including a
+      // provider outright rejecting the continuation, takes the plain
+      // restore-and-toast path below — see isCleanWorkerMutationDeadline's
+      // own comment for why this is an allowlist, not a denylist.
+      if (streamHasSubstantiveText(stream) && isCleanWorkerMutationDeadline(error)) {
+        failedWithText = message;
+      } else {
+        restorePendingGenerationDraft(
+          state,
+          pendingDraft,
+          settlementMayOwnFocus()
+        );
+        state.toast = message;
+      }
     }
   } finally {
-    if (signal.aborted
+    if ((signal.aborted || failedWithText !== null)
       && owns()
       && storyCurrent()
       && !adopted) {
@@ -222,6 +273,24 @@ export async function generate(
       );
       adopted = settlement.adopted;
       preserveStoppedStream = settlement.preserveStream;
+      // This block must never overwrite settle's own toast — it is the one
+      // actionable message the writer needs.
+      if (failedWithText !== null && storyCurrent()) {
+        const notice = settlement.committed
+          ? `${failedWithText} · generation stopped · text kept`
+          : failedWithText;
+        // recordNotices only sweeps state.toast into the C-37 log when the
+        // channel's value changes (notice-log.ts), so a toast this settlement
+        // never owns focus to show is never recorded anywhere either. A
+        // 30-minute deadline is likeliest to fire exactly when the writer has
+        // walked away or moved on — precisely when settlement no longer owns
+        // focus. Set the toast or record the notice directly, never both: a
+        // shown toast is already swept into the log by the app's own repaint
+        // (recordSessionNotices, app.ts), so recording it here too would be a
+        // second, duplicate entry for the one fact this branch has to say.
+        if (settlement.committed && settlementMayOwnFocus()) state.toast = notice;
+        else recordNotice(state.notices, "toast", notice);
+      }
     } else if (!adopted) {
       restorePendingGenerationDraft(
         state,
@@ -350,9 +419,35 @@ async function settleStoppedGeneration(
 ): Promise<{
   readonly adopted: boolean;
   readonly preserveStream: boolean;
+  /** True only when this call's own createNode actually committed the
+   *  streamed text. `adopted` is not a substitute for this: the catch
+   *  branch below can also report `adopted: true` when its loadStory
+   *  fallback succeeds after a failed commit, and in that case nothing
+   *  was durably saved — the caller's "text kept" toast/notice must gate
+   *  on this flag, never on `adopted`. */
+  readonly committed: boolean;
 }> {
   const substantive = streamHasSubstantiveText(stream);
   const text = stream.append ? stream.text : streamTrimmedText(stream);
+  // A story-mutation gate rejects every other mutating call while a
+  // recovery warning is outstanding (tui/src/worker-transport.ts's
+  // `beginCall`) — including this one, if a deadline (or any other stopped
+  // generation) happens to land while an unrelated warning is still
+  // unresolved. This commit is exactly the kind of mutation
+  // RecoveryWarningFeed.runRecoveryMutation exists to admit: it resolves
+  // this generation by landing its own already-streamed text under its own
+  // genId, the same idempotent, hash-guarded commit any other stopped
+  // generation uses. Without this, the commit fails, the stream stays
+  // preserved for display, and recovery's own reconciliation refuses to run
+  // while a stream is visible (recovery-orchestration.ts's
+  // `refreshAfterRecovery`) — a deadlock, not a discard. `demoAppSource`
+  // (used by this file's tests) has no `backendRecovery`, so the fallback
+  // calls `source.api.createNode` directly, matching every other caller of
+  // this pattern (see retireUnknownGenerations and loadReconciliationTarget
+  // in recovery-orchestration.ts).
+  const commitNode = (body: CreateNodeRequest) =>
+    source.backendRecovery?.runRecoveryMutation(() => source.api.createNode(storyId, body))
+      ?? source.api.createNode(storyId, body);
   try {
     let payload: StoryPayload;
     if (!substantive) {
@@ -363,7 +458,7 @@ async function settleStoppedGeneration(
       if (stream.append) {
         const expectedTextHash = stream.appendBaseHash;
         if (expectedTextHash === undefined) throw new Error("Stopped append lost its source hash");
-        payload = await source.api.createNode(storyId, {
+        payload = await commitNode({
           appendTo: stream.targetId,
           expectedTextHash,
           instruction: stream.instruction,
@@ -371,7 +466,7 @@ async function settleStoppedGeneration(
           genId
         });
       } else {
-        payload = await source.api.createNode(storyId, {
+        payload = await commitNode({
           parentId: stream.parentId,
           instruction: stream.instruction,
           text,
@@ -380,7 +475,7 @@ async function settleStoppedGeneration(
       }
     }
     if (!storyCurrent()) {
-      return { adopted: false, preserveStream: false };
+      return { adopted: false, preserveStream: false, committed: substantive };
     }
     adoptSameStoryPayload(state, payload);
     if (!substantive) {
@@ -394,10 +489,10 @@ async function settleStoppedGeneration(
     if (substantive) {
       focusLandedGeneration(state, source, payload, settlementMayOwnFocus());
     }
-    return { adopted: true, preserveStream: false };
+    return { adopted: true, preserveStream: false, committed: substantive };
   } catch (error) {
     if (!storyCurrent()) {
-      return { adopted: false, preserveStream: false };
+      return { adopted: false, preserveStream: false, committed: false };
     }
     const payload = await source.api.loadStory(storyId).catch(() => null);
     const adopted = payload !== null && storyCurrent();
@@ -410,10 +505,21 @@ async function settleStoppedGeneration(
       pendingDraft,
       settlementMayOwnFocus()
     );
+    const message = error instanceof Error ? error.message : String(error);
+    // Set the toast or record the notice directly, never both: a shown
+    // toast is already swept into the C-37 log by the app's own repaint
+    // (recordSessionNotices, app.ts), so recording it here too would be a
+    // second, duplicate entry for the one fact this branch has to say. The
+    // writer still needs to learn a stopped generation's recovery save also
+    // failed even when nothing shows it, since its prose is still sitting,
+    // undurable, in state.stream — this does not change what a
+    // user-initiated Stop displays, only what its failure leaves behind.
     if (settlementMayOwnFocus() && storyCurrent()) {
-      state.toast = error instanceof Error ? error.message : String(error);
+      state.toast = message;
+    } else {
+      recordNotice(state.notices, "toast", message);
     }
-    return { adopted, preserveStream: substantive };
+    return { adopted, preserveStream: substantive, committed: false };
   }
 }
 

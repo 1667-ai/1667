@@ -1,5 +1,7 @@
 import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import {
+  combineSamplingBiasSources,
+  normalizeStorySamplingBias,
   resolveSamplingLogitBias,
   type ResolveSamplingBiasInput
 } from "../../server/sampling-phrase-bias.js";
@@ -22,11 +24,23 @@ import {
  * weights, and demo mode has both; only the tokenizer itself is fake.
  * `demoTokenId`'s numbers are not real tokenizer output and must never
  * reach a provider request.
+ *
+ * `request.storyPhraseBias`/`storyBannedStrings` (issue #341), when present,
+ * are combined with the profile's own fields the same way the real request
+ * combines them — via `combineSamplingBiasSources`, not a demo-only copy of
+ * that logic, for the exact reason given above about `resolveSamplingLogitBias`
+ * itself. Normalized through `normalizeStorySamplingBias` rather than this
+ * file's own `?? []` pair (issue #341 finding 6), the same shared defaulting
+ * `server/story-service.ts`'s real `resolveSamplingBias` worker method uses.
  */
 export function demoResolveSamplingBias(
   request: ResolveSamplingBiasInput
 ): SamplingBiasResolutionResult {
-  return resolveSamplingLogitBias(request, (text) => ({
+  const combined = combineSamplingBiasSources(
+    request,
+    normalizeStorySamplingBias(request.storyPhraseBias, request.storyBannedStrings)
+  );
+  return resolveSamplingLogitBias(combined, (text) => ({
     kind: "single-token",
     tokenId: demoTokenId(text)
   }));

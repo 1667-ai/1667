@@ -77,7 +77,7 @@ export async function assertSavedSamplingBiasResolves(
     }
     let resolution: Awaited<ReturnType<typeof resolveSamplingBiasForSettings>>;
     try {
-      resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings, probeSignal);
+      resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings, { signal: probeSignal });
     } catch (error) {
       // The probe itself did not answer in time — the shared deadline
       // above, the caller's own abort, or an ordinary provider/network

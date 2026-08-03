@@ -23,6 +23,8 @@ export const STORY_MUTATION_METHODS = [
   "setAuthorsNote",
   "setAuthorBrief",
   "setFactsBudget",
+  "setPhraseBias",
+  "setBannedStrings",
   "autonameStory",
   "deleteStory",
   "switchLine",

@@ -136,20 +136,14 @@ providerTest("capture collects the same record whether logprobs arrive per delta
     withTokenProbabilities("openai", 2, { baseUrl: perDelta.baseUrl }),
     PROMPT,
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    perDeltaCollector
+    { tokenProbabilities: perDeltaCollector }
   ));
   const finalChunkCollector: TokenProbabilityCollector = { record: null };
   const finalChunkText = await collect(streamCompletion(
     withTokenProbabilities("openai", 2, { baseUrl: finalChunk.baseUrl }),
     PROMPT,
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    finalChunkCollector
+    { tokenProbabilities: finalChunkCollector }
   ));
 
   assert.equal(perDeltaText, "Hello world!");
@@ -176,10 +170,7 @@ providerTest("a malformed logprobs entry is skipped without failing the generati
     withTokenProbabilities("openai", 3, { baseUrl: server.baseUrl }),
     PROMPT,
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    collector
+    { tokenProbabilities: collector }
   ));
   assert.equal(text, "Hello");
   assert.equal(collector.record?.steps.length, 1);
@@ -197,10 +188,7 @@ providerTest("capture stops at the step limit and marks the record truncated", a
     withTokenProbabilities("openai", 1, { baseUrl: server.baseUrl }),
     PROMPT,
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    collector
+    { tokenProbabilities: collector }
   ));
   assert.equal(collector.record?.steps.length, MAX_TOKEN_PROBABILITY_STEPS);
   assert.equal(collector.record?.truncated, true);
@@ -215,10 +203,7 @@ providerTest("a collector requested on a route that never sends logprobs stays n
     withTokenProbabilities("custom", null, { baseUrl: server.baseUrl }),
     PROMPT,
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    collector
+    { tokenProbabilities: collector }
   ));
   assert.equal(text, "ok");
   assert.equal(collector.record, null);
@@ -358,10 +343,7 @@ async function captureWithSecret(
     withTokenProbabilities("openai", 2, { authEnv: secretEnv }),
     PROMPT,
     new AbortController().signal,
-    undefined,
-    undefined,
-    undefined,
-    collector
+    { tokenProbabilities: collector }
   ));
   return { record: collector.record, text };
 }

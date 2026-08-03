@@ -89,14 +89,11 @@ export async function createSummaryTake(
   const outcome: StreamOutcome = { finishReason: null };
   let raw = "";
   try {
-    for await (const delta of streamCompletion(
-      summarySettings(settings, plan.outputBudget),
-      plan.prompt,
-      signal,
+    for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
       providerStarted,
-      createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
-    )) {
+      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
+    })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
         throw new GenerationResultError(502, "The model returned an unexpectedly large summary; nothing was saved.");
@@ -176,14 +173,11 @@ export async function generateSummaryText(
   const outcome: StreamOutcome = { finishReason: null };
   let raw = "";
   try {
-    for await (const delta of streamCompletion(
-      summarySettings(settings, plan.outputBudget),
-      plan.prompt,
-      signal,
+    for await (const delta of streamCompletion(summarySettings(settings, plan.outputBudget), plan.prompt, signal, {
       outcome,
-      options.providerStarted,
-      options.promptCache
-    )) {
+      providerStarted: options.providerStarted,
+      promptCache: options.promptCache
+    })) {
       raw += delta;
       if (raw.length > SUMMARY_OUTPUT_LIMIT) {
         throw new GenerationResultError(502, "The model returned an unexpectedly large summary; nothing was saved.");

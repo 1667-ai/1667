@@ -30,6 +30,8 @@ import {
   tokenProbabilityRefusalKey,
   type TokenProbabilityCollector
 } from "./token-probability-capture.js";
+import { requireLogitBiasFamilyAvailable } from "./provider-sampling.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
@@ -44,28 +46,39 @@ export interface StreamOutcome {
 
 const MAX_DECODED_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+/** `streamCompletion`'s optional trailing values, grouped into one object
+ * (issue #341) rather than a growing run of positional parameters — adding
+ * `storySampling` as a fourth trailing optional would have made a seventh
+ * positional parameter overall. `storySampling` is the one story's own
+ * phraseBias/bannedStrings overlay; every caller that has no story in play
+ * (title and summary generation) omits it, which resolves exactly as it did
+ * before a story could contribute anything (`resolveSamplingBiasForSettings`,
+ * server/sampling-phrase-bias.ts). The three private generators below each
+ * take this same object, rather than re-threading its fields positionally
+ * (issue #341 finding 5): `streamCompletion` hands it on whole, and each
+ * generator destructures only the fields its own body reads, so no layer in
+ * between can grow one field of it without the others. */
+export interface StreamCompletionOptions {
+  readonly outcome?: StreamOutcome;
+  readonly providerStarted?: () => void | Promise<void>;
+  readonly promptCache?: PromptCacheRequest;
+  readonly storySampling?: StorySamplingBias;
+  readonly tokenProbabilities?: TokenProbabilityCollector;
+}
+
 export function streamCompletion(
   settings: GenerationSettings,
   prompt: PromptPlan,
   signal: AbortSignal,
-  outcome?: StreamOutcome,
-  providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest,
-  tokenProbabilities?: TokenProbabilityCollector
+  options: StreamCompletionOptions = {}
 ): AsyncGenerator<string> {
   switch (settings.provider) {
     case "dry-run":
-      // Anthropic Messages documents no logprobs field at all, so
-      // streamAnthropic below never receives a collector — a request routed
-      // there leaves it at whatever the caller initialized (see
-      // buildAnthropicMessagesRequestBody's comment). dry-run really does
-      // fabricate deterministic alternatives when the profile asked for
-      // them, so it takes both the collector and the requested count.
-      return streamDryRun(prompt, signal, outcome, providerRuntimeFor(settings).tokenProbabilities, tokenProbabilities);
+      return streamDryRun(settings, prompt, signal, options);
     case "anthropic":
-      return streamAnthropic(settings, prompt, signal, outcome, providerStarted, promptCache);
+      return streamAnthropic(settings, prompt, signal, options);
     case "openai-compatible":
-      return streamOpenAiCompatible(settings, prompt, signal, outcome, providerStarted, promptCache, tokenProbabilities);
+      return streamOpenAiCompatible(settings, prompt, signal, options);
   }
 }
 
@@ -73,16 +86,14 @@ async function* streamOpenAiCompatible(
   settings: GenerationSettings,
   prompt: PromptPlan,
   signal: AbortSignal,
-  outcome?: StreamOutcome,
-  providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest,
-  tokenProbabilities?: TokenProbabilityCollector
+  options: StreamCompletionOptions
 ): AsyncGenerator<string> {
+  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, signal);
+  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
   const tokenProbabilityKey = tokenProbabilityRefusalKey(settings);
@@ -237,16 +248,15 @@ async function* streamAnthropic(
   settings: GenerationSettings,
   prompt: PromptPlan,
   signal: AbortSignal,
-  outcome?: StreamOutcome,
-  providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  options: StreamCompletionOptions
 ): AsyncGenerator<string> {
+  const { outcome, providerStarted, promptCache, storySampling } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, signal);
+  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
   const refusalKey = samplingRefusalKey(settings);
   if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
   const runtime = providerRuntimeFor(settings);
@@ -429,13 +439,28 @@ function isAnthropicTerminalEvent(data: string): boolean {
   }
 }
 
+/** Dry-run never sends a provider request at all, so it never reaches
+ * `applySamplingFields` — the OpenAI and Anthropic branches above build a
+ * real request body and get this check for free. Without a check of its own,
+ * a story's phrase bias or banned strings used to generate successfully
+ * through dry-run while the capability matrix marks the whole sampling
+ * family unavailable there and the editor's own preview reports failure
+ * (issue #341 finding 2b): a writer would see a working generation that
+ * disagreed with the preview that told them it would not work. Checked
+ * first, before any placeholder text is produced, so dry-run refuses the
+ * same story-only configuration a real request or the preview would —
+ * `requireLogitBiasFamilyAvailable` (server/provider-sampling.ts) does
+ * nothing when neither the profile nor the story has anything in the
+ * logit-bias family configured, so dry-run keeps working exactly as before
+ * whenever there is nothing to disagree about. */
 async function* streamDryRun(
+  settings: GenerationSettings,
   prompt: PromptPlan,
   signal: AbortSignal,
-  outcome?: StreamOutcome,
-  requestedAlternatives?: number | null,
-  tokenProbabilities?: TokenProbabilityCollector
+  options: StreamCompletionOptions
 ): AsyncGenerator<string> {
+  const { outcome, storySampling, tokenProbabilities } = options;
+  requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
   const messages = renderPromptPlan(prompt);
   const instruction = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const text = prompt.operation === "rewrite"
@@ -447,7 +472,8 @@ async function* streamDryRun(
         : dryRunContinuation(instruction);
   // Dry run reaches no endpoint and is given no credential, so it has no
   // secret that a captured token could carry back.
-  const capture = createTokenProbabilityCapture(tokenProbabilities, requestedAlternatives ?? null, []);
+  const requestedAlternatives = providerRuntimeFor(settings).tokenProbabilities;
+  const capture = createTokenProbabilityCapture(tokenProbabilities, requestedAlternatives, []);
   // A capture with nothing to record still needs a definite `requested` to
   // build a step from; the value is discarded either way once `capture.push`
   // sees this capture is inactive, so any in-bounds fallback does.

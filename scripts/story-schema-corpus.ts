@@ -27,6 +27,8 @@ interface V5Fixture {
   authorsNote?: string;
   authorsNoteDepth?: number;
   authorBrief?: string;
+  phraseBias?: Array<Record<string, unknown>>;
+  bannedStrings?: string[];
   factsBudgetTokens?: number;
   activeWordCount: number;
   nodes: Array<Record<string, unknown>>;
@@ -129,6 +131,21 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     }),
     invalidNestedV5("v5-facts-budget-over-bound", richV5, (copy) => {
       copy.factsBudgetTokens = 0;
+    }),
+    invalidNestedV5("v5-unknown-phrase-bias-key", richV5, (copy) => {
+      copy.phraseBias[0]!.surprise = true;
+    }),
+    invalidNestedV5("v5-phrase-bias-weight-over-bound", richV5, (copy) => {
+      copy.phraseBias[0]!.weight = 101;
+    }),
+    invalidNestedV5("v5-phrase-bias-empty-phrase", richV5, (copy) => {
+      copy.phraseBias[0]!.phrase = "";
+    }),
+    invalidNestedV5("v5-banned-string-over-bound", richV5, (copy) => {
+      copy.bannedStrings = ["x".repeat(65)];
+    }),
+    invalidNestedV5("v5-duplicate-banned-string", richV5, (copy) => {
+      copy.bannedStrings = ["tapestry", "tapestry"];
     }),
     invalidNestedV5("v5-unknown-tag-key", richV5, (copy) => {
       copy.bookmarks[0]!.surprise = true;
@@ -275,7 +292,8 @@ function storedNode(): Record<string, unknown> {
   };
 }
 
-interface RichV5Fixture extends Omit<V5Fixture, "nodes" | "facts" | "bookmarks" | "chapterBreaks"> {
+interface RichV5Fixture extends Omit<V5Fixture, "nodes" | "facts" | "bookmarks" | "chapterBreaks" | "phraseBias"> {
+  phraseBias: Array<Record<string, unknown>>;
   origin: Record<string, unknown>;
   autonameId: string;
   nodes: RichNodeFixture[];
@@ -302,6 +320,8 @@ function richV5Manifest(): RichV5Fixture {
     authorsNote: "A note for the author.",
     authorsNoteDepth: 3,
     authorBrief: "A standing brief for the author.",
+    phraseBias: [{ phrase: "delve", weight: -8 }],
+    bannedStrings: ["tapestry"],
     factsBudgetTokens: 4_000,
     activeWordCount: 1,
     origin: {

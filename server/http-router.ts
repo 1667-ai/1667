@@ -363,6 +363,30 @@ async function handleApi(
       })
     );
   }
+  if (head === "stories" && id !== undefined
+    && sub === "phrase-bias" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setPhraseBias", {
+        storyId: id,
+        phraseBias: body.phraseBias
+      })
+    );
+  }
+  if (head === "stories" && id !== undefined
+    && sub === "banned-strings" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setBannedStrings", {
+        storyId: id,
+        bannedStrings: body.bannedStrings
+      })
+    );
+  }
 
   if (head === "import" && id === "sillytavern" && sub === undefined && method === "POST") {
     return sendJson(

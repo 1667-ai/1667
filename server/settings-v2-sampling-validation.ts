@@ -38,7 +38,7 @@ import {
   samplingBiasEntryRejectionMessage,
   type SamplingBiasResolutionResult
 } from "../shared/sampling-capabilities.js";
-import { resolveSamplingLogitBiasForEncoding } from "./sampling-phrase-bias.js";
+import { combineSamplingBiasSources, resolveSamplingLogitBiasForEncoding } from "./sampling-phrase-bias.js";
 
 // SAMPLING_KNOB_V2_ADDITIVE_VALUES are optional on the wire: a settings
 // document written before issue #282 has a `sampling` object without them,
@@ -150,7 +150,14 @@ export function validateSamplingRoute(
   const resolved = precomputedResolution ?? (
     preset === "llama-cpp"
       ? undefined
-      : resolveSamplingLogitBiasForEncoding(profile.sampling, promptBiasTokenizerEncoding(context.remoteModelId))
+      : resolveSamplingLogitBiasForEncoding(
+          // No story is ever in play at settings-save time (issue #341
+          // decision 1: story content must never reach a settings file) — every
+          // entry below bottoms out scope "profile", so this stays the exact
+          // resolution #282 already shipped.
+          combineSamplingBiasSources(profile.sampling),
+          promptBiasTokenizerEncoding(context.remoteModelId)
+        )
   );
   if (resolved === undefined || resolved.kind !== "resolved") return;
   const blocking = firstBlockingSamplingBiasEntry(resolved.phraseBias, resolved.bannedStrings);

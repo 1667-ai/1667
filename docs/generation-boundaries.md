@@ -143,3 +143,58 @@ mechanics, `test/prompt-plan.test.ts` for exact wire and stable-prefix ownership
 `test/prompt-cache-breakpoints.test.ts` for exact token and rolling-state rules,
 and `test/generation-http.test.ts` for admission, OpenAI-compatible wire
 payloads, and saved story text.
+
+## Phrase bias and banned strings boundary
+
+A story can set its own phrase bias list and its own banned strings list.
+Each list adds to the routed profile's own list. A story list does not
+replace the profile's list.
+
+1667 merges every list in one fixed order. The profile's phrase bias list
+comes first. The profile's banned strings list comes next. The profile's
+numeric logit-bias list comes next. The story's phrase bias list comes
+next. The story's banned strings list comes last.
+
+A story entry and a profile entry can name the same token. When they set
+different weights for that token, the story entry wins. The story entry
+wins because every story list comes after every profile list in the merge
+order. 1667 does not block the request in this case. 1667 does not report
+an error. 1667 shows the profile entry as overridden by the story.
+
+Two profile entries can also name the same token. Two story entries can
+also name the same token. When two entries from the same side set
+different weights for a token, 1667 blocks the request. This is the same
+rule 1667 already applies to two conflicting profile entries.
+
+1667 still blocks the request when a third entry from the other side names
+the same token and wins it. For example, two profile entries conflict on a
+token, and a story entry also names that token and wins it. 1667 blocks the
+request for the losing profile entry.
+
+1667 checks the block on the same side only. It does not check the block
+against whichever entry wins the token overall. In the example, 1667 checks
+whether another profile entry took the token from the losing profile entry.
+The story entry does not count for this check, because it is on the other
+side. 1667 blocks the request because the other profile entry took the
+token, and the block message names that profile entry, not the story entry.
+
+Which entry wins a token decides what 1667 sends. It does not decide whether
+1667 blocks the request, and it does not decide which entry the block
+message names.
+
+`server/sampling-phrase-bias.ts` holds the merge order.
+`resolveSamplingLogitBias` resolves the profile's entries and the story's
+entries into one merged token map, in the fixed order above. The provider
+request and the editor preview both call this same function, so they cannot
+compute different token IDs for the same story and profile.
+
+The capability matrix stays the only source for phrase-bias and
+banned-string availability. A story list cannot make phrase bias available
+on a preset or a model that does not support it. A dry-run connection
+supports no sampling parameter at all. A dry-run request refuses when the
+profile or the story has phrase bias or banned strings set. A dry-run
+request with neither set still generates.
+
+Phrase bias and banned strings apply to a continuation request, a prompted
+retake, a highlighted rewrite, and an autoname request. A summary take does
+not use them.
