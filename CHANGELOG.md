@@ -42,6 +42,16 @@ This file records notable changes to 1667. Product terms use the definitions in
   LM Studio, Ollama, OpenRouter, or a custom endpoint. 1667 shows a clear
   reason when a phrase, a banned string, or logit bias itself is not
   available for the routed model.
+- **Character card import now reads Character Card V3.** This covers V3 JSON
+  and the `ccv3` PNG chunk; when a PNG has both `ccv3` and a V1 or V2 `chara`
+  fallback, 1667 reads `ccv3`. A V3 or V2 card's embedded `character_book`
+  becomes Facts through the same Entry Mapping as `1667 import-lorebook`: a
+  constant entry becomes an always-active Fact, and a keyed entry keeps its
+  keys. The Fidelity Report names the `character_book` mechanisms a Fact has
+  no place for, and the V3 fields this converter does not import — greetings,
+  example messages, assets, creator notes, the system prompt, the
+  post-history instructions, the character version, tags, and the creator.
+  CHARX, the zip container, stays unsupported. Thanks @10fra for the request.
 - **The Author's Note now has a depth setting.** Depth sets how many story
   parts from the end the note lands before. The default depth, 1, is today's
   placement: immediately before the last story part. Open the Author's Note

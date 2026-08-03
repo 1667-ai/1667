@@ -37,6 +37,13 @@ export function canonicalJson(value: unknown): string {
     }
     return `[${entries.join(",")}]`;
   }
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    // A typed array has no canonical JSON form. Falling to the object branch
+    // below would index it byte by byte, so a 20 MB file becomes twenty
+    // million sorted string keys and a wrong, enormous encoding — silently.
+    // A caller that means to carry bytes hashes them or encodes them first.
+    throw new StoryFormatError("Canonical JSON cannot encode binary data");
+  }
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record).sort();

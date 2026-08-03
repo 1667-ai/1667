@@ -2,23 +2,35 @@ import {
   MAX_FACTS,
   MAX_FACT_TEXT_CHARS,
   MAX_IMPORT_BYTES,
+  isRecord,
   type FactInput
 } from "./types.js";
 import {
   hasPngSignature,
-  hasPngTextKeyword,
   readPngTextChunk
 } from "./png-text-chunk.js";
+import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 
 export const MAX_CHARACTER_CARD_JSON_BYTES = 1_000_000;
 export const MAX_CHARACTER_CARD_NAME_CHARS = 200;
 
 export interface CharacterCardCore {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   name: string;
   description: string;
   personality: string;
   scenario: string;
+  /** V3's `nickname`. Present only when the card names one and it is
+   * non-empty; a V1 or V2 card has no such field. `{{char}}` expands to this
+   * instead of `name` when present — `name` remains the Fact-naming value. */
+  readonly nickname?: string;
+  /** `data.character_book`, present on a V2 or V3 card that carries one. Read
+   * it with `entriesFromCharacterBook` in `character-book.js`; this module
+   * only carries the four core fields through to a Fact. */
+  characterBook?: unknown;
+  /** Fidelity Report lines for V3 fields this converter does not import.
+   * Empty for a V1 or V2 card, which has no such fields to name. */
+  readonly fidelity: readonly string[];
 }
 
 export interface CharacterCardSections {
@@ -26,6 +38,9 @@ export interface CharacterCardSections {
   description?: string;
   personality?: string;
   scenario?: string;
+  /** V3's `nickname`, used only to expand `{{char}}`. Absent, or empty once
+   * trimmed, falls back to `name` the same way an ordinary V1 or V2 card does. */
+  nickname?: string;
 }
 
 interface NamedSection {
@@ -33,11 +48,8 @@ interface NamedSection {
   text: string;
 }
 
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MACROS = /\{\{(char|user)\}\}/gi;
 const MAX_COMBINED_FACT_TEXT_CHARS = MAX_FACTS * MAX_FACT_TEXT_CHARS;
-const textEncoder = new TextEncoder();
 
 export function parseCharacterCard(bytes: Uint8Array): CharacterCardCore {
   if (bytes.byteLength === 0) throw new Error("Character card file is empty.");
@@ -51,6 +63,10 @@ export function parseCharacterCard(bytes: Uint8Array): CharacterCardCore {
 
 export function factsFromCharacterCard(source: CharacterCardSections): FactInput[] {
   const name = characterName(source.name, "Character name cannot be empty.");
+  // The V3 spec has `{{char}}` expand to `nickname` when the card gives one,
+  // falling back to `name` otherwise. `name` still names and titles the Fact;
+  // only the macro's expansion changes.
+  const macroName = nonEmptyTrimmed(source.nickname) ?? name;
 
   const sections = [
     selectedSection("Description", source.description),
@@ -60,15 +76,14 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   if (sections.length === 0) throw new Error("Select at least one non-empty character field.");
   let combinedLength = 0;
   for (const section of sections) {
-    combinedLength += expandedMacroLength(section.text, name);
+    combinedLength += expandedMacroLength(section.text, macroName);
     if (combinedLength > MAX_COMBINED_FACT_TEXT_CHARS) {
       throw new Error(`Selected character text needs more than ${MAX_FACTS} facts; shorten it before importing.`);
     }
   }
   const expandedSections = sections.map((section) => ({
     ...section,
-    text: section.text.replace(MACROS, (_match, kind: string) =>
-      kind.toLowerCase() === "char" ? name : "the protagonist")
+    text: expandCharacterCardMacros(section.text, macroName)
   }));
 
   const pieces = expandedSections.flatMap((section) => splitSection(name, section));
@@ -90,17 +105,27 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   return packed.map((group) => ({ tag: "Character", text: renderFact(name, group) }));
 }
 
-/** Exact UTF-8 size of the body sent by api.createFact for a card import. */
-export function factImportRequestBytes(facts: readonly FactInput[]): number {
-  return textEncoder.encode(JSON.stringify({ facts })).byteLength;
-}
-
 function parsePngCard(bytes: Uint8Array): CharacterCardCore {
+  // A V3 PNG usually carries both chunks: `ccv3` with the V3 payload and
+  // `chara` with a V2-shaped fallback for older readers. Prefer `ccv3` when
+  // the chunk is present at all; fall back to `chara` only when it is not.
+  const v3Text = readPngTextChunk(bytes, "ccv3");
+  if (v3Text !== null) {
+    // The chunk is preferred, so it also has to be what it claims. A `ccv3`
+    // holding V2-shaped JSON would otherwise import silently while the
+    // `chara` fallback — possibly the newer of the two — is discarded, and
+    // nothing would tell the writer the two chunks disagree.
+    const card = parseJsonCardText(v3Text);
+    if (card.version !== 3) {
+      throw new Error(
+        "The ccv3 chunk does not hold a Character Card V3. This card's metadata disagrees with itself;"
+        + " export it again from the editor that made it."
+      );
+    }
+    return card;
+  }
   const jsonText = readPngTextChunk(bytes, "chara");
   if (jsonText === null) {
-    if (hasPngTextKeyword(bytes, "ccv3")) {
-      throw new Error("Character Card V3 PNGs are not supported yet; export a V2 PNG or JSON card.");
-    }
     throw new Error("No character data found. This may be an ordinary image or its card metadata was stripped.");
   }
   return parseJsonCardText(jsonText);
@@ -147,7 +172,7 @@ export function looksLikeCharacterCard(value: unknown): boolean {
 
 function normalizeCard(value: unknown): CharacterCardCore {
   if (!isRecord(value)) throw new Error("Character card JSON must be an object.");
-  let version: 1 | 2;
+  let version: 1 | 2 | 3;
   let data: Record<string, unknown>;
   if (value.spec === undefined) {
     version = 1;
@@ -160,7 +185,10 @@ function normalizeCard(value: unknown): CharacterCardCore {
     }
     data = value.data;
   } else if (value.spec === "chara_card_v3") {
-    throw new Error("Character Card V3 is not supported yet; export a V2 PNG or JSON card.");
+    version = 3;
+    if (!isRecord(value.data)) throw new Error("Character Card V3 is missing its data object.");
+    validateV3SpecVersion(value.spec_version);
+    data = value.data;
   } else {
     throw new Error("Unsupported character card specification.");
   }
@@ -172,10 +200,109 @@ function normalizeCard(value: unknown): CharacterCardCore {
   validateText(description, "Description");
   validateText(personality, "Personality");
   validateText(scenario, "Scenario");
-  if (![description, personality, scenario].some((entry) => entry.trim().length > 0)) {
+  // `nickname` is a V3-only field: a V1 or V2 card has no such concept, so a
+  // stray field of that name on either is not read.
+  const nickname = version === 3 ? coreString(data, "nickname") : "";
+  validateText(nickname, "Nickname");
+  // A card whose whole value lives in its character_book is a legitimate
+  // shape: empty core strings are permitted by both V2 and V3, and a book
+  // with at least one entry is content in its own right. Only a card with
+  // neither is refused, and only then with this wording.
+  if (
+    ![description, personality, scenario].some((entry) => entry.trim().length > 0)
+    && !hasCharacterBookEntries(data, version)
+  ) {
     throw new Error("Character card has no description, personality, or scenario to import.");
   }
-  return { version, name, description, personality, scenario };
+  return {
+    version,
+    name,
+    description,
+    personality,
+    scenario,
+    ...(nickname.trim().length > 0 ? { nickname } : {}),
+    // `character_book` is a V2 and V3 field; a V1 card has no `data` wrapper
+    // and no such concept. Its absence is meaningful, so it stays optional
+    // rather than joining `fidelity` below.
+    ...(version !== 1 && data.character_book !== undefined ? { characterBook: data.character_book } : {}),
+    fidelity: version === 3 ? ignoredV3Fields(data) : []
+  };
+}
+
+/** `spec_version` for `chara_card_v3` is parsed as a float, per the spec's own
+ * forward-compatibility rule. Accept any `3.x`; refuse anything else by name
+ * rather than guess at a version 1667 has not seen. */
+function validateV3SpecVersion(value: unknown): void {
+  if (typeof value !== "string") {
+    throw new Error("Character Card V3 is missing its spec_version.");
+  }
+  // parseFloat would take "3abc" as 3. A version is digits and dots, so the
+  // shape is checked before the major number is read.
+  const parsed = /^3(\.\d+)*$/u.test(value) ? Number.parseFloat(value) : Number.NaN;
+  if (!Number.isFinite(parsed) || Math.floor(parsed) !== 3) {
+    throw new Error(`Unsupported Character Card V3 spec version; expected a 3.x version, got "${value}".`);
+  }
+}
+
+type IgnoredV3Field =
+  | "greetings"
+  | "examples"
+  | "assets"
+  | "creatorNotes"
+  | "systemPrompt"
+  | "postHistoryInstructions"
+  | "characterVersion"
+  | "tags"
+  | "creator";
+
+const IGNORED_V3_FIELD_PHRASES: LossPhrases<IgnoredV3Field> = {
+  greetings: (count) => `${count} ${countNoun(count, "greeting")} not imported`,
+  examples: () => "example messages not imported",
+  assets: (count) => `${count} ${countNoun(count, "asset")} not imported`,
+  creatorNotes: () => "creator notes not imported",
+  systemPrompt: () => "system prompt not imported",
+  postHistoryInstructions: () => "post-history instructions not imported",
+  characterVersion: () => "character version not imported",
+  tags: (count) => `${count} ${countNoun(count, "tag")} not imported`,
+  creator: () => "creator not imported"
+};
+
+/** Name every V3 field this converter ignores, so the Fidelity Report is the
+ * one place a writer learns what a V3 card carried that did not come across.
+ * Counts what the card holds; a field that is absent or empty is not named. */
+function ignoredV3Fields(data: Record<string, unknown>): readonly string[] {
+  const present: IgnoredV3Field[] = [];
+  const greetingCount = (nonEmptyString(data.first_mes) ? 1 : 0)
+    + arrayLength(data.alternate_greetings)
+    + arrayLength(data.group_only_greetings);
+  for (let index = 0; index < greetingCount; index += 1) present.push("greetings");
+  if (nonEmptyString(data.mes_example)) present.push("examples");
+  for (let index = 0; index < arrayLength(data.assets); index += 1) present.push("assets");
+  if (nonEmptyString(data.creator_notes)) present.push("creatorNotes");
+  if (nonEmptyString(data.system_prompt)) present.push("systemPrompt");
+  if (nonEmptyString(data.post_history_instructions)) present.push("postHistoryInstructions");
+  if (nonEmptyString(data.character_version)) present.push("characterVersion");
+  for (let index = 0; index < arrayLength(data.tags); index += 1) present.push("tags");
+  if (nonEmptyString(data.creator)) present.push("creator");
+  return lossLines(present, IGNORED_V3_FIELD_PHRASES);
+}
+
+function nonEmptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function arrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+/** Whether `data.character_book` carries at least one entry worth reading.
+ * A V1 card has no `data` wrapper and no such concept, so it never qualifies.
+ * This only decides whether the card has content; `entriesFromCharacterBook`
+ * in `character-book.js` does the actual reading. */
+function hasCharacterBookEntries(data: Record<string, unknown>, version: 1 | 2 | 3): boolean {
+  if (version === 1) return false;
+  const book = data.character_book;
+  return isRecord(book) && Array.isArray(book.entries) && book.entries.length > 0;
 }
 
 function coreString(data: Record<string, unknown>, key: string): string {
@@ -189,6 +316,36 @@ function selectedSection(label: string, value: string | undefined): NamedSection
   if (value === undefined || value.trim().length === 0) return null;
   validateText(value, label);
   return { label, text: value.trim() };
+}
+
+/** `undefined` for a missing or blank value, so a caller can `??` a fallback
+ * without separately checking for whitespace-only text. */
+function nonEmptyTrimmed(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Expand `{{char}}` and `{{user}}` exactly once, case-insensitively — the V3
+ * spec's own two macros. `{{char}}` expands to `macroName` (the card's
+ * nickname when it names one, `name` otherwise, per `characterCardMacroName`
+ * below); a Fact has no reader identity for `{{user}}` to expand to, so it
+ * names the role instead.
+ *
+ * Shared by `factsFromCharacterCard` for the card's core sections and by
+ * `entriesFromCharacterBook` (`character-book.js`) for a `character_book`
+ * entry, so both halves of one card resolve the same macro the same way. */
+export function expandCharacterCardMacros(text: string, macroName: string): string {
+  return text.replace(MACROS, (_match, kind: string) =>
+    kind.toLowerCase() === "char" ? macroName : "the protagonist");
+}
+
+/** The identity `{{char}}` expands to: the V3 `nickname` when the card gives
+ * one, `name` otherwise — the same fallback `factsFromCharacterCard` applies
+ * to the core sections, so a `character_book` entry agrees with them. A V1 or
+ * V2 card has no `nickname`, so this is always `name` for those. */
+export function characterCardMacroName(card: Pick<CharacterCardCore, "name" | "nickname">): string {
+  return nonEmptyTrimmed(card.nickname) ?? card.name;
 }
 
 function expandedMacroLength(text: string, name: string): number {
@@ -250,24 +407,6 @@ function renderFact(name: string, sections: readonly NamedSection[]): string {
   return [`Name: ${name}`, ...sections.map((section) => `${section.label}:\n${section.text}`)].join("\n\n");
 }
 
-function decodeBase64(source: string): Uint8Array {
-  const encoded = source.trim();
-  const maxEncoded = Math.ceil(MAX_CHARACTER_CARD_JSON_BYTES / 3) * 4;
-  if (encoded.length === 0 || encoded.length > maxEncoded || !BASE64.test(encoded)) {
-    throw new Error("Character card PNG contains invalid or oversized Base64 metadata.");
-  }
-  let decoded: string;
-  try {
-    decoded = atob(encoded);
-  } catch {
-    throw new Error("Character card PNG contains invalid Base64 metadata.");
-  }
-  if (decoded.length > MAX_CHARACTER_CARD_JSON_BYTES) {
-    throw new Error("Character card data exceeds the 1 MB limit.");
-  }
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
-}
-
 function rejectUnsupportedContainer(bytes: Uint8Array): void {
 
   if (equalsAscii(bytes, 0, 4, "RIFF") && equalsAscii(bytes, 8, 12, "WEBP")) {
@@ -282,33 +421,12 @@ function rejectUnsupportedContainer(bytes: Uint8Array): void {
   }
 }
 
-function ascii(bytes: Uint8Array, start: number, end: number): string {
-  let result = "";
-  for (let index = start; index < end; index += 1) {
-    const byte = bytes[index]!;
-    if (byte > 127) throw new Error("Character card PNG metadata is not valid ASCII.");
-    result += String.fromCharCode(byte);
-  }
-  return result;
-}
-
-function findByte(bytes: Uint8Array, value: number, start: number, end: number): number {
-  for (let index = start; index < end; index += 1) {
-    if (bytes[index] === value) return index;
-  }
-  return -1;
-}
-
 function equalsAscii(bytes: Uint8Array, start: number, end: number, expected: string): boolean {
   if (end - start !== expected.length) return false;
   for (let index = 0; index < expected.length; index += 1) {
     if (bytes[start + index] !== expected.charCodeAt(index)) return false;
   }
   return true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function validateText(value: string, label: string): void {

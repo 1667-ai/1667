@@ -7,11 +7,105 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { StoryService } from "../server/story-service.js";
+import { toPublicServiceError } from "../server/service-error-policy.js";
+import { planCardImport } from "../shared/card-import.js";
 
 const execFileAsync = promisify(execFile);
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const encoder = new TextEncoder();
 
-test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3", async (t) => {
+test("a card whose whole value is its character_book still imports, empty core fields and all", () => {
+  const plan = planCardImport(encoder.encode(JSON.stringify({
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Archive",
+      description: "",
+      personality: "",
+      scenario: "",
+      character_book: {
+        entries: [
+          { content: "The pass closes in winter.", name: "Weather", keys: ["storm"] },
+          { content: "The keeper never leaves the light.", comment: "Premise", constant: true }
+        ]
+      }
+    }
+  })), 128);
+
+  assert.deepEqual(plan.used, []);
+  assert.deepEqual(plan.skipped, ["description", "personality", "scenario"]);
+  assert.equal(plan.facts.length, 2, "no Character fact; both Facts come from the book");
+  assert.equal(plan.facts[0]?.tag, "Weather");
+  assert.equal(plan.facts[1]?.tag, "Premise");
+});
+
+test("a V3 card's nickname expands {{char}} in its character_book entries too, not just its core sections", () => {
+  const plan = planCardImport(encoder.encode(JSON.stringify({
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Elizabeth",
+      nickname: "Liz",
+      description: "{{char}} waits.",
+      character_book: {
+        entries: [{ content: "{{char}} lives here.", name: "Home", keys: ["home"] }]
+      }
+    }
+  })), 128);
+
+  assert.equal(plan.facts[0]?.text, "Name: Elizabeth\n\nDescription:\nLiz waits.");
+  const bookFact = plan.facts.find((fact) => fact.tag === "Home");
+  assert.equal(bookFact?.text, "Liz lives here.");
+});
+
+test("a malformed card produces a 4xx with its real message, not a 500 Internal server error", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-4xx-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const story = await service.createStory("Card target");
+
+  await assert.rejects(
+    () => service.importCard(story.id, encoder.encode("not json"), undefined),
+    (error: unknown) => {
+      const publicError = toPublicServiceError(error);
+      assert.equal(publicError.status, 400, `expected a 4xx, got ${publicError.status}`);
+      assert.match(publicError.message, /not valid JSON/);
+      return true;
+    }
+  );
+
+  await service.dispose();
+});
+
+// `importLorebook` has the same load-room-map-create shape as `importCard`
+// and shares the same `shared/`-parser-throws-ordinary-Error boundary; this
+// pins the same 4xx translation down for it so the two do not drift apart.
+test("a malformed lorebook produces a 4xx with its real message too, matching the card boundary", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-lorebook-import-4xx-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const story = await service.createStory("Lorebook target");
+
+  await assert.rejects(
+    () => service.importLorebook(story.id, encoder.encode("not json"), undefined),
+    (error: unknown) => {
+      const publicError = toPublicServiceError(error);
+      assert.equal(publicError.status, 400, `expected a 4xx, got ${publicError.status}`);
+      assert.match(publicError.message, /not valid JSON/);
+      return true;
+    }
+  );
+
+  await service.dispose();
+});
+
+test("E2E integration: import-card adds JSON and PNG card Facts, and a V3 card's Facts and book", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-e2e-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -38,7 +132,21 @@ test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3",
   })), "utf8").toString("base64"))));
   await writeFile(v3File, JSON.stringify({
     spec: "chara_card_v3",
-    data: { name: "Unsupported", description: "Not imported." }
+    spec_version: "3.0",
+    data: {
+      name: "Wren",
+      description: "A lighthouse keeper.",
+      personality: "Watchful.",
+      scenario: "",
+      tags: ["coastal"],
+      creator: "someone",
+      character_book: {
+        entries: [
+          { content: "The pass closes in winter.", name: "Weather", keys: ["storm", "snow"] },
+          { content: "The light never goes dark.", comment: "Premise", constant: true }
+        ]
+      }
+    }
   }), "utf8");
 
   const jsonResult = await runCardImport(root, story.id, jsonFile);
@@ -53,22 +161,28 @@ test("E2E integration: import-card adds JSON and PNG card Facts and rejects V3",
     /imported 1 fact for "Sable" into "Card target" — used description, scenario; skipped personality/u
   );
 
-  const failure = await runCardImport(root, story.id, v3File).catch((error: unknown) => error);
-  assert.ok(failure instanceof Error);
-  assert.equal((failure as { code?: number }).code, 1);
+  const v3Result = await runCardImport(root, story.id, v3File);
   assert.match(
-    String((failure as { stderr?: string }).stderr),
-    /Character Card V3 is not supported yet/u
+    v3Result.stdout,
+    /imported 3 facts for "Wren" into "Card target" — used description, personality; skipped scenario/u
   );
+  // The Fidelity Report reaches standard error, the same as import-lorebook.
+  assert.match(v3Result.stderr, /1 tag not imported/u);
+  assert.match(v3Result.stderr, /creator not imported/u);
 
   const verification = StoryService.withoutDiagnostics({ dataDir: project.directory });
   await verification.init();
   const payload = await verification.loadStory(story.id);
   await verification.dispose();
-  assert.equal(payload.facts.length, 2);
-  assert.ok(payload.facts.every((fact) => fact.tag === "Character"));
+  assert.equal(payload.facts.length, 5);
   assert.match(payload.facts[0]!.text, /Mira/u);
   assert.match(payload.facts[1]!.text, /Sable/u);
+  assert.match(payload.facts[2]!.text, /Wren/u);
+  assert.equal(payload.facts[3]!.tag, "Weather");
+  assert.equal(payload.facts[3]!.activation, "keyed");
+  assert.deepEqual(payload.facts[3]!.keys, ["storm", "snow"]);
+  assert.equal(payload.facts[4]!.tag, "Premise");
+  assert.equal(payload.facts[4]!.activation, "always");
 });
 
 async function runCardImport(
