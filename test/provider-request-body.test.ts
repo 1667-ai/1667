@@ -945,6 +945,7 @@ function withTemperatureSupport(
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature,
@@ -972,6 +973,7 @@ function withSampling(
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling,
     capabilities: {
       temperature: "supported",
@@ -1020,6 +1022,7 @@ function withEffort(
     },
     allowInsecureHttp: false,
     effort,
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",

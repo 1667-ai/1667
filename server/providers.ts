@@ -22,8 +22,20 @@ import {
   resolveProviderHeaders
 } from "./provider-runtime.js";
 import { providerSseEvents } from "./provider-sse.js";
+import { MAX_TOKEN_PROBABILITY_STEPS, type TokenProbabilityStep } from "../shared/token-probabilities.js";
+import {
+  dryRunProbabilityStep,
+  finalizeTokenProbabilities,
+  parseOpenAiLogprobsEntry,
+  refuseTokenProbabilities,
+  tokenProbabilitiesRefused,
+  tokenProbabilityRefusalKey,
+  type TokenProbabilityCollector
+} from "./token-probability-capture.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
+export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
+export type { TokenProbabilityCollector } from "./token-probability-capture.js";
 
 /** Why the stream ended, when the provider said so: "length" means the output
  *  limit cut generation short; "stop" means the model finished on its own.
@@ -40,15 +52,22 @@ export function streamCompletion(
   signal: AbortSignal,
   outcome?: StreamOutcome,
   providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  promptCache?: PromptCacheRequest,
+  tokenProbabilities?: TokenProbabilityCollector
 ): AsyncGenerator<string> {
   switch (settings.provider) {
     case "dry-run":
-      return streamDryRun(prompt, signal, outcome);
+      // Anthropic Messages documents no logprobs field at all, so
+      // streamAnthropic below never receives a collector — a request routed
+      // there leaves it at whatever the caller initialized (see
+      // buildAnthropicMessagesRequestBody's comment). dry-run really does
+      // fabricate deterministic alternatives when the profile asked for
+      // them, so it takes both the collector and the requested count.
+      return streamDryRun(prompt, signal, outcome, providerRuntimeFor(settings).tokenProbabilities, tokenProbabilities);
     case "anthropic":
       return streamAnthropic(settings, prompt, signal, outcome, providerStarted, promptCache);
     case "openai-compatible":
-      return streamOpenAiCompatible(settings, prompt, signal, outcome, providerStarted, promptCache);
+      return streamOpenAiCompatible(settings, prompt, signal, outcome, providerStarted, promptCache, tokenProbabilities);
   }
 }
 
@@ -58,7 +77,8 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   outcome?: StreamOutcome,
   providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  promptCache?: PromptCacheRequest,
+  tokenProbabilities?: TokenProbabilityCollector
 ): AsyncGenerator<string> {
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
@@ -67,6 +87,15 @@ async function* streamOpenAiCompatible(
   const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, signal);
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
+  const tokenProbabilityKey = tokenProbabilityRefusalKey(settings);
+  if (tokenProbabilitiesRefused(tokenProbabilityKey)) {
+    // Paid once per model: a prior request already learned this endpoint
+    // rejects the fields, so this one never asks again (issue #291 phase 2,
+    // point 6) — mirrors SAMPLING_REFUSED's temperature strip below.
+    delete body.logprobs;
+    delete body.top_logprobs;
+  }
+  const requestedAlternatives = typeof body.top_logprobs === "number" ? body.top_logprobs : null;
   let totalDeadlineReached = false;
   const totalDeadline = new AbortController();
   const totalTimer = setTimeout(() => {
@@ -82,6 +111,11 @@ async function* streamOpenAiCompatible(
     for (let attempt = 0; ; attempt++) {
       let streamed = false;
       const outputRedactor = createProviderStreamRedactor(secrets);
+      // Fresh per attempt: only the attempt that actually finishes ever
+      // reaches finalizeTokenProbabilities below, so a retried attempt's
+      // partial capture (if any) is never mixed with the one that succeeds.
+      const probabilitySteps: TokenProbabilityStep[] = [];
+      let probabilitiesTruncated = false;
       try {
         let decodedBytes = 0;
         for await (const data of providerSseEvents(
@@ -103,12 +137,34 @@ async function* streamOpenAiCompatible(
           if (data === "[DONE]") {
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
+            finalizeTokenProbabilities(tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated);
             return;
           }
           const parsed = parseEvent(data, secrets);
           const choice = Array.isArray(parsed.choices) ? parsed.choices[0] : undefined;
           if (isObject(choice) && typeof choice.finish_reason === "string" && outcome !== undefined) {
             outcome.finishReason = choice.finish_reason === "length" ? "length" : "stop";
+          }
+          if (tokenProbabilities !== undefined && requestedAlternatives !== null && !probabilitiesTruncated) {
+            // OpenAI streams `logprobs.content` incrementally, one entry per
+            // event; KoboldCpp sends the whole array in a final chunk — never
+            // assume one element per event, and never assume every event
+            // carries one (issue #291 phase 2, point 2).
+            const logprobs = isObject(choice) ? choice.logprobs : undefined;
+            const content = isObject(logprobs) ? logprobs.content : undefined;
+            if (Array.isArray(content)) {
+              for (const entry of content) {
+                if (probabilitySteps.length >= MAX_TOKEN_PROBABILITY_STEPS) {
+                  probabilitiesTruncated = true;
+                  break;
+                }
+                const step = parseOpenAiLogprobsEntry(entry);
+                // A malformed entry is skipped, not thrown: a broken
+                // diagnostic must never cost the writer their prose (issue
+                // #291 phase 2, point 3).
+                if (step !== null) probabilitySteps.push(step);
+              }
+            }
           }
           const delta = isObject(choice) && isObject(choice.delta) ? choice.delta.content : undefined;
           if (typeof delta === "string" && delta.length > 0) {
@@ -119,6 +175,7 @@ async function* streamOpenAiCompatible(
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        finalizeTokenProbabilities(tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated);
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
@@ -136,7 +193,7 @@ async function* streamOpenAiCompatible(
         if (
           streamed
           || attempt >= 3
-          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort)
+          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort, tokenProbabilityKey)
         ) throw error;
       }
     }
@@ -151,7 +208,8 @@ function adjustRejectedParameter(
   body: Record<string, unknown>,
   error: unknown,
   kind: PromptOperation,
-  explicitEffort: boolean
+  explicitEffort: boolean,
+  tokenProbabilityKey: string
 ): boolean {
   if (!(error instanceof ProviderError) || error.status !== 400) return false;
   let detail: Record<string, unknown>;
@@ -183,6 +241,16 @@ function adjustRejectedParameter(
     && "temperature" in body
   ) {
     delete body.temperature;
+    return true;
+  }
+  if (
+    detail.code === "unsupported_parameter"
+    && (detail.param === "top_logprobs" || detail.param === "logprobs")
+    && ("logprobs" in body || "top_logprobs" in body)
+  ) {
+    delete body.logprobs;
+    delete body.top_logprobs;
+    refuseTokenProbabilities(tokenProbabilityKey);
     return true;
   }
   return false;
@@ -387,7 +455,9 @@ function isAnthropicTerminalEvent(data: string): boolean {
 async function* streamDryRun(
   prompt: PromptPlan,
   signal: AbortSignal,
-  outcome?: StreamOutcome
+  outcome?: StreamOutcome,
+  requestedAlternatives?: number | null,
+  tokenProbabilities?: TokenProbabilityCollector
 ): AsyncGenerator<string> {
   const messages = renderPromptPlan(prompt);
   const instruction = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -398,14 +468,31 @@ async function* streamDryRun(
       : prompt.operation === "summary"
         ? dryRunSummary(prompt)
         : dryRunContinuation(instruction);
+  const captureProbabilities = requestedAlternatives !== undefined && requestedAlternatives !== null;
+  const probabilitySteps: TokenProbabilityStep[] = [];
+  let probabilitiesTruncated = false;
+  let stepIndex = 0;
   // Keep the first chunk's leading boundary character: append continuations are
   // joined byte-for-byte, so a leading space is meaningful.
   for (const word of text.match(/\s*\S+/g) ?? []) {
     if (signal.aborted) return;
     yield word;
+    if (captureProbabilities && !probabilitiesTruncated) {
+      // Dry-run really does fabricate one step per yielded chunk — it is not
+      // pretending, the way an unavailable sampling knob would be (issue
+      // #291 phase 2). Deterministic: no clock, no randomness, so the same
+      // prompt always fabricates the same record.
+      if (probabilitySteps.length >= MAX_TOKEN_PROBABILITY_STEPS) {
+        probabilitiesTruncated = true;
+      } else {
+        probabilitySteps.push(dryRunProbabilityStep(word, requestedAlternatives, stepIndex));
+      }
+    }
+    stepIndex += 1;
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
   if (outcome !== undefined) outcome.finishReason = "stop";
+  finalizeTokenProbabilities(tokenProbabilities, captureProbabilities ? requestedAlternatives : null, probabilitySteps, probabilitiesTruncated);
 }
 
 function dryRunSummary(prompt: PromptPlan): string {

@@ -1,5 +1,5 @@
 import { GenerationResultError } from "./errors.js";
-import { streamCompletion, type PromptPlan } from "./providers.js";
+import { streamCompletion, type PromptPlan, type TokenProbabilityCollector } from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 
@@ -18,7 +18,8 @@ export async function streamModel(
   onDelta: DeltaConsumer,
   output?: ModelOutputFilter,
   providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  promptCache?: PromptCacheRequest,
+  tokenProbabilities?: TokenProbabilityCollector
 ): Promise<string | null> {
   let text = "";
   const emit = async (delta: string) => {
@@ -33,7 +34,8 @@ export async function streamModel(
       signal,
       undefined,
       providerStarted,
-      promptCache
+      promptCache,
+      tokenProbabilities
     )) {
       await emit(output?.push(delta) ?? delta);
     }

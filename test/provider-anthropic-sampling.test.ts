@@ -247,6 +247,7 @@ function anthropicSettings(
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling,
     capabilities: {
       temperature: "supported",

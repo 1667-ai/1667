@@ -178,6 +178,7 @@ providerTest("openai-compatible retries never rewrite or remove explicit effort"
     },
     allowInsecureHttp: false,
     effort: "high",
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",

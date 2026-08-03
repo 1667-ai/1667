@@ -479,6 +479,7 @@ function noPrefillRewriteSettings(baseUrl: string): GenerationSettings {
     timeouts: { responseHeaderMs: 5_000, firstTokenMs: 5_000, idleMs: 5_000, totalMs: 20_000 },
     allowInsecureHttp: true,
     effort: "default",
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",

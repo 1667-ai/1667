@@ -12,6 +12,7 @@ import type { PromptCacheWirePlan } from "./provider-cache-policy.js";
 import { ProviderError } from "./errors.js";
 import { applySamplingFields } from "./provider-sampling.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
+import { resolveTokenProbabilities } from "../shared/token-probability-capabilities.js";
 
 type TextContentBlock = Record<string, unknown> & {
   type: "text";
@@ -68,8 +69,30 @@ export async function buildOpenAiChatRequestBody(
   };
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
   await applySamplingFields(body, settings, "openai-chat-completions", signal);
+  applyTokenProbabilities(body, settings);
   applyGenerationEffort(body, settings, "openai");
   return body;
+}
+
+/** `logprobs` / `top_logprobs` only when the route documents them (issue #291
+ *  phase 2). A model that later 400s on these fields is handled downstream in
+ *  server/providers.ts, which strips them and remembers the refusal per
+ *  model — this function only decides whether to ask in the first place. */
+function applyTokenProbabilities(
+  body: Record<string, unknown>,
+  settings: GenerationSettings
+): void {
+  const runtime = providerRuntimeFor(settings);
+  if (runtime.tokenProbabilities === null) return;
+  const resolution = resolveTokenProbabilities({
+    protocol: "openai-chat-completions",
+    preset: runtime.preset,
+    remoteModelId: settings.model,
+    temperatureSupport: runtime.capabilities.temperature
+  });
+  if (resolution.kind !== "available" || resolution.wire !== "openai-logprobs") return;
+  body.logprobs = true;
+  body.top_logprobs = runtime.tokenProbabilities;
 }
 
 /** A model that declares no sampling support rejects the whole request, so a
@@ -140,6 +163,13 @@ export async function buildAnthropicMessagesRequestBody(
   await applySamplingFields(body, settings, "anthropic-messages", signal);
   if ("top_p" in body) delete body.temperature;
   applyGenerationEffort(body, settings, "anthropic");
+  // Anthropic Messages documents no logprobs field at all
+  // (resolveTokenProbabilities always reports "protocol" here), so a profile
+  // that configures tokenProbabilities on this route is deliberately not an
+  // error the way an unsupported sampling knob is. A sampling knob's silent
+  // loss would change what the provider actually samples; token
+  // probabilities are a diagnostic the writer opted into, so simply never
+  // sending it is the quiet, correct behavior (issue #291 phase 2).
   return body;
 }
 
