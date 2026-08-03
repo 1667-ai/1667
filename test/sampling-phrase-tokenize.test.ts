@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2, type SamplingSettingsV2 } from "../shared/settings-v2-types.js";
+import type { GenerationSettings } from "../shared/types.js";
 import { ServiceError } from "../server/errors.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
+import { attachProviderRuntime, type ProviderRuntime } from "../server/provider-runtime.js";
+import { resolveSamplingBiasForSettings } from "../server/sampling-phrase-bias.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { StoryService } from "../server/story-service.js";
 import {
@@ -18,6 +24,7 @@ import {
 } from "./settings-store-fixtures.js";
 import {
   documentFor,
+  KOBOLDCPP_FIXTURE_TOKENS,
   LLAMA_CPP_FIXTURE_TOKENS,
   startProviderFixture
 } from "./sampling-e2e-fixtures.js";
@@ -344,6 +351,786 @@ test("resolveSamplingBias resolves llama.cpp phrase bias when the routed model n
   }
 });
 
+// Issue #311: the worker-boundary counterpart to the request-serializer
+// tests in test/provider-request-body.test.ts — proves the WASM tokenizer
+// stays server-side and the editor's own preview (this worker method) reads
+// through the exact same probe and merge the request itself uses. Uses the
+// real loopback fixture (test/sampling-e2e-fixtures.ts), not a mocked
+// fetch, so this is the closest 1667's own test suite gets to a round trip
+// — but the fixture still only asserts 1667's own assumption about
+// KoboldCpp's `/api/extra/tokencount` and `/v1/chat/completions` wire
+// shapes, not a real KoboldCpp server's behavior (see the KoboldCppFixtureTokenizeMap
+// and assertBannedTokensBodyShape comments in that file).
+test("resolveSamplingBias resolves KoboldCpp phrase bias through the tokencount probe, and reports a banned string as native", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: -3 }],
+    bannedStrings: ["a phrase with several words"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual(result.logitBias, {
+    "601": -3,
+    "602": -3,
+    "603": -3,
+    "604": -3
+  });
+  assert.equal(result.phraseBias.length, 1);
+  const phraseEntry = result.phraseBias[0]!;
+  assert.equal(phraseEntry.kind, "resolved");
+  if (phraseEntry.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual([...phraseEntry.tokenIds].sort((a, b) => a - b), [601, 602, 603, 604]);
+
+  // The banned string reaches "native" on its own field — no token IDs, no
+  // variants, and never a member of `result.bannedStrings` at all (issue
+  // #311 review, second pass, finding A: an earlier version carried it as a
+  // fifth `kind` inside `bannedStrings`, which nothing stopped from being
+  // constructed on a preset other than KoboldCpp).
+  assert.equal(result.bannedStrings.length, 0);
+  assert.equal(result.nativeBannedStrings.length, 1);
+  const nativeEntry = result.nativeBannedStrings[0]!;
+  assert.equal(nativeEntry.kind, "native");
+  assert.equal(nativeEntry.phrase, "a phrase with several words");
+
+  // Exactly phraseBias's four surface variants reached the probe, plus the
+  // one empty-string calibration probe `koboldCppLiveTokenizeProbe`
+  // (server/sampling-phrase-bias.ts) sends once per resolution to learn this
+  // build's BOS prefix (issue #311) — the banned string, needing no
+  // tokenizer at all, never queued a call of its own.
+  assert.equal(fixture.koboldTokenizeBodies.length, 5);
+  assert.deepEqual(
+    fixture.koboldTokenizeBodies.map((body) => body.prompt).sort(),
+    ["", " Ember", " ember", "Ember", "ember"]
+  );
+  // Issue #311 review, round five: every call, calibration included, asks
+  // for `special: false` — koboldcpp.py:6680 maps this to the C++ layer's
+  // `addbos`, the flag that decides whether the response's `ids` is
+  // prefixed with BOS at all.
+  assert.ok(fixture.koboldTokenizeBodies.every((body) => body.special === false));
+});
+
+// Issue #311 review, first pass, BLOCKER: KoboldCpp's own documented
+// /api/extra/tokencount example returns `ids` beginning with the model's
+// BOS token ("ids": [1, 22557, 28725, …]) — so a lexically single-token
+// phrase like "ember" used to come back as two IDs, [BOS, token], on any
+// BOS-adding build (the normal case), get misclassified multi-token in
+// every surface variant, and be rejected outright. The fix
+// (koboldCppLiveTokenizeProbe, server/sampling-phrase-bias.ts) tokenizes the
+// empty string once per resolution and strips whatever prefix comes back
+// from every later response before classifying it. `koboldBosPrefix: [1]`
+// makes this fixture answer exactly the way the bug report describes —
+// this test would fail against the pre-fix code, which never stripped
+// anything, because "ember" would come back two IDs per variant and reject.
+// It asserts 1667's own assumption about the wire shape (a build that
+// prepends one constant BOS token to every response), not a real KoboldCpp
+// server's behavior.
+test("resolveSamplingBias strips a KoboldCpp build's calibrated BOS prefix so a single-token phrase resolves, while a genuinely multi-token one still rejects", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, {
+    koboldTokenizeMap: {
+      ...KOBOLDCPP_FIXTURE_TOKENS,
+      "several words": [901, 902],
+      " several words": [903, 904],
+      "Several words": [905, 906],
+      " Several words": [907, 908]
+    },
+    koboldBosPrefix: [1]
+  });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-bos-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [
+      { phrase: "ember", weight: -3 },
+      { phrase: "several words", weight: 2 }
+    ],
+    bannedStrings: []
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.equal(result.phraseBias.length, 2);
+
+  const emberEntry = result.phraseBias.find((entry) => entry.phrase === "ember")!;
+  assert.equal(emberEntry.kind, "resolved");
+  if (emberEntry.kind !== "resolved") throw new Error("unreachable");
+  // Every raw response was actually [1, 601], [1, 602], [1, 603], [1, 604] —
+  // stripping the calibrated [1] prefix is what makes "ember" single-token
+  // rather than rejected, the exact bug this fixes.
+  assert.deepEqual([...emberEntry.tokenIds].sort((a, b) => a - b), [601, 602, 603, 604]);
+
+  const multiEntry = result.phraseBias.find((entry) => entry.phrase === "several words")!;
+  assert.equal(multiEntry.kind, "rejected");
+  if (multiEntry.kind !== "rejected") throw new Error("unreachable");
+  const typed = multiEntry.variants.find((variant) => variant.variant === "typed")!;
+  // Stripped of the BOS prefix this is genuinely two tokens (901, 902) — not
+  // three (the prefix left in) and not one (the prefix mistaken for the
+  // whole answer): the strip does not accidentally make everything look
+  // single-token.
+  assert.deepEqual(typed.outcome, { kind: "multi-token", tokenIds: [901, 902] });
+});
+
+// Issue #311 review, first pass, named edge case: a phrase whose IDs equal
+// the calibrated prefix exactly needs no special-casing in the resolver —
+// stripped to zero tokens, it falls straight through the ordinary
+// `tokenIds.length === 1` check into "multi-token" with an empty tokenIds
+// array, the same honest rejection any other non-single-token count gets,
+// never approximated as free or as single-token. This fixture's map has no
+// entries at all, so every surface variant of the configured phrase comes
+// back as exactly the prefix and nothing else.
+test("resolveSamplingBias rejects a KoboldCpp phrase whose stripped IDs are empty, not silently zero-cost", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, {
+    koboldTokenizeMap: {},
+    koboldBosPrefix: [1, 2]
+  });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-bos-empty-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ghost", weight: 1 }],
+    bannedStrings: []
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  const entry = result.phraseBias[0]!;
+  assert.equal(entry.kind, "rejected");
+  if (entry.kind !== "rejected") throw new Error("unreachable");
+  const typed = entry.variants.find((variant) => variant.variant === "typed")!;
+  assert.deepEqual(typed.outcome, { kind: "multi-token", tokenIds: [] });
+});
+
+// Issue #311 review, first pass, named edge case: an empty-string response
+// that is not actually a prefix of a phrase's IDs — the calibration probe
+// answered normally, but the build's own prefix assumption did not hold for
+// this one phrase. Guessing which part of a mismatched response is "real"
+// risks biasing the wrong token, so this must report the same honest
+// tokenizer-unavailable outcome a calibration probe that never answered at
+// all reports, rather than a guess. `koboldBosPrefixExemptPrompts` is
+// 1667's own synthetic assumption-check (see its comment in
+// test/sampling-e2e-fixtures.ts) — no known KoboldCpp build answers
+// inconsistently this way.
+test("resolveSamplingBias reports tokenizer-unavailable when a KoboldCpp phrase's IDs do not actually start with the calibrated prefix", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, {
+    koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS,
+    koboldBosPrefix: [1],
+    koboldBosPrefixExemptPrompts: new Set(["ember"])
+  });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-bos-mismatch-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: -3 }],
+    bannedStrings: []
+  });
+  assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "probe-failed" });
+});
+
+// Issue #311: a KoboldCpp server that never answers /api/extra/tokencount
+// must report the tokenizer as unavailable for phraseBias, the same
+// "probe-failed" outcome llama.cpp's own failed probe reports above — the
+// editor's preview must show the same failure the request would hit, never
+// a silently approximated one.
+test("resolveSamplingBias reports the KoboldCpp tokenizer as unavailable when the probe does not answer", async (t) => {
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-probe-failed-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  // "provider.example" is an RFC 2606 reserved domain that never resolves —
+  // the same fixture-free failure source test/provider-request-body.test.ts
+  // uses for the equivalent llama.cpp and KoboldCpp request-level tests.
+  const document = documentFor("https://provider.example", "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: -3 }],
+    bannedStrings: []
+  });
+  assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "probe-failed" });
+});
+
+// Issue #311 review, second pass, BLOCKER B: a native banned string never
+// resolves a token, so it cannot lose a token-ownership fight the way a
+// tokenized bannedStrings entry does on every other preset — but a writer
+// who configures phraseBias "ember"@5 and bannedStrings "ember" together in
+// the same scope is self-contradicting on KoboldCpp exactly the way they
+// are on llama.cpp and openai. There, the two entries fight over the same
+// resolved token, bannedStrings intentionally outranks phraseBias within a
+// scope, and the phraseBias entry loses ("shadowed") while the banned
+// string itself stays healthy — it is the winner, its own weight is what
+// ships. Issue #311 review, third pass, findings G/H reworked the native
+// path to borrow the colliding phraseBias entry's own real tokens and run
+// the exact same `settleTokenOwnership` check, so the native path now
+// produces the identical split: the phraseBias row shows "shadowed" (which
+// blocks the whole resolution, `firstBlockingSamplingBiasEntry`), and the
+// banned string itself stays "native" — checked once for the profile
+// scope, once for the story scope, so the rule is shown to be about
+// matching scope, not about the profile specifically. The genuine
+// cross-scope case (no contradiction) is the next test below.
+test("resolveSamplingBias blocks (via the phraseBias row) a KoboldCpp phrase bias that contradicts a same-scope banned string", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  // "dragon" needs its own real single-token mapping, distinct from a text
+  // this fixture's vocabulary simply does not have — an unmapped nonempty
+  // text now answers "failed" (issue #311 review, second pass, finding E:
+  // a non-empty prompt tokenizing to zero IDs is systemic, not a phrase
+  // fact), not a legitimate 0-token rejection, so this test needs "dragon"
+  // to genuinely resolve in order to isolate the contradiction check from
+  // that unrelated probe-failure path.
+  const fixture = await startProviderFixture(t, undefined, {
+    koboldTokenizeMap: {
+      ...KOBOLDCPP_FIXTURE_TOKENS,
+      dragon: 701,
+      " dragon": 702,
+      Dragon: 703,
+      " Dragon": 704
+    }
+  });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-contradiction-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    // Profile-scoped contradiction: boosts and bans "ember" together.
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: ["ember"],
+    // Story-scoped contradiction: boosts and bans "dragon" together, both
+    // in the story's own scope — proves the rule checks *matching* scope,
+    // not "profile" specifically.
+    storyPhraseBias: [{ phrase: "dragon", weight: 5 }],
+    storyBannedStrings: ["dragon"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  assert.equal(result.phraseBias.length, 2);
+  const emberPhrase = result.phraseBias.find((entry) => entry.phrase === "ember")!;
+  assert.equal(emberPhrase.kind, "shadowed");
+  if (emberPhrase.kind !== "shadowed") throw new Error("unreachable");
+  assert.ok(emberPhrase.conflicts.some((conflict) =>
+    conflict.owner.source === "bannedStrings" && conflict.owner.phrase === "ember"));
+
+  const dragonPhrase = result.phraseBias.find((entry) => entry.phrase === "dragon")!;
+  assert.equal(dragonPhrase.kind, "shadowed");
+  if (dragonPhrase.kind !== "shadowed") throw new Error("unreachable");
+  assert.ok(dragonPhrase.conflicts.some((conflict) =>
+    conflict.owner.source === "bannedStrings" && conflict.owner.phrase === "dragon"));
+
+  // The banned strings themselves win their own scope, exactly as they do
+  // on the token-merge presets — they stay "native", not "blocked".
+  assert.equal(result.nativeBannedStrings.length, 2);
+  assert.ok(result.nativeBannedStrings.every((entry) => entry.kind === "native"));
+
+  // "shadowed" blocks the whole resolution — the request/save-time proof
+  // lives in test/provider-request-body.test.ts and test/sampling-e2e.test.ts.
+  assert.equal(result.resolvedEntryCount, 0);
+});
+
+// Regression test: an earlier implementation of the contradiction check
+// (issue #311, second pass, finding B) expanded only the banned string's
+// four surface variants and compared them against each phraseBias entry's
+// bare, unvaried phrase — so phraseBias "ember" and bannedStrings "Ember"
+// were never flagged, even though the two entries genuinely fight over the
+// same tokens on every token-merge preset: phraseBias "ember"'s own four
+// variants include "Ember" and " Ember", which are exactly two of
+// bannedStrings "Ember"'s variants too. Both sides must be variant-expanded
+// for the check to catch every case the token-merge presets would.
+test("resolveSamplingBias blocks (via the phraseBias row) a phrase bias that contradicts a same-scope banned string in a different letter case", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-contradiction-case-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: ["Ember"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.equal(result.phraseBias.length, 1);
+  const entry = result.phraseBias[0]!;
+  assert.equal(entry.kind, "shadowed");
+  if (entry.kind !== "shadowed") throw new Error("unreachable");
+  assert.ok(entry.conflicts.some((conflict) =>
+    conflict.owner.source === "bannedStrings" && conflict.owner.phrase === "Ember"));
+  assert.equal(result.nativeBannedStrings.length, 1);
+  assert.equal(result.nativeBannedStrings[0]!.kind, "native");
+});
+
+// The genuine cross-scope case: the profile boosts "ember" and the story
+// separately bans it — settled rule 2 says a cross-scope conflict is a
+// non-blocking "override", never told apart from a same-scope contradiction
+// the writer needs to fix. Unlike a same-scope collision, the story's own
+// bannedStrings entry, written after the profile's phraseBias in the
+// merge's scope-major order, wins outright: it stays "native" and reaches
+// `banned_tokens`, while the profile's own phraseBias entry is downgraded
+// to "overridden" and its own weight is excluded from `logit_bias` (issue
+// #311 review, third pass, finding G) — exactly the split the token-merge
+// presets already produce for the identical pairing.
+test("resolveSamplingBias overrides (not blocks) a KoboldCpp phrase bias when a different scope's banned string wins the same word", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-cross-scope-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: [],
+    storyBannedStrings: ["ember"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  assert.equal(result.nativeBannedStrings.length, 1);
+  const bannedEntry = result.nativeBannedStrings[0]!;
+  assert.equal(bannedEntry.kind, "native");
+  assert.equal(bannedEntry.phrase, "ember");
+
+  assert.equal(result.phraseBias.length, 1);
+  const phraseEntry = result.phraseBias[0]!;
+  assert.equal(phraseEntry.kind, "overridden");
+  if (phraseEntry.kind !== "overridden") throw new Error("unreachable");
+  assert.ok(phraseEntry.conflicts.some((conflict) =>
+    conflict.owner.source === "bannedStrings" && conflict.owner.scope === "story"
+    && conflict.owner.phrase === "ember"));
+
+  // Non-blocking — the whole resolution still succeeds, and the profile's
+  // own tokens for "ember" never reach the merged logit_bias map.
+  assert.equal(result.resolvedEntryCount, 0);
+});
+
+// The mirror direction (issue #311 review, third pass, coordinator's note:
+// the other reviewer's own repro used exactly this pairing): a profile
+// banned string that a story's own phrase bias overrides. The story again
+// wins — its phrase bias stays "resolved" and reaches `logit_bias` — and
+// the profile's banned string is downgraded to "overridden" and dropped
+// from `banned_tokens`.
+test("resolveSamplingBias overrides (not blocks) a KoboldCpp banned string when a different scope's phrase bias wins the same word", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-cross-scope-reverse-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [],
+    bannedStrings: ["ember"],
+    storyPhraseBias: [{ phrase: "ember", weight: 5 }]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  assert.equal(result.phraseBias.length, 1);
+  const phraseEntry = result.phraseBias[0]!;
+  assert.equal(phraseEntry.kind, "resolved");
+  if (phraseEntry.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual([...phraseEntry.tokenIds].sort((a, b) => a - b), [601, 602, 603, 604]);
+
+  assert.equal(result.nativeBannedStrings.length, 1);
+  const bannedEntry = result.nativeBannedStrings[0]!;
+  assert.equal(bannedEntry.kind, "overridden");
+  if (bannedEntry.kind !== "overridden") throw new Error("unreachable");
+  assert.deepEqual(bannedEntry.conflict, { source: "phraseBias", scope: "story", phrase: "ember" });
+
+  assert.deepEqual(result.logitBias, { "601": 5, "602": 5, "603": 5, "604": 5 });
+});
+
+// Regression test for issue #311 review, third pass, finding L: the token
+// a native banned string borrows and wins can also be exactly what a real,
+// unrelated phraseBias entry independently wants there — dropping the
+// token from `logit_bias` whenever a borrowed write happens to be its
+// *final* owner overstates what actually shipped: the entry that agrees
+// stays "resolved" (implying its bias is live), but its tokens were
+// missing from the merged map. Both reviewers found this shape; only one
+// rated it a defect, on the correct grounds that the editor's report — not
+// the wire's prose-level effect — is what this feature's eight review
+// rounds have been protecting. Profile phraseBias "ember"@5, story
+// phraseBias "ember"@-100, and story bannedStrings "ember" (which collides
+// with the *profile* entry, since its own weight agrees with the story
+// phrase's -100 and finding H skips agreeing pairs): the story phrase
+// should stay "resolved" and its tokens must still reach `logit_bias`,
+// because the story phrase's own -100 is exactly what is there — the
+// profile entry, by contrast, genuinely lost its own +5 and must not
+// reappear.
+test("resolveSamplingBias keeps a story phrase bias's own tokens in logit_bias even when a native banned string also wins them", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-agreeing-write-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: [],
+    storyPhraseBias: [{ phrase: "ember", weight: -100 }],
+    storyBannedStrings: ["ember"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  assert.equal(result.phraseBias.length, 2);
+  const profileEntry = result.phraseBias.find((entry) => entry.scope === "profile")!;
+  assert.equal(profileEntry.kind, "overridden");
+  const storyEntry = result.phraseBias.find((entry) => entry.scope === "story")!;
+  assert.equal(storyEntry.kind, "resolved");
+  if (storyEntry.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual([...storyEntry.tokenIds].sort((a, b) => a - b), [601, 602, 603, 604]);
+
+  // The banned string itself won its own borrowed tokens (its weight
+  // agrees with the story phrase that already holds them), so it ships too.
+  assert.equal(result.nativeBannedStrings.length, 1);
+  assert.equal(result.nativeBannedStrings[0]!.kind, "native");
+
+  // The decisive assertion: the story phrase's own -100 must still be in
+  // the merged map. Dropping it (an earlier version of this fix did,
+  // because a borrowed write happened to be the token's final owner) would
+  // report the story row "resolved" over a bias that never reached the wire.
+  assert.deepEqual(result.logitBias, { "601": -100, "602": -100, "603": -100, "604": -100 });
+});
+
+// Regression test for issue #311 review, round seven (over-borrowing bug,
+// found independently by two structural reviews): a native banned string
+// used to borrow a colliding phraseBias candidate's *whole* four-variant
+// token set the moment any one variant text overlapped, rather than only
+// the tokens for the specific texts that actually collide. Profile
+// phraseBias "ember"@5 resolves to four distinct tokens (601-604, one per
+// surface variant). Story bannedStrings "Ember" is already capitalized, so
+// its own four variants collapse to two distinct texts, "Ember" (603) and
+// " Ember" (604) — it never names "ember" (601) or " ember" (602) at all.
+// The bug claimed all four as contested; `realOnlyViews`
+// (server/sampling-phrase-bias.ts) then saw every one of them as partly
+// backed by a synthetic write and dropped all four from `logit_bias`,
+// silently deleting the writer's lowercase-form bias the banned string
+// never touched. The fix intersects on the specific overlapping variant
+// texts, so only 603/604 are contested — 601/602 must survive untouched.
+test("resolveSamplingBias keeps a phrase bias's lowercase tokens when only its capitalized form collides with a native banned string", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-partial-collision-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: [],
+    storyBannedStrings: ["Ember"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  // The banned string wins the two tokens it actually names (cross-scope,
+  // story beats profile) and ships as native text.
+  assert.equal(result.nativeBannedStrings.length, 1);
+  const bannedEntry = result.nativeBannedStrings[0]!;
+  assert.equal(bannedEntry.kind, "native");
+  assert.equal(bannedEntry.phrase, "Ember");
+
+  // The phrase bias entry lost only its capitalized-form tokens — still
+  // reported "overridden" as a whole (some, not all, of its tokens lost —
+  // see SamplingBiasEntryResolution's own comment on that outcome), but the
+  // decisive assertion is the merged map below, not this row's own kind.
+  assert.equal(result.phraseBias.length, 1);
+  assert.equal(result.phraseBias[0]!.kind, "overridden");
+
+  // The lowercase tokens (601, 602) were never named by the banned string
+  // and must still carry the writer's own +5 bias; the capitalized tokens
+  // (603, 604) are the banned string's own, dropped from logit_bias the
+  // same way any other losing phraseBias token is.
+  assert.deepEqual(result.logitBias, { "601": 5, "602": 5 });
+});
+
+// Issue #311 review, third pass, finding I: `/api/extra/tokencount`
+// documents no `parse_special`-style flag, unlike llama.cpp's `/tokenize`
+// (`parse_special: false`, server/context-probe.ts). Whether an unverified
+// KoboldCpp build parses special-token syntax on that endpoint is unknown
+// and unverifiable without a running build — if it does, a phrase typed as
+// `<|eot_id|>` would resolve to one token and boost end-of-turn by the
+// writer's own weight, truncating every generation. The lead's call: guard
+// it, so the phrase is rejected outright on KoboldCpp — the same as
+// llama.cpp already, correctly, rejects it (a multi-token phrase there,
+// since `parse_special: false` tokenizes it as ordinary text).
+//
+// Finding M moved enforcement from the live-probe layer up into
+// `resolveSamplingLogitBias` itself, so demo mode's own synchronous fake
+// tokenizer inherits it too (see the demo-mode test below) — the trade-off
+// being that the real KoboldCpp path no longer skips the network call for a
+// guarded phrase (an earlier version of this test asserted exactly that,
+// with a fixture that threw if ever asked). This fixture instead answers
+// the guarded phrase with a real-looking single token, proving the more
+// important half of the guarantee: the guard wins regardless of what the
+// server actually answers, not merely when the server is never asked.
+test("resolveSamplingBias rejects a KoboldCpp phrase spelling special-token syntax, even when the server would have resolved it", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, {
+    koboldTokenizeMap: {
+      ...KOBOLDCPP_FIXTURE_TOKENS,
+      "<|eot_id|>": 999,
+      " <|eot_id|>": 998
+    }
+  });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-special-token-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [
+      { phrase: "<|eot_id|>", weight: -10 },
+      { phrase: "ember", weight: 5 }
+    ],
+    bannedStrings: []
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.equal(result.phraseBias.length, 2);
+
+  const guarded = result.phraseBias.find((entry) => entry.phrase === "<|eot_id|>")!;
+  assert.equal(guarded.kind, "rejected");
+  if (guarded.kind !== "rejected") throw new Error("unreachable");
+  const typed = guarded.variants.find((variant) => variant.variant === "typed")!;
+  assert.deepEqual(typed.outcome, { kind: "unencodable" });
+
+  // A phrase that does not spell special-token syntax is unaffected —
+  // still probed live and resolved normally.
+  const ember = result.phraseBias.find((entry) => entry.phrase === "ember")!;
+  assert.equal(ember.kind, "resolved");
+});
+
+// Regression test for issue #311 review, third pass, finding K: the
+// original guard alternation named only the `<|...|>` and `<s>` forms, so
+// the bare-angle family — Gemma's `<end_of_turn>` end-of-turn marker (one
+// of the most commonly self-hosted families on KoboldCpp), `<unk>`,
+// `<eos>`, `<extra_id_0>`, `<0x0A>` — passed it, reached the probe, and
+// could resolve single-token under the exact unverified premise the guard
+// exists to hedge. Covers the widened pattern's own false-positive guards
+// too: ordinary prose, a bracketed word that names neither Mistral marker,
+// and angle brackets that do not form one contiguous marker must still
+// resolve normally.
+test("resolveSamplingBias rejects Gemma's end-of-turn marker and the rest of the bare-angle special-token family on KoboldCpp", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const bareAngleVariants = (phrase: string): Record<string, number> => ({
+    [phrase]: 900,
+    [` ${phrase}`]: 901
+  });
+  const fixture = await startProviderFixture(t, undefined, {
+    koboldTokenizeMap: {
+      ...KOBOLDCPP_FIXTURE_TOKENS,
+      ...bareAngleVariants("<end_of_turn>"),
+      ...bareAngleVariants("<unk>"),
+      ...bareAngleVariants("<eos>"),
+      ...bareAngleVariants("<extra_id_0>"),
+      ...bareAngleVariants("<0x0A>"),
+      // Must still resolve normally: not special-token syntax. Each needs
+      // all four surface variants mapped — "a < b..." and "x<y|z>w" both
+      // start with a lowercase letter, so capitalizing the first Unicode
+      // scalar (samplingBiasVariantText) produces a distinct text from the
+      // typed form, unlike the guarded phrases above, which all start with
+      // "<" and so have only two distinct variant texts each.
+      "a < b and c > d": 902,
+      " a < b and c > d": 903,
+      "A < b and c > d": 908,
+      " A < b and c > d": 909,
+      "[note]": 904,
+      " [note]": 905,
+      "x<y|z>w": 906,
+      " x<y|z>w": 907,
+      "X<y|z>w": 910,
+      " X<y|z>w": 911
+    }
+  });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-special-token-bare-angle-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const guardedPhrases = ["<end_of_turn>", "<unk>", "<eos>", "<extra_id_0>", "<0x0A>"];
+  const unaffectedPhrases = ["a < b and c > d", "[note]", "x<y|z>w"];
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [...guardedPhrases, ...unaffectedPhrases].map((phrase) => ({ phrase, weight: 1 })),
+    bannedStrings: []
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  const phraseBias = result.phraseBias;
+  for (const phrase of guardedPhrases) {
+    const entry = phraseBias.find((item) => item.phrase === phrase);
+    assert.equal(entry?.kind, "rejected", `${JSON.stringify(phrase)} must be rejected as special-token syntax`);
+  }
+  for (const phrase of unaffectedPhrases) {
+    const entry = phraseBias.find((item) => item.phrase === phrase);
+    assert.equal(entry?.kind, "resolved", `${JSON.stringify(phrase)} must resolve normally, not be guarded`);
+  }
+});
+
+// Regression test for issue #311 review, round seven (blocker, found
+// independently by two structural reviews): `liveProbeVariantTokenizer`
+// (server/sampling-phrase-bias.ts) used to fan out up to
+// LIVE_TOKENIZE_PROBE_CONCURRENCY (8) workers regardless of preset, each
+// starting its own probe synchronously before any could observe a sibling's
+// failure — and each of those probes registers, also synchronously, in
+// `postKoboldCppTokenCount`'s per-root serialization lock
+// (server/context-probe.ts, issue #311 review, round five). So for
+// KoboldCpp, all 8 calls used to queue in that lock before the first one
+// could fail: a server that stops answering after the calibration probe
+// made every one of up to 8 already-queued calls pay its own full
+// `probeTimeoutMs`, sequentially — 8x the wait to report
+// "tokenizer-unavailable" where one call already proves it, since the very
+// serialization that makes the calls safe is what makes them run one after
+// another instead of failing together. The fix caps KoboldCpp's own
+// fan-out at 1 (`SamplingBiasPresetRules.serializeLiveProbe`), so `failed`
+// stops the loop before a second call is ever placed.
+//
+// This fixture answers the calibration call (`prompt: ""`) immediately and
+// never answers any other prompt — asserting 1667's own claim about how
+// many requests a hung server should see, not a real KoboldCpp server's
+// behavior. Two distinct phraseBias phrases produce exactly 8 distinct
+// surface-variant texts, matching LIVE_TOKENIZE_PROBE_CONCURRENCY exactly:
+// with the fan-out bug, every one of the 8 would be requested (each worker
+// pops and probes its own single text before any could observe the first
+// failure); fixed, only the very first ever reaches the network.
+test("a KoboldCpp server that stops answering after calibration pays one timeout, not one per fanned-out variant", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  let nonEmptyRequests = 0;
+  const server = createServer((request, response) => {
+    void (async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+      if (request.method !== "POST" || request.url !== "/api/extra/tokencount") {
+        response.writeHead(404).end();
+        return;
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      if (body.prompt === "") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ value: 0, ids: [] }));
+        return;
+      }
+      // Every other prompt: count it, then never respond at all.
+      nonEmptyRequests += 1;
+    })();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => { server.close(); });
+  const address = server.address() as AddressInfo;
+
+  const settings = koboldCppTestSettings(`http://127.0.0.1:${address.port}`, 80);
+  const result = await resolveSamplingBiasForSettings(
+    {
+      logitBias: {},
+      phraseBias: [
+        { phrase: "alpha", weight: 5 },
+        { phrase: "bravo", weight: 5 }
+      ],
+      bannedStrings: []
+    },
+    settings
+  );
+
+  assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "probe-failed" });
+  assert.equal(
+    nonEmptyRequests,
+    1,
+    "a hung KoboldCpp server must see exactly one queued probe, not one per fanned-out worker"
+  );
+});
+
 // Regression test for issue #282 review finding A: raising
 // SAMPLING_LOGIT_BIAS_POLICY.maxEntries from 16 to 200 removed the guard
 // that used to cover every preset, because the replacement preset-aware
@@ -369,6 +1156,51 @@ test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias ent
     /16-entry limit for preset koboldcpp/
   );
 });
+
+/** A KoboldCpp `GenerationSettings` with an explicit, short timeout budget
+ * — for the fan-out fail-fast regression test above, which needs a hung
+ * server's probe to time out quickly rather than waiting on whatever
+ * default budget a full settings document would carry. Built directly with
+ * `attachProviderRuntime` rather than through `documentFor`/`SettingsStore`
+ * (the pattern every other KoboldCpp test in this file uses), the same way
+ * test/context-probe.test.ts's own `settings` helper builds a
+ * `GenerationSettings` when a test needs precise control over the runtime
+ * config a real settings document does not expose a short-timeout path
+ * for. */
+function koboldCppTestSettings(baseUrl: string, timeoutMs: number): GenerationSettings {
+  const value: GenerationSettings = {
+    provider: "openai-compatible",
+    baseUrl: `${baseUrl}/v1`,
+    model: "kobold-model",
+    apiKeyEnv: null,
+    temperature: 0,
+    maxTokens: 128,
+    systemPrompt: "Test.",
+    contextWindow: null
+  };
+  const runtime: ProviderRuntime = {
+    preset: "koboldcpp",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: timeoutMs,
+      firstTokenMs: timeoutMs,
+      idleMs: timeoutMs,
+      totalMs: timeoutMs
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    tokenProbabilities: null,
+    sampling: EMPTY_SAMPLING_V2,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  };
+  return attachProviderRuntime(value, runtime, true);
+}
 
 function koboldcppDocument() {
   const base = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {

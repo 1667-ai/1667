@@ -831,7 +831,7 @@ test("a failed llama.cpp tokenize probe reports the tokenizer as unavailable, an
       PROMPT,
       OMIT_PLANS[0]!
     ),
-    /the llama\.cpp tokenize probe did not answer/
+    /the live tokenize probe did not answer/
   );
 });
 
@@ -1220,6 +1220,300 @@ test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias ent
   const body = await buildOpenAiChatRequestBody(withinBudget, PROMPT, OMIT_PLANS[0]!);
   assert.equal(Object.keys(body.logit_bias as Record<string, number>).length, 16);
 });
+
+// Issue #311, point 1: KoboldCpp's /api/extra/tokencount probe clears
+// phraseBias the same way llama.cpp's /tokenize does for that preset
+// (server/context-probe.ts, probeKoboldCppTokenize) — a stored phrase
+// resolves into the same logit_bias merge every other live-probe preset
+// uses. The fixture below asserts 1667's own assumption about the response
+// shape (`{ value, ids }`, quoted from KoboldCpp's own API document in
+// server/context-probe.ts), not a verified round trip against a real
+// KoboldCpp server.
+test("a KoboldCpp phrase resolves into logit_bias through the tokencount probe", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const requestedPrompts: string[] = [];
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    assert.equal(input.url, "https://provider.example/api/extra/tokencount");
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    assert.equal(typeof body.prompt, "string");
+    const prompt = body.prompt as string;
+    requestedPrompts.push(prompt);
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ phraseBias: [{ phrase: "ember", weight: -4 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.deepEqual(body.logit_bias, {
+    "601": -4,
+    "602": -4,
+    "603": -4,
+    "604": -4
+  });
+  // Every one of the four surface variants was actually asked for, not
+  // assumed from the typed form alone — plus the one empty-string
+  // calibration probe `koboldCppLiveTokenizeProbe`
+  // (server/sampling-phrase-bias.ts) sends once per resolution to learn this
+  // build's BOS prefix (issue #311). This fixture never maps `""`, so it
+  // answers `{ value: 0, ids: [] }` — the legitimate "this build adds no
+  // BOS" calibration result, not a failure.
+  assert.deepEqual([...requestedPrompts].sort(), ["", " Ember", " ember", "Ember", "ember"]);
+});
+
+// Issue #311, point 2 — the decisive test for the feature: a banned string
+// that needs more than one token would be rejected outright on every other
+// preset (see "a phrase that needs more than one token in any variant is
+// rejected" above), but KoboldCpp's anti-slop `banned_tokens` field takes
+// literal text and needs no tokenization at all, so it reaches the wire
+// under its own field instead of being merged into logit_bias. The fetch
+// override throws if the request ever reaches the network, proving this
+// path needs no tokenize probe at all — unlike phraseBias above, which
+// does.
+test("a multi-token banned string reaches banned_tokens instead of a token bias, and needs no probe", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("a native banned string must never reach the network to resolve");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ bannedStrings: ["hello world"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.deepEqual(body.banned_tokens, ["hello world"]);
+  // logit_bias is still sent — KoboldCpp documents its own default as `{}` —
+  // but carries none of "hello world"'s tokens: the banned string never
+  // entered that merge at all.
+  assert.deepEqual(body.logit_bias, {});
+});
+
+// A KoboldCpp request combining both halves in one body: a single-token
+// phrase bias entry (resolved via the probe, merged into logit_bias) and a
+// banned string (sent as literal text to banned_tokens) must both reach the
+// wire together, neither one crowding out the other.
+test("a KoboldCpp request sends phrase bias and a banned string on their own separate fields", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({
+        phraseBias: [{ phrase: "ember", weight: 5 }],
+        bannedStrings: ["a phrase with several words"]
+      })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.deepEqual(body.logit_bias, { "601": 5, "602": 5, "603": 5, "604": 5 });
+  assert.deepEqual(body.banned_tokens, ["a phrase with several words"]);
+});
+
+// Issue #311 review, second pass, BLOCKER B: the reviewer's own executed
+// repro — a profile configuring phraseBias "ember"@5 and bannedStrings
+// "ember" together used to ship both fields on KoboldCpp (boosting and
+// banning the identical word, both editor rows reading healthy) while every
+// other preset already refuses this exact self-contradiction (there, the
+// two entries fight over the same resolved token, bannedStrings
+// intentionally outranks phraseBias within a scope, and the phraseBias
+// entry loses, "shadowed" — server/sampling-phrase-bias.ts). The request
+// must refuse here too, naming the conflict with the same "shadowed"
+// message shape the token-merge presets already use (issue #311 review,
+// third pass, findings G/H reworked the native path to reuse
+// `settleTokenOwnership` itself, so the message is now byte-identical, not
+// merely similarly shaped).
+test("a KoboldCpp request refuses a phrase bias that contradicts a same-scope banned string", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        settings("openai-compatible"),
+        "koboldcpp",
+        sampling({
+          phraseBias: [{ phrase: "ember", weight: 5 }],
+          bannedStrings: ["ember"]
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /"ember" loses its bias on .* to banned string "ember", which takes precedence there/
+  );
+});
+
+// The genuine cross-scope case: settled rule 2 says a cross-scope conflict
+// is a non-blocking "override" — the story's own reason to exist — never
+// told apart from a same-scope contradiction. Unlike a same-scope
+// collision, only one side's effect reaches the wire: the story's banned
+// string, written after the profile's own phrase bias in the merge's
+// scope-major order, wins the shared word, and the profile's own weight
+// for it is dropped from `logit_bias` — the same way a losing phraseBias
+// entry's weight is dropped on every other preset (issue #311 review,
+// third pass, finding G).
+test("a KoboldCpp request ships only the story's banned string when it overrides a profile phrase bias", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ phraseBias: [{ phrase: "ember", weight: 5 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ bannedStrings: ["ember"] }) }
+  );
+  assert.deepEqual(body.logit_bias, {});
+  assert.deepEqual(body.banned_tokens, ["ember"]);
+});
+
+// The mirror direction of the same cross-scope case (issue #311 review,
+// third pass, coordinator's note: the other reviewer's own repro was this
+// exact pairing) — a profile banned string that a story's own phrase bias
+// overrides. The story again wins (it always writes last), so the
+// profile's banned string is dropped from `banned_tokens` and the story's
+// boost reaches `logit_bias` unopposed.
+test("a KoboldCpp request ships only the story's phrase bias when it overrides a profile banned string", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ bannedStrings: ["ember"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "ember", weight: 5 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, { "601": 5, "602": 5, "603": 5, "604": 5 });
+  // The profile's banned string lost the word to the story's boost, so it
+  // never reaches the wire at all — not an empty array, entirely absent,
+  // the same "only written when non-empty" contract every native banned
+  // string already keeps (server/provider-sampling.ts).
+  assert.equal("banned_tokens" in body, false);
+});
+
+// Issue #311, point 3: a KoboldCpp server that does not answer the
+// tokencount probe must report the tokenizer as unavailable, the same as
+// llama.cpp's own probe failure above — the request must never serialize a
+// partial bias built from a probe that never came back. "provider.example"
+// is the same RFC 2606 reserved domain the llama.cpp probe-failure test
+// above relies on, never resolving.
+test("a failed KoboldCpp tokenize probe reports the tokenizer as unavailable, and the request never serializes a partial bias", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        settings("openai-compatible"),
+        "koboldcpp",
+        sampling({ phraseBias: [{ phrase: "ember", weight: 1 }] })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /the live tokenize probe did not answer/
+  );
+});
+
+// The other half of point 3: a banned string configured alongside a probe
+// that will never answer must not be swept up in phraseBias's failure — a
+// writer who only wanted a banned string never needed the probe at all
+// (server/sampling-phrase-bias.ts, resolveWithLiveProbe's "native" transport
+// branch). This is the request-serializer-boundary proof that the draft
+// stays correct: the request either ships with the banned string honored,
+// or it does not ship at all — never a silent partial application.
+test("a KoboldCpp banned string ships even when the tokenize probe would fail, because it never asks it", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ bannedStrings: ["ember"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  assert.deepEqual(body.banned_tokens, ["ember"]);
+});
+
+// Issue #341's story overlay (combineSamplingBiasSources) reuses unchanged
+// for KoboldCpp's native path: a story's own banned strings add to the
+// profile's, the same way they already do for the tokenized presets, and
+// the literal-text array 1667 actually sends dedupes an identical phrase
+// named by both scopes rather than repeating it — new logic
+// (mergedSamplingBiasValue's `[...new Set(...)]`, server/provider-sampling.ts)
+// this test exercises directly, since deduplication only matters once a
+// phrase can appear on the wire without being tokenized into a shared map.
+test("a KoboldCpp story banned string adds to the profile's own and dedupes an identical one", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ bannedStrings: ["ember", "shared phrase"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ bannedStrings: ["shared phrase", "story-only phrase"] }) }
+  );
+  assert.deepEqual(
+    [...(body.banned_tokens as readonly string[])].sort(),
+    ["ember", "shared phrase", "story-only phrase"]
+  );
+});
+
+const KOBOLDCPP_PHRASE_FIXTURE: Readonly<Record<string, number>> = {
+  ember: 601,
+  " ember": 602,
+  Ember: 603,
+  " Ember": 604
+};
 
 function withTemperatureSupport(
   value: GenerationSettings,

@@ -22,6 +22,7 @@ import {
 import {
   collect,
   documentFor,
+  KOBOLDCPP_FIXTURE_TOKENS,
   LLAMA_CPP_FIXTURE_TOKENS,
   PROMPT,
   startProviderFixture
@@ -408,6 +409,47 @@ test("llama.cpp save-time validation rejects a phrase the live server cannot res
       // ServiceError and a short allow-list of other known types, and
       // reports anything else as a generic "Internal server error" —
       // which would have silently swallowed this exact validation message.
+      assert.ok(error instanceof ServiceError, "expected a ServiceError, not a raw SettingsFormatError");
+      assert.equal(error.status, 400);
+      return true;
+    }
+  );
+  assert.deepEqual((await store.loadView()).document, before);
+});
+
+// Issue #311 review, second pass, BLOCKER B, save-time counterpart to the
+// request-time refusal in test/provider-request-body.test.ts: a profile
+// configuring phraseBias "ember"@5 and bannedStrings "ember" together on
+// KoboldCpp must not save. `validateSamplingRoute`
+// (server/settings-v2-sampling-validation.ts) only reaches KoboldCpp's live
+// resolution through the save path's own async probe
+// (server/settings-v2-save-bias-check.ts), so this needs a real reachable
+// fixture the way the llama.cpp save-time test above does, not the
+// synchronous fallback the numeric-only save-time test uses. Issue #311
+// review, third pass, findings G/H reworked the native path to reuse
+// `settleTokenOwnership` itself, so the phraseBias entry now reports the
+// same "shadowed" message every token-merge preset already uses for the
+// identical contradiction, not a bespoke native-only message.
+test("KoboldCpp save-time validation rejects a phrase bias that contradicts a same-scope banned string", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-kobold-save-contradiction-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const before = (await store.loadView()).document;
+  const candidate = documentFor(fixture.origin, "koboldcpp", "kobold-model", {
+    ...EMPTY_SAMPLING_V2,
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: ["ember"]
+  });
+  await assert.rejects(
+    () => store.save(saveCommand(MUTATION_C, 1, candidate)),
+    (error: unknown) => {
+      assert.match(
+        (error as Error).message,
+        /"ember" loses its bias on .* to banned string "ember", which takes precedence there/
+      );
       assert.ok(error instanceof ServiceError, "expected a ServiceError, not a raw SettingsFormatError");
       assert.equal(error.status, 400);
       return true;

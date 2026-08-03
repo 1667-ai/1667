@@ -162,7 +162,17 @@ export type SamplingSettingsV2 = {
   /** A negative-bias shortcut: each string resolves to token IDs biased by
    * the most negative allowed weight. This makes the string unlikely, not
    * impossible — the same text can still appear through different token
-   * boundaries than the ones resolution found. */
+   * boundaries than the ones resolution found.
+   *
+   * KoboldCpp (issue #311) is the one exception to the mechanism, not to the
+   * promise: each string reaches KoboldCpp's native anti-slop `banned_tokens`
+   * field as literal text instead, needing no tokenization at all — see the
+   * PRESET_SUBTRACTIONS comment in shared/sampling-capabilities.ts for the
+   * field's own documented description and the transport this depends on.
+   * It still only makes the string unlikely: KoboldCpp's own document
+   * describes backtracking and regenerating when a banned sequence appears,
+   * not refusing to ever produce it, so the same "unlikely, not impossible"
+   * rule applies there too. */
   readonly bannedStrings: readonly string[];
   readonly phraseBias: readonly SamplingPhraseBiasEntryV2[];
   readonly dryBreakers: readonly string[];

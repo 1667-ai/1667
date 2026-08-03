@@ -1,4 +1,4 @@
-import type { SamplingKnobV2 } from "./settings-v2-types.js";
+import type { SamplingKnobV2, SettingsPresetV2 } from "./settings-v2-types.js";
 
 /**
  * Resolving text to token IDs for phraseBias and bannedStrings — split out
@@ -161,10 +161,26 @@ export interface SamplingBiasVariantResolution {
 /** One phraseBias or bannedStrings entry, resolved against all four surface
  * variants. "resolved" only when every variant is single-token — a phrase
  * counts as usable exactly when 1667 can honestly bias every form the writer
- * means, never a subset. `variants` is always populated on every outcome, so
- * the editor can show the per-variant breakdown either way (issue #282,
- * stage 1: "the editor must show the resolved IDs per variant, not one list
- * per phrase").
+ * means, never a subset. `variants` is always populated on every outcome that
+ * carries it, so the editor can show the per-variant breakdown either way
+ * (issue #282, stage 1: "the editor must show the resolved IDs per variant,
+ * not one list per phrase").
+ *
+ * KoboldCpp's native anti-slop bannedStrings (issue #311) is deliberately
+ * not a member of this union — see `SamplingBiasNativeBannedStringResolution`
+ * and `SamplingBiasResolutionResult.nativeBannedStrings` below. An earlier
+ * version of this change added a fifth "native" `kind` here instead; a
+ * structural review (issue #311, second pass) found that nothing then
+ * stopped a "native" entry from being constructed, or read, on a preset
+ * other than KoboldCpp — `bannedStrings`' wire field falls back to
+ * `logit_bias` on every preset that has no override
+ * (`PRESET_WIRE_OVERRIDES`, shared/sampling-capabilities.ts), so a "native"
+ * entry reaching the wire on any of them would have overwritten the token
+ * map one statement earlier with an array of literal strings. Carrying
+ * native texts on their own field instead, filled only by the KoboldCpp
+ * resolver, makes a native `phraseBias` entry unrepresentable and a native
+ * `bannedStrings` entry on any other preset a type error, not a runtime
+ * accident.
  *
  * "shadowed" is the third outcome, and it never fires from overlap alone.
  * Two entries can share a token — variant expansion makes that unavoidable,
@@ -233,6 +249,162 @@ export type SamplingBiasEntryResolution =
       readonly conflicts: readonly SamplingBiasShadowConflict[];
     };
 
+/**
+ * A KoboldCpp bannedStrings entry that resolved through the native
+ * `banned_tokens` transport (issue #311) instead of the token-ID merge every
+ * other preset, and every other preset's own bannedStrings, uses. Never a
+ * member of `SamplingBiasEntryResolution` — see that type's own comment for
+ * why keeping it structurally separate is the point, not an organizational
+ * preference.
+ *
+ * "native" ships as literal text — KoboldCpp's anti-slop `banned_tokens`
+ * field takes the phrase itself and backtracks the generated stream when it
+ * appears (field description quoted in shared/sampling-capabilities.ts), so
+ * it needs no tokenizer and is never rejected for being multi-token the way
+ * a token-ID bias would be.
+ *
+ * A native banned string never resolves a token of its own to contest, so it
+ * cannot reuse `settleTokenOwnership` directly — but
+ * `server/sampling-phrase-bias.ts`'s `nativeBannedStringWrites` borrows the
+ * real tokens of whichever `phraseBias` entry it textually collides with
+ * (literal overlap between both entries' own four surface variants — a
+ * phraseBias "ember" and a bannedStrings "Ember" collide exactly as a
+ * same-case pair does, since "Ember" is a shared surface form of both) and
+ * feeds them into the very same ownership tracking every other collision
+ * already goes through, so "who wins" is decided once, the same way,
+ * everywhere — not by a second, hand-rolled copy that could quietly
+ * disagree (issue #311 review, third pass, finding G: an earlier version's
+ * own copy silently skipped every cross-scope case).
+ *
+ * "blocked" (issue #311, second pass) is a same-scope contradiction — a
+ * writer who configured a direct self-contradiction (boost "ember", ban
+ * "ember") in one scope is refused on every other preset already, because
+ * the two entries fight over the same resolved token there
+ * (`settleTokenOwnership` marks the phraseBias entry "shadowed"); this
+ * blocks on it the same as "rejected" or "shadowed" does for the other four
+ * (`firstBlockedNativeBannedString`). Only reachable when the colliding
+ * phraseBias entry's own weight actually differs from this banned string's
+ * fixed minimum (issue #311 review, third pass, finding H): two entries
+ * that already agree are not a contradiction to refuse, on this preset or
+ * any other — `settleTokenOwnership` never flags mere agreement, and
+ * neither does this.
+ *
+ * "overridden" (issue #311 review, third pass, finding G) is the *cross*
+ * -scope half settled rule 2 already promises for phraseBias/bannedStrings
+ * everywhere else: non-blocking, and the losing side (by the same
+ * scope-major "story wins" order the token path uses) does not reach the
+ * wire — a losing native banned string is dropped from the final
+ * `banned_tokens`, exactly as a losing phraseBias entry's own weight is
+ * dropped from `logit_bias`.
+ *
+ * `conflict` names whoever actually won the contested token — reusing
+ * `SamplingBiasShadowOwner` rather than a bare phrase string, because the
+ * winner is not always a phraseBias entry: it can be an explicit numeric
+ * `logitBias` entry, or another banned string, exactly as for a "shadowed"
+ * or "overridden" `SamplingBiasEntryResolution`. `samplingBiasNativeBlockedMessage`
+ * reuses `samplingBiasShadowOwnerText` to name it, the same wording every
+ * other conflict message already uses.
+ */
+export type SamplingBiasNativeBannedStringResolution =
+  | { readonly kind: "native"; readonly phrase: string; readonly scope: SamplingBiasScope }
+  | {
+      readonly kind: "blocked";
+      readonly phrase: string;
+      readonly scope: SamplingBiasScope;
+      readonly conflict: SamplingBiasShadowOwner;
+    }
+  | {
+      readonly kind: "overridden";
+      readonly phrase: string;
+      readonly scope: SamplingBiasScope;
+      readonly conflict: SamplingBiasShadowOwner;
+    };
+
+/**
+ * Every preset-dependent rule `resolveSamplingLogitBias` (server/sampling-
+ * phrase-bias.ts) and its own preset dispatch (`resolveWithLiveProbe`, same
+ * file) need, derived once from a preset and carried as one value instead
+ * of a growing list of separate parameters, each behind its own
+ * near-identical `...ForPreset` function.
+ *
+ * This replaces what used to be two such functions,
+ * `bannedStringsTransportForPreset` and `phraseBiasSpecialTokenGuardForPreset`
+ * (issue #311 review, round six): threading a new preset-dependent rule as
+ * a new positional parameter, backed by a new near-identical pure function,
+ * is exactly the gap that has opened three times on this path — #282 round
+ * 4, this issue's round two, and again round three — because each fix added
+ * one more rule in the same shape instead of removing the shape itself.
+ * `serializeLiveProbe` below is the rule that made the pattern worth
+ * collapsing rather than repeating a third time: every caller with a preset
+ * in hand — a real request, save-time validation, and the TUI's demo-mode
+ * preview alike — now derives every rule from one call, so a rule can never
+ * be threaded to one caller and forgotten by another. Adding a fourth rule
+ * means adding one field here, not one parameter at every call site.
+ */
+export interface SamplingBiasPresetRules {
+  /** "token": every configured bannedStrings phrase is tokenized and merged
+   * into `logit_bias`, exactly like phraseBias. "native": KoboldCpp only —
+   * see `SamplingBiasNativeBannedStringResolution` above. */
+  readonly bannedStringsTransport: "token" | "native";
+  /** Whether a phraseBias entry matching special-token control syntax
+   * (`<|eot_id|>`, `<end_of_turn>`, `[INST]`, and siblings —
+   * server/sampling-phrase-bias.ts, `SPECIAL_TOKEN_SYNTAX`) must be
+   * rejected before it ever reaches a live tokenize probe. KoboldCpp
+   * only — llama.cpp's own live probe already asks the documented
+   * `parse_special: false` and needs no such guard. */
+  readonly rejectSpecialTokenSyntax: boolean;
+  /** Whether this preset's live tokenize probe (`liveProbeVariantTokenizer`,
+   * server/sampling-phrase-bias.ts) must run its own worker pool at
+   * concurrency 1 instead of `LIVE_TOKENIZE_PROBE_CONCURRENCY`. KoboldCpp
+   * only — see that function's own comment for the full reasoning (issue
+   * #311 review, round seven).
+   *
+   * This field previously chose *which probe builder* `resolveWithLiveProbe`
+   * used (KoboldCpp's calibrating one versus llama.cpp's), on the claim that
+   * doing so also serialized KoboldCpp's calls. Two independent structural
+   * reviews found that claim false: `postKoboldCppTokenCount`
+   * (server/context-probe.ts) already serializes every KoboldCpp call
+   * per server root unconditionally, reading no rule at all, so this field
+   * controlled a probe-builder choice it was not named for and did nothing
+   * to the serialization it was named for — flipping it would neither have
+   * disabled KoboldCpp's real serialization nor enabled it for llama.cpp.
+   * `resolveWithLiveProbe` now decides the probe builder from `preset`
+   * directly (already its own parameter, and a whole function is not a flat
+   * value this record can hold anyway), and this field governs the one
+   * thing it can honestly claim: fan-out width. That fixes a second,
+   * concrete defect the false claim was hiding — see
+   * `liveProbeVariantTokenizer`'s own comment for the fail-fast bug a
+   * KoboldCpp-sized fan-out caused against an HTTP layer that was, in fact,
+   * already serialized. */
+  readonly serializeLiveProbe: boolean;
+}
+
+const TOKEN_TRANSPORT_SAMPLING_BIAS_PRESET_RULES: SamplingBiasPresetRules = {
+  bannedStringsTransport: "token",
+  rejectSpecialTokenSyntax: false,
+  serializeLiveProbe: false
+};
+
+const KOBOLDCPP_SAMPLING_BIAS_PRESET_RULES: SamplingBiasPresetRules = {
+  bannedStringsTransport: "native",
+  rejectSpecialTokenSyntax: true,
+  serializeLiveProbe: true
+};
+
+/** The one place every preset-dependent sampling-bias rule is decided — see
+ * `SamplingBiasPresetRules` above. A pure function of preset, so every
+ * caller that has a preset in hand computes the identical rules the shared
+ * merge itself acts on, instead of each caller guessing or hard-coding
+ * "koboldcpp" by hand (issue #311 review, second pass, finding C; round six
+ * collapsed what were then two of these functions into this one). */
+export function samplingBiasPresetRules(
+  preset: SettingsPresetV2 | "legacy-v1"
+): SamplingBiasPresetRules {
+  return preset === "koboldcpp"
+    ? KOBOLDCPP_SAMPLING_BIAS_PRESET_RULES
+    : TOKEN_TRANSPORT_SAMPLING_BIAS_PRESET_RULES;
+}
+
 /** One of a "shadowed" or "overridden" entry's own tokens, joined to the
  * entry that actually wrote its final weight — see
  * `SamplingBiasEntryResolution` for why this must be one record and not two
@@ -255,20 +427,37 @@ export type SamplingBiasShadowOwner =
     }
   | { readonly source: "logitBias" };
 
-/** Why "tokenizer-unavailable" — three materially different situations a
- * writer must be able to tell apart (issue #282 review round 2, finding 6b):
+/** Why "tokenizer-unavailable" — materially different situations a writer
+ * must be able to tell apart (issue #282 review round 2, finding 6b; issue
+ * #311 review, second pass, finding E added the fourth):
  * - "encoder-unavailable": the bundled WASM tiktoken encoder itself failed
  *   to load, for a model that is otherwise on the allow-list.
  * - "model-unknown": there is no tokenizer strategy for this model or
  *   preset at all — not on the tiktoken allow-list, and no live-probe
  *   preset either.
  * - "probe-failed": a live-tokenize preset's own server (llama.cpp's
- *   POST /tokenize, server/context-probe.ts) did not answer — a network or
- *   server failure, not a fact about any phrase. */
+ *   POST /tokenize or KoboldCpp's POST /api/extra/tokencount,
+ *   server/context-probe.ts — issue #311 added the second) did not answer —
+ *   a network or server failure, not a fact about any phrase. Shared by both
+ *   presets rather than split per preset (issue #282 review round 2, finding
+ *   6b already settled this cause list as "materially different situations",
+ *   not "one entry per preset"): the message text
+ *   (TOKENIZER_UNAVAILABLE_CAUSE_TEXT below) names the transport generically
+ *   for the same reason.
+ * - "no-token-ids": the server answered, but its response carried no token
+ *   IDs at all — it did not fail to answer, so blaming its network the way
+ *   "probe-failed" does would be a different, false claim (issue #311 review,
+ *   second pass, finding E). The known case is a KoboldCpp release old
+ *   enough to answer `/api/extra/tokencount` with only `value`, never `ids`
+ *   — `countKoboldCpp` (server/tokenize-probe.ts) already reasons about that
+ *   same generation gap for prompt counting. Kept preset-neutral, like
+ *   "probe-failed", in case a future live-tokenize preset shares the same
+ *   old-build gap. */
 export const TOKENIZER_UNAVAILABLE_CAUSE_VALUES = [
   "encoder-unavailable",
   "model-unknown",
-  "probe-failed"
+  "probe-failed",
+  "no-token-ids"
 ] as const;
 export type TokenizerUnavailableCause = (typeof TOKENIZER_UNAVAILABLE_CAUSE_VALUES)[number];
 
@@ -286,6 +475,14 @@ export type TokenizerUnavailableCause = (typeof TOKENIZER_UNAVAILABLE_CAUSE_VALU
  * unresolvable phrase is not systemic: it lands as a "rejected" entry inside
  * `phraseBias` or `bannedStrings` instead, alongside every entry that did
  * resolve, so one bad entry never hides the good ones.
+ *
+ * `nativeBannedStrings` (issue #311, second pass) is empty on every route
+ * but a KoboldCpp one with bannedStrings configured — `bannedStrings` itself
+ * stays empty on exactly that route, since `resolveSamplingLogitBias`
+ * (server/sampling-phrase-bias.ts) never tokenizes a native-transport entry
+ * in the first place. See `samplingBiasPresetRules` and
+ * `SamplingBiasNativeBannedStringResolution` above for why this is a
+ * separate field rather than a fifth kind inside `bannedStrings`.
  */
 export type SamplingBiasResolutionResult =
   | {
@@ -293,14 +490,22 @@ export type SamplingBiasResolutionResult =
       readonly logitBias: Readonly<Record<string, number>>;
       readonly phraseBias: readonly SamplingBiasEntryResolution[];
       readonly bannedStrings: readonly SamplingBiasEntryResolution[];
+      readonly nativeBannedStrings: readonly SamplingBiasNativeBannedStringResolution[];
       readonly resolvedEntryCount: number;
     }
   | { readonly kind: "tokenizer-unavailable"; readonly cause: TokenizerUnavailableCause };
 
+// "probe-failed" names the transport generically rather than a specific
+// preset (issue #311): llama.cpp and KoboldCpp both reach this cause through
+// their own live tokenize probe (see the comment on TokenizerUnavailableCause
+// above), and naming one of the two by name here would misname the other's
+// failure — a KoboldCpp server that did not answer is not a fact about
+// llama.cpp.
 const TOKENIZER_UNAVAILABLE_CAUSE_TEXT: Readonly<Record<TokenizerUnavailableCause, string>> = {
   "encoder-unavailable": "the bundled tokenizer failed to load",
   "model-unknown": "1667 has no exact tokenizer for this model",
-  "probe-failed": "the llama.cpp tokenize probe did not answer"
+  "probe-failed": "the live tokenize probe did not answer",
+  "no-token-ids": "the live tokenize probe's server answered, but did not report token IDs"
 };
 
 export function samplingBiasResolutionFailureMessage(
@@ -417,7 +622,11 @@ export function samplingBiasEntryRejectionMessage(
  * server/provider-sampling.ts (request-time application) and
  * server/settings-v2-sampling-validation.ts (save-time validation), which
  * used to each keep a byte-identical private copy of this walk (finding
- * 6). */
+ * 6). "overridden" passes through unblocked: it is a deliberate story
+ * value, not a fact about a phrase 1667 failed to resolve. A native
+ * bannedStrings entry is never a member of this union at all — see
+ * `firstBlockedNativeBannedString` below for its own, differently-shaped
+ * blocking check. */
 export function firstBlockingSamplingBiasEntry(
   phraseBias: readonly SamplingBiasEntryResolution[],
   bannedStrings: readonly SamplingBiasEntryResolution[]
@@ -426,4 +635,38 @@ export function firstBlockingSamplingBiasEntry(
     if (entry.kind === "rejected" || entry.kind === "shadowed") return entry;
   }
   return undefined;
+}
+
+/** The one blocked native bannedStrings entry, if any — the
+ * `SamplingBiasNativeBannedStringResolution` counterpart to
+ * `firstBlockingSamplingBiasEntry` above, checked alongside it by every
+ * caller that enforces blocking (server/provider-sampling.ts,
+ * server/settings-v2-sampling-validation.ts): a native entry is never a
+ * `SamplingBiasEntryResolution`, so it cannot ride the same list, but it
+ * must block a save or a request the same honest way (issue #311, second
+ * pass, finding B) — a writer who configured a direct self-contradiction is
+ * told on every preset, KoboldCpp included, not silently shipped there
+ * while every other preset refuses it. */
+export function firstBlockedNativeBannedString(
+  nativeBannedStrings: readonly SamplingBiasNativeBannedStringResolution[]
+): Extract<SamplingBiasNativeBannedStringResolution, { kind: "blocked" }> | undefined {
+  return nativeBannedStrings.find(
+    (entry): entry is Extract<SamplingBiasNativeBannedStringResolution, { kind: "blocked" }> =>
+      entry.kind === "blocked"
+  );
+}
+
+/** The message for a blocked native bannedStrings entry — the
+ * `SamplingBiasNativeBannedStringResolution` counterpart to
+ * `samplingBiasEntryRejectionMessage`, in the same shape and reusing the
+ * same owner-naming text (`samplingBiasShadowOwnerText`) a "shadowed"
+ * phraseBias entry's message already uses: a native entry has no token IDs
+ * of its own to name, but `conflict` already names whoever actually won the
+ * contested token, phraseBias, another banned string, or an explicit
+ * numeric entry alike. */
+export function samplingBiasNativeBlockedMessage(
+  entry: Extract<SamplingBiasNativeBannedStringResolution, { kind: "blocked" }>
+): string {
+  return `${JSON.stringify(entry.phrase)} conflicts with ${samplingBiasShadowOwnerText(entry.conflict)} `
+    + "in the same scope";
 }

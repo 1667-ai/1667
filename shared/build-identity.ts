@@ -11,28 +11,39 @@ export {
 } from "./release-targets.js";
 
 export const AI_1667_PRODUCT = "1667" as const;
-/** v17 adds the per-story phrase-bias and banned-strings routes
- * (PUT /api/stories/:id/phrase-bias, PUT /api/stories/:id/banned-strings) and
- * two new story-payload fields, and makes `scope` a required field on every
- * resolved sampling-bias entry and shadow owner. v16 adds the prompt
- * token-count route. v15 added the Author Brief route and the Author's Note
- * depth field. v14 added required Fact activation metadata to story
- * payloads. v13 added the Author's Note route. A client one version ahead
- * would otherwise pass preflight against an older server and then reject its
- * story payloads. A v15 client that reached a v14 server would keep the
- * worse failure: that server takes the depth field, ignores it, and answers
- * with a payload that says the save succeeded. A v16 client that reached a
- * v15 server would take a 404 on the count route, which the count lane reads
- * as one more failed probe and answers with the estimate — a quietly worse
- * meter rather than a refusal. A v17 client that reached a v16 server would
- * take a 404 on both new story-sampling routes, and — worse — a v16 server's
- * `resolveSamplingBias` response has no `scope` field at all, which a v17
- * client's decoder requires and throws without, turning the profile sampling
- * editor into a wall of failed rows even though that editor has nothing to
- * do with a story. */
-export const HTTP_API_PROTOCOL_VERSION = 17;
-export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 17;
-export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 17;
+/** v18 makes `nativeBannedStrings` a required field on a "resolved"
+ * `resolveSamplingBias` response (issue #311's KoboldCpp native
+ * bannedStrings transport). v17 adds the per-story phrase-bias and
+ * banned-strings routes (PUT /api/stories/:id/phrase-bias, PUT
+ * /api/stories/:id/banned-strings) and two new story-payload fields, and
+ * makes `scope` a required field on every resolved sampling-bias entry and
+ * shadow owner. v16 adds the prompt token-count route. v15 added the Author
+ * Brief route and the Author's Note depth field. v14 added required Fact
+ * activation metadata to story payloads. v13 added the Author's Note route.
+ * A client one version ahead would otherwise pass preflight against an
+ * older server and then reject its payloads. A v15 client that reached a
+ * v14 server would keep the worse failure: that server takes the depth
+ * field, ignores it, and answers with a payload that says the save
+ * succeeded. A v16 client that reached a v15 server would take a 404 on the
+ * count route, which the count lane reads as one more failed probe and
+ * answers with the estimate — a quietly worse meter rather than a refusal.
+ * A v17 client that reached a v16 server would take a 404 on both new
+ * story-sampling routes, and — worse — a v16 server's `resolveSamplingBias`
+ * response has no `scope` field at all, which a v17 client's decoder
+ * requires and throws without, turning the profile sampling editor into a
+ * wall of failed rows even though that editor has nothing to do with a
+ * story. A v18 client that reached a v17 server would keep that same
+ * failure shape: a v17 server's `resolveSamplingBias` response has no
+ * `nativeBannedStrings` field at all, which a v18 client's decoder now
+ * requires and throws without — the same wall of failed rows, this time
+ * for any preset, not only KoboldCpp, since the whole panel shares one
+ * cached result. No released build advertises v17 (the newest release is
+ * v0.2.1); this bump only protects two from-source builds either side of
+ * this change from that exact mismatch, and the reasoning above stops
+ * applying the moment v17 itself ships. */
+export const HTTP_API_PROTOCOL_VERSION = 18;
+export const HTTP_MIN_CLIENT_PROTOCOL_VERSION = 18;
+export const HTTP_MAX_CLIENT_PROTOCOL_VERSION = 18;
 
 export type ArtifactTarget = "source" | BuiltArtifactTarget;
 
