@@ -13,6 +13,7 @@ interface MutationEntityNamespaces {
   renameStory: never;
   setAuthorsNote: never;
   setAuthorBrief: never;
+  setFactsBudget: never;
   autonameStory: "autoname";
   acknowledgeUnknownOutcomes: never;
   deleteStory: never;
@@ -27,6 +28,7 @@ interface MutationEntityNamespaces {
   createFact: "fact";
   patchFact: never;
   deleteFact: never;
+  reorderFact: never;
   createChapterBreak: "chapter-break";
   renameChapterBreak: never;
   removeChapterBreak: never;
@@ -41,7 +43,7 @@ interface MutationEntityNamespaces {
   importCard: never;
   continueStory: never;
 
-  rewriteNode: "rewrite";
+  rewriteNode: "rewrite" | "rewrite-take";
   createSummaryTake: "summary-node" | "summary-cut";
 }
 

@@ -32,7 +32,7 @@ describe("demo generation provenance for response growth", () => {
     const parentId = demo.payload().path.at(-1)!.id;
     const genId = "demo-continue-clean";
 
-    const payload = await api.continueStory(
+    const result = await api.continueStory(
       storyId,
       "keep the compass in view",
       genId,
@@ -41,16 +41,17 @@ describe("demo generation provenance for response growth", () => {
       new AbortController().signal
     );
 
-    expect(payload).not.toBe(null);
-    const leaf = payload!.path.at(-1)!;
+    expect(result).not.toBe(null);
+    const payload = result!.payload;
+    const leaf = payload.path.at(-1)!;
     expect(leaf.genId).toBe(genId);
     expect(leaf.human).toBe(undefined);
     expect(leaf.updatedAt).toBe(undefined);
     expect(leaf.text).toBe(DEMO_GENERATED_TEXT);
-    expect(recentProviderProseTokenCounts(payload!)).toEqual([
+    expect(recentProviderProseTokenCounts(payload)).toEqual([
       estimateTokens(DEMO_GENERATED_TEXT)
     ]);
-    expect(likelyResponseTokens(payload!)).toBe(estimateTokens(DEMO_GENERATED_TEXT));
+    expect(likelyResponseTokens(payload)).toBe(estimateTokens(DEMO_GENERATED_TEXT));
   });
 
   test("appended demo continue keeps genId but stays excluded by updatedAt", async () => {
@@ -60,7 +61,7 @@ describe("demo generation provenance for response growth", () => {
     const leafBefore = demo.payload().path.at(-1)!;
     const genId = "demo-append-gen";
 
-    const payload = await api.continueStory(
+    const result = await api.continueStory(
       storyId,
       "",
       genId,
@@ -72,15 +73,16 @@ describe("demo generation provenance for response growth", () => {
       new AbortController().signal
     );
 
-    expect(payload).not.toBe(null);
-    const leaf = payload!.path.at(-1)!;
+    expect(result).not.toBe(null);
+    const payload = result!.payload;
+    const leaf = payload.path.at(-1)!;
     expect(leaf.id).toBe(leafBefore.id);
     expect(leaf.genId).toBe(genId);
     expect(leaf.updatedAt).not.toBe(undefined);
     expect(leaf.text.endsWith(DEMO_CONTINUE_TEXT)).toBe(true);
     // Impure multi-generation text must not enter the sample.
-    expect(recentProviderProseTokenCounts(payload!)).toEqual([]);
-    expect(likelyResponseTokens(payload!)).toBe(COLD_START_RESPONSE_GROWTH_TOKENS);
+    expect(recentProviderProseTokenCounts(payload)).toEqual([]);
+    expect(likelyResponseTokens(payload)).toBe(COLD_START_RESPONSE_GROWTH_TOKENS);
   });
 
   test("stopped createNode preserves genId; human createNode stays unprovenanced", async () => {

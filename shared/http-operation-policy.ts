@@ -33,6 +33,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   renameStory: "local",
   setAuthorsNote: "local",
   setAuthorBrief: "local",
+  setFactsBudget: "local",
   autonameStory: "generation",
   acknowledgeUnknownOutcomes: "local",
   deleteStory: "local",
@@ -48,6 +49,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   createFact: "local",
   patchFact: "local",
   deleteFact: "local",
+  reorderFact: "local",
   createChapterBreak: "local",
   renameChapterBreak: "local",
   removeChapterBreak: "local",
@@ -59,6 +61,12 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   checkModelServer: "provider-check",
   probeContextWindow: "provider-check",
   discoverModels: "provider-check",
+  // A llama-cpp route resolves against a live tokenize probe on that server
+  // (server/context-probe.ts), so this can be a real provider round trip,
+  // not always the pure local computation it used to be — same budget as
+  // the other provider-probe methods above.
+  resolveSamplingBias: "provider-check",
+  countPromptTokens: "provider-check",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
   importNovelAI: "transfer",
@@ -141,6 +149,10 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "probeContextWindow";
   if (path === "/api/settings/discover-models"
     && httpMethod === "POST") return "discoverModels";
+  if (path === "/api/settings/resolve-sampling-bias"
+    && httpMethod === "POST") return "resolveSamplingBias";
+  if (path === "/api/settings/count-tokens"
+    && httpMethod === "POST") return "countPromptTokens";
   if (path === "/api/import/sillytavern"
     && httpMethod === "POST") return "importSillyTavern";
   if (path === "/api/import/markdown"
@@ -169,6 +181,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "PUT") return "setAuthorsNote";
   if (sub === "author-brief" && parts.length === 5
     && httpMethod === "PUT") return "setAuthorBrief";
+  if (sub === "facts-budget" && parts.length === 5
+    && httpMethod === "PUT") return "setFactsBudget";
   if (sub === "switch" && parts.length === 5
     && httpMethod === "POST") return "switchLine";
   if (sub === "continue" && parts.length === 5
@@ -229,5 +243,7 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (subId !== undefined && parts.length === 6
       && httpMethod === "DELETE") return "deleteFact";
   }
+  if (sub === "facts" && subId !== undefined && action === "reorder"
+    && parts.length === 7 && httpMethod === "POST") return "reorderFact";
   throw new Error(`No HTTP operation policy for ${httpMethod} ${path}`);
 }

@@ -44,13 +44,20 @@ export function settingsHarness() {
   const source = demoAppSource();
   const state = initialState(source, false);
   const cache = createWrapCache<ProseStyle>();
-  const backend = new ActionRuntime(state, () => undefined);
+  // Counts every repaint this harness's actions request — the same repaint
+  // reference `handleKey` (tui/src/app.ts) threads into the ActionContext
+  // every action function receives, so a test can assert a screen was
+  // repainted at a specific point in an async flow, not only that it was
+  // eventually repainted at all (issue #282 review round 3, finding 5).
+  let repaintCount = 0;
+  const repaint = () => { repaintCount += 1; };
+  const backend = new ActionRuntime(state, repaint);
   const press = (event: KeyEvent) => handleKey(
     event,
     state,
     source,
     cache,
-    () => undefined,
+    repaint,
     async () => undefined,
     () => undefined,
     null,
@@ -61,7 +68,7 @@ export function settingsHarness() {
     () => undefined,
     backend
   );
-  return { source, state, cache, backend, press };
+  return { source, state, cache, backend, press, repaints: () => repaintCount };
 }
 
 export function installSave(

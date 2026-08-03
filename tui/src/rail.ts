@@ -1,7 +1,9 @@
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { countWords } from "../../shared/story-text.js";
 import type { StoryFact, StoryPayload } from "../../shared/types.js";
+import type { PromptTokenCount, TokenCountGrade } from "../../shared/tokenize-source.js";
 import type { UserConfig } from "./config.js";
-import { factBody, factName } from "./facts-model.js";
+import { factBody, factName, type FactRequestStatus } from "./facts-model.js";
 import type { AppMode } from "./keys.js";
 import type { ContextBreakdown, NextRequestEstimate } from "./request-projection.js";
 
@@ -21,9 +23,11 @@ export interface RailFact {
   name: string;
   tag: string;
   activation: StoryFact["activation"];
-  /** Included in the next generation request. */
-  active: boolean;
+  /** Sent, not-matched, or dropped-with-reason — see tui/src/facts-model.ts. */
+  status: FactRequestStatus;
   body: string;
+  /** Shedding rank under window pressure; "normal" is the default. */
+  priority: NonNullable<StoryFact["priority"]>;
 }
 
 export interface RequestWindow {
@@ -54,6 +58,11 @@ export interface RailModel {
   keyedFactCount: number;
   activeKeyedCount: number;
   contextTokens: number;
+  /** Honesty of `contextTokens`: `estimate` until a tokenize source counts it. */
+  totalGrade: TokenCountGrade;
+  /** Honesty of `breakdown`'s category totals: `estimate` unless the source
+   *  that counted `contextTokens` also split it per message. */
+  perMessageGrade: TokenCountGrade;
   /** Likely response tokens that become context after this request. */
   growthTokens: number;
   /** Configured max output tokens; secondary label only, never bar size. */
@@ -63,18 +72,79 @@ export interface RailModel {
   window: RequestWindow | null;
   breakdown: ContextBreakdown;
   chapterNotice: string | null;
+  /** Facts the story's own Facts budget shed out of this request; empty when
+   *  nothing had to give. See RequestTokenEstimate.droppedFacts. */
+  droppedFacts: readonly FactBudgetDrop[];
 }
 
-/** Read-only mirror of the facts store and the next request projection. */
+export interface ResolvedTokenCount {
+  readonly total: number;
+  readonly totalGrade: TokenCountGrade;
+  /** Aligned one-to-one with the projected messages. */
+  readonly perMessage: readonly number[];
+  readonly perMessageGrade: TokenCountGrade;
+}
+
+/** Reconciles a counted answer against the client's own per-message estimate.
+ * No count, an `estimate`-kind answer, and a `counted` answer with no
+ * `perMessage` split all leave the total on the client's number — a count
+ * that only covers the complete array earns the total its grade and nothing
+ * else, per shared/tokenize-source.ts. A counted total can run ahead of the
+ * summed per-message counts (a bundled tokenizer's reply-priming overhead
+ * belongs to no message), so nothing here scales one to match the other. */
+export function resolveTokenCount(
+  estimate: Pick<NextRequestEstimate, "tokens" | "messageTokenCounts">,
+  count: PromptTokenCount | null
+): ResolvedTokenCount {
+  if (count === null || count.kind !== "counted") {
+    return {
+      total: estimate.tokens,
+      totalGrade: "estimate",
+      perMessage: estimate.messageTokenCounts,
+      perMessageGrade: "estimate"
+    };
+  }
+  // A split has to line up with the messages it claims to describe. A shorter
+  // one would leave a message row reading its count from past the end of the
+  // array; the total still stands on its own, so only the split is refused.
+  const split = count.perMessage !== null
+    && count.perMessage.length === estimate.messageTokenCounts.length
+    ? count.perMessage
+    : null;
+  return {
+    total: count.total,
+    totalGrade: count.grade,
+    perMessage: split ?? estimate.messageTokenCounts,
+    perMessageGrade: split !== null ? count.grade : "estimate"
+  };
+}
+
+/** Category totals from a per-message array aligned with `entries` — the same
+ * grouping `nextRequestEstimate` does for the client's own estimate, reused so
+ * a counted per-message split earns identical category math. */
+export function breakdownFromPerMessage(
+  entries: readonly { category: keyof ContextBreakdown }[],
+  perMessage: readonly number[]
+): ContextBreakdown {
+  const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
+  entries.forEach((entry, index) => {
+    breakdown[entry.category] += perMessage[index] ?? 0;
+  });
+  return breakdown;
+}
+
+/** Read-only mirror of the facts store and the next request projection.
+ *  `count` is the lane's freshest answer for this exact projection, already
+ *  freshness-checked by the caller — null when there is none to trust yet. */
 export function buildRailModel(
   payload: StoryPayload,
   _focusedText: string,
   contextWindow: number | null = null,
   estimate: NextRequestEstimate,
   growthTokens = 0,
-  maxOutputTokens = 0
+  maxOutputTokens = 0,
+  count: PromptTokenCount | null = null
 ): RailModel {
-  const activeFactIds = new Set(estimate.activeFactIds);
   const facts = payload.facts.map((fact: StoryFact, index): RailFact => {
     const name = factName(fact);
     return {
@@ -82,8 +152,9 @@ export function buildRailModel(
       name,
       tag: fact.tag ?? "",
       activation: fact.activation,
-      active: activeFactIds.has(fact.id),
-      body: factBody(fact)
+      status: estimate.factStatuses.get(fact.id) ?? { kind: "not-matched" },
+      body: factBody(fact),
+      priority: fact.priority ?? "normal"
     };
   });
   // The rail is a fixed-height window, so a long list gets cut. Facts the next
@@ -91,11 +162,13 @@ export function buildRailModel(
   // firing, never on the ones the rail exists to surface. Payload order breaks
   // ties, and each row keeps its payload index, so clicks are unaffected.
   const railRank = (fact: RailFact): number =>
-    fact.activation === "keyed" ? (fact.active ? 0 : 2) : 1;
+    fact.activation === "keyed" ? (fact.status.kind === "sent" ? 0 : 2) : 1;
   facts.sort((left, right) => railRank(left) - railRank(right) || left.index - right.index);
   // Mirror what generation actually sends: the assembler drops everything
   // before the latest summary, and directions travel with their parts.
-  const contextTokens = estimate.tokens;
+  const resolved = resolveTokenCount(estimate, count);
+  const contextTokens = resolved.total;
+  const breakdown = breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage);
   const responseGrowth = Math.max(0, growthTokens);
   const over = contextWindow !== null && contextWindow > 0
     && contextTokens + responseGrowth > contextWindow;
@@ -107,13 +180,16 @@ export function buildRailModel(
     facts,
     factCount: payload.facts.length,
     keyedFactCount: facts.filter(({ activation }) => activation === "keyed").length,
-    activeKeyedCount: facts.filter(({ activation, active }) =>
-      activation === "keyed" && active).length,
+    activeKeyedCount: facts.filter(({ activation, status }) =>
+      activation === "keyed" && status.kind === "sent").length,
     contextTokens,
+    totalGrade: resolved.totalGrade,
+    perMessageGrade: resolved.perMessageGrade,
     growthTokens: responseGrowth,
     maxOutputTokens: Math.max(0, maxOutputTokens),
     window: requestWindow(contextTokens, contextWindow),
-    breakdown: estimate.breakdown,
+    breakdown,
+    droppedFacts: estimate.droppedFacts,
     chapterNotice: biggest !== null
       ? `ch ${biggest.number} · summarize frees ${formatTokensEstimate(biggest.savings)}`
       : stale !== null ? `ch ${stale.number} summary stale` : null
@@ -128,7 +204,21 @@ export function formatTokensScaled(tokens: number): string {
 /** The same value as an estimate. Windows and free space are exact
  * consequences of the estimate, so only the estimate itself wears the `~`. */
 export function formatTokensEstimate(tokens: number): string {
-  return `~${formatTokensScaled(tokens)}`;
+  return `${tokenCountMark("estimate")}${formatTokensScaled(tokens)}`;
+}
+
+/** `exact` earns no mark, `near-exact` earns `≈`, and `estimate` keeps the `~`
+ *  convention — the one place a grade becomes a glyph, so a call site marking
+ *  an already-formatted number never re-derives this branch itself. */
+export function tokenCountMark(grade: TokenCountGrade): string {
+  return grade === "exact" ? "" : grade === "near-exact" ? "≈" : "~";
+}
+
+/** The scaled form marked with what its grade actually earned it — the one
+ *  formatter every changed call site routes through instead of branching on
+ *  grade itself. */
+export function formatTokensGraded(tokens: number, grade: TokenCountGrade): string {
+  return `${tokenCountMark(grade)}${formatTokensScaled(tokens)}`;
 }
 
 /** The narrowest form, for fixed-width columns: four cells, or five where the

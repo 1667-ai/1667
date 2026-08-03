@@ -8,7 +8,7 @@ import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js"
 import { ProviderError } from "./errors.js";
 import { getProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { providerUrl } from "./providers.js";
+import { providerRoot, providerUrl } from "./providers.js";
 import {
   MAX_SETTINGS_REMOTE_ID_SCALARS,
   MAX_SETTINGS_TOKEN_COUNT
@@ -25,7 +25,7 @@ export async function discoverProviderModels(
     return { observedAt: now().toISOString(), models: [] };
   }
   const runtime = providerRuntimeFor(settings);
-  const root = settings.baseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
+  const root = providerRoot(settings);
   const timeoutMs = Math.min(runtime.timeouts.totalMs, 30_000);
   const result = settings.provider === "anthropic"
     ? await discover(

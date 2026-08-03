@@ -78,7 +78,7 @@ test("cold o200k tokenizer initialization remains bounded", { timeout: budgetTim
 
 test("prompt planning and request lowering stay linear for a 1 MiB transcript", {
   timeout: budgetTimeout([BUDGETS.planConstruction])
-}, (t) => {
+}, async (t) => {
   const story = largeStory();
   const facts = `CANONICAL STORY FACTS\n${"fact-value ".repeat(Math.ceil(FACT_CHARACTERS / 11)).slice(0, FACT_CHARACTERS)}`;
   const targetPart = story.nodes[Math.floor(story.nodes.length / 2)]!;
@@ -129,8 +129,8 @@ test("prompt planning and request lowering stay linear for a 1 MiB transcript", 
 
   for (const build of builders) {
     const prompt = build();
-    buildOpenAiChatRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF);
-    buildAnthropicMessagesRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF);
+    await buildOpenAiChatRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF);
+    await buildAnthropicMessagesRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF);
   }
   let loweredCharacters = 0;
   const read = startTiming();
@@ -138,10 +138,10 @@ test("prompt planning and request lowering stay linear for a 1 MiB transcript", 
     for (const build of builders) {
       const prompt = build();
       loweredCharacters += JSON.stringify(
-        buildOpenAiChatRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF)
+        await buildOpenAiChatRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF)
       ).length;
       loweredCharacters += JSON.stringify(
-        buildAnthropicMessagesRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF)
+        await buildAnthropicMessagesRequestBody(REQUEST_SETTINGS, prompt, PROMPT_CACHE_POLICY_OFF)
       ).length;
     }
   }
@@ -165,7 +165,7 @@ test("cache-scope derivation remains bounded and independent of prompt size", (t
 test(
   "warmed exact GPT-5.6 rolling planning and structured lowering stay bounded at 1 MiB",
   { timeout: budgetTimeout([BUDGETS.rollingPlanning, BUDGETS.structuredLowering]) },
-  (t) => {
+  async (t) => {
     const story = largeStory();
     const priorPrompt = continuationBenchmarkPrompt(story.nodes.slice(0, -1));
     const currentPrompt = continuationBenchmarkPrompt(story.nodes);
@@ -182,7 +182,7 @@ test(
     assert.equal(warmPlan.wire.kind, "openai-explicit");
     assert.equal(warmPlan.wire.breakpoints.length, 2);
     const warmBody = JSON.stringify(
-      buildOpenAiChatRequestBody(settings, currentPrompt, warmPlan.wire)
+      await buildOpenAiChatRequestBody(settings, currentPrompt, warmPlan.wire)
     );
     assert.equal(occurrences(warmBody, '"prompt_cache_breakpoint"'), 2);
     assertWithinBudget(t, "exact rolling cache planning", BUDGETS.rollingPlanning, planningTiming);
@@ -191,7 +191,7 @@ test(
     const read = startTiming();
     for (let round = 0; round < ROUNDS; round += 1) {
       loweredCharacters += JSON.stringify(
-        buildOpenAiChatRequestBody(settings, currentPrompt, warmPlan.wire)
+        await buildOpenAiChatRequestBody(settings, currentPrompt, warmPlan.wire)
       ).length;
     }
     const timing = read();
@@ -233,7 +233,7 @@ test(
 
 test("Anthropic structured cached lowering stays bounded at 1 MiB", {
   timeout: budgetTimeout([BUDGETS.anthropicLowering])
-}, (t) => {
+}, async (t) => {
   const story = largeStory();
   const prompt = continuationBenchmarkPrompt(story.nodes);
   const scope = promptCacheScope(story.id, "continue");
@@ -243,7 +243,7 @@ test("Anthropic structured cached lowering stays bounded at 1 MiB", {
   const warmPlan = runtime.prepare(ANTHROPIC_EXPLICIT_CONTEXT, scope, prompt);
   assert.equal(warmPlan.wire.kind, "anthropic-explicit");
   const warmBody = JSON.stringify(
-    buildAnthropicMessagesRequestBody(settings, prompt, warmPlan.wire)
+    await buildAnthropicMessagesRequestBody(settings, prompt, warmPlan.wire)
   );
   assert.equal(occurrences(warmBody, '"cache_control"'), 1);
 
@@ -252,7 +252,7 @@ test("Anthropic structured cached lowering stays bounded at 1 MiB", {
   for (let round = 0; round < ROUNDS; round += 1) {
     const plan = runtime.prepare(ANTHROPIC_EXPLICIT_CONTEXT, scope, prompt);
     loweredCharacters += JSON.stringify(
-      buildAnthropicMessagesRequestBody(settings, prompt, plan.wire)
+      await buildAnthropicMessagesRequestBody(settings, prompt, plan.wire)
     ).length;
   }
   const timing = read();

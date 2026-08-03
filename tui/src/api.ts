@@ -6,20 +6,24 @@ import {
   decodeChapterBreakCreatedResponse,
   decodeChapterBreakRemovalPreview,
   decodeChapterBreakRemovedResponse,
-  decodeContextWindowResponse,
+  decodeContinueStoryResponse,
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
-  decodeModelServerCheckResponse,
   decodeStoryResponse,
 } from "./api-response-decoders.js";
+import type {
+  SamplingBiasResolutionResult
+} from "../../shared/sampling-capabilities.js";
+import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
 import type { CardImportPlan } from "../../shared/card-import.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 
 import type {
   TagStatus,
@@ -31,6 +35,7 @@ import type {
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
+  ReorderFactRequest,
   RewriteRequest,
   StoryNode,
   StoryPayload,
@@ -46,7 +51,8 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
-import { decodeModelDiscoveryResult } from "../../shared/settings-response-decoder.js";
+import type { ChatMessage } from "../../shared/prompt-plan.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -65,9 +71,6 @@ import type {
 import {
   HTTP_OPERATION_LIFETIME_MS
 } from "../../shared/http-operation-protocol.js";
-import {
-  WORKER_PROVIDER_CHECK_TIMEOUT_MS
-} from "../../shared/worker-protocol.js";
 import { isWorkerMutationMethod } from "../../shared/worker-protocol.js";
 import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
@@ -90,6 +93,7 @@ import {
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
 import { importMethods } from "./api-import-methods.js";
+import { providerMethods } from "./api-provider-methods.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -124,6 +128,8 @@ export interface StoryApi {
   renameStory(id: string, title: string): Promise<StoryPayload>;
   setAuthorsNote(storyId: string, note: string, depth?: number): Promise<StoryPayload>;
   setAuthorBrief(storyId: string, brief: string): Promise<StoryPayload>;
+  /** null clears the story's Facts budget. */
+  setFactsBudget(storyId: string, budgetTokens: number | null): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
@@ -143,6 +149,9 @@ export interface StoryApi {
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
   patchFact(storyId: string, factId: string, body: FactPatch): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
+  /** Move a Fact to a new position among the story's Facts — array order is
+   *  emit order, so this is the Facts surface's "arrange" control. */
+  reorderFact(storyId: string, factId: string, toIndex: number): Promise<StoryPayload>;
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
@@ -155,10 +164,22 @@ export interface StoryApi {
   discardPendingSettings(command: DiscardPendingSettingsCommand): Promise<SettingsMutationResult>;
   checkModelServer(settings: ProviderProbeTarget): Promise<ModelServerCheckResult>;
   probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
+  resolveSamplingBias(
+    request: {
+      settings: ProviderProbeTarget;
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly SamplingPhraseBiasEntryV2[];
+      bannedStrings: readonly string[];
+    }
+  ): Promise<SamplingBiasResolutionResult>;
   discoverModels(
     settings: ProviderProbeTarget,
     signal?: AbortSignal
   ): Promise<ModelDiscoveryResultV2>;
+  countPromptTokens(
+    messages: readonly ChatMessage[],
+    signal?: AbortSignal
+  ): Promise<PromptTokenCount>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
@@ -173,14 +194,20 @@ export interface StoryApi {
     target: ContinueTarget,
     onDelta: (text: string) => void,
     signal: AbortSignal
-  ): Promise<StoryPayload | null>;
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
     nodeId: string,
     body: RewriteRequest,
     onDelta: (text: string) => void,
-    signal: AbortSignal
-  ): Promise<void>;
+    signal: AbortSignal,
+    /** Fires the instant the take id is known — durable server-side from
+     * that point on — and strictly before any refresh this call makes on
+     * its way back to the caller. The caller (rewrite-action.ts) uses this
+     * to record commitment one layer below where its own await resolves, so
+     * a refresh that then rejects cannot hide a take that already landed. */
+    onCommitted?: (takeId: string) => void
+  ): Promise<string | null>;
   createSummaryTake(
     storyId: string,
     body: { nodeId: string; offset?: number; expected?: string },
@@ -710,6 +737,12 @@ export function createApi(
       "DELETE",
       `/api/stories/${storyId}/facts/${factId}`
     ),
+    reorderFact: (storyId, factId, toIndex) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/reorder`,
+      { toIndex } satisfies ReorderFactRequest
+    ),
     createChapterBreak: async (storyId, parentPartId, title = "") => {
       const result = await request(
         "POST",
@@ -797,23 +830,7 @@ export function createApi(
         undefined,
         command.mutationId
       ),
-    checkModelServer: (settings) => request("POST", "/api/settings/check-server", decodeModelServerCheckResponse, settings),
-    probeContextWindow: (settings) => request(
-      "POST",
-      "/api/settings/probe-context",
-      decodeContextWindowResponse,
-      settings,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS
-    ),
-    discoverModels: (settings, signal) => request(
-      "POST",
-      "/api/settings/discover-models",
-      decodeModelDiscoveryResult,
-      settings,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS,
-      undefined,
-      signal
-    ),
+    ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(
@@ -824,17 +841,26 @@ export function createApi(
         signal
       );
       if (done === null) return null;
-      return versions.rememberPayload(decodeStoryResponse(done.story));
+      const result = decodeContinueStoryResponse(done);
+      versions.rememberPayload(result.payload);
+      return result;
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {
-      await stream(
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+      const done = await stream(
         storyId,
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
         body,
         onDelta,
         signal
       );
+      if (done === null) return null;
+      if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
+      // The take is durable this instant — tell the caller before the
+      // confirming reload below, which can itself reject and otherwise
+      // swallow the fact that the take already landed.
+      onCommitted?.(done.nodeId);
       await loadVersionedStory(storyId);
+      return done.nodeId;
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       const done = await stream(

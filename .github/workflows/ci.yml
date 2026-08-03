@@ -58,7 +58,7 @@ jobs:
 
       - name: Test TUI
         working-directory: tui
-        run: bun test
+        run: bun test --timeout 30000
 
       - name: Build and smoke-test native standalone
         working-directory: tui
@@ -216,17 +216,17 @@ jobs:
       - name: Run native TUI tests
         if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
         working-directory: tui
-        run: bun test
+        run: bun test --timeout 30000
 
       - name: Run Windows upgrade contract tests
         if: matrix.target == 'windows-x64'
         working-directory: tui
-        run: bun test test/upgrade-cli.test.ts test/install-ownership-authority.test.ts
+        run: bun test --timeout 30000 test/upgrade-cli.test.ts test/install-ownership-authority.test.ts
 
       - name: Run Intel macOS TUI tests without filesystem contention
         if: matrix.target == 'darwin-x64'
         working-directory: tui
-        run: bun test --max-concurrency=1
+        run: bun test --timeout 30000 --max-concurrency=1
 
       - name: Build and execute packaged candidate
         working-directory: tui

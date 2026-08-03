@@ -8,6 +8,7 @@ import type {
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
+  ReorderFactRequest,
   RewriteRequest,
   StoryPayload,
   StoryNode,
@@ -15,6 +16,8 @@ import type {
   SwitchRequest,
   TakeFromCutRequest
 } from "./types.js";
+import type { ChatMessage } from "./prompt-plan.js";
+import type { PromptTokenCount } from "./tokenize-source.js";
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
@@ -25,6 +28,8 @@ import type {
 } from "./settings-v2-types.js";
 import type { LorebookImport } from "./lorebook-entry.js";
 import type { CardImportPlan } from "./card-import.js";
+import type { FactBudgetDrop } from "./fact-budget.js";
+import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 
 import type {
   ListStoriesPageInput,
@@ -48,7 +53,8 @@ export const PREDECESSOR_WORKER_PROTOCOL_VERSION = 5;
 export const PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION = 6;
 export const PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION = 7;
 export const PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION = 8;
-export const WORKER_PROTOCOL_VERSION = 9;
+export const PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION = 9;
+export const WORKER_PROTOCOL_VERSION = 10;
 /** Exact provider recovery changes the status and acknowledgement inputs. */
 export const MUTATION_INPUT_PROTOCOL_VERSION = WORKER_PROTOCOL_VERSION;
 export const WORKER_BUILD_IDENTITY = AI_1667_BUILD_IDENTITY;
@@ -78,6 +84,7 @@ export function isCurrentWorkerInputProtocolVersion(
   return value === PRE_DIAGNOSTIC_WORKER_PROTOCOL_VERSION
     || value === PRE_PROVIDER_RECOVERY_WORKER_PROTOCOL_VERSION
     || value === PRE_FACT_ACTIVATION_WORKER_PROTOCOL_VERSION
+    || value === PRE_FACT_ORDER_PRIORITY_BUDGET_WORKER_PROTOCOL_VERSION
     || value === WORKER_PROTOCOL_VERSION;
 }
 
@@ -120,6 +127,8 @@ export interface WorkerMethodContract {
   renameStory: { input: { id: string; title: string }; output: StoryPayload };
   setAuthorsNote: { input: { storyId: string; note: string; depth?: number }; output: StoryPayload };
   setAuthorBrief: { input: { storyId: string; brief: string }; output: StoryPayload };
+  /** budgetTokens: null clears the story's Facts budget. */
+  setFactsBudget: { input: { storyId: string; budgetTokens: number | null }; output: StoryPayload };
   autonameStory: { input: { id: string; expectedTitle: string }; output: StoryPayload };
   acknowledgeUnknownOutcomes: {
     input: {
@@ -142,6 +151,10 @@ export interface WorkerMethodContract {
   createFact: { input: { storyId: string; body: CreateFactsRequest }; output: StoryPayload };
   patchFact: { input: { storyId: string; factId: string; body: FactPatch }; output: StoryPayload };
   deleteFact: { input: { storyId: string; factId: string }; output: StoryPayload };
+  reorderFact: {
+    input: { storyId: string; factId: string; body: ReorderFactRequest };
+    output: StoryPayload;
+  };
   createChapterBreak: {
     input: { storyId: string; parentPartId: string; title: string };
     output: { payload: StoryPayload; breakId: string };
@@ -169,6 +182,28 @@ export interface WorkerMethodContract {
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
+  /** Runs the exact same tokenize-and-merge resolution the provider request
+   * uses (server/sampling-phrase-bias.ts), for one draft's phraseBias and
+   * bannedStrings at a time — one call per editor session or commit, not
+   * one per phrase, so the editor's preview and the request can never
+   * compute different token IDs for the same draft. `settings` is a
+   * provider-probe target, the same shape checkModelServer/
+   * probeContextWindow take, because a llama-cpp route resolves against a
+   * live tokenize probe on that server (server/context-probe.ts) rather
+   * than a local allow-list — this is a provider probe for that preset, not
+   * always the pure local computation it used to be. */
+  resolveSamplingBias: {
+    input: {
+      settings: ProviderProbeTarget;
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly { readonly phrase: string; readonly weight: number }[];
+      bannedStrings: readonly string[];
+    };
+    output: SamplingBiasResolutionResult;
+  };
+  /** No settings and no story id: the count always measures the backend's own
+   * effective prose route, the same one a continuation would use. */
+  countPromptTokens: { input: { messages: readonly ChatMessage[] }; output: PromptTokenCount };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
   importNovelAI: { input: { storyContainerJson: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
@@ -177,9 +212,12 @@ export interface WorkerMethodContract {
   importCard: { input: { storyId: string; cardBytes: Uint8Array }; output: { payload: StoryPayload; plan: CardImportPlan } };
   continueStory: {
     input: { storyId: string; instruction: string; genId: string; target: { parentId?: string | null; appendTo?: string; expectedTextHash?: string } };
-    output: StoryPayload | null;
+    /** droppedFacts is what admission actually shed to fit the fixed prompt —
+     *  empty both when nothing had to give and when a crash-recovery replay
+     *  has no way to know. See server/generation-admission.ts. */
+    output: { payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null;
   };
-  rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: boolean };
+  rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: string | null };
   createSummaryTake: {
     input: { storyId: string; body: { nodeId: string; offset?: number; expected?: string } };
     output: string | null;
@@ -191,10 +229,10 @@ export type WorkerInput<M extends WorkerMethod> = WorkerMethodContract[M]["input
 export type WorkerOutput<M extends WorkerMethod> = WorkerMethodContract[M]["output"];
 
 export type MutatingWorkerMethod =
-  | "createStory" | "renameStory" | "setAuthorsNote" | "setAuthorBrief" | "autonameStory" | "acknowledgeUnknownOutcomes"
+  | "createStory" | "renameStory" | "setAuthorsNote" | "setAuthorBrief" | "setFactsBudget" | "autonameStory" | "acknowledgeUnknownOutcomes"
   | "deleteStory" | "switchLine"
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut"
-  | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact"
+  | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "reorderFact"
   | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "createSummaryTake";
 
@@ -212,14 +250,16 @@ export const GENERATION_METHODS: ReadonlySet<WorkerMethod> = new Set([
 export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "checkModelServer",
   "probeContextWindow",
-  "discoverModels"
+  "discoverModels",
+  "resolveSamplingBias",
+  "countPromptTokens"
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
-  "createStory", "renameStory", "setAuthorsNote", "setAuthorBrief", "autonameStory", "acknowledgeUnknownOutcomes",
+  "createStory", "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "autonameStory", "acknowledgeUnknownOutcomes",
   "deleteStory", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "createSummaryTake"
 ]);
@@ -240,9 +280,9 @@ export function isMutatingWorkerMethod(method: WorkerMethod): method is Mutating
  * reaper tombstones, and the provider-fence protocol in the ledger.
  */
 export const LOCAL_DURABILITY_MUTATION_METHODS = [
-  "renameStory", "setAuthorsNote", "setAuthorBrief", "switchLine",
+  "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard"
 ] as const satisfies readonly MutatingWorkerMethod[];
 
@@ -440,13 +480,13 @@ export type WorkerToMainMessage =
 const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "listStories", "listStoriesPage", "searchStories", "createStory", "loadStory",
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
-  "renameStory", "setAuthorsNote", "setAuthorBrief", "autonameStory",
+  "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
   "exportMarkdown", "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
-  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "getSettings",
+  "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
-  "discoverModels",
+  "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory",
 
   "rewriteNode", "createSummaryTake"

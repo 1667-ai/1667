@@ -1,15 +1,18 @@
+import { factDropNotice } from "../../facts-model.js";
 import {
   contextSeverity,
+  formatTokensGraded,
   formatTokensNarrow,
   formatTokensScaled,
   OFF_SCALE_TOKENS,
-  formatTokensEstimate,
   gaugeFill,
   RAIL_CONTENT_WIDTH,
+  tokenCountMark,
   type ContextSeverity,
   type RailModel,
   type RequestWindow
 } from "../../rail.js";
+import type { TokenCountGrade } from "../../../../shared/tokenize-source.js";
 import type { FrameDeadlineCollector } from "../../animation-deadline.js";
 import {
   segment,
@@ -53,8 +56,8 @@ const CATEGORIES: readonly Category[] = [
  * alone, so a thin split pane can be shorter than the expanded block. The forms
  * below are ordered tallest first and shed decoration before meaning — the rule
  * goes, then the gauge, and the request line itself is the last to go. Every
- * form keeps the chapter notice for as long as it has a row to spare, because
- * that notice is the only actionable thing the meter ever says. */
+ * form keeps the fact-drop and chapter notices for as long as it has a row to
+ * spare, because they are the actionable things the meter can say. */
 export function contextMeterLines(
   model: RailModel,
   expanded: boolean,
@@ -76,13 +79,18 @@ export function contextMeterLines(
     [request, gauge],
     [request]
   ];
-  // What to do about it, in the two cases the meter can answer: the request
-  // does not fit, or a chapter is worth summarizing. Both outrank decoration
-  // and both yield to the request line itself.
+  // What the meter can say beyond the numbers, tallest-need first: the request
+  // does not fit; content silently went missing to the story's own Facts
+  // budget; a chapter is worth summarizing. All three outrank decoration and
+  // all three yield to the request line itself.
+  const dropNotice = factDropNotice(model.droppedFacts);
   const tail: FrameLine[] = [
     ...severity === "over"
       ? [[segment(OVER_REMEDY, "danger text")] as FrameLine]
       : [],
+    ...dropNotice === null
+      ? []
+      : [[segment(truncate(dropNotice, RAIL_CONTENT_WIDTH), "context warning")] as FrameLine],
     ...model.chapterNotice === null
       ? []
       : [[segment(truncate(model.chapterNotice, RAIL_CONTENT_WIDTH), "focus / accent")] as FrameLine]
@@ -318,7 +326,10 @@ function legendRow(pair: readonly Category[], model: RailModel): FrameLine {
     // Each half owns exactly its cells: the swatch, a space, the label, and
     // whatever the count can spend beside them. No token value may widen it.
     const lead = visibleWidth(GAUGE_INK) + 1 + key.length;
-    const count = truncate(railTokenCount(model.breakdown[key]), Math.max(1, LEGEND_HALF - lead - 1));
+    const count = truncate(
+      railTokenCount(model.breakdown[key], model.perMessageGrade),
+      Math.max(1, LEGEND_HALF - lead - 1)
+    );
     const pad = LEGEND_HALF - lead - visibleWidth(count);
     return [
       ...offset > 0 ? [segment(" ".repeat(LEGEND_GAP))] : [],
@@ -342,18 +353,20 @@ function rule(): FrameLine {
  * secondary cap yields first so the bar estimate stays readable. */
 function requestValue(model: RailModel, available: number): string {
   const window = model.window;
+  const scaled = formatTokensGraded(model.contextTokens, model.totalGrade);
   if (window === null) {
+    const long = `${tokenCountMark(model.totalGrade)}${model.contextTokens.toLocaleString("en-US")}`;
     const candidates = [
-      `~${model.contextTokens.toLocaleString("en-US")}${growthLabel(model)} tokens`,
-      `${formatTokensEstimate(model.contextTokens)}${growthLabel(model, false)} tokens`,
-      `${formatTokensEstimate(model.contextTokens)} tokens`
+      `${long}${growthLabel(model)} tokens`,
+      `${scaled}${growthLabel(model, false)} tokens`,
+      `${scaled} tokens`
     ];
     for (const candidate of candidates) {
       if (visibleWidth(candidate) <= available) return candidate;
     }
-    return truncate(`${formatTokensEstimate(model.contextTokens)} tokens`, available);
+    return truncate(`${scaled} tokens`, available);
   }
-  const current = formatTokensEstimate(model.contextTokens);
+  const current = scaled;
   const size = formatTokensScaled(window.size);
   const candidates = [
     `${current}${growthLabel(model)} / ${size}`,
@@ -388,11 +401,19 @@ function valueRole(severity: ContextSeverity): DisplayRole {
 }
 
 /** Fixed-width rail value: every category remains visible in the legend half.
- * A count below a thousand is exact, and one off the top of the scale already
- * says so itself — neither wants a `~`, and the off-scale form needs the cell
- * that a `~` would cost to keep its unit. */
-function railTokenCount(tokens: number): string {
-  const value = Math.max(0, tokens);
-  const narrow = formatTokensNarrow(value);
-  return value < 1_000 || narrow === OFF_SCALE_TOKENS ? narrow : `~${narrow}`;
+ *
+ * A value under a thousand needs no rounding, so it used to print bare — safe
+ * while every number in this legend was an estimate. It is not safe now: an
+ * exact count prints bare, so a bare `84` would say it had been counted. The
+ * mark is the only thing separating the two, so every reachable value keeps
+ * it and only an exact count earns the bare form.
+ *
+ * The off-scale form is the exception, and stays bare. It is the sentinel for
+ * more than 999 trillion tokens — beyond any context window, so no request
+ * reaches it — and it already carries its own "more than" in the `+`. Marking
+ * it would cost the cell that `+` needs, and a clipped `~999t` would claim an
+ * exact 999 trillion, which is worse than either. */
+function railTokenCount(tokens: number, grade: TokenCountGrade): string {
+  const narrow = formatTokensNarrow(Math.max(0, tokens));
+  return narrow === OFF_SCALE_TOKENS ? narrow : `${tokenCountMark(grade)}${narrow}`;
 }

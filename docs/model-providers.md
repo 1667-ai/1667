@@ -34,6 +34,10 @@ parts in the assembled request context. It also scans the current instruction.
 An `always` Fact can keep keys. The keys do not control that Fact until you
 select `keyed`.
 
+Below the keys row, the Fact editor shows a priority row and a budget row.
+Use `Up Arrow` or `Down Arrow` to reach them. See
+[Fact priority and Fact budget](#fact-priority-and-fact-budget).
+
 The Facts panel shows `always`, `✓ keyed`, or `· keyed` for each Fact. The
 `✓ keyed` status means that the next request includes the Fact. The side rail
 uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
@@ -41,21 +45,114 @@ uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
 
+### Arrange Facts
+
+Facts appear in a request in the order that they appear in the Facts panel.
+Select a Fact. Press `Shift+Up Arrow` or `Shift+Down Arrow` to move it up or
+down. Clear the tag filter and the text filter first. The move keys work only
+on the full, unfiltered list.
+
+### Fact priority and Fact budget
+
+Each Fact has a priority: `low`, `normal`, or `high`. The default priority is
+`normal`. 1667 uses priority to choose which Fact to drop first when a
+request does not fit the model's context window.
+
+Open the Fact editor and move to the priority row. Use `Left Arrow` or
+`Right Arrow` to select `low`, `normal`, or `high`.
+
+An `always` Fact at `normal` or `high` priority never drops. A `keyed` Fact
+can drop at any priority. Set an `always` Fact to `low` priority to let it
+drop too.
+
+A Fact can also have a Fact budget: a limit on its own estimated token count.
+1667 drops a Fact that goes over its Fact budget. This rule applies even to
+an `always` Fact at `normal` or `high` priority. A Fact budget is an
+instruction on that one Fact. It always overrides the priority exemption.
+1667 never shortens a Fact's text. A Fact rides whole in a request, or 1667
+drops it whole.
+
+Open the Fact editor and move to the budget row. Type a whole number of
+tokens. Leave the row empty to remove the Fact budget.
+
+A story can hold a Facts budget: a limit on the combined estimated token
+count of every Fact in a request. When the total goes over the Facts budget,
+1667 drops the lowest-priority Facts first until the total fits.
+
+Open the command palette and select **facts budget**. Type a whole number of
+tokens, then press `Ctrl+S`. Leave the field empty and press `Ctrl+S` to
+remove the Facts budget.
+
+### See a Fact's priority
+
+The Facts panel status column and the side rail show a Fact's priority next
+to its activation status. `↓` marks a `low` priority Fact. `↑` marks a
+`high` priority Fact. A `normal` priority Fact shows no priority mark.
+
+### Fit a request into the context window
+
+When a request does not fit the model's context window, 1667 first applies
+the Facts budget. If the request still does not fit, 1667 drops droppable
+Facts by priority, one at a time, until it fits.
+
+1667 rejects the request only when it still does not fit after 1667 drops
+every droppable Fact.
+
+The context meter states how many Facts a request dropped, and why.
+
 Select the system prompt row to open the full-screen editor. This machine-wide
 value is the default Author Brief. A story that sets its own Author Brief uses
 that value instead.
 
-The context meter shows the estimated next request. Its pulsing segment
+The context meter shows the size of the next request. Its pulsing segment
 estimates response growth from recent provider text. The configured maximum
 output remains the upper limit. The segment changes between two visible
-colors.
+colors. The growth segment is always an estimate, because no tokenizer can
+count text that the model did not write.
+
+## Token counts
+
+A token count has one of three grades. Each grade has its own mark:
+
+| Grade | Mark | Example |
+| --- | --- | --- |
+| exact count | none | `8.1k` |
+| near-exact count | `≈` | `≈8.1k` |
+| token estimate | `~` | `~8.1k` |
+
+The tokenize source of the preset gives the grade:
+
+| Preset | Tokenize source | Grade |
+| --- | --- | --- |
+| OpenAI, official host | The bundled tokenizer | exact count |
+| Anthropic, official host | `POST /v1/messages/count_tokens` | exact count |
+| llama.cpp | `POST /apply-template`, then `POST /tokenize` | near-exact count |
+| KoboldCpp | `POST /api/extra/tokencount` | near-exact count |
+| LM Studio, Ollama, OpenRouter, custom | None | token estimate |
+
+A near-exact count comes from the model server. 1667 cannot prove that the
+server applies the same chat template to a generation request, so it does not
+call the count exact. A token estimate counts four characters for each token.
+
+The bundled tokenizer counts with the encoding of the selected model. Different
+OpenAI models use different encodings. If the bundled tokenizer does not know
+the model, 1667 keeps the token estimate. A new model and a fine-tuned model
+can have this result.
+
+The Anthropic source and the two local sources count a complete message array.
+They cannot give a count to one message. For these sources the total is a
+counted number. Each category and each message keeps its estimate.
+
+1667 counts the request after you stop typing. It counts the request again when
+you open the request viewer. A count never delays a keystroke. If the model
+server does not answer, 1667 keeps the estimate and shows no error.
 
 ## Request viewer
 
 Press `Ctrl+R` to open the request viewer. You can also select **Next request**
 in the command palette. The request viewer shows the next request plan in
 provider order. It shows the routed model and the context window. It shows each
-message and its estimated token count.
+message and its token count. It also shows the grade of the count.
 
 The request viewer identifies chapter summaries that replace raw story parts.
 It also identifies the latest summary take that resets the raw context. The
@@ -66,7 +163,12 @@ because the request plan does not contain credentials.
 
 Each story can hold one Author's Note. Press `a` to write it. 1667 sends the
 Author's Note with each continuation request. 1667 puts it immediately before
-the last story part.
+the last story part by default.
+
+The Author's Note has a depth setting. Depth sets how many story parts from
+the end the note lands before. The default depth is 1. Open the Author's Note
+editor. Press `⌥-` to decrease the depth or `⌥=` to increase it. The request
+viewer shows the placement the note actually used.
 
 The Author's Note is not a Fact. A Fact is reference data. The Author's Note is
 an instruction for the next passage.
@@ -159,16 +261,57 @@ Sampling is an Advanced Settings group. The group starts collapsed.
 Press `,` to open Settings. Select `sampling`. Press `Enter` to open the
 sampling panel.
 
-The sampling panel shows scalar values, stop sequences, and logit bias rows.
-Select a scalar value. Press `Enter` to edit it. Press `Enter` again to keep
-the value.
+The sampling panel holds these parameters:
 
-Select `stop sequences`. Press `n` to add a stop string. Press `Enter` to edit
-a stop string. Press `d` to delete a stop string. Press `Left Arrow` or
-`Right Arrow` to reorder stop strings.
+- Top P, Top K, Min P, frequency penalty, presence penalty, and repeat
+  penalty.
+- Stop sequences and logit bias.
+- DRY multiplier, DRY base, DRY range, and DRY breakers.
+- XTC threshold and XTC chance.
+- Dynamic temperature range, Mirostat, Mirostat tau, and Mirostat eta.
+
+The panel groups the DRY parameters, the XTC parameters, and the
+temperature-shaping parameters under a rule line.
+
+llama.cpp and KoboldCpp are the presets that accept the DRY, XTC, dynamic
+temperature, and Mirostat parameters. 1667 does not send these parameters to
+another preset.
+
+Select a scalar value. Press `Enter` to edit it. Press `Enter` again to keep
+the value. The `mirostat` row reads `off`, `v1`, or `v2`. Press `Left Arrow`
+or `Right Arrow` to step through these three states.
+
+`mirostat tau` and `mirostat eta` need Mirostat on. The TUI shows the reason
+"Mirostat is off." while Mirostat is off.
+
+Select `stop sequences` or `dry breakers`. Press `n` to add a string. Press
+`Enter` to edit the selected string. Press `d` to delete the selected string.
+Press `Left Arrow` or `Right Arrow` to reorder the strings.
+
+1667 sends the DRY breakers only when the list holds one or more strings. An
+empty list lets the provider use its own breakers. 1667 cannot tell a provider
+to use no breakers.
+
+A DRY breaker can hold a maximum of 40 UTF-8 bytes.
 
 Select `logit bias`. Press `n` to add a token-ID and integer-bias row. Press
 `Enter` to edit a row. Press `d` to delete a row.
+
+Select `phrase bias`. Press `n` to add a phrase and an integer weight. Press
+`Enter` to edit a row. Press `d` to delete a row. 1667 tokenizes the phrase
+four ways: as typed, with a leading space, with a capital letter, and with
+both. 1667 accepts the phrase only when every one of the four forms is one
+token. 1667 shows the token IDs for each form.
+
+Select `banned strings`. Press `n` to add a text phrase. Press `Enter` to
+edit a phrase. Press `d` to delete a phrase. 1667 tokenizes a banned string
+the same way as a phrase bias entry, and gives it a strong negative weight.
+A banned string makes the text unlikely. It does not make the text
+impossible, because the same text can come from different token boundaries.
+
+Phrase bias and banned strings work only where 1667 can find the exact
+tokenizer for the routed model. 1667 shows a clear reason next to a row when
+it cannot.
 
 Press `Esc` to return to Settings. Press `s` to save the Settings draft.
 

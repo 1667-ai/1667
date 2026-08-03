@@ -1,7 +1,15 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import type { HitRows, HitTarget } from "../hit.js";
 import type { NextRequestContext, NextRequestEstimate } from "../request-projection.js";
-import { formatTokensEstimate, formatTokensScaled } from "../rail.js";
+import {
+  breakdownFromPerMessage,
+  formatTokensEstimate,
+  formatTokensGraded,
+  formatTokensScaled,
+  resolveTokenCount,
+  type ResolvedTokenCount
+} from "../rail.js";
+import type { PromptTokenCount, TokenCountGrade } from "../../../shared/tokenize-source.js";
 import type { RequestViewerState, StoryScreenState } from "../state.js";
 import { wrapText } from "../wrap.js";
 import {
@@ -35,9 +43,12 @@ export function renderRequestViewerScreen(
   estimate: NextRequestEstimate,
   width: number,
   height: number,
-  deadlines?: FrameDeadlineCollector
+  deadlines?: FrameDeadlineCollector,
+  /** The lane's freshest answer for this exact projection, already
+   *  freshness-checked by the caller — null when there is none to trust yet. */
+  count: PromptTokenCount | null = null
 ) {
-  const frame = renderRequestViewer(state, context, estimate, request, width, height);
+  const frame = renderRequestViewer(state, context, estimate, request, width, height, count);
   return {
     lines: state.connection.down
       ? renderConnectionBanner(frame.lines, { ...state, hitRows: frame.hitRows }, width, deadlines)
@@ -62,18 +73,23 @@ export function renderRequestViewerScreen(
 export type RequestViewerStory =
   Pick<StoryScreenState, "payload" | "model" | "contextWindow">;
 
-/** Render the provider-neutral request plan as one terminal document. */
+/** Render the provider-neutral request plan as one terminal document.
+ *  `count` is the lane's freshest answer for this exact projection, already
+ *  freshness-checked by the caller — null renders every number as today's
+ *  plain estimate. */
 export function renderRequestViewer(
   story: RequestViewerStory,
   context: NextRequestContext,
   estimate: NextRequestEstimate,
   request: RequestViewerState,
   width: number,
-  height: number
+  height: number,
+  count: PromptTokenCount | null = null
 ): RequestViewerFrame {
-  const header = requestHeader(context, estimate, story.model, story.contextWindow, width);
+  const resolved = resolveTokenCount(estimate, count);
+  const header = requestHeader(context, estimate, story.model, story.contextWindow, width, resolved);
   const cursor = Math.max(0, Math.min(Math.max(0, estimate.messages.length - 1), request.cursor));
-  const body = requestBody(estimate, width, cursor);
+  const body = requestBody(estimate, width, cursor, resolved);
   const bodyHeight = Math.max(0, height - header.length - 2);
   const maxScroll = Math.max(0, body.rows.length - bodyHeight);
   const reveal = body.starts[cursor] ?? 0;
@@ -145,29 +161,56 @@ function requestBreadcrumb(
   });
 }
 
+/** `tokens exact`, `tokens near-exact`, or `tokens estimated` — the route
+ *  line's statement of where the header's and the body's numbers came from. */
+function tokenSourceLabel(grade: TokenCountGrade): string {
+  return grade === "exact" ? "tokens exact"
+    : grade === "near-exact" ? "tokens near-exact"
+    : "tokens estimated";
+}
+
 function requestHeader(
   context: NextRequestContext,
   estimate: NextRequestEstimate,
   model: string,
   contextWindow: number | null,
-  width: number
+  width: number,
+  resolved: ResolvedTokenCount
 ): FrameLine[] {
   const window = contextWindow === null ? "unknown" : formatTokensScaled(contextWindow);
   const boundary = estimate.plan.requiresEcho
     ? "boundary echo"
     : estimate.messages.at(-1)?.role === "assistant" ? "assistant prefill" : "new passage";
   const routePrefix = ` operation ${context.operation} · model `;
-  const routeSuffix = ` · context window ${window} · ${boundary}`;
+  const windowAndBoundary = ` · context window ${window} · ${boundary}`;
+  // The provenance statement yields before it would cost the model name its
+  // last visible cell — the same width budget the neighbouring segments use,
+  // widest candidate first (see requestValue in context-meter.ts).
+  const suffixCandidates = [
+    ` · context window ${window} · ${tokenSourceLabel(resolved.totalGrade)} · ${boundary}`,
+    windowAndBoundary
+  ];
+  const routeSuffix = suffixCandidates.find((candidate) =>
+    width - visibleWidth(routePrefix) - visibleWidth(candidate) >= 1
+  ) ?? windowAndBoundary;
   const modelWidth = Math.max(0, width - visibleWidth(routePrefix) - visibleWidth(routeSuffix));
+  const breakdown = breakdownFromPerMessage(estimate.plan.entries, resolved.perMessage);
   const lines: FrameLine[] = [
-    titleLine(`next request ━ ${estimate.messages.length} messages ━ ${formatTokensEstimate(estimate.tokens)}`, width),
+    titleLine(
+      `next request ━ ${estimate.messages.length} messages ━ ${formatTokensGraded(resolved.total, resolved.totalGrade)}`,
+      width
+    ),
     [
       segment(routePrefix, "chrome"),
       segment(truncate(model, modelWidth), "chrome"),
       segment(routeSuffix, "chrome")
     ],
     [segment(
-      ` voice ${formatTokensEstimate(estimate.breakdown.voice)} · facts ${formatTokensEstimate(estimate.breakdown.facts)} · note ${formatTokensEstimate(estimate.breakdown.note)} · story ${formatTokensEstimate(estimate.breakdown.recent)} · summaries ${formatTokensEstimate(estimate.breakdown.summary)}`,
+      ` voice ${formatTokensGraded(breakdown.voice, resolved.perMessageGrade)}`
+        + ` · facts ${formatTokensGraded(breakdown.facts, resolved.perMessageGrade)}`
+        + ` · note ${formatTokensGraded(breakdown.note, resolved.perMessageGrade)}`
+        + ` · story ${formatTokensGraded(breakdown.recent, resolved.perMessageGrade)}`
+        + ` · summaries ${formatTokensGraded(breakdown.summary, resolved.perMessageGrade)}`,
       "chrome"
     )]
   ];
@@ -189,7 +232,8 @@ function substitutionNotices(estimate: NextRequestEstimate): string[] {
 function requestBody(
   estimate: NextRequestEstimate,
   width: number,
-  cursor: number
+  cursor: number,
+  resolved: ResolvedTokenCount
 ): { rows: BodyRow[]; starts: number[] } {
   const rows: BodyRow[] = [];
   const starts: number[] = [];
@@ -225,7 +269,7 @@ function requestBody(
     });
     const source = entrySource(entry);
     const messagePrefix = ` ${String(index + 1).padStart(2, "0")} ${message.role.toUpperCase()} · ${entry.category} · `;
-    const tokenSuffix = ` · ${formatTokensEstimate(estimate.messageTokenCounts[index]!)}`;
+    const tokenSuffix = ` · ${formatTokensGraded(resolved.perMessage[index]!, resolved.perMessageGrade)}`;
     const sourceWidth = Math.max(
       0,
       width - visibleWidth(messagePrefix) - visibleWidth(tokenSuffix)

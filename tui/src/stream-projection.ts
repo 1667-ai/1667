@@ -1,4 +1,5 @@
 import { DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
+import { activeHumanAttribution, attributionAfterReplacement } from "../../shared/human-edit.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
 import {
   appendContinuationText,
@@ -7,10 +8,17 @@ import {
   type IncrementalWordCount
 } from "../../shared/story-text.js";
 import { estimateTokens } from "../../shared/tokens.js";
-import { MAX_RECENT_LINES, type NodeStub, type StoryNode, type StoryPayload } from "../../shared/types.js";
+import {
+  MAX_RECENT_LINES,
+  type HumanEditAttribution,
+  type NodeStub,
+  type StoryNode,
+  type StoryPayload
+} from "../../shared/types.js";
 import type { StreamView } from "./state.js";
 import {
   streamHasSubstantiveText,
+  streamMode,
   streamTrimmedText
 } from "./stream-text.js";
 
@@ -39,6 +47,12 @@ interface ProjectionEntry {
   node: StoryNode;
   /** Null only when the payload has no stub for the streamed path node. */
   stub: NodeStub | null;
+  /** The rewrite target's attribution before this stream began, so every
+   *  delta batch can recompute node.attribution from the same original
+   *  ranges instead of compounding shifts frame over frame. Null for take
+   *  and append: append only ever extends settled text (nothing earlier
+   *  shifts), and a take starts from no attribution at all. */
+  targetAttribution: HumanEditAttribution | null;
 }
 
 const PROJECTIONS = new WeakMap<StoryPayload, ProjectionEntry>();
@@ -58,16 +72,39 @@ export function projectStreamedPayload(
 ): StoryPayload {
   if (stream === null) return payload;
   const substantive = streamHasSubstantiveText(stream);
-  if (!substantive && (!options.includePendingTake || stream.append)) return payload;
+  // A rewrite target already exists on the path — unlike a claimed new take,
+  // there is no "pending" shape worth showing before real replacement text
+  // lands, so it stays unprojected (and the passage never blinks empty).
+  if (!substantive
+    && (streamMode(stream) !== "take" || !options.includePendingTake)) {
+    return payload;
+  }
   return projectionFor(payload, stream, substantive)?.projected ?? payload;
 }
 
-/** Combined settled+streamed text for the append target — the memoized
- * projection's one string per delta batch, shared by the frame and the wrap
- * planner. Falls back to a direct join when the stream cannot attach. */
-export function projectedAppendText(payload: StoryPayload, stream: StreamView, target: StoryNode): string {
+/** Combined settled+streamed node for an append or rewrite target — the
+ * memoized projection's one node per delta batch, shared by the frame and
+ * the wrap planner, carrying both the spliced text and (for a rewrite) the
+ * recomputed attribution — so both readers derive the same human-edit runs
+ * from the same node instead of one of them re-deriving from stale spans.
+ * The fallback covers a stream that cannot attach, and mirrors its own mode:
+ * a fallback that joined rewrite bytes onto the end would put the
+ * replacement where the splice never goes. */
+export function projectedPart(payload: StoryPayload, stream: StreamView, target: StoryNode): StoryNode {
   const entry = projectionFor(payload, stream, true);
-  return entry?.node.text ?? appendContinuationText(target.text, stream.text);
+  if (entry !== null) return entry.node;
+  if (streamMode(stream) === "rewrite") {
+    const rewrite = stream.rewrite!;
+    const replacement = streamTrimmedText(stream);
+    return {
+      ...target,
+      text: spliceRewriteText(target.text, rewrite, replacement),
+      attribution: attributionAfterReplacement(
+        activeHumanAttribution(target), rewrite.start, rewrite.end, replacement.length, target.text.length
+      )
+    };
+  }
+  return { ...target, text: appendContinuationText(target.text, stream.text) };
 }
 
 function projectionFor(
@@ -80,9 +117,18 @@ function projectionFor(
     refreshProjection(cached, stream, substantive);
     return cached;
   }
-  const entry = stream.append
-    ? appendProjection(payload, stream)
-    : takeProjection(payload, stream, substantive ? streamTrimmedText(stream) : "");
+  let entry: ProjectionEntry | null;
+  switch (streamMode(stream)) {
+    case "rewrite":
+      entry = rewriteProjection(payload, stream, substantive ? streamTrimmedText(stream) : "");
+      break;
+    case "append":
+      entry = appendProjection(payload, stream);
+      break;
+    case "take":
+      entry = takeProjection(payload, stream, substantive ? streamTrimmedText(stream) : "");
+      break;
+  }
   if (entry !== null) PROJECTIONS.set(payload, entry);
   return entry;
 }
@@ -92,13 +138,35 @@ function projectionFor(
  * untouched stub keep their identity for downstream memos. */
 function refreshProjection(entry: ProjectionEntry, stream: StreamView, substantive: boolean): void {
   if (stream.text.length === entry.projectedLength) return;
-  if (stream.text.length > entry.scannedLength) {
-    entry.wordState = appendWordCount(entry.wordState, stream.text.slice(entry.scannedLength));
-    entry.scannedLength = stream.text.length;
+  const mode = streamMode(stream);
+  switch (mode) {
+    case "rewrite": {
+      // A rewrite splices new words into the middle of settled prose, so the
+      // seams themselves can gain or lose whitespace/word boundaries that an
+      // incremental tally of only the new bytes cannot see. Recount the whole
+      // projected node every delta batch instead — one part's worth of work,
+      // never the story's.
+      const rewrite = stream.rewrite!;
+      const replacement = substantive ? streamTrimmedText(stream) : "";
+      entry.node.text = spliceRewriteText(entry.settledText, rewrite, replacement);
+      entry.node.attribution = attributionAfterReplacement(
+        entry.targetAttribution, rewrite.start, rewrite.end, replacement.length, entry.settledText.length
+      );
+      entry.wordState = appendWordCount(WORD_COUNT_START, entry.node.text);
+      entry.scannedLength = stream.text.length;
+      break;
+    }
+    case "append":
+    case "take":
+      if (stream.text.length > entry.scannedLength) {
+        entry.wordState = appendWordCount(entry.wordState, stream.text.slice(entry.scannedLength));
+        entry.scannedLength = stream.text.length;
+      }
+      entry.node.text = mode === "append"
+        ? appendContinuationText(entry.settledText, stream.text)
+        : substantive ? streamTrimmedText(stream) : "";
+      break;
   }
-  entry.node.text = stream.append
-    ? appendContinuationText(entry.settledText, stream.text)
-    : substantive ? streamTrimmedText(stream) : "";
   if (entry.stub !== null) applyStreamedText(entry.stub, entry.node, entry.wordState.words);
   entry.projectedLength = stream.text.length;
 }
@@ -176,7 +244,7 @@ function takeProjection(payload: StoryPayload, stream: StreamView, text: string)
     recentNodeIds,
     activeRootId: stream.parentId === null ? stream.targetId : payload.activeRootId
   };
-  return projectionEntry(stream, "", wordState, projected, node, streamedStub);
+  return projectionEntry(stream, "", wordState, projected, node, streamedStub, null);
 }
 
 function appendProjection(payload: StoryPayload, stream: StreamView): ProjectionEntry | null {
@@ -203,7 +271,52 @@ function appendProjection(payload: StoryPayload, stream: StreamView): Projection
     return streamedStub;
   });
   const projected: StoryPayload = { ...payload, path, nodes };
-  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub);
+  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub, null);
+}
+
+/** The target keeps its id and path position; only its text changes, spliced
+ * exactly where the server will splice the committed replacement. Its
+ * attribution is recomputed the same way `applyRewrite`
+ * (server/story-provider-effect.ts) commits it, so a human-authored passage
+ * never paints the model's mid-splice words as the writer's own. */
+function rewriteProjection(payload: StoryPayload, stream: StreamView, text: string): ProjectionEntry | null {
+  const rewrite = stream.rewrite;
+  if (rewrite === undefined) return null;
+  const targetIndex = payload.path.findIndex((node) => node.id === stream.targetId);
+  if (targetIndex < 0) return null;
+  const target = payload.path[targetIndex]!;
+  const spliced = spliceRewriteText(target.text, rewrite, text);
+  const wordState = appendWordCount(WORD_COUNT_START, spliced);
+  const targetAttribution = activeHumanAttribution(target);
+  const node: StoryNode = {
+    ...target,
+    text: spliced,
+    attribution: attributionAfterReplacement(targetAttribution, rewrite.start, rewrite.end, text.length, target.text.length),
+    updatedAt: stream.startedAt
+  };
+  const path = payload.path.map((part, index) => index === targetIndex ? node : part);
+  let streamedStub: NodeStub | null = null;
+  const nodes = payload.nodes.map((stub) => {
+    if (stub.id !== node.id) return stub;
+    streamedStub = projectedStub(
+      { ...stub, lastTouched: latestActivity(stub.lastTouched, stream.startedAt) },
+      node,
+      wordState.words
+    );
+    return streamedStub;
+  });
+  const projected: StoryPayload = { ...payload, path, nodes };
+  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub, targetAttribution);
+}
+
+/** Splice the streamed replacement into settled text at the rewrite's
+ * boundary — the same [start, end) the server will splice on commit. */
+function spliceRewriteText(
+  settledText: string,
+  rewrite: NonNullable<StreamView["rewrite"]>,
+  replacement: string
+): string {
+  return settledText.slice(0, rewrite.start) + replacement + settledText.slice(rewrite.end);
 }
 
 function projectionEntry(
@@ -212,7 +325,8 @@ function projectionEntry(
   wordState: IncrementalWordCount,
   projected: StoryPayload,
   node: StoryNode,
-  stub: NodeStub | null
+  stub: NodeStub | null,
+  targetAttribution: HumanEditAttribution | null
 ): ProjectionEntry {
   return {
     stream,
@@ -222,7 +336,8 @@ function projectionEntry(
     wordState,
     projected,
     node,
-    stub
+    stub,
+    targetAttribution
   };
 }
 

@@ -18,11 +18,12 @@ type TextContentBlock = Record<string, unknown> & {
   text: string;
 };
 
-export function buildOpenAiChatRequestBody(
+export async function buildOpenAiChatRequestBody(
   settings: GenerationSettings,
   prompt: PromptPlan,
-  cache: PromptCacheWirePlan
-): Record<string, unknown> {
+  cache: PromptCacheWirePlan,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
   const loweredPrompt = promptCacheAdapter(
     "openai-chat-completions",
     providerRuntimeFor(settings).preset,
@@ -66,7 +67,7 @@ export function buildOpenAiChatRequestBody(
     ...cacheFields
   };
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
-  applySamplingFields(body, settings, "openai-chat-completions");
+  await applySamplingFields(body, settings, "openai-chat-completions", signal);
   applyGenerationEffort(body, settings, "openai");
   return body;
 }
@@ -78,11 +79,12 @@ function sendsTemperature(settings: GenerationSettings): boolean {
     && providerRuntimeFor(settings).capabilities.temperature !== "unsupported";
 }
 
-export function buildAnthropicMessagesRequestBody(
+export async function buildAnthropicMessagesRequestBody(
   settings: GenerationSettings,
   prompt: PromptPlan,
-  cache: PromptCacheWirePlan
-): Record<string, unknown> {
+  cache: PromptCacheWirePlan,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
   const loweredPrompt = foldAuthorsNote(prompt);
   let system: string | readonly TextContentBlock[];
   let messages: unknown;
@@ -135,7 +137,7 @@ export function buildAnthropicMessagesRequestBody(
   };
   if (system.length > 0) body.system = system;
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
-  applySamplingFields(body, settings, "anthropic-messages");
+  await applySamplingFields(body, settings, "anthropic-messages", signal);
   if ("top_p" in body) delete body.temperature;
   applyGenerationEffort(body, settings, "anthropic");
   return body;

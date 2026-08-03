@@ -349,7 +349,7 @@ describe("inline editor", () => {
     const { source, state, press } = editorHarness();
 
     await openAuthorBriefFromPalette(state, press);
-    expect(documentEditor(state).target.kind).toBe("author-brief");
+    expect(documentEditor(state).target).toMatchObject({ kind: "story-scalar", field: "author-brief" });
     setComposerText(state.editor!.composer, "Write in short, clipped sentences.");
     await press(key("s", { sequence: "", ctrl: true }));
 

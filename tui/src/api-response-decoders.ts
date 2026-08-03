@@ -10,7 +10,25 @@ import type {
   StoryPayload,
   StorySummary
 } from "../../shared/types.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
+import {
+  SAMPLING_BIAS_VARIANT_VALUES,
+  TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
+  type SamplingBiasEntryResolution,
+  type SamplingBiasResolutionResult,
+  type SamplingBiasShadowOwner,
+  type SamplingBiasVariant,
+  type SamplingBiasVariantOutcome,
+  type SamplingBiasVariantResolution,
+  type TokenizerUnavailableCause
+} from "../../shared/sampling-capabilities.js";
+import {
+  COUNTED_TOKENIZE_SOURCE_VALUES,
+  TOKEN_COUNT_FALLBACK_VALUES,
+  TOKENIZE_SOURCE_CONTRACTS,
+  type PromptTokenCount
+} from "../../shared/tokenize-source.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
 } from "../../shared/settings-response-decoder.js";
@@ -154,6 +172,192 @@ export function decodeContextWindowResponse(value: unknown): { contextWindow: nu
   };
 }
 
+export function decodeSamplingBiasResolutionResponse(
+  value: unknown
+): SamplingBiasResolutionResult {
+  const label = "sampling bias resolution";
+  const response = responseRecord(value, label);
+  const kind = response.kind;
+  if (kind === "tokenizer-unavailable") {
+    return { kind, cause: decodeTokenizerUnavailableCause(response.cause, label) };
+  }
+  if (kind !== "resolved") invalidField(label, "kind");
+  return {
+    kind: "resolved",
+    logitBias: decodeLogitBiasRecord(response.logitBias, label),
+    phraseBias: decodeSamplingBiasEntryList(response.phraseBias, label),
+    bannedStrings: decodeSamplingBiasEntryList(response.bannedStrings, label),
+    resolvedEntryCount: nonNegativeIntegerField(response, "resolvedEntryCount", label)
+  };
+}
+
+function decodeTokenizerUnavailableCause(value: unknown, label: string): TokenizerUnavailableCause {
+  if (typeof value !== "string"
+    || !(TOKENIZER_UNAVAILABLE_CAUSE_VALUES as readonly string[]).includes(value)
+  ) {
+    invalidField(label, "cause");
+  }
+  return value as TokenizerUnavailableCause;
+}
+
+function decodeLogitBiasRecord(value: unknown, label: string): Readonly<Record<string, number>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    invalidField(label, "logitBias");
+  }
+  const record = value as Record<string, unknown>;
+  for (const weight of Object.values(record)) {
+    if (typeof weight !== "number" || !Number.isFinite(weight)) invalidField(label, "logitBias");
+  }
+  return record as Readonly<Record<string, number>>;
+}
+
+function decodeSamplingBiasEntryList(
+  value: unknown,
+  label: string
+): readonly SamplingBiasEntryResolution[] {
+  if (!Array.isArray(value)) invalidField(label, "entries");
+  return value.map((entry) => decodeSamplingBiasEntry(entry, `${label} entry`));
+}
+
+function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEntryResolution {
+  const record = responseRecord(value, label);
+  const phrase = stringField(record, "phrase", label);
+  const variants = decodeSamplingBiasVariantList(record.variants, label);
+  if (record.kind === "rejected") return { kind: "rejected", phrase, variants };
+  if (record.kind === "shadowed") {
+    return {
+      kind: "shadowed",
+      phrase,
+      variants,
+      tokenIds: decodeTokenIdArray(record.tokenIds, label),
+      conflicts: decodeSamplingBiasConflictList(record.conflicts, label)
+    };
+  }
+  if (record.kind !== "resolved") invalidField(label, "kind");
+  return { kind: "resolved", phrase, variants, tokenIds: decodeTokenIdArray(record.tokenIds, label) };
+}
+
+function decodeTokenIdArray(value: unknown, label: string): readonly number[] {
+  if (!Array.isArray(value) || value.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+    invalidField(label, "tokenIds");
+  }
+  return value as readonly number[];
+}
+
+function decodeSamplingBiasConflictList(
+  value: unknown,
+  label: string
+): readonly { readonly tokenId: number; readonly owner: SamplingBiasShadowOwner }[] {
+  if (!Array.isArray(value)) invalidField(label, "conflicts");
+  return value.map((entry) => decodeSamplingBiasConflict(entry, `${label} conflict`));
+}
+
+function decodeSamplingBiasConflict(
+  value: unknown,
+  label: string
+): { readonly tokenId: number; readonly owner: SamplingBiasShadowOwner } {
+  const record = responseRecord(value, label);
+  return {
+    tokenId: nonNegativeIntegerField(record, "tokenId", label),
+    owner: decodeShadowOwner(record.owner, label)
+  };
+}
+
+function decodeShadowOwner(value: unknown, label: string): SamplingBiasShadowOwner {
+  const record = responseRecord(value, `${label} owner`);
+  const source = record.source;
+  if (source === "logitBias") return { source };
+  if (source !== "phraseBias" && source !== "bannedStrings") {
+    invalidField(`${label} owner`, "source");
+  }
+  return { source, phrase: stringField(record, "phrase", `${label} owner`) };
+}
+
+function decodeSamplingBiasVariantList(
+  value: unknown,
+  label: string
+): readonly SamplingBiasVariantResolution[] {
+  if (!Array.isArray(value)) invalidField(label, "variants");
+  return value.map((entry) => decodeSamplingBiasVariantResolution(entry, `${label} variant`));
+}
+
+function decodeSamplingBiasVariantResolution(
+  value: unknown,
+  label: string
+): SamplingBiasVariantResolution {
+  const record = responseRecord(value, label);
+  const variant = record.variant;
+  if (typeof variant !== "string"
+    || !(SAMPLING_BIAS_VARIANT_VALUES as readonly string[]).includes(variant)
+  ) {
+    invalidField(label, "variant");
+  }
+  const text = stringField(record, "text", label);
+  return {
+    variant: variant as SamplingBiasVariant,
+    text,
+    outcome: decodeSamplingBiasVariantOutcome(record.outcome, label)
+  };
+}
+
+function decodeSamplingBiasVariantOutcome(value: unknown, label: string): SamplingBiasVariantOutcome {
+  const record = responseRecord(value, `${label} outcome`);
+  if (record.kind === "unencodable") return { kind: "unencodable" };
+  if (record.kind === "single-token") {
+    const tokenId = record.tokenId;
+    if (!Number.isSafeInteger(tokenId) || (tokenId as number) < 0) {
+      invalidField(`${label} outcome`, "tokenId");
+    }
+    return { kind: "single-token", tokenId: tokenId as number };
+  }
+  if (record.kind === "multi-token") {
+    const tokenIds = record.tokenIds;
+    if (!Array.isArray(tokenIds) || tokenIds.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+      invalidField(`${label} outcome`, "tokenIds");
+    }
+    return { kind: "multi-token", tokenIds: tokenIds as readonly number[] };
+  }
+  invalidField(`${label} outcome`, "kind");
+}
+
+export function decodePromptTokenCount(value: unknown): PromptTokenCount {
+  const response = responseRecord(value, "prompt token count");
+  const kind = response.kind;
+  if (kind === "estimate") {
+    const reason = response.reason;
+    if (!isMember(TOKEN_COUNT_FALLBACK_VALUES, reason)) {
+      invalidField("prompt token count response", "reason");
+    }
+    return { kind: "estimate", reason };
+  }
+  if (kind !== "counted") invalidField("prompt token count response", "kind");
+  const source = response.source;
+  // `none` is not among them: a counted answer names the source that counted it.
+  if (!isMember(COUNTED_TOKENIZE_SOURCE_VALUES, source)) {
+    invalidField("prompt token count response", "source");
+  }
+  // A source is not free to claim any grade, nor a split it cannot produce.
+  // Both are fixed by the source itself (shared/tokenize-source.ts), so a
+  // response disagreeing with its own source is malformed, not a stronger
+  // answer — accepting it would take the mark off a number that never earned
+  // one.
+  const contract = TOKENIZE_SOURCE_CONTRACTS[source];
+  if (response.grade !== contract.grade) invalidField("prompt token count response", "grade");
+  const perMessage = decodePerMessageTokenCounts(response.perMessage, "prompt token count response");
+  if (!contract.perMessage && perMessage !== null) {
+    invalidField("prompt token count response", "perMessage");
+  }
+  return {
+    kind: "counted",
+    source,
+    // Taken from the contract, not the wire: the two were just proved equal,
+    // and the contract is the side that decides.
+    grade: contract.grade,
+    total: nonNegativeIntegerField(response, "total", "prompt token count response"),
+    perMessage
+  };
+}
+
 export function decodeUnknownOutcomeStatusResponse(
   value: unknown
 ):
@@ -186,6 +390,34 @@ export function decodeUnknownOutcomeStatusResponse(
 export function decodeStoryResponse(value: unknown): StoryPayload {
   assertPromptReadyStoryPayload(value);
   return value;
+}
+
+const FACT_DROP_REASONS: ReadonlySet<string> = new Set(["priority", "fact-budget", "total-budget"]);
+
+/** What generation admission actually shed to fit the fixed prompt — see
+ *  server/generation-admission.ts. Empty on every response but a real
+ *  continuation is expected and is not itself an error. */
+export function decodeFactBudgetDrops(value: unknown): FactBudgetDrop[] {
+  if (!Array.isArray(value)) throw new Error("The server returned an invalid dropped-facts list.");
+  return value.map((entry) => {
+    const record = responseRecord(entry, "dropped fact");
+    const factId = stringField(record, "factId", "dropped fact");
+    const reason = record.reason;
+    if (typeof reason !== "string" || !FACT_DROP_REASONS.has(reason)) {
+      invalidField("dropped fact", "reason");
+    }
+    return { factId, reason: reason as FactBudgetDrop["reason"] };
+  });
+}
+
+export function decodeContinueStoryResponse(
+  value: unknown
+): { payload: StoryPayload; droppedFacts: FactBudgetDrop[] } {
+  const record = responseRecord(value, "continue-story result");
+  return {
+    payload: decodeStoryResponse(record.story),
+    droppedFacts: decodeFactBudgetDrops(record.droppedFacts)
+  };
 }
 
 export function decodeChapterBreakCreatedResponse(
@@ -299,6 +531,25 @@ function nullablePositiveIntegerField(
 ): number | null {
   if (value[field] === null) return null;
   return positiveIntegerField(value, field, label);
+}
+
+/** Aligned one-to-one with the counted messages, or null when the source
+ *  counts only a complete array. */
+function decodePerMessageTokenCounts(value: unknown, label: string): readonly number[] | null {
+  if (value === null) return null;
+  if (
+    !Array.isArray(value)
+    || !value.every((entry) => typeof entry === "number" && Number.isSafeInteger(entry) && entry >= 0)
+  ) {
+    invalidField(label, "perMessage");
+  }
+  return value as readonly number[];
+}
+
+/** Narrow a wire value against the shared list that declares it, so a decoder
+ * never carries its own copy of a union that can grow without it. */
+function isMember<T extends string>(values: readonly T[], candidate: unknown): candidate is T {
+  return typeof candidate === "string" && (values as readonly string[]).includes(candidate);
 }
 
 function booleanField(value: Record<string, unknown>, field: string, label: string): boolean {

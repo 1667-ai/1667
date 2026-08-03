@@ -247,7 +247,7 @@ async function handleApi(
       return sendJson(response, 200, await service.saveSettings({
         ...command,
         transportOperationId: ticket
-      }));
+      }, operation.signal));
     }
   }
   if (head === "settings" && id === "pending" && method === "DELETE") {
@@ -277,6 +277,22 @@ async function handleApi(
       response,
       200,
       await service.discoverModels(await jsonBody(), operation.signal)
+    );
+  }
+  if (head === "settings" && id === "resolve-sampling-bias" && method === "POST") {
+    return sendJson(
+      response,
+      200,
+      await service.resolveSamplingBias(await jsonBody(), operation.signal)
+    );
+  }
+  // No settings and no story id: this always counts against the backend's
+  // own effective prose route, so the body carries only the messages.
+  if (head === "settings" && id === "count-tokens" && method === "POST") {
+    return sendJson(
+      response,
+      200,
+      await service.countPromptTokens((await jsonBody()).messages, operation.signal)
     );
   }
 
@@ -332,6 +348,18 @@ async function handleApi(
       await mutate("setAuthorBrief", {
         storyId: id,
         brief: requireStringValue(body.brief, "brief")
+      })
+    );
+  }
+  if (head === "stories" && id !== undefined
+    && sub === "facts-budget" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setFactsBudget", {
+        storyId: id,
+        budgetTokens: body.budgetTokens
       })
     );
   }
@@ -420,7 +448,7 @@ async function handleApi(
           })
         }
       }, onDelta, signal),
-      (story) => ({ type: "done", story }),
+      (result) => ({ type: "done", story: result.payload, droppedFacts: result.droppedFacts }),
       operation.signal,
       context.errorReporter,
       "continueStory");
@@ -547,7 +575,7 @@ async function handleApi(
         onDelta,
         signal
       ),
-      () => ({ type: "done" }),
+      (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
       context.errorReporter,
       "rewriteNode");
@@ -626,6 +654,14 @@ async function handleApi(
         factId: subId
       }));
     }
+  }
+  if (head === "stories" && id !== undefined && sub === "facts"
+    && subId !== undefined && action === "reorder" && method === "POST") {
+    return sendJson(response, 200, await mutate("reorderFact", {
+      storyId: id,
+      factId: subId,
+      body: await jsonBody()
+    }));
   }
   if (head === "stories" && id !== undefined && sub === "import-lorebook" && method === "POST") {
     const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);

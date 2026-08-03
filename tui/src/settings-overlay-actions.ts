@@ -12,7 +12,7 @@ import {
   resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
   samplingKnobLabel,
-  type SamplingUnavailableReason
+  samplingUnavailableReasonCompact
 } from "../../shared/sampling-capabilities.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
@@ -27,6 +27,7 @@ import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { samplingOverlayAction } from "./sampling-actions.js";
+import { resolveSamplingBias } from "./sampling-bias-resolution.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -215,8 +216,11 @@ export async function settingsOverlayAction(
         cursor: 0,
         logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
         edit: null,
-        result: null
+        result: null,
+        biasResolution: { kind: "idle" },
+        resolutionGeneration: 0
       };
+      resolveSamplingBias(overlay, source, context);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }
@@ -444,21 +448,11 @@ function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: s
   for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
     if (resolution.kind === "unavailable") {
       throw new Error(
-        `${samplingKnobLabel(knob)} is unavailable · ${SAMPLING_UNAVAILABLE_REASON_COMPACT[resolution.reason]}`
+        `${samplingKnobLabel(knob)} is unavailable · ${samplingUnavailableReasonCompact(resolution.reason)}`
       );
     }
   }
 }
-
-const SAMPLING_UNAVAILABLE_REASON_COMPACT: Readonly<Record<SamplingUnavailableReason, string>> = {
-  "legacy-v1": "read-only",
-  "dry-run": "dry run",
-  protocol: "not in protocol",
-  "preset-unsupported": "not in preset",
-  "preset-unknown": "unknown endpoint",
-  "model-unsupported": "model unsupported",
-  "model-unknown": "model unknown"
-};
 
 /** A credential-touching save activates inside the save request, so the
  * mutation result itself reports this save's activation outcome. */

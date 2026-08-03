@@ -3,8 +3,12 @@ import type {
   StoryFact,
   StoryNode,
   StoryPayload,
-  StorySummary
+  StorySummary,
+  TextRange
 } from "../../shared/types.js";
+import type { FactPriority } from "../../shared/fact-activation.js";
+import type { FactDraft } from "../../shared/fact-draft.js";
+import type { FactEditorRow } from "./fact-editor-rows.js";
 import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
 import type { NoticeLog } from "./notice-log.js";
@@ -25,13 +29,18 @@ import type {
   SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import type {
   ComposerSelectionProjection,
+  ProjectedStorySelection,
   StorySelectionProjection,
   StorySelectionSpan
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import type { PromptProjectionIdentity } from "./request-context.js";
+import type { StoryScalarField } from "./story-scalar-fields.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -46,6 +55,9 @@ export interface StreamView {
   targetId: string;
   parentId: string | null;
   append: boolean;
+  /** Set for a highlighted rewrite: the node keeps its id, and the streamed
+   *  replacement splices into [start, end) of its settled text in place. */
+  rewrite?: Readonly<TextRange>;
   /** Client wall-clock time when this visible stream claimed the request. */
   startedAt: string;
   /** Explicit composer-owner epoch at launch. Legacy stop restoration may
@@ -122,6 +134,9 @@ export interface CommandsOverlayState {
   view: "commands" | "tags";
   /** Surface that owns the composer while the palette is open. */
   returnMode: "NAV" | "COMPOSE";
+  /** Story selection captured at open time — the NAV projection it reads
+   *  only exists for that one frame, so a later keystroke cannot rebuild it. */
+  selection?: ProjectedStorySelection | null;
 }
 export interface ChaptersOverlayState {
   cursor: number;
@@ -160,16 +175,44 @@ export interface SettingsInlineEditState extends SettingsEditBufferState {
   mode: "text" | "secret";
 }
 
-export type SamplingPanelId = "sampling" | "stop" | "logit-bias";
+export type SamplingPanelId =
+  | "sampling"
+  | "stop"
+  | "logit-bias"
+  | "phrase-bias"
+  | "banned-strings"
+  | "dry-breakers";
+export type SamplingListPanel = Exclude<SamplingPanelId, "sampling">;
 
+/** One shape for every list panel's inline editor, discriminated by `panel`
+ * instead of four near-identical `kind` variants — every list panel edits
+ * one row's text through the same composer regardless of what that row's
+ * value looks like (tui/src/sampling-panel-spec.ts owns the per-panel
+ * parse/validate/apply logic). */
 export type SamplingInlineEditState =
   | (SettingsEditBufferState & {
       kind: "scalar";
       index: number;
       knob: SamplingScalarKnobV2;
     })
-  | (SettingsEditBufferState & { kind: "stop"; index: number })
-  | (SettingsEditBufferState & { kind: "logit-bias"; index: number });
+  | (SettingsEditBufferState & { kind: "list"; panel: SamplingListPanel; index: number });
+
+/** The last resolveSamplingBias response for the current draft's phraseBias
+ * and bannedStrings — the same worker call and the same merge computation
+ * the provider request uses (server/sampling-phrase-bias.ts), fetched once
+ * per sampling-editor session and once per commit
+ * (tui/src/sampling-bias-resolution.ts), not once per phrase.
+ *
+ * "failed" (issue #282 review round 2, finding 5) is the worker call itself
+ * throwing — a transport failure, not a documented outcome — carrying a
+ * message so the row says why instead of claiming to still be working. It
+ * is a dead end, not a stage of "pending": nothing but a fresh
+ * resolveSamplingBias call (a new commit, or reopening the panel) leaves it. */
+export type SamplingBiasResolutionState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "ready"; readonly result: SamplingBiasResolutionResult };
 
 export interface SamplingOverlayState {
   panel: SamplingPanelId;
@@ -177,6 +220,14 @@ export interface SamplingOverlayState {
   logitBiasOrder: string[];
   edit: SamplingInlineEditState | null;
   result: string | null;
+  biasResolution: SamplingBiasResolutionState;
+  /** Bumped by every resolveSamplingBias call (tui/src/sampling-bias-
+   * resolution.ts) and captured by the request it starts — `pending` is set
+   * synchronously but cleared asynchronously, so two overlapping commits
+   * (issue #282 review round 2, finding 5) can otherwise land in either
+   * order with only panel identity as a staleness guard. A stale request's
+   * result is dropped rather than overwriting a newer one's. */
+  resolutionGeneration: number;
 }
 
 export interface SettingsOverlaySaveIntent {
@@ -233,6 +284,16 @@ export interface RequestViewerState {
   returnMode: "NAV" | "COMPOSE";
 }
 
+/** The last answer the token-count lane published, held against the exact
+ *  projection inputs and the route that produced it. The render path trusts it
+ *  only while both still match, so a rendered mark always describes the prompt
+ *  on screen and the connection that would receive it. */
+export interface PromptTokenCountRecord {
+  readonly identity: PromptProjectionIdentity;
+  readonly route: string;
+  readonly count: PromptTokenCount;
+}
+
 export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
@@ -246,7 +307,12 @@ export type InlineEditorTarget =
       /** Current draft depth. Saving the note sends this alongside the text. */
       depth: number;
     }
-  | { kind: "author-brief"; expected: string }
+  /** Author Brief or the Facts budget — see story-scalar-fields.ts, whose
+   *  table is the one place their difference lives. `expected` is the
+   *  field's authoritative value as composer text — for facts-budget that
+   *  means "empty is unset", matching the composer's own text, so
+   *  reconciliation compares like the Author's Note editor does. */
+  | { kind: "story-scalar"; field: StoryScalarField; expected: string }
   | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
 
 export interface FactEditorTarget {
@@ -283,10 +349,17 @@ export interface FactEditorSession extends EditorSessionBase {
   tag: ComposerState;
   activation: StoryFact["activation"];
   keys: ComposerState;
-  focus: "tag" | "activation" | "keys" | "body";
-  initialFact: Pick<StoryFact, "tag" | "activation" | "keys" | "text">;
+  priority: FactPriority;
+  /** Budget as typed text; empty means "no budget set". Parsed on commit,
+   *  the same way authorsNote and Fact keys already are. */
+  budget: ComposerState;
+  focus: FactEditorRow;
+  /** Draft-of-Fact: what the editor would already match if nothing changed —
+   *  see shared/fact-draft.ts. Rebased on a clean reconcile, replaced on save. */
+  initialFact: FactDraft;
   tagCutConfirmation: EditorSessionBase["cutConfirmation"];
   keysCutConfirmation: EditorSessionBase["cutConfirmation"];
+  budgetCutConfirmation: EditorSessionBase["cutConfirmation"];
 }
 
 export type DocumentEditorSession =
@@ -351,6 +424,13 @@ export interface StoryScreenState extends OverlayState {
         stopInteractionVersion: number | null;
       }
     | { kind: "summary"; controller: AbortController }
+    /** `committed` becomes true once the API call has minted a durable take,
+     *  server-side — see `runSelectionRewrite` (rewrite-action.ts). Past
+     *  that point a stop or a failed confirming reload must never resurrect
+     *  the pre-rewrite draft; requestRewriteStop and the reload's catch
+     *  branch both gate on this flag instead of assuming an abort or an
+     *  error always means nothing was saved. */
+    | { kind: "rewrite"; controller: AbortController; committed: boolean }
     | null;
   freshLandedAt: ReadonlyMap<string, number>;
   now: number;
@@ -391,6 +471,13 @@ export interface StoryScreenState extends OverlayState {
   storySelectionProjection: StorySelectionProjection | null;
   /** Visible owner for the one unsettled backend action. */
   backendTask: { id: number; kind: BackendTaskKind; label: string; storyId: string } | null;
+  /** The freshest counted (or estimate) answer for the projected next request,
+   *  or null before the lane has ever answered for this story. */
+  promptTokenCount: PromptTokenCountRecord | null;
+  /** Identity of the prose route the backend counts against. A token count
+   *  belongs to the route that produced it, and this is what tells two routes
+   *  apart — see `generationRouteKey` and PromptTokenCountRecord. */
+  generationRoute: string;
 }
 
 export type PendingGenerationDraft =
@@ -421,9 +508,23 @@ export interface RetakePromptReturnState {
   historyWasLive: boolean;
 }
 
-/** One movable owner spanning prompt entry and its pending generation. */
+/** What a prompt session's composed text will do on send. A discriminated
+ *  union rather than an optional field on the session, so a session can never
+ *  claim to be both — or neither — and the send path can switch on `kind`
+ *  instead of inferring intent from which optional fields happen to be set.
+ *  `rewrite` carries the target range resolved when the composer opened;
+ *  the send path re-resolves it against the live payload rather than trust
+ *  offsets that may no longer describe the passage. */
+export type PromptIntent =
+  | { kind: "retake" }
+  | { kind: "rewrite"; start: number; end: number; expected: string };
+
+/** One movable owner spanning prompt entry and its pending generation. The
+ *  name predates the rewrite composer reusing this same machinery; `intent`
+ *  carries which operation `nodeId`'s prompt actually performs. */
 export interface RetakePromptSession {
   nodeId: string;
+  intent: PromptIntent;
   composer: ComposerState;
   composerScrollTop: number;
   returnState: RetakePromptReturnState;

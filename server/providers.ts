@@ -64,7 +64,7 @@ async function* streamOpenAiCompatible(
     "content-type": "application/json"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = buildOpenAiChatRequestBody(settings, prompt, prepared.wire);
+  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, signal);
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
   let totalDeadlineReached = false;
@@ -201,7 +201,7 @@ async function* streamAnthropic(
     "anthropic-version": "2023-06-01"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire);
+  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, signal);
   const refusalKey = samplingRefusalKey(settings);
   if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
   const runtime = providerRuntimeFor(settings);
@@ -487,6 +487,13 @@ export function providerUrl(settings: GenerationSettings, pathName: string): str
     path = path.slice(3);
   }
   return `${base}/${path}`;
+}
+
+/** Strips a trailing /v1 and any trailing slashes to get the server's own
+ *  root, for the handful of provider-specific routes — model lists, context
+ *  probes, native token counts — that live beside /v1 rather than under it. */
+export function providerRoot(settings: GenerationSettings): string {
+  return settings.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
 }
 
 function parseEvent(data: string, secrets: readonly string[]): Record<string, unknown> {

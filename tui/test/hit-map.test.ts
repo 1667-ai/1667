@@ -155,7 +155,9 @@ describe("hit map from rendered frames", () => {
       controller: new AbortController(),
       stopInteractionVersion: null
     };
-    const active = commandMatches("", state.demo, commandContext(state.payload, false, true));
+    const active = commandMatches("", state.demo, commandContext(state.payload, {
+      connectionDown: false, requestActive: true, canRewriteSelection: false
+    }));
     const staleCursor = active.findIndex(({ command }) => command.id === "switch-story");
     state.mode = "COMMANDS";
     state.commands = {
@@ -165,7 +167,9 @@ describe("hit map from rendered frames", () => {
 
     state.stream = null;
     state.abort = null;
-    const settled = commandMatches("", state.demo, commandContext(state.payload, false, false));
+    const settled = commandMatches("", state.demo, commandContext(state.payload, {
+      connectionDown: false, requestActive: false, canRewriteSelection: false
+    }));
     const exportCursor = settled.findIndex(({ command }) => command.id === "export");
     const switchCursor = settled.findIndex(({ command }) => command.id === "switch-story");
     expect(staleCursor).not.toBe(switchCursor);
@@ -186,7 +190,9 @@ describe("hit map from rendered frames", () => {
       ...state.payload,
       tags: state.payload.tags.filter(({ nodeId }) => nodeId !== leafId)
     };
-    const ready = commandMatches("", state.demo, commandContext(state.payload, false, false));
+    const ready = commandMatches("", state.demo, commandContext(state.payload, {
+      connectionDown: false, requestActive: false, canRewriteSelection: false
+    }));
     state.backendTask = {
       id: 41, kind: "connection-reconcile", label: "reloading after reconnect",
       storyId: state.payload.id

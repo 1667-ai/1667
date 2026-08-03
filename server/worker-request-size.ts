@@ -86,6 +86,7 @@ function logicalRequestBody(
     case "renameStory": return { title: input.title };
     case "setAuthorsNote": return { note: input.note, depth: input.depth };
     case "setAuthorBrief": return { brief: input.brief };
+    case "setFactsBudget": return { budgetTokens: input.budgetTokens };
     case "acknowledgeUnknownOutcomes":
       return { originalProviderMutationId: input.originalProviderMutationId };
     case "createChapterBreak": return { parentPartId: input.parentPartId, title: input.title };
@@ -119,6 +120,7 @@ function logicalRequestBody(
     case "takeFromCut":
     case "createFact":
     case "patchFact":
+    case "reorderFact":
     case "rewriteNode":
     case "createSummaryTake":
       return input.body;
@@ -131,6 +133,10 @@ function logicalRequestBody(
     case "probeContextWindow":
     case "discoverModels":
       return input.settings;
+    // Bounded upstream by MAX_COUNTED_PROMPT_CHARS (400,000 characters), well
+    // under this ceiling in every realistic script, so no bespoke limit here.
+    case "countPromptTokens":
+      return input.messages;
     case "continueStory": {
       const target = input.target;
       return target === null || typeof target !== "object" || Array.isArray(target)

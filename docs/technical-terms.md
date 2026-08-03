@@ -21,6 +21,9 @@ read_when:
 | story line | The selected path through story parts |
 | tag | A name and a status on the end of one story line |
 | Fact | One note that 1667 sends with a provider request |
+| Fact priority | The rank 1667 uses to choose which Fact to drop first |
+| Fact budget | The token limit on one Fact |
+| Facts budget | The token limit on the total of a story's Facts |
 | Author's Note | One short instruction that 1667 sends near the end of each provider request |
 | Author's Note depth | The number of story parts from the end where the Author's Note occurs |
 | Author Brief | The story or machine-wide instruction that 1667 sends with each provider request |
@@ -34,10 +37,21 @@ read_when:
 | Fact tag | A category name for a Fact |
 | context meter | The side-rail view of the next provider request size |
 | request viewer | The read-only view of the next provider request plan |
+| tokenize source | The bundled tokenizer or the server endpoint that counts the tokens in one provider request |
+| grade | The quality of a token count: exact count, near-exact count, or token estimate |
+| mark | The symbol that shows a token count's grade |
+| exact count | A token count from a bundled tokenizer, or a server count of a complete message array |
+| near-exact count | A token count of server-tokenized content that 1667 cannot prove against the serving path |
+| token estimate | A token count of four characters for each token |
 | Sampling group | The Settings group for sampling parameters |
 | sampling parameter | One provider request field that changes how the model selects tokens |
 | stop sequence | One text sequence that stops generation |
 | logit bias | A token identifier and a weight that changes token probability |
+| phrase bias | A text phrase and a weight that changes the probability of its tokens |
+| banned string | A text phrase that gets a strong negative token bias |
+| DRY | A sampling parameter group that lowers the probability of a token sequence that would repeat |
+| XTC | A sampling parameter group that removes the model's top token choices at random |
+| Mirostat | A sampling algorithm that holds output perplexity near a target value |
 | mass map | A map that shows all takes |
 | provider | A local or hosted service that supplies a language model |
 | machine tier | Private 1667 data for one machine |

@@ -20,6 +20,12 @@ import {
 import {
   isProviderRecoveryContext
 } from "../shared/provider-recovery.js";
+import {
+  FactBudgetError,
+  parseStoryFactsBudgetTokens,
+  storyFactsBudgetRangeMessage
+} from "../shared/fact-budget.js";
+import { factDraftOf, sameFactDraft } from "../shared/fact-draft.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
 import {
@@ -37,7 +43,7 @@ import {
 import { authorBriefApplied } from "./story-author-brief.js";
 import { authorsNoteApplied } from "./story-authors-note.js";
 import { HASH_PATTERN } from "./story-format.js";
-import { patchFact } from "./story-facts.js";
+import { patchFact, reorderFact } from "./story-facts.js";
 import { nodeRewriteId } from "./story-node-text.js";
 import { storyAutonameId } from "./story-metadata.js";
 import { hasCommittedGeneration } from "./story-nodes.js";
@@ -171,6 +177,28 @@ const MUTATIONS: MutationRegistry = {
       return recovered ?? await service.setAuthorBrief(
         input.storyId,
         input.brief,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setFactsBudget: define<"setFactsBudget">({
+    parse: (value) => {
+      const input = requireRecord(value, "setFactsBudget input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        budgetTokens: parseFactsBudgetTokensInput(input.budgetTokens)
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => (story.factsBudgetTokens ?? null) === input.budgetTokens
+      );
+      return recovered ?? await service.setFactsBudget(
+        input.storyId,
+        input.budgetTokens,
         context.storyMutationRequest
       );
     }
@@ -414,11 +442,15 @@ const MUTATIONS: MutationRegistry = {
         const candidate = structuredClone(story);
         patchFact(candidate, input.factId, input.body);
         const desired = candidate.facts.find((fact) => fact.id === input.factId)!;
-        return current.tag === desired.tag
-          && current.text === desired.text
-          && current.activation === desired.activation
-          && current.keys.length === desired.keys.length
-          && current.keys.every((key, index) => key === desired.keys[index]);
+        // Compare through the shared FactDraft equality rather than listing
+        // fields here — that is what let a `patchFact` touching only priority
+        // or budgetTokens go undetected and read as "already applied" (issue
+        // #281 review finding A). sameFactDraft folds over a mapped-type
+        // table keyed by every FactDraft field (shared/fact-draft.ts), so a
+        // new editable field cannot compile there without a comparison —
+        // this call site does not have to trust that it "already accounts
+        // for it"; the compiler enforces it.
+        return sameFactDraft(factDraftOf(current), factDraftOf(desired));
       });
       return recovered ?? await service.patchFact(
         input.storyId,
@@ -439,6 +471,27 @@ const MUTATIONS: MutationRegistry = {
       return await service.deleteFact(
         input.storyId,
         input.factId,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  reorderFact: define<"reorderFact">({
+    parse: (value) => bodyInputWithId<"reorderFact">(value, "reorderFact", "factId"),
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      // Replay the real mutation on a scratch copy rather than re-deriving its
+      // clamp rule here — the two must never disagree about "already applied".
+      const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) => {
+        if (!story.facts.some((fact) => fact.id === input.factId)) return false;
+        const candidate = structuredClone(story);
+        reorderFact(candidate, input.factId, input.body);
+        return candidate.facts.map((fact) => fact.id)
+          .every((factId, index) => factId === story.facts[index]?.id);
+      });
+      return recovered ?? await service.reorderFact(
+        input.storyId,
+        input.factId,
+        input.body,
         context.storyMutationRequest
       );
     }
@@ -750,7 +803,9 @@ const MUTATIONS: MutationRegistry = {
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
         if (plan.generationAction(hasCommittedGeneration(story, input.genId)) === "return-committed") {
-          return await loadMutationPayload(service, input.storyId);
+          // Recovery has no way to know what a prior attempt's admission
+          // shed — only that the generation itself committed.
+          return { payload: await loadMutationPayload(service, input.storyId), droppedFacts: [] };
         }
       }
       return await service.continueStory(input.storyId, {
@@ -769,18 +824,22 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const rewriteId = plan.entityId("rewrite");
+      // A rewrite mints exactly one new node — the sibling take named by
+      // `takeId` — so its presence on reload is the committed marker: a
+      // provider-uncertain retry that finds it never re-enters the provider.
+      const takeId = plan.entityId("rewrite-take");
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
-        const node = story.nodes.find((candidate) => candidate.id === input.nodeId);
-        if (plan.generationAction(node !== undefined && nodeRewriteId(node) === rewriteId) === "return-committed") {
-          return true;
+        const takeCommitted = story.nodes.some((node) => node.id === takeId);
+        if (plan.generationAction(takeCommitted) === "return-committed") {
+          return takeId;
         }
       }
       return await service.rewriteNode(
         input.storyId, input.nodeId, input.body, context.onDelta, context.signal,
         generationHooks(
           plan,
-          { rewriteId },
+          { rewriteId, takeId },
           context.storyMutationRequest
         )
       );
@@ -930,6 +989,16 @@ function requireAuthorsNoteDepth(value: unknown): number {
 
 function badInput(message: string): ServiceError {
   return new ServiceError(400, message);
+}
+
+function parseFactsBudgetTokensInput(value: unknown): number | null {
+  if (value === null) return null;
+  try {
+    return parseStoryFactsBudgetTokens(value, "budgetTokens");
+  } catch (error) {
+    if (!(error instanceof FactBudgetError)) throw error;
+    throw badInput(storyFactsBudgetRangeMessage("budgetTokens"));
+  }
 }
 
 function requireProviderRecoveryContext(value: unknown) {

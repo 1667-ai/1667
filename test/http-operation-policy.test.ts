@@ -29,6 +29,15 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     }
   );
   assert.deepEqual(
+    httpOperationPolicy("POST", "/api/settings/resolve-sampling-bias"),
+    {
+      // A llama-cpp route resolves against a live tokenize probe on that
+      // server, so this can be a real provider round trip.
+      method: "resolveSamplingBias",
+      lifetime: "provider-check"
+    }
+  );
+  assert.deepEqual(
     httpOperationPolicy("GET", "/api/stories/story/export"),
     {
       method: "exportMarkdown",

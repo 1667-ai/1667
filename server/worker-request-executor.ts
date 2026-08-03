@@ -57,7 +57,7 @@ export async function executeWorkerRequest(
     const onDelta = (text: string) => deltas?.push(text);
     let value: unknown;
     if (isServiceOwnedSettingsMutation(message.method)) {
-      value = await executeSettingsMutation(service, message);
+      value = await executeSettingsMutation(service, message, cancellation.signal);
     } else if (message.mutationId === undefined) {
       value = await invokeReadOnly(
         service,
@@ -133,12 +133,13 @@ export async function executeWorkerRequest(
 
 async function executeSettingsMutation(
   service: StoryService,
-  message: WorkerRequest
+  message: WorkerRequest,
+  signal: AbortSignal
 ): Promise<unknown> {
   const input = requireRecord(message.input, `${message.method} input`);
   const command = requireRecord(input.command, "command");
   return message.method === "saveSettings"
-    ? await service.saveSettings(command)
+    ? await service.saveSettings(command, signal)
     : await service.discardPendingSettings(command);
 }
 
@@ -314,11 +315,15 @@ async function invokeReadOnly(
         requireRecord(input.settings, "settings"),
         signal
       );
+    case "resolveSamplingBias":
+      return await service.resolveSamplingBias(input, signal);
     case "discoverModels":
       return await service.discoverModels(
         requireRecord(input.settings, "settings"),
         signal
       );
+    case "countPromptTokens":
+      return await service.countPromptTokens(input.messages, signal);
     default:
       throw new ServiceError(
         400,

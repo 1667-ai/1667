@@ -8,6 +8,11 @@ import type { ChapterBreak, StoryFact, StoryNode } from "./types.js";
 export const FACT_ACTIVATIONS = ["always", "keyed"] as const;
 export type FactActivation = (typeof FACT_ACTIVATIONS)[number];
 
+/** Shedding rank under window pressure, lowest first: see shared/fact-budget.ts.
+ * `normal` is the default and is never written to disk. */
+export const FACT_PRIORITIES = ["low", "normal", "high"] as const;
+export type FactPriority = (typeof FACT_PRIORITIES)[number];
+
 export const MAX_FACT_KEYS = 32;
 export const MAX_FACT_KEY_SCALARS = 64;
 export const MAX_FACT_SCAN_PARTS = 3;
@@ -23,13 +28,15 @@ export class FactActivationError extends Error {
 export interface FactMetadata {
   activation: FactActivation;
   keys: string[];
+  priority: FactPriority;
 }
 
 /** Parse metadata at a boundary that accepts legacy omission. */
 export function parseFactMetadata(
   activationValue: unknown,
   keysValue: unknown,
-  label = "Fact"
+  label = "Fact",
+  priorityValue?: unknown
 ): FactMetadata {
   const activation = activationValue === undefined
     ? "always"
@@ -37,7 +44,10 @@ export function parseFactMetadata(
   const keys = keysValue === undefined
     ? []
     : parseFactKeys(keysValue, `${label} keys`);
-  return { activation, keys };
+  const priority = priorityValue === undefined
+    ? "normal"
+    : parseFactPriority(priorityValue, `${label} priority`);
+  return { activation, keys, priority };
 }
 
 export function parseFactActivation(value: unknown, label = "Fact activation"): FactActivation {
@@ -45,6 +55,17 @@ export function parseFactActivation(value: unknown, label = "Fact activation"): 
     throw new FactActivationError(`${label} must be "always" or "keyed"`);
   }
   return value;
+}
+
+export function parseFactPriority(value: unknown, label = "Fact priority"): FactPriority {
+  if (!isFactPriority(value)) {
+    throw new FactActivationError(`${label} must be "low", "normal", or "high"`);
+  }
+  return value;
+}
+
+function isFactPriority(value: unknown): value is FactPriority {
+  return (FACT_PRIORITIES as readonly unknown[]).includes(value);
 }
 
 export function parseFactKeys(value: unknown, label = "Fact keys"): string[] {

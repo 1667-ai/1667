@@ -512,7 +512,7 @@ describe("responsive input lanes", () => {
     source.api.continueStory = async () => {
       entered.resolve();
       await gate.promise;
-      return source.payload;
+      return { payload: source.payload, droppedFacts: [] };
     };
     const { state, press } = harness(source);
     state.mode = "COMPOSE";
