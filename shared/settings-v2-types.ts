@@ -113,7 +113,6 @@ export const SAMPLING_KNOB_V2_ADDITIVE_VALUES = [
   "phraseBias",
   "bannedStrings"
 ] as const satisfies readonly SamplingKnobV2[];
-export type SamplingKnobV2Additive = (typeof SAMPLING_KNOB_V2_ADDITIVE_VALUES)[number];
 
 /** One text phrase and the weight applied to every token it tokenizes to.
  * Resolution happens at request time (`server/provider-sampling.ts`) and in

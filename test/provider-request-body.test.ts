@@ -703,6 +703,41 @@ test("an explicit numeric logitBias entry that overrides every one of a phrase's
   );
 });
 
+// Regression test for issue #282 review round 4, finding 1: a shadowed
+// entry can lose different tokens to two different owners in the same
+// message. "hello" tokenizes to four distinct ids — typed 24912, leading
+// -space 40617, capitalized 13225, leading-space-capitalized 32949 — while
+// "Hello" only ever produces two of those (13225, 32949; capitalizing
+// "Hello" is a no-op, so its typed and leading-space variants collapse onto
+// the same text as its capitalized ones). An explicit numeric logitBias
+// entry on 24912 — a token "Hello" never names — and phraseBias "Hello"
+// overriding 13225/32949 must each be named against the exact forms they
+// actually took. The earlier implementation picked the owner of whichever
+// conflicting token happened to be `tokenIds[0]` and blamed every lost form
+// on that one owner, which would have reported "Hello" and " Hello" as
+// having been taken by the numeric entry — false, since the numeric entry
+// never named either of those tokens.
+test("a phrase-bias entry whose lost tokens split across two different owners names each owner correctly", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({
+          logitBias: { "24912": -50 },
+          phraseBias: [
+            { phrase: "hello", weight: 5 },
+            { phrase: "Hello", weight: 9 }
+          ]
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /"hello" loses its bias on "hello" to an explicit numeric logit-bias entry, which takes precedence there; and on "Hello", " Hello" to phrase bias "Hello", which takes precedence there/
+  );
+});
+
 // Regression test for issue #282 stage 1, point 1: resolution used to spread
 // a phrase's weight across every one of its tokens instead of refusing a
 // multi-token phrase. "hello world" needs two tokens in every variant, so

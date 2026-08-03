@@ -1,4 +1,8 @@
-import type { SamplingBiasVariant } from "../../../shared/sampling-capabilities.js";
+import {
+  samplingBiasShadowOwners,
+  samplingBiasShadowOwnerText,
+  type SamplingBiasVariant
+} from "../../../shared/sampling-capabilities.js";
 import type { SamplingPhraseBiasEntryV2 } from "../../../shared/settings-v2-types.js";
 import { samplingBiasRowResolution, type SamplingBiasRowResolution } from "../sampling-bias-resolution.js";
 import type { SettingsOverlayState } from "../state.js";
@@ -75,10 +79,8 @@ function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
     return `‹ — › ${resolution.entry.variants.map(variantOutcomeText).join(" ")}`;
   }
   if (resolution.kind === "shadowed") {
-    const owner = resolution.entry.shadowedBy;
-    if (owner.source === "logitBias") return "‹ — › shadowed by an explicit numeric logit bias entry";
-    const ownerKind = owner.source === "bannedStrings" ? "banned string" : "phrase";
-    return `‹ — › shadowed by ${ownerKind} ${JSON.stringify(owner.phrase)}`;
+    const owners = samplingBiasShadowOwners(resolution.entry).map(samplingBiasShadowOwnerText);
+    return `‹ — › shadowed by ${owners.join(" and ")}`;
   }
   return resolution.tokenIds.length === 0
     ? "0 tokens"

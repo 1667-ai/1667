@@ -8,6 +8,7 @@ import {
   type SamplingSettingsV2
 } from "../shared/settings-v2-types.js";
 import {
+  isLogitBiasFamilyKnob,
   promptBiasTokenizerEncoding,
   resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
@@ -33,10 +34,7 @@ import {
   samplingBiasEntryRejectionMessage,
   type SamplingBiasResolutionResult
 } from "../shared/sampling-capabilities.js";
-import {
-  isLogitBiasMergeKnob,
-  resolveSamplingLogitBiasForEncoding
-} from "./sampling-phrase-bias.js";
+import { resolveSamplingLogitBiasForEncoding } from "./sampling-phrase-bias.js";
 
 // SAMPLING_KNOB_V2_ADDITIVE_VALUES are optional on the wire: a settings
 // document written before issue #282 has a `sampling` object without them,
@@ -153,7 +151,7 @@ export function validateSamplingRoute(
     }
   }
   if (context.protocol === "legacy-v1" || context.preset === "legacy-v1") return;
-  if (!configured.some(({ knob }) => isLogitBiasMergeKnob(knob))) return;
+  if (!configured.some(({ knob }) => isLogitBiasFamilyKnob(knob))) return;
   const preset = context.preset;
   const resolved = precomputedResolution ?? (
     preset === "llama-cpp"

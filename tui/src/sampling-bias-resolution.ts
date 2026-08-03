@@ -203,10 +203,17 @@ function justCommittedKeptOutReason(
     : null;
 }
 
-/** Reject at commit, not at save: an entry that cannot resolve to a single
- * token in every surface variant — or that shadows, or is shadowed by,
- * another entry's tokens (finding 1) — never stays in the draft, so the
- * list never fills with entries that silently do nothing. */
+/** Reject at commit, not at save: removes only the entry a writer just
+ * committed — one that cannot resolve to a single token in every surface
+ * variant, or one whose own tokens lost a real weight conflict to an
+ * entry that already existed (finding 1) — so the list never fills with
+ * entries that silently do nothing. Under value-based shadowing an entry
+ * that *shadows* another is never itself flagged and never removed here;
+ * committing one entry over an existing one leaves both in the draft, the
+ * older one now showing a "shadowed by …" row state (issue #282 review
+ * round 4, finding 4 — an earlier comment here described "shadows, or is
+ * shadowed by" as symmetric, which stopped being true once shadowing
+ * became value-based). */
 function unCommitRejectedEntry(
   overlay: SettingsOverlayState,
   justCommitted: SamplingBiasJustCommitted

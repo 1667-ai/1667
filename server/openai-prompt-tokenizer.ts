@@ -32,38 +32,39 @@ export function countO200kPromptTextTokens(messageContents: readonly string[]): 
   }
 }
 
-/** Two distinct reasons a phrase can fail to tokenize, kept apart so the
- * message a writer sees is true: "tokenizer-unavailable" is systemic (the
- * WASM tokenizer itself failed to load, so nothing can resolve), while
- * "phrase-unencodable" names one specific phrase without implicating the
- * tokenizer as a whole. */
-export type PhraseTokenizeOutcome =
-  | { readonly kind: "resolved"; readonly tokenIds: readonly number[] }
-  | { readonly kind: "tokenizer-unavailable" }
-  | { readonly kind: "phrase-unencodable"; readonly phrase: string };
-
 /**
  * Exact token IDs for a text phrase, for the sampling editor's phrase-bias
  * and banned-string entries (shared/settings-v2-types.ts). An encoding the
  * caller supplies is assumed to already be a supported one — see
  * `promptBiasTokenizerEncoding` in shared/sampling-capabilities.ts for the
  * closed allow-list that produces it.
+ *
+ * Null covers two distinct failures — the encoder itself failed to load, or
+ * this one phrase spells something `encode_ordinary` cannot encode — but
+ * this function's sole caller (server/sampling-phrase-bias.ts,
+ * openAiVariantTokenizer) already checks the encoder loaded before ever
+ * calling this (`promptBiasEncoderAvailable` below, against the same
+ * memoized cache), so by the time this runs, "the encoder itself failed"
+ * cannot be the reason for a null: the two failures collapse to one
+ * outcome here because no caller ever needed to tell them apart (issue #282
+ * review round 4, finding 3 — an earlier three-way result type kept them
+ * separate with no caller reading the distinction).
  */
 export function tokenizePhraseTokenIds(
   phrase: string,
   encoding: PromptBiasEncoding
-): PhraseTokenizeOutcome {
+): readonly number[] | null {
   const encoder = loadEncoding(encoding);
-  if (encoder === null) return { kind: "tokenizer-unavailable" };
+  if (encoder === null) return null;
   try {
     // encode_ordinary never interprets tiktoken's special-token syntax
     // (e.g. "<|endoftext|>") — encode()'s default disallowed_special="all"
     // would throw on a schema-valid phrase that happens to spell one, and
     // that throw used to get reported as the tokenizer itself failing,
     // which was never true (issue #282 review).
-    return { kind: "resolved", tokenIds: [...encoder.encode_ordinary(phrase)] };
+    return [...encoder.encode_ordinary(phrase)];
   } catch {
-    return { kind: "phrase-unencodable", phrase };
+    return null;
   }
 }
 

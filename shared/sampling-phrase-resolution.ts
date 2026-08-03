@@ -18,11 +18,6 @@ import type { SamplingKnobV2 } from "./settings-v2-types.js";
 export const PROMPT_BIAS_ENCODING_VALUES = ["o200k_base", "cl100k_base"] as const;
 export type PromptBiasEncoding = (typeof PROMPT_BIAS_ENCODING_VALUES)[number];
 
-export function isPromptBiasEncoding(value: unknown): value is PromptBiasEncoding {
-  return typeof value === "string"
-    && (PROMPT_BIAS_ENCODING_VALUES as readonly string[]).includes(value);
-}
-
 // The authoritative source for which encoding an OpenAI model uses is
 // tiktoken's own table: https://github.com/openai/tiktoken/blob/main/tiktoken/model.py
 // (MODEL_TO_ENCODING / MODEL_PREFIX_TO_ENCODING, fetched from the main
@@ -170,14 +165,21 @@ export interface SamplingBiasVariantResolution {
  * this entry did NOT write — some, not necessarily every, token (issue #282
  * review round 3, finding 1 corrected this from an earlier, wrong "every"
  * reading that also made the outcome depend on typing order).
- * `conflictingTokenIds` names exactly which of `tokenIds` lost this entry's
- * own weight; `shadowedBy` names one entry that wrote a conflicting weight —
- * an explicit numeric `logitBias` entry always wins a real conflict and
- * carries no phrase text of its own (`SamplingBiasShadowOwner`). A
- * "shadowed" entry always blocks a save and a request, the same as
- * "rejected" (issue #282 review round 3, finding 2): a writer who configured
- * two conflicting entries is told, never shipped a weaker request than the
- * one they typed. */
+ * `conflicts` names each of `tokenIds` that lost this entry's own weight
+ * together with the entry that actually wrote it — a token and its owner
+ * joined in one record, not two separately-indexed arrays (issue #282
+ * review round 4, finding 1): an earlier shape kept a bare
+ * `conflictingTokenIds: readonly number[]` beside a single `shadowedBy`
+ * naming only the owner of the first one, so a shadow that split its lost
+ * tokens across two different owners — one taken by an explicit numeric
+ * `logitBias` entry, another by a different phrase — reported every lost
+ * form under whichever owner happened to take the first token, blaming the
+ * wrong entry for the rest. An explicit numeric `logitBias` entry always
+ * wins a real conflict on the token it names, and carries no phrase text of
+ * its own (`SamplingBiasShadowOwner`). A "shadowed" entry always blocks a
+ * save and a request, the same as "rejected" (issue #282 review round 3,
+ * finding 2): a writer who configured two conflicting entries is told,
+ * never shipped a weaker request than the one they typed. */
 export type SamplingBiasEntryResolution =
   | {
       readonly kind: "resolved";
@@ -195,9 +197,16 @@ export type SamplingBiasEntryResolution =
       readonly phrase: string;
       readonly variants: readonly SamplingBiasVariantResolution[];
       readonly tokenIds: readonly number[];
-      readonly conflictingTokenIds: readonly number[];
-      readonly shadowedBy: SamplingBiasShadowOwner;
+      readonly conflicts: readonly SamplingBiasShadowConflict[];
     };
+
+/** One of a "shadowed" entry's own tokens, joined to the entry that actually
+ * wrote its final weight — see `SamplingBiasEntryResolution`, "shadowed",
+ * for why this must be one record and not two correlated arrays. */
+export interface SamplingBiasShadowConflict {
+  readonly tokenId: number;
+  readonly owner: SamplingBiasShadowOwner;
+}
 
 /** Names the entry whose weight won a real conflict on at least one token
  * (`SamplingBiasEntryResolution`, "shadowed"). An explicit numeric
@@ -261,30 +270,67 @@ export function samplingBiasResolutionFailureMessage(
   return TOKENIZER_UNAVAILABLE_CAUSE_TEXT[result.cause];
 }
 
+/** The distinct owners across a "shadowed" entry's conflicts, in the order
+ * their first token appears in `entry.variants` — a shadow that lost tokens
+ * to the same owner twice (e.g. both the typed and the capitalized form)
+ * must name that owner once, not once per token. Exported so a caller that
+ * only needs a short summary (the sampling-bias panel's row text) does not
+ * re-derive this from `conflicts` itself. */
+export function samplingBiasShadowOwners(
+  entry: Extract<SamplingBiasEntryResolution, { kind: "shadowed" }>
+): readonly SamplingBiasShadowOwner[] {
+  const owners: SamplingBiasShadowOwner[] = [];
+  for (const variant of entry.variants) {
+    if (variant.outcome.kind !== "single-token") continue;
+    const tokenId = variant.outcome.tokenId;
+    const conflict = entry.conflicts.find((candidate) => candidate.tokenId === tokenId);
+    if (conflict === undefined) continue;
+    if (!owners.some((owner) => sameShadowOwner(owner, conflict.owner))) owners.push(conflict.owner);
+  }
+  return owners;
+}
+
+/** The reader-facing name for one shadow owner — "an explicit numeric
+ * logit-bias entry" has no phrase of its own to quote. */
+export function samplingBiasShadowOwnerText(owner: SamplingBiasShadowOwner): string {
+  if (owner.source === "logitBias") return "an explicit numeric logit-bias entry";
+  const ownerKind = owner.source === "bannedStrings" ? "banned string" : "phrase bias";
+  return `${ownerKind} ${JSON.stringify(owner.phrase)}`;
+}
+
+function sameShadowOwner(a: SamplingBiasShadowOwner, b: SamplingBiasShadowOwner): boolean {
+  if (a.source === "logitBias" || b.source === "logitBias") return a.source === b.source;
+  return a.source === b.source && a.phrase === b.phrase;
+}
+
 /** A short, honest reason a single entry was kept off the wire — either it
  * never resolved to one token per surface variant ("rejected"), or at least
  * one of its tokens ended up carrying a different entry's weight
  * ("shadowed" — issue #282 review round 3, finding 1). Names exactly which
  * surface forms lost this entry's own bias, not the whole entry, since a
- * shadow can be partial. Never claims either kind did something it did
- * not. */
+ * shadow can be partial — and groups those forms under the owner that
+ * actually took each one, one clause per owner, so a shadow split across
+ * two different owners (issue #282 review round 4, finding 1) is reported
+ * accurately instead of blaming every lost form on a single owner. Never
+ * claims either kind did something it did not. */
 export function samplingBiasEntryRejectionMessage(
   entry: Exclude<SamplingBiasEntryResolution, { kind: "resolved" }>
 ): string {
   if (entry.kind === "shadowed") {
-    const lostForms = [...new Set(
-      entry.variants.flatMap((variant) =>
-        variant.outcome.kind === "single-token"
-          && entry.conflictingTokenIds.includes(variant.outcome.tokenId)
-          ? [JSON.stringify(variant.text)]
-          : [])
-    )].join(", ");
-    const owner = entry.shadowedBy.source === "logitBias"
-      ? "an explicit numeric logit-bias entry"
-      : `${entry.shadowedBy.source === "bannedStrings" ? "banned string" : "phrase bias"} `
-        + `${JSON.stringify(entry.shadowedBy.phrase)}`;
-    return `${JSON.stringify(entry.phrase)} loses its bias on ${lostForms} to ${owner}, `
-      + "which takes precedence there";
+    const singleTokenVariants = entry.variants.flatMap((variant) =>
+      variant.outcome.kind === "single-token"
+        ? [{ text: variant.text, tokenId: variant.outcome.tokenId }]
+        : []);
+    const clauses = samplingBiasShadowOwners(entry).map((owner) => {
+      const forms = [...new Set(
+        singleTokenVariants
+          .filter(({ tokenId }) => entry.conflicts.some((conflict) =>
+            conflict.tokenId === tokenId && sameShadowOwner(conflict.owner, owner)))
+          .map(({ text }) => JSON.stringify(text))
+      )].join(", ");
+      return `${forms} to ${samplingBiasShadowOwnerText(owner)}, which takes precedence there`;
+    });
+    return `${JSON.stringify(entry.phrase)} loses its bias on ${clauses.join("; and on ")}`;
   }
   const failing = entry.variants.find((variant) => variant.outcome.kind !== "single-token");
   if (failing === undefined) {

@@ -224,8 +224,7 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
       phrase,
       variants,
       tokenIds: decodeTokenIdArray(record.tokenIds, label),
-      conflictingTokenIds: decodeTokenIdArray(record.conflictingTokenIds, label),
-      shadowedBy: decodeShadowedBy(record.shadowedBy, label)
+      conflicts: decodeSamplingBiasConflictList(record.conflicts, label)
     };
   }
   if (record.kind !== "resolved") invalidField(label, "kind");
@@ -239,14 +238,33 @@ function decodeTokenIdArray(value: unknown, label: string): readonly number[] {
   return value as readonly number[];
 }
 
-function decodeShadowedBy(value: unknown, label: string): SamplingBiasShadowOwner {
-  const record = responseRecord(value, `${label} shadowedBy`);
+function decodeSamplingBiasConflictList(
+  value: unknown,
+  label: string
+): readonly { readonly tokenId: number; readonly owner: SamplingBiasShadowOwner }[] {
+  if (!Array.isArray(value)) invalidField(label, "conflicts");
+  return value.map((entry) => decodeSamplingBiasConflict(entry, `${label} conflict`));
+}
+
+function decodeSamplingBiasConflict(
+  value: unknown,
+  label: string
+): { readonly tokenId: number; readonly owner: SamplingBiasShadowOwner } {
+  const record = responseRecord(value, label);
+  return {
+    tokenId: nonNegativeIntegerField(record, "tokenId", label),
+    owner: decodeShadowOwner(record.owner, label)
+  };
+}
+
+function decodeShadowOwner(value: unknown, label: string): SamplingBiasShadowOwner {
+  const record = responseRecord(value, `${label} owner`);
   const source = record.source;
   if (source === "logitBias") return { source };
   if (source !== "phraseBias" && source !== "bannedStrings") {
-    invalidField(`${label} shadowedBy`, "source");
+    invalidField(`${label} owner`, "source");
   }
-  return { source, phrase: stringField(record, "phrase", `${label} shadowedBy`) };
+  return { source, phrase: stringField(record, "phrase", `${label} owner`) };
 }
 
 function decodeSamplingBiasVariantList(

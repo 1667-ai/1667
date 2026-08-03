@@ -1,11 +1,11 @@
 import {
-  isLogitBiasFamilyKnob,
   promptBiasTokenizerEncoding,
   samplingBiasVariantText,
   SAMPLING_BIAS_VARIANT_VALUES,
   type PromptBiasEncoding,
   type SamplingBiasEntryResolution,
   type SamplingBiasResolutionResult,
+  type SamplingBiasShadowConflict,
   type SamplingBiasShadowOwner,
   type SamplingBiasVariantOutcome,
   type SamplingBiasVariantResolution
@@ -22,8 +22,6 @@ import { ServiceError } from "./errors.js";
 import { promptBiasEncoderAvailable, tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
 import { probeLlamaCppTokenize } from "./context-probe.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-
-export { isLogitBiasFamilyKnob as isLogitBiasMergeKnob };
 
 /** Resolves one surface variant's text to a token-count outcome. Always
  * synchronous: the two real sources (the local WASM tiktoken encoder, and a
@@ -137,7 +135,15 @@ type SamplingBiasTokenOwner =
  * happens to share a later entry's exact weight, stays "resolved" — the
  * outcome no longer depends on which of the two was typed first.
  * `rejected` entries pass through unchanged: they never held any tokens to
- * lose. */
+ * lose.
+ *
+ * Every one of `resolution.tokenIds` that lost is paired with the entry that
+ * actually wrote its weight — a `SamplingBiasShadowConflict` per lost token,
+ * not one `shadowedBy` for the whole entry (issue #282 review round 4,
+ * finding 1): a shadow can split its lost tokens across two different
+ * owners (one taken by an explicit numeric `logitBias` entry, another by a
+ * different phrase), and picking only the first token's owner to represent
+ * all of them blamed the wrong entry for the rest. */
 function settleTokenOwnership(
   resolution: SamplingBiasEntryResolution,
   ownWeight: number,
@@ -146,24 +152,41 @@ function settleTokenOwnership(
   sampling: Pick<SamplingSettingsV2, "phraseBias" | "bannedStrings">
 ): SamplingBiasEntryResolution {
   if (resolution.kind !== "resolved") return resolution;
-  const conflictingTokenIds = resolution.tokenIds.filter((id) => merged[String(id)] !== ownWeight);
-  if (conflictingTokenIds.length === 0) return resolution;
-  const owner = tokenOwner.get(conflictingTokenIds[0]!)!;
-  const shadowedBy: SamplingBiasShadowOwner = owner.source === "logitBias"
-    ? { source: "logitBias" }
-    : {
-        source: owner.source,
-        phrase: owner.source === "phraseBias"
-          ? sampling.phraseBias[owner.index]!.phrase
-          : sampling.bannedStrings[owner.index]!
-      };
+  const conflicts: SamplingBiasShadowConflict[] = [];
+  for (const tokenId of resolution.tokenIds) {
+    if (merged[String(tokenId)] === ownWeight) continue;
+    conflicts.push({ tokenId, owner: shadowOwnerFor(tokenId, tokenOwner, sampling) });
+  }
+  if (conflicts.length === 0) return resolution;
   return {
     kind: "shadowed",
     phrase: resolution.phrase,
     variants: resolution.variants,
     tokenIds: resolution.tokenIds,
-    conflictingTokenIds,
-    shadowedBy
+    conflicts
+  };
+}
+
+/** Names the entry that owns `tokenId` in the already-built merged map. Every
+ * token in a "resolved" entry's own `tokenIds` was written into `tokenOwner`
+ * alongside `merged` in the same pass (`resolveSamplingLogitBias` above), so
+ * a miss here is a real merge invariant violation, not a legitimate case to
+ * paper over with a silent fallback owner. */
+function shadowOwnerFor(
+  tokenId: number,
+  tokenOwner: ReadonlyMap<number, SamplingBiasTokenOwner>,
+  sampling: Pick<SamplingSettingsV2, "phraseBias" | "bannedStrings">
+): SamplingBiasShadowOwner {
+  const owner = tokenOwner.get(tokenId);
+  if (owner === undefined) {
+    throw new Error(`sampling bias merge invariant violated: token ${tokenId} has no recorded owner`);
+  }
+  if (owner.source === "logitBias") return { source: "logitBias" };
+  return {
+    source: owner.source,
+    phrase: owner.source === "phraseBias"
+      ? sampling.phraseBias[owner.index]!.phrase
+      : sampling.bannedStrings[owner.index]!
   };
 }
 
@@ -205,13 +228,11 @@ function resolveEntry(
  * honestly per-phrase. */
 function openAiVariantTokenizer(encoding: PromptBiasEncoding): SyncVariantTokenizer {
   return (text) => {
-    const outcome = tokenizePhraseTokenIds(text, encoding);
-    if (outcome.kind === "resolved") {
-      return outcome.tokenIds.length === 1
-        ? { kind: "single-token", tokenId: outcome.tokenIds[0]! }
-        : { kind: "multi-token", tokenIds: outcome.tokenIds };
-    }
-    return { kind: "unencodable" };
+    const tokenIds = tokenizePhraseTokenIds(text, encoding);
+    if (tokenIds === null) return { kind: "unencodable" };
+    return tokenIds.length === 1
+      ? { kind: "single-token", tokenId: tokenIds[0]! }
+      : { kind: "multi-token", tokenIds };
   };
 }
 

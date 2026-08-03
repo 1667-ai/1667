@@ -9,7 +9,7 @@ import {
 } from "../shared/settings-v2-types.js";
 import { selectSettingsRoute } from "../shared/settings-route.js";
 import type { GenerationSettings } from "../shared/types.js";
-import { ServiceError } from "./errors.js";
+import { ProviderError, ServiceError } from "./errors.js";
 import {
   createMutationCoordinator,
   MutationCoordinator,
@@ -428,13 +428,23 @@ export class SettingsV2Store {
       let resolution: Awaited<ReturnType<typeof resolveSamplingBiasForSettings>>;
       try {
         resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings, probeSignal);
-      } catch {
+      } catch (error) {
         // The probe itself did not answer in time — the shared deadline
-        // above, the caller's own abort, or an ordinary network failure.
-        // Fail open, exactly like a clean "tokenizer-unavailable" result:
-        // this check must never block a save on an unreachable llama.cpp
-        // server, and once the deadline is shared across every remaining
-        // profile in this loop, none of them can answer either.
+        // above, the caller's own abort, or an ordinary provider/network
+        // failure. Fail open, exactly like a clean "tokenizer-unavailable"
+        // result: this check must never block a save on an unreachable
+        // llama.cpp server, and once the deadline is shared across every
+        // remaining profile in this loop, none of them can answer either.
+        //
+        // Narrowed to exactly those cases (issue #282 review round 4,
+        // finding 5): a bare `catch { continue }` here also swallowed two
+        // deliberate invariant throws inside the resolver —
+        // `neverCalledTokenizer` and the "tokenize probe never queued"
+        // guard (server/sampling-phrase-bias.ts) — whose own comments say
+        // throwing exists to surface a real bug immediately. Swallowed on
+        // this save-time path, that bug would only resurface later, as a
+        // generation failure instead of a save failure.
+        if (!isFailOpenSamplingProbeError(error, probeSignal)) throw error;
         continue;
       }
       try {
@@ -863,6 +873,20 @@ export class SettingsV2Store {
     if (!Number.isFinite(value.getTime())) throw new Error("Settings clock returned an invalid date");
     return value.toISOString();
   }
+}
+
+/** Whether `error` is one of the two reasons `assertSavedSamplingBiasResolves`
+ * is allowed to fail open on: `signal` (the shared save-probe deadline,
+ * joined with the caller's own abort via `AbortSignal.any`) firing, or an
+ * ordinary `ProviderError` from the provider transport. Anything else —
+ * notably an invariant throw from inside the resolver itself — must
+ * propagate instead of being silently treated as "server unreachable"
+ * (issue #282 review round 4, finding 5). */
+function isFailOpenSamplingProbeError(error: unknown, signal: AbortSignal): boolean {
+  if (error instanceof ProviderError) return true;
+  if (!(error instanceof Error)) return false;
+  return signal.aborted
+    && (error === signal.reason || error.name === "AbortError" || error.name === "TimeoutError");
 }
 
 function usesCredentialReferences(
