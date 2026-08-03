@@ -22,7 +22,6 @@ import type { SettingsOverlayState, SamplingPanelId, SamplingListPanel } from ".
 import { createComposer, type ComposerState } from "./composer-model.js";
 
 export type { SamplingListPanel } from "./state.js";
-export { updateSamplingDraft, validateSampling, samplingLogitBiasEntries } from "./sampling-panel-spec.js";
 
 export type SamplingScalarKnob = SamplingScalarKnobV2;
 export const SAMPLING_SCALAR_KNOBS = SAMPLING_SCALAR_KNOB_V2_VALUES;
@@ -326,22 +325,6 @@ export function setSamplingScalar(
   if (error !== null) return error;
   updateSamplingDraft(overlay, next);
   return null;
-}
-
-export function deleteSamplingItem(
-  overlay: SettingsOverlayState,
-  panel: SamplingListPanel,
-  index: number
-): boolean {
-  return samplingListPanelSpec(panel).remove(overlay, index);
-}
-
-export function moveSamplingListItem(
-  overlay: SettingsOverlayState,
-  panel: SamplingListPanel,
-  step: -1 | 1
-): boolean {
-  return samplingListPanelSpec(panel).move(overlay, step);
 }
 
 export function beginSamplingEdit(overlay: SettingsOverlayState): string | null {

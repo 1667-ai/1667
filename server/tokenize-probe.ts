@@ -10,6 +10,7 @@ import {
   type TokenizeSourceKind
 } from "../shared/tokenize-source.js";
 import type { GenerationSettings } from "../shared/types.js";
+import { postLlamaCppTokenize } from "./context-probe.js";
 import { countModelPromptTextTokens } from "./openai-prompt-tokenizer.js";
 import { postProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
@@ -224,10 +225,12 @@ async function countLlamaCpp(
   const root = providerRoot(settings);
   const timeoutMs = probeTimeoutMs(settings);
   // A llama.cpp server can hold several models and picks one from the body.
-  // Without the name, the count could describe a model other than the one that
-  // will serve the request — and it would still be marked. A blank name is how
-  // this preset says "whatever is loaded", so it is left out rather than sent
-  // empty. probeContextWindow makes the same distinction for /props.
+  // Without the name, the count could describe a model other than the one
+  // that will serve the request — and it would still be marked. `/tokenize`
+  // itself draws this same distinction once, for every caller, in
+  // postLlamaCppTokenize (server/context-probe.ts); /apply-template needs it
+  // drawn again here because it is a different endpoint. probeContextWindow
+  // makes the same distinction for /props.
   const route: Record<string, unknown> = settings.model.length === 0
     ? {}
     : { model: settings.model };
@@ -241,13 +244,7 @@ async function countLlamaCpp(
   if (!isObject(templated) || typeof templated.prompt !== "string") {
     throw new Error("llama.cpp apply-template returned an unusable response shape");
   }
-  const tokenized = await postProviderJson(
-    settings,
-    `${root}/tokenize`,
-    { ...route, content: templated.prompt, add_special: true },
-    {},
-    { signal, timeoutMs }
-  );
+  const tokenized = await postLlamaCppTokenize(settings, templated.prompt, { add_special: true }, signal);
   // The endpoint answers with token identifiers. Counting the length of an
   // array of anything would turn an error payload into a near-exact count of
   // however many entries it happened to hold.

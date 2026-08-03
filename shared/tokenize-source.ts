@@ -72,8 +72,11 @@ function sourceFor(kind: Exclude<TokenizeSourceKind, "none">): TokenizeSource {
 }
 
 /**
- * The one place a preset names its tokenize source. The phrase-bias feature
- * needs the same llama.cpp and KoboldCpp servers, so it reads this too.
+ * The one place a preset names its tokenize source, for prompt token
+ * counting (server/tokenize-probe.ts). Phrase bias and banned strings
+ * (server/sampling-phrase-bias.ts) resolve which servers they can reach on
+ * their own, by branching on `runtime.preset` directly, not through this
+ * function.
  *
  * An OpenAI or Anthropic preset that points somewhere other than the official
  * host serves an unknowable model family, so it keeps the estimate.

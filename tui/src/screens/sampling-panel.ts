@@ -37,14 +37,6 @@ type SamplingLayerRow =
   | { kind: "scalar"; row: SamplingScalarRow }
   | { kind: "list"; row: SamplingListRow };
 
-const SAMPLING_PANEL_TITLES: Readonly<Record<SamplingListPanel, string>> = {
-  stop: "stop sequences",
-  "logit-bias": "logit bias",
-  "phrase-bias": "phrase bias",
-  "banned-strings": "banned strings",
-  "dry-breakers": "dry breakers"
-};
-
 export function renderSamplingPanel(
   base: FrameLine[],
   state: SamplingPanelState,
@@ -62,7 +54,7 @@ export function renderSamplingPanel(
   const footer = samplingFooter(nested.panel, nested.edit !== null, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
-    nested.panel === "sampling" ? "sampling" : SAMPLING_PANEL_TITLES[nested.panel],
+    nested.panel === "sampling" ? "sampling" : SAMPLING_LIST_RENDER_SPECS[nested.panel].title,
     content.lines,
     footer.text,
     width,
@@ -194,8 +186,14 @@ function renderSamplingRow(
 /** One render spec per list panel, paired with the model spec
  * (../sampling-panel-spec.js) by panel key. `formatValue` takes exactly one
  * cast, not a runtime narrowing throw: the value it receives always came
- * from this same panel's own `values()`, so the shape is already known. */
+ * from this same panel's own `values()`, so the shape is already known.
+ *
+ * `title` lives here rather than in a second per-panel table (issue #282
+ * review round 5, finding 7): `main` kept one table with `title` in it, and
+ * this file had grown a second one keyed on the same
+ * `SamplingListPanel` union before this fold. */
 interface SamplingListRenderSpec {
+  readonly title: string;
   readonly emptyCopy: readonly string[];
   header(count: number, maximum: number): string;
   formatValue(
@@ -209,6 +207,7 @@ interface SamplingListRenderSpec {
 
 const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingListRenderSpec>> = {
   stop: {
+    title: "stop sequences",
     emptyCopy: [
       "  no stop sequences yet.",
       "  n writes one · the model stops when it types one"
@@ -218,6 +217,7 @@ const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingLis
       listValueRow(index, value as string, selected, width)
   },
   "logit-bias": {
+    title: "logit bias",
     emptyCopy: [
       "  no biased tokens yet.",
       "  n writes one · token IDs come from the model's tokenizer."
@@ -229,6 +229,7 @@ const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingLis
     }
   },
   "phrase-bias": {
+    title: "phrase bias",
     emptyCopy: [
       "  no phrase bias yet.",
       "  n writes one · phrase:integer bias · each phrase resolves to one or more tokens."
@@ -238,6 +239,7 @@ const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingLis
       phraseBiasValueRow(value as SamplingPhraseBiasEntryV2, settings, selected, width)
   },
   "banned-strings": {
+    title: "banned strings",
     emptyCopy: [
       "  no banned strings yet.",
       "  n writes one · a negative bias makes a string unlikely, not impossible."
@@ -247,6 +249,7 @@ const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingLis
       bannedStringValueRow(value as string, settings, selected, width)
   },
   "dry-breakers": {
+    title: "dry breakers",
     emptyCopy: [
       "  no dry breakers yet.",
       // An empty list is not sent, and the provider then uses its own

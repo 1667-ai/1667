@@ -45,8 +45,26 @@ export async function applySamplingFields(
       );
     }
   }
-  if (configured.some(({ knob }) => isLogitBiasFamilyKnob(knob))) {
-    body.logit_bias = await mergedLogitBiasValue(sampling, settings, context.preset, signal);
+  const logitBiasFamilyMember = configured.find(({ knob }) => isLogitBiasFamilyKnob(knob));
+  if (logitBiasFamilyMember !== undefined) {
+    // Read the wire field off this knob's own resolution instead of
+    // hardcoding "logit_bias" (issue #282 review round 5, finding 3): the
+    // capability matrix is the single owner of wire spelling, including its
+    // per-preset override hook (KoboldCpp spells mirostat as
+    // mirostat_mode) — a hardcode here made that hook dead for the whole
+    // bias family. logitBias, phraseBias and bannedStrings all resolve to
+    // the same wireField (see the PROTOCOL_WIRE comment in
+    // shared/sampling-capabilities.ts), so any one of them names the field
+    // for the merged object. Every entry in `configured` is "available" by
+    // this point — an "unavailable" one already threw in the loop above.
+    const resolution = logitBiasFamilyMember.resolution;
+    if (resolution.kind !== "available") {
+      throw new Error(
+        `Configured sampling parameter ${samplingKnobLabel(logitBiasFamilyMember.knob)} `
+        + "reached encoding without an available resolution"
+      );
+    }
+    body[resolution.wireField] = await mergedLogitBiasValue(sampling, settings, context.preset, signal);
   }
   for (const { knob, resolution } of configured) {
     if (resolution.kind !== "available") continue;

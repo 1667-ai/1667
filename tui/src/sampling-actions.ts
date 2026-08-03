@@ -7,8 +7,6 @@ import {
   beginNewSamplingEdit,
   beginSamplingEdit,
   boundedSamplingCursor,
-  deleteSamplingItem,
-  moveSamplingListItem,
   SAMPLING_LAYER_ROWS,
   SAMPLING_SCALAR_PRESENTATION,
   samplingListRows,
@@ -75,7 +73,7 @@ export async function samplingOverlayAction(
   }
   if (resolved.action === "delete-item") {
     if (nested.panel === "sampling") return;
-    if (!deleteSamplingItem(settings, nested.panel, nested.cursor)) {
+    if (!samplingListPanelSpec(nested.panel).remove(settings, nested.cursor)) {
       nested.result = "no list item is selected";
     } else {
       nested.cursor = boundedSamplingCursor(settings, nested.panel, nested.cursor);
@@ -91,7 +89,7 @@ export async function samplingOverlayAction(
       // `reorderable` panels' `.move()` (tui/src/sampling-panel-spec.ts)
       // reorders; every other panel's `.move()` is a no-op `() => false`, so
       // this needs no separate reorderable check of its own.
-      moveSamplingListItem(settings, nested.panel, step);
+      samplingListPanelSpec(nested.panel).move(settings, step);
     }
   }
 }

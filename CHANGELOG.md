@@ -28,9 +28,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   merged value. Two phrase entries can tokenize to the same token. For
   example, "hello" and "Hello" share a form. When both entries want the same
   weight for that token, 1667 keeps both entries and biases every token
-  either one names. When the entries want different weights, 1667 refuses
-  the entry that loses the token. 1667 does this at commit, or at save if
-  the conflict starts later. 1667 names the entry that kept the token and
+  either one names. When the entries want different weights, 1667 refuses a
+  new entry at commit if it would lose the token, the same way it refuses a
+  multi-token phrase. If a later commit causes an existing entry to lose the
+  token, 1667 keeps that entry in the draft and marks it. 1667 refuses to
+  save the settings while a marked entry stays in the draft. 1667 also
+  refuses to send the request. 1667 names the entry that kept the token and
   the exact forms that lost their bias. A banned string makes the text
   unlikely. It does not make the text impossible, because the same text can
   come from different token boundaries. Phrase bias and banned strings work

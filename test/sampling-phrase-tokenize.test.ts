@@ -7,6 +7,7 @@ import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2, type SamplingSettingsV2 } from "../shared/settings-v2-types.js";
 import { ServiceError } from "../server/errors.js";
+import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { StoryService } from "../server/story-service.js";
 import {
@@ -15,6 +16,11 @@ import {
   MUTATION_A,
   saveCommand
 } from "./settings-store-fixtures.js";
+import {
+  documentFor,
+  LLAMA_CPP_FIXTURE_TOKENS,
+  startProviderFixture
+} from "./sampling-e2e-fixtures.js";
 import { SettingsStore } from "../server/settings.js";
 
 /**
@@ -231,6 +237,75 @@ test("resolveSamplingBias reports the tokenizer as unavailable for a model with 
     bannedStrings: []
   });
   assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "model-unknown" });
+});
+
+// Regression test for issue #282 review round 5, finding 1: round three's fix
+// for review round 2, finding 3 made the llama.cpp tokenize probe
+// (server/context-probe.ts, probeLlamaCppTokenize) send `model` in every
+// /tokenize POST unconditionally — including a blank one. A blank remote
+// model name is how the llama-cpp preset says "use whatever this server has
+// loaded": the schema places no minimum length on a model's `remoteId`, and
+// this is exactly the target the editor's live preview sends before a writer
+// has typed a model name. Sending `model: ""` instead asks a router-mode
+// server for a model literally named the empty string, which none has, so
+// the probe failed and every phrase and banned string reported
+// tokenizer-unavailable on an otherwise reachable, correctly configured
+// server. The fix must omit `model` for a blank name instead.
+test("resolveSamplingBias resolves llama.cpp phrase bias when the routed model name is blank", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(
+    t,
+    { "whatever-this-server-has-loaded": LLAMA_CPP_FIXTURE_TOKENS },
+    { allowBlankModel: true }
+  );
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-llama-blank-model-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  // documentFor requires a nonblank model (the basic editor draft it applies
+  // rejects an empty one), so build a normal document and then blank the
+  // routed model's remoteId directly — exactly how a writer who has not
+  // picked a model yet, or a router-mode connection left to autoload, is
+  // represented on the wire.
+  const withPlaceholderModel = documentFor(
+    fixture.origin,
+    "llama-cpp",
+    "placeholder-until-the-server-picks-one",
+    EMPTY_SAMPLING_V2
+  );
+  const modelId = withPlaceholderModel.profiles.default!.modelId;
+  const document = {
+    ...withPlaceholderModel,
+    models: {
+      ...withPlaceholderModel.models,
+      [modelId]: { ...withPlaceholderModel.models[modelId]!, remoteId: "" }
+    }
+  };
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "griffin", weight: -3 }],
+    bannedStrings: []
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual(result.logitBias, {
+    "501": -3,
+    "502": -3,
+    "503": -3,
+    "504": -3
+  });
+  assert.ok(fixture.tokenizeBodies.length > 0);
+  for (const tokenizeBody of fixture.tokenizeBodies) {
+    assert.ok(
+      !Object.hasOwn(tokenizeBody, "model"),
+      "a blank model name must be left out of the body, never sent as model: \"\""
+    );
+  }
 });
 
 // Regression test for issue #282 review finding A: raising

@@ -1,5 +1,6 @@
 import {
   SAMPLING_KNOB_V2_ADDITIVE_VALUES,
+  SAMPLING_KNOB_V2_REQUIRED_VALUES,
   SAMPLING_KNOB_V2_VALUES,
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   type GenerationProfileV2,
@@ -41,10 +42,12 @@ import { resolveSamplingLogitBiasForEncoding } from "./sampling-phrase-bias.js";
 
 // SAMPLING_KNOB_V2_ADDITIVE_VALUES are optional on the wire: a settings
 // document written before issue #282 has a `sampling` object without them,
-// and it must still decode. Every field present before that change stays
-// required, unchanged from the original schema.
+// and it must still decode. SAMPLING_KNOB_V2_REQUIRED_VALUES is their
+// complement, derived once in shared/settings-v2-types.ts so this required
+// list and the schema definition (scripts/settings-v2-schema-definition.ts)
+// cannot drift apart (issue #282 review round 5, finding 4).
 const SAMPLING = closedShape(
-  SAMPLING_KNOB_V2_VALUES.filter((knob) => !(SAMPLING_KNOB_V2_ADDITIVE_VALUES as readonly SamplingKnobV2[]).includes(knob)),
+  SAMPLING_KNOB_V2_REQUIRED_VALUES,
   [...SAMPLING_KNOB_V2_ADDITIVE_VALUES]
 );
 

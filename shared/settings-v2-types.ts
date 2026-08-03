@@ -115,14 +115,35 @@ export const SAMPLING_KNOB_V2_VALUES = [
 ] as const;
 export type SamplingKnobV2 = (typeof SAMPLING_KNOB_V2_VALUES)[number];
 
-/** Knobs added after the initial release. The wire decoder treats these as
- * optional so a settings document written before they existed still loads —
- * see `parseSampling` in server/settings-v2-sampling-validation.ts. Every
- * other knob stays required on the wire, unchanged from the original schema. */
+/** Knobs the wire decoder treats as optional, so a settings document saved
+ * before they existed still loads without them — see `parseSampling` in
+ * server/settings-v2-sampling-validation.ts. Every other knob stays
+ * required on the wire, unchanged from the original schema.
+ *
+ * This is not simply "every knob added after the initial release": DRY,
+ * XTC and Mirostat (issue #292) and `seed` were also added after the
+ * initial release, and are required, not listed here. Only `phraseBias`
+ * and `bannedStrings` (issue #282) are additive, because #282 is the change
+ * that would otherwise leave a document saved just before it landed unable
+ * to decode. Whether DRY/XTC/Mirostat/`seed` have the same gap for a
+ * document saved between the initial release and #292 is a question for
+ * that change, not this one — pre-existing on `main`, unchanged here. */
 export const SAMPLING_KNOB_V2_ADDITIVE_VALUES = [
   "phraseBias",
   "bannedStrings"
 ] as const satisfies readonly SamplingKnobV2[];
+
+/** The complement of `SAMPLING_KNOB_V2_ADDITIVE_VALUES`: every knob that
+ * stays required on the wire. Exported once so the schema definition
+ * (`scripts/settings-v2-schema-definition.ts`) and the wire decoder
+ * (`server/settings-v2-sampling-validation.ts`) read the same derived list
+ * instead of each spelling "every non-additive knob" its own way — two
+ * spellings of one set is exactly the drift a new additive knob could fall
+ * through (issue #282 review round 5, finding 4). */
+export const SAMPLING_KNOB_V2_REQUIRED_VALUES: readonly SamplingKnobV2[] =
+  SAMPLING_KNOB_V2_VALUES.filter(
+    (knob) => !(SAMPLING_KNOB_V2_ADDITIVE_VALUES as readonly SamplingKnobV2[]).includes(knob)
+  );
 
 /** One text phrase and the weight applied to every token it tokenizes to.
  * Resolution happens at request time (`server/provider-sampling.ts`) and in

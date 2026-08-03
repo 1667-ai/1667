@@ -23,6 +23,7 @@ import {
   FEATURE_SUPPORT_V2_VALUES,
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  SAMPLING_KNOB_V2_REQUIRED_VALUES,
   SETTINGS_ACTIVATION_ERROR_CODE_V2_VALUES,
   SETTINGS_ACTIVATION_OUTCOME_RESULT_V2_VALUES,
   SETTINGS_ACTIVATION_STATE_V2_VALUES,
@@ -172,12 +173,7 @@ export function settingsV2Schema(): Schema {
         uniqueItems: true,
         items: boundedString(SAMPLING_DRY_BREAKERS_POLICY.maxScalars, 1)
       }
-    }, [
-      ...SAMPLING_SCALAR_KNOB_V2_VALUES,
-      "stop",
-      "logitBias",
-      "dryBreakers"
-    ]),
+    }, [...SAMPLING_KNOB_V2_REQUIRED_VALUES]),
     Connections: settingsMap("Connection"),
     Models: settingsMap("Model"),
     Profiles: settingsMap("Profile"),

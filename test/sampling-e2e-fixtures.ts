@@ -77,9 +77,24 @@ export const LLAMA_CPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
  * cannot stand in for a verified round trip against a real server. */
 export type LlamaCppFixtureTokenizeMap = Readonly<Record<string, Readonly<Record<string, number>>>>;
 
+export interface ProviderFixtureOptions {
+  /** Issue #282 review round 5, finding 1: a genuine single-model llama.cpp
+   * server does not route on `model` at all, so it answers a `/tokenize`
+   * call that omits the field entirely — unlike the router-mode behavior the
+   * default (unset) fixture models, which requires an exact match and
+   * therefore rejects a call naming no model. Only takes effect when
+   * `tokenizeMap` has exactly one entry: a fixture standing in for a
+   * multi-model router has no single answer to fall back to. Never widens
+   * what a call that *does* send `model` is checked against, so this cannot
+   * mask the regression it exists to catch — `model: ""` still has no match
+   * in a map keyed by real names. */
+  readonly allowBlankModel?: boolean;
+}
+
 export async function startProviderFixture(
   t: { after(callback: () => void | Promise<void>): void },
-  tokenizeMap?: LlamaCppFixtureTokenizeMap
+  tokenizeMap?: LlamaCppFixtureTokenizeMap,
+  options: ProviderFixtureOptions = {}
 ): Promise<{
   readonly origin: string;
   readonly bodies: Record<string, unknown>[];
@@ -87,8 +102,9 @@ export async function startProviderFixture(
 }> {
   const bodies: Record<string, unknown>[] = [];
   const tokenizeBodies: Record<string, unknown>[] = [];
+  const allowBlankModel = options.allowBlankModel === true;
   const server = createServer((request, response) => {
-    handleRequest(request, response, bodies, tokenizeBodies, tokenizeMap).catch((error: unknown) => {
+    handleRequest(request, response, bodies, tokenizeBodies, tokenizeMap, allowBlankModel).catch((error: unknown) => {
       // A fixture assertion failing (assertLogitBiasBodyShape below) throws
       // rather than silently accepting a malformed body — respond with the
       // failure instead of leaving the client to hang until its own
@@ -109,7 +125,8 @@ async function handleRequest(
   response: ServerResponse,
   bodies: Record<string, unknown>[],
   tokenizeBodies: Record<string, unknown>[],
-  tokenizeMap: LlamaCppFixtureTokenizeMap | undefined
+  tokenizeMap: LlamaCppFixtureTokenizeMap | undefined,
+  allowBlankModel: boolean
 ): Promise<void> {
   if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
     response.setHeader("content-type", "application/json");
@@ -120,11 +137,18 @@ async function handleRequest(
     const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
     tokenizeBodies.push(body);
     const content = body.content;
-    const model = body.model;
-    const modelMap = typeof model === "string" ? tokenizeMap[model] : undefined;
+    const hasModelField = Object.hasOwn(body, "model");
+    // Router mode: a request naming no model is rejected outright rather
+    // than answered from a default — the same is true of a request naming a
+    // model this server does not host, including the literal empty string,
+    // which is never a real model name (issue #282 review round 5, finding
+    // 1). `allowBlankModel` stands in for a single-model server instead,
+    // which does not route on `model` at all and so answers a call that
+    // omits the field, from the one model it has.
+    const modelMap = hasModelField
+      ? (typeof body.model === "string" ? tokenizeMap[body.model] : undefined)
+      : (allowBlankModel ? soleTokenizeMapEntry(tokenizeMap) : undefined);
     if (modelMap === undefined || typeof content !== "string") {
-      // Router mode: a request naming no model, or a model this server does
-      // not host, is rejected outright rather than answered from a default.
       response.writeHead(400).end();
       return;
     }
@@ -161,6 +185,17 @@ async function handleRequest(
     "",
     ""
   ].join("\n"));
+}
+
+/** The one model a single-model fixture (`allowBlankModel`) has to answer
+ * from. Undefined when the map does not represent exactly one model — a
+ * fixture standing in for a multi-model router has no default to fall back
+ * to, so it stays strict instead of guessing. */
+function soleTokenizeMapEntry(
+  tokenizeMap: LlamaCppFixtureTokenizeMap
+): Readonly<Record<string, number>> | undefined {
+  const entries = Object.values(tokenizeMap);
+  return entries.length === 1 ? entries[0] : undefined;
 }
 
 /** Issue #282 review round 2, finding 2: the fixture used to accept
