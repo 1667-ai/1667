@@ -19,6 +19,7 @@ import {
   MUTATION_ID_PATTERN_SOURCE
 } from "../server/mutation-ledger-scalars.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
+import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
 import {
   FEATURE_SUPPORT_V2_VALUES,
   GENERATION_EFFORT_V2_VALUES,
@@ -56,6 +57,7 @@ export function settingsV2Schema(): Schema {
     Fm1Key: stringPattern(FM1_KEY_PATTERN_SOURCE),
     PositiveSafeInteger: integer(1, SAFE_INTEGER),
     TokenCount: integer(1, MAX_SETTINGS_TOKEN_COUNT),
+    TokenProbabilitiesCount: integer(1, MAX_ALTERNATIVE_TOKENS),
     Timeout: integer(1, MAX_SETTINGS_TIMEOUT_MS),
     AuthNone: closed({ type: { const: "none" } }),
     AuthBearer: closed({ type: { const: "bearer-env" }, env: ref("CredentialName") }),
@@ -127,7 +129,8 @@ export function settingsV2Schema(): Schema {
       maxOutputTokens: ref("TokenCount"),
       effort: { enum: GENERATION_EFFORT_V2_VALUES },
       cachePolicy: { enum: PROMPT_CACHE_POLICY_V2_VALUES },
-      sampling: ref("Sampling")
+      sampling: ref("Sampling"),
+      tokenProbabilities: ref("TokenProbabilitiesCount")
     }, ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"]),
     PhraseBiasEntry: closed({
       phrase: boundedString(SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars, 1),

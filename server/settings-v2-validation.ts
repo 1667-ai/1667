@@ -16,6 +16,7 @@ import {
 } from "../shared/settings-v2-types.js";
 import { parseSampling, validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
+import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
   MAX_SETTINGS_CREDENTIAL_NAMES,
@@ -55,7 +56,7 @@ const METADATA = closedShape([], ["contextWindow", "maxOutputTokens"]);
 const CAPABILITIES = closedShape(["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"]);
 const PROFILE = closedShape(
   ["name", "modelId", "temperature", "maxOutputTokens", "effort", "cachePolicy"],
-  ["sampling"]
+  ["sampling", "tokenProbabilities"]
 );
 const ROUTING = closedShape(["default"], ["prose", "utility"]);
 const WRITING = closedShape(["defaultAuthorBrief"]);
@@ -368,6 +369,16 @@ function parseProfiles(
       throw new SettingsFormatError(`profile ${id} sets effort without explicit model support`);
     }
     const sampling = parseSampling(profile.sampling, `profile ${id}.sampling`);
+    // Absent means the request asks for no alternatives, the default for
+    // every existing and new profile, so a document saved before this field
+    // existed keeps meaning exactly what it did — same shape as `sampling`.
+    const tokenProbabilities = profile.tokenProbabilities === undefined
+      ? undefined
+      : requirePositiveSettingsInteger(
+        profile.tokenProbabilities,
+        `profile ${id}.tokenProbabilities`,
+        MAX_ALTERNATIVE_TOKENS
+      );
     const parsedProfile: GenerationProfileV2 = {
       name: requireBoundedSettingsString(profile.name, `profile ${id}.name`, MAX_SETTINGS_NAME_SCALARS, 1),
       modelId,
@@ -379,7 +390,8 @@ function parseProfiles(
       ),
       effort,
       cachePolicy: oneOf(profile.cachePolicy, PROMPT_CACHE_POLICY_V2_VALUES, `profile ${id}.cachePolicy`),
-      ...(sampling === undefined ? {} : { sampling })
+      ...(sampling === undefined ? {} : { sampling }),
+      ...(tokenProbabilities === undefined ? {} : { tokenProbabilities })
     };
     const connection = connections[model.connectionId];
     if (connection === undefined) {
