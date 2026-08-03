@@ -513,6 +513,12 @@ npm run release:verify-install-upgrade -- --from-version <semver> [--from-channe
 The `--from-version` argument is required. The `--from-channel` argument
 defaults to `beta`.
 
+The command verifies a stable release. It compares the Installer on the
+homepage, which is always the stable Installer, against the Installer asset of
+the release, and it asserts the stable channel in every step. The command
+refuses a prerelease checkout and tells you why. Run the command for the stable
+release that follows the prerelease.
+
 The command needs `curl`, `gh`, `npm`, and `bun`.
 
 Install both dependency sets first. Step 10 runs the source entry with `bun`,
