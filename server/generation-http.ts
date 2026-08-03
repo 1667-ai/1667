@@ -15,6 +15,7 @@ import {
   rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
 import { streamCompletion } from "./providers.js";
+import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
@@ -84,14 +85,11 @@ export async function autonameStory(
   const titlePrompt = titlePlan.prompt;
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
   try {
-    for await (const delta of streamCompletion(
-      titleSettings,
-      titlePrompt,
-      signal,
-      undefined,
+    for await (const delta of streamCompletion(titleSettings, titlePrompt, signal, {
       providerStarted,
-      createPromptCacheRequest(promptCacheRuntime, promptCache, id, titlePrompt.operation)
-    )) {
+      promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, titlePrompt.operation),
+      storySampling: storySamplingBias(snapshot)
+    })) {
       raw += delta;
       if (raw.length > 4_096) throw new GeneratedTitleError("The model returned far more than a title. Try again.");
     }
@@ -249,20 +247,17 @@ export async function continueStory(
   const continuationOutput = continuation.requiresEcho
     ? new AnchoredOutputFilter(continuation.leftAnchor, "", "", true)
     : undefined;
-  const raw = await streamModel(
-    settings,
-    continuation.prompt,
-    signal,
-    onDelta,
-    continuationOutput,
+  const raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
+    output: continuationOutput,
     providerStarted,
-    createPromptCacheRequest(
+    promptCache: createPromptCacheRequest(
       promptCacheRuntime,
       promptCache,
       id,
       continuation.prompt.operation
-    )
-  );
+    ),
+    storySampling: storySamplingBias(story)
+  });
   if (raw === null) return null;
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
     throw new GenerationResultError(502, "The model did not continue from the exact final characters; nothing was saved.");
@@ -423,15 +418,12 @@ export async function rewriteNode(
     beforeTail: plan.beforeTail,
     anchorWrapTag: `${tag}-right`
   });
-  const replacement = await streamModel(
-    rewriteSettings,
-    plan.prompt,
-    signal,
-    onDelta,
+  const replacement = await streamModel(rewriteSettings, plan.prompt, signal, onDelta, {
     output,
     providerStarted,
-    createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
-  );
+    promptCache: createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation),
+    storySampling: storySamplingBias(story)
+  });
   if (replacement === null) return null;
   // Issue #277 stage 1: point a writer whose seam contract just failed at the
   // reliable fallback — a plain regenerate skips the exact-boundary step

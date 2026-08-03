@@ -14,6 +14,8 @@ interface MutationEntityNamespaces {
   setAuthorsNote: never;
   setAuthorBrief: never;
   setFactsBudget: never;
+  setPhraseBias: never;
+  setBannedStrings: never;
   autonameStory: "autoname";
   acknowledgeUnknownOutcomes: never;
   deleteStory: never;

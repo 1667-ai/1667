@@ -20,6 +20,8 @@ import { createFacts, deleteFact, patchFact, reorderFact } from "./story-facts.j
 import { authorsNoteApplied, setAuthorsNote } from "./story-authors-note.js";
 import { authorBriefApplied, setAuthorBrief } from "./story-author-brief.js";
 import { setFactsBudget } from "./story-facts-budget.js";
+import { bannedStringsApplied, phraseBiasApplied, setBannedStrings, setPhraseBias } from "./story-sampling.js";
+import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
   LocalStoryMutationMethod,
@@ -153,6 +155,50 @@ export class StoryServiceLocal {
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
       (story) => { setFactsBudget(story, budgetTokens); }
+    ));
+  }
+
+  async setPhraseBias(
+    id: string,
+    phraseBias: readonly SamplingPhraseBiasEntryV2[],
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setPhraseBias",
+        (story) => {
+          if (phraseBiasApplied(story, phraseBias)) return STORY_UNCHANGED;
+          setPhraseBias(story, phraseBias);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setPhraseBias(story, phraseBias); }
+    ));
+  }
+
+  async setBannedStrings(
+    id: string,
+    bannedStrings: readonly string[],
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setBannedStrings",
+        (story) => {
+          if (bannedStringsApplied(story, bannedStrings)) return STORY_UNCHANGED;
+          setBannedStrings(story, bannedStrings);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setBannedStrings(story, bannedStrings); }
     ));
   }
 

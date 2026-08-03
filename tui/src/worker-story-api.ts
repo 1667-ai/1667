@@ -134,6 +134,16 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, budgetTokens },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    setPhraseBias: async (storyId, phraseBias) => rememberPayload(await transport.call(
+      "setPhraseBias",
+      { storyId, phraseBias },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
+    setBannedStrings: async (storyId, bannedStrings) => rememberPayload(await transport.call(
+      "setBannedStrings",
+      { storyId, bannedStrings },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = rememberPayload(await transport.call("loadStory", { id }));

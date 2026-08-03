@@ -2,10 +2,12 @@ import {
   firstBlockingSamplingBiasEntry,
   isLogitBiasFamilyKnob,
   resolveConfiguredSamplingKnobs,
+  resolveSamplingKnob,
   samplingBiasEntryRejectionMessage,
   samplingBiasResolutionFailureMessage,
   samplingKnobLabel,
   samplingUnavailableReason,
+  type ConfiguredSamplingKnob,
   type SamplingContext
 } from "../shared/sampling-capabilities.js";
 import { maxResolvedLogitBiasEntries } from "../shared/sampling-validation-policy.js";
@@ -19,13 +21,17 @@ import {
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { resolveSamplingBiasForSettings } from "./sampling-phrase-bias.js";
+import {
+  resolveSamplingBiasForSettings,
+  type StorySamplingBias,
+  type StorySamplingRequest
+} from "./sampling-phrase-bias.js";
 
 export async function applySamplingFields(
   body: Record<string, unknown>,
   settings: GenerationSettings,
   protocol: "openai-chat-completions" | "anthropic-messages",
-  signal?: AbortSignal
+  request: StorySamplingRequest = {}
 ): Promise<void> {
   const runtime = providerRuntimeFor(settings);
   const sampling = runtime.sampling;
@@ -45,31 +51,97 @@ export async function applySamplingFields(
       );
     }
   }
-  const logitBiasFamilyMember = configured.find(({ knob }) => isLogitBiasFamilyKnob(knob));
-  if (logitBiasFamilyMember !== undefined) {
-    // Read the wire field off this knob's own resolution instead of
-    // hardcoding "logit_bias" (issue #282 review round 5, finding 3): the
-    // capability matrix is the single owner of wire spelling, including its
-    // per-preset override hook (KoboldCpp spells mirostat as
-    // mirostat_mode) — a hardcode here made that hook dead for the whole
-    // bias family. logitBias, phraseBias and bannedStrings all resolve to
-    // the same wireField (see the PROTOCOL_WIRE comment in
-    // shared/sampling-capabilities.ts), so any one of them names the field
-    // for the merged object. Every entry in `configured` is "available" by
-    // this point — an "unavailable" one already threw in the loop above.
-    const resolution = logitBiasFamilyMember.resolution;
-    if (resolution.kind !== "available") {
-      throw new Error(
-        `Configured sampling parameter ${samplingKnobLabel(logitBiasFamilyMember.knob)} `
-        + "reached encoding without an available resolution"
+  const logitBiasFamily = resolveLogitBiasFamilyKnob(context, sampling, configured, request.storySampling);
+  if (logitBiasFamily !== undefined) {
+    if (logitBiasFamily.resolution.kind !== "available") {
+      throw new ProviderError(
+        `Configured sampling parameter ${samplingKnobLabel(logitBiasFamily.knob)} is unavailable: ${
+          samplingUnavailableReason(logitBiasFamily.resolution.reason)
+        }`
       );
     }
-    body[resolution.wireField] = await mergedLogitBiasValue(sampling, settings, context.preset, signal);
+    body[logitBiasFamily.resolution.wireField] =
+      await mergedLogitBiasValue(sampling, settings, context.preset, request);
   }
   for (const { knob, resolution } of configured) {
     if (resolution.kind !== "available") continue;
     if (isLogitBiasFamilyKnob(knob)) continue;
     body[resolution.wireField] = encodeSamplingValue(knob, sampling);
+  }
+}
+
+/** The one knob that names this request's logit-bias-family wire field and
+ * availability (issue #282 review round 5, finding 3; issue #341 finding 4).
+ * An earlier version answered this in two separate branches — a profile
+ * member's own already-resolved entry when the profile configured one, a
+ * fresh `resolveSamplingKnob(..., "phraseBias")` call when only a story did —
+ * ending in the identical error construction and assignment reached two
+ * ways, with a `storyHasBias` boolean whose only job was picking a branch.
+ * Both branches were answering the same question, so this answers it once:
+ * a profile member if `configured` (built from the profile alone) already
+ * named one — reading the wire field off whichever member the profile
+ * configured, never hardcoding "logit_bias", is what keeps a per-preset wire
+ * override (KoboldCpp spells mirostat as mirostat_mode) live for the whole
+ * family — and otherwise, only when a story contributes phraseBias or
+ * bannedStrings the profile has nothing of its own in the family (issue #341
+ * decision 3: a story value adds to the profile's, even when the profile's
+ * own contribution is empty), "phraseBias" standing in for the family
+ * because logitBias, phraseBias and bannedStrings always resolve to the
+ * identical wire field and availability reason on one route (the
+ * PROTOCOL_WIRE comment in shared/sampling-capabilities.ts). Returns
+ * `undefined` when neither scope has anything in the family configured —
+ * there is nothing to check or apply. */
+function resolveLogitBiasFamilyKnob(
+  context: SamplingContext,
+  sampling: SamplingSettingsV2,
+  configured: readonly ConfiguredSamplingKnob[],
+  storySampling: StorySamplingBias | undefined
+): ConfiguredSamplingKnob | undefined {
+  const profileMember = configured.find(({ knob }) => isLogitBiasFamilyKnob(knob));
+  if (profileMember !== undefined) return profileMember;
+  const storyHasBias = storySampling !== undefined
+    && (storySampling.phraseBias.length > 0 || storySampling.bannedStrings.length > 0);
+  if (!storyHasBias) return undefined;
+  return { knob: "phraseBias", resolution: resolveSamplingKnob(context, sampling, "phraseBias") };
+}
+
+/** Whether the profile's or a story's own logit-bias-family value
+ * (phraseBias, bannedStrings, or the raw numeric logitBias map) is
+ * configured at all, and, if so, whether this route can use it — the same
+ * question `applySamplingFields` answers via `resolveLogitBiasFamilyKnob`
+ * above before building a real request body, extracted so a route with no
+ * request body to build at all can still refuse the same way (issue #341
+ * finding 2b). The dry-run route is exactly that: `streamCompletion`'s
+ * dry-run branch never calls `applySamplingFields` at all, because it never
+ * builds a request body, so a story's phrase bias used to generate
+ * successfully through it while the editor's own preview already reported
+ * the knob unavailable (dry-run supports no sampling knob at all — see the
+ * "dry-run" branch of `resolveSamplingKnob`). Resolves cleanly, doing
+ * nothing, when neither scope has anything in the family configured — dry
+ * run must keep working with nothing configured, exactly as it always has;
+ * this only closes the gap for the one family whose availability the editor
+ * can actually report. */
+export function requireLogitBiasFamilyAvailable(
+  settings: GenerationSettings,
+  protocol: "openai-chat-completions" | "anthropic-messages" | "dry-run",
+  storySampling?: StorySamplingBias
+): void {
+  const runtime = providerRuntimeFor(settings);
+  const sampling = runtime.sampling;
+  const context: SamplingContext = {
+    protocol,
+    preset: runtime.preset,
+    remoteModelId: settings.model,
+    temperatureSupport: runtime.capabilities.temperature
+  };
+  const configured = resolveConfiguredSamplingKnobs(context, sampling);
+  const family = resolveLogitBiasFamilyKnob(context, sampling, configured, storySampling);
+  if (family !== undefined && family.resolution.kind !== "available") {
+    throw new ProviderError(
+      `Configured sampling parameter ${samplingKnobLabel(family.knob)} is unavailable: ${
+        samplingUnavailableReason(family.resolution.reason)
+      }`
+    );
   }
 }
 
@@ -96,10 +168,10 @@ async function mergedLogitBiasValue(
   sampling: SamplingSettingsV2,
   settings: GenerationSettings,
   preset: SettingsPresetV2 | "legacy-v1",
-  signal: AbortSignal | undefined
+  request: StorySamplingRequest
 ): Promise<Readonly<Record<string, number>>> {
   const resolvedPreset = requirePreset(preset);
-  const resolved = await resolveSamplingBiasForSettings(sampling, settings, signal);
+  const resolved = await resolveSamplingBiasForSettings(sampling, settings, request);
   if (resolved.kind !== "resolved") {
     throw new ProviderError(`Could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}.`);
   }

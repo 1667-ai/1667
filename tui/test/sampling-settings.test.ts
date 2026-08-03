@@ -22,6 +22,7 @@ import {
   samplingLayerRowIndex
 } from "../src/sampling-model.js";
 import { samplingListPanelSpec } from "../src/sampling-panel-spec.js";
+import { phraseBiasValueRow } from "../src/screens/sampling-bias-panel.js";
 import { createWrapCache } from "../src/wrap.js";
 import {
   deferred,
@@ -466,6 +467,7 @@ describe("Sampling Settings user flow", () => {
       phraseBias: [{
         kind: "resolved",
         phrase: "dragon",
+        scope: "profile",
         tokenIds: [84021, 45342, 91530, 34057],
         variants: [
           { variant: "typed", text: "dragon", outcome: { kind: "single-token", tokenId: 84021 } },
@@ -509,6 +511,7 @@ describe("Sampling Settings user flow", () => {
       phraseBias: [{
         kind: "resolved",
         phrase: "dragon",
+        scope: "profile",
         tokenIds: [84021, 45342, 91530, 34057],
         variants: [
           { variant: "typed", text: "dragon", outcome: { kind: "single-token", tokenId: 84021 } },
@@ -871,6 +874,40 @@ describe("Sampling Settings user flow", () => {
     setSamplingEdit(state, "€".repeat(13));
     await press(key("return"));
     expect(state.settings?.draft.sampling.dryBreakers).toEqual(["€".repeat(13)]);
+  });
+
+  // Regression test for issue #341 finding 3: the row-resolution dispatch
+  // used to fall through into "resolved" for any entry kind it did not
+  // explicitly recognize, so an "overridden" entry — a real outcome
+  // (shared/sampling-phrase-resolution.ts) that just cannot reach this
+  // profile-only panel today, since the settings overlay never combines a
+  // story with the profile it edits — would have rendered as a working
+  // phrase bias, listing its token IDs, when the weight it named never
+  // reached the merged map at all. Proven with a mocked resolveSamplingBias
+  // result, the only way to construct one today: a real "overridden" entry
+  // needs a story in the combined set, and this panel never supplies one.
+  test("an overridden phrase-bias entry throws instead of rendering as resolved", async () => {
+    const { state, press } = settingsHarness();
+    await enterSampling(state, press);
+    const sampling = state.settings?.sampling;
+    if (sampling === null || sampling === undefined) throw new Error("sampling editor did not open");
+    const overriddenResult: SamplingBiasResolutionResult = {
+      kind: "resolved",
+      logitBias: {},
+      phraseBias: [{
+        kind: "overridden",
+        phrase: "hello",
+        scope: "profile",
+        variants: [],
+        tokenIds: [123],
+        conflicts: [{ tokenId: 123, owner: { source: "phraseBias", scope: "story", phrase: "other" } }]
+      }],
+      bannedStrings: [],
+      resolvedEntryCount: 1
+    };
+    sampling.biasResolution = { kind: "ready", result: overriddenResult };
+    expect(() => phraseBiasValueRow({ phrase: "hello", weight: 5 }, state.settings!, false, 80))
+      .toThrow();
   });
 });
 

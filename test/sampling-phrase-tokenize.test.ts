@@ -80,6 +80,42 @@ test("resolveSamplingBias resolves real, encoding-specific token IDs for every s
   assert.equal(result.bannedStrings.length, 0);
 });
 
+// Issue #341: the editor's preview (this worker method) and the request
+// (server/provider-sampling.ts) must never disagree about a draft that
+// combines a story overlay with the profile — this proves the preview side
+// of that invariant. The story's own weight for "hello" overrides the
+// profile's, and the override does not block the resolution.
+test("resolveSamplingBias combines a story overlay with the profile, and the story entry overrides the profile's", async (t) => {
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-story-overlay-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const result = await service.resolveSamplingBias({
+    settings: OPENAI_PROBE_TARGET,
+    logitBias: {},
+    phraseBias: [{ phrase: "hello", weight: 20 }],
+    bannedStrings: [],
+    storyPhraseBias: [{ phrase: "hello", weight: -7 }],
+    storyBannedStrings: []
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.deepEqual(result.logitBias, {
+    "24912": -7,
+    "40617": -7,
+    "13225": -7,
+    "32949": -7
+  });
+  assert.equal(result.phraseBias.length, 2);
+  const [profileEntry, storyEntry] = result.phraseBias;
+  assert.equal(profileEntry!.kind, "overridden");
+  assert.equal(profileEntry!.scope, "profile");
+  assert.equal(storyEntry!.kind, "resolved");
+  assert.equal(storyEntry!.scope, "story");
+});
+
 // Different encodings produce different IDs for the same text, which is the
 // whole point of routing on the model's encoding.
 test("resolveSamplingBias resolves different token IDs for a different model's encoding", async (t) => {

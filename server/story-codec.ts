@@ -14,6 +14,8 @@ import {
   STORY_FORMAT,
   STORY_SCHEMA_VERSION,
   StoryFormatError,
+  optionalBannedStrings,
+  optionalPhraseBias,
   parseManifest,
   serializeManifest,
   validateNodeAttribution,
@@ -73,6 +75,8 @@ export async function encodeStoryBundle(
   const authorBrief = canonicalBrief === undefined
     ? undefined
     : boundedString(canonicalBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
+  const phraseBias = optionalPhraseBias(story.phraseBias);
+  const bannedStrings = optionalBannedStrings(story.bannedStrings);
   validateFactBodies(story.facts);
   for (const node of story.nodes) if (isNodeTextHydrated(node)) {
     validateNodeAttribution(node);
@@ -135,6 +139,8 @@ export async function encodeStoryBundle(
     ...(authorsNote === undefined ? {} : { authorsNote }),
     ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
     ...(authorBrief === undefined ? {} : { authorBrief }),
+    ...(phraseBias === undefined || phraseBias.length === 0 ? {} : { phraseBias }),
+    ...(bannedStrings === undefined || bannedStrings.length === 0 ? {} : { bannedStrings }),
     ...(storyAutonameId(story) === undefined ? {} : { autonameId: storyAutonameId(story) }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
@@ -238,6 +244,12 @@ export async function decodeStoryBundle(
     ...(storedAuthorBrief(manifest.authorBrief) === undefined
       ? {}
       : { authorBrief: manifest.authorBrief }),
+    ...(manifest.phraseBias === undefined || manifest.phraseBias.length === 0
+      ? {}
+      : { phraseBias: manifest.phraseBias.map((entry) => ({ ...entry })) }),
+    ...(manifest.bannedStrings === undefined || manifest.bannedStrings.length === 0
+      ? {}
+      : { bannedStrings: [...manifest.bannedStrings] }),
     ...(manifest.firstChapterTitle === undefined
       ? {}
       : { firstChapterTitle: manifest.firstChapterTitle }),

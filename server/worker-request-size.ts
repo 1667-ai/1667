@@ -87,6 +87,8 @@ function logicalRequestBody(
     case "setAuthorsNote": return { note: input.note, depth: input.depth };
     case "setAuthorBrief": return { brief: input.brief };
     case "setFactsBudget": return { budgetTokens: input.budgetTokens };
+    case "setPhraseBias": return { phraseBias: input.phraseBias };
+    case "setBannedStrings": return { bannedStrings: input.bannedStrings };
     case "acknowledgeUnknownOutcomes":
       return { originalProviderMutationId: input.originalProviderMutationId };
     case "createChapterBreak": return { parentPartId: input.parentPartId, title: input.title };

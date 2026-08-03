@@ -67,10 +67,12 @@ import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import {
+  normalizeStorySamplingBias,
   parseResolveSamplingBiasInput,
   resolveSamplingBiasForSettings
 } from "./sampling-phrase-bias.js";
 import type { SamplingBiasResolutionResult } from "../shared/sampling-capabilities.js";
+import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
@@ -271,6 +273,22 @@ export class StoryService extends StoryServiceRuntime {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     return await this.storyLocal.setFactsBudget(id, budgetTokens, mutationRequest);
+  }
+
+  async setPhraseBias(
+    id: string,
+    phraseBias: readonly SamplingPhraseBiasEntryV2[],
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.setPhraseBias(id, phraseBias, mutationRequest);
+  }
+
+  async setBannedStrings(
+    id: string,
+    bannedStrings: readonly string[],
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.setBannedStrings(id, bannedStrings, mutationRequest);
   }
 
   async autonameStory(
@@ -603,7 +621,10 @@ export class StoryService extends StoryServiceRuntime {
     const record = requireRecord(value, "resolveSamplingBias input");
     const settings = await this.settings.resolveProviderProbe(record.settings);
     const input = parseResolveSamplingBiasInput(record);
-    return await resolveSamplingBiasForSettings(input, settings, signal);
+    return await resolveSamplingBiasForSettings(input, settings, {
+      signal,
+      storySampling: normalizeStorySamplingBias(input.storyPhraseBias, input.storyBannedStrings)
+    });
   }
 
   /** No settings and no story id: this always counts against the backend's

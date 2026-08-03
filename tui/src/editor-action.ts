@@ -39,6 +39,8 @@ export {
   openAuthorsNoteEditor,
   openAuthorBriefEditor,
   openFactsBudgetEditor,
+  openPhraseBiasEditor,
+  openBannedStringsEditor,
   openPartEditor,
   openSystemPromptEditor
 } from "./editor-open.js";

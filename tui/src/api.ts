@@ -130,6 +130,13 @@ export interface StoryApi {
   setAuthorBrief(storyId: string, brief: string): Promise<StoryPayload>;
   /** null clears the story's Facts budget. */
   setFactsBudget(storyId: string, budgetTokens: number | null): Promise<StoryPayload>;
+  /** Adds to the routed profile's own phraseBias rather than replacing it —
+   *  see the field comment on `Story.phraseBias` (shared/types.ts). An empty
+   *  array clears it. */
+  setPhraseBias(storyId: string, phraseBias: readonly SamplingPhraseBiasEntryV2[]): Promise<StoryPayload>;
+  /** Same story-adds-to-profile relationship as `setPhraseBias`, for the
+   *  banned-strings list. */
+  setBannedStrings(storyId: string, bannedStrings: readonly string[]): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
@@ -170,6 +177,11 @@ export interface StoryApi {
       logitBias: Readonly<Record<string, number>>;
       phraseBias: readonly SamplingPhraseBiasEntryV2[];
       bannedStrings: readonly string[];
+      /** The one story's own overlay, when previewing a story's phraseBias/
+       *  bannedStrings editor rather than the profile's — combined with the
+       *  above the same way a request combines them (issue #341). */
+      storyPhraseBias?: readonly SamplingPhraseBiasEntryV2[];
+      storyBannedStrings?: readonly string[];
     }
   ): Promise<SamplingBiasResolutionResult>;
   discoverModels(

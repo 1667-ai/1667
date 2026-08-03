@@ -62,7 +62,33 @@ export function samplingBiasRowResolution(
   if (entry === undefined) return { kind: "idle" };
   if (entry.kind === "rejected") return { kind: "rejected", entry };
   if (entry.kind === "shadowed") return { kind: "shadowed", entry };
-  return { kind: "resolved", tokenIds: entry.tokenIds };
+  if (entry.kind === "resolved") return { kind: "resolved", tokenIds: entry.tokenIds };
+  return unhandledOverriddenRow(entry);
+}
+
+/** The settings overlay edits a profile in isolation, with no story in the
+ * combined set (server/story-service.ts's resolveSamplingBias handler only
+ * adds a story overlay when the caller supplies one), so "overridden" can
+ * never actually reach this panel today — the story fields still use
+ * line-per-entry text editing, not this row-by-row panel (issue #341
+ * accepted scope limit). `samplingBiasRowResolution` narrows every other
+ * kind explicitly and calls this on what is left, the same exhaustive-switch
+ * shape `assertNever` uses elsewhere (server/provider-sampling.ts), rather
+ * than falling through into "resolved" the way an earlier version of this
+ * dispatch did (issue #341 finding 3): that silently reported an overridden
+ * entry's discarded weight as the one that shipped. Typed to accept exactly
+ * the "overridden" member, not `never` — unlike a true exhaustiveness guard,
+ * TypeScript cannot see the "no story here" invariant that makes this
+ * unreachable, so this documents and enforces it at the one call site
+ * instead. If a caller ever does wire a story into this panel, this throws
+ * immediately instead of quietly mislabeling the row. */
+function unhandledOverriddenRow(
+  entry: Extract<SamplingBiasEntryResolution, { kind: "overridden" }>
+): never {
+  throw new Error(
+    `sampling-bias resolution row unexpectedly overridden: ${JSON.stringify(entry.phrase)} `
+    + "— the settings overlay never combines a story, so no entry here can lose to one"
+  );
 }
 
 /** A phraseBias or bannedStrings entry a writer just committed, so the
@@ -199,7 +225,14 @@ function justCommittedKeptOutReason(
   }
   const list = justCommitted.panel === "phraseBias" ? result.phraseBias : result.bannedStrings;
   const entry = list.find((item) => item.phrase === justCommitted.phrase);
-  return entry !== undefined && entry.kind !== "resolved"
+  // The settings overlay edits a profile in isolation, with no story in the
+  // combined set (server/story-service.ts's resolveSamplingBias handler only
+  // adds a story overlay when the caller supplies one) — so "overridden"
+  // never actually occurs here. Checked explicitly anyway, the same way
+  // firstBlockingSamplingBiasEntry (shared/sampling-phrase-resolution.ts)
+  // does, rather than relying on that absence: an "overridden" entry is not
+  // a rejection, and must never be reported as one.
+  return entry !== undefined && (entry.kind === "rejected" || entry.kind === "shadowed")
     ? samplingBiasEntryRejectionMessage(entry)
     : null;
 }

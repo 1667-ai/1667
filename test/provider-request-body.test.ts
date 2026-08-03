@@ -15,6 +15,7 @@ import {
   type SamplingSettingsV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
+import type { StorySamplingBias } from "../server/sampling-phrase-bias.js";
 
 const FORBIDDEN_CACHE_FIELDS = new Set([
   "prompt_cache_key",
@@ -834,6 +835,297 @@ test("a failed llama.cpp tokenize probe reports the tokenizer as unavailable, an
   );
 });
 
+// Issue #341: a story's own phraseBias/bannedStrings overlay adds to the
+// routed profile's — the same resolution `resolveSamplingBiasForSettings`
+// (server/sampling-phrase-bias.ts) applies, at the exact boundary the
+// request itself serializes through, not a parallel check. The profile
+// contributes a raw numeric logitBias entry here (a token id needing no
+// tokenizer) specifically so this test needs no second real single-token
+// word beyond "hello" (the only phrase this file has verified token IDs
+// for) to prove two independent, non-conflicting sources merge into one map.
+test("a story phrase-bias entry adds to the profile's own, merging into one request", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ logitBias: { "99999": 5 } })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "99999": 5,
+    "24912": 3,
+    "40617": 3,
+    "13225": 3,
+    "32949": 3
+  });
+});
+
+// A profile with nothing at all configured in the logit-bias family
+// (phraseBias, bannedStrings, and the raw numeric logitBias map all empty)
+// must still apply a story-only phraseBias entry. The family's availability
+// and wire field are normally read off whichever family member the profile
+// configured (server/provider-sampling.ts) — with nothing configured there
+// is no such member to read from, so a story-only value needs its own
+// availability check, not silent omission.
+test("a story phrase-bias entry applies even when the profile has nothing in the logit-bias family configured", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({})
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": 3,
+    "40617": 3,
+    "13225": 3,
+    "32949": 3
+  });
+});
+
+// A story with no phraseBias/bannedStrings overlay — omitted entirely, the
+// shape every non-story call site (title and summary generation) actually
+// passes — must serialize byte-identically to the profile-only request
+// issue #282 already shipped.
+test("a story with no phrase-bias or banned-strings value inherits the profile value unchanged", async () => {
+  const withoutStory = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  const withEmptyStory = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({}) }
+  );
+  const expected = { "24912": 3, "40617": 3, "13225": 3, "32949": 3 };
+  assert.deepEqual(withoutStory.logit_bias, expected);
+  assert.deepEqual(withEmptyStory.logit_bias, expected);
+});
+
+// Issue #341 decision 4, the one that matters most: a story entry that
+// conflicts with a profile entry is an override, not a shadow. If this
+// blocked the way a same-scope conflict does, a vault-wide phrase-bias
+// weight plus one story-specific override would refuse every request in
+// that story — exactly the defect this decision exists to prevent.
+test("a story entry overriding a profile entry does not block, and the story weight ships", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ phraseBias: [{ phrase: "hello", weight: 20 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: -7 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": -7,
+    "40617": -7,
+    "13225": -7,
+    "32949": -7
+  });
+});
+
+// A conflict within one scope — here, two entries the story itself
+// configured — keeps today's blocking shadow semantics exactly: the story
+// override rule (decision 4) only ever softens a *cross*-scope conflict.
+test("a conflict between two entries in the same scope still blocks, even when that scope is the story", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({})
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      {
+        storySampling: storySampling({
+          phraseBias: [
+            { phrase: "hello", weight: 5 },
+            { phrase: "Hello", weight: 9 }
+          ]
+        })
+      }
+    ),
+    /Could not use "hello" as configured: "hello" loses its bias on "Hello", " Hello" to this story's phrase bias "Hello"/
+  );
+});
+
+// Issue #341 decision 6: the capability matrix stays the single owner of
+// availability. OpenRouter has no trustworthy tokenizer source (shared/
+// sampling-capabilities.ts), so phrase bias is unavailable there regardless
+// of scope — a story value must never make it available, including when the
+// profile itself has nothing configured (the case that skipped this check
+// entirely before the fix: `configured` only ever looked at the profile).
+test("a story value on a preset with no phrase-bias support stays unavailable", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(settings("openai-compatible"), "openrouter", sampling({})),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 1 }] }) }
+    ),
+    /Configured sampling parameter phrase bias is unavailable/
+  );
+});
+
+// Regression test for issue #341 finding 1: the merge that decided what
+// ships was source-major (every phraseBias entry, then every bannedStrings
+// entry, then the raw numeric map, regardless of scope) while the
+// classification rule assumed scope-major (a story entry only ever loses to
+// another story entry). Across sources that assumption was false: a profile
+// bannedStrings entry outranked a story phraseBias entry on the wire even
+// though decision 4 says the story value must win. "hello" (profile,
+// bannedStrings) and "hello" (story, phraseBias) collide on every one of
+// "hello"'s four tokens; the story's weight must be what ships, not the
+// profile's fixed banned-string minimum.
+test("a story phrase-bias entry outranks a colliding profile banned string, and the story weight ships", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ bannedStrings: ["hello"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 20 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": 20,
+    "40617": 20,
+    "13225": 20,
+    "32949": 20
+  });
+});
+
+// Regression test for issue #341 finding 1, the same defect against the raw
+// numeric logitBias map: the old merge applied `logitBias` unconditionally
+// last, after every phraseBias and bannedStrings entry of *either* scope, so
+// a profile logitBias entry always won even against a story phraseBias entry
+// that named the exact same tokens. The profile's numeric pins here collide
+// with every one of "hello"'s four tokens; the story's weight must ship.
+test("a story phrase-bias entry outranks a colliding profile numeric logitBias entry, and the story weight ships", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({
+        logitBias: { "24912": -100, "40617": -100, "13225": -100, "32949": -100 }
+      })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 20 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": 20,
+    "40617": 20,
+    "13225": 20,
+    "32949": 20
+  });
+});
+
+// Regression test for issue #341 finding 1b, the mirror form: two entries in
+// the *same* scope (here, profile) genuinely conflict with each other —
+// "hello" and "Hello" share two tokens and write different weights — which
+// #282 has always blocked. Deciding "shadowed" from whichever entry the
+// *overall* map remembers as final owner breaks that guarantee the moment an
+// unrelated story entry also touches the same tokens and ends up as that
+// overall owner: the profile-vs-profile conflict is still real, but the old
+// rule saw only a cross-scope loss to the story entry and called both
+// profile entries "overridden", so the request would have shipped the
+// story's weight without ever reporting the profile's own internal
+// disagreement. The story entry here does not conflict with either profile
+// entry in the sense that matters (it is a legitimate cross-scope override);
+// the profile's own same-scope conflict must still block regardless of what
+// weight the story entry happens to carry.
+//
+// This asserts the contract over a spread of story weights rather than one
+// chosen literal (round 2 review, finding 1): an earlier version of this test
+// picked story weight 99 only, which the buggy implementation also blocked —
+// because *any* story weight that merely differed from the profile's own 5
+// left `conflicts.length > 0` on the old cross-scope gate. That gate read
+// `merged`, not `scopeMerged`, so the one weight that actually exercised the
+// bug is 5 — the story writing the *same* weight the profile's own losing
+// entry already had. There, the cross-scope map's final value coincidentally
+// equals `ownWeight`, `conflicts` comes back empty, and the old code returned
+// early before ever consulting `scopeMerged` — silently dropping the real
+// same-scope conflict. The loop below includes that exact value alongside
+// ordinary ones, so a future change that reopens the gate on any single
+// weight fails here, not just on 5.
+test("two profile entries that conflict with each other still block, for any story weight including one equal to the profile's own", async () => {
+  for (const storyWeight of [-3, 0, 5, 9, 42, 99]) {
+    await assert.rejects(
+      () => buildOpenAiChatRequestBody(
+        withSampling(
+          { ...settings("openai-compatible"), model: "gpt-4o" },
+          "openai",
+          sampling({
+            phraseBias: [
+              { phrase: "hello", weight: 5 },
+              { phrase: "Hello", weight: 9 }
+            ]
+          })
+        ),
+        PROMPT,
+        OMIT_PLANS[0]!,
+        { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: storyWeight }] }) }
+      ),
+      /Could not use "hello" as configured: "hello" loses its bias on/,
+      `story weight ${storyWeight} did not block`
+    );
+  }
+});
+
+// Regression test for issue #341 finding 1b, the form the second review
+// found first: two entries in the *story* scope conflict with each other —
+// "hello" and "Hello" again — while a profile numeric logitBias entry also
+// pins two of the same tokens. The profile entry never conflicts with either
+// story entry in the sense that matters (a legitimate cross-scope override
+// either way); the story's own same-scope conflict between its two entries
+// must still block.
+test("two story entries that conflict with each other still block, even alongside an unrelated profile logitBias entry", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({
+          logitBias: { "24912": -100, "40617": -100, "13225": -100, "32949": -100 }
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      {
+        storySampling: storySampling({
+          phraseBias: [
+            { phrase: "hello", weight: 5 },
+            { phrase: "Hello", weight: 9 }
+          ]
+        })
+      }
+    ),
+    /Could not use "hello" as configured: "hello" loses its bias on/
+  );
+});
+
 test("Anthropic lowering uses only its exact wire names", async () => {
   const body = await buildAnthropicMessagesRequestBody(
     withSampling({ ...settings("anthropic"), model: "claude-opus-4-5" }, "anthropic", sampling({
@@ -988,6 +1280,13 @@ function sampling(overrides: Partial<SamplingSettingsV2> = {}): SamplingSettings
     ...overrides,
     stop: overrides.stop ?? EMPTY_SAMPLING_V2.stop,
     logitBias: overrides.logitBias ?? EMPTY_SAMPLING_V2.logitBias
+  };
+}
+
+function storySampling(overrides: Partial<StorySamplingBias>): StorySamplingBias {
+  return {
+    phraseBias: overrides.phraseBias ?? [],
+    bannedStrings: overrides.bannedStrings ?? []
   };
 }
 
