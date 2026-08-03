@@ -111,7 +111,7 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     ? null
     : payload.path.find((node) => node.id === request.targetId) ?? null;
   const intent = continuationIntent(payload, request.targetId, request.instruction, regenerateNode);
-  // The same candidate selection server/story-facts.ts's activeBudgetedFacts
+  // The same candidate selection shared/fact-selection.ts's activeBudgetedFacts
   // runs for a real request — StoryPayload satisfies its structural
   // FactsBudgetSource parameter the same way Story does, so this meter's
   // candidate list is that function's result rather than a second hand-rolled

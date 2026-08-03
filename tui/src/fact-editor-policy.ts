@@ -407,8 +407,11 @@ function tagLength(text: string): number {
 
 function disarmFactEditor(editor: FactEditorSession): void {
   if (editor.conflict !== null) editor.conflict.armed = false;
-  editor.cutConfirmation = null;
-  editor.tagCutConfirmation = null;
-  editor.keysCutConfirmation = null;
-  editor.budgetCutConfirmation = null;
+  // Reads FACT_EDITOR_ROW_TABLE rather than the four buffers by name, for the
+  // same reason factEditorBuffer does above: a hand-listed reset would leave
+  // a future row's own cut-confirmation buffer armed after the user believes
+  // a cut was cancelled, since nothing would force this list to grow with it.
+  for (const spec of Object.values(FACT_EDITOR_ROW_TABLE)) {
+    spec.cutConfirmation.set(editor, null);
+  }
 }

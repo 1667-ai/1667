@@ -159,14 +159,6 @@ function requireToIndex(value: unknown): number {
   return toIndex as number;
 }
 
-/** The structural slice of `Story` (and `StoryPayload`) that Facts admission
- *  depends on. Both satisfy this without a cast, so one caller with a `Story`
- *  and another with a `StoryPayload` reach the same selection through the
- *  same function — see `activeBudgetedFacts` below, which
- *  tui/src/request-projection.ts calls for exactly that reason (issue #316):
- *  that call site is the input the shared window-pressure selection sheds
- *  from, so it is the last place the context meter and the real request
- *  could otherwise drift apart. */
 function findFact(story: Story, factId: string): StoryFact {
   const fact = story.facts.find((candidate) => candidate.id === factId);
   if (fact === undefined) throw new HttpError(404, `Fact not found: ${factId}`);

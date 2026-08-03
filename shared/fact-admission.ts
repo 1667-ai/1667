@@ -86,7 +86,7 @@ export interface FixedContextSelection extends FixedContextAdmission {
  * caller this exists for.
  *
  * `candidateFacts` should already reflect activation matching and the story's
- * own Facts budget (see server/story-facts.ts's `activeBudgetedFacts`); this
+ * own Facts budget (see shared/fact-selection.ts's `activeBudgetedFacts`); this
  * function's main job is the window-pressure fallback on top of that. It also
  * re-applies each Fact's own `budgetTokens` cap itself rather than trusting
  * the caller to have done so — both gates go through the same canonical
