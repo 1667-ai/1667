@@ -329,6 +329,11 @@ try again. 1667 has not confirmed this behavior against a running KoboldCpp
 server. A banned string on KoboldCpp makes the text unlikely, the same
 promise as every other preset. It does not make the text impossible.
 
+A banned string on KoboldCpp cannot name the same word as a phrase bias
+entry in the same scope. This combination would boost and ban the same word
+at the same time. 1667 refuses to save this combination. 1667 also refuses
+to send it. 1667 shows the name of the conflicting phrase bias entry.
+
 Phrase bias works only where 1667 can find the exact tokenizer for the
 routed model, or ask the model server to tokenize a phrase for it. Banned
 strings need the same tokenizer, except on KoboldCpp. A banned string on

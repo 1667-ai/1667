@@ -63,7 +63,10 @@ This file records notable changes to 1667. Product terms use the definitions in
   tokenizing it. This needs no tokenizer at all, so 1667 accepts a banned
   string of more than one token on KoboldCpp, where every other preset
   refuses it. A banned string on KoboldCpp still only makes the text
-  unlikely, the same promise as every other preset.
+  unlikely, the same promise as every other preset. A banned string cannot
+  name the same word as a phrase bias entry in the same scope. 1667 refuses
+  to save this combination. 1667 also refuses to send it, and names the
+  conflicting phrase bias entry.
 - **A story can now set its own phrase bias and banned strings.** Open the
   command palette. Select **phrase bias** or **banned strings**. Each list
   adds to the profile's own list; it does not replace it. 1667 merges the
