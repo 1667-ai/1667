@@ -92,14 +92,24 @@ export const SAMPLING_SCALAR_KNOB_V2_VALUES = [
   "frequencyPenalty",
   "presencePenalty",
   "repeatPenalty",
-  "seed"
+  "seed",
+  "dryMultiplier",
+  "dryBase",
+  "dryRange",
+  "xtcThreshold",
+  "xtcProbability",
+  "dynatempRange",
+  "mirostat",
+  "mirostatTau",
+  "mirostatEta"
 ] as const;
 export type SamplingScalarKnobV2 = (typeof SAMPLING_SCALAR_KNOB_V2_VALUES)[number];
 
 export const SAMPLING_KNOB_V2_VALUES = [
   ...SAMPLING_SCALAR_KNOB_V2_VALUES,
   "stop",
-  "logitBias"
+  "logitBias",
+  "dryBreakers"
 ] as const;
 export type SamplingKnobV2 = (typeof SAMPLING_KNOB_V2_VALUES)[number];
 
@@ -108,6 +118,7 @@ export type SamplingSettingsV2 = {
 } & {
   readonly stop: readonly string[];
   readonly logitBias: Readonly<Record<string, number>>;
+  readonly dryBreakers: readonly string[];
 };
 
 export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
@@ -118,8 +129,18 @@ export const EMPTY_SAMPLING_V2: SamplingSettingsV2 = Object.freeze({
   presencePenalty: null,
   repeatPenalty: null,
   seed: null,
+  dryMultiplier: null,
+  dryBase: null,
+  dryRange: null,
+  xtcThreshold: null,
+  xtcProbability: null,
+  dynatempRange: null,
+  mirostat: null,
+  mirostatTau: null,
+  mirostatEta: null,
   stop: Object.freeze([]) as readonly string[],
-  logitBias: Object.freeze({}) as Readonly<Record<string, number>>
+  logitBias: Object.freeze({}) as Readonly<Record<string, number>>,
+  dryBreakers: Object.freeze([]) as readonly string[]
 });
 
 export interface GenerationProfileV2 {

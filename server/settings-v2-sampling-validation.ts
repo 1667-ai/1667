@@ -1,5 +1,6 @@
 import {
   SAMPLING_KNOB_V2_VALUES,
+  SAMPLING_SCALAR_KNOB_V2_VALUES,
   type GenerationProfileV2,
   type ModelConnectionV2,
   type ModelDefinitionV2,
@@ -10,12 +11,14 @@ import {
   resolveConfiguredSamplingKnobs,
   samplingContextForRoute,
   samplingKnobValueIsSet,
-  samplingKnobLabel
+  samplingKnobLabel,
+  samplingUnavailableReasonClause
 } from "../shared/sampling-capabilities.js";
 import type { SamplingUnavailableReason } from "../shared/sampling-capabilities.js";
 import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
 import {
   SamplingValidationError,
+  validateSamplingDryBreakers,
   validateSamplingLogitBias,
   validateSamplingScalarOrNull,
   validateSamplingStopSequences,
@@ -30,28 +33,17 @@ export function parseSampling(value: unknown, label: string): SamplingSettingsV2
   if (value === undefined) return undefined;
   const sampling = closedRecord(value, label, SAMPLING);
   const parsed: SamplingSettingsV2 = samplingPolicy(() => ({
-    topP: samplingScalarOrNull("topP", sampling.topP, `${label}.topP`),
-    topK: samplingScalarOrNull("topK", sampling.topK, `${label}.topK`),
-    minP: samplingScalarOrNull("minP", sampling.minP, `${label}.minP`),
-    frequencyPenalty: samplingScalarOrNull(
-      "frequencyPenalty",
-      sampling.frequencyPenalty,
-      `${label}.frequencyPenalty`
-    ),
-    presencePenalty: samplingScalarOrNull(
-      "presencePenalty",
-      sampling.presencePenalty,
-      `${label}.presencePenalty`
-    ),
-    repeatPenalty: samplingScalarOrNull(
-      "repeatPenalty",
-      sampling.repeatPenalty,
-      `${label}.repeatPenalty`
+    ...Object.fromEntries(
+      SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => [
+        knob,
+        samplingScalarOrNull(knob, sampling[knob], `${label}.${knob}`)
+      ])
     ),
     seed: samplingScalarOrNull("seed", sampling.seed, `${label}.seed`),
     stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
-    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`)
-  }));
+    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`),
+    dryBreakers: validateSamplingDryBreakers(sampling.dryBreakers, `${label}.dryBreakers`)
+  } as SamplingSettingsV2));
   return SAMPLING_KNOB_V2_VALUES.some((knob) => samplingKnobValueIsSet(parsed, knob))
     ? parsed
     : undefined;
@@ -97,14 +89,5 @@ function samplingValidationMessage(
   knob: SamplingKnobV2,
   reason: SamplingUnavailableReason
 ): string {
-  const details: Readonly<Record<SamplingUnavailableReason, string>> = {
-    "legacy-v1": "for read-only format 1 settings",
-    "dry-run": "for a dry-run connection",
-    protocol: "for a protocol that does not document it",
-    "preset-unsupported": "for a preset that does not document it",
-    "preset-unknown": "for an endpoint with undocumented extension fields",
-    "model-unsupported": "for a model that does not declare sampling support",
-    "model-unknown": "for a model without a documented sampling contract"
-  };
-  return `profile ${profileId} sets ${samplingKnobLabel(knob)} ${details[reason]}`;
+  return `profile ${profileId} sets ${samplingKnobLabel(knob)} ${samplingUnavailableReasonClause(reason)}`;
 }

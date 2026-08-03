@@ -22,13 +22,46 @@ export const SAMPLING_SCALAR_DESCRIPTORS = {
   frequencyPenalty: { minimum: -2, maximum: 2, integer: false },
   presencePenalty: { minimum: -2, maximum: 2, integer: false },
   repeatPenalty: { minimum: 1, maximum: 10, integer: false },
-  seed: { minimum: 1, maximum: 999_999, integer: true }
+  seed: { minimum: 1, maximum: 999_999, integer: true },
+  dryMultiplier: { minimum: 0, maximum: 5, integer: false },
+  dryBase: { minimum: 1, maximum: 4, integer: false },
+  dryRange: { minimum: 0, maximum: 131_072, integer: true },
+  xtcThreshold: { minimum: 0, maximum: 0.5, integer: false },
+  xtcProbability: { minimum: 0, maximum: 1, integer: false },
+  dynatempRange: { minimum: 0, maximum: 2, integer: false },
+  mirostat: { minimum: 1, maximum: 2, integer: true },
+  mirostatTau: { minimum: 0, maximum: 10, integer: false },
+  mirostatEta: { minimum: 0, maximum: 1, integer: false }
 } as const satisfies Readonly<Record<SamplingScalarKnob, SamplingScalarDescriptor>>;
 
 export const SAMPLING_STOP_POLICY = {
   maxSequences: 4,
   maxScalars: 64
 } as const;
+
+// llama.cpp server README and the KoboldCpp API doc (see shared/sampling-capabilities.ts
+// for the exact URLs) document `dry_sequence_breakers` with the same shape as a stop
+// sequence list: a bounded array of short strings.
+//
+// The 40-byte cap mirrors the sampler itself, not just the wire doc. llama.cpp's
+// `llama_sampler_init_dry` (src/llama-sampler.cpp:3202-3228) declares
+// `const int MAX_CHAR_LEN = 40` and does `sequence_break.resize(MAX_CHAR_LEN)` on the
+// `std::string`, a byte-level truncation that can land inside a UTF-8 sequence.
+// KoboldCpp is a llama.cpp fork and links the same sampler, so both presets share the
+// bound. A breaker longer than 40 bytes would be saved and sent as written, then
+// silently truncated into a different breaker by the sampler, so the byte bound is
+// checked here rather than left to the provider.
+export const SAMPLING_DRY_BREAKERS_POLICY = {
+  maxSequences: 16,
+  maxScalars: 40,
+  maxBytes: 40
+} as const;
+
+interface SamplingStringListPolicy {
+  readonly maxSequences: number;
+  readonly maxScalars: number;
+  readonly maxBytes?: number;
+}
 
 export const SAMPLING_LOGIT_BIAS_POLICY = {
   maxEntries: 16,
@@ -95,14 +128,15 @@ export function validateSamplingNumber(
   return value;
 }
 
-export function validateSamplingStopSequences(
+function validateSamplingStringList(
   value: unknown,
-  label: string
+  label: string,
+  policy: SamplingStringListPolicy
 ): readonly string[] {
   if (!Array.isArray(value)) throw new SamplingValidationError(`${label} must be an array`);
-  if (value.length > SAMPLING_STOP_POLICY.maxSequences) {
+  if (value.length > policy.maxSequences) {
     throw new SamplingValidationError(
-      `${label} exceeds the ${SAMPLING_STOP_POLICY.maxSequences}-item limit`
+      `${label} exceeds the ${policy.maxSequences}-item limit`
     );
   }
   const seen = new Set<string>();
@@ -115,11 +149,19 @@ export function validateSamplingStopSequences(
     if (entry.normalize("NFC") !== entry) {
       throw new SamplingValidationError(`${label}[${index}] must be NFC-normalized`);
     }
-    const scalarLength = unicodeScalarLength(entry, SAMPLING_STOP_POLICY.maxScalars);
-    if (scalarLength < 1 || scalarLength > SAMPLING_STOP_POLICY.maxScalars) {
+    const scalarLength = unicodeScalarLength(entry, policy.maxScalars);
+    if (scalarLength < 1 || scalarLength > policy.maxScalars) {
       throw new SamplingValidationError(
-        `${label}[${index}] must contain 1..${SAMPLING_STOP_POLICY.maxScalars} Unicode scalars`
+        `${label}[${index}] must contain 1..${policy.maxScalars} Unicode scalars`
       );
+    }
+    if (policy.maxBytes !== undefined) {
+      const byteLength = new TextEncoder().encode(entry).length;
+      if (byteLength < 1 || byteLength > policy.maxBytes) {
+        throw new SamplingValidationError(
+          `${label}[${index}] must be 1..${policy.maxBytes} UTF-8 bytes`
+        );
+      }
     }
     if (seen.has(entry)) {
       throw new SamplingValidationError(`${label} repeats ${JSON.stringify(entry)}`);
@@ -127,6 +169,20 @@ export function validateSamplingStopSequences(
     seen.add(entry);
     return entry;
   });
+}
+
+export function validateSamplingStopSequences(
+  value: unknown,
+  label: string
+): readonly string[] {
+  return validateSamplingStringList(value, label, SAMPLING_STOP_POLICY);
+}
+
+export function validateSamplingDryBreakers(
+  value: unknown,
+  label: string
+): readonly string[] {
+  return validateSamplingStringList(value, label, SAMPLING_DRY_BREAKERS_POLICY);
 }
 
 export function validateSamplingLogitBias(
@@ -173,15 +229,16 @@ export function validateSamplingSettings(
   sampling: SamplingSettingsV2,
   label = "sampling"
 ): SamplingSettingsV2 {
+  const scalars = Object.fromEntries(
+    SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => [
+      knob,
+      validateSamplingScalarOrNull(knob, sampling[knob], `${label}.${knob}`)
+    ])
+  ) as Record<SamplingScalarKnobV2, number | null>;
   return {
-    topP: validateSamplingScalarOrNull("topP", sampling.topP, `${label}.topP`),
-    topK: validateSamplingScalarOrNull("topK", sampling.topK, `${label}.topK`),
-    minP: validateSamplingScalarOrNull("minP", sampling.minP, `${label}.minP`),
-    frequencyPenalty: validateSamplingScalarOrNull("frequencyPenalty", sampling.frequencyPenalty, `${label}.frequencyPenalty`),
-    presencePenalty: validateSamplingScalarOrNull("presencePenalty", sampling.presencePenalty, `${label}.presencePenalty`),
-    repeatPenalty: validateSamplingScalarOrNull("repeatPenalty", sampling.repeatPenalty, `${label}.repeatPenalty`),
-    seed: validateSamplingScalarOrNull("seed", sampling.seed, `${label}.seed`),
+    ...scalars,
     stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
-    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`)
+    logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`),
+    dryBreakers: validateSamplingDryBreakers(sampling.dryBreakers, `${label}.dryBreakers`)
   };
 }

@@ -110,16 +110,14 @@ test("sampling parses as a closed optional profile object and projects to runtim
     null
   ));
   const sampling = {
+    ...EMPTY_SAMPLING_V2,
     topP: 0.9,
-    topK: null,
-    minP: null,
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
-    repeatPenalty: null,
     seed: 7,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 }
-  } as const;
+  };
   const document = parseSettingsDocumentV2({
     ...base,
     profiles: {
@@ -160,15 +158,8 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   ));
   const profile = base.profiles.default!;
   const sampling = {
-    topP: 0.9,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    seed: null,
-    stop: [],
-    logitBias: {}
+    ...EMPTY_SAMPLING_V2,
+    topP: 0.9
   };
   const withSampling = (next: Record<string, unknown>) => ({
     ...base,
@@ -215,14 +206,7 @@ test("save-time sampling validation refuses unavailable preset and model cells",
       default: {
         ...profile,
         sampling: {
-          topP: null,
-          topK: null,
-          minP: null,
-          frequencyPenalty: null,
-          presencePenalty: null,
-          repeatPenalty: null,
-          seed: null,
-          stop: [],
+          ...EMPTY_SAMPLING_V2,
           logitBias: { "1": 1 }
         }
       }
@@ -243,15 +227,8 @@ test("save-time sampling validation refuses unavailable preset and model cells",
       default: {
         ...anthropic.profiles.default!,
         sampling: {
-          topP: 0.9,
-          topK: null,
-          minP: null,
-          frequencyPenalty: null,
-          presencePenalty: null,
-          repeatPenalty: null,
-          seed: null,
-          stop: [],
-          logitBias: {}
+          ...EMPTY_SAMPLING_V2,
+          topP: 0.9
         }
       }
     }

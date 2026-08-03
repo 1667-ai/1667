@@ -172,7 +172,8 @@ export interface SettingsInlineEditState extends SettingsEditBufferState {
   mode: "text" | "secret";
 }
 
-export type SamplingPanelId = "sampling" | "stop" | "logit-bias";
+export type SamplingPanelId = "sampling" | "stop" | "logit-bias" | "dry-breakers";
+export type SamplingListPanelId = Exclude<SamplingPanelId, "sampling">;
 
 export type SamplingInlineEditState =
   | (SettingsEditBufferState & {
@@ -180,8 +181,7 @@ export type SamplingInlineEditState =
       index: number;
       knob: SamplingScalarKnobV2;
     })
-  | (SettingsEditBufferState & { kind: "stop"; index: number })
-  | (SettingsEditBufferState & { kind: "logit-bias"; index: number });
+  | (SettingsEditBufferState & { kind: SamplingListPanelId; index: number });
 
 export interface SamplingOverlayState {
   panel: SamplingPanelId;

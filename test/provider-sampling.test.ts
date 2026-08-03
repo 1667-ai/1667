@@ -44,6 +44,68 @@ test("sampling lowering does not partially mutate a body on resolution failure",
   assert.deepEqual(body, before);
 });
 
+test("an LM Studio route with DRY configured fails with the ProviderError naming the reason", () => {
+  const sampling = {
+    ...EMPTY_SAMPLING_V2,
+    dryMultiplier: 0.8
+  };
+  const settings = attachProviderRuntime(baseSettings(), {
+    preset: "lm-studio",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 1_000,
+      firstTokenMs: 1_000,
+      idleMs: 1_000,
+      totalMs: 5_000
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    sampling,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  });
+  assert.throws(
+    () => applySamplingFields({}, settings, "openai-chat-completions"),
+    /Configured sampling parameter dry multiplier is unavailable: This endpoint does not document extension parameters\./u
+  );
+});
+
+test("mirostat off with tau configured sends neither mirostat_tau nor mirostat_eta and raises nothing", () => {
+  const sampling = {
+    ...EMPTY_SAMPLING_V2,
+    mirostatTau: 5
+  };
+  const settings = attachProviderRuntime(baseSettings(), {
+    preset: "llama-cpp",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: 1_000,
+      firstTokenMs: 1_000,
+      idleMs: 1_000,
+      totalMs: 5_000
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    sampling,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  });
+  const body: Record<string, unknown> = {};
+  applySamplingFields(body, settings, "openai-chat-completions");
+  assert.equal("mirostat_tau" in body, false);
+  assert.equal("mirostat_eta" in body, false);
+});
+
 function baseSettings(): GenerationSettings {
   return {
     provider: "openai-compatible",

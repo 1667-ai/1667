@@ -243,7 +243,8 @@ function captureSamplingSettings(
   return {
     ...sampling,
     stop: [...sampling.stop],
-    logitBias: { ...sampling.logitBias }
+    logitBias: { ...sampling.logitBias },
+    dryBreakers: [...sampling.dryBreakers]
   };
 }
 
