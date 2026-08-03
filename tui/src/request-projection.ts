@@ -8,10 +8,10 @@ import {
 import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
 import { resolveAuthorBrief } from "../../shared/author-brief.js";
 import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../../shared/authors-note.js";
-import { selectActiveFacts } from "../../shared/fact-activation.js";
-import { selectFactsWithinBudget, type FactBudgetDrop } from "../../shared/fact-budget.js";
-import { previewFixedContextAdmission } from "../../server/generation-admission.js";
+import { previewFixedContextAdmission } from "../../shared/fact-admission.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
+import { activeBudgetedFacts } from "../../shared/fact-selection.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
@@ -36,13 +36,14 @@ export interface RequestTokenEstimate {
   factStatuses: ReadonlyMap<string, FactRequestStatus>;
   /** Every Fact that will not reach the provider: shed by the story's own
    *  Facts budget, by a Fact's own budgetTokens cap, or — previewed here via
-   *  `previewFixedContextAdmission`, the same selection
-   *  server/generation-admission.ts runs on the real request — by
-   *  model-context-window pressure. A comment here used to say window
-   *  pressure was a server-only last resort this meter could not preview;
-   *  that was true only because the two selections had not yet been shared
-   *  (issue #281 review finding H), and it made the meter, the Facts panel,
-   *  and the request viewer all describe a prompt that was not the one sent. */
+   *  `previewFixedContextAdmission` (shared/fact-admission.ts), the same
+   *  selection server/generation-admission.ts's `assertFixedContextFits` runs
+   *  on the real request — by model-context-window pressure. A comment here
+   *  used to say window pressure was a server-only last resort this meter
+   *  could not preview; that was true only because the two selections had not
+   *  yet been shared (issue #281 review finding H), and it made the meter,
+   *  the Facts panel, and the request viewer all describe a prompt that was
+   *  not the one sent. */
   droppedFacts: readonly FactBudgetDrop[];
 }
 
@@ -110,14 +111,16 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     ? null
     : payload.path.find((node) => node.id === request.targetId) ?? null;
   const intent = continuationIntent(payload, request.targetId, request.instruction, regenerateNode);
-  const activeFacts = selectActiveFacts(payload.facts, {
+  // The same candidate selection shared/fact-selection.ts's activeBudgetedFacts
+  // runs for a real request — StoryPayload satisfies its structural
+  // FactsBudgetSource parameter the same way Story does, so this meter's
+  // candidate list is that function's result rather than a second hand-rolled
+  // copy of it that could drift from the request (issue #316).
+  const budgetedFacts = activeBudgetedFacts(payload, {
     contextParts: intent.contextParts,
     chapterBreaks: payload.chapterBreaks,
     nodes: promptNodes(payload),
     instruction: intent.instruction
-  });
-  const budgetedFacts = selectFactsWithinBudget(activeFacts, payload.factsBudgetTokens ?? null, {
-    spaceDropReason: "total-budget"
   });
   const authorsNotePlacement: AuthorsNotePlacement | null = payload.authorsNote === undefined
     ? null
@@ -134,10 +137,12 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     payload.chapterBreaks,
     promptNodes(payload)
   );
-  // The same window-pressure selection server/generation-admission.ts runs on
-  // the real request, previewed rather than sent — see previewFixedContextAdmission.
-  // Reusing that function (not just its arithmetic) is what keeps this meter
-  // from describing a prompt the server would not actually send.
+  // The same window-pressure selection server/generation-admission.ts's
+  // assertFixedContextFits runs on the real request (shared/fact-admission.ts's
+  // selectFactsForFixedContext), previewed here rather than sent — see
+  // previewFixedContextAdmission. Reusing that function (not just its
+  // arithmetic) is what keeps this meter from describing a prompt the server
+  // would not actually send.
   const { plan, admission: windowAdmission } = previewFixedContextAdmission(
     { contextWindow: request.contextWindow, maxTokens: request.maxTokens },
     budgetedFacts.kept,
@@ -214,9 +219,16 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     tokens: Object.values(breakdown).reduce((sum, tokens) => sum + tokens, 0),
     breakdown,
     chapters,
+    // A Fact counts as "matched" once it reached the budget selection at all —
+    // kept or shed by it — regardless of whether window pressure later shed
+    // it too; only a Fact that never matched activation in the first place is
+    // "not-matched" (see factRequestStatuses).
     factStatuses: factRequestStatuses(
       payload.facts,
-      new Set(activeFacts.map((fact) => fact.id)),
+      new Set([
+        ...budgetedFacts.kept.map((fact) => fact.id),
+        ...budgetedFacts.dropped.map((drop) => drop.factId)
+      ]),
       droppedFacts
     ),
     droppedFacts

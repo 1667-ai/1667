@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { ServiceError as HttpError } from "./errors.js";
+export {
+  activeBudgetedFacts,
+  activeBudgetedFactsForRewrite,
+  factsSystemMessage,
+  type FactsBudgetSource
+} from "../shared/fact-selection.js";
 import {
   FactActivationError,
   parseFactActivation,
@@ -151,43 +157,6 @@ function requireToIndex(value: unknown): number {
   const toIndex = body.toIndex;
   if (!Number.isSafeInteger(toIndex)) throw new HttpError(400, "toIndex must be an integer");
   return toIndex as number;
-}
-
-/** Facts whose activation matches, further shed against the story's own Facts
- * budget (if any). This is the set a request would actually admit before
- * model-context-window pressure gets a further say — see
- * server/generation-admission.ts for that second, provider-window-sized pass. */
-export function activeBudgetedFacts(story: Story, context?: FactScanContext): FactBudgetSelection {
-  return selectFactsWithinBudget(
-    selectActiveFacts(story.facts, context),
-    story.factsBudgetTokens ?? null,
-    { spaceDropReason: "total-budget" }
-  );
-}
-
-export function activeBudgetedFactsForRewrite(
-  story: Story,
-  partId: string,
-  instruction: string,
-  selectedText: string
-): FactBudgetSelection {
-  return selectFactsWithinBudget(
-    selectActiveFactsForRewrite(
-      story.facts,
-      activePath(story),
-      partId,
-      story.chapterBreaks,
-      story.nodes,
-      instruction,
-      selectedText
-    ),
-    story.factsBudgetTokens ?? null,
-    { spaceDropReason: "total-budget" }
-  );
-}
-
-export function factsSystemMessage(story: Story, context?: FactScanContext): string | null {
-  return formatFactsMessage(activeBudgetedFacts(story, context).kept);
 }
 
 function findFact(story: Story, factId: string): StoryFact {

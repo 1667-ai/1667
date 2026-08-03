@@ -6,6 +6,7 @@ import {
   USAGE,
   validateInstallerUrl
 } from "../scripts/release-install-upgrade-e2e.js";
+import { stableOnlyRefusal } from "../scripts/release-install-upgrade-e2e-lib.js";
 
 const CURRENT_VERSION = packageJson.version;
 
@@ -96,4 +97,17 @@ test("installer URLs refuse every shape that could redirect execution", () => {
   for (const [url, expected] of rejected) {
     assert.throws(() => validateInstallerUrl(url, "--homepage-url"), expected, url);
   }
+});
+
+// The refusal takes literal versions, not the checkout version. A release
+// branch moves between prerelease and stable forms, and this behavior must not
+// move with it.
+test("the gate refuses a prerelease checkout and names the reason", () => {
+  const refusal = stableOnlyRefusal("0.3.0-rc.1");
+  assert.match(refusal ?? "", /verifies a stable release/u);
+  assert.match(refusal ?? "", /0\.3\.0-rc\.1/u);
+});
+
+test("the gate accepts a stable checkout", () => {
+  assert.equal(stableOnlyRefusal("0.3.0"), null);
 });

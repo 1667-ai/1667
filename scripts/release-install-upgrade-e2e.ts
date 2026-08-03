@@ -156,6 +156,8 @@ export function parseCliArgs(argv: readonly string[]): CliParseResult {
 
   const currentUrl = rawCurrentUrl
     ? validateInstallerUrl(rawCurrentUrl, "--current-url")
+    // The gate verifies a stable release. runInstallUpgradeE2e refuses a
+    // prerelease checkout before it downloads anything.
     : `https://github.com/1667-ai/1667/releases/download/v${currentVersion}/install-stable.sh`;
 
   const previousUrl = rawPreviousUrl

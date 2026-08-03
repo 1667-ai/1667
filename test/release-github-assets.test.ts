@@ -62,7 +62,10 @@ const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)
 // The version this release ships under. Release identity refuses a version the
 // checkout's manifests disagree with, so both derive from the product version.
 const VERSION = AI_1667_PRODUCT_VERSION;
-const STABLE_VERSION = AI_1667_PRODUCT_VERSION;
+// This case needs a version that is not a prerelease, whatever the checkout is
+// on. The archive CLI asserts prerelease-ness before it compares the version to
+// the manifests, so the stable form of the product version reaches the refusal.
+const STABLE_VERSION = AI_1667_PRODUCT_VERSION.replace(/-.*$/u, "");
 const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_TIMESTAMP = "2026-07-23T10:20:30.000Z";
@@ -129,7 +132,7 @@ test("the archive release CLI refuses the stable version reserved for npm", () =
   assert.match(
     run.stderr,
     new RegExp(
-      `GitHub archive release ${VERSION.replaceAll(".", "\\.")} must be a prerelease`,
+      `GitHub archive release ${STABLE_VERSION.replaceAll(".", "\\.")} must be a prerelease`,
       "u"
     )
   );

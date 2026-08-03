@@ -160,7 +160,7 @@ export function factDropNotice(dropped: readonly FactBudgetDrop[]): string | nul
  *  and the rail's context-meter use still has to fit its narrow content width.
  *
  * "priority" is model-context-window pressure — the reason
- * server/generation-admission.ts's shed loop reports (see
+ * shared/fact-admission.ts's shed loop reports (see
  * shared/fact-budget.ts's `spaceDropReason`). It does not mean the dropped
  * Fact was ranked "low": a `keyed` Fact is droppable under window pressure at
  * any priority (see `isDroppable`), so a tight window can drop one ranked

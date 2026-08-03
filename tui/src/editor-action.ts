@@ -321,14 +321,17 @@ async function saveFactEditor(
   const validated = factEditorSavePayload(editor);
   if (!validated.ok) return void (state.toast = validated.toast);
   if (!confirmOverwrite(state, editor)) return;
-  const submitted = {
-    tag: validated.draft.tag,
-    activation: validated.draft.activation,
-    keys: [...validated.draft.keys],
-    priority: validated.draft.priority,
-    budgetTokens: validated.draft.budgetTokens,
-    text: validated.draft.text
-  };
+  // Spread the draft rather than listing its fields here: FactInput and
+  // FactPatch are all-optional, so a hand-listed literal could silently
+  // omit a FactDraft field. That is all the spread buys, though: `submitted`
+  // is an un-annotated const, so no excess-property check fires before it
+  // reaches createFact / patchFact, and the server accepts unknown keys too
+  // (createFacts / patchFact in server/story-facts.ts read a fixed key
+  // list) — a forgotten field still compiles clean and the wire projection
+  // stays unchecked (issue #316). budgetTokens' `?? null` fixup below is its
+  // own per-field rule that no table covers: a future FactDraft field with
+  // "clear" semantics would need the same fixup to actually clear.
+  const submitted = { ...validated.draft, keys: [...validated.draft.keys] };
   const submittedTagText = editor.tag.text;
   const submittedActivation = editor.activation;
   const submittedKeysText = editor.keys.text;

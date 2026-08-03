@@ -3,6 +3,7 @@ import { chmod, copyFile, mkdir, readFile, realpath, writeFile } from "node:fs/p
 import path from "node:path";
 import packageJson from "../package.json" with { type: "json" };
 import { releaseTargetForRuntime } from "../shared/release-targets.js";
+import { isPrereleaseVersion } from "./release-publication-assets.js";
 import { INSTALL_PREVIOUS_FILE } from "../shared/install-layout.js";
 import { INSTALL_ACTIVE_EXECUTABLE } from "../shared/install-ownership-record.js";
 import {
@@ -29,12 +30,31 @@ import {
 
 const NPM_REGISTRY = "https://registry.npmjs.org/";
 
+// The gate verifies a stable release, and it says so before it does any work.
+// Step 1 compares the homepage Installer, which is always install.sh from the
+// stable channel, against the Installer asset of the release under test, and
+// every later step asserts the stable channel. A prerelease publishes only the
+// beta Installer and reaches no stable channel, so no argument can make this
+// gate verify one.
+export function stableOnlyRefusal(version: string): string | null {
+  if (!isPrereleaseVersion(version)) {
+    return null;
+  }
+  return `The install and upgrade gate verifies a stable release, but this checkout is ${version}.`
+    + " A prerelease publishes only the beta Installer, and the gate asserts the stable"
+    + " channel in every step. Run this gate from a checkout of a stable version.";
+}
+
 export async function runInstallUpgradeE2e(
   args: InstallUpgradeE2eOptions,
   scratchRoot: string,
   repoRoot: string
 ): Promise<void> {
   const currentVersion = packageJson.version;
+  const stableOnly = stableOnlyRefusal(currentVersion);
+  if (stableOnly !== null) {
+    throw new Error(stableOnly);
+  }
   const runtimeTarget = releaseTargetForRuntime(process.platform, process.arch);
   if (runtimeTarget === null || runtimeTarget.heldFromPublication !== null) {
     throw new Error("Host OS/architecture is not a supported published release target.");
