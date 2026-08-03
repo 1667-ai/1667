@@ -14,6 +14,7 @@ import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { parseTokenProbabilities, type TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
+  SAMPLING_BIAS_SCOPE_VALUES,
   SAMPLING_BIAS_VARIANT_VALUES,
   TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
   type SamplingBiasEntryResolution,
@@ -242,8 +243,10 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
 }
 
 function decodeSamplingBiasScope(value: unknown, label: string): SamplingBiasScope {
-  if (value !== "profile" && value !== "story") invalidField(label, "scope");
-  return value;
+  if (typeof value !== "string" || !(SAMPLING_BIAS_SCOPE_VALUES as readonly string[]).includes(value)) {
+    invalidField(label, "scope");
+  }
+  return value as SamplingBiasScope;
 }
 
 function decodeTokenIdArray(value: unknown, label: string): readonly number[] {

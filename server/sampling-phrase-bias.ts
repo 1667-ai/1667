@@ -231,12 +231,11 @@ export function resolveSamplingLogitBias(
   // `scope` tag, never from the input arrays' position, so a caller cannot
   // accidentally restore the old, wrong source-major order by handing the
   // entries in a different sequence. One pass below partitions it into two
-  // pairs of maps, not two separate reductions: the overall pair
-  // (`merged`/`tokenOwner`, last write wins across every scope) decides what
-  // ships and, when an entry loses, who is named for it; the per-scope pair
-  // (`scopeMerged`/`scopeOwner`, issue #341 finding 1b) answers the same two
-  // questions restricted to one scope's own writes — see
-  // `settleTokenOwnership`, which asks the per-scope pair first.
+  // `SamplingBiasOwnershipView`s, not two separate reductions: `combined`
+  // (last write wins across every scope) decides what ships and, when an
+  // entry loses, who is named for it; `byScope` (issue #341 finding 1b)
+  // answers the same two questions restricted to one scope's own writes —
+  // see `settleTokenOwnership`, which asks `byScope` first.
   const writes: readonly SamplingBiasWrite[] = [
     ...scopedWrites("profile", "phraseBias", sampling.phraseBias, phraseResolutions),
     ...scopedWrites("profile", "bannedStrings", sampling.bannedStrings, bannedResolutions),
@@ -250,52 +249,73 @@ export function resolveSamplingLogitBias(
     ...scopedWrites("story", "bannedStrings", sampling.bannedStrings, bannedResolutions)
   ];
 
-  const merged: Record<string, number> = {};
-  const tokenOwner = new Map<number, SamplingBiasTokenOwner>();
-  const scopeMerged: Record<SamplingBiasScope, Record<string, number>> = { profile: {}, story: {} };
-  const scopeOwner: Record<SamplingBiasScope, Map<number, SamplingBiasTokenOwner>> = {
-    profile: new Map(),
-    story: new Map()
-  };
-  for (const write of writes) {
-    const token = String(write.tokenId);
-    merged[token] = write.weight;
-    tokenOwner.set(write.tokenId, write.owner);
-    scopeMerged[write.scope][token] = write.weight;
-    scopeOwner[write.scope].set(write.tokenId, write.owner);
-  }
+  // Built through the views themselves, not as four loose maps paired up
+  // afterwards: a hand-written pairing compiles just as happily when a
+  // scope's weights are matched with another scope's owners, which is the
+  // one mistake this shape exists to rule out.
+  const views = collectOwnership(writes);
 
   const phraseBias = phraseResolutions.map((resolution, index) =>
-    settleTokenOwnership(
-      resolution, sampling.phraseBias[index]!.weight, merged, tokenOwner, scopeMerged, scopeOwner, sampling
-    ));
+    settleTokenOwnership(resolution, sampling.phraseBias[index]!.weight, views));
   const bannedStrings = bannedResolutions.map((resolution, index) =>
-    settleTokenOwnership(
-      resolution, sampling.bannedStrings[index]!.weight, merged, tokenOwner, scopeMerged, scopeOwner, sampling
-    ));
+    settleTokenOwnership(resolution, sampling.bannedStrings[index]!.weight, views));
 
   return {
     kind: "resolved",
-    logitBias: merged,
+    logitBias: views.combined.weightByToken,
     phraseBias,
     bannedStrings,
-    resolvedEntryCount: Object.keys(merged).length
+    resolvedEntryCount: Object.keys(views.combined.weightByToken).length
   };
 }
-
-type SamplingBiasTokenOwner =
-  | {
-      readonly source: "phraseBias" | "bannedStrings";
-      readonly index: number;
-      readonly scope: SamplingBiasScope;
-    }
-  | { readonly source: "logitBias" };
 
 interface SamplingBiasWrite {
   readonly tokenId: number;
   readonly weight: number;
   readonly scope: SamplingBiasScope;
-  readonly owner: SamplingBiasTokenOwner;
+  readonly owner: SamplingBiasShadowOwner;
+}
+
+/** One pass over the ordered writes, filling the combined view and the
+ * writing scope's view together. Every view is filled by the same loop, so a
+ * weight and its owner can never come from different maps. */
+function collectOwnership(writes: readonly SamplingBiasWrite[]): SamplingBiasOwnershipViews {
+  interface OwnershipBuilder {
+    readonly weightByToken: Record<string, number>;
+    readonly ownerByToken: Map<number, SamplingBiasShadowOwner>;
+  }
+  const view = (): OwnershipBuilder => ({ weightByToken: {}, ownerByToken: new Map() });
+  const combined = view();
+  const byScope: Record<SamplingBiasScope, OwnershipBuilder> = { profile: view(), story: view() };
+  for (const write of writes) {
+    for (const target of [combined, byScope[write.scope]]) {
+      target.weightByToken[String(write.tokenId)] = write.weight;
+      target.ownerByToken.set(write.tokenId, write.owner);
+    }
+  }
+  return { combined, byScope };
+}
+
+/** A token's current weight and who owns it, read together — every place
+ * this file asks "what does this token carry" also needs "who put it there"
+ * if the answer turns out to disagree with an entry's own weight, so the two
+ * travel as one matched pair instead of two separately-indexed maps that
+ * could, in principle, drift out of sync with each other. */
+interface SamplingBiasOwnershipView {
+  readonly weightByToken: Readonly<Record<string, number>>;
+  readonly ownerByToken: ReadonlyMap<number, SamplingBiasShadowOwner>;
+}
+
+/** The two views `settleTokenOwnership` classifies every entry against:
+ * `combined` (every scope's writes, last one wins) and `byScope` (the same
+ * writes, partitioned by scope — issue #341 finding 1b). Bundled into one
+ * value so the function that reads both takes one parameter instead of the
+ * four separately-threaded maps `resolveSamplingLogitBias` used to build and
+ * pass down by hand. See `settleTokenOwnership`'s own comment for why
+ * `byScope` is asked before `combined`. */
+interface SamplingBiasOwnershipViews {
+  readonly combined: SamplingBiasOwnershipView;
+  readonly byScope: Readonly<Record<SamplingBiasScope, SamplingBiasOwnershipView>>;
 }
 
 /** Every write a phraseBias or bannedStrings entry of exactly `scope` makes,
@@ -304,7 +324,13 @@ interface SamplingBiasWrite {
  * merge order scope-major regardless of how `combineSamplingBiasSources`
  * happened to interleave profile and story entries in its own arrays).
  * `entries`/`resolutions` are index-aligned, exactly as every other walk in
- * this file assumes. */
+ * this file assumes.
+ *
+ * Each write's owner carries `entry.phrase` directly, not an index into
+ * `entries`: this loop already has the entry in hand, so recording its
+ * phrase here costs nothing, and it means `shadowOwnerFor` below never needs
+ * a second lookup back into the original `sampling` input just to report
+ * which phrase actually won a token. */
 function scopedWrites(
   scope: SamplingBiasScope,
   source: "phraseBias" | "bannedStrings",
@@ -317,7 +343,7 @@ function scopedWrites(
     const entry = entries[index]!;
     if (entry.scope !== scope) return;
     for (const tokenId of resolution.tokenIds) {
-      writes.push({ tokenId, weight: entry.weight, scope, owner: { source, index, scope } });
+      writes.push({ tokenId, weight: entry.weight, scope, owner: { source, scope, phrase: entry.phrase } });
     }
   });
   return writes;
@@ -342,51 +368,48 @@ function scopedWrites(
  * different phrase), and picking only the first token's owner to represent
  * all of them blamed the wrong entry for the rest.
  *
- * "shadowed" versus "overridden" (issue #341 finding 1b) asks the per-scope
- * pair (`scopeMerged`/`scopeOwner`) first, before ever looking at the
- * cross-scope pair (`merged`/`tokenOwner`) — the answer cannot come from
- * whichever map happens to be checked, because the two disagree exactly in
- * the case that matters. Asking `merged` first, gating on whether *any*
- * cross-scope loss occurred, and only then consulting `scopeMerged` to
- * classify it is wrong whenever a *third* entry, from the scope neither this
- * entry nor its real rival belongs to, writes the same weight this entry
- * lost to within its own scope: two profile entries can genuinely conflict
- * with each other, one shadowing the other exactly as #282 requires, and
- * then an unrelated story entry that writes the same final weight makes
- * `merged` agree with `ownWeight` again — at which point a cross-scope-first
- * gate sees no loss at all and never reports the real same-scope conflict
- * underneath it. Asking `scopeMerged` first has no such blind spot: it is a
- * partition of the very same write loop that built `merged` (issue #341
- * finding 4 — not a second, independent reduction that could ever disagree
- * with it), so a same-scope loss is visible here regardless of what any
- * other scope later writes to the same token.
+ * "shadowed" versus "overridden" (issue #341 finding 1b) asks `views.byScope`
+ * first, before ever looking at `views.combined` — the answer cannot come
+ * from whichever view happens to be checked, because the two disagree
+ * exactly in the case that matters. Asking `combined` first, gating on
+ * whether *any* cross-scope loss occurred, and only then consulting
+ * `byScope` to classify it is wrong whenever a *third* entry, from the scope
+ * neither this entry nor its real rival belongs to, writes the same weight
+ * this entry lost to within its own scope: two profile entries can
+ * genuinely conflict with each other, one shadowing the other exactly as
+ * #282 requires, and then an unrelated story entry that writes the same
+ * final weight makes `combined` agree with `ownWeight` again — at which
+ * point a cross-scope-first gate sees no loss at all and never reports the
+ * real same-scope conflict underneath it. Asking `byScope` first has no such
+ * blind spot: it is a partition of the very same write loop that built
+ * `combined` (issue #341 finding 4 — not a second, independent reduction
+ * that could ever disagree with it), so a same-scope loss is visible here
+ * regardless of what any other scope later writes to the same token.
  *
- * A "shadowed" entry's `conflicts` are sourced from `scopeOwner`, not
- * `tokenOwner` — this is deliberate, not incidental (issue #341 finding 1,
- * required fix): `tokenOwner` names whichever entry is the token's final,
- * cross-scope owner, which for a blocking same-scope conflict is very often
- * a different scope's entry that overwrote the wire value afterward. Naming
- * that entry as the rival is actively misleading — profile `hello@5` versus
- * `Hello@9` plus story `hello@99` would tell the writer `hello` lost to
- * *this story's* phrase bias, so deleting the story entry looks like the
+ * A "shadowed" entry's `conflicts` are sourced from `views.byScope`, not
+ * `views.combined` — this is deliberate, not incidental (issue #341 finding
+ * 1, required fix): `views.combined` names whichever entry is the token's
+ * final, cross-scope owner, which for a blocking same-scope conflict is very
+ * often a different scope's entry that overwrote the wire value afterward.
+ * Naming that entry as the rival is actively misleading — profile `hello@5`
+ * versus `Hello@9` plus story `hello@99` would tell the writer `hello` lost
+ * to *this story's* phrase bias, so deleting the story entry looks like the
  * fix, when it only reveals the real profile-vs-profile conflict underneath.
- * `scopeOwner` restricted to this entry's own scope always names the real
- * rival. An "overridden" entry's `conflicts` keep sourcing from `tokenOwner`
- * — a cross-scope loss is a legitimate override, and the entry that actually
- * won the wire value is exactly who should be named for it. */
+ * `views.byScope`, restricted to this entry's own scope, always names the
+ * real rival. An "overridden" entry's `conflicts` keep sourcing from
+ * `views.combined` — a cross-scope loss is a legitimate override, and the
+ * entry that actually won the wire value is exactly who should be named for
+ * it. */
 function settleTokenOwnership(
   resolution: SamplingBiasEntryResolution,
   ownWeight: number,
-  merged: Readonly<Record<string, number>>,
-  tokenOwner: ReadonlyMap<number, SamplingBiasTokenOwner>,
-  scopeMerged: Readonly<Record<SamplingBiasScope, Readonly<Record<string, number>>>>,
-  scopeOwner: Readonly<Record<SamplingBiasScope, ReadonlyMap<number, SamplingBiasTokenOwner>>>,
-  sampling: SamplingBiasMergeInput
+  views: SamplingBiasOwnershipViews
 ): SamplingBiasEntryResolution {
   if (resolution.kind !== "resolved") return resolution;
 
+  const ownScope = views.byScope[resolution.scope];
   const lostInScope = resolution.tokenIds.filter(
-    (tokenId) => scopeMerged[resolution.scope][String(tokenId)] !== ownWeight
+    (tokenId) => ownScope.weightByToken[String(tokenId)] !== ownWeight
   );
   if (lostInScope.length > 0) {
     return {
@@ -397,12 +420,14 @@ function settleTokenOwnership(
       tokenIds: resolution.tokenIds,
       conflicts: lostInScope.map((tokenId) => ({
         tokenId,
-        owner: shadowOwnerFor(tokenId, scopeOwner[resolution.scope], sampling)
+        owner: shadowOwnerFor(tokenId, ownScope.ownerByToken)
       }))
     };
   }
 
-  const lostOverall = resolution.tokenIds.filter((tokenId) => merged[String(tokenId)] !== ownWeight);
+  const lostOverall = resolution.tokenIds.filter(
+    (tokenId) => views.combined.weightByToken[String(tokenId)] !== ownWeight
+  );
   if (lostOverall.length === 0) return resolution;
   return {
     kind: "overridden",
@@ -410,36 +435,32 @@ function settleTokenOwnership(
     scope: resolution.scope,
     variants: resolution.variants,
     tokenIds: resolution.tokenIds,
-    conflicts: lostOverall.map((tokenId) => ({ tokenId, owner: shadowOwnerFor(tokenId, tokenOwner, sampling) }))
+    conflicts: lostOverall.map((tokenId) => (
+      { tokenId, owner: shadowOwnerFor(tokenId, views.combined.ownerByToken) }
+    ))
   };
 }
 
-/** Names the entry that owns `tokenId` in `ownerMap` — either the overall,
- * cross-scope `tokenOwner`, or one scope's own restriction of it
- * (`scopeOwner[scope]`), depending on which map decided the outcome (see
- * `settleTokenOwnership`). Every token in a "resolved" entry's own
- * `tokenIds` was written into both `tokenOwner` and its own scope's entry in
- * `scopeOwner` in the same pass that built `merged`/`scopeMerged`
+/** Names the entry that owns `tokenId` in `ownerByToken` — either
+ * `views.combined.ownerByToken`, or one scope's own restriction of it
+ * (`views.byScope[scope].ownerByToken`), depending on which view decided the
+ * outcome (see `settleTokenOwnership`). Every token in a "resolved" entry's
+ * own `tokenIds` was written into both the combined and the matching
+ * per-scope owner map in the same pass that built the matching weight maps
  * (`resolveSamplingLogitBias` above), so a miss here is a real merge
  * invariant violation, not a legitimate case to paper over with a silent
- * fallback owner. */
+ * fallback owner. The map already stores the finished `SamplingBiasShadowOwner`
+ * — phrase and all (`scopedWrites` records it directly) — so this is a read
+ * plus its invariant check, nothing more. */
 function shadowOwnerFor(
   tokenId: number,
-  ownerMap: ReadonlyMap<number, SamplingBiasTokenOwner>,
-  sampling: SamplingBiasMergeInput
+  ownerByToken: ReadonlyMap<number, SamplingBiasShadowOwner>
 ): SamplingBiasShadowOwner {
-  const owner = ownerMap.get(tokenId);
+  const owner = ownerByToken.get(tokenId);
   if (owner === undefined) {
     throw new Error(`sampling bias merge invariant violated: token ${tokenId} has no recorded owner`);
   }
-  if (owner.source === "logitBias") return { source: "logitBias" };
-  return {
-    source: owner.source,
-    scope: owner.scope,
-    phrase: owner.source === "phraseBias"
-      ? sampling.phraseBias[owner.index]!.phrase
-      : sampling.bannedStrings[owner.index]!.phrase
-  };
+  return owner;
 }
 
 function resolveEntry(

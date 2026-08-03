@@ -233,15 +233,6 @@ export type SamplingBiasEntryResolution =
       readonly conflicts: readonly SamplingBiasShadowConflict[];
     };
 
-/** The fields "shadowed" and "overridden" share — every caller that only
- * needs to name the lost tokens and their owners (`samplingBiasShadowOwners`
- * below) works for either kind through this, rather than one copy per
- * kind. */
-export type SamplingBiasShadowedOrOverriddenEntry = Extract<
-  SamplingBiasEntryResolution,
-  { kind: "shadowed" | "overridden" }
->;
-
 /** One of a "shadowed" or "overridden" entry's own tokens, joined to the
  * entry that actually wrote its final weight — see
  * `SamplingBiasEntryResolution` for why this must be one record and not two
@@ -323,9 +314,19 @@ export function samplingBiasResolutionFailureMessage(
  * to the same owner twice (e.g. both the typed and the capitalized form)
  * must name that owner once, not once per token. Exported so a caller that
  * only needs a short summary (the sampling-bias panel's row text) does not
- * re-derive this from `conflicts` itself. */
+ * re-derive this from `conflicts` itself.
+ *
+ * Typed to "shadowed" only, not "overridden" too, even though both kinds
+ * share the exact fields this reads (`variants`, `conflicts`). An
+ * "overridden" entry has no caller that needs this today: the sampling-bias
+ * panel's row builder throws on one rather than producing it, because the
+ * settings overlay it renders never combines a story into the merge (issue
+ * #341 left that story-overlay panel unbuilt). Widen back to
+ * `Extract<SamplingBiasEntryResolution, { kind: "shadowed" | "overridden" }>`
+ * if that panel gets built and needs this same summary — don't widen it on
+ * spec alone. */
 export function samplingBiasShadowOwners(
-  entry: SamplingBiasShadowedOrOverriddenEntry
+  entry: Extract<SamplingBiasEntryResolution, { kind: "shadowed" }>
 ): readonly SamplingBiasShadowOwner[] {
   const owners: SamplingBiasShadowOwner[] = [];
   for (const variant of entry.variants) {
