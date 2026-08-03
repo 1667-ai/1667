@@ -63,6 +63,55 @@ test("card import selects a story by case-insensitive title", async () => {
   expect(payload.facts[0]!.tag).toBe("Character");
 });
 
+test("a plain V2 import reports no fidelity limitations to standard error", async () => {
+  const { root } = await projectWithStories(["Target Story"]);
+  const file = await cardFile(root);
+  const errors = collector();
+
+  await runCardImport(["--story=target story", "--data", root, file], sink(), errors.stream);
+
+  expect(errors.text()).toContain(`${file}: no fidelity limitations reported`);
+});
+
+test("a V3 card's character_book Facts land, and the report reaches standard error", async () => {
+  const { root, stories } = await projectWithStories(["Target Story"]);
+  const file = path.join(root, "wren.json");
+  await writeFile(file, JSON.stringify({
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Wren",
+      description: "A lighthouse keeper.",
+      personality: "Watchful.",
+      scenario: "",
+      tags: ["coastal"],
+      character_book: {
+        entries: [
+          { content: "The pass closes in winter.", name: "Weather", keys: ["storm"] },
+          { content: "The light never goes dark.", comment: "Premise", constant: true }
+        ]
+      }
+    }
+  }), "utf8");
+  const output = collector();
+  const errors = collector();
+
+  await runCardImport(["--story=target story", "--data", root, file], output.stream, errors.stream);
+
+  expect(output.text()).toContain(`${file}: imported 3 facts for "Wren" into "Target Story"`);
+  expect(errors.text()).toContain("1 tag not imported");
+
+  const service = StoryService.withoutDiagnostics({ dataDir: path.join(root, ".1667") });
+  await service.init();
+  const payload = await service.loadStory(stories[0]!.id);
+  await service.dispose();
+  expect(payload.facts).toHaveLength(3);
+  expect(payload.facts[1]!.tag).toBe("Weather");
+  expect(payload.facts[1]!.activation).toBe("keyed");
+  expect(payload.facts[2]!.tag).toBe("Premise");
+  expect(payload.facts[2]!.activation).toBe("always");
+});
+
 test("card import rejects an ambiguous title", async () => {
   const { root } = await projectWithStories(["Same Name", "Same Name"]);
   expect(await failure(() => runCardImport(

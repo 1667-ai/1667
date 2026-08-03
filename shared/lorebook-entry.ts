@@ -2,6 +2,7 @@ import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
   MAX_FACT_TEXT_CHARS,
+  factImportRequestBytes,
   type FactInput
 } from "./types.js";
 import {
@@ -16,7 +17,6 @@ import {
   sliceUnicodeScalarPrefix,
   unicodeScalarLength
 } from "./unicode.js";
-import { factImportRequestBytes } from "./character-card.js";
 
 /** The canonical entry shape every archive reader converts into, so one Entry
  * Mapping below is the only place an entry becomes a Fact. */
@@ -31,6 +31,18 @@ export interface LorebookEntry {
 export interface LorebookImport {
   readonly facts: readonly FactInput[];
   readonly fidelity: readonly string[];
+}
+
+/** What every archive reader hands the Entry Mapping: the canonical entries,
+ * plus the reader's own Fidelity Report lines and the count it read them
+ * against. One shape for World Info, NovelAI, and the character_book
+ * readers, so a fourth reader has one interface to implement rather than a
+ * fourth copy of it. */
+export interface LorebookRead {
+  readonly entries: readonly LorebookEntry[];
+  readonly fidelity: readonly string[];
+  /** Entries the file held, including any the reader could not read. */
+  readonly sourceCount: number;
 }
 
 type EntryLoss =
@@ -247,6 +259,22 @@ export function factsFromEntries(
   fidelity.push("search range, bias groups, and advanced conditions omitted");
 
   return { facts, fidelity };
+}
+
+/** Turn one archive reader's result into Facts: the fidelity ordering rule
+ * every reader shares, in one place. Mapping lines come first, because they
+ * describe what happened to the entries the reader produced; the reader's
+ * own lines follow, describing what never became an entry at all. */
+export function importEntries(
+  read: LorebookRead,
+  room: number,
+  bodyBudget?: number
+): LorebookImport {
+  const imported = factsFromEntries(read.entries, room, bodyBudget, read.sourceCount);
+  return {
+    facts: imported.facts,
+    fidelity: [...imported.fidelity, ...read.fidelity]
+  };
 }
 
 /** How many leading Facts fit `budget` once serialized as the request body.

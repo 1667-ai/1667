@@ -769,6 +769,24 @@ const MUTATIONS: MutationRegistry = {
       );
     }
   }),
+  importCard: define<"importCard">({
+    parse: (value) => {
+      const input = requireRecord(value, "importCard input");
+      const storyId = requireString(input.storyId, "storyId");
+      if (!(input.cardBytes instanceof Uint8Array)) {
+        throw badInput("cardBytes must be a Uint8Array");
+      }
+      return { storyId, cardBytes: input.cardBytes };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, _plan, context) => {
+      return await service.importCard(
+        input.storyId,
+        input.cardBytes,
+        context.storyMutationRequest
+      );
+    }
+  }),
 
   continueStory: define<"continueStory">({
     parse: (value) => {
