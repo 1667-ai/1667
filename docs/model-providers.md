@@ -362,6 +362,10 @@ A model can refuse the fields, even on a preset that documents them. 1667
 then sends the request again without them. The generation keeps its prose
 either way.
 
+1667 reads each alternative token before it stores one. If an alternative
+token contains the credential that 1667 sent, 1667 stores no alternative
+token for that take. The generation keeps its prose.
+
 Select a story part that has prose. Press `l` to open the token probability
 viewer. The viewer shows the take's prose with the selected token marked.
 Below the prose, it shows the alternative tokens the model weighed at that

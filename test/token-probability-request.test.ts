@@ -15,7 +15,10 @@ import {
 } from "../server/providers.js";
 import type { PromptCacheWirePlan } from "../server/provider-cache-policy.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
-import { MAX_TOKEN_PROBABILITY_STEPS } from "../shared/token-probabilities.js";
+import {
+  MAX_TOKEN_PROBABILITY_STEPS,
+  type TokenProbabilityRecord
+} from "../shared/token-probabilities.js";
 import { EMPTY_SAMPLING_V2, type SettingsPresetV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
@@ -224,7 +227,13 @@ providerTest("a collector requested on a route that never sends logprobs stays n
 function withTokenProbabilities(
   preset: SettingsPresetV2,
   tokenProbabilities: number | null,
-  options: { readonly provider?: GenerationSettings["provider"]; readonly baseUrl?: string } = {}
+  options: {
+    readonly provider?: GenerationSettings["provider"];
+    readonly baseUrl?: string;
+    /** Names an environment variable whose value the request sends as a
+     *  bearer credential, so the redactor has a secret to recognise. */
+    readonly authEnv?: string;
+  } = {}
 ): GenerationSettings {
   return attachProviderRuntime({
     provider: options.provider ?? "openai-compatible",
@@ -237,7 +246,9 @@ function withTokenProbabilities(
     contextWindow: null
   }, {
     preset,
-    auth: { type: "none" },
+    auth: options.authEnv === undefined
+      ? { type: "none" }
+      : { type: "bearer-env", env: options.authEnv },
     headers: [],
     timeouts: {
       responseHeaderMs: 1_000,
@@ -245,7 +256,9 @@ function withTokenProbabilities(
       idleMs: 1_000,
       totalMs: 5_000
     },
-    allowInsecureHttp: false,
+    // A credential may not ride plain HTTP unless the runtime says so, and
+    // every test server here is loopback HTTP.
+    allowInsecureHttp: options.authEnv !== undefined,
     effort: "default",
     tokenProbabilities,
     sampling: EMPTY_SAMPLING_V2,
@@ -317,3 +330,76 @@ async function collect(stream: AsyncIterable<string>): Promise<string> {
   for await (const delta of stream) text += delta;
   return text;
 }
+
+// Streamed prose leaves through the stream redactor; captured tokens never
+// touched it. An endpoint that returns the key it was given would otherwise
+// have that key written into the story bundle and read back by the viewer.
+//
+// These drive `globalThis.fetch` rather than the loopback server the tests
+// above use, because a plain HTTP loopback request refuses to carry a
+// credential at all — so a real secret can only reach this code path over a
+// stubbed transport, the same way the provider redaction tests do it.
+async function captureWithSecret(
+  t: test.TestContext,
+  secretEnv: string,
+  secret: string,
+  events: readonly Record<string, unknown>[]
+): Promise<{ record: TokenProbabilityRecord | null; text: string }> {
+  process.env[secretEnv] = secret;
+  t.after(() => { delete process.env[secretEnv]; });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream" } }
+  )) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const collector: TokenProbabilityCollector = { record: null };
+  const text = await collect(streamCompletion(
+    withTokenProbabilities("openai", 2, { authEnv: secretEnv }),
+    PROMPT,
+    new AbortController().signal,
+    undefined,
+    undefined,
+    undefined,
+    collector
+  ));
+  return { record: collector.record, text };
+}
+
+test("a captured alternative that carries the provider credential stores nothing", async (t) => {
+  const secret = "provider-secret-alternative";
+  const { record, text } = await captureWithSecret(t, "AI_1667_TEST_PROBS_LEAK", secret, [
+    { choices: [{ delta: { content: "Hello" }, logprobs: { content: [
+      logprobsEntry("Hello", -0.1, [["Hello", -0.1], [secret, -1.2]])
+    ] }, finish_reason: "stop" }] }
+  ]);
+
+  assert.equal(text, "Hello", "the writer still gets their prose");
+  assert.equal(record, null, "the record carrying the credential is dropped whole");
+});
+
+// The same leak, spread thin: no single token holds the credential, but the
+// strings the provider sent concatenate to it.
+test("a credential split across captured tokens stores nothing", async (t) => {
+  const { record } = await captureWithSecret(t, "AI_1667_TEST_PROBS_SPLIT", "abcdefghij", [
+    { choices: [{ delta: { content: "x" }, logprobs: { content: [
+      logprobsEntry("abcde", -0.1, [["abcde", -0.1]]),
+      logprobsEntry("fghij", -0.2, [["fghij", -0.2]])
+    ] }, finish_reason: "stop" }] }
+  ]);
+
+  assert.equal(record, null);
+});
+
+// The guard must cost an ordinary generation nothing: the same endpoint, the
+// same credential, alternatives that do not carry it.
+test("an ordinary capture is unaffected by the credential guard", async (t) => {
+  const { record } = await captureWithSecret(t, "AI_1667_TEST_PROBS_CLEAN", "provider-secret-unused", [
+    { choices: [{ delta: { content: "Hello" }, logprobs: { content: [
+      logprobsEntry("Hello", -0.1, [["Hello", -0.1], ["Hi", -1.2]])
+    ] }, finish_reason: "stop" }] }
+  ]);
+
+  assert.equal(record?.steps.length, 1);
+  assert.equal(record?.steps[0]?.alternatives[1]?.token, "Hi");
+});

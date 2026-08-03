@@ -137,7 +137,9 @@ async function* streamOpenAiCompatible(
           if (data === "[DONE]") {
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
-            finalizeTokenProbabilities(tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated);
+            finalizeTokenProbabilities(
+              tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated, secrets
+            );
             return;
           }
           const parsed = parseEvent(data, secrets);
@@ -175,7 +177,9 @@ async function* streamOpenAiCompatible(
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        finalizeTokenProbabilities(tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated);
+        finalizeTokenProbabilities(
+              tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated, secrets
+            );
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
@@ -492,7 +496,11 @@ async function* streamDryRun(
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
   if (outcome !== undefined) outcome.finishReason = "stop";
-  finalizeTokenProbabilities(tokenProbabilities, captureProbabilities ? requestedAlternatives : null, probabilitySteps, probabilitiesTruncated);
+  // Dry run reaches no endpoint and is given no credential, so it has no
+  // secret that a captured token could carry back.
+  finalizeTokenProbabilities(
+    tokenProbabilities, captureProbabilities ? requestedAlternatives : null, probabilitySteps, probabilitiesTruncated, []
+  );
 }
 
 function dryRunSummary(prompt: PromptPlan): string {

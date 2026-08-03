@@ -8,6 +8,7 @@ import {
   type TokenProbabilityStep
 } from "../shared/token-probabilities.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
+import { redactProviderSecrets } from "./provider-runtime.js";
 
 /**
  * The capture side of issue #291 phase 2: what server/providers.ts fills
@@ -112,17 +113,53 @@ function safeCreateTokenProbabilities(
   }
 }
 
+/** Every string a provider put in this record, in the order it sent them.
+ *  Both the generated tokens and the alternatives, one after another, so a
+ *  secret split across two of them is as visible here as a whole one. */
+function capturedText(steps: readonly TokenProbabilityStep[]): string {
+  const parts: string[] = [];
+  for (const step of steps) {
+    parts.push(step.token);
+    for (const alternative of step.alternatives) parts.push(alternative.token);
+  }
+  return parts.join("");
+}
+
+/** Streamed prose passes through the stream redactor on its way out; these
+ *  strings never did. A provider that returns the key it was given — in a
+ *  token, in an alternative, or split across several of them — would
+ *  otherwise have it written to the story bundle and read back by the viewer,
+ *  which is exactly the leak the prose redactor exists to prevent.
+ *
+ *  A record that carries secret material is dropped whole rather than
+ *  scrubbed. Partial redaction would leave a diagnostic whose tokens no longer
+ *  concatenate to the prose they describe, and an endpoint that echoes a
+ *  credential is not one whose alternatives are worth keeping. Losing them
+ *  costs a diagnostic; keeping them costs the key. */
+function carriesProviderSecret(
+  steps: readonly TokenProbabilityStep[],
+  secrets: readonly string[]
+): boolean {
+  if (secrets.length === 0) return false;
+  const captured = capturedText(steps);
+  return redactProviderSecrets(captured, secrets) !== captured;
+}
+
 /** Builds the record exactly once, at stream finalization — never per chunk
  *  (issue #291 phase 2, point 1). Leaves the box null, rather than storing an
- *  empty record, when nothing usable ever arrived (point 7). */
+ *  empty record, when nothing usable ever arrived (point 7) or when the
+ *  provider returned its own credential inside one. */
 export function finalizeTokenProbabilities(
   collector: TokenProbabilityCollector | undefined,
   requested: number | null,
   steps: readonly TokenProbabilityStep[],
-  truncated: boolean
+  truncated: boolean,
+  secrets: readonly string[]
 ): void {
   if (collector === undefined || requested === null) return;
-  collector.record = steps.length === 0 ? null : safeCreateTokenProbabilities(requested, steps, truncated);
+  collector.record = steps.length === 0 || carriesProviderSecret(steps, secrets)
+    ? null
+    : safeCreateTokenProbabilities(requested, steps, truncated);
 }
 
 /** A closed, fixed vocabulary for dry-run's fabricated alternatives — never
