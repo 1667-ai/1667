@@ -2,7 +2,9 @@ import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
   MAX_HUMAN_EDIT_RANGES,
-  type HumanEditAttribution
+  MAX_REWRITTEN_SPANS,
+  type HumanEditAttribution,
+  type TextRange
 } from "../shared/types.js";
 import {
   FactActivationError,
@@ -189,6 +191,29 @@ export function parseSingleAttribution(
 ): HumanEditAttribution | null | undefined {
   if (value === undefined) return undefined;
   return parseVersionAttributions([value], label, 1)?.[0];
+}
+
+/** Same sorted, non-overlapping, bounded shape `parseVersionAttributions`
+ *  enforces for attribution ranges, without the "human" wrapper: a rewritten
+ *  span is a plain TextRange list. */
+export function parseRewrittenSpans(value: unknown, label: string): TextRange[] | undefined {
+  if (value === undefined) return undefined;
+  const entries = arrayValue(value, label);
+  if (entries.length > MAX_REWRITTEN_SPANS) {
+    throw new StoryFormatError(`${label} exceeds the ${MAX_REWRITTEN_SPANS}-span limit`);
+  }
+  const ranges = entries.map((entry, index) => {
+    const range = recordValue(entry, `${label}[${index}]`);
+    return { start: integerField(range, "start"), end: integerField(range, "end") };
+  });
+  let previousEnd = -1;
+  for (const range of ranges) {
+    if (range.start < 0 || range.start >= range.end || range.start < previousEnd) {
+      throw new StoryFormatError(`${label} has an invalid rewritten span`);
+    }
+    previousEnd = range.end;
+  }
+  return ranges;
 }
 
 /** Restore payloads predate manifest attribution normalization. Keep their

@@ -113,7 +113,8 @@ describe("starter story logo", () => {
       id: "summary-with-logo",
       node: { text },
       isSummary: true,
-      humanSpans: []
+      humanSpans: [],
+      rewrittenSpans: []
     }, null, 18);
 
     expect(plan.compactLogo).toBeFalse();
