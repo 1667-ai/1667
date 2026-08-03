@@ -169,9 +169,18 @@ rule 1667 already applies to two conflicting profile entries.
 1667 still blocks the request when a third entry from the other side names
 the same token and wins it. For example, two profile entries conflict on a
 token, and a story entry also names that token and wins it. 1667 blocks the
-request for the losing profile entry. Which entry wins a token decides what
-1667 sends and which entry 1667 names in the block message. It does not
-decide whether 1667 blocks the request.
+request for the losing profile entry.
+
+1667 checks the block on the same side only. It does not check the block
+against whichever entry wins the token overall. In the example, 1667 checks
+whether another profile entry took the token from the losing profile entry.
+The story entry does not count for this check, because it is on the other
+side. 1667 blocks the request because the other profile entry took the
+token, and the block message names that profile entry, not the story entry.
+
+Which entry wins a token decides what 1667 sends. It does not decide whether
+1667 blocks the request, and it does not decide which entry the block
+message names.
 
 `server/sampling-phrase-bias.ts` holds the merge order.
 `resolveSamplingLogitBias` resolves the profile's entries and the story's

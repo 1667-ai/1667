@@ -1054,26 +1054,44 @@ test("a story phrase-bias entry outranks a colliding profile numeric logitBias e
 // story's weight without ever reporting the profile's own internal
 // disagreement. The story entry here does not conflict with either profile
 // entry in the sense that matters (it is a legitimate cross-scope override);
-// the profile's own same-scope conflict must still block regardless.
-test("two profile entries that conflict with each other still block, even when a story entry ends up owning the token", async () => {
-  await assert.rejects(
-    () => buildOpenAiChatRequestBody(
-      withSampling(
-        { ...settings("openai-compatible"), model: "gpt-4o" },
-        "openai",
-        sampling({
-          phraseBias: [
-            { phrase: "hello", weight: 5 },
-            { phrase: "Hello", weight: 9 }
-          ]
-        })
+// the profile's own same-scope conflict must still block regardless of what
+// weight the story entry happens to carry.
+//
+// This asserts the contract over a spread of story weights rather than one
+// chosen literal (round 2 review, finding 1): an earlier version of this test
+// picked story weight 99 only, which the buggy implementation also blocked —
+// because *any* story weight that merely differed from the profile's own 5
+// left `conflicts.length > 0` on the old cross-scope gate. That gate read
+// `merged`, not `scopeMerged`, so the one weight that actually exercised the
+// bug is 5 — the story writing the *same* weight the profile's own losing
+// entry already had. There, the cross-scope map's final value coincidentally
+// equals `ownWeight`, `conflicts` comes back empty, and the old code returned
+// early before ever consulting `scopeMerged` — silently dropping the real
+// same-scope conflict. The loop below includes that exact value alongside
+// ordinary ones, so a future change that reopens the gate on any single
+// weight fails here, not just on 5.
+test("two profile entries that conflict with each other still block, for any story weight including one equal to the profile's own", async () => {
+  for (const storyWeight of [-3, 0, 5, 9, 42, 99]) {
+    await assert.rejects(
+      () => buildOpenAiChatRequestBody(
+        withSampling(
+          { ...settings("openai-compatible"), model: "gpt-4o" },
+          "openai",
+          sampling({
+            phraseBias: [
+              { phrase: "hello", weight: 5 },
+              { phrase: "Hello", weight: 9 }
+            ]
+          })
+        ),
+        PROMPT,
+        OMIT_PLANS[0]!,
+        { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: storyWeight }] }) }
       ),
-      PROMPT,
-      OMIT_PLANS[0]!,
-      { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 99 }] }) }
-    ),
-    /Could not use "hello" as configured: "hello" loses its bias on/
-  );
+      /Could not use "hello" as configured: "hello" loses its bias on/,
+      `story weight ${storyWeight} did not block`
+    );
+  }
 });
 
 // Regression test for issue #341 finding 1b, the form the second review

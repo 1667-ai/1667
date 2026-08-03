@@ -374,8 +374,8 @@ function sameShadowOwner(a: SamplingBiasShadowOwner, b: SamplingBiasShadowOwner)
  * Takes only "rejected" and "shadowed" (issue #341 narrowed this from every
  * non-"resolved" kind): those two are the ones that block, and they are the
  * only two `firstBlockingSamplingBiasEntry` below ever returns. "overridden"
- * is not a rejection — it must never be reported as an error — so it has its
- * own, differently-framed message: `samplingBiasEntryOverrideMessage`. */
+ * is not a rejection — it must never be reported as an error, and has no
+ * caller that needs a message for it at all. */
 export function samplingBiasEntryRejectionMessage(
   entry: Extract<SamplingBiasEntryResolution, { kind: "rejected" | "shadowed" }>
 ): string {
@@ -405,20 +405,6 @@ export function samplingBiasEntryRejectionMessage(
       + `(${failing.outcome.tokenIds.join(",")}), not one`;
   }
   return `${JSON.stringify(failing.text)}${where} has no exact token`;
-}
-
-/** The honest, non-error explanation for an "overridden" entry (issue #341):
- * a profile entry that lost a real weight conflict to a story entry, or vice
- * versa — never a mistake to report as one, unlike "shadowed"'s same-scope
- * conflict. Phrased as a fact ("is overridden by"), not a failure, and never
- * called by anything that blocks a save or a request — only the editor,
- * which shows it beside the entry so a writer can see why a phrase reads
- * differently than the value they see on this row. */
-export function samplingBiasEntryOverrideMessage(
-  entry: Extract<SamplingBiasEntryResolution, { kind: "overridden" }>
-): string {
-  const clauses = samplingBiasShadowOwners(entry).map(samplingBiasShadowOwnerText);
-  return `${JSON.stringify(entry.phrase)} is overridden by ${clauses.join(" and ")}`;
 }
 
 /** The first phraseBias or bannedStrings entry, in list order (phraseBias
