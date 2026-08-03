@@ -42,6 +42,8 @@ import {
 } from "./service-input.js";
 import { authorBriefApplied } from "./story-author-brief.js";
 import { authorsNoteApplied } from "./story-authors-note.js";
+import { bannedStringsApplied, phraseBiasApplied } from "./story-sampling.js";
+import { parseBannedStringsField, parsePhraseBiasField } from "./sampling-phrase-bias.js";
 import { HASH_PATTERN } from "./story-format.js";
 import { patchFact, reorderFact } from "./story-facts.js";
 import { nodeRewriteId } from "./story-node-text.js";
@@ -199,6 +201,50 @@ const MUTATIONS: MutationRegistry = {
       return recovered ?? await service.setFactsBudget(
         input.storyId,
         input.budgetTokens,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setPhraseBias: define<"setPhraseBias">({
+    parse: (value) => {
+      const input = requireRecord(value, "setPhraseBias input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        phraseBias: parsePhraseBiasField(input.phraseBias)
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => phraseBiasApplied(story, input.phraseBias)
+      );
+      return recovered ?? await service.setPhraseBias(
+        input.storyId,
+        input.phraseBias,
+        context.storyMutationRequest
+      );
+    }
+  }),
+  setBannedStrings: define<"setBannedStrings">({
+    parse: (value) => {
+      const input = requireRecord(value, "setBannedStrings input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        bannedStrings: parseBannedStringsField(input.bannedStrings)
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(
+        service.stories,
+        input.storyId,
+        (story) => bannedStringsApplied(story, input.bannedStrings)
+      );
+      return recovered ?? await service.setBannedStrings(
+        input.storyId,
+        input.bannedStrings,
         context.storyMutationRequest
       );
     }

@@ -135,3 +135,34 @@ mechanics, `test/prompt-plan.test.ts` for exact wire and stable-prefix ownership
 `test/prompt-cache-breakpoints.test.ts` for exact token and rolling-state rules,
 and `test/generation-http.test.ts` for admission, OpenAI-compatible wire
 payloads, and saved story text.
+
+## Phrase bias and banned strings boundary
+
+A story can set its own phrase bias list and its own banned strings list.
+Each list adds to the routed profile's own list. A story list does not
+replace the profile's list.
+
+A story entry and a profile entry can name the same token. When they set
+different weights for that token, the story entry wins. 1667 does not block
+the request in this case, and it does not report an error. 1667 shows the
+profile entry as overridden by the story.
+
+Two entries in the same list can also name the same token — two profile
+entries, or two story entries. When they set different weights for that
+token, 1667 blocks the request. This is the same rule 1667 already applies
+to two conflicting profile entries.
+
+`server/sampling-phrase-bias.ts` holds the merge order. `combineSamplingBiasSources`
+builds one list: the profile's entries first, then the story's entries.
+`resolveSamplingLogitBias` resolves this one list into one merged token map.
+The provider request and the editor preview both call this same function
+over the same list, so they cannot compute different token IDs for the same
+story and profile.
+
+The capability matrix stays the only source for phrase-bias and
+banned-string availability. A story list cannot make phrase bias available
+on a preset or a model that does not support it.
+
+Phrase bias and banned strings apply to a continuation request, a prompted
+retake, a highlighted rewrite, and an autoname request. A summary take does
+not use them.

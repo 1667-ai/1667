@@ -10,6 +10,12 @@ import {
 } from "../shared/types.js";
 import type { FactActivation, FactPriority } from "../shared/fact-activation.js";
 import { FactBudgetError, parseStoryFactsBudgetTokens } from "../shared/fact-budget.js";
+import {
+  SamplingValidationError,
+  validateSamplingBannedStrings,
+  validateSamplingPhraseBias
+} from "../shared/sampling-validation-policy.js";
+import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import { parseChapterBreaks, validateChapterRecords } from "./story-format-chapters.js";
 import { assertWellFormedUnicode } from "./story-format-unicode.js";
 import {
@@ -186,6 +192,10 @@ export interface StoryManifestV5 extends Omit<StoryManifestV4, "schemaVersion"> 
   /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
    *  to the machine-wide value. See `resolveAuthorBrief`. */
   authorBrief?: string;
+  /** See the field comment on `Story.phraseBias` (shared/types.ts). */
+  phraseBias?: SamplingPhraseBiasEntryV2[];
+  /** See the field comment on `Story.bannedStrings` (shared/types.ts). */
+  bannedStrings?: string[];
   /** Internal idempotency marker for a committed generated title. */
   autonameId?: string;
   /** Chapter one's name. It has no opening break to carry one. */
@@ -385,6 +395,12 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
   const authorBrief = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalString(value.authorBrief, "authorBrief")
     : undefined;
+  const phraseBias = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    ? optionalPhraseBias(value.phraseBias)
+    : undefined;
+  const bannedStrings = sourceSchemaVersion === STORY_SCHEMA_VERSION
+    ? optionalBannedStrings(value.bannedStrings)
+    : undefined;
   const factsBudgetTokens = sourceSchemaVersion === STORY_SCHEMA_VERSION
     ? optionalFactsBudgetTokens(value.factsBudgetTokens)
     : undefined;
@@ -403,6 +419,8 @@ export function parseManifestValueWithVersion(input: unknown, expectedId: string
     ...(authorBrief === undefined || authorBrief === ""
       ? {}
       : { authorBrief }),
+    ...(phraseBias === undefined || phraseBias.length === 0 ? {} : { phraseBias }),
+    ...(bannedStrings === undefined || bannedStrings.length === 0 ? {} : { bannedStrings }),
     ...(factsBudgetTokens === undefined ? {} : { factsBudgetTokens }),
     chapterBreaks
   };
@@ -615,6 +633,26 @@ function optionalFactsBudgetTokens(value: unknown): number | undefined {
     return parseStoryFactsBudgetTokens(value);
   } catch (error) {
     if (error instanceof FactBudgetError) throw new StoryFormatError(error.message);
+    throw error;
+  }
+}
+
+export function optionalPhraseBias(value: unknown): SamplingPhraseBiasEntryV2[] | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return [...validateSamplingPhraseBias(value, "phraseBias")];
+  } catch (error) {
+    if (error instanceof SamplingValidationError) throw new StoryFormatError(error.message);
+    throw error;
+  }
+}
+
+export function optionalBannedStrings(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return [...validateSamplingBannedStrings(value, "bannedStrings")];
+  } catch (error) {
+    if (error instanceof SamplingValidationError) throw new StoryFormatError(error.message);
     throw error;
   }
 }

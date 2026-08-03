@@ -12,6 +12,7 @@ import type { PromptCacheWirePlan } from "./provider-cache-policy.js";
 import { ProviderError } from "./errors.js";
 import { applySamplingFields } from "./provider-sampling.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 
 type TextContentBlock = Record<string, unknown> & {
   type: "text";
@@ -22,7 +23,8 @@ export async function buildOpenAiChatRequestBody(
   settings: GenerationSettings,
   prompt: PromptPlan,
   cache: PromptCacheWirePlan,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  storySampling?: StorySamplingBias
 ): Promise<Record<string, unknown>> {
   const loweredPrompt = promptCacheAdapter(
     "openai-chat-completions",
@@ -67,7 +69,7 @@ export async function buildOpenAiChatRequestBody(
     ...cacheFields
   };
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
-  await applySamplingFields(body, settings, "openai-chat-completions", signal);
+  await applySamplingFields(body, settings, "openai-chat-completions", signal, storySampling);
   applyGenerationEffort(body, settings, "openai");
   return body;
 }
@@ -83,7 +85,8 @@ export async function buildAnthropicMessagesRequestBody(
   settings: GenerationSettings,
   prompt: PromptPlan,
   cache: PromptCacheWirePlan,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  storySampling?: StorySamplingBias
 ): Promise<Record<string, unknown>> {
   const loweredPrompt = foldAuthorsNote(prompt);
   let system: string | readonly TextContentBlock[];
@@ -137,7 +140,7 @@ export async function buildAnthropicMessagesRequestBody(
   };
   if (system.length > 0) body.system = system;
   if (sendsTemperature(settings)) body.temperature = settings.temperature;
-  await applySamplingFields(body, settings, "anthropic-messages", signal);
+  await applySamplingFields(body, settings, "anthropic-messages", signal, storySampling);
   if ("top_p" in body) delete body.temperature;
   applyGenerationEffort(body, settings, "anthropic");
   return body;

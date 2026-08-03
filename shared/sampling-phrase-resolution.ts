@@ -90,6 +90,17 @@ export function isLogitBiasFamilyKnob(
   return knob === "logitBias" || knob === "phraseBias" || knob === "bannedStrings";
 }
 
+/** Where a phraseBias or bannedStrings entry was configured: the vault-wide
+ * generation profile, or the one story currently generating. Both scopes
+ * feed the same merge (`resolveSamplingLogitBias`, server/sampling-phrase-
+ * bias.ts) — a story value adds to the profile value rather than replacing
+ * it (issue #341). Scope is what turns a real weight conflict into either a
+ * blocking "shadowed" (same scope: today's #282 rule, unchanged) or a
+ * non-blocking "overridden" (different scope: the story's whole reason to
+ * exist — see the "overridden" case on SamplingBiasEntryResolution). */
+export const SAMPLING_BIAS_SCOPE_VALUES = ["profile", "story"] as const;
+export type SamplingBiasScope = (typeof SAMPLING_BIAS_SCOPE_VALUES)[number];
+
 /** A single surface form 1667 resolves a phrase or banned string against.
  * Writers type the bare word, but a model's tokenizer often assigns a
  * different token to the same word with a leading space (mid-sentence) or a
@@ -179,41 +190,78 @@ export interface SamplingBiasVariantResolution {
  * its own (`SamplingBiasShadowOwner`). A "shadowed" entry always blocks a
  * save and a request, the same as "rejected" (issue #282 review round 3,
  * finding 2): a writer who configured two conflicting entries is told,
- * never shipped a weaker request than the one they typed. */
+ * never shipped a weaker request than the one they typed.
+ *
+ * "overridden" is the fourth outcome (issue #341): the same real weight
+ * conflict as "shadowed", structurally, but between two different scopes
+ * (`SamplingBiasScope`) rather than within one. A story saying "bias this
+ * differently from my vault default" is not a mistake — it is the feature —
+ * so it must never block a save or a request the way "shadowed" does, and
+ * must never be reported as an error. `settleTokenOwnership` (server/
+ * sampling-phrase-bias.ts) is the one place that decides "shadowed" versus
+ * "overridden": the token's winning owner sharing this entry's own scope is
+ * "shadowed" (today's #282 rule, unchanged); a different scope is
+ * "overridden". */
 export type SamplingBiasEntryResolution =
   | {
       readonly kind: "resolved";
       readonly phrase: string;
+      readonly scope: SamplingBiasScope;
       readonly variants: readonly SamplingBiasVariantResolution[];
       readonly tokenIds: readonly number[];
     }
   | {
       readonly kind: "rejected";
       readonly phrase: string;
+      readonly scope: SamplingBiasScope;
       readonly variants: readonly SamplingBiasVariantResolution[];
     }
   | {
       readonly kind: "shadowed";
       readonly phrase: string;
+      readonly scope: SamplingBiasScope;
+      readonly variants: readonly SamplingBiasVariantResolution[];
+      readonly tokenIds: readonly number[];
+      readonly conflicts: readonly SamplingBiasShadowConflict[];
+    }
+  | {
+      readonly kind: "overridden";
+      readonly phrase: string;
+      readonly scope: SamplingBiasScope;
       readonly variants: readonly SamplingBiasVariantResolution[];
       readonly tokenIds: readonly number[];
       readonly conflicts: readonly SamplingBiasShadowConflict[];
     };
 
-/** One of a "shadowed" entry's own tokens, joined to the entry that actually
- * wrote its final weight — see `SamplingBiasEntryResolution`, "shadowed",
- * for why this must be one record and not two correlated arrays. */
+/** The fields "shadowed" and "overridden" share — every caller that only
+ * needs to name the lost tokens and their owners (`samplingBiasShadowOwners`
+ * below) works for either kind through this, rather than one copy per
+ * kind. */
+export type SamplingBiasShadowedOrOverriddenEntry = Extract<
+  SamplingBiasEntryResolution,
+  { kind: "shadowed" | "overridden" }
+>;
+
+/** One of a "shadowed" or "overridden" entry's own tokens, joined to the
+ * entry that actually wrote its final weight — see
+ * `SamplingBiasEntryResolution` for why this must be one record and not two
+ * correlated arrays. */
 export interface SamplingBiasShadowConflict {
   readonly tokenId: number;
   readonly owner: SamplingBiasShadowOwner;
 }
 
 /** Names the entry whose weight won a real conflict on at least one token
- * (`SamplingBiasEntryResolution`, "shadowed"). An explicit numeric
- * `logitBias` entry has no phrase text of its own — a raw token ID, not
- * text — so it is the one source with no `phrase` to report. */
+ * (`SamplingBiasEntryResolution`, "shadowed" or "overridden"). An explicit
+ * numeric `logitBias` entry has no phrase text of its own — a raw token ID,
+ * not text — so it is the one source with no `phrase` to report, and it is
+ * always profile-scoped (`logitBias` is a profile-only field, issue #341). */
 export type SamplingBiasShadowOwner =
-  | { readonly source: "phraseBias" | "bannedStrings"; readonly phrase: string }
+  | {
+      readonly source: "phraseBias" | "bannedStrings";
+      readonly scope: SamplingBiasScope;
+      readonly phrase: string;
+    }
   | { readonly source: "logitBias" };
 
 /** Why "tokenizer-unavailable" — three materially different situations a
@@ -277,7 +325,7 @@ export function samplingBiasResolutionFailureMessage(
  * only needs a short summary (the sampling-bias panel's row text) does not
  * re-derive this from `conflicts` itself. */
 export function samplingBiasShadowOwners(
-  entry: Extract<SamplingBiasEntryResolution, { kind: "shadowed" }>
+  entry: SamplingBiasShadowedOrOverriddenEntry
 ): readonly SamplingBiasShadowOwner[] {
   const owners: SamplingBiasShadowOwner[] = [];
   for (const variant of entry.variants) {
@@ -291,16 +339,25 @@ export function samplingBiasShadowOwners(
 }
 
 /** The reader-facing name for one shadow owner — "an explicit numeric
- * logit-bias entry" has no phrase of its own to quote. */
+ * logit-bias entry" has no phrase of its own to quote. Names the story
+ * explicitly when the owner is story-scoped (issue #341): a writer telling
+ * two same-named phrases apart ("delve" the profile's, "delve" the story's)
+ * needs the scope, not just the text, to know which one actually won. A
+ * profile owner keeps the unprefixed #282 wording — the profile has been the
+ * only scope for this message since before a story could own an entry, and
+ * every existing "shadowed" message (a same-scope conflict, since scope only
+ * ever differs on the non-blocking "overridden" outcome) still reads exactly
+ * as it did before this scope existed. */
 export function samplingBiasShadowOwnerText(owner: SamplingBiasShadowOwner): string {
   if (owner.source === "logitBias") return "an explicit numeric logit-bias entry";
   const ownerKind = owner.source === "bannedStrings" ? "banned string" : "phrase bias";
-  return `${ownerKind} ${JSON.stringify(owner.phrase)}`;
+  const scopeText = owner.scope === "story" ? "this story's " : "";
+  return `${scopeText}${ownerKind} ${JSON.stringify(owner.phrase)}`;
 }
 
 function sameShadowOwner(a: SamplingBiasShadowOwner, b: SamplingBiasShadowOwner): boolean {
   if (a.source === "logitBias" || b.source === "logitBias") return a.source === b.source;
-  return a.source === b.source && a.phrase === b.phrase;
+  return a.source === b.source && a.scope === b.scope && a.phrase === b.phrase;
 }
 
 /** A short, honest reason a single entry was kept off the wire — either it
@@ -312,9 +369,15 @@ function sameShadowOwner(a: SamplingBiasShadowOwner, b: SamplingBiasShadowOwner)
  * actually took each one, one clause per owner, so a shadow split across
  * two different owners (issue #282 review round 4, finding 1) is reported
  * accurately instead of blaming every lost form on a single owner. Never
- * claims either kind did something it did not. */
+ * claims either kind did something it did not.
+ *
+ * Takes only "rejected" and "shadowed" (issue #341 narrowed this from every
+ * non-"resolved" kind): those two are the ones that block, and they are the
+ * only two `firstBlockingSamplingBiasEntry` below ever returns. "overridden"
+ * is not a rejection — it must never be reported as an error — so it has its
+ * own, differently-framed message: `samplingBiasEntryOverrideMessage`. */
 export function samplingBiasEntryRejectionMessage(
-  entry: Exclude<SamplingBiasEntryResolution, { kind: "resolved" }>
+  entry: Extract<SamplingBiasEntryResolution, { kind: "rejected" | "shadowed" }>
 ): string {
   if (entry.kind === "shadowed") {
     const singleTokenVariants = entry.variants.flatMap((variant) =>
@@ -342,6 +405,20 @@ export function samplingBiasEntryRejectionMessage(
       + `(${failing.outcome.tokenIds.join(",")}), not one`;
   }
   return `${JSON.stringify(failing.text)}${where} has no exact token`;
+}
+
+/** The honest, non-error explanation for an "overridden" entry (issue #341):
+ * a profile entry that lost a real weight conflict to a story entry, or vice
+ * versa — never a mistake to report as one, unlike "shadowed"'s same-scope
+ * conflict. Phrased as a fact ("is overridden by"), not a failure, and never
+ * called by anything that blocks a save or a request — only the editor,
+ * which shows it beside the entry so a writer can see why a phrase reads
+ * differently than the value they see on this row. */
+export function samplingBiasEntryOverrideMessage(
+  entry: Extract<SamplingBiasEntryResolution, { kind: "overridden" }>
+): string {
+  const clauses = samplingBiasShadowOwners(entry).map(samplingBiasShadowOwnerText);
+  return `${JSON.stringify(entry.phrase)} is overridden by ${clauses.join(" and ")}`;
 }
 
 /** The first phraseBias or bannedStrings entry, in list order (phraseBias

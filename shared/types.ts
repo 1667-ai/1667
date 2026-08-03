@@ -4,6 +4,12 @@ import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 import { FactActivationError, parseFactMetadata } from "./fact-activation.js";
 import type { FactActivation, FactPriority } from "./fact-activation.js";
+import {
+  SamplingValidationError,
+  validateSamplingBannedStrings,
+  validateSamplingPhraseBias
+} from "./sampling-validation-policy.js";
+import type { SamplingPhraseBiasEntryV2 } from "./settings-v2-types.js";
 
 export interface TextRange {
   /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
@@ -195,6 +201,19 @@ export interface StoryPayload {
   /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
    *  to the machine-wide value. See `resolveAuthorBrief`. */
   authorBrief?: string;
+  /** Adds to the routed profile's own `phraseBias`, rather than replacing it
+   *  — a vault-wide list of habits to avoid stays useful while one story
+   *  adds its own words (issue #341). A story entry that conflicts with a
+   *  profile entry overrides it instead of blocking the request; a conflict
+   *  between two entries in the same scope still blocks, exactly as a
+   *  profile-only conflict always has. See
+   *  `server/sampling-phrase-bias.ts`'s `combineSamplingBiasSources`, the
+   *  one place that combines the two scopes, for the exact rule. Absent
+   *  means the story contributes nothing beyond the profile's own value. */
+  phraseBias?: readonly SamplingPhraseBiasEntryV2[];
+  /** Same story-adds-to-profile relationship as `phraseBias`, for the
+   *  banned-strings list. */
+  bannedStrings?: readonly string[];
   firstChapterTitle?: string;
   nodes: NodeStub[];
   path: StoryNode[];
@@ -256,6 +275,8 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
   assertAuthorsNote(candidate.authorsNote);
   assertAuthorsNoteDepth(candidate.authorsNoteDepth);
   assertAuthorBrief(candidate.authorBrief);
+  assertStoryPhraseBias(candidate.phraseBias);
+  assertStoryBannedStrings(candidate.bannedStrings);
   if (candidate.aggregateVersion !== undefined) {
     assertStoryAggregateVersion(
       candidate.aggregateVersion,
@@ -417,6 +438,10 @@ export interface Story {
   /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
    *  to the machine-wide value. See `resolveAuthorBrief`. */
   authorBrief?: string;
+  /** See the field comment on the same name in `StoryPayload`. */
+  phraseBias?: readonly SamplingPhraseBiasEntryV2[];
+  /** See the field comment on the same name in `StoryPayload`. */
+  bannedStrings?: readonly string[];
   /** Chapter one has no opening break to carry a name, so it carries one here.
    * Absent means unnamed, and an unnamed chapter one reads as the story. */
   firstChapterTitle?: string;
@@ -462,6 +487,26 @@ function assertAuthorBrief(value: unknown): void {
     throw new Error(
       `The server returned an invalid story payload.authorBrief: must contain at most ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar values.`
     );
+  }
+}
+
+function assertStoryPhraseBias(value: unknown): void {
+  if (value === undefined) return;
+  try {
+    validateSamplingPhraseBias(value, "story payload.phraseBias");
+  } catch (error) {
+    if (!(error instanceof SamplingValidationError)) throw error;
+    throw new Error(`The server returned an invalid story payload.phraseBias: ${error.message}`);
+  }
+}
+
+function assertStoryBannedStrings(value: unknown): void {
+  if (value === undefined) return;
+  try {
+    validateSamplingBannedStrings(value, "story payload.bannedStrings");
+  } catch (error) {
+    if (!(error instanceof SamplingValidationError)) throw error;
+    throw new Error(`The server returned an invalid story payload.bannedStrings: ${error.message}`);
   }
 }
 

@@ -430,6 +430,46 @@ test("story format: Fact priority and budget round-trip, and an old manifest wit
   assert.deepEqual((await decodeStoryBundle(richManifest, dir)).story, richStory);
 });
 
+// Issue #341: a story's own phraseBias/bannedStrings overlay follows the
+// exact story-scalar precedent factsBudgetTokens set — optional, omitted at
+// the default, so an old manifest that predates this change (no phraseBias
+// or bannedStrings key at all) still decodes unchanged, and a story that
+// does set them round-trips through encode -> decode exactly.
+test("story format: phraseBias and bannedStrings round-trip, and an old manifest without them still decodes", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-story-sampling-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+
+  // Neither field ever reaches disk when absent — this manifest is
+  // byte-for-byte what a story saved before issue #341 already has.
+  const plainStory = runtimeStory([node("root", null, "Opening")]);
+  const plain = await encodeStoryBundle(plainStory, objects);
+  assert.equal("phraseBias" in plain, false);
+  assert.equal("bannedStrings" in plain, false);
+  const plainDecoded = await decodeStoryBundle(plain, dir);
+  assert.equal(plainDecoded.story.phraseBias, undefined);
+  assert.equal(plainDecoded.story.bannedStrings, undefined);
+
+  // A configured phraseBias and bannedStrings both survive encode -> decode
+  // exactly.
+  const richStory: Story = {
+    ...plainStory,
+    phraseBias: [{ phrase: "delve", weight: -8 }, { phrase: "tapestry", weight: -12 }],
+    bannedStrings: ["moreover", "in conclusion"]
+  };
+  const richManifest = await encodeStoryBundle(richStory, objects);
+  assert.deepEqual(richManifest.phraseBias, richStory.phraseBias);
+  assert.deepEqual(richManifest.bannedStrings, richStory.bannedStrings);
+  assert.deepEqual((await decodeStoryBundle(richManifest, dir)).story, richStory);
+
+  // Clearing both back to empty omits them again, the same as never setting
+  // them — an empty list is not a fact worth a byte on disk.
+  const cleared = { ...richStory, phraseBias: [], bannedStrings: [] };
+  const clearedManifest = await encodeStoryBundle(cleared, objects);
+  assert.equal("phraseBias" in clearedManifest, false);
+  assert.equal("bannedStrings" in clearedManifest, false);
+});
+
 function node(id: string, parentId: string | null, text: string, activeChildId: string | null = null): StoryNode {
   return { id, parentId, instruction: "Continue", text, model: "test", createdAt: NOW, activeChildId };
 }

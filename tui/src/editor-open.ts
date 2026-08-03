@@ -136,6 +136,17 @@ export function openFactsBudgetEditor(state: RuntimeState): void {
   openStoryScalarEditor(state, "facts-budget");
 }
 
+/** This story's own phrase bias, added to the routed profile's own (issue
+ *  #341) — see the field comment on `Story.phraseBias` (shared/types.ts). */
+export function openPhraseBiasEditor(state: RuntimeState): void {
+  openStoryScalarEditor(state, "phrase-bias");
+}
+
+/** This story's own banned strings, added to the routed profile's own. */
+export function openBannedStringsEditor(state: RuntimeState): void {
+  openStoryScalarEditor(state, "banned-strings");
+}
+
 /** Author Brief and the Facts budget both open through this one path,
  *  table-driven by STORY_SCALAR_FIELDS (see story-scalar-fields.ts) — the
  *  next story-level scalar is a table row, not a new open function. */

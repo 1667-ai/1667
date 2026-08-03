@@ -19,6 +19,7 @@ import type {
 } from "../../shared/types.js";
 import type {
   ModelDiscoveryResultV2,
+  SamplingPhraseBiasEntryV2,
   SettingsDocumentV2,
   SettingsMutationResult,
   SettingsView
@@ -89,6 +90,8 @@ export interface DemoController {
   setAuthorsNote(authorsNote: string, depth?: number): StoryPayload;
   setAuthorBrief(authorBrief: string): StoryPayload;
   setFactsBudget(budgetTokens: number | null): StoryPayload;
+  setPhraseBias(phraseBias: readonly SamplingPhraseBiasEntryV2[]): StoryPayload;
+  setBannedStrings(bannedStrings: readonly string[]): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
@@ -301,6 +304,18 @@ export function createDemoController(dense = false): DemoController {
       story.updatedAt = EDITED;
       return payloadFrom(story);
     },
+    setPhraseBias(phraseBias) {
+      if (phraseBias.length === 0) delete story.phraseBias;
+      else story.phraseBias = phraseBias.map((entry) => ({ ...entry }));
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
+    setBannedStrings(bannedStrings) {
+      if (bannedStrings.length === 0) delete story.bannedStrings;
+      else story.bannedStrings = [...bannedStrings];
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
     deleteStory() {
       story = { id: "demo-empty", title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
         nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
@@ -434,6 +449,12 @@ function payloadFrom(story: Story): StoryPayload {
     ...(story.authorBrief === undefined || story.authorBrief.trim() === ""
       ? {}
       : { authorBrief: story.authorBrief }),
+    ...(story.phraseBias === undefined || story.phraseBias.length === 0
+      ? {}
+      : { phraseBias: story.phraseBias.map((entry) => ({ ...entry })) }),
+    ...(story.bannedStrings === undefined || story.bannedStrings.length === 0
+      ? {}
+      : { bannedStrings: [...story.bannedStrings] }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
@@ -546,6 +567,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     setAuthorsNote: async (_storyId, authorsNote, depth) => demo.setAuthorsNote(authorsNote, depth),
     setAuthorBrief: async (_storyId, authorBrief) => demo.setAuthorBrief(authorBrief),
     setFactsBudget: async (_storyId, budgetTokens) => demo.setFactsBudget(budgetTokens),
+    setPhraseBias: async (_storyId, phraseBias) => demo.setPhraseBias(phraseBias),
+    setBannedStrings: async (_storyId, bannedStrings) => demo.setBannedStrings(bannedStrings),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },

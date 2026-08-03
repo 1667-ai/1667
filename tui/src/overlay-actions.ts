@@ -12,8 +12,10 @@ import { applyTextKey, type ResolvedKey } from "./keys.js";
 import {
   openAuthorBriefEditor,
   openAuthorsNoteEditor,
+  openBannedStringsEditor,
   openFactEditor,
-  openFactsBudgetEditor
+  openFactsBudgetEditor,
+  openPhraseBiasEditor
 } from "./editor-action.js";
 import { generationBusy, openTag, runPartAction } from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
@@ -414,6 +416,8 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "author-brief") openAuthorBriefEditor(state);
   else if (command.id === "facts-budget") openFactsBudgetEditor(state);
+  else if (command.id === "phrase-bias") openPhraseBiasEditor(state);
+  else if (command.id === "banned-strings") openBannedStringsEditor(state);
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {
     const targetId = state.payload.id;

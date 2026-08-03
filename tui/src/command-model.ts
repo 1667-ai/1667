@@ -6,7 +6,7 @@ export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system
 export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
-  | "authors-note" | "author-brief" | "facts-budget"
+  | "authors-note" | "author-brief" | "facts-budget" | "phrase-bias" | "banned-strings"
   | "direct-take" | "retake" | "rewrite-selection" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "next-request"
@@ -95,6 +95,8 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "a", mutating: true },
   { id: "author-brief", section: "story", name: "author brief", description: "override the machine-wide author brief for this story", mutating: true },
   { id: "facts-budget", section: "story", name: "facts budget", description: "cap the combined estimated tokens every Fact spends in a request", mutating: true },
+  { id: "phrase-bias", section: "story", name: "phrase bias", description: "bias phrases for this story only, adding to the profile's own", mutating: true },
+  { id: "banned-strings", section: "story", name: "banned strings", description: "ban strings for this story only, adding to the profile's own", mutating: true },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
   { id: "retake", section: "take", name: "retake", description: "retake the focused part as a sibling", shortcut: "r", mutating: true },

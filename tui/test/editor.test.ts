@@ -6,6 +6,7 @@ import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { frameText } from "../src/screens/story/frame.js";
+import type { CommandSelectionId } from "../src/command-model.js";
 import type { InlineEditorSession, RuntimeState } from "../src/state.js";
 import { editorHarness, key } from "./editor-harness.js";
 
@@ -27,6 +28,26 @@ async function openAuthorBriefFromPalette(
     query: "author brief",
     cursor: 0,
     selectedId: "author-brief",
+    view: "commands",
+    returnMode: state.commands?.returnMode ?? "NAV"
+  };
+  await press(key("return"));
+}
+
+/** Same story-palette route as Author Brief (issue #341) — neither the
+ *  story's own phrase bias nor its banned strings has a NAV shortcut. */
+async function openStoryScalarFromPalette(
+  state: RuntimeState,
+  press: (event: ReturnType<typeof key>) => Promise<void>,
+  query: string,
+  selectedId: CommandSelectionId
+): Promise<void> {
+  await press(key("p", { ctrl: true }));
+  expect(state.mode).toBe("COMMANDS");
+  state.commands = {
+    query,
+    cursor: 0,
+    selectedId,
     view: "commands",
     returnMode: state.commands?.returnMode ?? "NAV"
   };
@@ -371,6 +392,68 @@ describe("inline editor", () => {
     expect(state.mode).toBe("EDITOR");
     expect(state.editor?.composer.text).toBe("Keep this draft.");
     expect(state.toast).toBe("brief endpoint unavailable");
+  });
+
+  test("phrase bias opens from the story palette, saves, clears, rejects a bad line, and reports save errors", async () => {
+    const { source, state, press } = editorHarness();
+
+    await openStoryScalarFromPalette(state, press, "phrase bias", "phrase-bias");
+    expect(documentEditor(state).target).toMatchObject({ kind: "story-scalar", field: "phrase-bias" });
+    setComposerText(state.editor!.composer, "delve: -8\ntapestry: -12");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.phraseBias).toEqual([
+      { phrase: "delve", weight: -8 },
+      { phrase: "tapestry", weight: -12 }
+    ]);
+    expect(state.toast).toBe("phrase bias saved");
+
+    await openStoryScalarFromPalette(state, press, "phrase bias", "phrase-bias");
+    expect(state.editor?.composer.text).toBe("delve: -8\ntapestry: -12");
+    setComposerText(state.editor!.composer, "not a valid line");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("EDITOR");
+    expect(state.payload.phraseBias).toEqual([
+      { phrase: "delve", weight: -8 },
+      { phrase: "tapestry", weight: -12 }
+    ]);
+    expect(state.toast).toContain("phrase: weight");
+
+    setComposerText(state.editor!.composer, "");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.phraseBias).toBe(undefined);
+    expect(state.toast).toBe("phrase bias cleared");
+
+    source.api.setPhraseBias = async () => { throw new Error("phrase bias endpoint unavailable"); };
+    await openStoryScalarFromPalette(state, press, "phrase bias", "phrase-bias");
+    setComposerText(state.editor!.composer, "delve: -8");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("EDITOR");
+    expect(state.editor?.composer.text).toBe("delve: -8");
+    expect(state.toast).toBe("phrase bias endpoint unavailable");
+  });
+
+  test("banned strings opens from the story palette, saves, and clears", async () => {
+    const { state, press } = editorHarness();
+
+    await openStoryScalarFromPalette(state, press, "banned strings", "banned-strings");
+    expect(documentEditor(state).target).toMatchObject({ kind: "story-scalar", field: "banned-strings" });
+    setComposerText(state.editor!.composer, "moreover\nin conclusion");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.bannedStrings).toEqual(["moreover", "in conclusion"]);
+    expect(state.toast).toBe("banned strings saved");
+
+    await openStoryScalarFromPalette(state, press, "banned strings", "banned-strings");
+    expect(state.editor?.composer.text).toBe("moreover\nin conclusion");
+    setComposerText(state.editor!.composer, "");
+    await press(key("s", { sequence: "\u0013", ctrl: true }));
+    expect(state.mode).toBe("NAV");
+    expect(state.payload.bannedStrings).toBe(undefined);
+    expect(state.toast).toBe("banned strings cleared");
   });
 
   test("Author's Note enforces the scalar limit on save and paints its status", async () => {

@@ -15,6 +15,7 @@ import {
   type SamplingSettingsV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
+import type { StorySamplingBias } from "../server/sampling-phrase-bias.js";
 
 const FORBIDDEN_CACHE_FIELDS = new Set([
   "prompt_cache_key",
@@ -834,6 +835,161 @@ test("a failed llama.cpp tokenize probe reports the tokenizer as unavailable, an
   );
 });
 
+// Issue #341: a story's own phraseBias/bannedStrings overlay adds to the
+// routed profile's — the same resolution `resolveSamplingBiasForSettings`
+// (server/sampling-phrase-bias.ts) applies, at the exact boundary the
+// request itself serializes through, not a parallel check. The profile
+// contributes a raw numeric logitBias entry here (a token id needing no
+// tokenizer) specifically so this test needs no second real single-token
+// word beyond "hello" (the only phrase this file has verified token IDs
+// for) to prove two independent, non-conflicting sources merge into one map.
+test("a story phrase-bias entry adds to the profile's own, merging into one request", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ logitBias: { "99999": 5 } })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    undefined,
+    storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+  );
+  assert.deepEqual(body.logit_bias, {
+    "99999": 5,
+    "24912": 3,
+    "40617": 3,
+    "13225": 3,
+    "32949": 3
+  });
+});
+
+// A profile with nothing at all configured in the logit-bias family
+// (phraseBias, bannedStrings, and the raw numeric logitBias map all empty)
+// must still apply a story-only phraseBias entry. The family's availability
+// and wire field are normally read off whichever family member the profile
+// configured (server/provider-sampling.ts) — with nothing configured there
+// is no such member to read from, so a story-only value needs its own
+// availability check, not silent omission.
+test("a story phrase-bias entry applies even when the profile has nothing in the logit-bias family configured", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({})
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    undefined,
+    storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": 3,
+    "40617": 3,
+    "13225": 3,
+    "32949": 3
+  });
+});
+
+// A story with no phraseBias/bannedStrings overlay — omitted entirely, the
+// shape every non-story call site (title and summary generation) actually
+// passes — must serialize byte-identically to the profile-only request
+// issue #282 already shipped.
+test("a story with no phrase-bias or banned-strings value inherits the profile value unchanged", async () => {
+  const withoutStory = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  const withEmptyStory = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    undefined,
+    storySampling({})
+  );
+  const expected = { "24912": 3, "40617": 3, "13225": 3, "32949": 3 };
+  assert.deepEqual(withoutStory.logit_bias, expected);
+  assert.deepEqual(withEmptyStory.logit_bias, expected);
+});
+
+// Issue #341 decision 4, the one that matters most: a story entry that
+// conflicts with a profile entry is an override, not a shadow. If this
+// blocked the way a same-scope conflict does, a vault-wide phrase-bias
+// weight plus one story-specific override would refuse every request in
+// that story — exactly the defect this decision exists to prevent.
+test("a story entry overriding a profile entry does not block, and the story weight ships", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ phraseBias: [{ phrase: "hello", weight: 20 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    undefined,
+    storySampling({ phraseBias: [{ phrase: "hello", weight: -7 }] })
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": -7,
+    "40617": -7,
+    "13225": -7,
+    "32949": -7
+  });
+});
+
+// A conflict within one scope — here, two entries the story itself
+// configured — keeps today's blocking shadow semantics exactly: the story
+// override rule (decision 4) only ever softens a *cross*-scope conflict.
+test("a conflict between two entries in the same scope still blocks, even when that scope is the story", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({})
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      undefined,
+      storySampling({
+        phraseBias: [
+          { phrase: "hello", weight: 5 },
+          { phrase: "Hello", weight: 9 }
+        ]
+      })
+    ),
+    /Could not use "hello" as configured: "hello" loses its bias on "Hello", " Hello" to this story's phrase bias "Hello"/
+  );
+});
+
+// Issue #341 decision 6: the capability matrix stays the single owner of
+// availability. OpenRouter has no trustworthy tokenizer source (shared/
+// sampling-capabilities.ts), so phrase bias is unavailable there regardless
+// of scope — a story value must never make it available, including when the
+// profile itself has nothing configured (the case that skipped this check
+// entirely before the fix: `configured` only ever looked at the profile).
+test("a story value on a preset with no phrase-bias support stays unavailable", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(settings("openai-compatible"), "openrouter", sampling({})),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      undefined,
+      storySampling({ phraseBias: [{ phrase: "hello", weight: 1 }] })
+    ),
+    /Configured sampling parameter phrase bias is unavailable/
+  );
+});
+
 test("Anthropic lowering uses only its exact wire names", async () => {
   const body = await buildAnthropicMessagesRequestBody(
     withSampling({ ...settings("anthropic"), model: "claude-opus-4-5" }, "anthropic", sampling({
@@ -988,6 +1144,13 @@ function sampling(overrides: Partial<SamplingSettingsV2> = {}): SamplingSettings
     ...overrides,
     stop: overrides.stop ?? EMPTY_SAMPLING_V2.stop,
     logitBias: overrides.logitBias ?? EMPTY_SAMPLING_V2.logitBias
+  };
+}
+
+function storySampling(overrides: Partial<StorySamplingBias>): StorySamplingBias {
+  return {
+    phraseBias: overrides.phraseBias ?? [],
+    bannedStrings: overrides.bannedStrings ?? []
   };
 }
 

@@ -2,6 +2,7 @@ import {
   firstBlockingSamplingBiasEntry,
   isLogitBiasFamilyKnob,
   resolveConfiguredSamplingKnobs,
+  resolveSamplingKnob,
   samplingBiasEntryRejectionMessage,
   samplingBiasResolutionFailureMessage,
   samplingKnobLabel,
@@ -19,13 +20,14 @@ import {
 import type { GenerationSettings } from "../shared/types.js";
 import { ProviderError } from "./errors.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
-import { resolveSamplingBiasForSettings } from "./sampling-phrase-bias.js";
+import { resolveSamplingBiasForSettings, type StorySamplingBias } from "./sampling-phrase-bias.js";
 
 export async function applySamplingFields(
   body: Record<string, unknown>,
   settings: GenerationSettings,
   protocol: "openai-chat-completions" | "anthropic-messages",
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  storySampling?: StorySamplingBias
 ): Promise<void> {
   const runtime = providerRuntimeFor(settings);
   const sampling = runtime.sampling;
@@ -45,6 +47,8 @@ export async function applySamplingFields(
       );
     }
   }
+  const storyHasBias = storySampling !== undefined
+    && (storySampling.phraseBias.length > 0 || storySampling.bannedStrings.length > 0);
   const logitBiasFamilyMember = configured.find(({ knob }) => isLogitBiasFamilyKnob(knob));
   if (logitBiasFamilyMember !== undefined) {
     // Read the wire field off this knob's own resolution instead of
@@ -64,7 +68,28 @@ export async function applySamplingFields(
         + "reached encoding without an available resolution"
       );
     }
-    body[resolution.wireField] = await mergedLogitBiasValue(sampling, settings, context.preset, signal);
+    body[resolution.wireField] = await mergedLogitBiasValue(sampling, settings, context.preset, signal, storySampling);
+  } else if (storyHasBias) {
+    // The profile itself has nothing in the logit-bias family configured —
+    // `configured` above never named it, so nothing checked its
+    // availability yet — but a story value adds to the profile's, even when
+    // the profile's own contribution is empty (issue #341 decision 3). The
+    // route's own availability still gates it exactly as it would a
+    // profile-configured value (decision 6: a story value can never make an
+    // unsupported knob available): "phraseBias" stands in for the whole
+    // family here, the same way the branch above reads the wire field off
+    // whichever family member happened to be configured, because
+    // phraseBias/bannedStrings/logitBias always resolve to the identical
+    // wire field and availability reason on one route.
+    const resolution = resolveSamplingKnob(context, sampling, "phraseBias");
+    if (resolution.kind === "unavailable") {
+      throw new ProviderError(
+        `Configured sampling parameter ${samplingKnobLabel("phraseBias")} is unavailable: ${
+          samplingUnavailableReason(resolution.reason)
+        }`
+      );
+    }
+    body[resolution.wireField] = await mergedLogitBiasValue(sampling, settings, context.preset, signal, storySampling);
   }
   for (const { knob, resolution } of configured) {
     if (resolution.kind !== "available") continue;
@@ -96,10 +121,11 @@ async function mergedLogitBiasValue(
   sampling: SamplingSettingsV2,
   settings: GenerationSettings,
   preset: SettingsPresetV2 | "legacy-v1",
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  storySampling: StorySamplingBias | undefined
 ): Promise<Readonly<Record<string, number>>> {
   const resolvedPreset = requirePreset(preset);
-  const resolved = await resolveSamplingBiasForSettings(sampling, settings, signal);
+  const resolved = await resolveSamplingBiasForSettings(sampling, settings, signal, storySampling);
   if (resolved.kind !== "resolved") {
     throw new ProviderError(`Could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}.`);
   }

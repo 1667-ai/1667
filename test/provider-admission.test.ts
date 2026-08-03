@@ -13,25 +13,25 @@ import {
 
 test("provider admission is recorded only immediately before a real fetch", async () => {
   let admissions = 0;
-  await drain(streamCompletion(settings("dry-run"), prompt("continue"), new AbortController().signal, undefined,
-    () => { admissions += 1; }));
+  await drain(streamCompletion(settings("dry-run"), prompt("continue"), new AbortController().signal,
+    { providerStarted: () => { admissions += 1; } }));
   assert.equal(admissions, 0);
 
   await assert.rejects(drain(streamCompletion(
-    settings("openai-compatible", { baseUrl: "" }), prompt("continue"), new AbortController().signal, undefined,
-    () => { admissions += 1; }
+    settings("openai-compatible", { baseUrl: "" }), prompt("continue"), new AbortController().signal,
+    { providerStarted: () => { admissions += 1; } }
   )), ProviderError);
   assert.equal(admissions, 0);
 
   await assert.rejects(drain(streamCompletion(
     settings("openai-compatible", { baseUrl: "not a url" }), prompt("continue"),
-    new AbortController().signal, undefined, () => { admissions += 1; }
+    new AbortController().signal, { providerStarted: () => { admissions += 1; } }
   )), ProviderError);
   assert.equal(admissions, 0);
 
   await assert.rejects(drain(streamCompletion(
     settings("anthropic", { baseUrl: "https://api.anthropic.com", apiKeyEnv: "AI_1667_TEST_MISSING_KEY" }),
-    prompt("continue"), new AbortController().signal, undefined, () => { admissions += 1; }
+    prompt("continue"), new AbortController().signal, { providerStarted: () => { admissions += 1; } }
   )), ProviderError);
   assert.equal(admissions, 0);
 
@@ -40,7 +40,7 @@ test("provider admission is recorded only immediately before a real fetch", asyn
   try {
     await assert.rejects(drain(streamCompletion(
       settings("openai-compatible", { baseUrl: "https://fixture.invalid/v1" }),
-      prompt("continue"), new AbortController().signal, undefined, () => { admissions += 1; }
+      prompt("continue"), new AbortController().signal, { providerStarted: () => { admissions += 1; } }
     )), ProviderError);
   } finally {
     globalThis.fetch = originalFetch;
@@ -85,9 +85,7 @@ test("cache rolling state advances only with provider admission", async () => {
       settings("openai-compatible", { baseUrl: "" }),
       stablePrompt,
       new AbortController().signal,
-      undefined,
-      undefined,
-      cache
+      { promptCache: cache }
     )),
     ProviderError
   );
@@ -110,9 +108,7 @@ test("cache rolling state advances only with provider admission", async () => {
       }),
       stablePrompt,
       new AbortController().signal,
-      undefined,
-      undefined,
-      cache
+      { promptCache: cache }
     ));
   } finally {
     globalThis.fetch = originalFetch;
@@ -146,9 +142,7 @@ test("cache rolling state advances only with provider admission", async () => {
       }),
       stablePrompt,
       new AbortController().signal,
-      undefined,
-      undefined,
-      conservativeCache
+      { promptCache: conservativeCache }
     ));
   } finally {
     globalThis.fetch = originalFetch;
@@ -173,8 +167,8 @@ test("provider cancellation after admission returns a terminal null result", asy
   try {
     const result = await streamModel(
       settings("openai-compatible", { baseUrl: "https://fixture.invalid/v1" }),
-      prompt("continue"), controller.signal, () => {}, undefined,
-      () => { admissions += 1; controller.abort(); }
+      prompt("continue"), controller.signal, () => {},
+      { providerStarted: () => { admissions += 1; controller.abort(); } }
     );
     assert.equal(result, null);
     assert.equal(admissions, 1);
@@ -198,7 +192,7 @@ test("cancellation during the final filtered delta returns no result", async () 
       controller.abort();
       throw new Error("The response transport closed.");
     },
-    output
+    { output }
   );
   assert.equal(result, null);
 });
@@ -216,8 +210,7 @@ test("an empty completed provider stream is a terminal generation result", async
         prompt("continue"),
         new AbortController().signal,
         () => {},
-        undefined,
-        () => { admissions += 1; }
+        { providerStarted: () => { admissions += 1; } }
       ),
       GenerationResultError
     );

@@ -34,6 +34,8 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   setAuthorsNote: "local",
   setAuthorBrief: "local",
   setFactsBudget: "local",
+  setPhraseBias: "local",
+  setBannedStrings: "local",
   autonameStory: "generation",
   acknowledgeUnknownOutcomes: "local",
   deleteStory: "local",
@@ -182,6 +184,10 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "PUT") return "setAuthorBrief";
   if (sub === "facts-budget" && parts.length === 5
     && httpMethod === "PUT") return "setFactsBudget";
+  if (sub === "phrase-bias" && parts.length === 5
+    && httpMethod === "PUT") return "setPhraseBias";
+  if (sub === "banned-strings" && parts.length === 5
+    && httpMethod === "PUT") return "setBannedStrings";
   if (sub === "switch" && parts.length === 5
     && httpMethod === "POST") return "switchLine";
   if (sub === "continue" && parts.length === 5

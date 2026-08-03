@@ -466,6 +466,7 @@ describe("Sampling Settings user flow", () => {
       phraseBias: [{
         kind: "resolved",
         phrase: "dragon",
+        scope: "profile",
         tokenIds: [84021, 45342, 91530, 34057],
         variants: [
           { variant: "typed", text: "dragon", outcome: { kind: "single-token", tokenId: 84021 } },
@@ -509,6 +510,7 @@ describe("Sampling Settings user flow", () => {
       phraseBias: [{
         kind: "resolved",
         phrase: "dragon",
+        scope: "profile",
         tokenIds: [84021, 45342, 91530, 34057],
         variants: [
           { variant: "typed", text: "dragon", outcome: { kind: "single-token", tokenId: 84021 } },

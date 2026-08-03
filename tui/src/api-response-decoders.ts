@@ -17,6 +17,7 @@ import {
   TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
   type SamplingBiasEntryResolution,
   type SamplingBiasResolutionResult,
+  type SamplingBiasScope,
   type SamplingBiasShadowOwner,
   type SamplingBiasVariant,
   type SamplingBiasVariantOutcome,
@@ -222,19 +223,26 @@ function decodeSamplingBiasEntryList(
 function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEntryResolution {
   const record = responseRecord(value, label);
   const phrase = stringField(record, "phrase", label);
+  const scope = decodeSamplingBiasScope(record.scope, label);
   const variants = decodeSamplingBiasVariantList(record.variants, label);
-  if (record.kind === "rejected") return { kind: "rejected", phrase, variants };
-  if (record.kind === "shadowed") {
+  if (record.kind === "rejected") return { kind: "rejected", phrase, scope, variants };
+  if (record.kind === "shadowed" || record.kind === "overridden") {
     return {
-      kind: "shadowed",
+      kind: record.kind,
       phrase,
+      scope,
       variants,
       tokenIds: decodeTokenIdArray(record.tokenIds, label),
       conflicts: decodeSamplingBiasConflictList(record.conflicts, label)
     };
   }
   if (record.kind !== "resolved") invalidField(label, "kind");
-  return { kind: "resolved", phrase, variants, tokenIds: decodeTokenIdArray(record.tokenIds, label) };
+  return { kind: "resolved", phrase, scope, variants, tokenIds: decodeTokenIdArray(record.tokenIds, label) };
+}
+
+function decodeSamplingBiasScope(value: unknown, label: string): SamplingBiasScope {
+  if (value !== "profile" && value !== "story") invalidField(label, "scope");
+  return value;
 }
 
 function decodeTokenIdArray(value: unknown, label: string): readonly number[] {
@@ -270,7 +278,11 @@ function decodeShadowOwner(value: unknown, label: string): SamplingBiasShadowOwn
   if (source !== "phraseBias" && source !== "bannedStrings") {
     invalidField(`${label} owner`, "source");
   }
-  return { source, phrase: stringField(record, "phrase", `${label} owner`) };
+  return {
+    source,
+    scope: decodeSamplingBiasScope(record.scope, `${label} owner`),
+    phrase: stringField(record, "phrase", `${label} owner`)
+  };
 }
 
 function decodeSamplingBiasVariantList(

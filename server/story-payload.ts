@@ -28,6 +28,12 @@ export function buildStoryPayload(
     ...(authorsNote === undefined ? {} : { authorsNote }),
     ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
     ...(authorBrief === undefined ? {} : { authorBrief }),
+    ...(story.phraseBias === undefined || story.phraseBias.length === 0
+      ? {}
+      : { phraseBias: story.phraseBias.map((entry) => ({ ...entry })) }),
+    ...(story.bannedStrings === undefined || story.bannedStrings.length === 0
+      ? {}
+      : { bannedStrings: [...story.bannedStrings] }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),

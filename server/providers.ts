@@ -22,6 +22,7 @@ import {
   resolveProviderHeaders
 } from "./provider-runtime.js";
 import { providerSseEvents } from "./provider-sse.js";
+import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
 
@@ -34,21 +35,35 @@ export interface StreamOutcome {
 
 const MAX_DECODED_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+/** `streamCompletion`'s optional trailing values, grouped into one object
+ * (issue #341) rather than a growing run of positional parameters — adding
+ * `storySampling` as a fourth trailing optional would have made a seventh
+ * positional parameter overall. `storySampling` is the one story's own
+ * phraseBias/bannedStrings overlay; every caller that has no story in play
+ * (title and summary generation) omits it, which resolves exactly as it did
+ * before a story could contribute anything (`resolveSamplingBiasForSettings`,
+ * server/sampling-phrase-bias.ts). */
+export interface StreamCompletionOptions {
+  readonly outcome?: StreamOutcome;
+  readonly providerStarted?: () => void | Promise<void>;
+  readonly promptCache?: PromptCacheRequest;
+  readonly storySampling?: StorySamplingBias;
+}
+
 export function streamCompletion(
   settings: GenerationSettings,
   prompt: PromptPlan,
   signal: AbortSignal,
-  outcome?: StreamOutcome,
-  providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  options: StreamCompletionOptions = {}
 ): AsyncGenerator<string> {
+  const { outcome, providerStarted, promptCache, storySampling } = options;
   switch (settings.provider) {
     case "dry-run":
       return streamDryRun(prompt, signal, outcome);
     case "anthropic":
-      return streamAnthropic(settings, prompt, signal, outcome, providerStarted, promptCache);
+      return streamAnthropic(settings, prompt, signal, outcome, providerStarted, promptCache, storySampling);
     case "openai-compatible":
-      return streamOpenAiCompatible(settings, prompt, signal, outcome, providerStarted, promptCache);
+      return streamOpenAiCompatible(settings, prompt, signal, outcome, providerStarted, promptCache, storySampling);
   }
 }
 
@@ -58,13 +73,14 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   outcome?: StreamOutcome,
   providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  promptCache?: PromptCacheRequest,
+  storySampling?: StorySamplingBias
 ): AsyncGenerator<string> {
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, signal);
+  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, signal, storySampling);
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
   let totalDeadlineReached = false;
@@ -194,14 +210,15 @@ async function* streamAnthropic(
   signal: AbortSignal,
   outcome?: StreamOutcome,
   providerStarted?: () => void | Promise<void>,
-  promptCache?: PromptCacheRequest
+  promptCache?: PromptCacheRequest,
+  storySampling?: StorySamplingBias
 ): AsyncGenerator<string> {
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json",
     "anthropic-version": "2023-06-01"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, signal);
+  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, signal, storySampling);
   const refusalKey = samplingRefusalKey(settings);
   if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
   const runtime = providerRuntimeFor(settings);

@@ -22,6 +22,10 @@ import {
 } from "./story-wire-validation.js";
 import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
 import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
+import {
+  SAMPLING_BANNED_STRINGS_POLICY,
+  SAMPLING_PHRASE_BIAS_POLICY
+} from "../shared/sampling-validation-policy.js";
 
 export const MAX_STORY_MANIFEST_BYTES = 16 * 1024 * 1024;
 export const MAX_STORY_TITLE_CHARS = MAX_STORED_TITLE_CHARS;
@@ -38,7 +42,10 @@ export const STORY_ID_PATTERN = exactStringPattern(STORY_ID_PATTERN_SOURCE);
 const ROOT = closedShape([
   "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount",
   "nodes", "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
-], ["origin", "authorsNote", "authorsNoteDepth", "authorBrief", "autonameId", "firstChapterTitle", "factsBudgetTokens"]);
+], [
+  "origin", "authorsNote", "authorsNoteDepth", "authorBrief", "phraseBias", "bannedStrings",
+  "autonameId", "firstChapterTitle", "factsBudgetTokens"
+]);
 const ORIGIN = closedShape(["storyId", "storyTitle", "partId", "offset", "createdAt"]);
 const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
@@ -55,6 +62,7 @@ const FACT = closedShape(
 );
 const TAG = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
 const CHAPTER_BREAK = closedShape(["id", "parentPartId", "title", "createdAt"]);
+const PHRASE_BIAS_ENTRY = closedShape(["phrase", "weight"]);
 
 export function isStoryId(value: string): boolean {
   return STORY_ID_PATTERN.test(value);
@@ -92,6 +100,15 @@ export function assertStrictV5Manifest(
     safeInteger(manifest.authorsNoteDepth, "manifest.authorsNoteDepth", { min: 1, max: MAX_AUTHORS_NOTE_DEPTH });
   }
   optionalBoundedString(manifest.authorBrief, "manifest.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
+  if (manifest.phraseBias !== undefined) {
+    boundedArray(manifest.phraseBias, "manifest.phraseBias", SAMPLING_PHRASE_BIAS_POLICY.maxEntries)
+      .forEach((entry, index) => assertPhraseBiasEntry(entry, `manifest.phraseBias[${index}]`));
+  }
+  if (manifest.bannedStrings !== undefined) {
+    boundedArray(manifest.bannedStrings, "manifest.bannedStrings", SAMPLING_BANNED_STRINGS_POLICY.maxEntries)
+      .forEach((entry, index) =>
+        boundedString(entry, `manifest.bannedStrings[${index}]`, SAMPLING_BANNED_STRINGS_POLICY.maxScalars, { minLength: 1 }));
+  }
   if (manifest.factsBudgetTokens !== undefined) {
     safeInteger(manifest.factsBudgetTokens, "manifest.factsBudgetTokens", { min: 1, max: MAX_STORY_FACTS_BUDGET_TOKENS });
   }
@@ -198,6 +215,15 @@ function assertChapterBreak(value: unknown, label: string): void {
   identifier(chapterBreak.parentPartId, `${label}.parentPartId`);
   boundedString(chapterBreak.title, `${label}.title`, MAX_STORY_TITLE_CHARS);
   timestamp(chapterBreak.createdAt, `${label}.createdAt`);
+}
+
+function assertPhraseBiasEntry(value: unknown, label: string): void {
+  const entry = closedRecord(value, label, PHRASE_BIAS_ENTRY);
+  boundedString(entry.phrase, `${label}.phrase`, SAMPLING_PHRASE_BIAS_POLICY.maxPhraseScalars, { minLength: 1 });
+  safeInteger(entry.weight, `${label}.weight`, {
+    min: SAMPLING_PHRASE_BIAS_POLICY.minimum,
+    max: SAMPLING_PHRASE_BIAS_POLICY.maximum
+  });
 }
 
 function identifier(value: unknown, label: string): string {

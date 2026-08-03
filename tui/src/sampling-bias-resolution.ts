@@ -199,7 +199,14 @@ function justCommittedKeptOutReason(
   }
   const list = justCommitted.panel === "phraseBias" ? result.phraseBias : result.bannedStrings;
   const entry = list.find((item) => item.phrase === justCommitted.phrase);
-  return entry !== undefined && entry.kind !== "resolved"
+  // The settings overlay edits a profile in isolation, with no story in the
+  // combined set (server/story-service.ts's resolveSamplingBias handler only
+  // adds a story overlay when the caller supplies one) — so "overridden"
+  // never actually occurs here. Checked explicitly anyway, the same way
+  // firstBlockingSamplingBiasEntry (shared/sampling-phrase-resolution.ts)
+  // does, rather than relying on that absence: an "overridden" entry is not
+  // a rejection, and must never be reported as one.
+  return entry !== undefined && (entry.kind === "rejected" || entry.kind === "shadowed")
     ? samplingBiasEntryRejectionMessage(entry)
     : null;
 }
