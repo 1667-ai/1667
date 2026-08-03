@@ -40,3 +40,24 @@ test("a digested byte array still identifies its own bytes", () => {
     "a longer run of bytes must give a different fingerprint"
   );
 });
+
+test("canonical JSON refuses binary instead of indexing it byte by byte", async () => {
+  const { canonicalJson } = await import("../server/canonical-json.js");
+
+  // The digest above fixes the one path that carries a file today. This is what
+  // stops the next one from ballooning silently: a typed array has no canonical
+  // form, so it fails at the boundary rather than becoming an index-keyed
+  // object in a stored record or a fingerprint.
+  for (const binary of [
+    Uint8Array.from([1, 2, 3]),
+    new Uint8Array(4).buffer,
+    new DataView(new Uint8Array(4).buffer)
+  ]) {
+    assert.throws(() => canonicalJson(binary), /cannot encode binary data/u);
+    assert.throws(() => canonicalJson({ file: binary }), /cannot encode binary data/u);
+  }
+
+  // Ordinary values still encode, including a plain array of numbers, which is
+  // the shape a caller should reach for when the bytes really are the data.
+  assert.equal(canonicalJson({ bytes: [1, 2, 3] }), '{"bytes":[1,2,3]}');
+});
