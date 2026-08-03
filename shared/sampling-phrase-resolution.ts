@@ -323,8 +323,9 @@ export type SamplingBiasShadowOwner =
     }
   | { readonly source: "logitBias" };
 
-/** Why "tokenizer-unavailable" — three materially different situations a
- * writer must be able to tell apart (issue #282 review round 2, finding 6b):
+/** Why "tokenizer-unavailable" — materially different situations a writer
+ * must be able to tell apart (issue #282 review round 2, finding 6b; issue
+ * #311 review, second pass, finding E added the fourth):
  * - "encoder-unavailable": the bundled WASM tiktoken encoder itself failed
  *   to load, for a model that is otherwise on the allow-list.
  * - "model-unknown": there is no tokenizer strategy for this model or
