@@ -353,14 +353,29 @@ export interface SamplingBiasPresetRules {
    * only — llama.cpp's own live probe already asks the documented
    * `parse_special: false` and needs no such guard. */
   readonly rejectSpecialTokenSyntax: boolean;
-  /** Whether this preset's live tokenize probe must be serialized per
-   * server rather than run at `LIVE_TOKENIZE_PROBE_CONCURRENCY`
-   * (server/sampling-phrase-bias.ts) — see `withKoboldCppTokenCountLock`
-   * (server/context-probe.ts) for why: KoboldCpp answers
-   * `/api/extra/tokencount` from a process-global buffer its own upstream
-   * source documents as shared unsafely. `resolveWithLiveProbe` reads this
-   * field to choose between KoboldCpp's own, serializing probe builder and
-   * llama.cpp's, which keeps its full concurrency. */
+  /** Whether this preset's live tokenize probe (`liveProbeVariantTokenizer`,
+   * server/sampling-phrase-bias.ts) must run its own worker pool at
+   * concurrency 1 instead of `LIVE_TOKENIZE_PROBE_CONCURRENCY`. KoboldCpp
+   * only — see that function's own comment for the full reasoning (issue
+   * #311 review, round seven).
+   *
+   * This field previously chose *which probe builder* `resolveWithLiveProbe`
+   * used (KoboldCpp's calibrating one versus llama.cpp's), on the claim that
+   * doing so also serialized KoboldCpp's calls. Two independent structural
+   * reviews found that claim false: `postKoboldCppTokenCount`
+   * (server/context-probe.ts) already serializes every KoboldCpp call
+   * per server root unconditionally, reading no rule at all, so this field
+   * controlled a probe-builder choice it was not named for and did nothing
+   * to the serialization it was named for — flipping it would neither have
+   * disabled KoboldCpp's real serialization nor enabled it for llama.cpp.
+   * `resolveWithLiveProbe` now decides the probe builder from `preset`
+   * directly (already its own parameter, and a whole function is not a flat
+   * value this record can hold anyway), and this field governs the one
+   * thing it can honestly claim: fan-out width. That fixes a second,
+   * concrete defect the false claim was hiding — see
+   * `liveProbeVariantTokenizer`'s own comment for the fail-fast bug a
+   * KoboldCpp-sized fan-out caused against an HTTP layer that was, in fact,
+   * already serialized. */
   readonly serializeLiveProbe: boolean;
 }
 

@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { applyBasicSettingsDraft } from "../shared/settings-basic-draft.js";
 import { applySamplingSettings } from "../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2, type SamplingSettingsV2 } from "../shared/settings-v2-types.js";
+import type { GenerationSettings } from "../shared/types.js";
 import { ServiceError } from "../server/errors.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
+import { attachProviderRuntime, type ProviderRuntime } from "../server/provider-runtime.js";
+import { resolveSamplingBiasForSettings } from "../server/sampling-phrase-bias.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import { StoryService } from "../server/story-service.js";
 import {
@@ -857,6 +863,64 @@ test("resolveSamplingBias keeps a story phrase bias's own tokens in logit_bias e
   assert.deepEqual(result.logitBias, { "601": -100, "602": -100, "603": -100, "604": -100 });
 });
 
+// Regression test for issue #311 review, round seven (over-borrowing bug,
+// found independently by two structural reviews): a native banned string
+// used to borrow a colliding phraseBias candidate's *whole* four-variant
+// token set the moment any one variant text overlapped, rather than only
+// the tokens for the specific texts that actually collide. Profile
+// phraseBias "ember"@5 resolves to four distinct tokens (601-604, one per
+// surface variant). Story bannedStrings "Ember" is already capitalized, so
+// its own four variants collapse to two distinct texts, "Ember" (603) and
+// " Ember" (604) — it never names "ember" (601) or " ember" (602) at all.
+// The bug claimed all four as contested; `realOnlyViews`
+// (server/sampling-phrase-bias.ts) then saw every one of them as partly
+// backed by a synthetic write and dropped all four from `logit_bias`,
+// silently deleting the writer's lowercase-form bias the banned string
+// never touched. The fix intersects on the specific overlapping variant
+// texts, so only 603/604 are contested — 601/602 must survive untouched.
+test("resolveSamplingBias keeps a phrase bias's lowercase tokens when only its capitalized form collides with a native banned string", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-partial-collision-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: [],
+    storyBannedStrings: ["Ember"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+
+  // The banned string wins the two tokens it actually names (cross-scope,
+  // story beats profile) and ships as native text.
+  assert.equal(result.nativeBannedStrings.length, 1);
+  const bannedEntry = result.nativeBannedStrings[0]!;
+  assert.equal(bannedEntry.kind, "native");
+  assert.equal(bannedEntry.phrase, "Ember");
+
+  // The phrase bias entry lost only its capitalized-form tokens — still
+  // reported "overridden" as a whole (some, not all, of its tokens lost —
+  // see SamplingBiasEntryResolution's own comment on that outcome), but the
+  // decisive assertion is the merged map below, not this row's own kind.
+  assert.equal(result.phraseBias.length, 1);
+  assert.equal(result.phraseBias[0]!.kind, "overridden");
+
+  // The lowercase tokens (601, 602) were never named by the banned string
+  // and must still carry the writer's own +5 bias; the capitalized tokens
+  // (603, 604) are the banned string's own, dropped from logit_bias the
+  // same way any other losing phraseBias token is.
+  assert.deepEqual(result.logitBias, { "601": 5, "602": 5 });
+});
+
 // Issue #311 review, third pass, finding I: `/api/extra/tokencount`
 // documents no `parse_special`-style flag, unlike llama.cpp's `/tokenize`
 // (`parse_special: false`, server/context-probe.ts). Whether an unverified
@@ -993,6 +1057,80 @@ test("resolveSamplingBias rejects Gemma's end-of-turn marker and the rest of the
   }
 });
 
+// Regression test for issue #311 review, round seven (blocker, found
+// independently by two structural reviews): `liveProbeVariantTokenizer`
+// (server/sampling-phrase-bias.ts) used to fan out up to
+// LIVE_TOKENIZE_PROBE_CONCURRENCY (8) workers regardless of preset, each
+// starting its own probe synchronously before any could observe a sibling's
+// failure — and each of those probes registers, also synchronously, in
+// `postKoboldCppTokenCount`'s per-root serialization lock
+// (server/context-probe.ts, issue #311 review, round five). So for
+// KoboldCpp, all 8 calls used to queue in that lock before the first one
+// could fail: a server that stops answering after the calibration probe
+// made every one of up to 8 already-queued calls pay its own full
+// `probeTimeoutMs`, sequentially — 8x the wait to report
+// "tokenizer-unavailable" where one call already proves it, since the very
+// serialization that makes the calls safe is what makes them run one after
+// another instead of failing together. The fix caps KoboldCpp's own
+// fan-out at 1 (`SamplingBiasPresetRules.serializeLiveProbe`), so `failed`
+// stops the loop before a second call is ever placed.
+//
+// This fixture answers the calibration call (`prompt: ""`) immediately and
+// never answers any other prompt — asserting 1667's own claim about how
+// many requests a hung server should see, not a real KoboldCpp server's
+// behavior. Two distinct phraseBias phrases produce exactly 8 distinct
+// surface-variant texts, matching LIVE_TOKENIZE_PROBE_CONCURRENCY exactly:
+// with the fan-out bug, every one of the 8 would be requested (each worker
+// pops and probes its own single text before any could observe the first
+// failure); fixed, only the very first ever reaches the network.
+test("a KoboldCpp server that stops answering after calibration pays one timeout, not one per fanned-out variant", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  let nonEmptyRequests = 0;
+  const server = createServer((request, response) => {
+    void (async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+      if (request.method !== "POST" || request.url !== "/api/extra/tokencount") {
+        response.writeHead(404).end();
+        return;
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      if (body.prompt === "") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ value: 0, ids: [] }));
+        return;
+      }
+      // Every other prompt: count it, then never respond at all.
+      nonEmptyRequests += 1;
+    })();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => { server.close(); });
+  const address = server.address() as AddressInfo;
+
+  const settings = koboldCppTestSettings(`http://127.0.0.1:${address.port}`, 80);
+  const result = await resolveSamplingBiasForSettings(
+    {
+      logitBias: {},
+      phraseBias: [
+        { phrase: "alpha", weight: 5 },
+        { phrase: "bravo", weight: 5 }
+      ],
+      bannedStrings: []
+    },
+    settings
+  );
+
+  assert.deepEqual(result, { kind: "tokenizer-unavailable", cause: "probe-failed" });
+  assert.equal(
+    nonEmptyRequests,
+    1,
+    "a hung KoboldCpp server must see exactly one queued probe, not one per fanned-out worker"
+  );
+});
+
 // Regression test for issue #282 review finding A: raising
 // SAMPLING_LOGIT_BIAS_POLICY.maxEntries from 16 to 200 removed the guard
 // that used to cover every preset, because the replacement preset-aware
@@ -1018,6 +1156,51 @@ test("KoboldCpp's documented 16-entry cap rejects 17 plain numeric logitBias ent
     /16-entry limit for preset koboldcpp/
   );
 });
+
+/** A KoboldCpp `GenerationSettings` with an explicit, short timeout budget
+ * — for the fan-out fail-fast regression test above, which needs a hung
+ * server's probe to time out quickly rather than waiting on whatever
+ * default budget a full settings document would carry. Built directly with
+ * `attachProviderRuntime` rather than through `documentFor`/`SettingsStore`
+ * (the pattern every other KoboldCpp test in this file uses), the same way
+ * test/context-probe.test.ts's own `settings` helper builds a
+ * `GenerationSettings` when a test needs precise control over the runtime
+ * config a real settings document does not expose a short-timeout path
+ * for. */
+function koboldCppTestSettings(baseUrl: string, timeoutMs: number): GenerationSettings {
+  const value: GenerationSettings = {
+    provider: "openai-compatible",
+    baseUrl: `${baseUrl}/v1`,
+    model: "kobold-model",
+    apiKeyEnv: null,
+    temperature: 0,
+    maxTokens: 128,
+    systemPrompt: "Test.",
+    contextWindow: null
+  };
+  const runtime: ProviderRuntime = {
+    preset: "koboldcpp",
+    auth: { type: "none" },
+    headers: [],
+    timeouts: {
+      responseHeaderMs: timeoutMs,
+      firstTokenMs: timeoutMs,
+      idleMs: timeoutMs,
+      totalMs: timeoutMs
+    },
+    allowInsecureHttp: false,
+    effort: "default",
+    tokenProbabilities: null,
+    sampling: EMPTY_SAMPLING_V2,
+    capabilities: {
+      temperature: "supported",
+      assistantPrefill: "unknown",
+      reasoningEffort: "unknown",
+      promptCaching: "unknown"
+    }
+  };
+  return attachProviderRuntime(value, runtime, true);
+}
 
 function koboldcppDocument() {
   const base = applyBasicSettingsDraft(INITIAL_SETTINGS_DOCUMENT_V2, {

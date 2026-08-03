@@ -296,11 +296,13 @@ export function resolveSamplingLogitBias(
   const phraseCandidates: readonly SamplingBiasPhraseCandidate[] = isNative
     ? sampling.phraseBias.map((entry, index): SamplingBiasPhraseCandidate => {
         const resolution = phraseResolutions[index]!;
-        return {
-          entry,
-          variants: new Set(surfaceVariantTexts(entry.phrase)),
-          tokenIds: resolution.kind === "rejected" ? [] : resolution.tokenIds
-        };
+        const tokenIdByVariantText = new Map<string, number>();
+        if (resolution.kind === "resolved") {
+          for (const variant of resolution.variants) {
+            if (variant.outcome.kind === "single-token") tokenIdByVariantText.set(variant.text, variant.outcome.tokenId);
+          }
+        }
+        return { entry, tokenIdByVariantText };
       })
     : [];
   const bannedStringCollisions: readonly (readonly (readonly number[])[])[] = isNative
@@ -385,16 +387,26 @@ export function resolveSamplingLogitBias(
   };
 }
 
-/** One phraseBias entry's own resolved tokens and surface-variant texts —
- * everything `collidingPhraseBiasTokens` below needs about a candidate,
- * bundled into one value, index-aligned with `sampling.phraseBias`, and
- * built exactly once by `resolveSamplingLogitBias` above. `tokenIds` is
- * empty for a "rejected" entry, which never tokenized at all and so has
- * none to lend a colliding native banned string. */
+/** One phraseBias entry's own resolved tokens, keyed by the exact
+ * surface-variant text each one belongs to — everything
+ * `collidingPhraseBiasTokens` below needs about a candidate, bundled into
+ * one value, index-aligned with `sampling.phraseBias`, and built exactly
+ * once by `resolveSamplingLogitBias` above. Empty for a "rejected" entry,
+ * which never tokenized at all and so has nothing to lend a colliding
+ * native banned string.
+ *
+ * Keyed by text, not a flat `tokenIds` array (issue #311 review, round
+ * seven, over-borrowing bug — two independent structural reviews found the
+ * same defect): `collidingPhraseBiasTokens` needs to know *which* of this
+ * candidate's tokens belong to the specific variant text that actually
+ * collides with the other entry, not merely that some collision exists
+ * somewhere across all four variants. A flat token set could not answer
+ * that, and wrongly answered "all four" for a partial, case-specific
+ * collision — see that function's own comment for the failing case this
+ * shape exists to rule out. */
 interface SamplingBiasPhraseCandidate {
   readonly entry: ScopedSamplingBiasEntry;
-  readonly variants: ReadonlySet<string>;
-  readonly tokenIds: readonly number[];
+  readonly tokenIdByVariantText: ReadonlyMap<string, number>;
 }
 
 /**
@@ -435,6 +447,27 @@ interface SamplingBiasPhraseCandidate {
  * mere agreement as a conflict, and writing an identical weight again would
  * decide nothing it would not already leave alone; refusing a save every
  * other preset accepts, over two entries that agree, would be user-hostile.
+ *
+ * Borrows only the token belonging to *each specific overlapping variant
+ * text*, not a colliding candidate's whole token set (issue #311 review,
+ * round seven, over-borrowing bug — found independently by two structural
+ * reviews in the same round; a version between finding N and this fix
+ * pushed `candidate.tokenIds` whole once any overlap existed at all).
+ * Failing case: profile `phraseBias: ["ember"@5]`, story
+ * `bannedStrings: ["Ember"]`. `"ember"`'s own four variants resolve to four
+ * distinct tokens (typed, leading-space, capitalized, leading-space-
+ * capitalized); `"Ember"`'s own four variants collapse to two distinct
+ * texts, `"Ember"` and `" Ember"` (it is already capitalized, so its own
+ * "capitalized" and "leading-space-capitalized" variants repeat the
+ * "typed"/"leading-space" text). The two entries share exactly those two
+ * texts — the lowercase `"ember"`/`" ember"` tokens are never named by the
+ * banned string at all. Pushing the candidate's whole token set claimed all
+ * four; `realOnlyViews` (`resolveSamplingLogitBias` above) then saw every
+ * one of them as backed partly by a synthetic write and dropped all four
+ * from `logit_bias`, silently deleting the writer's lowercase-form bias
+ * that the banned string never contested. Intersecting on the shared texts
+ * and reading each one's own token off `tokenIdByVariantText` keeps the fix
+ * to exactly the tokens actually named.
  */
 function collidingPhraseBiasTokens(
   entry: ScopedSamplingBiasEntry,
@@ -444,8 +477,11 @@ function collidingPhraseBiasTokens(
   const collisions: (readonly number[])[] = [];
   for (const candidate of candidates) {
     if (candidate.entry.weight === entry.weight) continue;
-    if (candidate.tokenIds.length === 0) continue;
-    if (entryVariants.some((text) => candidate.variants.has(text))) collisions.push(candidate.tokenIds);
+    const sharedTokenIds = [...new Set(entryVariants.flatMap((text) => {
+      const tokenId = candidate.tokenIdByVariantText.get(text);
+      return tokenId === undefined ? [] : [tokenId];
+    }))];
+    if (sharedTokenIds.length > 0) collisions.push(sharedTokenIds);
   }
   return collisions;
 }
@@ -891,17 +927,10 @@ export async function resolveSamplingBiasForSettings(
  * (`liveProbeVariantTokenizer` below) instead of trusting a reported model
  * name — the one thing that makes them a shared branch at all. `rules`
  * (`samplingBiasPresetRules`, shared/sampling-phrase-resolution.ts) is where
- * every respect they differ in is captured, computed once here from
- * `preset` and read wherever this function or `resolveSamplingLogitBias`
+ * every *flat-value* respect they differ in is captured, computed once here
+ * from `preset` and read wherever this function or `resolveSamplingLogitBias`
  * needs one of those differences, rather than duplicated:
  *
- * - Which endpoint answers: `rules.serializeLiveProbe` chooses between the
- *   KoboldCpp probe `koboldCppLiveTokenizeProbe` below builds
- *   (prefix-calibrated per issue #311's original finding — see that
- *   function's own comment — and, per issue #311 review round five,
- *   serialized per server against KoboldCpp's own shared tokenize buffer,
- *   see `withKoboldCppTokenCountLock`, server/context-probe.ts) and
- *   `probeLlamaCppTokenize`, which needs neither.
  * - `rules.bannedStringsTransport`: llama.cpp documents no native
  *   banned-string field, so its bannedStrings resolves through the exact
  *   same token-ID merge phraseBias does ("token"). KoboldCpp's
@@ -919,6 +948,27 @@ export async function resolveSamplingBiasForSettings(
  *   preview also calls, so a preset-derived rule enforced there, not inside
  *   the live-probe layer demo never reaches, is what lets demo inherit it
  *   automatically instead of missing it a fourth time.
+ * - `rules.serializeLiveProbe`: caps `liveProbeVariantTokenizer`'s own
+ *   fan-out at 1 for KoboldCpp instead of `LIVE_TOKENIZE_PROBE_CONCURRENCY`
+ *   — see that function's own comment for why (issue #311 review, round
+ *   seven).
+ *
+ * Which endpoint answers is decided on `preset` directly, right below, not
+ * through `rules`: choosing between `koboldCppLiveTokenizeProbe` (below —
+ * prefix-calibrated per issue #311's original finding, and its own probes
+ * serialized per server against KoboldCpp's shared tokenize buffer, see
+ * `withKoboldCppTokenCountLock`, server/context-probe.ts) and
+ * `probeLlamaCppTokenize` means picking a whole function, not a flat value
+ * `SamplingBiasPresetRules` can carry — and `preset` is already this
+ * function's own parameter, so nothing is gained by re-deriving the same
+ * fact from `rules` instead. An earlier version of this function did route
+ * this decision through a `rules` field (`serializeLiveProbe`, doing double
+ * duty as both "which probe" and a false claim about serialization it did
+ * not control — two independent structural reviews caught that the field
+ * governed nothing about serialization at all, since
+ * `postKoboldCppTokenCount` already serializes unconditionally); reverted
+ * to `preset` once `serializeLiveProbe` took on its real, current job of
+ * capping fan-out instead.
  *
  * A writer who configured only bannedStrings on KoboldCpp must not have
  * their request blocked by an unreachable server that a text-only ban never
@@ -939,11 +989,11 @@ async function resolveWithLiveProbe(
   if (probeInput.phraseBias.length === 0 && probeInput.bannedStrings.length === 0) {
     return resolveSamplingLogitBias(combined, neverCalledTokenizer, rules);
   }
-  const probe = rules.serializeLiveProbe
+  const probe = preset === "koboldcpp"
     ? await koboldCppLiveTokenizeProbe(settings, signal)
     : probeLlamaCppTokenize;
   if (typeof probe !== "function") return { kind: "tokenizer-unavailable", cause: probe };
-  const tokenizer = await liveProbeVariantTokenizer(probeInput, probe, settings, signal);
+  const tokenizer = await liveProbeVariantTokenizer(probeInput, probe, settings, rules, signal);
   return tokenizer === null
     ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
     : resolveSamplingLogitBias(combined, tokenizer, rules);
@@ -999,8 +1049,13 @@ async function koboldCppLiveTokenizeProbe(
 
 /** A local server answering a handful of small POSTs in parallel is normal;
  * an unbounded burst against it (a full 256-entry list times four variants)
- * is not a request 1667 should make in one breath. Shared by every live
- * -tokenize preset (llama-cpp, KoboldCpp), not sized per preset. */
+ * is not a request 1667 should make in one breath. The ceiling for a preset
+ * whose probe answers independently per call — llama.cpp. KoboldCpp caps at
+ * 1 instead (`SamplingBiasPresetRules.serializeLiveProbe`,
+ * shared/sampling-phrase-resolution.ts) — see `liveProbeVariantTokenizer`
+ * below for why fanning out against KoboldCpp's own serialized endpoint is
+ * actively harmful, not merely unnecessary (issue #311 review, round
+ * seven). */
 const LIVE_TOKENIZE_PROBE_CONCURRENCY = 8;
 
 /** One text tokenized against a live server, returning its token IDs or null
@@ -1066,11 +1121,35 @@ const SPECIAL_TOKEN_SYNTAX = /<\|?\/?[A-Za-z0-9_]+\|?>|\[\/?(?:inst|system_promp
  * never in how the results get merged. Carries no special-token guard of
  * its own (issue #311 review, third pass, finding M) — `resolveSamplingLogitBias`
  * enforces `SPECIAL_TOKEN_SYNTAX` above this function's own caller now, the
- * one place every caller with a preset in hand, demo mode included, shares. */
+ * one place every caller with a preset in hand, demo mode included, shares.
+ *
+ * `rules.serializeLiveProbe` (issue #311 review, round seven, blocker; found
+ * independently by two structural reviews) caps the worker pool at 1
+ * instead of `LIVE_TOKENIZE_PROBE_CONCURRENCY` — required, not merely
+ * tidier, for KoboldCpp: `probe(settings, text, signal)` starts running
+ * synchronously up to its own first await, and `postKoboldCppTokenCount`
+ * (server/context-probe.ts) registers each call in its per-root
+ * serialization lock synchronously too — so all
+ * `LIVE_TOKENIZE_PROBE_CONCURRENCY` workers below queue their own call
+ * before any of them can settle, let alone fail. `failed`, checked only
+ * between one worker's own iterations, could not stop a sibling worker's
+ * call that was already queued before the first failure happened: a
+ * KoboldCpp server that stopped answering after the calibration probe used
+ * to make every one of up to 8 already-queued calls pay its own full
+ * `probeTimeoutMs`, one at a time (the very serialization that makes them
+ * safe is what makes them run sequentially instead of failing together) —
+ * 8x the wait to report "tokenizer-unavailable" where 1 call already proves
+ * it. Capping fan-out at 1 means only one call is ever placed, so `failed`
+ * stops the loop before a second one queues at all; `postKoboldCppTokenCount`'s
+ * own lock becomes a backstop rather than the only thing preventing overlap
+ * — still required, since it also covers `countKoboldCpp`
+ * (server/tokenize-probe.ts), which shares the same upstream buffer but
+ * does not route through this function or its concurrency rule. */
 async function liveProbeVariantTokenizer(
   sampling: Pick<SamplingBiasMergeInput, "phraseBias" | "bannedStrings">,
   probe: LiveTokenizeProbe,
   settings: GenerationSettings,
+  rules: SamplingBiasPresetRules,
   signal?: AbortSignal
 ): Promise<SyncVariantTokenizer | null> {
   const texts = new Set<string>();
@@ -1100,8 +1179,9 @@ async function liveProbeVariantTokenizer(
       );
     }
   }
+  const concurrency = rules.serializeLiveProbe ? 1 : LIVE_TOKENIZE_PROBE_CONCURRENCY;
   await Promise.all(
-    Array.from({ length: Math.min(LIVE_TOKENIZE_PROBE_CONCURRENCY, queue.length) }, worker)
+    Array.from({ length: Math.min(concurrency, queue.length) }, worker)
   );
   if (failed) return null;
   // Every text queued above was either recorded in `outcomes` or caused
