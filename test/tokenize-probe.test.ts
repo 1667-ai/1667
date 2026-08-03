@@ -314,7 +314,7 @@ test("an identical repeated count reuses the cache; changed messages probe again
   let nextValue = 10;
   globalThis.fetch = (async () => {
     calls += 1;
-    return Response.json({ value: nextValue, ids: [], prompt: "" });
+    return Response.json({ value: nextValue, ids: [], prompt: "compiled prompt" });
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
 
@@ -332,6 +332,55 @@ test("an identical repeated count reuses the cache; changed messages probe again
   ]);
   assert.equal(calls, 2, "changed messages must probe again");
   assert.equal(changed.kind === "counted" ? changed.total : null, 20);
+});
+
+test("a cached model-server count stops being reused once it is old", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let nextValue = 10;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return Response.json({ value: nextValue, ids: [], prompt: "compiled prompt" });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const base = settings({ preset: "koboldcpp", baseUrl: "https://ageing-fixture.example/v1" });
+  const messages: ChatMessage[] = [{ role: "user", content: "The same prose as before." }];
+  let clock = 1_000;
+  const now = () => clock;
+
+  const first = await countPromptTokens(base, messages, undefined, now);
+  assert.equal(first.kind === "counted" ? first.total : null, 10);
+  clock += 5_000;
+  await countPromptTokens(base, messages, undefined, now);
+  assert.equal(calls, 1, "a fresh entry still answers without a probe");
+
+  // The same address can be serving a different model by now: a local server
+  // reloads, and nothing 1667 keys on has to change with it.
+  clock += 60_000;
+  nextValue = 4_242;
+  const aged = await countPromptTokens(base, messages, undefined, now);
+
+  assert.equal(calls, 2, "an aged entry must probe the server again");
+  assert.equal(aged.kind === "counted" ? aged.total : null, 4_242);
+});
+
+test("a KoboldCpp reply that ignored the messages is not counted", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => (
+    // A release old enough to read only `prompt`: it tokenized an empty
+    // string, so the count is its beginning-of-sequence token and the compiled
+    // prompt comes back empty.
+    Response.json({ value: 1, ids: [1], prompt: "" })
+  )) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const result = await countPromptTokens(
+    settings({ preset: "koboldcpp", baseUrl: "https://legacy-fixture.example/v1" }),
+    [{ role: "user", content: "A whole story's worth of prose." }]
+  );
+
+  assert.deepEqual(result, { kind: "estimate", reason: "probe-failed" });
 });
 
 function settings(options: {

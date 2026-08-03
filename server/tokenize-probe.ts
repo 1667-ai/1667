@@ -34,11 +34,29 @@ const REPLY_PRIMING_TOKENS = 3;
  * prompt-count history. */
 const MAX_CACHED_PROMPT_COUNTS = 8;
 
+/** How long a cached count stays usable.
+ *
+ * A count is only as current as the server that gave it. A local llama.cpp or
+ * KoboldCpp process can load a different model, or a different chat template,
+ * at the same address — and a writer who leaves 1667's model field blank, as
+ * both presets allow, changes nothing this cache can key on. The count would
+ * then be a different tokenizer's, still wearing its mark. An age bound is
+ * what keeps that wrong for seconds instead of for the session. The bundled
+ * tokenizer needs no bound: it is a pure function of the model and the text,
+ * so its entries never expire. */
+const REMOTE_COUNT_MAX_AGE_MS = 30_000;
+
+interface CachedPromptCount {
+  readonly count: PromptTokenCount;
+  /** Null for a count no server can invalidate. */
+  readonly expiresAt: number | null;
+}
+
 /** Least-recently-used by Map insertion order: a hit is re-inserted so it
  * moves to the newest end, and eviction removes from the oldest end. Never
  * holds a "probe-failed" result — a server that came back must be reachable
  * on the next pass. */
-const promptCountCache = new Map<string, PromptTokenCount>();
+const promptCountCache = new Map<string, CachedPromptCount>();
 
 /** What a probe knows: how many tokens, and the split when it can attribute
  * one. What grade that earns, and whether the split is admissible at all, are
@@ -52,7 +70,9 @@ interface CountedProbe {
 export async function countPromptTokens(
   settings: GenerationSettings,
   messages: readonly ChatMessage[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Injectable only so a test can age the cache without waiting. */
+  now: () => number = Date.now
 ): Promise<PromptTokenCount> {
   const runtime = providerRuntimeFor(settings);
   signal?.throwIfAborted();
@@ -75,7 +95,7 @@ export async function countPromptTokens(
     settings.model,
     settings.baseUrl
   );
-  const cached = cacheGet(fingerprint);
+  const cached = cacheGet(fingerprint, now());
   if (cached !== undefined) return cached;
 
   signal?.throwIfAborted();
@@ -101,7 +121,11 @@ export async function countPromptTokens(
     total: counted.total,
     perMessage: source.perMessage ? counted.perMessage : null
   };
-  cacheSet(fingerprint, answer);
+  cacheSet(
+    fingerprint,
+    answer,
+    kind === "bundled-openai" ? null : now() + REMOTE_COUNT_MAX_AGE_MS
+  );
   return answer;
 }
 
@@ -227,8 +251,15 @@ async function countKoboldCpp(
     {},
     { signal, timeoutMs: probeTimeoutMs(settings) }
   );
-  if (!isObject(data) || !isPositiveInteger(data.value)) {
-    throw new Error("KoboldCpp tokencount returned an unusable response shape");
+  // A release old enough to read only `prompt` ignores the messages, tokenizes
+  // an empty string, and still answers with a small positive count and an empty
+  // compiled prompt. Taking that at face value would paint a whole story as
+  // `≈1`. The echoed prompt is the evidence that the messages were compiled.
+  if (!isObject(data)
+    || !isPositiveInteger(data.value)
+    || typeof data.prompt !== "string"
+    || data.prompt.length === 0) {
+    throw new Error("KoboldCpp tokencount did not compile the messages it was given");
   }
   return {
     total: data.value,
@@ -248,17 +279,18 @@ function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function cacheGet(fingerprint: string): PromptTokenCount | undefined {
+function cacheGet(fingerprint: string, now: number): PromptTokenCount | undefined {
   const hit = promptCountCache.get(fingerprint);
   if (hit === undefined) return undefined;
   promptCountCache.delete(fingerprint);
+  if (hit.expiresAt !== null && hit.expiresAt <= now) return undefined;
   promptCountCache.set(fingerprint, hit);
-  return hit;
+  return hit.count;
 }
 
-function cacheSet(fingerprint: string, value: PromptTokenCount): void {
+function cacheSet(fingerprint: string, count: PromptTokenCount, expiresAt: number | null): void {
   promptCountCache.delete(fingerprint);
-  promptCountCache.set(fingerprint, value);
+  promptCountCache.set(fingerprint, { count, expiresAt });
   while (promptCountCache.size > MAX_CACHED_PROMPT_COUNTS) {
     const oldest = promptCountCache.keys().next().value;
     if (oldest === undefined) break;
