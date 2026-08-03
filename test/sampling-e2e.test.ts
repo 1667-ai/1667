@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SamplingSettingsV2 } from "../shared/settings-v2-types.js";
+import { ServiceError } from "../server/errors.js";
 import { streamCompletion } from "../server/providers.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import { providerRuntimeFor } from "../server/provider-runtime.js";
@@ -253,7 +254,18 @@ test("llama.cpp save-time validation rejects a phrase the live server cannot res
   });
   await assert.rejects(
     () => store.save(saveCommand(MUTATION_C, 1, candidate)),
-    /hydra.*is 0 tokens/s
+    (error: unknown) => {
+      assert.match((error as Error).message, /hydra.*is 0 tokens/s);
+      // The save path must throw a ServiceError, not a bare
+      // SettingsFormatError: the worker/HTTP transport's error
+      // classification (server/service-error-policy.ts) only recognizes
+      // ServiceError and a short allow-list of other known types, and
+      // reports anything else as a generic "Internal server error" —
+      // which would have silently swallowed this exact validation message.
+      assert.ok(error instanceof ServiceError, "expected a ServiceError, not a raw SettingsFormatError");
+      assert.equal(error.status, 400);
+      return true;
+    }
   );
   assert.deepEqual((await store.loadView()).document, before);
 });

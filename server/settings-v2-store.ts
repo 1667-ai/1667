@@ -389,8 +389,21 @@ export class SettingsV2Store {
       } catch {
         continue;
       }
-      const resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings);
-      validateSamplingRoute(route.profileId, route.profile, route.model, route.connection, resolution);
+      try {
+        const resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings);
+        validateSamplingRoute(route.profileId, route.profile, route.model, route.connection, resolution);
+      } catch (error) {
+        // A rejected/shadowed entry or an over-cap resolved count throws a
+        // plain SettingsFormatError, the same as every other save-time
+        // validation failure in this file — wrap it the same way
+        // (server/settings-v2-mutation.ts, invalidSettingsMutation) so it
+        // reaches the writer as its own 400 message instead of falling
+        // through to a generic "Internal server error" at the transport's
+        // classifyServiceError boundary (server/service-error-policy.ts),
+        // which only recognizes ServiceError and a short allow-list of
+        // other known types.
+        throw invalidSettingsMutation(error);
+      }
     }
   }
 
