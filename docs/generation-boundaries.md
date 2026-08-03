@@ -158,8 +158,8 @@ next. The story's banned strings list comes last.
 A story entry and a profile entry can name the same token. When they set
 different weights for that token, the story entry wins. The story entry
 wins because every story list comes after every profile list in the merge
-order. 1667 does not block the request in this case, and it does not
-report an error. 1667 shows the profile entry as overridden by the story.
+order. 1667 does not block the request in this case. 1667 does not report
+an error. 1667 shows the profile entry as overridden by the story.
 
 Two profile entries can also name the same token. Two story entries can
 also name the same token. When two entries from the same side set
