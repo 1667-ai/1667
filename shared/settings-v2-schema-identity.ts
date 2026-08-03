@@ -1,4 +1,4 @@
 /** SHA-256 identities of the exact canonical Release A generated artifacts. */
-export const SETTINGS_V2_SCHEMA_SHA256 = "cd4ffedb45e79fd00a2d0f90a5852c23b695d08bb0b6e4f4319a06965eb3da2b" as const;
-export const SETTINGS_V2_CORPUS_SHA256 = "ab6efe0171329a5ff21c826678261c129ef50cf4b6050dcbfab0f596ef493cea" as const;
+export const SETTINGS_V2_SCHEMA_SHA256 = "e7fba8067df5bb9ba0eec2ff8b03ec2e6e93023b1979ece9f5fb7ba9294410db" as const;
+export const SETTINGS_V2_CORPUS_SHA256 = "7106349ce177dd0c6bc610a65762eb1d65ee1e4e2f72e9338fc112454e785dc8" as const;
 export const SETTINGS_V2_HASH_VECTORS_SHA256 = "bc288034f8882d07a67d9a8fdd39a09f0760628acbe0f106c75af7c28682317f" as const;

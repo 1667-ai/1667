@@ -27,6 +27,7 @@ import { apiErrorCode } from "./api.js";
 import { insertComposerText } from "./composer-model.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { samplingOverlayAction } from "./sampling-actions.js";
+import { resolveSamplingBias } from "./sampling-bias-resolution.js";
 import { readFromClipboard } from "./clipboard.js";
 import { applyTextKey, sanitizePastedText, type ResolvedKey } from "./keys.js";
 import { inlineEditorAction } from "./editor-action.js";
@@ -215,8 +216,11 @@ export async function settingsOverlayAction(
         cursor: 0,
         logitBiasOrder: Object.keys(overlay.draft.sampling.logitBias),
         edit: null,
-        result: null
+        result: null,
+        biasResolution: { kind: "idle" },
+        resolutionGeneration: 0
       };
+      resolveSamplingBias(overlay, source, context);
     } else {
       beginSettingsRowEdit(overlay, state.config);
     }

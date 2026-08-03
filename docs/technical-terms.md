@@ -47,6 +47,8 @@ read_when:
 | sampling parameter | One provider request field that changes how the model selects tokens |
 | stop sequence | One text sequence that stops generation |
 | logit bias | A token identifier and a weight that changes token probability |
+| phrase bias | A text phrase and a weight that changes the probability of its tokens |
+| banned string | A text phrase that gets a strong negative token bias |
 | DRY | A sampling parameter group that lowers the probability of a token sequence that would repeat |
 | XTC | A sampling parameter group that removes the model's top token choices at random |
 | Mirostat | A sampling algorithm that holds output perplexity near a target value |

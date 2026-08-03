@@ -13,21 +13,18 @@ import {
   samplingScalarRows,
   setSamplingScalar
 } from "./sampling-model.js";
-import {
-  deleteSamplingItem,
-  moveSamplingListItem,
-  setSamplingListItem
-} from "./sampling-list-model.js";
+import { samplingListPanelSpec } from "./sampling-panel-spec.js";
+import { resolveSamplingBias } from "./sampling-bias-resolution.js";
 import { disarmSettingsConflict } from "./settings-overlay-model.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
-import type { RuntimeState } from "./state.js";
+import type { RuntimeState, SamplingInlineEditState } from "./state.js";
 
 export async function samplingOverlayAction(
   resolved: ResolvedKey,
   state: RuntimeState,
-  _source: AppSource,
-  _context: ActionContext
+  source: AppSource,
+  context: ActionContext
 ): Promise<void> {
   const settings = state.settings;
   if (settings === null || settings.sampling === null) return;
@@ -53,7 +50,7 @@ export async function samplingOverlayAction(
     return;
   }
   if (nested.edit !== null) {
-    samplingEditAction(resolved, state);
+    samplingEditAction(resolved, state, source, context);
     return;
   }
   if (resolved.action === "focus-next" || resolved.action === "focus-previous") {
@@ -76,7 +73,7 @@ export async function samplingOverlayAction(
   }
   if (resolved.action === "delete-item") {
     if (nested.panel === "sampling") return;
-    if (!deleteSamplingItem(settings, nested.panel, nested.cursor)) {
+    if (!samplingListPanelSpec(nested.panel).remove(settings, nested.cursor)) {
       nested.result = "no list item is selected";
     } else {
       nested.cursor = boundedSamplingCursor(settings, nested.panel, nested.cursor);
@@ -89,7 +86,10 @@ export async function samplingOverlayAction(
     if (nested.panel === "sampling") {
       stepSamplingScalar(settings, step);
     } else {
-      moveSamplingListItem(settings, nested.panel, step);
+      // `reorderable` panels' `.move()` (tui/src/sampling-panel-spec.ts)
+      // reorders; every other panel's `.move()` is a no-op `() => false`, so
+      // this needs no separate reorderable check of its own.
+      samplingListPanelSpec(nested.panel).move(settings, step);
     }
   }
 }
@@ -161,22 +161,31 @@ function roundSamplingValue(value: number, precision: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
-function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
+function samplingEditAction(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext
+): void {
   const settings = state.settings;
   if (settings === null || settings.sampling === null) return;
   const nested = settings.sampling;
   const edit = nested.edit;
   if (edit === null) return;
   if (resolved.action === "commit-field") {
-    const error = edit.kind === "scalar"
-      ? setSamplingScalar(settings, edit.knob, edit.composer.text)
-      : setSamplingListItem(settings, edit.kind, edit.index, edit.composer.text);
+    const error = commitSamplingEdit(settings, edit);
     if (error !== null) {
       nested.result = `row kept · ${error}`;
       return;
     }
     nested.edit = null;
     nested.result = "draft updated · save in Settings";
+    if (edit.kind === "list" && (edit.panel === "phrase-bias" || edit.panel === "banned-strings")) {
+      resolveSamplingBias(settings, source, context, {
+        panel: edit.panel === "phrase-bias" ? "phraseBias" : "bannedStrings",
+        phrase: committedPhraseText(edit.panel, edit.composer.text)
+      });
+    }
     return;
   }
   if (resolved.action === "input") {
@@ -187,6 +196,26 @@ function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
   if (applyComposerEdit(edit.composer, resolved.action, resolved.extendSelection) !== null) {
     if (settings.conflict !== null) settings.conflict.armed = false;
   }
+}
+
+/** The phrase text a phrase-bias/banned-strings commit resolves against,
+ * matching each panel spec's own parse in tui/src/sampling-panel-spec.ts
+ * exactly (last-colon split for phrase-bias, the raw composer text for
+ * banned-strings) — this only needs the identity a resolveSamplingBias
+ * result can be matched against, not full validation, which `spec.set`
+ * above already ran. */
+function committedPhraseText(panel: "phrase-bias" | "banned-strings", raw: string): string {
+  if (panel === "banned-strings") return raw;
+  const divider = raw.lastIndexOf(":");
+  return divider <= 0 ? raw : raw.slice(0, divider).trim();
+}
+
+function commitSamplingEdit(
+  settings: NonNullable<RuntimeState["settings"]>,
+  edit: SamplingInlineEditState
+): string | null {
+  if (edit.kind === "scalar") return setSamplingScalar(settings, edit.knob, edit.composer.text);
+  return samplingListPanelSpec(edit.panel).set(settings, edit.index, edit.composer.text);
 }
 
 async function pasteSamplingEdit(state: RuntimeState): Promise<void> {

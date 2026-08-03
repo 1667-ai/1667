@@ -15,6 +15,10 @@ import {
   decodeSettingsViewResponse,
   decodeStoryResponse,
 } from "./api-response-decoders.js";
+import type {
+  SamplingBiasResolutionResult
+} from "../../shared/sampling-capabilities.js";
+import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
@@ -159,6 +163,14 @@ export interface StoryApi {
   discardPendingSettings(command: DiscardPendingSettingsCommand): Promise<SettingsMutationResult>;
   checkModelServer(settings: ProviderProbeTarget): Promise<ModelServerCheckResult>;
   probeContextWindow(settings: ProviderProbeTarget): Promise<{ contextWindow: number | null }>;
+  resolveSamplingBias(
+    request: {
+      settings: ProviderProbeTarget;
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly SamplingPhraseBiasEntryV2[];
+      bannedStrings: readonly string[];
+    }
+  ): Promise<SamplingBiasResolutionResult>;
   discoverModels(
     settings: ProviderProbeTarget,
     signal?: AbortSignal

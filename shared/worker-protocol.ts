@@ -28,6 +28,7 @@ import type {
 } from "./settings-v2-types.js";
 import type { LorebookImport } from "./lorebook-entry.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
+import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 
 import type {
   ListStoriesPageInput,
@@ -180,6 +181,25 @@ export interface WorkerMethodContract {
   checkModelServer: { input: { settings: ProviderProbeTarget }; output: ModelServerCheckResult };
   probeContextWindow: { input: { settings: ProviderProbeTarget }; output: { contextWindow: number | null } };
   discoverModels: { input: { settings: ProviderProbeTarget }; output: ModelDiscoveryResultV2 };
+  /** Runs the exact same tokenize-and-merge resolution the provider request
+   * uses (server/sampling-phrase-bias.ts), for one draft's phraseBias and
+   * bannedStrings at a time — one call per editor session or commit, not
+   * one per phrase, so the editor's preview and the request can never
+   * compute different token IDs for the same draft. `settings` is a
+   * provider-probe target, the same shape checkModelServer/
+   * probeContextWindow take, because a llama-cpp route resolves against a
+   * live tokenize probe on that server (server/context-probe.ts) rather
+   * than a local allow-list — this is a provider probe for that preset, not
+   * always the pure local computation it used to be. */
+  resolveSamplingBias: {
+    input: {
+      settings: ProviderProbeTarget;
+      logitBias: Readonly<Record<string, number>>;
+      phraseBias: readonly { readonly phrase: string; readonly weight: number }[];
+      bannedStrings: readonly string[];
+    };
+    output: SamplingBiasResolutionResult;
+  };
   /** No settings and no story id: the count always measures the backend's own
    * effective prose route, the same one a continuation would use. */
   countPromptTokens: { input: { messages: readonly ChatMessage[] }; output: PromptTokenCount };
@@ -229,6 +249,7 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "checkModelServer",
   "probeContextWindow",
   "discoverModels",
+  "resolveSamplingBias",
   "countPromptTokens"
 ]);
 
@@ -463,7 +484,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
-  "discoverModels", "countPromptTokens",
+  "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory",
 
   "rewriteNode", "createSummaryTake"

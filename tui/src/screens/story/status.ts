@@ -3,7 +3,7 @@ import type { Tag } from "../../../../shared/types.js";
 import { tagGlyph, tagRole } from "../../tag-presentation.js";
 import { chapterForRow, rowPart, type StoryViewModel } from "../../model.js";
 import { pruneConfirmText } from "../../prune-model.js";
-import { samplingListPanelInfo } from "../../sampling-list-model.js";
+import { samplingListPanelStatusLabel } from "../../sampling-panel-spec.js";
 import { contextSeverity, formatTokensScaled, formatTokensEstimate, requestWindow } from "../../rail.js";
 import type { NextRequestEstimate } from "../../request-projection.js";
 import type { StoryScreenState } from "../../state.js";
@@ -36,7 +36,7 @@ export function renderStatus(
     ? "COMPOSE · fullscreen"
     : samplingPanel === "sampling" ? "SAMPLING"
     : samplingPanel === null ? state.mode
-    : samplingListPanelInfo(samplingPanel).statusLabel;
+    : samplingListPanelStatusLabel(samplingPanel);
   const modeBlock: FrameSegment = {
     text: state.prune === null ? ` ${mode} ` : " PRUNE ",
     role: "background",

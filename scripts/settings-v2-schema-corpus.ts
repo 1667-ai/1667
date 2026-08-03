@@ -1,4 +1,5 @@
 import { canonicalJson } from "../server/canonical-json.js";
+import { SAMPLING_LOGIT_BIAS_POLICY } from "../shared/sampling-validation-policy.js";
 import {
   formatSettingsDocumentV2,
   formatSettingsStateV2
@@ -47,13 +48,17 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   const convertedOpenAi = convertGenerationSettingsV1(openAi);
   const convertedAnthropic = convertGenerationSettingsV1(anthropic);
   const convertedLocal = convertGenerationSettingsV1(local);
+  // phraseBias/bannedStrings only validate as available for a model on the
+  // closed tokenizer allow-list (shared/sampling-capabilities.ts); every
+  // other corpus case keeps the plain "test-model" placeholder.
+  //
   // topK/minP/repeatPenalty and the new DRY/XTC/temperature-shaping knobs are
   // llama.cpp/KoboldCpp extensions the "openai" preset does not document, so
   // this fixture's connection preset leaves them null; the schema still needs
   // every key present (and its null branch exercised). llama.cpp/KoboldCpp
   // preset coverage of real configured values lives in
   // test/sampling-e2e.test.ts and test/sampling-capabilities.test.ts.
-  const sampledOpenAi = withSampling(convertedOpenAi, {
+  const sampledOpenAi = withSampling(withKnownTokenizerModel(convertedOpenAi), {
     topP: 0.9,
     topK: null,
     minP: null,
@@ -72,9 +77,17 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     mirostatEta: null,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 },
+    // Single words, chosen so every one of the four surface variants
+    // (typed, leading-space, capitalized, leading-space-capitalized)
+    // resolves to exactly one o200k_base token — a phrase that needs more
+    // than one token in any variant is rejected at resolution, and this
+    // fixture exercises the accepted path, not the rejected one.
+    bannedStrings: ["spam"],
+    phraseBias: [{ phrase: "wolf", weight: 4 }],
     dryBreakers: []
   });
   const emptySampling = withSampling(sampledOpenAi, EMPTY_SAMPLING_V2);
+  const legacySamplingText = legacyShapedSamplingDocumentText(sampledOpenAi);
   const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
   const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
     kind: "save-document",
@@ -160,6 +173,7 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     valid("converted-openai", "document", convertedOpenAi),
     valid("document-with-sampling", "document", sampledOpenAi),
     validText("document-empty-sampling", "document", canonicalJson(emptySampling)),
+    validText("document-sampling-legacy-fields-absent", "document", legacySamplingText),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
     valid("stored-bearer", "document", storedBearer),
@@ -210,7 +224,17 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     }), false),
     invalid("document-sampling-logit-bias-limit", "document", withSampling(sampledOpenAi, {
       ...sampledOpenAi.profiles.default!.sampling!,
-      logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+      logitBias: Object.fromEntries(
+        Array.from({ length: SAMPLING_LOGIT_BIAS_POLICY.maxEntries + 1 }, (_, index) => [String(index), 1])
+      )
+    }), false),
+    // The generated PhraseBiasEntry schema sets additionalProperties: false;
+    // the codec has to agree (issue #282 review finding D), or a document
+    // the schema rejects could still be accepted and silently lose "typo"
+    // on the next round trip.
+    invalid("document-sampling-phrase-bias-extra-key", "document", withRawSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      phraseBias: [{ phrase: "raven", weight: 4, typo: true }]
     }), false),
     invalid("document-sampling-invalid-mirostat", "document", withSampling(sampledOpenAi, {
       ...sampledOpenAi.profiles.default!.sampling!,
@@ -247,10 +271,62 @@ function withDefaultModelId(modelId: string): SettingsDocumentV2 {
   };
 }
 
+/** Simulates a document saved before issue #282 added phraseBias and
+ * bannedStrings: same document, but with those two keys stripped out of
+ * `sampling` before serialization. Proves the schema and the codec still
+ * accept the exact shape a pre-existing document has on disk. */
+function legacyShapedSamplingDocumentText(document: SettingsDocumentV2): string {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined || profile.sampling === undefined) {
+    throw new Error("Canonical settings are missing sampling on the default profile");
+  }
+  const { phraseBias: _phraseBias, bannedStrings: _bannedStrings, ...legacySampling } = profile.sampling;
+  return canonicalJson({
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: { ...profile, sampling: legacySampling }
+    }
+  });
+}
+
+function withKnownTokenizerModel(document: SettingsDocumentV2): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  const model = profile === undefined ? undefined : document.models[profile.modelId];
+  if (profile === undefined || model === undefined) {
+    throw new Error("Canonical settings are missing the default profile's model");
+  }
+  return {
+    ...document,
+    models: {
+      ...document.models,
+      [profile.modelId]: { ...model, remoteId: "gpt-4o" }
+    }
+  };
+}
+
 function withSampling(
   document: SettingsDocumentV2,
   sampling: SamplingSettingsV2
 ): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
+  return {
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: { ...profile, sampling }
+    }
+  };
+}
+
+/** Same as withSampling, but for a deliberately malformed sampling shape a
+ * corpus "invalid" case needs — e.g. an extra key the SamplingSettingsV2
+ * type itself would reject at compile time. */
+function withRawSampling(document: SettingsDocumentV2, sampling: unknown): unknown {
   const profileId = document.routing.default;
   const profile = document.profiles[profileId];
   if (profile === undefined) throw new Error("Canonical settings are missing the default profile");

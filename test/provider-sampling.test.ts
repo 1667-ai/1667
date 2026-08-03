@@ -5,7 +5,7 @@ import { attachProviderRuntime } from "../server/provider-runtime.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
-test("sampling lowering does not partially mutate a body on resolution failure", () => {
+test("sampling lowering does not partially mutate a body on resolution failure", async () => {
   const sampling = {
     ...EMPTY_SAMPLING_V2,
     topP: 0.9,
@@ -37,14 +37,14 @@ test("sampling lowering does not partially mutate a body on resolution failure",
   };
   const before = { ...body };
 
-  assert.throws(
+  await assert.rejects(
     () => applySamplingFields(body, settings, "openai-chat-completions"),
     /Configured sampling parameter top k/u
   );
   assert.deepEqual(body, before);
 });
 
-test("an LM Studio route with DRY configured fails with the ProviderError naming the reason", () => {
+test("an LM Studio route with DRY configured fails with the ProviderError naming the reason", async () => {
   const sampling = {
     ...EMPTY_SAMPLING_V2,
     dryMultiplier: 0.8
@@ -69,13 +69,13 @@ test("an LM Studio route with DRY configured fails with the ProviderError naming
       promptCaching: "unknown"
     }
   });
-  assert.throws(
+  await assert.rejects(
     () => applySamplingFields({}, settings, "openai-chat-completions"),
     /Configured sampling parameter dry multiplier is unavailable: This endpoint does not document extension parameters\./u
   );
 });
 
-test("mirostat off with tau configured sends neither mirostat_tau nor mirostat_eta and raises nothing", () => {
+test("mirostat off with tau configured sends neither mirostat_tau nor mirostat_eta and raises nothing", async () => {
   const sampling = {
     ...EMPTY_SAMPLING_V2,
     mirostatTau: 5
@@ -101,7 +101,7 @@ test("mirostat off with tau configured sends neither mirostat_tau nor mirostat_e
     }
   });
   const body: Record<string, unknown> = {};
-  applySamplingFields(body, settings, "openai-chat-completions");
+  await applySamplingFields(body, settings, "openai-chat-completions");
   assert.equal("mirostat_tau" in body, false);
   assert.equal("mirostat_eta" in body, false);
 });

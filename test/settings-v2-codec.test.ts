@@ -48,6 +48,10 @@ import {
   SettingsFormatError
 } from "../server/settings-v2-scalars.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
+import {
+  SAMPLING_BANNED_STRINGS_POLICY,
+  SAMPLING_LOGIT_BIAS_POLICY
+} from "../shared/sampling-validation-policy.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   SETTINGS_V2_CORPUS_SHA256,
@@ -103,12 +107,24 @@ test("fixed initial document and state bytes have raw and domain-separated hashe
 });
 
 test("sampling parses as a closed optional profile object and projects to runtime", () => {
+  // The real api.openai.com host, and gpt-4o rather than the usual
+  // model-fixture placeholder: phraseBias and bannedStrings only validate
+  // as available for the "openai" preset (a fixed, trustworthy host) with
+  // a model on the closed tokenizer allow-list
+  // (shared/sampling-capabilities.ts) — "custom" (an arbitrary base URL,
+  // like the usual models.example fixture host) is subtracted, because a
+  // self-hosted server reached through it could report any model name.
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",
-    "https://models.example/v1",
-    "model-fixture",
+    "https://api.openai.com/v1",
+    "gpt-4o",
     null
   ));
+  // "wolf" and "spam" are each single-token in every one of the four
+  // surface variants (typed, leading space, capitalized, leading space
+  // capitalized) under o200k_base — a phrase that needs more than one
+  // token in any variant is rejected at resolution, and this test exercises
+  // the accepted path.
   const sampling = {
     ...EMPTY_SAMPLING_V2,
     topP: 0.9,
@@ -116,8 +132,10 @@ test("sampling parses as a closed optional profile object and projects to runtim
     presencePenalty: -0.1,
     seed: 7,
     stop: ["END", "DONE"],
-    logitBias: { "15043": 1 }
-  };
+    logitBias: { "15043": 1 },
+    bannedStrings: ["spam"],
+    phraseBias: [{ phrase: "wolf", weight: 4 }]
+  } as const;
   const document = parseSettingsDocumentV2({
     ...base,
     profiles: {
@@ -131,6 +149,107 @@ test("sampling parses as a closed optional profile object and projects to runtim
     parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)),
     document
   );
+});
+
+// Regression test for issue #282 review round 3, finding 2: a phrase-bias
+// entry with a real weight conflict on at least one of its tokens — not
+// merely overlapping tokens that agree on a weight — must block the save
+// itself, synchronously, at document parse time, the same way an
+// unavailable preset or a too-large weight already does. "Hello"'s two
+// distinct surface texts ("Hello", " Hello") are also two of "hello"'s four,
+// and the two entries here name different weights for them, so "hello"
+// loses its own bias on those two forms to "Hello" — a real conflict a
+// save must never ship silently.
+test("a phrase-bias entry with a real weight conflict on some of its tokens fails the save synchronously", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://api.openai.com/v1",
+    "gpt-4o",
+    null
+  ));
+  assert.throws(() => parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: {
+        ...base.profiles.default!,
+        sampling: {
+          topP: null,
+          topK: null,
+          minP: null,
+          frequencyPenalty: null,
+          presencePenalty: null,
+          repeatPenalty: null,
+          seed: null,
+          dryMultiplier: null,
+          dryBase: null,
+          dryRange: null,
+          xtcThreshold: null,
+          xtcProbability: null,
+          dynatempRange: null,
+          mirostat: null,
+          mirostatTau: null,
+          mirostatEta: null,
+          stop: [],
+          logitBias: {},
+          bannedStrings: [],
+          phraseBias: [
+            { phrase: "hello", weight: 20 },
+            { phrase: "Hello", weight: -20 }
+          ],
+          dryBreakers: []
+        }
+      }
+    }
+  }), /profile default cannot use "hello" as configured: "hello" loses its bias on "Hello", " Hello" to phrase bias "Hello"/);
+});
+
+test("a document saved before phraseBias and bannedStrings existed still decodes", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const legacySampling = {
+    topP: 0.9,
+    topK: null,
+    minP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+    repeatPenalty: null,
+    // seed, and every scalar and dryBreakers below down to logitBias, are
+    // required (unlike phraseBias/bannedStrings below): each was added
+    // after this document's era, but not as an additive-optional field, so
+    // a document from before phraseBias/bannedStrings existed still needs
+    // them explicitly — this test's own claim is scoped to
+    // phraseBias/bannedStrings, not every field ever added later.
+    seed: null,
+    dryMultiplier: null,
+    dryBase: null,
+    dryRange: null,
+    xtcThreshold: null,
+    xtcProbability: null,
+    dynatempRange: null,
+    mirostat: null,
+    mirostatTau: null,
+    mirostatEta: null,
+    stop: ["END"],
+    logitBias: { "15043": 1 },
+    dryBreakers: []
+  };
+  const document = parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, sampling: legacySampling }
+    }
+  });
+  assert.deepEqual(document.profiles.default?.sampling, {
+    ...legacySampling,
+    bannedStrings: [],
+    phraseBias: []
+  });
 });
 
 test("all-empty sampling normalizes away and preserves the initial settings identity", () => {
@@ -177,8 +296,30 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["END", "END"] })), /repeats/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ logitBias: { "01": 1 } })), /logitBias/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({
-    logitBias: Object.fromEntries(Array.from({ length: 17 }, (_, index) => [String(index), 1]))
+    logitBias: Object.fromEntries(
+      Array.from({ length: SAMPLING_LOGIT_BIAS_POLICY.maxEntries + 1 }, (_, index) => [String(index), 1])
+    )
   })), /logitBias/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    bannedStrings: Array.from({ length: SAMPLING_BANNED_STRINGS_POLICY.maxEntries + 1 }, (_, index) => `word-${index}`)
+  })), /bannedStrings/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    bannedStrings: ["repeat", "repeat"]
+  })), /repeats/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    phraseBias: [{ phrase: "raven", weight: 200 }]
+  })), /phraseBias/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    phraseBias: [{ phrase: "raven", weight: 1 }, { phrase: "raven", weight: 2 }]
+  })), /repeats/);
+  // Regression test for issue #282 review finding D: the generated schema
+  // declares PhraseBiasEntry with additionalProperties: false, so the codec
+  // must reject the same shape the schema does — accepting it here would
+  // silently drop "typo" on the next round trip instead of rejecting it up
+  // front.
+  assert.throws(() => parseSettingsDocumentV2(withSampling({
+    phraseBias: [{ phrase: "raven", weight: 1, typo: true }]
+  })), /unknown key/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({
     extra: true
   })), /unknown key/);

@@ -6,20 +6,22 @@ import {
 } from "../../shared/settings-v2-types.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import {
+  isLogitBiasFamilyKnob,
   samplingContextForRoute,
   samplingKnobLabel,
   samplingKnobPresentation,
   type SamplingContext
 } from "../../shared/sampling-capabilities.js";
-import type { SamplingListPanelId, SamplingPanelId, SettingsOverlayState } from "./state.js";
-import { createComposer, type ComposerState } from "./composer-model.js";
 import {
-  SAMPLING_LIST_SPECS,
-  samplingListItemIdentity,
-  samplingListValues,
-  type SamplingListRow
-} from "./sampling-list-model.js";
-import { updateSamplingDraft, validateSampling } from "./sampling-draft.js";
+  SAMPLING_LIST_PANEL_ORDER,
+  samplingListPanelSpec,
+  updateSamplingDraft,
+  validateSampling
+} from "./sampling-panel-spec.js";
+import type { SettingsOverlayState, SamplingPanelId, SamplingListPanel } from "./state.js";
+import { createComposer, type ComposerState } from "./composer-model.js";
+
+export type { SamplingListPanel } from "./state.js";
 
 export type SamplingScalarKnob = SamplingScalarKnobV2;
 export const SAMPLING_SCALAR_KNOBS = SAMPLING_SCALAR_KNOB_V2_VALUES;
@@ -34,6 +36,17 @@ export interface SamplingScalarRow {
   /** A standing hint shown only while the row is available — e.g. `0 disables`.
    *  Blank for every knob that has none. An unavailable reason always wins. */
   readonly hint: string;
+}
+
+export interface SamplingListRow {
+  readonly panel: SamplingListPanel;
+  readonly label: string;
+  readonly value: string;
+  readonly count: number;
+  readonly maximum: number;
+  readonly available: boolean;
+  readonly reason: string;
+  readonly reasonCompact: string;
 }
 
 export interface SamplingScalarPresentation {
@@ -97,13 +110,14 @@ function samplingScalarHint(knob: SamplingScalarKnob): string {
 
 export type SamplingLayerRowSpec =
   | { readonly kind: "scalar"; readonly knob: SamplingScalarKnob; readonly section?: string }
-  | { readonly kind: "list"; readonly panel: SamplingListPanelId; readonly section?: string };
+  | { readonly kind: "list"; readonly panel: SamplingListPanel; readonly section?: string };
 
 /** The Sampling panel's focus stops, top to bottom. One entry per row —
  *  headings are never a focus stop. `section` marks the first row of a C-04
  *  group and carries the rule text the renderer paints above it; every other
- *  row leaves it unset. New knobs are appended after `stop` and `logit bias`,
- *  per #292 — existing knob order never moves. */
+ *  row leaves it unset. The four issue #282 list panels (stop, logit bias,
+ *  phrase bias, banned strings) keep their existing order; every #292 knob
+ *  is appended after them, per that branch's own ordering rule. */
 export const SAMPLING_LAYER_ROWS: readonly SamplingLayerRowSpec[] = [
   { kind: "scalar", knob: "topP" },
   { kind: "scalar", knob: "topK" },
@@ -114,6 +128,8 @@ export const SAMPLING_LAYER_ROWS: readonly SamplingLayerRowSpec[] = [
   { kind: "scalar", knob: "seed" },
   { kind: "list", panel: "stop" },
   { kind: "list", panel: "logit-bias" },
+  { kind: "list", panel: "phrase-bias" },
+  { kind: "list", panel: "banned-strings" },
   { kind: "scalar", knob: "dryMultiplier", section: "dry · don't repeat yourself" },
   { kind: "scalar", knob: "dryBase" },
   { kind: "scalar", knob: "dryRange" },
@@ -127,7 +143,7 @@ export const SAMPLING_LAYER_ROWS: readonly SamplingLayerRowSpec[] = [
 ];
 
 export function samplingLayerRowIdentity(
-  row: (typeof SAMPLING_LAYER_ROWS)[number]
+  row: SamplingLayerRowSpec
 ): string {
   return row.kind === "scalar"
     ? `sampling:scalar:${row.knob}`
@@ -180,19 +196,70 @@ export function samplingScalarRows(
 export function samplingListRows(
   overlay: SettingsOverlayState
 ): readonly SamplingListRow[] {
-  const sampling = overlay.draft.sampling;
   const context = samplingContextForOverlay(overlay);
-  return Object.values(SAMPLING_LIST_SPECS).map((spec) => {
-    const values = spec.values(overlay);
-    const presentation = samplingKnobPresentation(context, sampling, spec.knob);
+  const resolvedCount = samplingResolvedEntryCount(overlay);
+  return SAMPLING_LIST_PANEL_ORDER.map((panel) => {
+    const spec = samplingListPanelSpec(panel);
+    const rawCount = spec.values(overlay).length;
+    // The logit-bias-family panels (logit-bias, phrase-bias, banned-strings)
+    // share one cap on one resolved object (shared/sampling-validation-
+    // policy.ts, SAMPLING_RESOLVED_LOGIT_BIAS_POLICY) — a phrase-bias entry
+    // list of 51 can resolve to far more than 51 logit_bias entries once
+    // every surface variant expands. Displaying the raw list length against
+    // that bound let the panel say "51/200" while a save actually failed at
+    // 204 (issue #282 review round 2, finding 4). Report the resolved count
+    // once it is known; fall back to the raw count only while resolution is
+    // idle, pending, or failed, so the header never goes blank.
+    const count = isLogitBiasFamilyKnob(spec.knob) && resolvedCount !== null ? resolvedCount : rawCount;
+    const maximum = spec.maximum(context);
     return {
-      panel: spec.panel,
-      value: values.length === 0 ? "empty" : `${values.length}/${spec.maximum}`,
-      count: values.length,
-      maximum: spec.maximum,
-      ...presentation
+      panel,
+      value: rawCount === 0 ? "empty" : `${count}/${maximum}`,
+      count,
+      maximum,
+      ...samplingKnobPresentation(context, overlay.draft.sampling, spec.knob)
     };
   });
+}
+
+/** The most recently resolved total logit-bias entry count for the current
+ * draft (server/sampling-phrase-bias.ts, `resolvedEntryCount`) — the same
+ * number `maxResolvedLogitBiasEntries` bounds — or null while there is
+ * nothing to report yet (idle, pending, failed, or the tokenizer itself is
+ * unavailable). */
+function samplingResolvedEntryCount(overlay: SettingsOverlayState): number | null {
+  const state = overlay.sampling?.biasResolution;
+  if (state === undefined || state.kind !== "ready" || state.result.kind !== "resolved") return null;
+  return state.result.resolvedEntryCount;
+}
+
+export function samplingListItemIdentity(
+  panel: SamplingListPanel,
+  key: string | null,
+  pending = false
+): string | null {
+  if (pending) return `sampling:${panel}:pending`;
+  if (key === null) return null;
+  return `sampling:${panel}:${JSON.stringify(key)}`;
+}
+
+export function samplingSelectedRowIdentity(
+  overlay: SettingsOverlayState
+): string | null {
+  const nested = overlay.sampling;
+  if (nested === null) return null;
+  if (nested.panel === "sampling") {
+    return samplingLayerRowIdentity(SAMPLING_LAYER_ROWS[boundedSamplingCursor(overlay)]!);
+  }
+  const spec = samplingListPanelSpec(nested.panel);
+  const values = spec.values(overlay);
+  const cursor = boundedSamplingCursor(overlay, nested.panel, nested.cursor);
+  const value = values[cursor];
+  if (value !== undefined) return samplingListItemIdentity(nested.panel, spec.identityKey(value));
+  const edit = nested.edit;
+  return edit?.kind === "list" && edit.panel === nested.panel && edit.index === cursor
+    ? samplingListItemIdentity(nested.panel, null, true)
+    : null;
 }
 
 export function samplingSummary(sampling: SamplingSettingsV2): string {
@@ -233,12 +300,12 @@ export function boundedSamplingCursor(
 
 function samplingListItemCount(
   overlay: SettingsOverlayState,
-  panel: SamplingListPanelId
+  panel: SamplingListPanel
 ): number {
-  const persisted = samplingListValues(overlay, panel).length;
+  const persisted = samplingListPanelSpec(panel).values(overlay).length;
   const edit = overlay.sampling?.edit;
   const hasPendingRow = edit !== null && edit !== undefined
-    && edit.kind === panel
+    && edit.kind === "list" && edit.panel === panel
     && edit.index === persisted;
   return Math.max(1, persisted + (hasPendingRow ? 1 : 0));
 }
@@ -282,13 +349,14 @@ export function beginSamplingEdit(overlay: SettingsOverlayState): string | null 
   }
   const list = samplingListRows(overlay).find((row) => row.panel === nested.panel)!;
   if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
-  const spec = SAMPLING_LIST_SPECS[nested.panel];
-  const values = spec.values(overlay).map((value) => spec.editText(value));
+  const spec = samplingListPanelSpec(nested.panel);
+  const values = spec.values(overlay);
   const index = boundedSamplingCursor(overlay);
   if (index >= values.length) return null;
-  const initial = values[index]!;
+  const initial = spec.editableText(values[index]!);
   nested.edit = {
-    kind: nested.panel,
+    kind: "list",
+    panel: nested.panel,
     index,
     composer: createSamplingComposer(initial),
     initial
@@ -301,14 +369,19 @@ export function beginNewSamplingEdit(overlay: SettingsOverlayState): string | nu
   if (nested === null || nested.panel === "sampling") return "choose a list first";
   const list = samplingListRows(overlay).find((row) => row.panel === nested.panel)!;
   if (!list.available) return `${list.label} disabled · ${list.reasonCompact}`;
-  const spec = SAMPLING_LIST_SPECS[nested.panel];
-  const count = spec.values(overlay).length;
-  const maximum = spec.maximum;
-  if (count >= maximum) return `list limit reached · ${maximum} items maximum`;
-  nested.cursor = count;
+  // Gate on the same displayed count samplingListRows reports (issue #282
+  // review round 2, finding 4): for the logit-bias-family panels that is the
+  // resolved-token bound, not this panel's own raw list length, so the
+  // editor stops accepting new entries at the same point a save would
+  // reject them, not later.
+  if (list.count >= list.maximum) return `list limit reached · ${list.maximum} items maximum`;
+  const spec = samplingListPanelSpec(nested.panel);
+  const rawCount = spec.values(overlay).length;
+  nested.cursor = rawCount;
   nested.edit = {
-    kind: nested.panel,
-    index: count,
+    kind: "list",
+    panel: nested.panel,
+    index: rawCount,
     composer: createSamplingComposer(""),
     initial: ""
   };
@@ -319,22 +392,4 @@ export function createSamplingComposer(initial: string): ComposerState {
   const composer = createComposer(initial);
   if (initial.length > 0) composer.anchor = 0;
   return composer;
-}
-
-export function samplingSelectedRowIdentity(
-  overlay: SettingsOverlayState
-): string | null {
-  const nested = overlay.sampling;
-  if (nested === null) return null;
-  if (nested.panel === "sampling") {
-    return samplingLayerRowIdentity(SAMPLING_LAYER_ROWS[boundedSamplingCursor(overlay)]!);
-  }
-  const values = samplingListValues(overlay, nested.panel);
-  const cursor = boundedSamplingCursor(overlay, nested.panel, nested.cursor);
-  const value = values[cursor];
-  if (value !== undefined) return samplingListItemIdentity(nested.panel, value);
-  const edit = nested.edit;
-  return edit?.kind === nested.panel && edit.index === cursor
-    ? samplingListItemIdentity(nested.panel, undefined, true)
-    : null;
 }

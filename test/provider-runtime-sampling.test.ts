@@ -41,7 +41,9 @@ test("v2 runtime keeps legacy credential positions before explicit sampling", ()
     ...EMPTY_SAMPLING_V2,
     topP: 0.9,
     stop: ["END"],
-    logitBias: { "2": -1 }
+    logitBias: { "2": -1 },
+    bannedStrings: [],
+    phraseBias: []
   } as const;
   const runtime = providerRuntimeFromV2(
     connection,

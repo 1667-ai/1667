@@ -15,6 +15,33 @@ This file records notable changes to 1667. Product terms use the definitions in
   spend. A request that does not fit now drops droppable Facts by priority
   instead of failing outright, and the context meter and the Facts panel
   state what was dropped, and why. Thanks @10fra for the request.
+- **The Sampling group now accepts phrase bias and banned strings.** Type a
+  text phrase and a weight. Or type a banned string. 1667 tokenizes the
+  phrase four ways: as typed, with a leading space, with a capital letter,
+  and with both. 1667 biases a phrase only when every one of the four forms
+  is one token. Where a phrase needs more than one token in a form, 1667
+  refuses the phrase at commit and shows the token IDs, so a writer can see
+  why. 1667 never spreads one phrase over more than one token, because that
+  action would also change every other place those tokens appear. A phrase
+  entry and a banned string merge into the same logit bias field as a token
+  ID entry. A token ID that a writer sets by hand keeps priority over the
+  merged value. Two phrase entries can tokenize to the same token. For
+  example, "hello" and "Hello" share a form. When both entries want the same
+  weight for that token, 1667 keeps both entries and biases every token
+  either one names. When the entries want different weights, 1667 refuses a
+  new entry at commit if it would lose the token, the same way it refuses a
+  multi-token phrase. If a later commit causes an existing entry to lose the
+  token, 1667 keeps that entry in the draft and marks it. 1667 refuses to
+  save the settings while a marked entry stays in the draft. 1667 also
+  refuses to send the request. 1667 names the entry that kept the token and
+  the exact forms that lost their bias. A banned string makes the text
+  unlikely. It does not make the text impossible, because the same text can
+  come from different token boundaries. Phrase bias and banned strings work
+  for an OpenAI model on the tokenizer list, and for llama.cpp, which 1667
+  asks to tokenize the text directly. They do not yet work for KoboldCpp,
+  LM Studio, Ollama, OpenRouter, or a custom endpoint. 1667 shows a clear
+  reason when a phrase, a banned string, or logit bias itself is not
+  available for the routed model.
 - **The Author's Note now has a depth setting.** Depth sets how many story
   parts from the end the note lands before. The default depth, 1, is today's
   placement: immediately before the last story part. Open the Author's Note
@@ -25,7 +52,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   machine-wide default for that story's continuation, prompted retake,
   highlighted rewrite, and autoname requests. A story with no Author Brief of
   its own keeps the machine-wide default. Thanks @10fra for the request.
-
 - **The context meter and the request viewer now count tokens.** Before, they
   counted four characters for each token. 1667 now uses the tokenize source of
   the preset: the bundled tokenizer for the official OpenAI host, the count
@@ -35,7 +61,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   counts the request after you stop typing, so a count never delays a
   keystroke. If the model server does not answer, 1667 keeps the estimate.
   Thanks @10fra for the request.
-
 - **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
   `.json` file to the command or to `import archive` in the command palette.
   1667 reads the file to know its format. A constant Entry becomes an always

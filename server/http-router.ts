@@ -247,7 +247,7 @@ async function handleApi(
       return sendJson(response, 200, await service.saveSettings({
         ...command,
         transportOperationId: ticket
-      }));
+      }, operation.signal));
     }
   }
   if (head === "settings" && id === "pending" && method === "DELETE") {
@@ -277,6 +277,13 @@ async function handleApi(
       response,
       200,
       await service.discoverModels(await jsonBody(), operation.signal)
+    );
+  }
+  if (head === "settings" && id === "resolve-sampling-bias" && method === "POST") {
+    return sendJson(
+      response,
+      200,
+      await service.resolveSamplingBias(await jsonBody(), operation.signal)
     );
   }
   // No settings and no story id: this always counts against the backend's

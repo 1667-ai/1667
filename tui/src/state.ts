@@ -29,6 +29,7 @@ import type {
   SamplingScalarKnobV2,
   SettingsView
 } from "../../shared/settings-v2-types.js";
+import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import type {
   ComposerSelectionProjection,
   ProjectedStorySelection,
@@ -174,16 +175,44 @@ export interface SettingsInlineEditState extends SettingsEditBufferState {
   mode: "text" | "secret";
 }
 
-export type SamplingPanelId = "sampling" | "stop" | "logit-bias" | "dry-breakers";
-export type SamplingListPanelId = Exclude<SamplingPanelId, "sampling">;
+export type SamplingPanelId =
+  | "sampling"
+  | "stop"
+  | "logit-bias"
+  | "phrase-bias"
+  | "banned-strings"
+  | "dry-breakers";
+export type SamplingListPanel = Exclude<SamplingPanelId, "sampling">;
 
+/** One shape for every list panel's inline editor, discriminated by `panel`
+ * instead of four near-identical `kind` variants — every list panel edits
+ * one row's text through the same composer regardless of what that row's
+ * value looks like (tui/src/sampling-panel-spec.ts owns the per-panel
+ * parse/validate/apply logic). */
 export type SamplingInlineEditState =
   | (SettingsEditBufferState & {
       kind: "scalar";
       index: number;
       knob: SamplingScalarKnobV2;
     })
-  | (SettingsEditBufferState & { kind: SamplingListPanelId; index: number });
+  | (SettingsEditBufferState & { kind: "list"; panel: SamplingListPanel; index: number });
+
+/** The last resolveSamplingBias response for the current draft's phraseBias
+ * and bannedStrings — the same worker call and the same merge computation
+ * the provider request uses (server/sampling-phrase-bias.ts), fetched once
+ * per sampling-editor session and once per commit
+ * (tui/src/sampling-bias-resolution.ts), not once per phrase.
+ *
+ * "failed" (issue #282 review round 2, finding 5) is the worker call itself
+ * throwing — a transport failure, not a documented outcome — carrying a
+ * message so the row says why instead of claiming to still be working. It
+ * is a dead end, not a stage of "pending": nothing but a fresh
+ * resolveSamplingBias call (a new commit, or reopening the panel) leaves it. */
+export type SamplingBiasResolutionState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "ready"; readonly result: SamplingBiasResolutionResult };
 
 export interface SamplingOverlayState {
   panel: SamplingPanelId;
@@ -191,6 +220,14 @@ export interface SamplingOverlayState {
   logitBiasOrder: string[];
   edit: SamplingInlineEditState | null;
   result: string | null;
+  biasResolution: SamplingBiasResolutionState;
+  /** Bumped by every resolveSamplingBias call (tui/src/sampling-bias-
+   * resolution.ts) and captured by the request it starts — `pending` is set
+   * synchronously but cleared asynchronously, so two overlapping commits
+   * (issue #282 review round 2, finding 5) can otherwise land in either
+   * order with only panel identity as a staleness guard. A stale request's
+   * result is dropped rather than overwriting a newer one's. */
+  resolutionGeneration: number;
 }
 
 export interface SettingsOverlaySaveIntent {

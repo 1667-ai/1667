@@ -64,7 +64,7 @@ async function* streamOpenAiCompatible(
     "content-type": "application/json"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = buildOpenAiChatRequestBody(settings, prompt, prepared.wire);
+  const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, signal);
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
   let totalDeadlineReached = false;
@@ -201,7 +201,7 @@ async function* streamAnthropic(
     "anthropic-version": "2023-06-01"
   });
   const prepared = preparePromptCache(promptCache, prompt);
-  const body = buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire);
+  const body = await buildAnthropicMessagesRequestBody(settings, prompt, prepared.wire, signal);
   const refusalKey = samplingRefusalKey(settings);
   if (SAMPLING_REFUSED.has(refusalKey)) delete body.temperature;
   const runtime = providerRuntimeFor(settings);

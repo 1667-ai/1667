@@ -61,6 +61,11 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   checkModelServer: "provider-check",
   probeContextWindow: "provider-check",
   discoverModels: "provider-check",
+  // A llama-cpp route resolves against a live tokenize probe on that server
+  // (server/context-probe.ts), so this can be a real provider round trip,
+  // not always the pure local computation it used to be — same budget as
+  // the other provider-probe methods above.
+  resolveSamplingBias: "provider-check",
   countPromptTokens: "provider-check",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
@@ -143,6 +148,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "probeContextWindow";
   if (path === "/api/settings/discover-models"
     && httpMethod === "POST") return "discoverModels";
+  if (path === "/api/settings/resolve-sampling-bias"
+    && httpMethod === "POST") return "resolveSamplingBias";
   if (path === "/api/settings/count-tokens"
     && httpMethod === "POST") return "countPromptTokens";
   if (path === "/api/import/sillytavern"

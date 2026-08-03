@@ -65,6 +65,11 @@ import { MAX_FACTS, MAX_JSON_BODY_BYTES } from "../shared/types.js";
 import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
+import {
+  parseResolveSamplingBiasInput,
+  resolveSamplingBiasForSettings
+} from "./sampling-phrase-bias.js";
+import type { SamplingBiasResolutionResult } from "../shared/sampling-capabilities.js";
 import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
@@ -558,9 +563,9 @@ export class StoryService extends StoryServiceRuntime {
     return await this.settings.loadView();
   }
 
-  async saveSettings(value: unknown): Promise<SettingsMutationResult> {
+  async saveSettings(value: unknown, signal?: AbortSignal): Promise<SettingsMutationResult> {
     this.ensureOpen();
-    return await this.settings.save(value);
+    return await this.settings.save(value, signal);
   }
 
   async discardPendingSettings(value: unknown): Promise<SettingsMutationResult> {
@@ -587,6 +592,17 @@ export class StoryService extends StoryServiceRuntime {
     this.ensureOpen();
     const settings = await this.settings.resolveProviderProbe(value);
     return await discoverProviderModels(settings, undefined, signal);
+  }
+
+  async resolveSamplingBias(
+    value: unknown,
+    signal?: AbortSignal
+  ): Promise<SamplingBiasResolutionResult> {
+    this.ensureOpen();
+    const record = requireRecord(value, "resolveSamplingBias input");
+    const settings = await this.settings.resolveProviderProbe(record.settings);
+    const input = parseResolveSamplingBiasInput(record);
+    return await resolveSamplingBiasForSettings(input, settings, signal);
   }
 
   /** No settings and no story id: this always counts against the backend's

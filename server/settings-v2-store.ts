@@ -84,9 +84,15 @@ import {
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { parseSettingsDocumentV2 } from "./settings-v2-codec.js";
 import { storedCredentialSecretId } from "../shared/settings-stored-credential.js";
+import { assertSavedSamplingBiasResolves } from "./settings-v2-save-bias-check.js";
 
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
+
+/** Re-exported from the module that now owns the save-time bias check
+ * (server/settings-v2-save-bias-check.ts, issue #282 review round 5, finding
+ * 2) so existing callers keep importing it from the store. */
+export { SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS } from "./settings-v2-save-bias-check.js";
 
 /** IDs minted by this project's sidecar: a crypto-UUID suffix that cannot
  * predate the mint-per-key change and cannot arise from another writer's
@@ -316,7 +322,12 @@ export class SettingsV2Store {
     };
   }
 
-  async save(commandValue: unknown): Promise<SettingsMutationResult> {
+  /** `signal` is the caller's own abort signal (threaded from the HTTP
+   * request, issue #282 review round 3, finding 3) — folded into the
+   * llama-cpp bias-resolution probe's deadline in `runMutation` below, so a
+   * client that has already given up frees this save's mutation slot
+   * instead of the probe outliving it. */
+  async save(commandValue: unknown, signal?: AbortSignal): Promise<SettingsMutationResult> {
     const command = parseSaveSettingsCommandEnvelope(commandValue);
     return await this.coordinator.runAfterSettingsAdmission(
       settingsCoordinatorAdmissionRequest(command),
@@ -339,7 +350,7 @@ export class SettingsV2Store {
           throw invalidSettingsMutation(error);
         }
       },
-      async (request, operation) => await this.runMutation(operation, request)
+      async (request, operation) => await this.runMutation(operation, request, signal)
     );
   }
 
@@ -360,7 +371,8 @@ export class SettingsV2Store {
 
   private async runMutation(
     operation: SettingsMutationOperation,
-    request: MutationCoordinatorRequest<SettingsMutationTarget>
+    request: MutationCoordinatorRequest<SettingsMutationTarget>,
+    signal?: AbortSignal
   ): Promise<SettingsMutationResult> {
     const current = await this.recoverReceiptTransaction();
     const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
@@ -399,6 +411,7 @@ export class SettingsV2Store {
 
     if (operation.method === "saveSettings") {
       assertRuntimeDocumentSupported(operation.document);
+      await assertSavedSamplingBiasResolves(operation.document, this.environment, signal);
     }
     if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
       throw new ServiceError(

@@ -4,18 +4,16 @@ import {
   boundedSamplingCursor,
   SAMPLING_LAYER_ROWS,
   samplingLayerRowIdentity,
+  samplingListItemIdentity,
+  type SamplingListPanel,
+  type SamplingListRow,
   type SamplingScalarRow,
   samplingListRows,
   samplingScalarRows
 } from "../sampling-model.js";
-import {
-  samplingListItemIdentity,
-  samplingListPanelInfo,
-  samplingListValues,
-  type SamplingListPanelId,
-  type SamplingListRow,
-  type SamplingListValue
-} from "../sampling-list-model.js";
+import { samplingListPanelSpec } from "../sampling-panel-spec.js";
+import { bannedStringValueRow, phraseBiasValueRow } from "./sampling-bias-panel.js";
+import type { SamplingPhraseBiasEntryV2 } from "../../../shared/settings-v2-types.js";
 import type { OverlayState } from "../state.js";
 import {
   dimPage,
@@ -56,7 +54,7 @@ export function renderSamplingPanel(
   const footer = samplingFooter(nested.panel, nested.edit !== null, horizontal.footerWidth);
   return placePanel(
     dimPage(base),
-    nested.panel === "sampling" ? "sampling" : samplingListPanelInfo(nested.panel).title,
+    nested.panel === "sampling" ? "sampling" : SAMPLING_LIST_RENDER_SPECS[nested.panel].title,
     content.lines,
     footer.text,
     width,
@@ -82,10 +80,7 @@ function renderSamplingLayer(
   // One reason held by every knob is a fact about the provider, not about any
   // row. Repeated down the column it was the loudest thing on the panel and
   // pushed each row's own value out of alignment.
-  const shared = sharedDisabledReason(
-    [...scalarByKnob.values()],
-    [...listByPanel.values()]
-  );
+  const shared = sharedDisabledReason([...scalarByKnob.values()], [...listByPanel.values()]);
   const sharedLine: FrameLine[] = shared === null
     ? []
     : [[raisedSegment(truncate(`  ${shared}`, width), "prose · dim")]];
@@ -180,7 +175,7 @@ function renderSamplingRow(
   return fieldRow(
     lead,
     row.row.label,
-    `[${row.row.value}]`,
+    row.row.available ? `[${row.row.value}]` : "‹ — ›",
     row.row.available ? "↵ open" : reasonShared ? "" : `disabled · ${row.row.reasonCompact}`,
     width,
     selected,
@@ -188,32 +183,118 @@ function renderSamplingRow(
   );
 }
 
+/** One render spec per list panel, paired with the model spec
+ * (../sampling-panel-spec.js) by panel key. `formatValue` takes exactly one
+ * cast, not a runtime narrowing throw: the value it receives always came
+ * from this same panel's own `values()`, so the shape is already known.
+ *
+ * `title` lives here rather than in a second per-panel table (issue #282
+ * review round 5, finding 7): `main` kept one table with `title` in it, and
+ * this file had grown a second one keyed on the same
+ * `SamplingListPanel` union before this fold. */
+interface SamplingListRenderSpec {
+  readonly title: string;
+  readonly emptyCopy: readonly string[];
+  header(count: number, maximum: number): string;
+  formatValue(
+    value: unknown,
+    settings: NonNullable<OverlayState["settings"]>,
+    index: number,
+    selected: boolean,
+    width: number
+  ): FrameLine;
+}
+
+const SAMPLING_LIST_RENDER_SPECS: Readonly<Record<SamplingListPanel, SamplingListRenderSpec>> = {
+  stop: {
+    title: "stop sequences",
+    emptyCopy: [
+      "  no stop sequences yet.",
+      "  n writes one · the model stops when it types one"
+    ],
+    header: (count, maximum) => `  #   stop sequence · ${count}/${maximum}`,
+    formatValue: (value, _settings, index, selected, width) =>
+      listValueRow(index, value as string, selected, width)
+  },
+  "logit-bias": {
+    title: "logit bias",
+    emptyCopy: [
+      "  no biased tokens yet.",
+      "  n writes one · token IDs come from the model's tokenizer."
+    ],
+    header: (count, maximum) => `  token ID       integer bias · ${count}/${maximum}`,
+    formatValue: (value, _settings, _index, selected, width) => {
+      const [token, weight] = value as readonly [string, number];
+      return logitValueRow(token, weight, selected, width);
+    }
+  },
+  "phrase-bias": {
+    title: "phrase bias",
+    emptyCopy: [
+      "  no phrase bias yet.",
+      "  n writes one · phrase:integer bias · each phrase resolves to one or more tokens."
+    ],
+    header: (count, maximum) => `  phrase              bias  resolved tokens · ${count}/${maximum}`,
+    formatValue: (value, settings, _index, selected, width) =>
+      phraseBiasValueRow(value as SamplingPhraseBiasEntryV2, settings, selected, width)
+  },
+  "banned-strings": {
+    title: "banned strings",
+    emptyCopy: [
+      "  no banned strings yet.",
+      "  n writes one · a negative bias makes a string unlikely, not impossible."
+    ],
+    header: (count, maximum) => `  banned string             resolved tokens · ${count}/${maximum}`,
+    formatValue: (value, settings, _index, selected, width) =>
+      bannedStringValueRow(value as string, settings, selected, width)
+  },
+  "dry-breakers": {
+    title: "dry breakers",
+    emptyCopy: [
+      "  no dry breakers yet.",
+      // An empty list is not sent, and the provider then uses its own
+      // breakers — so the empty state must not read as "dry has none".
+      "  n writes one · until then the provider uses its own list"
+    ],
+    header: (count, maximum) => `  #   breaker · ${count}/${maximum}`,
+    formatValue: (value, _settings, index, selected, width) =>
+      listValueRow(index, value as string, selected, width)
+  }
+};
+
 function renderSamplingListLayer(
   settings: NonNullable<OverlayState["settings"]>,
   width: number,
   height: number,
   status: FrameLine[],
-  panel: SamplingListPanelId
+  panel: SamplingListPanel
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
-  const info = samplingListPanelInfo(panel);
-  const values = samplingListValues(settings, panel);
+  const modelSpec = samplingListPanelSpec(panel);
+  const renderSpec = SAMPLING_LIST_RENDER_SPECS[panel];
+  const values = modelSpec.values(settings);
   const cursor = boundedSamplingCursor(settings, panel);
   const activeEdit = settings.sampling?.edit;
-  const pendingEdit = activeEdit?.kind === panel && activeEdit.index === values.length
+  const pendingEdit = activeEdit?.kind === "list" && activeEdit.panel === panel && activeEdit.index === values.length
     ? activeEdit
     : null;
-  const header = [raisedSegment(truncate(samplingListHeader(info, values.length), width), "chrome")];
+  // The header count comes from samplingListRows, not values.length directly
+  // (issue #282 review round 2, finding 4): the logit-bias-family panels
+  // display the shared resolved-token count there, which can run well ahead
+  // of this panel's own raw entry count, and this header must agree with it
+  // rather than repeating the same bug through a second code path.
+  const row = samplingListRows(settings).find((item) => item.panel === panel)!;
+  const header = [raisedSegment(truncate(renderSpec.header(row.count, row.maximum), width), "chrome")];
   const rows: FrameLine[] = [];
   const targets: Array<HitTarget | null> = [...status.map(() => null), null];
   if (values.length === 0) {
-    for (const text of info.emptyCopy) {
+    for (const text of renderSpec.emptyCopy) {
       rows.push([raisedSegment(truncate(text, width), "prose · dim")]);
       targets.push(null);
     }
   }
   const rowCount = values.length + (pendingEdit === null ? 0 : 1);
   if (rowCount > 0) {
-    const emptyCopyRows = values.length === 0 ? info.emptyCopy.length : 0;
+    const emptyCopyRows = values.length === 0 ? renderSpec.emptyCopy.length : 0;
     const capacity = Math.max(1, panelContentRows(height) - status.length - 1 - emptyCopyRows);
     const window = panelRowWindow(Array.from({ length: rowCount }, () => 1), cursor, capacity);
     for (let index = window.start; index < window.end; index += 1) {
@@ -222,16 +303,16 @@ function renderSamplingListLayer(
       } else {
         const value = values[index];
         if (value === undefined) continue;
-        const edit = index === cursor && activeEdit?.kind === panel
+        const edit = index === cursor && activeEdit?.kind === "list" && activeEdit.panel === panel
           ? activeEdit
           : null;
         rows.push(edit === null
-          ? samplingListFormatValue(info, value, index, cursor === index, width)
+          ? renderSpec.formatValue(value, settings, index, cursor === index, width)
           : inlineListValueRow(index, edit.composer, width));
       }
       const rowId = samplingListItemIdentity(
         panel,
-        index === values.length ? undefined : values[index],
+        index === values.length ? null : modelSpec.identityKey(values[index]!),
         index === values.length && pendingEdit !== null
       );
       targets.push({
@@ -243,30 +324,6 @@ function renderSamplingListLayer(
     }
   }
   return { lines: [...status, header, ...rows], targets };
-}
-
-/** The header differs only by kind: a plain-string list numbers its rows, a
- *  record list names its two columns. `dry-breakers` shares `stop`'s branch
- *  automatically — no panel-specific case was added for it. */
-function samplingListHeader(info: ReturnType<typeof samplingListPanelInfo>, count: number): string {
-  return info.kind === "record"
-    ? `  token ID       integer bias · ${count}/${info.maximum}`
-    : `  #   ${info.itemLabel} · ${count}/${info.maximum}`;
-}
-
-function samplingListFormatValue(
-  info: ReturnType<typeof samplingListPanelInfo>,
-  value: SamplingListValue,
-  index: number,
-  selected: boolean,
-  width: number
-): FrameLine {
-  if (info.kind === "record") {
-    if (typeof value === "string") throw new Error(`${info.panel} row has an invalid value`);
-    return logitValueRow(value[0], value[1], selected, width);
-  }
-  if (typeof value !== "string") throw new Error(`${info.panel} row has an invalid value`);
-  return listValueRow(index, value, selected, width);
 }
 
 function listValueRow(index: number, value: string, selected: boolean, width: number): FrameLine {
@@ -383,7 +440,7 @@ interface SamplingFooter {
 }
 
 function samplingFooter(
-  panel: "sampling" | SamplingListPanelId,
+  panel: "sampling" | SamplingListPanel,
   editing: boolean,
   width: number
 ): SamplingFooter {
@@ -410,9 +467,7 @@ function samplingFooter(
       { token: "↵", action: "open-selected" }, { token: "esc", action: "cancel" }
     ] }
   ], width);
-  // `dry-breakers` reorders exactly like `stop` — both read `reorderable` off
-  // the same table, so neither footer variant branches on the panel id.
-  const reorderable = samplingListPanelInfo(panel).reorderable;
+  const reorderable = samplingListPanelSpec(panel).reorderable;
   const actions = [
     { token: "↑", action: "focus-previous" as const },
     { token: "↓", action: "focus-next" as const },

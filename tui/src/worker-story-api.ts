@@ -327,6 +327,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     discardPendingSettings: (command) => transport.call("discardPendingSettings", { command }),
     checkModelServer: (settings) => transport.call("checkModelServer", { settings }),
     probeContextWindow: (settings) => transport.call("probeContextWindow", { settings }),
+    resolveSamplingBias: (request) => transport.call("resolveSamplingBias", request),
     discoverModels: (settings, signal) => transport.call(
       "discoverModels",
       { settings },

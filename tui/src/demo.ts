@@ -33,6 +33,7 @@ import {
 } from "../../shared/story-search.js";
 import type { RemovedChapterBreak, StoryApi } from "./api.js";
 import type { AppSource } from "./app.js";
+import { demoResolveSamplingBias } from "./demo-token-ids.js";
 import { streamFake } from "./fake-stream.js";
 import {
   createDemoChapterBreak,
@@ -618,6 +619,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     checkModelServer: async () => ({ state: "ready", message: "dry-run model server is ready" }),
     probeContextWindow: async () => ({ contextWindow: DEMO_SETTINGS.contextWindow }),
+    resolveSamplingBias: async (request) => demoResolveSamplingBias(request),
     // The demo has no provider behind it, so there is never a tokenize source.
     countPromptTokens: async () => ({ kind: "estimate", reason: "no-source" }),
     discoverModels: async (): Promise<ModelDiscoveryResultV2> => ({

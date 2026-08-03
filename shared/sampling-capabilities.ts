@@ -8,9 +8,20 @@ import {
   type SettingsProtocolV2
 } from "./settings-v2-types.js";
 import type { SelectedSettingsRouteV2 } from "./settings-route.js";
+import {
+  isLogitBiasFamilyKnob,
+  OPENAI_REASONING_FAMILY_MODELS,
+  promptBiasTokenizerEncoding
+} from "./sampling-phrase-resolution.js";
 
 export { SAMPLING_KNOB_V2_VALUES } from "./settings-v2-types.js";
 export type { SamplingKnobV2 } from "./settings-v2-types.js";
+// Text-to-token-ID resolution lives in its own module (file-size guideline)
+// but stays part of this module's public surface: every existing caller
+// imports these names from "sampling-capabilities.js", and there is no
+// reason to make them chase a split that is an internal organization
+// detail, not a meaning change.
+export * from "./sampling-phrase-resolution.js";
 
 /**
  * Sampling capability matrix for the exact endpoints used by 1667.
@@ -39,6 +50,8 @@ export type SamplingUnavailableReason =
   | "preset-unknown"
   | "model-unsupported"
   | "model-unknown"
+  | "no-exact-tokenizer"
+  | "reasoning-model"
   | "mirostat-off";
 
 export type SamplingResolution =
@@ -52,6 +65,18 @@ interface SamplingPresentation {
   readonly reasonCompact: string;
 }
 
+// phraseBias and bannedStrings never appear on the wire under their own name:
+// both resolve to token IDs and merge into the same logit_bias object
+// (server/provider-sampling.ts), so they share logit_bias's wire field here.
+//
+// This table models field *names*, not field *shapes* — every preset that
+// reaches "available" is assumed to accept the one OpenAI-style logit_bias
+// object shape server/provider-sampling.ts always sends. That is a real gap
+// once a preset needs a different encoding for the same knob (llama.cpp's
+// native pair-array form also accepts raw strings tokenized server-side,
+// with no client tokenization at all — a capability issue #311 will want).
+// Left as a comment rather than an abstraction until a preset actually needs
+// it (issue #282 review round 2, finding 2).
 const PROTOCOL_WIRE: Readonly<{
   "dry-run": Partial<Record<SamplingKnobV2, string>>;
   "openai-chat-completions": Readonly<Record<SamplingKnobV2, string>>;
@@ -68,6 +93,8 @@ const PROTOCOL_WIRE: Readonly<{
     seed: "seed",
     stop: "stop",
     logitBias: "logit_bias",
+    phraseBias: "logit_bias",
+    bannedStrings: "logit_bias",
     dryMultiplier: "dry_multiplier",
     dryBase: "dry_base",
     dryRange: "dry_penalty_last_n",
@@ -128,13 +155,80 @@ const PRESET_WIRE_OVERRIDES: Readonly<
   koboldcpp: { mirostat: "mirostat_mode" }
 };
 
+// Ollama's OpenAI-compatible endpoint documents logit_bias as unsupported
+// (checklist item left unchecked): https://ollama.readthedocs.io/en/openai/
+// phraseBias and bannedStrings ride the same wire field, so they inherit the
+// subtraction rather than repeating it under a different unavailable reason.
+//
+// The rule below is not "self-hosted" as a label — it is whether 1667 can
+// identify the vocabulary that will actually serve the request. There are
+// two ways to clear that bar, and each preset below fails both:
+//
+// 1. A closed allow-list keyed on the reported model ID
+//    (promptBiasTokenizerEncoding), for a preset whose reported ID is tied
+//    to a fixed, real, first-party endpoint.
+// 2. Asking the serving backend itself to tokenize, authoritative by
+//    construction (probeLlamaCppTokenize, server/context-probe.ts),
+//    for a preset that exposes such a native side channel.
+//
+// llama.cpp clears route 2 — see the "llama-cpp" comment below — and is not
+// subtracted. Every other preset here clears neither:
+//
+// KoboldCpp and LM Studio are self-hosted local servers whose operator
+// controls what "model" string the API reports, independent of the weights
+// actually loaded, and neither exposes a tokenize side channel 1667 uses yet
+// (KoboldCpp's `/api/extra/tokencount` is deferred to a follow-up stage).
+// LM Studio's `lms load --identifier` sets an arbitrary reported name
+// (https://lmstudio.ai/docs/cli/local-models/load).
+//
+// "custom" carries the same risk in its strongest form: it is by
+// definition an arbitrary OpenAI-compatible endpoint at an arbitrary base
+// URL — the exact preset a writer uses to point 1667 at a self-hosted
+// server that is none of the three named above. A local build told to
+// call itself "gpt-4o" would otherwise pass the allow-list and receive
+// real OpenAI token IDs for a completely different vocabulary. There is no
+// single "custom" endpoint to cite, because there is no fixed endpoint at
+// all, and no shared native tokenize route to fall back on either.
+//
+// "openai" clears route 1: its preset is only ever assigned when the
+// connection's base URL actually resolves to its one fixed, real host
+// (api.openai.com — see presetFor in shared/settings-basic-draft.ts), so
+// the reported model ID is trustworthy against the tiktoken allow-list.
+//
+// "openrouter" clears neither route, for a reason distinct from the alias
+// risk above: OpenRouter routes a given model ID to arbitrary providers and
+// model families behind the scenes, so the vocabulary that actually serves
+// a request is unknowable client-side even though the base URL itself is
+// fixed (openrouter.ai) and the model ID is OpenRouter's own routing key.
+// A token ID guessed from that ID could corrupt output on whichever family
+// OpenRouter happens to route to. It has no native tokenize side channel
+// either, so it is subtracted the same as the self-hosted presets.
+//
+// llama.cpp's server documents an operator-settable alias the same as the
+// self-hosted presets above ("-a, --alias STRING  set model name aliases,
+// comma-separated (to be used by API)", tools/server/README.md, --alias),
+// so its reported model ID is not trusted for the allow-list either — but
+// its native POST /tokenize endpoint tokenizes against whatever model that
+// server instance actually has loaded, independent of the reported name,
+// which is why it is the one self-hosted preset not subtracted here.
+//
+// logitBias itself is unaffected by any of this: it takes a raw token ID
+// the writer already resolved by hand, so it never depends on which
+// tokenizer produced it. (Reasoning-family OpenAI models still reject it —
+// see the reasoning-family gate in resolveSamplingKnob.)
 const PRESET_SUBTRACTIONS: Readonly<
   Partial<Record<SettingsPresetV2, readonly SamplingKnobV2[]>>
 > = {
-  "lm-studio": ["minP"],
-  ollama: ["logitBias"],
-  koboldcpp: ["frequencyPenalty"]
+  "lm-studio": ["minP", "phraseBias", "bannedStrings"],
+  ollama: ["logitBias", "phraseBias", "bannedStrings"],
+  koboldcpp: ["frequencyPenalty", "phraseBias", "bannedStrings"],
+  custom: ["phraseBias", "bannedStrings"],
+  openrouter: ["phraseBias", "bannedStrings"]
 };
+
+function needsExactTokenizer(knob: SamplingKnobV2): boolean {
+  return knob === "phraseBias" || knob === "bannedStrings";
+}
 
 // Anthropic documents top_p/top_k restrictions by exact model ID. Keep this
 // allow-list closed so a new model cannot cause an unexpected 400 response.
@@ -158,6 +252,8 @@ const KNOB_LABELS: Readonly<Record<SamplingKnobV2, string>> = {
   seed: "seed",
   stop: "stop sequences",
   logitBias: "logit bias",
+  phraseBias: "phrase bias",
+  bannedStrings: "banned strings",
   dryMultiplier: "dry multiplier",
   dryBase: "dry base",
   dryRange: "dry range",
@@ -239,6 +335,35 @@ export function resolveSamplingKnob(
     && !ANTHROPIC_TRUNCATION_SAMPLING.has(context.remoteModelId)
   ) {
     return { kind: "unavailable", reason: "model-unknown" };
+  }
+
+  if (
+    context.protocol === "openai-chat-completions"
+    && context.preset === "openai"
+    && isLogitBiasFamilyKnob(knob)
+    && OPENAI_REASONING_FAMILY_MODELS.has(context.remoteModelId)
+  ) {
+    return { kind: "unavailable", reason: "reasoning-model" };
+  }
+
+  // The tiktoken allow-list is the tokenizer authority for every preset
+  // that reaches this point except "llama-cpp": every other preset with a
+  // trust problem was already subtracted above (PRESET_SUBTRACTIONS), so
+  // what is left here is "openai" (a trustworthy reported model ID) and
+  // any other preset/protocol combination with no tokenizer strategy at
+  // all, both of which the allow-list correctly gates. llama-cpp resolves
+  // phraseBias/bannedStrings through its own live tokenize probe instead
+  // (server/context-probe.ts, probeLlamaCppTokenize), which this
+  // synchronous capability check cannot run — that resolution, and its own
+  // "tokenizer failed" outcome, happens where the async work already
+  // lives: request build time and the editor's resolveSamplingBias preview.
+  if (
+    context.protocol === "openai-chat-completions"
+    && context.preset !== "llama-cpp"
+    && needsExactTokenizer(knob)
+    && promptBiasTokenizerEncoding(context.remoteModelId) === null
+  ) {
+    return { kind: "unavailable", reason: "no-exact-tokenizer" };
   }
 
   // Checked last, after every route/protocol/preset check: an unsupported
@@ -343,7 +468,9 @@ export function samplingSettingsEqual(
   return SAMPLING_KNOB_V2_VALUES.every((knob) => {
     const a = left[knob];
     const b = right[knob];
-    if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => v === b[i]);
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((value, index) => samplingArrayItemEqual(value, b[index]));
+    }
     if (a !== null && b !== null && typeof a === "object" && typeof b === "object") {
       const leftEntries = Object.entries(a);
       const rightEntries = Object.entries(b);
@@ -353,6 +480,25 @@ export function samplingSettingsEqual(
     }
     return a === b;
   });
+}
+
+/** `stop` and `bannedStrings` hold primitive strings, which compare with
+ * `===`. `phraseBias` holds `{ phrase, weight }` value objects that a draft
+ * edit always recreates with a fresh reference, so a reference comparison
+ * would report every unedited draft as changed. */
+function samplingArrayItemEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (
+    left !== null && right !== null
+    && typeof left === "object" && typeof right === "object"
+    && "phrase" in left && "weight" in left
+    && "phrase" in right && "weight" in right
+  ) {
+    const leftEntry = left as { phrase: unknown; weight: unknown };
+    const rightEntry = right as { phrase: unknown; weight: unknown };
+    return leftEntry.phrase === rightEntry.phrase && leftEntry.weight === rightEntry.weight;
+  }
+  return false;
 }
 
 const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
@@ -394,6 +540,16 @@ const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
     reason: "This model has no documented support for this parameter.",
     compact: "model unknown",
     clause: "for a model without a documented sampling contract"
+  },
+  "no-exact-tokenizer": {
+    reason: "1667 has no exact tokenizer for this model, so it cannot resolve text to token IDs.",
+    compact: "no exact tokenizer",
+    clause: "for a model with no exact tokenizer"
+  },
+  "reasoning-model": {
+    reason: "This reasoning model rejects logit bias.",
+    compact: "reasoning model",
+    clause: "for a reasoning model"
   },
   "mirostat-off": {
     reason: "Mirostat is off.",
