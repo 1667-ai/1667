@@ -49,6 +49,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   machine-wide default for that story's continuation, prompted retake,
   highlighted rewrite, and autoname requests. A story with no Author Brief of
   its own keeps the machine-wide default. Thanks @10fra for the request.
+- **The context meter and the request viewer now count tokens.** Before, they
+  counted four characters for each token. 1667 now uses the tokenize source of
+  the preset: the bundled tokenizer for the official OpenAI host, the count
+  endpoint for the official Anthropic host, and the tokenize endpoint of
+  llama.cpp or KoboldCpp. An exact count shows no mark. A near-exact count
+  shows `≈`. A preset with no tokenize source keeps the `~` estimate. 1667
+  counts the request after you stop typing, so a count never delays a
+  keystroke. If the model server does not answer, 1667 keeps the estimate.
+  Thanks @10fra for the request.
 - **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
   `.json` file to the command or to `import archive` in the command palette.
   1667 reads the file to know its format. A constant Entry becomes an always

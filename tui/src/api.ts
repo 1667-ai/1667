@@ -6,16 +6,13 @@ import {
   decodeChapterBreakCreatedResponse,
   decodeChapterBreakRemovalPreview,
   decodeChapterBreakRemovedResponse,
-  decodeContextWindowResponse,
   decodeContinueStoryResponse,
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
-  decodeSamplingBiasResolutionResponse,
   decodeUnknownOutcomeStatusResponse,
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
-  decodeModelServerCheckResponse,
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type {
@@ -53,7 +50,8 @@ import type {
   SettingsMutationResult,
   SettingsView
 } from "../../shared/settings-v2-types.js";
-import { decodeModelDiscoveryResult } from "../../shared/settings-response-decoder.js";
+import type { ChatMessage } from "../../shared/prompt-plan.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import {
   HTTP_API_PROTOCOL_VERSION,
   HTTP_CLIENT_PROTOCOL_HEADER,
@@ -72,9 +70,6 @@ import type {
 import {
   HTTP_OPERATION_LIFETIME_MS
 } from "../../shared/http-operation-protocol.js";
-import {
-  WORKER_PROVIDER_CHECK_TIMEOUT_MS
-} from "../../shared/worker-protocol.js";
 import { isWorkerMutationMethod } from "../../shared/worker-protocol.js";
 import { resolveHttpApiRoute } from "../../shared/http-operation-policy.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
@@ -97,6 +92,7 @@ import {
 } from "./api-error.js";
 import { HttpApiConnection } from "./http-api-connection.js";
 import { importMethods } from "./api-import-methods.js";
+import { providerMethods } from "./api-provider-methods.js";
 
 export type { RemovedChapterBreak } from "./api-response-decoders.js";
 export {
@@ -179,6 +175,10 @@ export interface StoryApi {
     settings: ProviderProbeTarget,
     signal?: AbortSignal
   ): Promise<ModelDiscoveryResultV2>;
+  countPromptTokens(
+    messages: readonly ChatMessage[],
+    signal?: AbortSignal
+  ): Promise<PromptTokenCount>;
   importSillyTavern(jsonl: string): Promise<StoryPayload>;
   importMarkdown(markdown: string, defaultTitle?: string): Promise<StoryPayload>;
   importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
@@ -828,30 +828,7 @@ export function createApi(
         undefined,
         command.mutationId
       ),
-    checkModelServer: (settings) => request("POST", "/api/settings/check-server", decodeModelServerCheckResponse, settings),
-    probeContextWindow: (settings) => request(
-      "POST",
-      "/api/settings/probe-context",
-      decodeContextWindowResponse,
-      settings,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS
-    ),
-    resolveSamplingBias: (biasRequest) => request(
-      "POST",
-      "/api/settings/resolve-sampling-bias",
-      decodeSamplingBiasResolutionResponse,
-      biasRequest,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS
-    ),
-    discoverModels: (settings, signal) => request(
-      "POST",
-      "/api/settings/discover-models",
-      decodeModelDiscoveryResult,
-      settings,
-      WORKER_PROVIDER_CHECK_TIMEOUT_MS,
-      undefined,
-      signal
-    ),
+    ...providerMethods({ request }),
     ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       const done = await stream(

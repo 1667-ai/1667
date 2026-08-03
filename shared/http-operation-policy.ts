@@ -66,6 +66,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   // not always the pure local computation it used to be — same budget as
   // the other provider-probe methods above.
   resolveSamplingBias: "provider-check",
+  countPromptTokens: "provider-check",
   importSillyTavern: "transfer",
   importMarkdown: "transfer",
   importNovelAI: "transfer",
@@ -149,6 +150,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "POST") return "discoverModels";
   if (path === "/api/settings/resolve-sampling-bias"
     && httpMethod === "POST") return "resolveSamplingBias";
+  if (path === "/api/settings/count-tokens"
+    && httpMethod === "POST") return "countPromptTokens";
   if (path === "/api/import/sillytavern"
     && httpMethod === "POST") return "importSillyTavern";
   if (path === "/api/import/markdown"

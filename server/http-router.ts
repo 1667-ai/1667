@@ -286,6 +286,15 @@ async function handleApi(
       await service.resolveSamplingBias(await jsonBody(), operation.signal)
     );
   }
+  // No settings and no story id: this always counts against the backend's
+  // own effective prose route, so the body carries only the messages.
+  if (head === "settings" && id === "count-tokens" && method === "POST") {
+    return sendJson(
+      response,
+      200,
+      await service.countPromptTokens((await jsonBody()).messages, operation.signal)
+    );
+  }
 
   if (head === "stories" && id === undefined) {
     if (method === "GET") return sendJson(response, 200, await service.listStories());

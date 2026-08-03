@@ -16,6 +16,8 @@ import type {
   SwitchRequest,
   TakeFromCutRequest
 } from "./types.js";
+import type { ChatMessage } from "./prompt-plan.js";
+import type { PromptTokenCount } from "./tokenize-source.js";
 import type {
   DiscardPendingSettingsCommand,
   ModelDiscoveryResultV2,
@@ -198,6 +200,9 @@ export interface WorkerMethodContract {
     };
     output: SamplingBiasResolutionResult;
   };
+  /** No settings and no story id: the count always measures the backend's own
+   * effective prose route, the same one a continuation would use. */
+  countPromptTokens: { input: { messages: readonly ChatMessage[] }; output: PromptTokenCount };
   importSillyTavern: { input: { jsonl: string }; output: StoryPayload };
   importMarkdown: { input: { markdown: string; defaultTitle?: string }; output: StoryPayload };
   importNovelAI: { input: { storyContainerJson: string }; output: { payload: StoryPayload; fidelity: readonly string[] } };
@@ -244,7 +249,8 @@ export const PROVIDER_CHECK_METHODS: ReadonlySet<WorkerMethod> = new Set([
   "checkModelServer",
   "probeContextWindow",
   "discoverModels",
-  "resolveSamplingBias"
+  "resolveSamplingBias",
+  "countPromptTokens"
 ]);
 
 export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
@@ -478,7 +484,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
-  "discoverModels", "resolveSamplingBias",
+  "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "continueStory",
 
   "rewriteNode", "createSummaryTake"

@@ -4,7 +4,7 @@ import {
   hasProviderRuntime,
   providerRuntimeFor
 } from "./provider-runtime.js";
-import { providerUrl } from "./providers.js";
+import { providerRoot, providerUrl } from "./providers.js";
 import {
   MAX_SETTINGS_TOKEN_COUNT
 } from "./settings-v2-scalars.js";
@@ -19,7 +19,7 @@ export async function probeContextWindow(
   settings: GenerationSettings,
   signal?: AbortSignal
 ): Promise<number | null> {
-  const root = settings.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+  const root = providerRoot(settings);
   const probes: (() => Promise<number | null>)[] = [];
   const runtime = providerRuntimeFor(settings);
   const legacyNativeFallback = !hasProviderRuntime(settings);

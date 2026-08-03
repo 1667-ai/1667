@@ -20,6 +20,8 @@ import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
+import type { ChatMessage, PromptRole } from "../shared/prompt-plan.js";
+import type { PromptTokenCount } from "../shared/tokenize-source.js";
 import {
   SEARCH_HIT_LIMIT,
   searchCorpus,
@@ -39,7 +41,9 @@ import { runLocalTierMutation } from "./mutation-local-tier.js";
 import { providerRecoveryFromArchive } from "./mutation-outbox.js";
 import type { RemovedChapterBreak } from "./chapter-breaks.js";
 import { probeContextWindow } from "./context-probe.js";
+import { countPromptTokens } from "./tokenize-probe.js";
 import { ServiceError } from "./errors.js";
+import { requireRecord, requireStringValue } from "./validation.js";
 import type { DeltaConsumer } from "./generation-stream.js";
 import {
   MAX_IMPORT_BYTES,
@@ -66,7 +70,6 @@ import {
   resolveSamplingBiasForSettings
 } from "./sampling-phrase-bias.js";
 import type { SamplingBiasResolutionResult } from "../shared/sampling-capabilities.js";
-import { requireRecord } from "./validation.js";
 import { seedStarterVault } from "./starter-vault.js";
 import { buildStoryPayload } from "./story-payload.js";
 import type { MutationPlan, MutationPreflightPlan } from "./mutation-plan.js";
@@ -602,6 +605,18 @@ export class StoryService extends StoryServiceRuntime {
     return await resolveSamplingBiasForSettings(input, settings, signal);
   }
 
+  /** No settings and no story id: this always counts against the backend's
+   * own effective prose route, unlike a probe against an arbitrary target. */
+  async countPromptTokens(
+    value: unknown,
+    signal?: AbortSignal
+  ): Promise<PromptTokenCount> {
+    this.ensureOpen();
+    const messages = requireChatMessages(value);
+    const { settings } = await this.settings.loadGeneration("prose");
+    return await countPromptTokens(settings, messages, signal);
+  }
+
   private async persistImportedStory(
     imported: GenericImport,
     method: ImportCreationMethod,
@@ -984,4 +999,25 @@ function requireLiveSearch(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) {
     throw new ServiceError(408, "Search was superseded or cancelled");
   }
+}
+
+const PROMPT_ROLES: ReadonlySet<string> = new Set(
+  ["system", "user", "assistant"] satisfies readonly PromptRole[]
+);
+
+/** The one place either transport's `messages` input turns into a trusted
+ * `ChatMessage[]`, so a malformed request never reaches the tokenize probe. */
+function requireChatMessages(value: unknown): readonly ChatMessage[] {
+  if (!Array.isArray(value)) throw new ServiceError(400, "messages must be an array");
+  return value.map((entry, index) => {
+    const message = requireRecord(entry, `messages[${index}]`);
+    const role = message.role;
+    if (typeof role !== "string" || !PROMPT_ROLES.has(role)) {
+      throw new ServiceError(400, `messages[${index}].role is invalid`);
+    }
+    return {
+      role: role as PromptRole,
+      content: requireStringValue(message.content, `messages[${index}].content`)
+    };
+  });
 }
