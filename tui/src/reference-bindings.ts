@@ -95,6 +95,8 @@ const DEFINITIONS = {
   composeToggleContext: route("compose-chord", "g", "COMPOSE", "toggle-context-meter", { ctrl: true }),
   navOpenRequest: route("nav-chord", "r", "NAV", "open-request", { ctrl: true }),
   composeOpenRequest: route("compose-chord", "r", "COMPOSE", "open-request", { ctrl: true }),
+  // "l" for "logprobs" — the header the viewer itself shows.
+  navOpenProbs: route("nav", "l", "NAV", "open-probs"),
   navOpenSearch: route("nav", "/", "NAV", "open-search", { sequence: "/" }),
   navOpenKeysQuestion: route("nav", "?", "NAV", "open-keys"),
   // Decision 24 gives global feedback a letter key of its own, unbound

@@ -11,6 +11,7 @@ import type {
   StorySummary
 } from "../../shared/types.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
+import { parseTokenProbabilities, type TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
   SAMPLING_BIAS_VARIANT_VALUES,
@@ -402,6 +403,21 @@ export function decodeUnknownOutcomeStatusResponse(
 export function decodeStoryResponse(value: unknown): StoryPayload {
   assertPromptReadyStoryPayload(value);
   return value;
+}
+
+/** Re-serializes the decoded JSON and hands it to the same canonical parser
+ * that verifies a stored object's bytes (shared/token-probabilities.ts), so
+ * the client can never accept a shape the server itself would reject. */
+export function decodeTokenProbabilitiesResponse(value: unknown): TokenProbabilityRecord {
+  try {
+    return parseTokenProbabilities(JSON.stringify(value));
+  } catch (error) {
+    throw new Error(
+      `The server returned an invalid token probabilities response.${
+        error instanceof Error ? ` ${error.message}` : ""
+      }`
+    );
+  }
 }
 
 const FACT_DROP_REASONS: ReadonlySet<string> = new Set(["priority", "fact-budget", "total-budget"]);

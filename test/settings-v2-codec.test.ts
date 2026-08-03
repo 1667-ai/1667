@@ -52,6 +52,7 @@ import {
   SAMPLING_BANNED_STRINGS_POLICY,
   SAMPLING_LOGIT_BIAS_POLICY
 } from "../shared/sampling-validation-policy.js";
+import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
 import type { GenerationSettings } from "../shared/types.js";
 import {
   SETTINGS_V2_CORPUS_SHA256,
@@ -266,6 +267,59 @@ test("all-empty sampling normalizes away and preserves the initial settings iden
   assert.equal(Object.hasOwn(document.profiles.default!, "sampling"), false);
   assert.equal(formatSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_TEXT);
   assert.equal(hashSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_HASH);
+});
+
+// tokenProbabilities (issue #291 phase 1) is an optional profile scalar,
+// wired the same way `sampling` is above: absent by default, so a document
+// saved before the field existed keeps meaning exactly what it did.
+test("tokenProbabilities parses as a closed optional profile scalar and round-trips", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const document = parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, tokenProbabilities: 8 }
+    }
+  });
+  assert.equal(document.profiles.default?.tokenProbabilities, 8);
+  assert.deepEqual(parseSettingsDocumentV2Text(formatSettingsDocumentV2(document)), document);
+});
+
+// A codec that ever spread `tokenProbabilities: undefined` into the parsed
+// profile would make `canonicalJson` throw the moment this document's hash
+// is computed below (it rejects an own key with an undefined value) — this
+// is the regression test for that failure mode, not just an absence check.
+test("tokenProbabilities stays absent through a document round trip when unset", () => {
+  const document = parseSettingsDocumentV2(INITIAL_SETTINGS_DOCUMENT_V2);
+  assert.equal(Object.hasOwn(document.profiles.default!, "tokenProbabilities"), false);
+  assert.equal(formatSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_TEXT);
+  assert.equal(hashSettingsDocumentV2(document), INITIAL_SETTINGS_DOCUMENT_V2_HASH);
+});
+
+test("tokenProbabilities bounds reject 0 and past the alternative ceiling", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const withTokenProbabilities = (tokenProbabilities: number) => parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: { ...base.profiles.default!, tokenProbabilities }
+    }
+  });
+  assert.throws(() => withTokenProbabilities(0), /tokenProbabilities/);
+  assert.throws(() => withTokenProbabilities(1.5), /tokenProbabilities/);
+  assert.throws(() => withTokenProbabilities(MAX_ALTERNATIVE_TOKENS + 1), /tokenProbabilities/);
+  assert.doesNotThrow(() => withTokenProbabilities(1));
+  assert.doesNotThrow(() => withTokenProbabilities(MAX_ALTERNATIVE_TOKENS));
 });
 
 test("sampling bounds and closed-shape rules fail before request lowering", () => {

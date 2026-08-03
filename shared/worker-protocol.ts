@@ -29,6 +29,7 @@ import type {
 import type { LorebookImport } from "./lorebook-entry.js";
 import type { CardImportPlan } from "./card-import.js";
 import type { FactBudgetDrop } from "./fact-budget.js";
+import type { TokenProbabilityRecord } from "./token-probabilities.js";
 import type { SamplingBiasResolutionResult } from "./sampling-capabilities.js";
 
 import type {
@@ -159,6 +160,11 @@ export interface WorkerMethodContract {
   };
   deleteStory: { input: { id: string }; output: { ok: true } };
   exportMarkdown: { input: { id: string }; output: string };
+  /** Reads a stored diagnostic straight from the manifest and object store —
+   *  never through StoryPayload, which carries presence only. A take with no
+   *  stored record fails the request (typed 404 reason) rather than
+   *  returning one. */
+  getTokenProbabilities: { input: { storyId: string; nodeId: string }; output: TokenProbabilityRecord };
   switchLine: { input: { storyId: string; nodeId: string; options?: Omit<SwitchRequest, "nodeId"> }; output: StoryPayload };
   createNode: { input: { storyId: string; body: CreateNodeRequest }; output: StoryPayload };
   editNode: { input: { storyId: string; nodeId: string; body: EditNodeRequest }; output: StoryPayload };
@@ -507,7 +513,8 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
-  "exportMarkdown", "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
+  "exportMarkdown", "getTokenProbabilities",
+  "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",

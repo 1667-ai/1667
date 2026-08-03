@@ -45,6 +45,7 @@ function runtime(allowInsecureHttp: boolean) {
     timeouts: { responseHeaderMs: 1_000, firstTokenMs: 1_000, idleMs: 1_000, totalMs: 5_000 },
     allowInsecureHttp,
     effort: "default" as const,
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported" as const,

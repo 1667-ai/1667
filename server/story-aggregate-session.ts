@@ -14,7 +14,7 @@ import {
 } from "./story-codec.js";
 import { pathTo } from "../shared/story-tree.js";
 import {
-  manifestRevisionIds,
+  liveObjectIds,
   STORY_SCHEMA_VERSION,
   type ObjectHash,
   type TextRevisionV1
@@ -159,7 +159,7 @@ export class StoryAggregateSession {
       throw new ServiceError(404, `Story not found: ${this.storyId}`);
     }
     this.preparedCleanupRetirement = false;
-    const previousRevisionIds = manifestRevisionIds(this.snapshot.manifest.content);
+    const previousLive = liveObjectIds(this.snapshot.manifest.content);
     const previous = Date.parse(story.updatedAt);
     story.updatedAt = new Date(
       Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)
@@ -181,19 +181,23 @@ export class StoryAggregateSession {
       // corruption on inactive branches surfaces at read time instead of
       // blocking unrelated saves.
       objects.adoptKnownGraph(this.liveGraph.revisions, { committed: true });
-      objects.adoptCommittedRevisionIds(previousRevisionIds);
+      objects.adoptCommittedIds("revisions", previousLive.revisions);
+      objects.adoptCommittedIds("probabilities", previousLive.probabilities);
     }
     const content = await encodeStoryBundle(story, objects);
     await objects.flush();
-    await objects.verifyGraph(manifestRevisionIds(content));
-    const nextRevisionIds = new Set(manifestRevisionIds(content));
+    const nextLive = liveObjectIds(content);
+    await objects.verifyGraph(nextLive);
+    const nextRevisionIds = new Set(nextLive.revisions);
+    const nextProbabilityIds = new Set(nextLive.probabilities);
     // Parsing normalizes V2-V4 sources before this diff can run (old fact
     // states collapse to their selected revision), so objects the
-    // normalization dropped never appear in previousRevisionIds. Mirror the
-    // V5 save path: a legacy-schema source always owes the first V5 sweep.
+    // normalization dropped never appear in previousLive.revisions. Mirror
+    // the V5 save path: a legacy-schema source always owes the first V5 sweep.
     this.preparedCleanupRetirement = await cleanup.settle(
       this.legacySchemaSource
-        || previousRevisionIds.some((id) => !nextRevisionIds.has(id))
+        || previousLive.revisions.some((id) => !nextRevisionIds.has(id))
+        || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
     ) === "retire-marker";
     return {
       story,

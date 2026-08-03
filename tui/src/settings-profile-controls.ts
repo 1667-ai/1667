@@ -1,6 +1,7 @@
 import {
   GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
+  type GenerationProfileV2,
   type SettingsRoutePurpose,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
@@ -26,6 +27,12 @@ import {
 import { settingsModelChoices } from "./settings-model-discovery.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
 import { samplingRowValue } from "./sampling-model.js";
+import { cycleProfileField, markControlMutation } from "./settings-profile-cycle.js";
+import {
+  tokenProbabilitiesRowHint,
+  tokenProbabilitiesRowState,
+  tokenProbabilitiesRowValue
+} from "./settings-token-probabilities-row.js";
 import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
@@ -85,6 +92,7 @@ export function settingsRows(
     && isPlainHttp(settings.baseUrl)
     && settings.allowInsecureHttp !== true;
   const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
+  const tokenProbabilities = tokenProbabilitiesRowState(overlay);
   return [
     {
       id: "theme", section: "app", label: "theme",
@@ -154,6 +162,11 @@ export function settingsRows(
       value: `‹ ${cache.policy} ›`,
       dots: positionDots(PROMPT_CACHE_POLICY_V2_VALUES, overlay.draft.cachePolicy),
       hint: cache.kind === "available" ? cache.detail : `unavailable · ${cache.reason}`
+    },
+    {
+      id: "token-probabilities", section: "generation", label: "alt count",
+      value: tokenProbabilitiesRowValue(tokenProbabilities),
+      hint: tokenProbabilitiesRowHint(tokenProbabilities)
     },
     routeRow("default-route", "default", overlay, "default"),
     routeRow("prose-route", "prose", overlay, "prose"),
@@ -266,19 +279,13 @@ export function cycleEffortControl(
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return null;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) return null;
-  const choices = generationEffortChoices(document, profileId);
-  const index = choices.indexOf(profile.effort);
-  const effort = choices[index < 0
-    ? 0
-    : (index + step + choices.length) % choices.length]!;
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    profiles: { ...document.profiles, [profileId]: { ...profile, effort } }
-  }, profileId);
-  markControlMutation(overlay);
-  return effort;
+  return cycleProfileField(
+    overlay,
+    step,
+    generationEffortChoices(document, profileId),
+    (profile) => profile.effort,
+    (profile, effort) => ({ ...profile, effort })
+  ) ?? null;
 }
 
 export function cycleCachePolicyControl(
@@ -416,12 +423,6 @@ function modelRowValue(overlay: SettingsOverlayState): string {
     ? model.length === 0 ? "choose model" : settingsModelDisplayText(model)
     : settingsModelDisplayText(selected.name);
   return `‹ ${label} ›`;
-}
-
-function markControlMutation(overlay: SettingsOverlayState): void {
-  overlay.deleteArmedProfileId = null;
-  overlay.result = null;
-  if (overlay.conflict !== null) overlay.conflict.armed = false;
 }
 
 function isPlainHttp(value: string): boolean {

@@ -493,6 +493,7 @@ function settings(options: {
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",

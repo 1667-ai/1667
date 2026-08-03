@@ -23,6 +23,7 @@ test("sampling lowering does not partially mutate a body on resolution failure",
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling,
     capabilities: {
       temperature: "supported",
@@ -61,6 +62,7 @@ test("an LM Studio route with DRY configured fails with the ProviderError naming
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling,
     capabilities: {
       temperature: "supported",
@@ -92,6 +94,7 @@ test("mirostat off with tau configured sends neither mirostat_tau nor mirostat_e
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling,
     capabilities: {
       temperature: "supported",

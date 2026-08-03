@@ -120,14 +120,17 @@ describe("arrow-first key routing", () => {
     expect(resolveKey(key("escape"), "ARCHIVE").action).toBe("cancel");
   });
 
-  test("NAV uses arrows for parts and takes; h/j/k/l are unbound", () => {
+  test("NAV uses arrows for parts and takes; h/j/k are unbound", () => {
     expect(resolveKey(key("down"), "NAV").action).toBe("focus-next");
     expect(resolveKey(key("up"), "NAV").action).toBe("focus-previous");
     expect(resolveKey(key("right"), "NAV").action).toBe("take-next");
     expect(resolveKey(key("left"), "NAV").action).toBe("take-previous");
-    for (const dead of ["h", "j", "k", "l"]) {
+    for (const dead of ["h", "j", "k"]) {
       expect(resolveKey(key(dead), "NAV").action).toBe("none");
     }
+    // "l" for "logprobs" (issue #291 phase 4) — the one vi-motion letter NAV
+    // does bind, and deliberately so: see reference-bindings.ts.
+    expect(resolveKey(key("l"), "NAV").action).toBe("open-probs");
   });
 
   test("shifted arrows keep NAV scrolling and MAP focus semantics", () => {

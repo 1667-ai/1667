@@ -49,7 +49,7 @@ import type { StoryManifestV6 } from "./story-v6-types.js";
 import type { StoryStore } from "./stories.js";
 import { readStoredStorySlot } from "./story-storage-reader.js";
 import { storyAggregateSnapshot } from "./story-aggregate-state.js";
-import { manifestRevisionIds } from "./story-format.js";
+import { liveObjectIds } from "./story-format.js";
 import { readBoundedRegularFile } from "./data-directory-file-read.js";
 import { requireFreshUnseenMutationId } from "./mutation-id-policy.js";
 import { MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
@@ -243,7 +243,7 @@ export class StoryCreationMutationStore {
         summary: storySummaryV6FromContent(content)
       });
       if (manifest === null) throw new Error("Creation reducer returned absence");
-      await objects.verifyGraph(manifestRevisionIds(content));
+      await objects.verifyGraph(liveObjectIds(content));
       await writeDurableFile(
         path.join(residue, "manifest.json"),
         formatV6(manifest),

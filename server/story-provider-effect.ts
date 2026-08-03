@@ -1,6 +1,7 @@
 import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
+import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -9,6 +10,7 @@ import {
 import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
+import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import {
   appendContinuationToNode,
   commitTake,
@@ -40,6 +42,14 @@ export interface ContinueStoryEffect extends TakeCommit {
   readonly expectedAppendActiveChildId: string | null;
   readonly expectedActiveRootId: string | null;
   readonly expectedActiveLeafId: string | null;
+  /** Captured by the stream when the profile asked for token probabilities
+   *  and the provider returned usable ones; null or absent otherwise. Both a
+   *  genuinely new take and an append store it, aligned to whatever text
+   *  this commit actually stores — see TakeCommit.tokenProbabilities.
+   *  Optional so callers unconcerned with this feature (tests, other commit
+   *  sources) need not think about it; the one production construction site,
+   *  `continueStory` in server/generation-http.ts, always supplies it. */
+  readonly tokenProbabilities?: CapturedTokenProbabilities | null;
   readonly cancelled?: AbortSignal;
 }
 
@@ -215,7 +225,11 @@ async function applyContinuation(
     appendTo: appendCrossesNewBreak ? null : effect.appendTo,
     expectedTextHash: appendCrossesNewBreak
       ? null
-      : effect.expectedTextHash
+      : effect.expectedTextHash,
+    // Normalize null to absent here, once, so every branch below reads a
+    // plain TakeCommit. Every branch — append or new take, racing or not —
+    // now forwards this field; see TakeCommit.tokenProbabilities.
+    tokenProbabilities: effect.tokenProbabilities ?? undefined
   };
   const parent = commit.parentId === null
     ? null
@@ -246,7 +260,8 @@ async function applyContinuation(
         commit.text,
         commit.model,
         commit.genId ?? undefined,
-        commit.committedAt
+        commit.committedAt,
+        commit.tokenProbabilities
       );
     } else if (writerMoved) {
       const added = newNode(
@@ -265,6 +280,9 @@ async function applyContinuation(
         added.createdAt = commit.committedAt;
       }
       createTake(story, added, { activate: false });
+      if (commit.tokenProbabilities !== undefined && commit.tokenProbabilities !== null) {
+        attachTakeTokenProbabilities(added, commit.tokenProbabilities, commit.text, 0);
+      }
       if (story.nodes.length === 1 && story.title === "Untitled") {
         story.title = titleFrom(
           commit.genId === null ? added.text : commit.instruction

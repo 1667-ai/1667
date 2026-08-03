@@ -1213,6 +1213,7 @@ function attached(
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",

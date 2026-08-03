@@ -36,8 +36,10 @@ import {
   nodeStubPreview,
   nodeStubTokens,
   nodeStubWords,
-  reusableStoredRevisionId
+  reusableStoredRevisionId,
+  reusableTokenProbabilityId
 } from "./story-node-text.js";
+import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 import { boundedString } from "./story-wire-validation.js";
@@ -92,6 +94,22 @@ export async function encodeStoryBundle(
   const stored = await objects.storeTexts(missing.map(({ node }) => node.text), reuseFrom);
   for (const [index, entry] of missing.entries()) revisionIds[entry.index] = stored[index]!;
 
+  // At most one node per encode ever carries a pending record — the take a
+  // continuation just committed, if it captured any — so a plain sequential
+  // pass costs nothing extra; every other node resolves synchronously from
+  // reusableTokenProbabilityId. takePendingTokenProbabilities also clears the
+  // side table, so a later encode of the same long-lived Story never stores
+  // the same record twice.
+  const tokenProbabilityIds: Array<ObjectHash | undefined> = [];
+  for (const node of story.nodes) {
+    const pending = takePendingTokenProbabilities(node);
+    tokenProbabilityIds.push(
+      pending === undefined
+        ? reusableTokenProbabilityId(node)
+        : await objects.storeTokenProbabilities(pending, reuseFrom)
+    );
+  }
+
   const nodes: StoredNodeV1[] = story.nodes.map((node, index) => ({
     id: node.id,
     parentId: node.parentId,
@@ -111,6 +129,7 @@ export async function encodeStoryBundle(
     ...(node.editedByUser === undefined ? {} : { editedByUser: node.editedByUser }),
     ...(node.human === undefined ? {} : { human: node.human }),
     revisionId: requireEncodedRevision(revisionIds[index], node.id),
+    ...(tokenProbabilityIds[index] === undefined ? {} : { tokenProbabilityId: tokenProbabilityIds[index] }),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
     ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
@@ -206,6 +225,9 @@ export async function decodeStoryBundle(
       ...(stored.coveredExtent === undefined ? {} : { coveredExtent: { ...stored.coveredExtent } }),
       ...(stored.madeAt === undefined ? {} : { madeAt: stored.madeAt }),
       ...(stored.editedByUser === undefined ? {} : { editedByUser: stored.editedByUser }),
+      // Presence only — the record itself is fetched on demand, never loaded
+      // with the story. See shared/token-probabilities.ts.
+      ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilities: true as const }),
       activeChildId: stored.activeChildId
     };
     attachStoredNodeText(node, stored, text);

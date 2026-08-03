@@ -1,5 +1,6 @@
 import { canonicalJson } from "../server/canonical-json.js";
 import { SAMPLING_LOGIT_BIAS_POLICY } from "../shared/sampling-validation-policy.js";
+import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probabilities.js";
 import {
   formatSettingsDocumentV2,
   formatSettingsStateV2
@@ -88,6 +89,10 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
   });
   const emptySampling = withSampling(sampledOpenAi, EMPTY_SAMPLING_V2);
   const legacySamplingText = legacyShapedSamplingDocumentText(sampledOpenAi);
+  // Absent by default, same as `sampling` above: a document with no
+  // tokenProbabilities key still has to parse identically to one written
+  // before the field existed, which "converted-openai" already covers.
+  const tokenProbabilitiesOpenAi = withTokenProbabilities(sampledOpenAi, 8);
   const candidate = applyEffectiveGenerationSettings(INITIAL_SETTINGS_DOCUMENT_V2, openAi);
   const staged = reduceSettingsStateV2(INITIAL_SETTINGS_STATE_V2, {
     kind: "save-document",
@@ -174,6 +179,7 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     valid("document-with-sampling", "document", sampledOpenAi),
     validText("document-empty-sampling", "document", canonicalJson(emptySampling)),
     validText("document-sampling-legacy-fields-absent", "document", legacySamplingText),
+    valid("document-with-token-probabilities", "document", tokenProbabilitiesOpenAi),
     valid("converted-anthropic", "document", convertedAnthropic),
     valid("converted-loopback", "document", convertedLocal),
     valid("stored-bearer", "document", storedBearer),
@@ -240,6 +246,12 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
       ...sampledOpenAi.profiles.default!.sampling!,
       mirostat: 3
     }), false),
+    invalid(
+      "document-token-probabilities-out-of-bounds",
+      "document",
+      withTokenProbabilities(sampledOpenAi, MAX_ALTERNATIVE_TOKENS + 1),
+      false
+    ),
     // The generated schema bounds dryBreakers.items with maxLength: 40,
     // which JSON Schema defines as a count of Unicode characters — a
     // 41-character ASCII breaker is exactly what that bound catches. This
@@ -302,6 +314,22 @@ function legacyShapedSamplingDocumentText(document: SettingsDocumentV2): string 
       [profileId]: { ...profile, sampling: legacySampling }
     }
   });
+}
+
+function withTokenProbabilities(
+  document: SettingsDocumentV2,
+  tokenProbabilities: number
+): SettingsDocumentV2 {
+  const profileId = document.routing.default;
+  const profile = document.profiles[profileId];
+  if (profile === undefined) throw new Error("Canonical settings are missing the default profile");
+  return {
+    ...document,
+    profiles: {
+      ...document.profiles,
+      [profileId]: { ...profile, tokenProbabilities }
+    }
+  };
 }
 
 function withKnownTokenizerModel(document: SettingsDocumentV2): SettingsDocumentV2 {

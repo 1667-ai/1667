@@ -123,6 +123,11 @@ export interface StoryNode {
   coveredExtent?: CoveredExtent;
   madeAt?: string;
   editedByUser?: true;
+  /** This take's captured token probabilities. Presence only — the record
+   *  itself is fetched on demand via
+   *  GET /api/stories/:id/nodes/:nodeId/token-probabilities, never carried
+   *  automatically with the story. See shared/token-probabilities.ts. */
+  tokenProbabilities?: true;
   /** Which child continues the line through this node. null = no preference
    *  recorded (leaf, or story ends here on purpose). Must be a child's id. */
   activeChildId: string | null;
@@ -164,6 +169,8 @@ interface NodeStubBase {
   lastTouched: string;
   updatedAt?: string;
   human?: true;
+  /** See StoryNode.tokenProbabilities. */
+  tokenProbabilities?: true;
   hasInstruction: boolean;
   activeChildId: string | null;
 }
@@ -308,6 +315,7 @@ function assertNodeStub(value: unknown): void {
   optionalString(node, "madeAt", "story node stub");
   optionalLiteral(node, "human", true, "story node stub");
   optionalLiteral(node, "editedByUser", true, "story node stub");
+  optionalLiteral(node, "tokenProbabilities", true, "story node stub");
   optionalLiteral(node, "role", "summary", "story node stub");
   if (node.chapterBreakId !== undefined && typeof node.chapterBreakId !== "string") {
     invalidField("story node stub", "chapterBreakId");
@@ -325,6 +333,7 @@ export function assertStoryNode(value: unknown): asserts value is StoryNode {
   }
   optionalLiteral(node, "human", true, "story path node");
   optionalLiteral(node, "editedByUser", true, "story path node");
+  optionalLiteral(node, "tokenProbabilities", true, "story path node");
   optionalLiteral(node, "role", "summary", "story path node");
   if (node.coveredExtent !== undefined) assertCoveredExtent(node.coveredExtent, "story path node.coveredExtent");
   if (node.attribution !== undefined && node.attribution !== null) {

@@ -16,13 +16,14 @@ import {
   HASH_PATTERN,
   STORY_SCHEMA_VERSION,
   StoryFormatError,
-  manifestRevisionIds,
+  liveObjectIds,
   parseManifest,
   serializeManifest,
   sha256,
   type ObjectHash,
   type StoryManifestV5
 } from "./story-format.js";
+import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
@@ -47,7 +48,7 @@ import {
   requireNode,
   switchLine as switchTreeLine
 } from "./story-nodes.js";
-import { StoryObjectStore } from "./story-objects.js";
+import { StoryObjectStore, type LiveStoryObjectIds, type ObjectKind } from "./story-objects.js";
 import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
   BoundedCleanupQueue,
@@ -87,12 +88,27 @@ export const STORY_LIST_IO_CONCURRENCY = 4;
 export const STORY_UNCHANGED = Symbol("story-unchanged");
 
 type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" }>;
-type SweepObjects = (bundleDir: string, liveRevisionIds: readonly ObjectHash[], signal: AbortSignal) => Promise<boolean>;
+type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
 interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boolean }
+/** One story's provider-snapshot pins, kept apart by object kind — mixing
+ * them would protect a revision hash from the probabilities sweep pass (or
+ * vice versa), silently defeating the pin. Shaped like StoryObjectStore's own
+ * per-kind collections (server/story-objects.ts) for the same reason: only
+ * `revisions` and `probabilities` are ever populated (`LiveStoryObjectIds`
+ * has no `chunks`), but sharing the kind-generic shape lets `addPins` and
+ * `releasePins` run as one loop each instead of one call per kind. */
+type ProviderSnapshotPins = Record<ObjectKind, Map<ObjectHash, number>>;
+/** The two kinds `LiveStoryObjectIds` ever carries — the subset of
+ * `ProviderSnapshotPins`' kinds that pinning and its release loop touch. */
+const LIVE_OBJECT_KINDS = ["revisions", "probabilities"] as const satisfies readonly (keyof LiveStoryObjectIds)[];
 
-const sweepObjects: SweepObjects = async (bundleDir, liveRevisionIds, signal) =>
-  await new StoryObjectStore(bundleDir).sweep(liveRevisionIds, signal);
+function emptyProviderSnapshotPins(): ProviderSnapshotPins {
+  return { chunks: new Map(), revisions: new Map(), probabilities: new Map() };
+}
+
+const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
+  await new StoryObjectStore(bundleDir).sweep(live, signal);
 
 export class StoryStore {
   constructor(
@@ -108,7 +124,7 @@ export class StoryStore {
 
   private readonly snapshots = new WeakMap<Story, StoryRevisionSnapshot>();
   private readonly providerSnapshotPins =
-    new Map<string, Map<ObjectHash, number>>();
+    new Map<string, ProviderSnapshotPins>();
   /** One writer at a time per story. Read-modify-write is otherwise not atomic:
    *  a Stop and the stream's own commit can both load an unstamped story, both
    *  decide to write, and race — duplicating a node or losing the other's text.
@@ -167,7 +183,8 @@ export class StoryStore {
 
   /** Keep an admitted provider snapshot's immutable objects readable while
    * provider preparation runs outside the story claim. Cleanup retains the
-   * union of live and pinned revisions until the returned lease is released. */
+   * union of live and pinned revisions and token probability objects until
+   * the returned lease is released. */
   pinProviderSnapshot(
     session: StoryAggregateSession
   ): () => void {
@@ -176,25 +193,22 @@ export class StoryStore {
       throw new Error("Cannot pin a deleted provider snapshot");
     }
     const storyId = session.storyId;
-    const revisionIds = [
-      ...new Set(manifestRevisionIds(manifest.content))
-    ];
-    const pins = this.providerSnapshotPins.get(storyId)
-      ?? new Map<ObjectHash, number>();
+    const live = liveObjectIds(manifest.content);
+    const dedupedLive: LiveStoryObjectIds = {
+      revisions: [...new Set(live.revisions)],
+      probabilities: [...new Set(live.probabilities)]
+    };
+    const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
     this.providerSnapshotPins.set(storyId, pins);
-    for (const revisionId of revisionIds) {
-      pins.set(revisionId, (pins.get(revisionId) ?? 0) + 1);
-    }
+    for (const kind of LIVE_OBJECT_KINDS) addPins(pins[kind], dedupedLive[kind]);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      for (const revisionId of revisionIds) {
-        const count = pins.get(revisionId);
-        if (count === undefined || count <= 1) pins.delete(revisionId);
-        else pins.set(revisionId, count - 1);
+      for (const kind of LIVE_OBJECT_KINDS) releasePins(pins[kind], dedupedLive[kind]);
+      if (Object.values(pins).every((map) => map.size === 0)) {
+        this.providerSnapshotPins.delete(storyId);
       }
-      if (pins.size === 0) this.providerSnapshotPins.delete(storyId);
       this.cleanupQueue.schedule(storyId);
     };
   }
@@ -399,6 +413,31 @@ export class StoryStore {
     });
   }
 
+  /** One take's stored token probabilities, read directly from the manifest
+   *  and the object store — never through `Story`/`StoryNode`, which carry
+   *  presence only. 404s, distinguishably by message, when the story or the
+   *  take is missing and when the take exists but asked for no probabilities. */
+  async loadTokenProbabilities(id: string, nodeId: string): Promise<TokenProbabilityRecord> {
+    return await this.withIo(id, async () => {
+      let slot: ResolvedStory;
+      try {
+        slot = await this.resolveUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) throw new HttpError(404, `Take not found: ${nodeId}`);
+        throw error;
+      }
+      await this.schedulePendingCleanup(id);
+      if (slot.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+      const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+      const stored = manifest.nodes.find((node) => node.id === nodeId);
+      if (stored === undefined) throw new HttpError(404, `Take not found: ${nodeId}`);
+      if (stored.tokenProbabilityId === undefined) {
+        throw new HttpError(404, "This take has no stored token probabilities.");
+      }
+      return await new StoryObjectStore(this.bundlePath(id)).readTokenProbabilities(stored.tokenProbabilityId);
+    });
+  }
+
   /** Every part's text, not only the reading line. Search is the one reader
    *  that must see the takes nobody is standing on. */
   async loadHydrated(id: string): Promise<Story> {
@@ -485,7 +524,7 @@ export class StoryStore {
     }
     if (slot.kind === "v5") {
       const { manifest: current, sourceSchemaVersion } = slot;
-      const previousRevisionIds = manifestRevisionIds(current);
+      const previousLive = liveObjectIds(current);
       const cleanup = await StoryCleanupIntent.begin(this.bundlePath(story.id), story.id);
       const duplicate = await this.removeVerifiedLegacyDuplicate(story.id);
       if (duplicate !== null) requireDurableCommit(duplicate, `Removing legacy duplicate ${story.id}`);
@@ -495,17 +534,23 @@ export class StoryStore {
         const objects = new StoryObjectStore(this.bundlePath(story.id));
         const candidate = this.snapshots.get(story);
         const snapshot = candidate !== undefined && isCurrentSnapshot(candidate, current) ? candidate : undefined;
-        if (snapshot !== undefined) objects.adoptKnownGraph(snapshot.revisions, { committed: true });
+        if (snapshot !== undefined) {
+          objects.adoptKnownGraph(snapshot.revisions, { committed: true });
+          objects.adoptCommittedIds("probabilities", [...snapshot.probabilityIds]);
+        }
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
-        const nextRevisionIds = new Set(manifestRevisionIds(manifest));
+        const nextLive = liveObjectIds(manifest);
+        const nextRevisionIds = new Set(nextLive.revisions);
+        const nextProbabilityIds = new Set(nextLive.probabilities);
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
         const settled = await cleanup.settle(
           sourceSchemaVersion !== STORY_SCHEMA_VERSION
-            || previousRevisionIds.some((revisionId) => !nextRevisionIds.has(revisionId))
+            || previousLive.revisions.some((revisionId) => !nextRevisionIds.has(revisionId))
+            || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
         );
         await objects.flush();
-        await objects.verifyGraph(manifestRevisionIds(manifest));
+        await objects.verifyGraph(nextLive);
         const commit = await this.writeManifest(this.manifestPath(story.id), serializeManifest(manifest));
         this.snapshots.set(story, captureStorySnapshot(story, manifest, objects.verifiedRevisionGraph()));
         requireDurableCommit(commit, `Saving story ${story.id}`);
@@ -594,24 +639,29 @@ export class StoryStore {
       const slot = await readStoredStorySlot(this.dir, id);
       await afterCommit(`cleaning old objects for story ${id}`, async () => {
         if (!await cleanupPending(this.bundlePath(id))) return;
-        const liveRevisionIds = slot.kind === "v5"
-          ? manifestRevisionIds(slot.manifest)
-          : slot.kind === "v6-live"
-            ? manifestRevisionIds(slot.manifest.content)
+        // A single `live` value, not two independently-nullable ones: the two
+        // used to be computed by identical-shaped ternaries, which meant one
+        // could in principle end up null while the other did not — a branch
+        // that could never actually fire, since both tested the same
+        // `slot.kind`, but only by review discipline rather than by
+        // construction. Deriving both from one manifest (or one explicit
+        // empty-live case) makes that impossible instead of merely unlikely.
+        const content = manifestContentFromSlot(slot);
+        const live = content !== null
+          ? liveObjectIds(content)
           : slot.kind === "v6-deleted"
-            ? []
+            ? { revisions: [], probabilities: [] }
             : null;
-        if (liveRevisionIds === null) return;
+        if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
         const beganWithPins = pinned !== undefined;
-        const protectedRevisionIds = pinned === undefined
-          ? liveRevisionIds
-          : [...new Set([...liveRevisionIds, ...pinned.keys()])];
-        const completed = await this.sweep(
-          this.bundlePath(id),
-          protectedRevisionIds,
-          signal
-        );
+        const protectedIds: LiveStoryObjectIds = pinned === undefined
+          ? live
+          : {
+              revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],
+              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])]
+            };
+        const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
         if (completed
           && !beganWithPins
           && !this.providerSnapshotPins.has(id)) {
@@ -629,7 +679,27 @@ export class StoryStore {
 function validateId(id: string): void { if (!isValidId(id)) throw new HttpError(400, "Invalid story id"); }
 function isValidId(id: string): boolean { return isStoryId(id); }
 
+function addPins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]): void {
+  for (const id of ids) pins.set(id, (pins.get(id) ?? 0) + 1);
+}
+
+function releasePins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]): void {
+  for (const id of ids) {
+    const count = pins.get(id);
+    if (count === undefined || count <= 1) pins.delete(id);
+    else pins.set(id, count - 1);
+  }
+}
+
 function isErrorCode(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }
+
+/** The live V5 content a slot carries, discriminated on `slot.kind` exactly
+ *  once — a legacy or V6-deleted slot has none. */
+function manifestContentFromSlot(slot: StoredStorySlot): StoryManifestV5 | null {
+  if (slot.kind === "v5") return slot.manifest;
+  if (slot.kind === "v6-live") return slot.manifest.content;
+  return null;
+}
 
 function aggregateVersionFromSlot(
   slot: Extract<StoredStorySlot, { kind: "v5" | "v6-live" | "v6-deleted" }>

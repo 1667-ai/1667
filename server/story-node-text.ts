@@ -14,6 +14,11 @@ interface StoredNodeTextState {
   /** null means the immutable revision is intentionally not hydrated. */
   originalText: string | null;
   reusable: boolean;
+  /** The take's stored token probabilities object, carried forward from the
+   *  manifest this node was decoded from. Nothing in this phase ever changes
+   *  or clears an existing one, so — unlike revisionId — there is no reuse
+   *  condition to check. */
+  tokenProbabilityId?: ObjectHash;
 }
 
 const storedText = new WeakMap<StoryNode, StoredNodeTextState>();
@@ -34,7 +39,8 @@ export function attachStoredNodeText(node: StoryNode, stored: StoredNodeV1, text
     words,
     tokens,
     originalText: text,
-    reusable: stored.syntheticEmpty !== true
+    reusable: stored.syntheticEmpty !== true,
+    ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilityId: stored.tokenProbabilityId })
   });
   setNodeRewriteId(node, stored.rewriteId);
   if (text !== null) verifyStoredStub(node, text);
@@ -53,6 +59,7 @@ export function refreshStoredNodeText(node: StoryNode, stored: StoredNodeV1): vo
   // Same revision with unchanged text was verified when first attached; skip
   // the per-save stub rescan of every unchanged path node.
   if (current !== undefined && current.revisionId === stored.revisionId
+    && current.tokenProbabilityId === stored.tokenProbabilityId
     && current.instruction === node.instruction
     && (current.originalText === null || current.originalText === node.text)
     && (stored.preview ?? current.preview) === current.preview
@@ -83,6 +90,13 @@ export function reusableStoredRevisionId(node: StoryNode): ObjectHash | undefine
   return state.reusable && (state.originalText === null || state.originalText === node.text)
     ? state.revisionId
     : undefined;
+}
+
+/** The take's already-stored token probabilities id, carried forward from the
+ *  manifest that produced this node. undefined both for a node with none and
+ *  for a freshly created node this process has never decoded. */
+export function reusableTokenProbabilityId(node: StoryNode): ObjectHash | undefined {
+  return storedText.get(node)?.tokenProbabilityId;
 }
 
 export function nodeStubPreview(node: StoryNode): string {

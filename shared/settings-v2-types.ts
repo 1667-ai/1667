@@ -201,6 +201,9 @@ export interface GenerationProfileV2 {
   readonly cachePolicy: PromptCachePolicyV2;
   /** Absent means every sampling knob is omitted from the request. */
   readonly sampling?: SamplingSettingsV2;
+  /** Alternative tokens to ask the provider for with each generated token.
+   *  Absent means the request asks for none. */
+  readonly tokenProbabilities?: number;
 }
 
 export interface SettingsRoutingV2 {

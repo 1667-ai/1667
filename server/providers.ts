@@ -22,10 +22,20 @@ import {
   resolveProviderHeaders
 } from "./provider-runtime.js";
 import { providerSseEvents } from "./provider-sse.js";
+import {
+  createTokenProbabilityCapture,
+  dryRunProbabilityStep,
+  refuseTokenProbabilities,
+  tokenProbabilitiesRefused,
+  tokenProbabilityRefusalKey,
+  type TokenProbabilityCollector
+} from "./token-probability-capture.js";
 import { requireLogitBiasFamilyAvailable } from "./provider-sampling.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
 export { ProviderError } from "./errors.js";
 export type { ChatMessage, PromptPlan } from "../shared/prompt-plan.js";
+export { forgetRefusedTokenProbabilities } from "./token-probability-capture.js";
+export type { TokenProbabilityCollector } from "./token-probability-capture.js";
 
 /** Why the stream ended, when the provider said so: "length" means the output
  *  limit cut generation short; "stop" means the model finished on its own.
@@ -53,6 +63,7 @@ export interface StreamCompletionOptions {
   readonly providerStarted?: () => void | Promise<void>;
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
+  readonly tokenProbabilities?: TokenProbabilityCollector;
 }
 
 export function streamCompletion(
@@ -77,7 +88,7 @@ async function* streamOpenAiCompatible(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, providerStarted, promptCache, storySampling } = options;
+  const { outcome, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
   const { headers, secrets } = resolveProviderHeaders(settings, {
     "content-type": "application/json"
   });
@@ -85,6 +96,15 @@ async function* streamOpenAiCompatible(
   const body = await buildOpenAiChatRequestBody(settings, prompt, prepared.wire, { signal, storySampling });
   const runtime = providerRuntimeFor(settings);
   const explicitEffort = runtime.effort !== "default";
+  const tokenProbabilityKey = tokenProbabilityRefusalKey(settings);
+  if (tokenProbabilitiesRefused(tokenProbabilityKey)) {
+    // Paid once per model: a prior request already learned this endpoint
+    // rejects the fields, so this one never asks again (issue #291 phase 2,
+    // point 6) — mirrors SAMPLING_REFUSED's temperature strip below.
+    delete body.logprobs;
+    delete body.top_logprobs;
+  }
+  const requestedAlternatives = typeof body.top_logprobs === "number" ? body.top_logprobs : null;
   let totalDeadlineReached = false;
   const totalDeadline = new AbortController();
   const totalTimer = setTimeout(() => {
@@ -100,6 +120,10 @@ async function* streamOpenAiCompatible(
     for (let attempt = 0; ; attempt++) {
       let streamed = false;
       const outputRedactor = createProviderStreamRedactor(secrets);
+      // Fresh per attempt: only the attempt that actually finishes ever
+      // calls capture.finish() below, so a retried attempt's partial capture
+      // (if any) is never mixed with the one that succeeds.
+      const capture = createTokenProbabilityCapture(tokenProbabilities, requestedAlternatives, secrets);
       try {
         let decodedBytes = 0;
         for await (const data of providerSseEvents(
@@ -121,6 +145,7 @@ async function* streamOpenAiCompatible(
           if (data === "[DONE]") {
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
+            capture.finish();
             return;
           }
           const parsed = parseEvent(data, secrets);
@@ -128,6 +153,7 @@ async function* streamOpenAiCompatible(
           if (isObject(choice) && typeof choice.finish_reason === "string" && outcome !== undefined) {
             outcome.finishReason = choice.finish_reason === "length" ? "length" : "stop";
           }
+          capture.observe(choice);
           const delta = isObject(choice) && isObject(choice.delta) ? choice.delta.content : undefined;
           if (typeof delta === "string" && delta.length > 0) {
             decodedBytes = requireOutputWithinLimit(settings, decodedBytes, delta);
@@ -137,6 +163,7 @@ async function* streamOpenAiCompatible(
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
+        capture.finish();
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
@@ -154,7 +181,7 @@ async function* streamOpenAiCompatible(
         if (
           streamed
           || attempt >= 3
-          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort)
+          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort, settings)
         ) throw error;
       }
     }
@@ -169,7 +196,8 @@ function adjustRejectedParameter(
   body: Record<string, unknown>,
   error: unknown,
   kind: PromptOperation,
-  explicitEffort: boolean
+  explicitEffort: boolean,
+  settings: GenerationSettings
 ): boolean {
   if (!(error instanceof ProviderError) || error.status !== 400) return false;
   let detail: Record<string, unknown>;
@@ -201,6 +229,16 @@ function adjustRejectedParameter(
     && "temperature" in body
   ) {
     delete body.temperature;
+    return true;
+  }
+  if (
+    detail.code === "unsupported_parameter"
+    && (detail.param === "top_logprobs" || detail.param === "logprobs")
+    && ("logprobs" in body || "top_logprobs" in body)
+  ) {
+    delete body.logprobs;
+    delete body.top_logprobs;
+    refuseTokenProbabilities(tokenProbabilityRefusalKey(settings));
     return true;
   }
   return false;
@@ -421,7 +459,7 @@ async function* streamDryRun(
   signal: AbortSignal,
   options: StreamCompletionOptions
 ): AsyncGenerator<string> {
-  const { outcome, storySampling } = options;
+  const { outcome, storySampling, tokenProbabilities } = options;
   requireLogitBiasFamilyAvailable(settings, "dry-run", storySampling);
   const messages = renderPromptPlan(prompt);
   const instruction = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -432,14 +470,30 @@ async function* streamDryRun(
       : prompt.operation === "summary"
         ? dryRunSummary(prompt)
         : dryRunContinuation(instruction);
+  // Dry run reaches no endpoint and is given no credential, so it has no
+  // secret that a captured token could carry back.
+  const requestedAlternatives = providerRuntimeFor(settings).tokenProbabilities;
+  const capture = createTokenProbabilityCapture(tokenProbabilities, requestedAlternatives, []);
+  // A capture with nothing to record still needs a definite `requested` to
+  // build a step from; the value is discarded either way once `capture.push`
+  // sees this capture is inactive, so any in-bounds fallback does.
+  const requested = requestedAlternatives ?? 1;
+  let stepIndex = 0;
   // Keep the first chunk's leading boundary character: append continuations are
   // joined byte-for-byte, so a leading space is meaningful.
   for (const word of text.match(/\s*\S+/g) ?? []) {
     if (signal.aborted) return;
     yield word;
+    // Dry-run really does fabricate one step per yielded chunk — it is not
+    // pretending, the way an unavailable sampling knob would be (issue #291
+    // phase 2). Deterministic: no clock, no randomness, so the same prompt
+    // always fabricates the same record.
+    capture.push(dryRunProbabilityStep(word, requested, stepIndex));
+    stepIndex += 1;
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
   if (outcome !== undefined) outcome.finishReason = "stop";
+  capture.finish();
 }
 
 function dryRunSummary(prompt: PromptPlan): string {

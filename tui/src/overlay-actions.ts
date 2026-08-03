@@ -46,6 +46,10 @@ import {
   openRequestViewer,
   requestViewerAction
 } from "./request-viewer-actions.js";
+import {
+  openTokenProbabilities,
+  tokenProbabilitiesAction
+} from "./token-probabilities-actions.js";
 
 import type { AppSource } from "./app.js";
 import type { FactsOverlayState, RuntimeState } from "./state.js";
@@ -82,6 +86,14 @@ export async function handleOverlayAction(
         openRequestViewer(state);
       }
     }
+    return true;
+  }
+  if (resolved.action === "open-probs") {
+    if (state.mode === "NAV") await openTokenProbabilities(state, source, context);
+    return true;
+  }
+  if (state.mode === "PROBS" && state.probs !== null) {
+    await tokenProbabilitiesAction(resolved, state, source, context);
     return true;
   }
   if (resolved.action === "open-log") {
@@ -412,6 +424,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
       openRequestViewer(state, returnMode);
     }
   }
+  else if (command.id === "token-probabilities") await openTokenProbabilities(state, source, context);
   else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "author-brief") openAuthorBriefEditor(state);

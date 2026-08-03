@@ -1,5 +1,5 @@
 import { GenerationResultError } from "./errors.js";
-import { streamCompletion, type PromptPlan } from "./providers.js";
+import { streamCompletion, type PromptPlan, type TokenProbabilityCollector } from "./providers.js";
 import type { GenerationSettings } from "../shared/types.js";
 import type { PromptCacheRequest } from "./provider-cache-policy.js";
 import type { StorySamplingBias } from "./sampling-phrase-bias.js";
@@ -21,6 +21,7 @@ export interface StreamModelOptions {
   readonly providerStarted?: () => void | Promise<void>;
   readonly promptCache?: PromptCacheRequest;
   readonly storySampling?: StorySamplingBias;
+  readonly tokenProbabilities?: TokenProbabilityCollector;
 }
 
 /** Transport-neutral model stream. null means cancellation; failures throw. */
@@ -31,7 +32,7 @@ export async function streamModel(
   onDelta: DeltaConsumer,
   options: StreamModelOptions = {}
 ): Promise<string | null> {
-  const { output, providerStarted, promptCache, storySampling } = options;
+  const { output, providerStarted, promptCache, storySampling, tokenProbabilities } = options;
   let text = "";
   const emit = async (delta: string) => {
     if (delta.length === 0) return;
@@ -42,7 +43,8 @@ export async function streamModel(
     for await (const delta of streamCompletion(settings, prompt, signal, {
       providerStarted,
       promptCache,
-      storySampling
+      storySampling,
+      tokenProbabilities
     })) {
       await emit(output?.push(delta) ?? delta);
     }

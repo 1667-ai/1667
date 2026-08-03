@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { handleKey, initialState, renderOnce } from "../src/app.js";
-import { createDemoController, demoAppSource, demoStoryApi } from "../src/demo.js";
+import { createDemoController, demoAppSource, demoStoryApi, DEMO_SETTINGS_DOCUMENT } from "../src/demo.js";
+import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { cellWidth } from "../src/cell-width.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
+import { createTokenProbabilities } from "../../shared/token-probabilities.js";
+import type { SettingsPresetV2, SettingsProtocolV2, SettingsView } from "../../shared/settings-v2-types.js";
+import { dryRunProbabilityStep } from "../../server/token-probability-capture.js";
 
 function key(name: string, sequence = name): KeyEvent {
   return { name, sequence, shift: false, ctrl: false, meta: false } as KeyEvent;
@@ -31,6 +35,17 @@ async function renderWithKeys(
 
 function lineContaining(frame: string, text: string): string {
   const line = frame.split("\n").find((candidate) => candidate.includes(text));
+  expect(line).toBeDefined();
+  return line!;
+}
+
+/** The token probability viewer's column header, not its title line — both
+ *  contain the substring "logprob" ("logprobs · top N" vs. the "logprob"
+ *  column label), so a plain `lineContaining` finds whichever comes first.
+ *  Only the title line ever says "top". */
+function columnHeaderLine(frame: string): string {
+  const line = frame.split("\n").find((candidate) =>
+    candidate.includes("logprob") && !candidate.includes("top"));
   expect(line).toBeDefined();
   return line!;
 }
@@ -624,5 +639,185 @@ describe("run C overlay frames", () => {
   test("shift-C creates a break through the ordinary key pipeline", async () => {
     const frame = await renderOnce(demoAppSource(), 120, 36, "C");
     expect(frame).toContain("chapter break added · chapters renumbered · u undoes");
+  });
+});
+
+/** A format-2 settings view whose one connection uses the given preset and
+ *  protocol, built from the ground up as the dataFormat-2 branch — spreading
+ *  a fixture already typed as the broad `SettingsView` union does not narrow
+ *  under TypeScript. */
+function routeSource(preset: SettingsPresetV2, protocol: SettingsProtocolV2) {
+  const source = demoAppSource();
+  const view: SettingsView = {
+    dataFormat: 2,
+    editable: true,
+    stateGeneration: 1,
+    activeRevision: 1,
+    pendingRevision: null,
+    document: {
+      ...DEMO_SETTINGS_DOCUMENT,
+      connections: {
+        demo: { ...DEMO_SETTINGS_DOCUMENT.connections.demo!, preset, protocol }
+      }
+    },
+    effective: source.settingsView.effective,
+    effectiveProse: source.settingsView.effectiveProse,
+    lastActivationOutcome: null
+  };
+  source.settingsView = view;
+  return source;
+}
+
+function legacySource() {
+  const source = demoAppSource();
+  source.settingsView = {
+    dataFormat: 1,
+    editable: false,
+    stateGeneration: null,
+    activeRevision: null,
+    pendingRevision: null,
+    document: null,
+    effective: source.settingsView.effective,
+    effectiveProse: source.settingsView.effectiveProse,
+    lastActivationOutcome: null
+  };
+  return source;
+}
+
+/** A take whose text and captured steps are both under this module's control,
+ *  so the golden assertions below can check exact probabilities rather than
+ *  guessing at the shipped demo story's prose. `dryRunProbabilityStep` is the
+ *  same deterministic fabrication `server/providers.ts` uses for a live
+ *  dry-run generation (issue #291 phase 2), reused here rather than
+ *  reinvented so this fixture can never drift from what the real stream
+ *  actually produces. */
+function populatedTokenProbabilitiesSource(requested = 16) {
+  const demo = createDemoController();
+  const parentId = demo.payload().path.at(-1)!.id;
+  const text = "the lantern guttered as Aldric stepped down into the pit and the dark below answered";
+  const payload = demo.createChild(parentId, "continue", text);
+  const leaf = payload.path.at(-1)!;
+  const marked = {
+    ...payload,
+    nodes: payload.nodes.map((node) => node.id === leaf.id ? { ...node, tokenProbabilities: true as const } : node)
+  };
+  const words = text.match(/\s*\S+/g) ?? [];
+  const steps = words.map((word, index) => dryRunProbabilityStep(word, requested, index));
+  const record = createTokenProbabilities({ requested, steps, truncated: false }, 0);
+  const source = demoAppSource();
+  source.payload = marked;
+  source.api = { ...source.api, getTokenProbabilities: async () => record };
+  return { source, leaf, record };
+}
+
+describe("token probability viewer", () => {
+  test("l opens the viewer and names why a route that has never asked has nothing to show", async () => {
+    const frame = await renderOnce(demoAppSource(), 120, 36, "l");
+    expect(frame).toContain("PROBS");
+    expect(frame).toContain("token probabilities");
+    expect(frame).toContain("This take has no token probabilities. Turn the setting on, then generate again.");
+    expect(frame).toContain("esc back");
+  });
+
+  test("empty state: legacy format 1 settings", async () => {
+    const frame = await renderOnce(legacySource(), 120, 36, "l");
+    expect(frame).toContain("Format 1 settings are read-only.");
+  });
+
+  test("empty state: Anthropic Messages names the presets that do document it", async () => {
+    const frame = await renderOnce(routeSource("anthropic", "anthropic-messages"), 120, 36, "l");
+    expect(frame).toContain("This protocol does not document token probabilities.");
+    expect(frame).toContain("OpenAI, OpenRouter, llama.cpp, KoboldCpp, LM Studio");
+  });
+
+  test("empty state: an endpoint outside the allow-list names the presets that do document it", async () => {
+    const frame = await renderOnce(routeSource("ollama", "openai-chat-completions"), 120, 36, "l");
+    expect(frame).toContain("This endpoint does not document token probabilities.");
+    expect(frame).toContain("OpenAI, OpenRouter, llama.cpp, KoboldCpp, LM Studio");
+  });
+
+  test("populated: the table, the meter bars, and the sampled mark", async () => {
+    const { source, leaf } = populatedTokenProbabilitiesSource();
+    const state = initialState(source, true);
+    const cache = createWrapCache<ProseStyle>();
+    // Focus the crafted leaf directly — it is the only part on this line.
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
+    await handleKey({ name: "l", sequence: "l", shift: false, ctrl: false, meta: false } as KeyEvent,
+      state, source, cache, () => {}, async () => {}, () => {});
+    const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
+    expect(frame).toContain("token probabilities");
+    expect(frame).toContain("logprobs · top 16");
+    expect(frame).toContain("the lantern guttered");
+    expect(frame).toContain("token");
+    expect(frame).toContain("logprob");
+    // The sampled token's own alternative always leads, at logprob -0.050.
+    expect(frame).toMatch(/▸ the\s+0\.951\s+▮+▯*\s+-0\.050\s+✓ sampled/);
+    expect(frame).toContain("4 more under 1 %");
+    expect(frame).toContain("←→");
+    expect(frame).toContain("⇥");
+    // The column is right-aligned numbers under a label that exactly fills
+    // its 7-cell width, so the two share a *trailing* edge — the header
+    // text's own last cell, not its first. `columnHeaderLine`, not
+    // `lineContaining`: the title line's "logprobs · top N" also contains
+    // "logprob" as a substring.
+    const header = columnHeaderLine(frame);
+    const sampledRow = lineContaining(frame, "✓ sampled");
+    expect(cellColumn(header, "logprob") + "logprob".length)
+      .toBe(cellColumn(sampledRow, "-0.050") + "-0.050".length);
+  });
+
+  test("populated: the meter bar shrinks, then drops, as the surface narrows", async () => {
+    const { source, leaf } = populatedTokenProbabilitiesSource();
+    for (const [width, expectBar] of [[120, true], [90, true], [70, false]] as const) {
+      const state = initialState(source, true);
+      const cache = createWrapCache<ProseStyle>();
+      state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
+      await handleKey({ name: "l", sequence: "l", shift: false, ctrl: false, meta: false } as KeyEvent,
+        state, source, cache, () => {}, async () => {}, () => {});
+      const frame = frameText(renderStoryScreen(state, { width, height: 36, wrapCache: cache }).lines);
+      expect(frame.includes("▮")).toBe(expectBar);
+      // Whatever the bar's width, the header and the sampled row's own
+      // logprob still share their trailing edge (see the note above).
+      const header = columnHeaderLine(frame);
+      const sampledRow = lineContaining(frame, "✓ sampled");
+      expect(cellColumn(header, "logprob") + "logprob".length)
+        .toBe(cellColumn(sampledRow, "-0.050") + "-0.050".length);
+      for (const line of frame.split("\n")) expect(cellWidth(line) <= width).toBeTrue();
+    }
+  });
+
+  test("arrow navigation moves the selected token and re-renders its alternatives", async () => {
+    const { source, leaf } = populatedTokenProbabilitiesSource();
+    const state = initialState(source, true);
+    const cache = createWrapCache<ProseStyle>();
+    state.focusIndex = rowIndexForNode(createStoryViewModel(state.payload), leaf.id);
+    const press = (name: string) => handleKey(
+      { name, sequence: name, shift: false, ctrl: false, meta: false } as KeyEvent,
+      state, source, cache, () => {}, async () => {}, () => {}
+    );
+    await press("l");
+    expect(state.probs?.tokenIndex).toBe(0);
+    await press("right");
+    expect(state.probs?.tokenIndex).toBe(1);
+    // Every token starts its own alternatives list freshly collapsed.
+    expect(state.probs?.altIndex).toBe(0);
+    expect(state.probs?.expanded).toBe(false);
+    const frameAfterMove = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
+    expect(frameAfterMove).toContain("token 2 of");
+
+    // 12 visible alternatives (indices 0..11) then the collapsed row at 12.
+    for (let index = 0; index < 12; index += 1) await press("down");
+    expect(state.probs?.altIndex).toBe(12);
+    await press("down");
+    // The synthetic "n more" row expands and the cursor lands on the first
+    // alternative it was hiding, without a second keypress.
+    expect(state.probs?.expanded).toBe(true);
+    expect(state.probs?.altIndex).toBe(12);
+    const expandedFrame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
+    expect(expandedFrame).not.toContain("more under 1 %");
+
+    await press("escape");
+    expect(state.mode).toBe("NAV");
+    expect(state.probs).toBe(null);
   });
 });

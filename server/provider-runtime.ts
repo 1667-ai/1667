@@ -34,6 +34,10 @@ export interface ProviderRuntime {
   readonly timeouts: ConnectionTimeoutsV2;
   readonly allowInsecureHttp: boolean;
   readonly effort: GenerationEffortV2;
+  /** Alternative tokens to ask the provider for with each generated token,
+   *  from `GenerationProfileV2.tokenProbabilities`. Null means the request
+   *  asks for none — the default for every existing and legacy runtime. */
+  readonly tokenProbabilities: number | null;
   readonly capabilities: ModelCapabilitiesV2;
   readonly sampling: SamplingSettingsV2;
 }
@@ -83,7 +87,8 @@ export function providerRuntimeFromV2(
   capabilities: ModelCapabilitiesV2,
   environment?: NodeJS.ProcessEnv,
   storedSecrets?: ReadonlyMap<string, string>,
-  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2
+  sampling: SamplingSettingsV2 = EMPTY_SAMPLING_V2,
+  tokenProbabilities: number | null = null
 ): ProviderRuntime {
   const runtime: ProviderRuntime = {
     preset: connection.preset,
@@ -92,6 +97,7 @@ export function providerRuntimeFromV2(
     timeouts: connection.timeouts,
     allowInsecureHttp: connection.allowInsecureHttp === true,
     effort,
+    tokenProbabilities,
     capabilities,
     sampling
   };
@@ -461,6 +467,7 @@ function legacyProviderRuntime(settings: GenerationSettings): ProviderRuntime {
     timeouts: defaultConnectionTimeouts(settings.provider),
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "unknown",

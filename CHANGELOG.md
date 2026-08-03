@@ -5,6 +5,21 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A token probability viewer shows the alternative tokens the model
+  weighed.** Press `l` on a story part to open it. The viewer shows the
+  take's prose with the selected token marked, and below it the alternative
+  tokens the model weighed at that position with their probabilities and log
+  probabilities. Use the arrow keys to move between tokens and between
+  alternatives, and `Tab` to move to the next story part. Token
+  probabilities are off by default, because the alternatives make each
+  response much larger. Set the alternative count on a Generation Profile to
+  turn them on. OpenAI, OpenRouter, llama.cpp, KoboldCpp, and LM Studio send
+  the fields. Ollama and a custom endpoint do not, because neither documents
+  them. Anthropic Messages has no such field at all. When a model refuses
+  the fields, 1667 sends the request again without them, and the generation
+  keeps its prose. 1667 stores the alternatives beside the take that
+  produced them, so they survive a restart, and removes them once no take
+  refers to them. Thanks @10fra for the request.
 - **Facts now support a move order, a priority, and a token budget.** Select a
   Fact in the Facts panel and press `Shift+Up Arrow` or `Shift+Down Arrow` to
   move it. The Fact editor gains a priority row (`low`, `normal`, or `high`,

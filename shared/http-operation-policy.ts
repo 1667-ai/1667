@@ -40,6 +40,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   acknowledgeUnknownOutcomes: "local",
   deleteStory: "local",
   exportMarkdown: "transfer",
+  getTokenProbabilities: "local",
   switchLine: "local",
   createNode: "local",
   editNode: "local",
@@ -232,6 +233,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       && httpMethod === "POST") return "takeFromCut";
     if (subId !== undefined && action === "rewrite"
       && httpMethod === "POST") return "rewriteNode";
+    if (subId !== undefined && action === "token-probabilities"
+      && httpMethod === "GET") return "getTokenProbabilities";
   }
   if (sub === "tags" && subId !== undefined
     && action === undefined && parts.length === 6) {

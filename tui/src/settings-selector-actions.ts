@@ -16,6 +16,7 @@ import {
   stepSettingsScalar,
   type ScalarMagnitude
 } from "./settings-profile-controls.js";
+import { cycleTokenProbabilitiesControl } from "./settings-token-probabilities-row.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import type {
   RuntimeState,
@@ -74,6 +75,9 @@ export async function cycleSettingsRow(
     } else if (row === "cache-policy") {
       const policy = cycleCachePolicyControl(overlay, step);
       if (policy !== null) state.toast = `cache · ${policy} · s saves settings`;
+    } else if (row === "token-probabilities") {
+      const value = cycleTokenProbabilitiesControl(overlay, step);
+      if (value !== null) state.toast = `alt count · ${value} · s saves settings`;
     } else if (row === "default-route") {
       const value = cycleRouteControl(overlay, "default", step);
       if (value !== null) state.toast = `default route · ${value} · s saves settings`;

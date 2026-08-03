@@ -9,7 +9,7 @@ export type CommandId =
   | "authors-note" | "author-brief" | "facts-budget" | "phrase-bias" | "banned-strings"
   | "direct-take" | "retake" | "rewrite-selection" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
-  | "next-request"
+  | "next-request" | "token-probabilities"
   | "settings" | "reconnect" | "disconnect" | "theme";
 
 export type CommandSelectionId = Exclude<CommandId, "theme"> | `theme:${ThemeName}`;
@@ -112,6 +112,11 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "chapter", section: "view", name: "chapter: end here", description: "end the current chapter after this leaf", shortcut: "C", mutating: true },
   { id: "prompts", section: "view", name: "toggle directions", description: "show or hide directions above each part", shortcut: "p" },
   { id: "next-request", section: "view", name: "next request", description: "inspect the exact next model request", shortcut: "⌃r" },
+  {
+    id: "token-probabilities", section: "view", name: "token probabilities", shortcut: "l",
+    description: "the alternative tokens the model weighed for this take",
+    requires: (context) => context.hasProse
+  },
 
   { id: "settings", section: "system", name: "generation settings", description: "inspect and edit provider, model, and context", shortcut: "," },
   { id: "reconnect", section: "system", name: "reconnect", description: "reload this story and its library", shortcut: "R" },

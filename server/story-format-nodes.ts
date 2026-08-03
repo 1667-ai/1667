@@ -26,6 +26,7 @@ import type {
 } from "./story-format.js";
 import { SYNTHETIC_EMPTY_REVISION_ID } from "./story-empty-revision.js";
 import { parseStoredChapterNode } from "./story-format-chapters.js";
+import type { LiveStoryObjectIds } from "./story-objects.js";
 
 const LEGACY_MAX_VERSIONS = 10;
 const LEGACY_MAX_BRANCHES = 32;
@@ -209,9 +210,38 @@ export function parseV4Manifest(input: unknown): StoryManifestV4 {
   };
 }
 
-export function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+/** Private: every direct caller wanted this beside `manifestTokenProbabilityIds`
+ *  anyway, and calling them separately is exactly the lockstep risk
+ *  `liveObjectIds` below exists to remove. `manifestTokenProbabilityIds`
+ *  stays exported — server/story-snapshot.ts wants it alone, since it builds
+ *  its revision map a different way (per node, not from this list). */
+function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
   return manifest.nodes.filter((node) => node.syntheticEmpty !== true).map((node) => node.revisionId)
     .concat(manifest.facts.map((fact) => fact.revisionId));
+}
+
+/** Every take's stored token probabilities id. Most nodes have none — the
+ *  field is absent whenever a generation did not ask for them — so this is
+ *  typically a small subset of `manifestRevisionIds`' length, not a parallel
+ *  one-to-one list. */
+export function manifestTokenProbabilityIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+  const ids: ObjectHash[] = [];
+  for (const node of manifest.nodes) {
+    if (node.tokenProbabilityId !== undefined) ids.push(node.tokenProbabilityId);
+  }
+  return ids;
+}
+
+/** Both live id lists for one manifest, kept as one object so a writer can
+ *  never save one and silently drop the other — the invariant that was
+ *  previously held only by every call site remembering to call
+ *  `manifestRevisionIds` and `manifestTokenProbabilityIds` together (issue
+ *  #291 structural review, finding F1). */
+export function liveObjectIds(manifest: StoryManifestV4 | StoryManifestV5): LiveStoryObjectIds {
+  return {
+    revisions: manifestRevisionIds(manifest),
+    probabilities: manifestTokenProbabilityIds(manifest)
+  };
 }
 
 function appendPartTakes(nodes: StoredNodeV1[], part: StoredPartV2, parentId: string | null): StoredNodeV1[] {
@@ -348,6 +378,9 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
   if (words !== undefined && words < 0) throw new StoryFormatError(`${label}.words must not be negative`);
   if (tokens !== undefined && tokens < 0) throw new StoryFormatError(`${label}.tokens must not be negative`);
   const chapter = parseStoredChapterNode(node, label);
+  const tokenProbabilityId = node.tokenProbabilityId === undefined
+    ? undefined
+    : requireHash(node.tokenProbabilityId, `${label}.tokenProbabilityId`);
   const stored: StoredNodeV1 = {
     id: stringField(node, "id"),
     parentId,
@@ -364,6 +397,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     ...(human === undefined ? {} : { human }),
     ...(syntheticEmpty === undefined ? {} : { syntheticEmpty }),
     revisionId: requireHash(node.revisionId, `${label}.revisionId`),
+    ...(tokenProbabilityId === undefined ? {} : { tokenProbabilityId }),
     ...(attribution === undefined ? {} : { attribution }),
     ...(rewrittenSpans === undefined ? {} : { rewrittenSpans }),
     activeChildId

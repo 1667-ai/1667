@@ -28,6 +28,7 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Use keys to include a Fact only when the request context matches it.
 - Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.
+- Inspect the alternative tokens the model weighed in the token probability viewer.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
 - Use the embedded backend worker without a network port.
@@ -87,12 +88,13 @@ Git manages this installation.
 | Open the map, facts, chapters, or library | `m`, `f`, `c`, or `o` |
 | Open commands | `Ctrl+P` or `:` |
 | Open the request viewer | `Ctrl+R` |
+| Open the token probability viewer | `l` |
 | Open settings or the key reference | `,` or `?` |
 | Quit | `q` |
 
-The keys `h`, `j`, `k`, and `l` do not move between story parts. In the map,
-`l` follows or opens the selected story line. Press `?` for the complete key
-reference.
+The keys `h`, `j`, `k`, and `l` do not move between story parts. `l` opens
+the token probability viewer instead. In the map, `l` follows or opens the
+selected story line. Press `?` for the complete key reference.
 
 ## Privacy
 

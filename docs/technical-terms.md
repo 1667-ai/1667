@@ -38,6 +38,9 @@ read_when:
 | Fact tag | A category name for a Fact |
 | context meter | The side-rail view of the next provider request size |
 | request viewer | The read-only view of the next provider request plan |
+| token probability | The probability that the model gave one generated token |
+| alternative token | One token that the model weighed at one position |
+| token probability viewer | The read-only view of the alternative tokens of one take |
 | tokenize source | The bundled tokenizer or the server endpoint that counts the tokens in one provider request |
 | grade | The quality of a token count: exact count, near-exact count, or token estimate |
 | mark | The symbol that shows a token count's grade |

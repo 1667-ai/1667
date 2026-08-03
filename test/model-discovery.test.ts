@@ -520,6 +520,7 @@ function runtimeForPreset(preset: SettingsPresetV2): ProviderRuntime {
     },
     allowInsecureHttp: false,
     effort: "default",
+    tokenProbabilities: null,
     sampling: EMPTY_SAMPLING_V2,
     capabilities: {
       temperature: "supported",

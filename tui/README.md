@@ -66,6 +66,10 @@ request plan in provider order. It shows each message and its estimated token
 count. It also shows chapter summary replacements and the latest summary take
 that resets the raw context.
 
+Press `l` on a story part to open the token probability viewer. It shows the
+take's prose with the alternative tokens the model weighed at the selected
+token, if the story stored them.
+
 ## Run the gates
 
 ```sh

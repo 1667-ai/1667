@@ -14,7 +14,7 @@ import {
   attributionAfterReplacement,
   rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
-import { streamCompletion } from "./providers.js";
+import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -247,6 +247,11 @@ export async function continueStory(
   const continuationOutput = continuation.requiresEcho
     ? new AnchoredOutputFilter(continuation.leftAnchor, "", "", true)
     : undefined;
+  // Filled only when the request actually asked for and received token
+  // probabilities (server/token-probability-capture.ts decides that, not
+  // here) — a failure anywhere in that path leaves this null rather than
+  // failing the generation; token probabilities are a diagnostic.
+  const tokenProbabilities: TokenProbabilityCollector = { record: null };
   const raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
     output: continuationOutput,
     providerStarted,
@@ -256,7 +261,8 @@ export async function continueStory(
       id,
       continuation.prompt.operation
     ),
-    storySampling: storySamplingBias(story)
+    storySampling: storySamplingBias(story),
+    tokenProbabilities
   });
   if (raw === null) return null;
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
@@ -283,6 +289,7 @@ export async function continueStory(
         : nodeById(story, appendTo)?.activeChildId ?? null,
       expectedActiveRootId: story.activeRootId,
       expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
+      tokenProbabilities: tokenProbabilities.record,
       cancelled: signal
     });
   } catch (error) {

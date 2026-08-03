@@ -17,6 +17,7 @@ import type {
   StorySummary
 } from "../shared/types.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
+import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
@@ -240,6 +241,14 @@ export class StoryService extends StoryServiceRuntime {
       loaded.story,
       loaded.aggregateVersion ?? undefined
     );
+  }
+
+  /** One take's stored token probabilities. Throws a 404 — distinguishably by
+   *  message — when the story, the take, or the take's stored record is
+   *  missing. */
+  async getTokenProbabilities(id: string, nodeId: string): Promise<TokenProbabilityRecord> {
+    this.ensureOpen();
+    return await this.stories.loadTokenProbabilities(id, nodeId);
   }
 
   async renameStory(

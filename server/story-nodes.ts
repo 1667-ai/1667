@@ -12,11 +12,13 @@ import {
 } from "../shared/story-tree.js";
 import { appendContinuationText } from "../shared/story-text.js";
 import type { CoveredExtent, EditNodeRequest, HumanEditAttribution, PruneUnusedTakesRequest, Story, StoryNode } from "../shared/types.js";
+import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
 import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import { setNodeRewriteId } from "./story-node-text.js";
+import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 
 export interface NewNodeOptions {
   id?: string;
@@ -183,6 +185,16 @@ export interface TakeCommit {
   genId: string | null;
   nodeId?: string;
   committedAt?: string;
+  /** Only ever set by a continuation commit that captured the model's token
+   *  probabilities (issue #291 phase 3). Every other commit path — human
+   *  takes, starter-vault seeding — leaves this absent. Both the new-take and
+   *  the `appendTo` branch below attach it, aligned to whichever text this
+   *  commit actually stores (issue #291 addendum) — see
+   *  `attachTakeTokenProbabilities` in server/story-node-token-probabilities.ts. An append
+   *  that lands on an already-recorded take replaces the stored record
+   *  rather than merging into it: the viewer shows the most recent
+   *  generation, never a combination of several. */
+  tokenProbabilities?: CapturedTokenProbabilities | null;
 }
 
 export function hasCommittedGeneration(
@@ -209,7 +221,8 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
       commit.text,
       commit.model,
       commit.genId ?? undefined,
-      commit.committedAt
+      commit.committedAt,
+      commit.tokenProbabilities
     );
     return { duplicate: false };
   }
@@ -225,6 +238,9 @@ export function commitTake(story: Story, commit: TakeCommit): { duplicate: boole
   );
   if (commit.committedAt !== undefined) node.createdAt = commit.committedAt;
   createTake(story, node);
+  if (commit.tokenProbabilities !== undefined && commit.tokenProbabilities !== null) {
+    attachTakeTokenProbabilities(node, commit.tokenProbabilities, commit.text, 0);
+  }
   if (story.nodes.length === 1 && story.title === "Untitled") {
     story.title = titleFrom(commit.genId === null ? node.text : commit.instruction);
   }
@@ -260,7 +276,8 @@ export function appendToActiveLeaf(
   continuation: string,
   model: string,
   genId?: string,
-  committedAt?: string
+  committedAt?: string,
+  tokenProbabilities?: CapturedTokenProbabilities | null
 ): StoryNode {
   validateTextHash(expectedTextHash);
   const node = requireNode(story, nodeId);
@@ -273,7 +290,8 @@ export function appendToActiveLeaf(
     continuation,
     model,
     genId,
-    committedAt
+    committedAt,
+    tokenProbabilities
   );
 }
 
@@ -283,7 +301,8 @@ export function appendContinuationToNode(
   continuation: string,
   model: string,
   genId?: string,
-  committedAt?: string
+  committedAt?: string,
+  tokenProbabilities?: CapturedTokenProbabilities | null
 ): StoryNode {
   validateTextHash(expectedTextHash);
   if (node.role === "summary") {
@@ -292,11 +311,19 @@ export function appendContinuationToNode(
   if (sha256(node.text) !== expectedTextHash) {
     throw new HttpError(409, "The node being continued changed while writing.");
   }
+  // The take's stored text before the append is exactly `node.text` here —
+  // `appendContinuationText` is a plain concatenation — so this is the one
+  // point that knows both what the append's steps recorded and where in the
+  // take's final text their tail actually lands (issue #291 addendum).
+  const segmentStart = node.text.length;
   node.text = appendContinuationText(node.text, continuation);
   setNodeRewriteId(node, undefined);
   node.model = model;
   node.updatedAt = committedAt ?? new Date().toISOString();
   if (genId !== undefined) node.genId = genId;
+  if (tokenProbabilities !== undefined && tokenProbabilities !== null) {
+    attachTakeTokenProbabilities(node, tokenProbabilities, continuation, segmentStart);
+  }
   return node;
 }
 

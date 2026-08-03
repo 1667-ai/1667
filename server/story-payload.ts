@@ -52,6 +52,7 @@ export function buildStoryPayload(
         lastTouched: rollup.lastTouched,
         ...(node.updatedAt === undefined ? {} : { updatedAt: node.updatedAt }),
         ...(node.human === undefined ? {} : { human: node.human }),
+        ...(node.tokenProbabilities === undefined ? {} : { tokenProbabilities: node.tokenProbabilities }),
         hasInstruction: node.instruction.trim().length > 0,
         activeChildId: node.activeChildId
       };

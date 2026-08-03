@@ -304,6 +304,11 @@ async function invokeReadOnly(
     }
     case "exportMarkdown":
       return await service.exportMarkdown(requireString(input.id, "id"));
+    case "getTokenProbabilities":
+      return await service.getTokenProbabilities(
+        requireString(input.storyId, "storyId"),
+        requireString(input.nodeId, "nodeId")
+      );
     case "getSettings": return await service.getSettings();
     case "checkModelServer":
       return await service.checkModelServer(

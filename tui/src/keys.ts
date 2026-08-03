@@ -27,6 +27,7 @@ import type {
 } from "./state.js";
 import { setLibraryQuery } from "./library-model.js";
 import { resolveRequestViewerKey } from "./request-viewer-actions.js";
+import { resolveTokenProbabilitiesKey } from "./token-probabilities-actions.js";
 import { resolveLogKey } from "./notice-log.js";
 
 export type KeyAction =
@@ -55,11 +56,12 @@ export type KeyAction =
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
-  | "complete" | "open-log" | "clear-log" | "row-action";
+  | "complete" | "open-log" | "clear-log" | "row-action"
+  | "open-probs" | "next-part";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
-  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "LOG";
+  | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "LOG" | "PROBS";
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -380,6 +382,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: key.name === "d" && !key.ctrl && !key.meta && !key.shift ? "prune" : "none" };
   }
   if (mode === "REQUEST") return resolveRequestViewerKey(key);
+  if (mode === "PROBS") return resolveTokenProbabilitiesKey(key);
   if (mode === "LOG") return resolveLogKey(key);
   const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
