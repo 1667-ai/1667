@@ -115,11 +115,12 @@ function sheddingOrder(
 
 /** The droppable Facts among `facts`, ordered lowest-value first — the same
  *  order `selectFactsWithinBudget` sheds in. Exposed so a caller that must
- *  fit an exact, externally-measured cost (see server/generation-admission.ts,
- *  which sheds one Fact at a time and re-measures the real rendered message
- *  rather than modeling its size) can shed in this order without re-deriving
- *  it — priority, keyed-before-always, and the position tiebreak would
- *  otherwise have to stay in sync by hand in a second place. */
+ *  fit an exact, externally-measured cost (see shared/fact-admission.ts's
+ *  `selectFactsForFixedContext`, which sheds Facts by binary search and
+ *  re-measures the real rendered message rather than modeling its size) can
+ *  shed in this order without re-deriving it — priority, keyed-before-always,
+ *  and the position tiebreak would otherwise have to stay in sync by hand in
+ *  a second place. */
 export function factsInSheddingOrder(facts: readonly StoryFact[]): readonly StoryFact[] {
   return facts
     .map((fact, position) => ({ fact, position }))
