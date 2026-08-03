@@ -123,7 +123,7 @@ Each tier is sorted, best ratio first.
 
 | # | Gap | Value | Effort | Issue |
 | --- | --- | --- | --- | --- |
-| 10 | NovelAI provider protocol | High | High | [#286](https://github.com/1667-ai/1667/issues/286) |
+| 10 | NovelAI provider protocol (dropped) | High | High | [#286](https://github.com/1667-ai/1667/issues/286) |
 | 11 | Automatic chapter summaries | High | Medium | [#287](https://github.com/1667-ai/1667/issues/287) |
 | 12 | Exact token counts | Medium | Medium | [#288](https://github.com/1667-ai/1667/issues/288) |
 | 13 | Keyed Fact logic: regex, AND, NOT, recursion | Medium | Medium | [#289](https://github.com/1667-ai/1667/issues/289) |
@@ -137,6 +137,9 @@ Each tier is sorted, best ratio first.
     makes 1667 the only serious external editor for a current NovelAI
     subscription. The subscriber keeps unlimited generations and gains the
     1667 editor. Confirm the terms of service before the work.
+    Dropped 2026-08-03: the terms-of-service risk is not acceptable. Issue
+    286 is closed. The NovelAI file import and export paths are not
+    affected.
 11. **Automatic chapter summaries.** Chapter summaries and summary takes are
     manual. Long-form memory is the top NovelAI pain after price. Offer an
     automatic summary when a chapter closes or when the context meter shows
