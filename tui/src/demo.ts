@@ -17,6 +17,8 @@ import type {
   StorySummary,
   TagStatus
 } from "../../shared/types.js";
+import { MAX_FACTS } from "../../shared/types.js";
+import { planCardImport } from "../../shared/card-import.js";
 import type {
   ModelDiscoveryResultV2,
   SettingsDocumentV2,
@@ -646,6 +648,13 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     importNovelAI: async () => unavailable("NovelAI import"),
     importScenario: async () => unavailable("NovelAI scenario import"),
     importLorebook: async () => unavailable("NovelAI Lorebook import"),
+    importCard: async (_storyId, cardBytes) => {
+      const room = MAX_FACTS - demo.payload().facts.length;
+      const plan = planCardImport(cardBytes, room);
+      let payload = demo.payload();
+      for (const fact of plan.facts) payload = demo.createFact(fact);
+      return { payload, plan };
+    },
     exportMarkdown: async () => demo.exportMarkdown(),
     searchStories: async (search, signal) => {
       // The fixture answers instantly, so the only cancellation it can honour

@@ -22,6 +22,7 @@ import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.j
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
+import type { CardImportPlan } from "../../shared/card-import.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 
 import type {
@@ -184,6 +185,7 @@ export interface StoryApi {
   importNovelAI(storyContainerJson: string): Promise<NovelAiStoryImportResult>;
   importScenario(jsonText: string): Promise<NovelAiStoryImportResult>;
   importLorebook(storyId: string, archiveBytes: Uint8Array): Promise<{ payload: StoryPayload; importResult: LorebookImport }>;
+  importCard(storyId: string, cardBytes: Uint8Array): Promise<{ payload: StoryPayload; plan: CardImportPlan }>;
 
   continueStory(
     storyId: string,

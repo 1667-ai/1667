@@ -332,8 +332,42 @@ export function mutationFingerprint(
   protocolVersion = MUTATION_INPUT_PROTOCOL_VERSION
 ): string {
   protocolVersion = canonicalWorkerInputProtocolVersion(protocolVersion);
-  const canonical = canonicalJson({ protocolVersion, method, input });
+  const canonical = canonicalJson({
+    protocolVersion,
+    method,
+    input: digestByteArrays(input)
+  });
   return createHash("sha256").update(canonical).digest("hex");
+}
+
+/** Replace byte arrays with a digest of their contents.
+ *
+ * An archive or card import carries its whole file as a Uint8Array. Canonical
+ * JSON has no typed-array case, so such a value falls to the object branch and
+ * every byte index becomes a sorted string key: a 20 MB file builds twenty
+ * million keys and hundreds of megabytes of string before any import limit is
+ * read. The digest keeps what a fingerprint needs — the same bytes give the
+ * same fingerprint, different bytes do not — at a fixed size. */
+function digestByteArrays(value: unknown): unknown {
+  if (ArrayBuffer.isView(value)) {
+    const bytes = new Uint8Array(
+      value.buffer,
+      value.byteOffset,
+      value.byteLength
+    );
+    return {
+      byteDigest: createHash("sha256").update(bytes).digest("hex"),
+      byteLength: value.byteLength
+    };
+  }
+  if (Array.isArray(value)) return value.map(digestByteArrays);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, entry]) => [key, digestByteArrays(entry)])
+    );
+  }
+  return value;
 }
 
 export function validateUnseenMutationId(mutationId: string, now = Date.now()): void {

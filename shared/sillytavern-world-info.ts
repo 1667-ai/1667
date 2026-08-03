@@ -1,5 +1,7 @@
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
-import type { LorebookEntry } from "./lorebook-entry.js";
+import type { LorebookEntry, LorebookRead } from "./lorebook-entry.js";
+import { readLeadingDecorators } from "./entry-decorators.js";
+import { isRecord } from "./types.js";
 
 /** A World Info file can hold far more entries than a story has room for. The
  * mapping bounds the Facts; this bounds the reading that gets there. */
@@ -14,15 +16,6 @@ const SCAN_SOURCE_FIELDS = [
   "matchScenario",
   "matchCreatorNotes"
 ] as const;
-
-export interface WorldInfoEntries {
-  /** The canonical entry shape, so one Entry Mapping serves both archives. */
-  readonly entries: readonly LorebookEntry[];
-  readonly fidelity: readonly string[];
-  /** Entries the file held, including any this reader refused. The headline
-   * counts what the writer wrote, not what survived the reader. */
-  readonly sourceCount: number;
-}
 
 type WorldInfoLoss =
   | "secondaryKey"
@@ -103,7 +96,7 @@ interface ConvertedEntry {
  * context or keyed on its own list, so those mechanisms are counted and named
  * rather than approximated into something that would fire at the wrong time.
  */
-export function lorebookFromWorldInfo(value: unknown): WorldInfoEntries {
+export function lorebookFromWorldInfo(value: unknown): LorebookRead {
   if (!isRecord(value) || !isRecord(value.entries)) {
     throw new Error("World Info must be an object with an entries object.");
   }
@@ -142,7 +135,7 @@ export function lorebookFromWorldInfo(value: unknown): WorldInfoEntries {
 function convertWorldInfoEntry(item: Record<string, unknown>): ConvertedEntry {
   const losses: WorldInfoLoss[] = [];
   const rawContent = typeof item.content === "string" ? item.content : "";
-  const decorated = readDecorators(rawContent);
+  const decorated = readLeadingDecorators(rawContent);
   if (decorated.decorators.length > 0) losses.push("decorated");
 
   // Decide whether the entry arrives at all before naming what it would have
@@ -296,33 +289,10 @@ function hasCharacterFilter(value: unknown): boolean {
   return isNonEmptyArray(value.names) || isNonEmptyArray(value.tags);
 }
 
-/** Read the leading @@decorator lines and return the content without them.
- *
- * A decorator is honoured only when the line is exactly the control. Anything
- * else is still a control line and still leaves the prose, but it does not get
- * to promote a keyed entry to always active on a guess. */
-function readDecorators(content: string): {
-  readonly decorators: readonly string[];
-  readonly content: string;
-} {
-  const lines = content.split("\n");
-  const decorators: string[] = [];
-  let index = 0;
-  while (index < lines.length && lines[index]!.startsWith("@@")) {
-    decorators.push(lines[index]!.replace(/\r$/u, ""));
-    index += 1;
-  }
-  return { decorators, content: lines.slice(index).join("\n") };
-}
-
 function hasMacro(value: unknown): boolean {
   return typeof value === "string" && /\{\{[^}]+\}\}/u.test(value);
 }
 
 function isPositive(value: unknown): boolean {
   return typeof value === "number" ? value > 0 : value === true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -1534,3 +1534,54 @@ test("HTTP StoryApi refuses a lorebook import result that is missing its fact li
   }
   expect(message).toContain("invalid lorebook import fact list");
 });
+
+test("HTTP StoryApi sends a character card as bytes, not as a JSON index object", async () => {
+  const card = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  let sent: { body: unknown; contentType: string | null } | null = null;
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path.endsWith("/import-card")) {
+      const headers = new Headers(init?.headers ?? {});
+      sent = { body: init?.body, contentType: headers.get("content-type") };
+      return Response.json({
+        payload: storyPayload("story"),
+        plan: { name: "Mira", facts: [], used: [], skipped: [], fidelity: ["0 facts imported"] }
+      });
+    }
+    return Response.json(storyPayload("story"));
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  const result = await api.importCard("story", card);
+
+  expect(sent !== null).toBeTrue();
+  expect(sent!.contentType).toBe("application/octet-stream");
+  expect(typeof sent!.body).not.toBe("string");
+  expect(new Uint8Array(sent!.body as ArrayBuffer)).toEqual(card);
+  expect(result.plan.name).toBe("Mira");
+  expect(result.plan.fidelity).toEqual(["0 facts imported"]);
+});
+
+test("HTTP StoryApi refuses a card import result that is missing its fact list", async () => {
+  globalThis.fetch = (async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/health") return Response.json(metadata());
+    if (path.endsWith("/import-card")) {
+      return Response.json({
+        payload: storyPayload("story"),
+        plan: { name: "Mira", used: [], skipped: [], fidelity: [] }
+      });
+    }
+    return Response.json(storyPayload("story"));
+  }) as typeof fetch;
+  const api = createApi("http://127.0.0.1:7373");
+
+  let message = "";
+  try {
+    await api.importCard("story", new Uint8Array([1, 2, 3]));
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  expect(message).toContain("invalid card import fact list");
+});
