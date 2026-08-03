@@ -522,6 +522,47 @@ describe("Sampling Settings user flow", () => {
     expect(state.settings?.sampling?.edit).toBe(null);
   });
 
+  // Regression test for issue #282 review round 3, finding 5: the "kept
+  // out" branch un-commits a rejected entry and updates the result line,
+  // then starts a second round trip to re-resolve the remaining draft — but
+  // used to return without repainting first, so the screen kept the old
+  // frame (row still shown, no result line) until that second, slower call
+  // landed. Comparing the repaint count at the start of each call proves a
+  // repaint lands between them: with the fix, the second call always starts
+  // with the count already one higher than the first.
+  test("repaints before the recursive re-resolution starts, not only after it lands", async () => {
+    const { source, state, press, repaints } = settingsHarness();
+    useEncodedModelSettings(source);
+    const repaintsAtCallStart: number[] = [];
+    const { promise: thirdCallStarted, resolve: notifyThirdCallStarted } = deferred<void>();
+    source.api.resolveSamplingBias = async (): Promise<SamplingBiasResolutionResult> => {
+      repaintsAtCallStart.push(repaints());
+      // Call 1: opening the sampling panel itself resolves once with nothing
+      // committed yet (tui/src/settings-overlay-actions.ts) — not the call
+      // this test is about. Call 2 is the just-committed check for
+      // "dragon:5"; failing it here — a whole-panel "tokenizer-unavailable"
+      // kept an entry out even before issue #282 review round 2, finding
+      // 5 — is what starts call 3, the recursive re-resolution this test
+      // is timing against.
+      if (repaintsAtCallStart.length === 2) {
+        return { kind: "tokenizer-unavailable", cause: "probe-failed" };
+      }
+      if (repaintsAtCallStart.length === 3) notifyThirdCallStarted();
+      return { kind: "resolved", logitBias: {}, phraseBias: [], bannedStrings: [], resolvedEntryCount: 0 };
+    };
+
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
+    await press(key("return"));
+    await press(key("n"));
+    setSamplingEdit(state, "dragon:5");
+    await press(key("return"));
+    await thirdCallStarted;
+
+    expect(repaintsAtCallStart.length).toBe(3);
+    expect(repaintsAtCallStart[2]).toBeGreaterThan(repaintsAtCallStart[1]!);
+  });
+
   // Regression test for issue #282 review round 2, finding 5: a worker call
   // that throws — the provider-check timeout elapsing against a slow
   // llama.cpp server is the everyday case — used to leave the panel pinned

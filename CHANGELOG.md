@@ -26,16 +26,19 @@ This file records notable changes to 1667. Product terms use the definitions in
   entry and a banned string merge into the same logit bias field as a token
   ID entry. A token ID that a writer sets by hand keeps priority over the
   merged value. Two phrase entries can tokenize to the same token. For
-  example, "hello" and "Hello" share a form. 1667 keeps the higher-priority
-  entry. 1667 refuses the other entry at commit and names the entry that
-  kept the token. A banned string makes the text unlikely. It does not make
-  the text impossible, because the same text can come from different token
-  boundaries. Phrase bias and banned strings work for an OpenAI model on
-  the tokenizer list, and for llama.cpp, which 1667 asks to tokenize the
-  text directly. They do not yet work for KoboldCpp, LM Studio, Ollama,
-  OpenRouter, or a custom endpoint. 1667 shows a clear reason when a
-  phrase, a banned string, or logit bias itself is not available for the
-  routed model.
+  example, "hello" and "Hello" share a form. When both entries want the same
+  weight for that token, 1667 keeps both entries and biases every token
+  either one names. When the entries want different weights, 1667 refuses
+  the entry that loses the token. 1667 does this at commit, or at save if
+  the conflict starts later. 1667 names the entry that kept the token and
+  the exact forms that lost their bias. A banned string makes the text
+  unlikely. It does not make the text impossible, because the same text can
+  come from different token boundaries. Phrase bias and banned strings work
+  for an OpenAI model on the tokenizer list, and for llama.cpp, which 1667
+  asks to tokenize the text directly. They do not yet work for KoboldCpp,
+  LM Studio, Ollama, OpenRouter, or a custom endpoint. 1667 shows a clear
+  reason when a phrase, a banned string, or logit bias itself is not
+  available for the routed model.
 - **The Author's Note now has a depth setting.** Depth sets how many story
   parts from the end the note lands before. The default depth, 1, is today's
   placement: immediately before the last story part. Open the Author's Note

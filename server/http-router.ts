@@ -247,7 +247,7 @@ async function handleApi(
       return sendJson(response, 200, await service.saveSettings({
         ...command,
         transportOperationId: ticket
-      }));
+      }, operation.signal));
     }
   }
   if (head === "settings" && id === "pending" && method === "DELETE") {

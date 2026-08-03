@@ -1,10 +1,10 @@
 import {
+  firstBlockingSamplingBiasEntry,
   isLogitBiasFamilyKnob,
   resolveConfiguredSamplingKnobs,
   samplingBiasEntryRejectionMessage,
   samplingBiasResolutionFailureMessage,
   samplingKnobLabel,
-  type SamplingBiasEntryResolution,
   type SamplingContext,
   type SamplingUnavailableReason
 } from "../shared/sampling-capabilities.js";
@@ -88,10 +88,10 @@ async function mergedLogitBiasValue(
   if (resolved.kind !== "resolved") {
     throw new ProviderError(`Could not resolve phrase bias or banned strings: ${samplingBiasResolutionFailureMessage(resolved)}.`);
   }
-  const rejected = firstRejectedEntry(resolved.phraseBias, resolved.bannedStrings);
-  if (rejected !== undefined) {
+  const blocking = firstBlockingSamplingBiasEntry(resolved.phraseBias, resolved.bannedStrings);
+  if (blocking !== undefined) {
     throw new ProviderError(
-      `Could not use ${JSON.stringify(rejected.phrase)} as configured: ${samplingBiasEntryRejectionMessage(rejected)}.`
+      `Could not use ${JSON.stringify(blocking.phrase)} as configured: ${samplingBiasEntryRejectionMessage(blocking)}.`
     );
   }
   const bound = maxResolvedLogitBiasEntries(resolvedPreset);
@@ -102,16 +102,6 @@ async function mergedLogitBiasValue(
     );
   }
   return sortedLogitBias(resolved.logitBias);
-}
-
-function firstRejectedEntry(
-  phraseBias: readonly SamplingBiasEntryResolution[],
-  bannedStrings: readonly SamplingBiasEntryResolution[]
-): Extract<SamplingBiasEntryResolution, { kind: "rejected" }> | undefined {
-  for (const entry of [...phraseBias, ...bannedStrings]) {
-    if (entry.kind === "rejected") return entry;
-  }
-  return undefined;
 }
 
 function requirePreset(preset: SettingsPresetV2 | "legacy-v1"): SettingsPresetV2 {

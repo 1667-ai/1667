@@ -17,6 +17,7 @@ import {
   TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
   type SamplingBiasEntryResolution,
   type SamplingBiasResolutionResult,
+  type SamplingBiasShadowOwner,
   type SamplingBiasVariant,
   type SamplingBiasVariantOutcome,
   type SamplingBiasVariantResolution,
@@ -223,6 +224,7 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
       phrase,
       variants,
       tokenIds: decodeTokenIdArray(record.tokenIds, label),
+      conflictingTokenIds: decodeTokenIdArray(record.conflictingTokenIds, label),
       shadowedBy: decodeShadowedBy(record.shadowedBy, label)
     };
   }
@@ -237,12 +239,10 @@ function decodeTokenIdArray(value: unknown, label: string): readonly number[] {
   return value as readonly number[];
 }
 
-function decodeShadowedBy(
-  value: unknown,
-  label: string
-): { readonly source: "phraseBias" | "bannedStrings"; readonly phrase: string } {
+function decodeShadowedBy(value: unknown, label: string): SamplingBiasShadowOwner {
   const record = responseRecord(value, `${label} shadowedBy`);
   const source = record.source;
+  if (source === "logitBias") return { source };
   if (source !== "phraseBias" && source !== "bannedStrings") {
     invalidField(`${label} shadowedBy`, "source");
   }

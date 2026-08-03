@@ -6,6 +6,7 @@ import {
   type PromptBiasEncoding,
   type SamplingBiasEntryResolution,
   type SamplingBiasResolutionResult,
+  type SamplingBiasShadowOwner,
   type SamplingBiasVariantOutcome,
   type SamplingBiasVariantResolution
 } from "../shared/sampling-capabilities.js";
@@ -58,17 +59,21 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
  *
  * Two entries can resolve to overlapping token IDs even though the writer
  * never named a token twice — variant expansion makes that unavoidable, not
- * exotic: every variant of "Hello" is also a variant of "hello". Ownership
- * of a token ID goes to whichever entry is last in this same priority order
- * (a later phraseBias entry beats an earlier one; any bannedStrings entry
- * beats any phraseBias entry), and an entry that loses ownership of even one
- * of its tokens is "shadowed" rather than resolved: it contributes nothing,
- * so the merged map is never built from two different weights answering for
- * the same phrase (issue #282 review round 2, finding 1). Only resolved
- * entries contribute — a rejected or shadowed entry biases nothing, silently
- * or otherwise. Banned strings only make a string unlikely, never
- * impossible — see the field comment on `SamplingSettingsV2.bannedStrings`
- * for why.
+ * exotic: every variant of "Hello" is also a variant of "hello". The merged
+ * map below is built from every resolved entry unconditionally, in that
+ * same priority order, a later write always overwriting an earlier one for
+ * a shared token — nothing is ever left out of it because of what it later
+ * turns out to share (issue #282 review round 3, findings 1 and 4: an
+ * earlier version decided per-entry ownership in a separate pass, using a
+ * comparison that did not agree with this merge order, which silently
+ * dropped an earlier entry's *exclusive* tokens whenever it shared even one
+ * token with a later entry — and separately let the numeric map override a
+ * phrase without ever reporting it). Only afterward does
+ * `settleTokenOwnership` classify each entry against this one already-built
+ * map: "shadowed" only when the map disagrees with the entry about a token's
+ * weight, never merely because another entry also names that token. Banned
+ * strings only make a string unlikely, never impossible — see the field
+ * comment on `SamplingSettingsV2.bannedStrings` for why.
  */
 export function resolveSamplingLogitBias(
   sampling: Pick<SamplingSettingsV2, "logitBias" | "phraseBias" | "bannedStrings">,
@@ -77,31 +82,37 @@ export function resolveSamplingLogitBias(
   const phraseResolutions = sampling.phraseBias.map((entry) => resolveEntry(entry.phrase, tokenizeVariant));
   const bannedResolutions = sampling.bannedStrings.map((phrase) => resolveEntry(phrase, tokenizeVariant));
 
-  const tokenOwner = new Map<number, { readonly source: "phraseBias" | "bannedStrings"; readonly index: number }>();
+  // Built once, from every resolved entry, before any shadow is decided —
+  // this object is both the wire value and the yardstick every entry below
+  // is measured against. `tokenOwner` rides along only to *name* whichever
+  // entry wrote a token's final weight, for the message; it plays no part in
+  // deciding whether a shadow exists.
+  const merged: Record<string, number> = {};
+  const tokenOwner = new Map<number, SamplingBiasTokenOwner>();
   phraseResolutions.forEach((resolution, index) => {
     if (resolution.kind !== "resolved") return;
-    for (const id of resolution.tokenIds) tokenOwner.set(id, { source: "phraseBias", index });
+    const weight = sampling.phraseBias[index]!.weight;
+    for (const id of resolution.tokenIds) {
+      merged[String(id)] = weight;
+      tokenOwner.set(id, { source: "phraseBias", index });
+    }
   });
   bannedResolutions.forEach((resolution, index) => {
     if (resolution.kind !== "resolved") return;
-    for (const id of resolution.tokenIds) tokenOwner.set(id, { source: "bannedStrings", index });
+    for (const id of resolution.tokenIds) {
+      merged[String(id)] = SAMPLING_LOGIT_BIAS_POLICY.minimum;
+      tokenOwner.set(id, { source: "bannedStrings", index });
+    }
   });
+  for (const [token, weight] of Object.entries(sampling.logitBias)) {
+    merged[token] = weight;
+    tokenOwner.set(Number(token), { source: "logitBias" });
+  }
 
   const phraseBias = phraseResolutions.map((resolution, index) =>
-    settleTokenOwnership(resolution, "phraseBias", index, tokenOwner, sampling));
-  const bannedStrings = bannedResolutions.map((resolution, index) =>
-    settleTokenOwnership(resolution, "bannedStrings", index, tokenOwner, sampling));
-
-  const merged: Record<string, number> = {};
-  phraseBias.forEach((resolution, index) => {
-    if (resolution.kind !== "resolved") return;
-    for (const id of resolution.tokenIds) merged[String(id)] = sampling.phraseBias[index]!.weight;
-  });
-  bannedStrings.forEach((resolution) => {
-    if (resolution.kind !== "resolved") return;
-    for (const id of resolution.tokenIds) merged[String(id)] = SAMPLING_LOGIT_BIAS_POLICY.minimum;
-  });
-  for (const [token, weight] of Object.entries(sampling.logitBias)) merged[token] = weight;
+    settleTokenOwnership(resolution, sampling.phraseBias[index]!.weight, merged, tokenOwner, sampling));
+  const bannedStrings = bannedResolutions.map((resolution) =>
+    settleTokenOwnership(resolution, SAMPLING_LOGIT_BIAS_POLICY.minimum, merged, tokenOwner, sampling));
 
   return {
     kind: "resolved",
@@ -112,35 +123,46 @@ export function resolveSamplingLogitBias(
   };
 }
 
-/** Downgrades a "resolved" entry to "shadowed" when the final ownership map
- * disagrees with it about even one of its tokens — i.e. some other entry
- * claimed that token later in merge-priority order. `rejected` entries pass
- * through unchanged: they never held any tokens to lose. */
+type SamplingBiasTokenOwner =
+  | { readonly source: "phraseBias" | "bannedStrings"; readonly index: number }
+  | { readonly source: "logitBias" };
+
+/** Downgrades a "resolved" entry to "shadowed" when the already-built merged
+ * map disagrees with it about at least one of its own tokens — i.e. some
+ * other entry's weight, not this one's, is what the map actually carries for
+ * that token id. Two entries that both resolve to a shared token and both
+ * write it the same weight never trigger this (issue #282 review round 3,
+ * finding 1): there is no weight for either of them to lose, so a banned
+ * string that overlaps an earlier banned string, or a phrase-bias entry that
+ * happens to share a later entry's exact weight, stays "resolved" — the
+ * outcome no longer depends on which of the two was typed first.
+ * `rejected` entries pass through unchanged: they never held any tokens to
+ * lose. */
 function settleTokenOwnership(
   resolution: SamplingBiasEntryResolution,
-  source: "phraseBias" | "bannedStrings",
-  index: number,
-  tokenOwner: ReadonlyMap<number, { readonly source: "phraseBias" | "bannedStrings"; readonly index: number }>,
+  ownWeight: number,
+  merged: Readonly<Record<string, number>>,
+  tokenOwner: ReadonlyMap<number, SamplingBiasTokenOwner>,
   sampling: Pick<SamplingSettingsV2, "phraseBias" | "bannedStrings">
 ): SamplingBiasEntryResolution {
   if (resolution.kind !== "resolved") return resolution;
-  const shadowingId = resolution.tokenIds.find((id) => {
-    const owner = tokenOwner.get(id)!;
-    return owner.source !== source || owner.index !== index;
-  });
-  if (shadowingId === undefined) return resolution;
-  const owner = tokenOwner.get(shadowingId)!;
-  const shadowedBy = {
-    source: owner.source,
-    phrase: owner.source === "phraseBias"
-      ? sampling.phraseBias[owner.index]!.phrase
-      : sampling.bannedStrings[owner.index]!
-  };
+  const conflictingTokenIds = resolution.tokenIds.filter((id) => merged[String(id)] !== ownWeight);
+  if (conflictingTokenIds.length === 0) return resolution;
+  const owner = tokenOwner.get(conflictingTokenIds[0]!)!;
+  const shadowedBy: SamplingBiasShadowOwner = owner.source === "logitBias"
+    ? { source: "logitBias" }
+    : {
+        source: owner.source,
+        phrase: owner.source === "phraseBias"
+          ? sampling.phraseBias[owner.index]!.phrase
+          : sampling.bannedStrings[owner.index]!
+      };
   return {
     kind: "shadowed",
     phrase: resolution.phrase,
     variants: resolution.variants,
     tokenIds: resolution.tokenIds,
+    conflictingTokenIds,
     shadowedBy
   };
 }

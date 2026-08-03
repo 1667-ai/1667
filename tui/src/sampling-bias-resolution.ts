@@ -16,12 +16,13 @@ import type { SettingsOverlayState } from "./state.js";
  * the whole-panel resolveSamplingBias result cached on the nested overlay
  * (tui/src/state.ts, SamplingBiasResolutionState). "rejected" names the one
  * entry that failed to resolve to a single token in every surface variant;
- * "shadowed" names the one whose tokens are all owned by a different,
- * higher-priority entry (issue #282 review round 2, finding 1); every other
- * row in the same batch is "idle" (not "unavailable") because it is not
- * implicated. "failed" is a transport failure, not a per-phrase outcome
- * (finding 5) — every row shows it identically, the same way every row
- * shares "tokenizer-unavailable". */
+ * "shadowed" names the one with a real weight conflict on at least one of
+ * its tokens — not necessarily every token, and not merely sharing one with
+ * another entry that would write it the same weight (issue #282 review
+ * round 3, finding 1); every other row in the same batch is "idle" (not
+ * "unavailable") because it is not implicated. "failed" is a transport
+ * failure, not a per-phrase outcome (finding 5) — every row shows it
+ * identically, the same way every row shares "tokenizer-unavailable". */
 export type SamplingBiasRowResolution =
   | { readonly kind: "idle" }
   | { readonly kind: "pending" }
@@ -163,6 +164,13 @@ async function resolveNow(
     if (keptOutReason !== null) {
       unCommitRejectedEntry(overlay, justCommitted);
       nested.result = `${JSON.stringify(justCommitted.phrase)} kept out · ${keptOutReason}`;
+      // Paint the dropped row and the result line now (issue #282 review
+      // round 3, finding 5) — the recursive resolveSamplingBias call below
+      // starts a fresh round trip (a full re-probe of every remaining
+      // variant text on a llama-cpp route) before it lands, and without this
+      // the screen would keep showing the old frame, row and all, until
+      // that second call returns.
+      context.repaint();
       // The draft just changed again (the entry was removed) — resolve once
       // more so the cache reflects the list the writer actually has, rather
       // than showing a rejection for a phrase that is no longer there.

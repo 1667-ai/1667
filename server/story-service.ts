@@ -560,9 +560,9 @@ export class StoryService extends StoryServiceRuntime {
     return await this.settings.loadView();
   }
 
-  async saveSettings(value: unknown): Promise<SettingsMutationResult> {
+  async saveSettings(value: unknown, signal?: AbortSignal): Promise<SettingsMutationResult> {
     this.ensureOpen();
-    return await this.settings.save(value);
+    return await this.settings.save(value, signal);
   }
 
   async discardPendingSettings(value: unknown): Promise<SettingsMutationResult> {

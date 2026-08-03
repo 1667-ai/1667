@@ -578,26 +578,26 @@ test("a single-token phrase resolves into logit_bias entries for every surface v
   });
 });
 
-// Regression test for issue #282 review round 2, finding 1: variant
+// Regression test for issue #282 review round 3, finding 1: variant
 // expansion makes two phrase-bias entries collide unavoidably whenever one
 // phrase's variants are a strict subset of another's — every variant of
 // "Hello" (typed/capitalized both "Hello", leading-space/leading-space-
-// capitalized both " Hello") is also a variant of "hello". The merge used to
-// write each entry's weight in array order, so the second entry silently
-// overwrote two of the first entry's four tokens and the built request
-// carried two different weights for what the writer believed was one
-// phrase. "hello" must not contribute a mixed-weight, half-overwritten
-// bias: it is fully shadowed by "Hello" (finding 1's chosen resolution —
-// see the accompanying report for why), and the merged object holds only
-// "Hello"'s two tokens at "Hello"'s own weight.
-test("a phrase-bias entry whose tokens are entirely claimed by a later entry is shadowed, not silently split across two weights", async () => {
-  const body = await buildOpenAiChatRequestBody(
+// capitalized both " Hello") is also a variant of "hello". An earlier
+// version decided ownership using a different order than the merge itself,
+// which silently dropped "hello"'s two *exclusive* tokens (24912, 40617)
+// whenever "Hello" was configured too — even though the two entries here
+// write the exact same weight and never actually conflict. Both orderings
+// below must resolve cleanly and produce the identical, fully-covered
+// merged map: which entry a writer types first must not change what
+// reaches the wire when nothing about the two entries actually disagrees.
+test("two phrase-bias entries that agree on a shared token's weight both resolve, in either typing order, covering every token", async () => {
+  const inOrder = await buildOpenAiChatRequestBody(
     withSampling(
       { ...settings("openai-compatible"), model: "gpt-4o" },
       "openai",
       sampling({
         phraseBias: [
-          { phrase: "hello", weight: 20 },
+          { phrase: "hello", weight: -20 },
           { phrase: "Hello", weight: -20 }
         ]
       })
@@ -605,10 +605,102 @@ test("a phrase-bias entry whose tokens are entirely claimed by a later entry is 
     PROMPT,
     OMIT_PLANS[0]!
   );
-  assert.deepEqual(body.logit_bias, {
-    "13225": -20,
-    "32949": -20
-  });
+  const reversed = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({
+        phraseBias: [
+          { phrase: "Hello", weight: -20 },
+          { phrase: "hello", weight: -20 }
+        ]
+      })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  const expected = { "24912": -20, "40617": -20, "13225": -20, "32949": -20 };
+  assert.deepEqual(inOrder.logit_bias, expected);
+  assert.deepEqual(reversed.logit_bias, expected);
+});
+
+// Decisive regression test for issue #282 review round 3, finding 1, in the
+// exact shape the finding reproduced: two banned strings whose token sets
+// overlap (bannedStrings always write the same fixed minimum weight, so two
+// of them never have a real conflict to resolve) must ban every one of
+// their combined tokens, and produce the exact same merged map regardless
+// of which one was typed first.
+test("banning two overlapping phrases bans every one of their tokens, and produces the same map in either order", async () => {
+  const inOrder = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ bannedStrings: ["hello", "Hello"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  const reversed = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ bannedStrings: ["Hello", "hello"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!
+  );
+  const expected = { "24912": -100, "40617": -100, "13225": -100, "32949": -100 };
+  assert.deepEqual(inOrder.logit_bias, expected);
+  assert.deepEqual(reversed.logit_bias, expected);
+});
+
+// Regression test for issue #282 review round 3, finding 2: a real weight
+// conflict — not mere overlap — must block the request instead of silently
+// shipping "Hello"'s weight for two of "hello"'s four tokens while dropping
+// "hello"'s own weight entirely. The message names exactly which surface
+// forms lost their bias.
+test("a phrase-bias entry with a real weight conflict on some of its tokens blocks the request", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({
+          phraseBias: [
+            { phrase: "hello", weight: 20 },
+            { phrase: "Hello", weight: -20 }
+          ]
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /Could not use "hello" as configured: "hello" loses its bias on "Hello", " Hello" to phrase bias "Hello"/
+  );
+});
+
+// Regression test for issue #282 review round 3, finding 4: an explicit
+// numeric logitBias entry escaped the ownership pass entirely, so a phrase
+// it fully overrode was still reported "resolved" with all four token IDs —
+// the editor showed it working while its own weight reached nothing. Now
+// the same weight comparison catches a numeric override too, and blocks
+// instead of silently shipping the numeric weights under the phrase's name.
+test("an explicit numeric logitBias entry that overrides every one of a phrase's tokens blocks the request", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({
+          logitBias: { "24912": 50, "40617": 50, "13225": 50, "32949": 50 },
+          phraseBias: [{ phrase: "hello", weight: -100 }]
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /to an explicit numeric logit-bias entry, which takes precedence there/
+  );
 });
 
 // Regression test for issue #282 stage 1, point 1: resolution used to spread

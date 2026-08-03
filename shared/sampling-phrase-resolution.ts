@@ -160,13 +160,24 @@ export interface SamplingBiasVariantResolution {
  * stage 1: "the editor must show the resolved IDs per variant, not one list
  * per phrase").
  *
- * "shadowed" is the third outcome (issue #282 review round 2, finding 1):
- * every variant tokenized to exactly one token, the same bar "resolved"
- * clears, but every one of those tokens is already owned by a
- * higher-priority entry (server/sampling-phrase-bias.ts documents merge
- * priority) — so this entry's own weight would never actually reach the
- * wire. Naming the entry that took its tokens is what tells a writer their
- * two entries are not the independent pair they look like. */
+ * "shadowed" is the third outcome, and it never fires from overlap alone.
+ * Two entries can share a token — variant expansion makes that unavoidable,
+ * since every variant of "Hello" is also a variant of "hello" — without any
+ * conflict, when both would write that token the same weight; two banned
+ * strings always agree this way, because every banned string writes the
+ * same fixed minimum. "shadowed" fires only when at least one of this
+ * entry's own tokens ends up, in the final merged map, carrying a weight
+ * this entry did NOT write — some, not necessarily every, token (issue #282
+ * review round 3, finding 1 corrected this from an earlier, wrong "every"
+ * reading that also made the outcome depend on typing order).
+ * `conflictingTokenIds` names exactly which of `tokenIds` lost this entry's
+ * own weight; `shadowedBy` names one entry that wrote a conflicting weight —
+ * an explicit numeric `logitBias` entry always wins a real conflict and
+ * carries no phrase text of its own (`SamplingBiasShadowOwner`). A
+ * "shadowed" entry always blocks a save and a request, the same as
+ * "rejected" (issue #282 review round 3, finding 2): a writer who configured
+ * two conflicting entries is told, never shipped a weaker request than the
+ * one they typed. */
 export type SamplingBiasEntryResolution =
   | {
       readonly kind: "resolved";
@@ -184,11 +195,17 @@ export type SamplingBiasEntryResolution =
       readonly phrase: string;
       readonly variants: readonly SamplingBiasVariantResolution[];
       readonly tokenIds: readonly number[];
-      readonly shadowedBy: {
-        readonly source: "phraseBias" | "bannedStrings";
-        readonly phrase: string;
-      };
+      readonly conflictingTokenIds: readonly number[];
+      readonly shadowedBy: SamplingBiasShadowOwner;
     };
+
+/** Names the entry whose weight won a real conflict on at least one token
+ * (`SamplingBiasEntryResolution`, "shadowed"). An explicit numeric
+ * `logitBias` entry has no phrase text of its own — a raw token ID, not
+ * text — so it is the one source with no `phrase` to report. */
+export type SamplingBiasShadowOwner =
+  | { readonly source: "phraseBias" | "bannedStrings"; readonly phrase: string }
+  | { readonly source: "logitBias" };
 
 /** Why "tokenizer-unavailable" — three materially different situations a
  * writer must be able to tell apart (issue #282 review round 2, finding 6b):
@@ -232,18 +249,6 @@ export type SamplingBiasResolutionResult =
     }
   | { readonly kind: "tokenizer-unavailable"; readonly cause: TokenizerUnavailableCause };
 
-/** True when every phraseBias/bannedStrings entry in `result` resolved — the
- * condition a caller that must never send a rejected entry checks before
- * trusting `logitBias` (server/provider-sampling.ts throws instead of
- * sending a partial request; the editor shows each rejection inline). A
- * "shadowed" entry (issue #282 review round 2, finding 1) does not count as
- * resolved either: its own weight never reaches `logitBias`. */
-export function samplingBiasResolutionFullySucceeded(
-  result: Extract<SamplingBiasResolutionResult, { kind: "resolved" }>
-): boolean {
-  return [...result.phraseBias, ...result.bannedStrings].every((entry) => entry.kind === "resolved");
-}
-
 const TOKENIZER_UNAVAILABLE_CAUSE_TEXT: Readonly<Record<TokenizerUnavailableCause, string>> = {
   "encoder-unavailable": "the bundled tokenizer failed to load",
   "model-unknown": "1667 has no exact tokenizer for this model",
@@ -257,17 +262,29 @@ export function samplingBiasResolutionFailureMessage(
 }
 
 /** A short, honest reason a single entry was kept off the wire — either it
- * never resolved to one token per surface variant ("rejected"), or every
- * variant did but another, higher-priority entry already owns those tokens
- * ("shadowed" — issue #282 review round 2, finding 1). Never claims either
- * kind did something it did not. */
+ * never resolved to one token per surface variant ("rejected"), or at least
+ * one of its tokens ended up carrying a different entry's weight
+ * ("shadowed" — issue #282 review round 3, finding 1). Names exactly which
+ * surface forms lost this entry's own bias, not the whole entry, since a
+ * shadow can be partial. Never claims either kind did something it did
+ * not. */
 export function samplingBiasEntryRejectionMessage(
   entry: Exclude<SamplingBiasEntryResolution, { kind: "resolved" }>
 ): string {
   if (entry.kind === "shadowed") {
-    const owner = entry.shadowedBy.source === "bannedStrings" ? "banned string" : "phrase bias";
-    return `${JSON.stringify(entry.phrase)} shares every token with ${owner} `
-      + `${JSON.stringify(entry.shadowedBy.phrase)}, which takes precedence`;
+    const lostForms = [...new Set(
+      entry.variants.flatMap((variant) =>
+        variant.outcome.kind === "single-token"
+          && entry.conflictingTokenIds.includes(variant.outcome.tokenId)
+          ? [JSON.stringify(variant.text)]
+          : [])
+    )].join(", ");
+    const owner = entry.shadowedBy.source === "logitBias"
+      ? "an explicit numeric logit-bias entry"
+      : `${entry.shadowedBy.source === "bannedStrings" ? "banned string" : "phrase bias"} `
+        + `${JSON.stringify(entry.shadowedBy.phrase)}`;
+    return `${JSON.stringify(entry.phrase)} loses its bias on ${lostForms} to ${owner}, `
+      + "which takes precedence there";
   }
   const failing = entry.variants.find((variant) => variant.outcome.kind !== "single-token");
   if (failing === undefined) {
@@ -279,4 +296,24 @@ export function samplingBiasEntryRejectionMessage(
       + `(${failing.outcome.tokenIds.join(",")}), not one`;
   }
   return `${JSON.stringify(failing.text)}${where} has no exact token`;
+}
+
+/** The first phraseBias or bannedStrings entry, in list order (phraseBias
+ * before bannedStrings), that must block a save or a request: one that never
+ * resolved to a single token in every surface variant ("rejected"), or one
+ * whose resolution lost a real weight conflict to another entry ("shadowed"
+ * — issue #282 review round 3, finding 2 made this outcome block, like
+ * "rejected", instead of passing silently). Shared by
+ * server/provider-sampling.ts (request-time application) and
+ * server/settings-v2-sampling-validation.ts (save-time validation), which
+ * used to each keep a byte-identical private copy of this walk (finding
+ * 6). */
+export function firstBlockingSamplingBiasEntry(
+  phraseBias: readonly SamplingBiasEntryResolution[],
+  bannedStrings: readonly SamplingBiasEntryResolution[]
+): Extract<SamplingBiasEntryResolution, { kind: "rejected" | "shadowed" }> | undefined {
+  for (const entry of [...phraseBias, ...bannedStrings]) {
+    if (entry.kind === "rejected" || entry.kind === "shadowed") return entry;
+  }
+  return undefined;
 }

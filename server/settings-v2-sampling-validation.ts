@@ -29,8 +29,8 @@ import {
 import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
 import {
+  firstBlockingSamplingBiasEntry,
   samplingBiasEntryRejectionMessage,
-  type SamplingBiasEntryResolution,
   type SamplingBiasResolutionResult
 } from "../shared/sampling-capabilities.js";
 import {
@@ -107,7 +107,12 @@ function samplingPolicy<T>(operation: () => T): T {
  * phraseBias, or bannedStrings is configured — that it resolves within the
  * preset-aware resolved-entry bound with no rejected or shadowed entry, so a
  * document that cannot serialize into a request never saves cleanly in the
- * first place (issue #282 review round 2, finding 6). Checked unconditionally,
+ * first place (issue #282 review round 2, finding 6). "Shadowed" only ever
+ * names a real weight conflict, never mere overlap (issue #282 review round
+ * 3, finding 1) — two entries that agree on a shared token's weight both
+ * stay "resolved" and neither blocks the save — so blocking on it here
+ * matches the writer's expectation: a save never silently ships a weaker
+ * request than the one they configured (finding 2). Checked unconditionally,
  * even when only the raw numeric logitBias map is set: a raw map alone can
  * still carry more entries than a preset (KoboldCpp) documents.
  *
@@ -156,11 +161,11 @@ export function validateSamplingRoute(
       : resolveSamplingLogitBiasForEncoding(profile.sampling, promptBiasTokenizerEncoding(context.remoteModelId))
   );
   if (resolved === undefined || resolved.kind !== "resolved") return;
-  const rejected = firstRejectedEntry(resolved.phraseBias, resolved.bannedStrings);
-  if (rejected !== undefined) {
+  const blocking = firstBlockingSamplingBiasEntry(resolved.phraseBias, resolved.bannedStrings);
+  if (blocking !== undefined) {
     throw new SettingsFormatError(
-      `profile ${profileId} cannot use ${JSON.stringify(rejected.phrase)} as configured: `
-      + samplingBiasEntryRejectionMessage(rejected)
+      `profile ${profileId} cannot use ${JSON.stringify(blocking.phrase)} as configured: `
+      + samplingBiasEntryRejectionMessage(blocking)
     );
   }
   const bound = maxResolvedLogitBiasEntries(preset);
@@ -170,16 +175,6 @@ export function validateSamplingRoute(
       + `exceeding the ${bound}-entry limit for preset ${preset}`
     );
   }
-}
-
-function firstRejectedEntry(
-  phraseBias: readonly SamplingBiasEntryResolution[],
-  bannedStrings: readonly SamplingBiasEntryResolution[]
-): Extract<SamplingBiasEntryResolution, { kind: "rejected" }> | undefined {
-  for (const entry of [...phraseBias, ...bannedStrings]) {
-    if (entry.kind === "rejected") return entry;
-  }
-  return undefined;
 }
 
 function samplingValidationMessage(

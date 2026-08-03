@@ -69,18 +69,26 @@ export const LLAMA_CPP_FIXTURE_TOKENS: Readonly<Record<string, number>> = {
 };
 
 /** Model-keyed: the tokenize handler below requires an exact `model` match
- * (issue #282 review round 2, finding 3), the same way a real llama.cpp
- * server in router mode requires one — a fixture keyed on content alone
- * could not have caught the tokenize probe forgetting to send it. */
+ * (issue #282 review round 2, finding 3) — a fixture keyed on content alone
+ * could not have caught the tokenize probe forgetting to send it. This
+ * asserts 1667's own assumption about how a router-mode llama.cpp server
+ * behaves, not llama.cpp's actual behavior: `model` is not a documented
+ * `/tokenize` field (issue #282 review round 3, finding 4c), so this fixture
+ * cannot stand in for a verified round trip against a real server. */
 export type LlamaCppFixtureTokenizeMap = Readonly<Record<string, Readonly<Record<string, number>>>>;
 
 export async function startProviderFixture(
   t: { after(callback: () => void | Promise<void>): void },
   tokenizeMap?: LlamaCppFixtureTokenizeMap
-): Promise<{ readonly origin: string; readonly bodies: Record<string, unknown>[] }> {
+): Promise<{
+  readonly origin: string;
+  readonly bodies: Record<string, unknown>[];
+  readonly tokenizeBodies: Record<string, unknown>[];
+}> {
   const bodies: Record<string, unknown>[] = [];
+  const tokenizeBodies: Record<string, unknown>[] = [];
   const server = createServer((request, response) => {
-    handleRequest(request, response, bodies, tokenizeMap).catch((error: unknown) => {
+    handleRequest(request, response, bodies, tokenizeBodies, tokenizeMap).catch((error: unknown) => {
       // A fixture assertion failing (assertLogitBiasBodyShape below) throws
       // rather than silently accepting a malformed body — respond with the
       // failure instead of leaving the client to hang until its own
@@ -93,13 +101,14 @@ export async function startProviderFixture(
   t.after(() => { server.close(); });
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("fixture has no address");
-  return { origin: `http://127.0.0.1:${address.port}`, bodies };
+  return { origin: `http://127.0.0.1:${address.port}`, bodies, tokenizeBodies };
 }
 
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   bodies: Record<string, unknown>[],
+  tokenizeBodies: Record<string, unknown>[],
   tokenizeMap: LlamaCppFixtureTokenizeMap | undefined
 ): Promise<void> {
   if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
@@ -108,12 +117,12 @@ async function handleRequest(
     return;
   }
   if (request.method === "POST" && request.url === "/tokenize" && tokenizeMap !== undefined) {
-    const { content, model } = JSON.parse(await requestText(request)) as {
-      content: string;
-      model?: string;
-    };
+    const body = JSON.parse(await requestText(request)) as Record<string, unknown>;
+    tokenizeBodies.push(body);
+    const content = body.content;
+    const model = body.model;
     const modelMap = typeof model === "string" ? tokenizeMap[model] : undefined;
-    if (modelMap === undefined) {
+    if (modelMap === undefined || typeof content !== "string") {
       // Router mode: a request naming no model, or a model this server does
       // not host, is rejected outright rather than answered from a default.
       response.writeHead(400).end();

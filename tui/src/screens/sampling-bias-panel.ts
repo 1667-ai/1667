@@ -76,6 +76,7 @@ function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
   }
   if (resolution.kind === "shadowed") {
     const owner = resolution.entry.shadowedBy;
+    if (owner.source === "logitBias") return "‹ — › shadowed by an explicit numeric logit bias entry";
     const ownerKind = owner.source === "bannedStrings" ? "banned string" : "phrase";
     return `‹ — › shadowed by ${ownerKind} ${JSON.stringify(owner.phrase)}`;
   }

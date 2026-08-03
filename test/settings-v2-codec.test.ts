@@ -153,6 +153,49 @@ test("sampling parses as a closed optional profile object and projects to runtim
   );
 });
 
+// Regression test for issue #282 review round 3, finding 2: a phrase-bias
+// entry with a real weight conflict on at least one of its tokens — not
+// merely overlapping tokens that agree on a weight — must block the save
+// itself, synchronously, at document parse time, the same way an
+// unavailable preset or a too-large weight already does. "Hello"'s two
+// distinct surface texts ("Hello", " Hello") are also two of "hello"'s four,
+// and the two entries here name different weights for them, so "hello"
+// loses its own bias on those two forms to "Hello" — a real conflict a
+// save must never ship silently.
+test("a phrase-bias entry with a real weight conflict on some of its tokens fails the save synchronously", () => {
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://api.openai.com/v1",
+    "gpt-4o",
+    null
+  ));
+  assert.throws(() => parseSettingsDocumentV2({
+    ...base,
+    profiles: {
+      ...base.profiles,
+      default: {
+        ...base.profiles.default!,
+        sampling: {
+          topP: null,
+          topK: null,
+          minP: null,
+          frequencyPenalty: null,
+          presencePenalty: null,
+          repeatPenalty: null,
+          seed: null,
+          stop: [],
+          logitBias: {},
+          bannedStrings: [],
+          phraseBias: [
+            { phrase: "hello", weight: 20 },
+            { phrase: "Hello", weight: -20 }
+          ]
+        }
+      }
+    }
+  }), /profile default cannot use "hello" as configured: "hello" loses its bias on "Hello", " Hello" to phrase bias "Hello"/);
+});
+
 test("a document saved before phraseBias and bannedStrings existed still decodes", () => {
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",

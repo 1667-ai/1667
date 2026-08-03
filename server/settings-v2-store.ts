@@ -90,6 +90,16 @@ import { validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 type Clock = () => Date;
 export type SettingsActivationMode = "activation-capable" | "recover-only";
 
+/** How long the whole llama-cpp bias-resolution phase of a save gets, across
+ * every routed profile combined (see `assertSavedSamplingBiasResolves`
+ * below) — issue #282 review round 3, finding 3. The check is fail-open, so
+ * this only needs to be long enough for a live, reachable server to answer a
+ * handful of small tokenize POSTs; it does not need to approach the 30
+ * -second save budget (`shared/http-operation-protocol.ts`,
+ * `HTTP_OPERATION_LIFETIME_MS.local`), because waiting longer can never
+ * change a fail-open outcome, only delay it. */
+export const SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS = 5_000;
+
 /** IDs minted by this project's sidecar: a crypto-UUID suffix that cannot
  * predate the mint-per-key change and cannot arise from another writer's
  * connection-derived or caller-selected naming. Only these ever qualify for
@@ -318,7 +328,12 @@ export class SettingsV2Store {
     };
   }
 
-  async save(commandValue: unknown): Promise<SettingsMutationResult> {
+  /** `signal` is the caller's own abort signal (threaded from the HTTP
+   * request, issue #282 review round 3, finding 3) — folded into the
+   * llama-cpp bias-resolution probe's deadline in `runMutation` below, so a
+   * client that has already given up frees this save's mutation slot
+   * instead of the probe outliving it. */
+  async save(commandValue: unknown, signal?: AbortSignal): Promise<SettingsMutationResult> {
     const command = parseSaveSettingsCommandEnvelope(commandValue);
     return await this.coordinator.runAfterSettingsAdmission(
       settingsCoordinatorAdmissionRequest(command),
@@ -341,7 +356,7 @@ export class SettingsV2Store {
           throw invalidSettingsMutation(error);
         }
       },
-      async (request, operation) => await this.runMutation(operation, request)
+      async (request, operation) => await this.runMutation(operation, request, signal)
     );
   }
 
@@ -376,8 +391,29 @@ export class SettingsV2Store {
    * protect by resolving it here too. A route this save cannot itself build
    * a runtime for is skipped, not failed — `assertRuntimeDocumentSupported`
    * immediately above already rejects the save for that.
+   *
+   * `SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS` bounds this whole loop, not each
+   * profile in it, and `signal` (the caller's own, threaded from the HTTP
+   * request) is folded into the same deadline (issue #282 review round 3,
+   * finding 3): up to three distinct routed profiles can each reach a
+   * different llama.cpp server, and each one that does can still fire
+   * several POST /tokenize requests against it — one per distinct
+   * surface-variant text (server/sampling-phrase-bias.ts,
+   * llamaCppVariantTokenizer) — so the prior per-request timeout alone let a
+   * single blackholed host (asleep, VPN dropped, stale address — not a
+   * refused connection, which fails fast) consume the whole 30-second save
+   * budget three times over. This check is fail-open — an unresolved
+   * profile just skips its own bias validation, below — so a shorter
+   * deadline or an earlier abort cannot change the verdict, only reach the
+   * same verdict sooner: there is nothing this budget protects by running
+   * longer.
    */
-  private async assertSavedSamplingBiasResolves(document: SettingsDocumentV2): Promise<void> {
+  private async assertSavedSamplingBiasResolves(
+    document: SettingsDocumentV2,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const deadline = AbortSignal.timeout(SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS);
+    const probeSignal = signal === undefined ? deadline : AbortSignal.any([signal, deadline]);
     const resolvedProfileIds = new Set<string>();
     for (const purpose of SETTINGS_ROUTE_PURPOSE_VALUES) {
       const route = selectSettingsRoute(document, purpose);
@@ -389,8 +425,19 @@ export class SettingsV2Store {
       } catch {
         continue;
       }
+      let resolution: Awaited<ReturnType<typeof resolveSamplingBiasForSettings>>;
       try {
-        const resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings);
+        resolution = await resolveSamplingBiasForSettings(route.profile.sampling, settings, probeSignal);
+      } catch {
+        // The probe itself did not answer in time — the shared deadline
+        // above, the caller's own abort, or an ordinary network failure.
+        // Fail open, exactly like a clean "tokenizer-unavailable" result:
+        // this check must never block a save on an unreachable llama.cpp
+        // server, and once the deadline is shared across every remaining
+        // profile in this loop, none of them can answer either.
+        continue;
+      }
+      try {
         validateSamplingRoute(route.profileId, route.profile, route.model, route.connection, resolution);
       } catch (error) {
         // A rejected/shadowed entry or an over-cap resolved count throws a
@@ -409,7 +456,8 @@ export class SettingsV2Store {
 
   private async runMutation(
     operation: SettingsMutationOperation,
-    request: MutationCoordinatorRequest<SettingsMutationTarget>
+    request: MutationCoordinatorRequest<SettingsMutationTarget>,
+    signal?: AbortSignal
   ): Promise<SettingsMutationResult> {
     const current = await this.recoverReceiptTransaction();
     const existing = await this.ledger.loadUserReceipt("settings", request.mutationId);
@@ -448,7 +496,7 @@ export class SettingsV2Store {
 
     if (operation.method === "saveSettings") {
       assertRuntimeDocumentSupported(operation.document);
-      await this.assertSavedSamplingBiasResolves(operation.document);
+      await this.assertSavedSamplingBiasResolves(operation.document, signal);
     }
     if (current.stateGeneration !== request.expectedAggregateVersion.stateGeneration) {
       throw new ServiceError(

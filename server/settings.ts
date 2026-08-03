@@ -137,8 +137,8 @@ export class SettingsStore {
     };
   }
 
-  async save(command: unknown): Promise<SettingsMutationResult> {
-    return await this.requireEditable().save(command);
+  async save(command: unknown, signal?: AbortSignal): Promise<SettingsMutationResult> {
+    return await this.requireEditable().save(command, signal);
   }
 
   async discardPending(command: unknown): Promise<SettingsMutationResult> {

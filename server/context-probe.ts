@@ -153,18 +153,30 @@ export async function probeContextWindow(
  *   tokenization result — plain token IDs when `with_pieces` is omitted
  *   (default `false`), which is what 1667 sends.
  *
+ * `parse_special: false` (issue #282 review round 3, finding 4b): the same
+ * README documents `parse_special` on `/tokenize` with "Default: `true`",
+ * and states "When `false` special tokens are treated as plaintext."
+ * Phrase-bias and banned-string text is literal writer text, never a
+ * control marker, so leaving the default `true` would let a model's own
+ * special-token syntax (for example `<|eot_id|>`) tokenize to that one
+ * control token instead of the ordinary tokens that spell the literal
+ * text — resolving an ID that does not represent what the writer actually
+ * typed. This is the llama.cpp counterpart of the `encode_ordinary` fix
+ * already applied to the OpenAI tokenizer path
+ * (server/openai-prompt-tokenizer.ts).
+ *
  * `model` rides the body, not a query parameter (issue #282 review round 2,
- * finding 3): `/tokenize` is a POST, and llama.cpp's server routes POST
- * endpoints by the body's `model` field — unlike the GET `/props` probe
- * above, which selects a model through `?model=`. Without it, a server
- * hosting more than one model either rejects the request outright (router
- * mode) or answers from whichever model it defaults to — silently keying
- * the resolved token IDs to the wrong vocabulary while the request they ride
- * in still carries the routed connection's own `model` field. Sending it
- * once per resolution here, the same connection-wide value every variant
- * text in this resolution uses, needs no extra lookup: unlike `/props`, this
- * endpoint needs no `?model=`/`&autoload=false` pair, so `allowPresetQuery`
- * does not apply to this GET-only escape hatch.
+ * finding 3), because `/tokenize` is a POST and the GET `/props` probe
+ * above selects a model through `?model=` instead. Sending `model` here is
+ * a routing convenience for a multi-model (router-mode) server, needed so a
+ * server hosting more than one model does not either reject the request
+ * outright or answer from whichever model it defaults to — silently keying
+ * the resolved token IDs to the wrong vocabulary. It is not a documented
+ * `/tokenize` field: the README above lists exactly `content`,
+ * `add_special`, `parse_special`, and `with_pieces` (issue #282 review round
+ * 3, finding 4c corrected an earlier comment that overstated this as
+ * documented). A single-model server ignores the extra key, so sending it
+ * unconditionally is free.
  */
 export async function probeLlamaCppTokenize(
   settings: GenerationSettings,
@@ -176,7 +188,7 @@ export async function probeLlamaCppTokenize(
     const data = await postProviderJson(
       settings,
       `${root}/tokenize`,
-      { content: text, model: settings.model },
+      { content: text, model: settings.model, parse_special: false },
       {},
       { signal, timeoutMs: probeTimeout(settings) }
     );
