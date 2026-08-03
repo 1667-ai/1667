@@ -296,7 +296,13 @@ export function resolveConfiguredSamplingKnobs(
 ): readonly ConfiguredSamplingKnob[] {
   return SAMPLING_KNOB_V2_VALUES
     .filter((knob) => samplingKnobValueIsSet(sampling, knob))
-    .map((knob) => ({ knob, resolution: resolveSamplingKnob(context, sampling, knob) }));
+    .map((knob) => ({ knob, resolution: resolveSamplingKnob(context, sampling, knob) }))
+    // `mirostat-off` says the parent knob is off, not that the route refuses
+    // the parameter. A knob whose parent is off is not configured for this
+    // request — its value stays set for when the parent comes back on — so it
+    // is not a validation error and does not belong in the request plan. Every
+    // other unavailable reason is still a real refusal and stays in the list.
+    .filter(({ resolution }) => !(resolution.kind === "unavailable" && resolution.reason === "mirostat-off"));
 }
 
 export function applySamplingSettings(

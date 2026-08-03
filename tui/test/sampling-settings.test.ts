@@ -443,6 +443,37 @@ describe("Sampling Settings user flow", () => {
     expect(state.settings?.sampling?.edit?.kind).toBe("scalar");
   });
 
+  test("a save survives mirostat toggled back off after tau was set", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    const saved: SaveSettingsCommand[] = [];
+    installSave(source, saved);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, MIROSTAT_ROW);
+
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(1);
+
+    await press(key("down"));
+    await press(key("return"));
+    setSamplingEdit(state, "6");
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.mirostatTau).toBe(6);
+
+    await press(key("up"));
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.mirostat).toBe(null);
+    expect(state.settings?.draft.sampling.mirostatTau).toBe(6);
+
+    await press(key("escape"));
+    await press(key("s"));
+
+    expect(saved).toHaveLength(1);
+    const profile = saved[0]!.document.profiles[saved[0]!.document.routing.default]!;
+    expect(profile.sampling?.mirostat).toBe(null);
+    expect(profile.sampling?.mirostatTau).toBe(6);
+  });
+
   test("an LM Studio route hides the extended samplers behind the preset reason", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source, "http://127.0.0.1:1234/v1");
@@ -483,6 +514,31 @@ describe("Sampling Settings user flow", () => {
 
     await press(key("d"));
     expect(state.settings?.draft.sampling.dryBreakers).toEqual(["\n"]);
+  });
+
+  test("rejects a dry breaker over 40 UTF-8 bytes even under the 40-scalar cap", async () => {
+    // llama.cpp's DRY sampler truncates a breaker at 40 bytes, not 40
+    // scalars, so a breaker of well under 40 scalars can still overrun that
+    // byte cap once its characters take more than one byte each. "€" is one
+    // scalar and three UTF-8 bytes, so 14 of them is 14 scalars (inside the
+    // scalar cap) but 42 bytes (outside the byte cap).
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, DRY_BREAKERS_ROW);
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("dry-breakers");
+
+    await press(key("n"));
+    setSamplingEdit(state, "€".repeat(14));
+    await press(key("return"));
+    expect(state.settings?.sampling?.result).toContain("1..40 UTF-8 bytes");
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual([]);
+
+    setSamplingEdit(state, "€".repeat(13));
+    await press(key("return"));
+    expect(state.settings?.draft.sampling.dryBreakers).toEqual(["€".repeat(13)]);
   });
 });
 

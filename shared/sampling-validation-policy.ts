@@ -41,14 +41,25 @@ export const SAMPLING_STOP_POLICY = {
 // llama.cpp server README and the KoboldCpp API doc (see shared/sampling-capabilities.ts
 // for the exact URLs) document `dry_sequence_breakers` with the same shape as a stop
 // sequence list: a bounded array of short strings.
+//
+// The 40-byte cap mirrors the sampler itself, not just the wire doc. llama.cpp's
+// `llama_sampler_init_dry` (src/llama-sampler.cpp:3202-3228) declares
+// `const int MAX_CHAR_LEN = 40` and does `sequence_break.resize(MAX_CHAR_LEN)` on the
+// `std::string`, a byte-level truncation that can land inside a UTF-8 sequence.
+// KoboldCpp is a llama.cpp fork and links the same sampler, so both presets share the
+// bound. A breaker longer than 40 bytes would be saved and sent as written, then
+// silently truncated into a different breaker by the sampler, so the byte bound is
+// checked here rather than left to the provider.
 export const SAMPLING_DRY_BREAKERS_POLICY = {
   maxSequences: 16,
-  maxScalars: 64
+  maxScalars: 40,
+  maxBytes: 40
 } as const;
 
-export interface SamplingStringListPolicy {
+interface SamplingStringListPolicy {
   readonly maxSequences: number;
   readonly maxScalars: number;
+  readonly maxBytes?: number;
 }
 
 export const SAMPLING_LOGIT_BIAS_POLICY = {
@@ -116,7 +127,7 @@ export function validateSamplingNumber(
   return value;
 }
 
-export function validateSamplingStringList(
+function validateSamplingStringList(
   value: unknown,
   label: string,
   policy: SamplingStringListPolicy
@@ -142,6 +153,14 @@ export function validateSamplingStringList(
       throw new SamplingValidationError(
         `${label}[${index}] must contain 1..${policy.maxScalars} Unicode scalars`
       );
+    }
+    if (policy.maxBytes !== undefined) {
+      const byteLength = new TextEncoder().encode(entry).length;
+      if (byteLength < 1 || byteLength > policy.maxBytes) {
+        throw new SamplingValidationError(
+          `${label}[${index}] must be 1..${policy.maxBytes} UTF-8 bytes`
+        );
+      }
     }
     if (seen.has(entry)) {
       throw new SamplingValidationError(`${label} repeats ${JSON.stringify(entry)}`);

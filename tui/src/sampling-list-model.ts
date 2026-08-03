@@ -1,13 +1,13 @@
-import type { SamplingKnobV2, SamplingSettingsV2 } from "../../shared/settings-v2-types.js";
-import { applySamplingSettings, samplingKnobLabel } from "../../shared/sampling-capabilities.js";
+import type { SamplingKnobV2 } from "../../shared/settings-v2-types.js";
+import { samplingKnobLabel } from "../../shared/sampling-capabilities.js";
 import {
   SAMPLING_DRY_BREAKERS_POLICY,
   SAMPLING_LOGIT_BIAS_POLICY,
   SAMPLING_STOP_POLICY,
-  validateSamplingLogitBiasEntry,
-  validateSamplingSettings
+  validateSamplingLogitBiasEntry
 } from "../../shared/sampling-validation-policy.js";
 import type { SamplingListPanelId, SettingsOverlayState } from "./state.js";
+import { updateSamplingDraft, validateSampling } from "./sampling-draft.js";
 
 export type { SamplingListPanelId };
 
@@ -129,7 +129,7 @@ function stringListSpec(
   };
 }
 
-export function samplingLogitBiasEntries(
+function samplingLogitBiasEntries(
   overlay: SettingsOverlayState
 ): Array<[string, number]> {
   const values = overlay.draft.sampling.logitBias;
@@ -151,7 +151,7 @@ export function samplingLogitBiasEntries(
   return entries;
 }
 
-export function setLogitBias(
+function setLogitBias(
   overlay: SettingsOverlayState,
   index: number,
   raw: string
@@ -294,30 +294,4 @@ export function samplingListItemIdentity(
   if (value === undefined) return null;
   const key = typeof value === "string" ? value : value[0];
   return `sampling:${panel}:${JSON.stringify(key)}`;
-}
-
-export function validateSampling(sampling: SamplingSettingsV2): string | null {
-  try {
-    validateSamplingSettings(sampling);
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
-export function updateSamplingDraft(
-  overlay: SettingsOverlayState,
-  sampling: SamplingSettingsV2
-): void {
-  const document = overlay.draft.document === null || overlay.draft.selectedProfileId === null
-    ? overlay.draft.document
-    : applySamplingSettings(
-        overlay.draft.document,
-        sampling,
-        overlay.draft.selectedProfileId
-      );
-  overlay.draft = { ...overlay.draft, document, sampling };
-  if (overlay.conflict !== null) overlay.conflict.armed = false;
-  overlay.result = null;
-  if (overlay.sampling !== null) overlay.sampling.result = "draft updated · save in Settings";
 }

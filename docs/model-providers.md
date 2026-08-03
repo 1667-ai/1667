@@ -172,6 +172,8 @@ Press `Left Arrow` or `Right Arrow` to reorder the strings.
 empty list lets the provider use its own breakers. 1667 cannot tell a provider
 to use no breakers.
 
+A DRY breaker can hold a maximum of 40 UTF-8 bytes.
+
 Select `logit bias`. Press `n` to add a token-ID and integer-bias row. Press
 `Enter` to edit a row. Press `d` to delete a row.
 

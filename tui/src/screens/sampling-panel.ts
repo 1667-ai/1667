@@ -78,13 +78,6 @@ function renderSamplingLayer(
 ): { lines: FrameLine[]; targets: Array<HitTarget | null> } {
   const scalarByKnob = new Map(samplingScalarRows(settings).map((row) => [row.knob, row] as const));
   const listByPanel = new Map(samplingListRows(settings).map((row) => [row.panel, row] as const));
-  // SAMPLING_LAYER_ROWS is the one ordering both the cursor and the paint use,
-  // so a knob's place in the section list can never drift from its focus stop.
-  const rows: SamplingLayerRow[] = SAMPLING_LAYER_ROWS.map((spec) =>
-    spec.kind === "scalar"
-      ? { kind: "scalar" as const, row: scalarByKnob.get(spec.knob)! }
-      : { kind: "list" as const, row: listByPanel.get(spec.panel)! }
-  );
   const cursor = boundedSamplingCursor(settings);
   // One reason held by every knob is a fact about the provider, not about any
   // row. Repeated down the column it was the loudest thing on the panel and
@@ -96,11 +89,16 @@ function renderSamplingLayer(
   const sharedLine: FrameLine[] = shared === null
     ? []
     : [[raisedSegment(truncate(`  ${shared}`, width), "prose · dim")]];
-  // Each row's block is its section rule (if it opens a C-04 group) followed
-  // by the row itself, so a section-leading row's two-line cost is read off
-  // the block rather than kept as a second, index-aligned fact beside it.
+  // SAMPLING_LAYER_ROWS is the one ordering both the cursor and the paint use,
+  // so a knob's place in the section list can never drift from its focus
+  // stop. Each row's block is its section rule (if it opens a C-04 group)
+  // followed by the row itself, so a section-leading row's two-line cost is
+  // read off the block rather than kept as a second, index-aligned fact
+  // beside it.
   const blocks = SAMPLING_LAYER_ROWS.map((spec, index) => {
-    const row = rows[index]!;
+    const row: SamplingLayerRow = spec.kind === "scalar"
+      ? { kind: "scalar" as const, row: scalarByKnob.get(spec.knob)! }
+      : { kind: "list" as const, row: listByPanel.get(spec.panel)! };
     const lines: FrameLine[] = [];
     const targets: Array<HitTarget | null> = [];
     if (spec.section !== undefined) {
@@ -111,9 +109,7 @@ function renderSamplingLayer(
     targets.push({
       kind: "list",
       index,
-      rowId: row.kind === "scalar"
-        ? samplingLayerRowIdentity({ kind: "scalar", knob: row.row.knob })
-        : samplingLayerRowIdentity({ kind: "list", panel: row.row.panel }),
+      rowId: samplingLayerRowIdentity(spec),
       selected: index === cursor
     });
     return { lines, targets };

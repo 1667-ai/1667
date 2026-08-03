@@ -75,7 +75,7 @@ test("an LM Studio route with DRY configured fails with the ProviderError naming
   );
 });
 
-test("mirostat off with tau configured fails with the ProviderError naming mirostat as the reason", () => {
+test("mirostat off with tau configured sends neither mirostat_tau nor mirostat_eta and raises nothing", () => {
   const sampling = {
     ...EMPTY_SAMPLING_V2,
     mirostatTau: 5
@@ -100,10 +100,10 @@ test("mirostat off with tau configured fails with the ProviderError naming miros
       promptCaching: "unknown"
     }
   });
-  assert.throws(
-    () => applySamplingFields({}, settings, "openai-chat-completions"),
-    /Configured sampling parameter mirostat tau is unavailable: Mirostat is off\./u
-  );
+  const body: Record<string, unknown> = {};
+  applySamplingFields(body, settings, "openai-chat-completions");
+  assert.equal("mirostat_tau" in body, false);
+  assert.equal("mirostat_eta" in body, false);
 });
 
 function baseSettings(): GenerationSettings {

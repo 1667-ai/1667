@@ -17,14 +17,12 @@ import {
   SAMPLING_LIST_SPECS,
   samplingListItemIdentity,
   samplingListValues,
-  updateSamplingDraft,
-  validateSampling,
   type SamplingListRow
 } from "./sampling-list-model.js";
+import { updateSamplingDraft, validateSampling } from "./sampling-draft.js";
 
 export type SamplingScalarKnob = SamplingScalarKnobV2;
 export const SAMPLING_SCALAR_KNOBS = SAMPLING_SCALAR_KNOB_V2_VALUES;
-export type { SamplingListPanelId };
 
 export interface SamplingScalarRow {
   readonly label: string;
