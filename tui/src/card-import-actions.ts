@@ -1,11 +1,14 @@
 import type { AppSource } from "./app.js";
 import type { ActionContext } from "./action-context.js";
 import { completeFilePath, errorMessage, expandLeadingTilde } from "./path-completion.js";
-import { describeCardImport, planCardImport, type CardImportPlan } from "./card-import.js";
+import { describeCardImport } from "./card-import.js";
+import type { CardImportPlan } from "../../shared/card-import.js";
 import { readImportBytes } from "../../server/import-file.js";
 import type { ResolvedKey } from "./keys.js";
+import { recordNotice } from "./notice-log.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
 import type { CardImportPrompt, RuntimeState } from "./state.js";
+import { fidelityReport } from "../../shared/fidelity.js";
 
 export function openCardImport(
   state: RuntimeState,
@@ -62,16 +65,16 @@ async function applyCardImport(
     return;
   }
 
-  let plan: CardImportPlan;
+  let bytes: Uint8Array;
   try {
     // The field keeps the `~` the writer typed, so the read has to expand it.
-    plan = planCardImport(await readImportBytes(expandLeadingTilde(overlay.path)));
+    bytes = await readImportBytes(expandLeadingTilde(overlay.path));
   } catch (error) {
     overlay.error = errorMessage(error);
     return;
   }
 
-  const facts = [...plan.facts];
+  let plan: CardImportPlan | null = null;
   let adopted = false;
   try {
     const ran = await context.backend.run("importing character card", async (task) => {
@@ -81,16 +84,36 @@ async function applyCardImport(
         overlay.error = "the open story changed · start the import again";
         return;
       }
-      const payload = await source.api.createFact(task.storyId, { facts });
+      // The service loads the story and computes the room itself, the same
+      // seam `importLorebook` already uses, so there is no client-side room
+      // estimate here to go stale.
+      const result = await source.api.importCard(task.storyId, bytes);
       if (!task.storyCurrent()) return;
-      adoptSameStoryPayload(state, payload);
+      plan = result.plan;
+      adoptSameStoryPayload(state, result.payload);
       context.cache.invalidate();
       adopted = true;
     });
-    if (ran && adopted && state.card === overlay) {
+    // TypeScript's flow analysis does not see the assignment inside the
+    // closure above, so it narrows `plan` from its initializer alone; the
+    // cast restores the type this variable can actually hold once the
+    // closure has run.
+    const finishedPlan = plan as CardImportPlan | null;
+    if (ran && adopted && finishedPlan !== null && state.card === overlay) {
       state.card = null;
       state.mode = overlay.returnMode;
-      state.toast = `imported ${describeCardImport(plan)}`;
+      const headline = `imported ${describeCardImport(finishedPlan)}`;
+      if (finishedPlan.fidelity.length === 0) {
+        state.toast = headline;
+      } else {
+        // The toast holds four rows and the report does not. Write the whole
+        // account to the log, or a writer importing a V3 card in the app
+        // never learns what it lost — the same trade the archive import
+        // panel makes.
+        const report = overlay.returnMode === "COMPOSE" ? "full report in the log" : "! full report";
+        state.toast = `${headline} · ${report}`;
+        recordNotice(state.notices, "toast", `${headline} · ${fidelityReport(finishedPlan.fidelity)}`);
+      }
     } else if (!ran && overlay.error === null) {
       // The runtime refuses a second backend task and says so in a toast that
       // the next key clears. The open panel has to keep the reason.

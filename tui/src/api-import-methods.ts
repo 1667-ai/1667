@@ -1,5 +1,6 @@
 import { encodeMarkdownHttpBody } from "../../shared/import-markdown-wire.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
+import type { CardImportPlan } from "../../shared/card-import.js";
 import type { StoryPayload } from "../../shared/types.js";
 import type { StoryAggregateVersion } from "../../shared/story-aggregate-version.js";
 import { decodeStoryResponse } from "./api-response-decoders.js";
@@ -16,6 +17,7 @@ export type ImportMethods = Pick<
   | "importNovelAI"
   | "importScenario"
   | "importLorebook"
+  | "importCard"
 >;
 
 /** What the import methods borrow from the API they belong to. */
@@ -101,6 +103,18 @@ export function importMethods(core: ImportMethodCore): ImportMethods {
       );
       core.versions.rememberPayload(response.payload);
       return response;
+    },
+    importCard: async (storyId, cardBytes) => {
+      const response = await core.request(
+        "POST",
+        `/api/stories/${storyId}/import-card`,
+        decodeCardImportResult,
+        cardBytes,
+        HTTP_REQUEST_TIMEOUT_MS,
+        await core.expectedVersion(storyId)
+      );
+      core.versions.rememberPayload(response.payload);
+      return response;
     }
   };
 }
@@ -134,6 +148,30 @@ function decodeLorebookImportResult(
   return {
     payload: decodeStoryResponse(record.payload),
     importResult: importResult as unknown as LorebookImport
+  };
+}
+
+/** The callers read `.name`, `.used`, and `.skipped` straight off this, so a
+ * wrong shape fails here at the boundary rather than deep inside a toast. */
+function decodeCardImportResult(
+  value: unknown
+): { payload: StoryPayload; plan: CardImportPlan } {
+  const record = importRecord(value, "card import result");
+  const plan = importRecord(record.plan, "card import result");
+  if (typeof plan.name !== "string") {
+    throw new Error("The server returned an invalid card import name.");
+  }
+  if (!Array.isArray(plan.facts)) {
+    throw new Error("The server returned an invalid card import fact list.");
+  }
+  for (const field of ["used", "skipped", "fidelity"] as const) {
+    if (!Array.isArray(plan[field]) || !plan[field].every((item) => typeof item === "string")) {
+      throw new Error(`The server returned an invalid card import ${field} list.`);
+    }
+  }
+  return {
+    payload: decodeStoryResponse(record.payload),
+    plan: plan as unknown as CardImportPlan
   };
 }
 

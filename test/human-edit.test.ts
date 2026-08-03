@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   attributionAfterHumanEdit,
   attributionAfterReplacement,
-  humanEditAttribution
+  humanEditAttribution,
+  rewrittenSpansAfterHumanEdit,
+  rewrittenSpansAfterReplacement
 } from "../shared/human-edit.js";
 
 test("human edit attribution marks separate inserted and replaced spans", () => {
@@ -93,4 +95,69 @@ test("model replacements shift only surviving human ranges", () => {
     ranges: [],
     deletedCharacters: 9
   });
+});
+
+test("rewritten spans after replacement carry earlier spans, shifted, and add the new one", () => {
+  const spans = [{ start: 2, end: 6 }, { start: 20, end: 24 }];
+  const after = rewrittenSpansAfterReplacement(spans, 10, 14, 2);
+  assert.deepEqual(after, [
+    { start: 2, end: 6 },
+    { start: 10, end: 12 },
+    { start: 18, end: 22 }
+  ]);
+});
+
+test("rewritten spans after replacement merge a carried remnant into the new span when they touch", () => {
+  // The replacement window sits in the middle of an earlier span, so what
+  // survives on either side and the fresh span in between are contiguous —
+  // boundedRanges merges them into one span rather than three.
+  const after = rewrittenSpansAfterReplacement([{ start: 0, end: 10 }], 4, 8, 8);
+  assert.deepEqual(after, [{ start: 0, end: 14 }]);
+});
+
+test("rewritten spans after replacement leave unrelated spans as separate, untouched ranges", () => {
+  const after = rewrittenSpansAfterReplacement([{ start: 0, end: 3 }, { start: 7, end: 10 }], 4, 6, 1);
+  assert.deepEqual(after, [{ start: 0, end: 3 }, { start: 4, end: 5 }, { start: 6, end: 9 }]);
+});
+
+test("rewritten spans after replacement start from nothing when no earlier spans exist", () => {
+  assert.deepEqual(rewrittenSpansAfterReplacement(undefined, 3, 3, 5), [{ start: 3, end: 8 }]);
+  assert.deepEqual(rewrittenSpansAfterReplacement(null, 3, 3, 5), [{ start: 3, end: 8 }]);
+});
+
+test("rewritten spans move through a later human edit without losing the model's words", () => {
+  const before = "The old door creaked once.";
+  const spans = [{ start: before.indexOf("door"), end: before.indexOf("door") + "door".length }];
+  const after = "Slowly, the old door creaked once.";
+  const moved = rewrittenSpansAfterHumanEdit(spans, before, after);
+  assert.deepEqual(moved.map((range) => after.slice(range.start, range.end)), ["door"]);
+});
+
+test("writing over part of a rewritten span reclaims only the words the writer changed", () => {
+  const before = "The old door creaked once.";
+  const start = before.indexOf("old door");
+  const spans = [{ start, end: start + "old door".length }];
+  const after = "The old gate creaked once.";
+  const remaining = rewrittenSpansAfterHumanEdit(spans, before, after);
+  // "gate" is the writer's word now; "old" stays a rewritten span.
+  assert.deepEqual(remaining.map((range) => after.slice(range.start, range.end)), ["old"]);
+});
+
+test("writing over the entire rewritten span reclaims all of it", () => {
+  const before = "The old door creaked once.";
+  const start = before.indexOf("door");
+  const spans = [{ start, end: start + "door".length }];
+  const after = "The old gate creaked once.";
+  assert.deepEqual(rewrittenSpansAfterHumanEdit(spans, before, after), []);
+});
+
+test("rewrittenSpansAfterHumanEdit returns an empty array, not a span, when there were none to begin with", () => {
+  // The empty array here is this function's own honest return value, not a
+  // claim that a saved node's `rewrittenSpans` field goes missing — that
+  // absence is `applyHumanEdit`'s job (server/story-nodes.ts), which deletes
+  // the field rather than storing `[]`; "story store: editing a node that
+  // fully reclaims its rewritten span deletes the field" (story-store.test.ts)
+  // exercises that instead.
+  assert.deepEqual(rewrittenSpansAfterHumanEdit(undefined, "One.", "One and two."), []);
+  assert.deepEqual(rewrittenSpansAfterHumanEdit(null, "One.", "One and two."), []);
 });

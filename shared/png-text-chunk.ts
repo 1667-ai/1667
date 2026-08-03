@@ -8,15 +8,6 @@ export function hasPngSignature(bytes: Uint8Array): boolean {
   return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
 }
 
-export function hasPngTextKeyword(bytes: Uint8Array, keyword: string): boolean {
-  if (!hasPngSignature(bytes)) return false;
-  try {
-    return scanPngTextChunk(bytes, keyword, DEFAULT_LABEL).sawKeyword;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Read a text chunk from a PNG file by keyword.
  * Returns the decoded string if found, or null if no chunk with the keyword exists.
@@ -31,22 +22,16 @@ export function readPngTextChunk(
   label: string = DEFAULT_LABEL
 ): string | null {
   if (!hasPngSignature(bytes)) return null;
-  const result = scanPngTextChunk(bytes, keyword, label);
-  if (result.payload === null) return null;
+  const payload = scanPngTextChunk(bytes, keyword, label);
+  if (payload === null) return null;
 
-  return decodeTextChunkPayload(result.payload, keyword, label);
+  return decodeTextChunkPayload(payload, keyword, label);
 }
 
-interface ScanResult {
-  payload: string | null;
-  sawKeyword: boolean;
-}
-
-function scanPngTextChunk(bytes: Uint8Array, keyword: string, label: string): ScanResult {
+function scanPngTextChunk(bytes: Uint8Array, keyword: string, label: string): string | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = PNG_SIGNATURE.length;
   let payload: string | null = null;
-  let sawKeyword = false;
   let sawEnd = false;
 
   while (offset < bytes.byteLength) {
@@ -65,7 +50,6 @@ function scanPngTextChunk(bytes: Uint8Array, keyword: string, label: string): Sc
       const separator = findByte(bytes, 0, dataStart, dataEnd);
       if (separator !== -1) {
         if (equalsAscii(bytes, dataStart, separator, keyword)) {
-          sawKeyword = true;
           if (payload !== null) {
             throw new Error(`${label} PNG contains duplicate ${keyword} metadata.`);
           }
@@ -91,7 +75,7 @@ function scanPngTextChunk(bytes: Uint8Array, keyword: string, label: string): Sc
     throw new Error(`${label} PNG is missing its IEND chunk.`);
   }
 
-  return { payload, sawKeyword };
+  return payload;
 }
 
 function decodeTextChunkPayload(source: string, keyword: string, label: string): string {

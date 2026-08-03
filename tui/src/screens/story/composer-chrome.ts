@@ -119,12 +119,18 @@ function composerFooterKeys(
   const key = (token: string, action: KeyAction, rank = 0): HintItem =>
     hintItem([segment(token, "chrome", { kind: "action", action })], rank);
   const send = promptKind === "retake" ? "enter retakes with this prompt"
-    : promptKind === "rewrite" ? "enter rewrites this passage"
+    : promptKind === "rewrite" ? "enter rewrites in place"
     : "enter send";
   const escape = fullscreen ? "esc inline" : promptKind !== null ? "esc cancels" : "esc nav";
   const exit = fullscreen ? "⌃f exit" : narrow ? "⌃f full" : "⌃f fullscreen";
   return [
     key(send, "send"),
+    // The rewrite composer's only other destination (issue #319) — ⌃s, the
+    // exact key a manual edit uses to fork a take (editor-action.ts), given
+    // the opposite meaning of enter here. A separate hint item, not folded
+    // into `send` above, so each half stays its own click target instead of
+    // one span answering for two different actions.
+    ...(promptKind === "rewrite" ? [key("⌃s as take", "send-as-take", 1)] : []),
     key("⇧enter newline", "newline", 1),
     ...(promptKind !== null && !fullscreen
       ? []

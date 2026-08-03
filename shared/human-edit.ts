@@ -1,5 +1,6 @@
 import {
   MAX_HUMAN_EDIT_RANGES,
+  MAX_REWRITTEN_SPANS,
   type HumanEditAttribution,
   type StoryNode,
   type TextRange
@@ -54,7 +55,7 @@ export function attributionAfterHumanEdit(
 ): HumanEditAttribution {
   const introduced = humanEditAttribution(before, after);
   if (attribution == null) return introduced;
-  const preserved = transformHumanRanges(attribution.ranges, before, after);
+  const preserved = transformTextRanges(attribution.ranges, before, after);
   const ranges = boundedRanges([...preserved, ...introduced.ranges]);
   const deletedCharacters = Math.min(
     Number.MAX_SAFE_INTEGER,
@@ -85,7 +86,12 @@ export function attributionAfterReplacement(
   };
 }
 
-function transformHumanRanges(
+/** Move a set of ranges through an arbitrary edit the same way a splice moves
+ *  attribution: ranges before the diverging point are untouched, ranges after
+ *  it shift by the length delta, and ranges the edit overwrote are truncated
+ *  or dropped. Nothing here is human-specific — `rewrittenSpansAfterHumanEdit`
+ *  reuses it for rewritten spans instead of duplicating the diff arithmetic. */
+export function transformTextRanges(
   ranges: readonly TextRange[],
   before: string,
   after: string
@@ -158,7 +164,7 @@ function rangesAfterReplacement(
   return transformed;
 }
 
-function boundedRanges(ranges: readonly TextRange[]): TextRange[] {
+function boundedRanges(ranges: readonly TextRange[], max = MAX_HUMAN_EDIT_RANGES): TextRange[] {
   const sorted = ranges
     .filter((range) => range.start < range.end)
     .map((range) => ({ ...range }))
@@ -172,8 +178,62 @@ function boundedRanges(ranges: readonly TextRange[]): TextRange[] {
       previous.end = Math.max(previous.end, range.end);
     }
   }
-  if (merged.length <= MAX_HUMAN_EDIT_RANGES) return merged;
+  if (merged.length <= max) return merged;
   return [{ start: merged[0]!.start, end: merged.at(-1)!.end }];
+}
+
+/** Remove `cut` from `ranges` without a second interval algorithm: replacing
+ *  a span with itself (same start, end, and length) is exactly the identity
+ *  splice `rangesAfterReplacement` already performs — no shift, just the
+ *  truncate-or-drop it does for any range the replacement window touches.
+ *  Used below by `rewrittenSpansAfterHumanEdit`, over one node's full edit
+ *  history rather than per frame. `storyPartWrapPlan`
+ *  (tui/src/screens/story/row-layout.ts) used to reuse this too, for its
+ *  per-render provenance-run subtraction, but calling it once per run
+ *  against the other family's full list cost O(runs × cuts) allocations on
+ *  that render-path call; it now keeps its own two-pointer sweep
+ *  (`subtractAscending`) for that ascending, pairwise-disjoint case instead
+ *  (Fix 1, issue #319 review), so this stays module-private again. */
+function subtractRanges(ranges: readonly TextRange[], cut: readonly TextRange[]): TextRange[] {
+  let remaining = ranges.map((range) => ({ ...range }));
+  for (const range of cut) {
+    if (range.start >= range.end) continue;
+    remaining = rangesAfterReplacement(remaining, range.start, range.end, range.end - range.start);
+  }
+  return remaining;
+}
+
+/** A rewrite's own replacement, merged with any earlier rewritten spans
+ *  carried through the same splice — the same shift-or-truncate arithmetic
+ *  `attributionAfterReplacement` uses for human ranges, because a model's
+ *  overwrite is the same range surgery, just attributed differently. Unlike
+ *  human attribution, a whole-node replacement is not nulled out: the entire
+ *  new text is still a rewrite, whatever the old text was. */
+export function rewrittenSpansAfterReplacement(
+  spans: readonly TextRange[] | null | undefined,
+  start: number,
+  end: number,
+  replacementLength: number
+): TextRange[] {
+  const carried = spans == null || spans.length === 0
+    ? []
+    : rangesAfterReplacement(spans, start, end, replacementLength);
+  return boundedRanges([...carried, { start, end: start + replacementLength }], MAX_REWRITTEN_SPANS);
+}
+
+/** Carry rewritten spans through a human edit exactly like human spans move,
+ *  then give the writer back whatever they just touched: prose the writer
+ *  edits is theirs now, so it stops being a rewritten span the same instant
+ *  `humanEditAttribution` marks it human. */
+export function rewrittenSpansAfterHumanEdit(
+  spans: readonly TextRange[] | null | undefined,
+  before: string,
+  after: string
+): TextRange[] {
+  if (spans == null || spans.length === 0) return [];
+  const transformed = transformTextRanges(spans, before, after);
+  const reclaimed = humanEditAttribution(before, after).ranges;
+  return boundedRanges(subtractRanges(transformed, reclaimed), MAX_REWRITTEN_SPANS);
 }
 
 interface Token {

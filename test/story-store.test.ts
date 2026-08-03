@@ -67,6 +67,32 @@ test("story store: node create, edit, delete, and list summaries use active-path
   assert.deepEqual(deleted.nodes.map(({ id }) => id), ["root"]);
 });
 
+test("story store: editing a node that fully reclaims its rewritten span deletes the field instead of storing an empty array", async (t) => {
+  // `rewrittenSpansAfterHumanEdit` (shared/human-edit.ts) itself returns an
+  // empty array whether it started with no spans at all or with spans the
+  // edit fully reclaimed — that function has no opinion on absence. Absence
+  // is `applyHumanEdit`'s call (server/story-nodes.ts): it deletes
+  // `rewrittenSpans` rather than persisting `[]`, so a node the writer has
+  // fully taken back reads the same on disk as a node the model never
+  // touched. This is what "rewrittenSpansAfterHumanEdit returns an empty
+  // array, not a span, when there were none to begin with"
+  // (human-edit.test.ts) used to claim without checking.
+  const { store } = await testStore(t);
+  // Same before/after pair and the same fully-overwritten span ("door") as
+  // "writing over the entire rewritten span reclaims all of it"
+  // (human-edit.test.ts) — this only adds the persistence step that unit
+  // test does not reach.
+  const take = { ...node("take", "root", "The old door creaked once."), rewrittenSpans: [{ start: 8, end: 12 }] };
+  const story = fixture("reclaim", [node("root", null, "Opening"), take], "root");
+  await store.save(story);
+
+  const edited = await store.editNode(story.id, take.id, {
+    text: "The old gate creaked once.", expectedTextHash: sha256(take.text)
+  });
+  const revised = edited.nodes.find((candidate) => candidate.id === take.id)!;
+  assert.equal("rewrittenSpans" in revised, false);
+});
+
 test("story store: listing bounds concurrent manifest reads", async (t) => {
   const { dir, store } = await testStore(t);
   const count = STORY_LIST_IO_CONCURRENCY * 3;

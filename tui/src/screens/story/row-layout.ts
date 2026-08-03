@@ -10,6 +10,7 @@ import type {
 import type { StoryScreenState, StreamView } from "../../state.js";
 import {
   MAX_HUMAN_EDIT_RANGES,
+  MAX_REWRITTEN_SPANS,
   type StoryNode,
   type TextRange
 } from "../../../../shared/types.js";
@@ -63,6 +64,8 @@ export interface StoryPartWrapInput {
   node: Pick<StoryNode, "text">;
   isSummary: boolean;
   humanSpans: readonly TextRange[];
+  /** Ranges of prose a rewrite replaced (issue #319) — see `humanSpans`. */
+  rewrittenSpans: readonly TextRange[];
 }
 
 export interface StickyStoryGutter {
@@ -317,7 +320,7 @@ function renderPartBody(
   const { stream, appending, wrapped, sourceStart, compactLogo } = prepared;
   if (part.isSummary) {
     return wrapped.map((line) => prefixLine(narrow, [], [segment("  ", "summary"),
-      ...styledWrapped(line, "summary", "summary", state, part, false, deadlines)]));
+      ...styledWrapped(line, "summary", "summary", "summary", state, part, false, deadlines)]));
   }
   const streaming = stream !== null;
   const lines: FrameLine[] = [];
@@ -332,7 +335,7 @@ function renderPartBody(
     const lineIndex = lines.length;
     lines.push(prefixLine(narrow, gutterFor(part, focused, streaming, lineIndex),
       styledWrapped(line, focused ? "prose" : "prose · dim", focused ? "human edit" : "human edit dim",
-        state, part, streaming && !appending, deadlines, sourceStart)));
+        "rewritten", state, part, streaming && !appending, deadlines, sourceStart)));
   }
   const proseTip = lines.length - 1;
   for (let lineIndex = lines.length; lineIndex < gutterRows; lineIndex += 1) {
@@ -394,19 +397,41 @@ export function storyPartWrapPlan(
   const streamingStart = sourceStreamingStart === null
     ? null
     : Math.max(0, sourceStreamingStart - sourceStart);
-  const runs: StyleRun<ProseStyle>[] = sourceStart === 0
+  const logoRuns: StyleRun<ProseStyle>[] = sourceStart === 0
     ? starterLogoRuns(text, part.humanSpans)
     : [];
-  const spanCount = Math.min(part.humanSpans.length, MAX_HUMAN_EDIT_RANGES);
-  for (let index = 0; index < spanCount; index += 1) {
-    const range = part.humanSpans[index]!;
-    const start = Math.max(range.start, sourceStart) - sourceStart;
-    const end = (sourceStreamingStart === null
-      ? range.end
-      : Math.min(range.end, sourceStreamingStart)) - sourceStart;
-    if (end > start) runs.push({ start, end, style: "human" });
+  const humanRuns = provenanceRuns(part.humanSpans, MAX_HUMAN_EDIT_RANGES, sourceStart, text.length, "human");
+  // A rewritten span (issue #319) marks prose the model wrote over the
+  // writer's own words — a weaker claim than a human span, which means the
+  // writer touched the passage since. A human edit over a rewritten span
+  // already reclaims it server-side (`rewrittenSpansAfterHumanEdit`,
+  // shared/human-edit.ts), so the two should rarely overlap by the time a
+  // plan reaches here — but `resolveProvenanceOverlay` below resolves any
+  // overlap and orders the result the same way regardless, rather than
+  // trusting that argument. The wrap engine paints every style run it is
+  // given, in the order given, without sorting or blending
+  // (materialize-runs, wrap.ts; clipRuns, wrap.ts), so an unresolved overlap
+  // or an out-of-order run would draw the same characters twice.
+  const rewrittenRuns = provenanceRuns(part.rewrittenSpans, MAX_REWRITTEN_SPANS, sourceStart, text.length, "rewritten");
+  let runs = resolveProvenanceOverlay(logoRuns, humanRuns, rewrittenRuns);
+  if (streamingStart !== null) {
+    // Every provenance run must end at or before the streaming boundary for
+    // the streaming run to stay last and the whole list to stay ascending.
+    // Truncate the merged list against that boundary here, once, instead of
+    // arguing separately that each family (in particular the starter logo,
+    // never otherwise clipped to it) already stays inside it. This step
+    // alone only removes the overlap with [streamingStart, text.length) —
+    // it does not by itself guarantee every survivor ends at or before
+    // text.length, since a run could originally have reached past it. That
+    // guarantee is `provenanceRuns`'s clamp, above (Fix 2, issue #319
+    // review): without it, a run's tail past text.length survived this
+    // subtraction as a piece sitting *after* [streamingStart, text.length)
+    // in source order but pushed into the array *before* the streaming run
+    // below — ascending within the family, non-ascending overall, the same
+    // shape Fix 1 exists to rule out.
+    runs = subtractAscending(runs, [{ start: streamingStart, end: text.length }]);
+    runs.push({ start: streamingStart, end: text.length, style: "streaming" });
   }
-  if (streamingStart !== null) runs.push({ start: streamingStart, end: text.length, style: "streaming" });
   return {
     partId: part.id,
     width,
@@ -425,6 +450,134 @@ export function storyPartWrapPlan(
     appending,
     appendStart: streamingStart
   };
+}
+
+/** Shift and clip one span family (human or rewritten) into runs over the
+ *  already-sliced wrap text, in the caller's declared style. `sourceStart`
+ *  and the cap match the semantics `storyPartWrapPlan` already applied
+ *  before this split existed; the streaming boundary is no longer clipped
+ *  here — `resolveProvenanceOverlay`'s caller clips the merged result once,
+ *  uniformly, including the starter logo this function never sees.
+ *
+ *  `textLength` additionally clamps every run's end to the wrap text itself
+ *  (Fix 2, issue #319 review). Nothing here can prove a persisted span never
+ *  names an offset past the node's current text — `validateNodeRewrittenSpans`
+ *  and `validateVersionAttributions` (server/story-format.ts) reject that on
+ *  encode and decode, but this view has no way to prove it only ever sees
+ *  payloads those checks passed, and re-arguing that on every call is the
+ *  "by argument" gap the rest of this module deliberately avoids. Clamping
+ *  here, unconditionally, is what makes it hold by construction instead: an
+ *  unclamped run surviving past `text.length` produced a stray piece *after*
+ *  the streaming-boundary subtraction below, landing before the streaming
+ *  run pushed next — non-ascending, the exact shape Fix 1 exists to rule
+ *  out. */
+function provenanceRuns(
+  spans: readonly TextRange[],
+  cap: number,
+  sourceStart: number,
+  textLength: number,
+  style: ProseStyle
+): StyleRun<ProseStyle>[] {
+  const count = Math.min(spans.length, cap);
+  const runs: StyleRun<ProseStyle>[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const range = spans[index]!;
+    const start = Math.max(range.start, sourceStart) - sourceStart;
+    const end = Math.min(range.end - sourceStart, textLength);
+    if (end > start) runs.push({ start, end, style });
+  }
+  return runs;
+}
+
+/** Merge the starter-logo, human, and rewritten run families into one
+ *  ascending, disjoint list — replacing the three hand-ordered
+ *  concatenations this diff found (logo first, then every human span, then
+ *  every rewritten span), which is ascending within each family but not
+ *  overall: a rewritten span earlier in the text landed after a human span
+ *  starting later, and the renderer (`styledWrapped`, below) walks runs with
+ *  a single monotonic cursor, so the run out of order re-sliced text its
+ *  cursor had already passed and drew it twice. A human span wins any
+ *  overlap with a rewritten span; both win over the merely decorative
+ *  starter logo. Overlap should be rare in practice (see the call site's
+ *  comment), but resolving it here, unconditionally, is what makes the
+ *  invariant hold by construction rather than by that argument — including
+ *  for the starter logo, whose own pristine check does not itself rule out
+ *  a rewritten span landing inside it.
+ *
+ *  `humanRuns` and `rewrittenRuns` each arrive ascending and pairwise
+ *  disjoint within their own family — guaranteed at the parse boundary
+ *  (`parseRewrittenSpans`, `parseVersionAttributions`, server/story-format-
+ *  facts.ts), which reject unsorted, overlapping, or non-positive ranges on
+ *  load. That is exactly what lets `subtractAscending` and `mergeAscending`
+ *  below settle every overlap and every ordering with one linear pass each,
+ *  in place of a per-run call into the general-purpose `subtractRanges`
+ *  (shared/human-edit.ts) plus a final sort: on this render-path call, once
+ *  per visible row per frame, that per-run approach cost O(runs × cuts)
+ *  allocations — 2.17 ms for one part at the 256-human/256-rewritten cap,
+ *  roughly 65 ms across 30 visible rows — against 0.008 ms for the merge
+ *  below on the same input (Fix 1, issue #319 review). */
+function resolveProvenanceOverlay(
+  logoRuns: readonly StyleRun<ProseStyle>[],
+  humanRuns: readonly StyleRun<ProseStyle>[],
+  rewrittenRuns: readonly StyleRun<ProseStyle>[]
+): StyleRun<ProseStyle>[] {
+  const rewritten = subtractAscending(rewrittenRuns, humanRuns);
+  const human = mergeAscending(humanRuns, rewritten);
+  const logo = subtractAscending(logoRuns, human);
+  return mergeAscending(human, logo);
+}
+
+/** Subtract an ascending, pairwise-disjoint list of `cuts` from an
+ *  ascending, pairwise-disjoint list of `runs`, keeping each survivor's own
+ *  style, in one linear pass over both instead of a nested one. `cutIndex`
+ *  only ever advances, across the whole call, because both lists are
+ *  ascending: no run can need a cut that an earlier run had already fully
+ *  passed. A single-range `cuts` list (the streaming-boundary call below)
+ *  trivially satisfies "ascending and disjoint" too, so this one function
+ *  serves both that call and `resolveProvenanceOverlay` above. */
+function subtractAscending(
+  runs: readonly StyleRun<ProseStyle>[],
+  cuts: readonly TextRange[]
+): StyleRun<ProseStyle>[] {
+  const result: StyleRun<ProseStyle>[] = [];
+  let cutIndex = 0;
+  for (const run of runs) {
+    let start = run.start;
+    while (start < run.end) {
+      while (cutIndex < cuts.length && cuts[cutIndex]!.end <= start) cutIndex += 1;
+      const cut = cuts[cutIndex];
+      if (cut === undefined || cut.start >= run.end) {
+        result.push({ start, end: run.end, style: run.style });
+        break;
+      }
+      if (cut.start > start) result.push({ start, end: cut.start, style: run.style });
+      start = Math.max(start, cut.end);
+    }
+  }
+  return result;
+}
+
+/** Interleave two ascending, pairwise-disjoint run lists into one ascending
+ *  list — the merge step of a merge sort, safe to use without the sort
+ *  itself because both inputs already arrive ordered. Replaces the
+ *  `[...a, ...b].sort(...)` `resolveProvenanceOverlay` used to close with,
+ *  which re-sorted an already-mostly-ordered list on every call regardless
+ *  of whether either family was even present. */
+function mergeAscending(
+  left: readonly StyleRun<ProseStyle>[],
+  right: readonly StyleRun<ProseStyle>[]
+): StyleRun<ProseStyle>[] {
+  const merged: StyleRun<ProseStyle>[] = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    merged.push(left[leftIndex]!.start <= right[rightIndex]!.start
+      ? left[leftIndex++]!
+      : right[rightIndex++]!);
+  }
+  while (leftIndex < left.length) merged.push(left[leftIndex++]!);
+  while (rightIndex < right.length) merged.push(right[rightIndex++]!);
+  return merged;
 }
 
 const STARTER_LOGO_STYLES = [
@@ -692,6 +845,7 @@ function styledWrapped(
   line: WrappedLine<ProseStyle>,
   resting: DisplayRole,
   human: DisplayRole,
+  rewritten: DisplayRole,
   state: StoryScreenState,
   part: StoryPart,
   streaming = false,
@@ -710,7 +864,7 @@ function styledWrapped(
       ));
     }
     output.push(storySegment(
-      line.text.slice(run.start, run.end), proseStyleRole(run.style, human, resting),
+      line.text.slice(run.start, run.end), proseStyleRole(run.style, human, rewritten, resting),
       sourceKey, part.node.text, sourceStart + line.start + run.start
     ));
     cursor = run.end;
@@ -725,8 +879,18 @@ function styledWrapped(
   return output;
 }
 
-function proseStyleRole(style: ProseStyle, human: DisplayRole, resting: DisplayRole): DisplayRole {
+function proseStyleRole(
+  style: ProseStyle,
+  human: DisplayRole,
+  rewritten: DisplayRole,
+  resting: DisplayRole
+): DisplayRole {
   if (style === "human") return human;
+  // A rewritten span stays at full weight whether or not its row is
+  // focused — like `summary`, it names a durable fact about the passage,
+  // not the transient reading-position emphasis that dims everything else
+  // in an unfocused row (see the `rewritten` alias, frame.ts).
+  if (style === "rewritten") return rewritten;
   if (style === "streaming") return "streaming";
   return resting === "prose" ? style : resting;
 }

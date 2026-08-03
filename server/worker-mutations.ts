@@ -1,4 +1,5 @@
 import { activePath, unusedTakePruneSelection } from "../shared/story-tree.js";
+import { resolveRewriteDestination } from "../shared/types.js";
 import {
   isValidAuthorsNoteDepth,
   MAX_AUTHORS_NOTE_CHARS,
@@ -769,6 +770,24 @@ const MUTATIONS: MutationRegistry = {
       );
     }
   }),
+  importCard: define<"importCard">({
+    parse: (value) => {
+      const input = requireRecord(value, "importCard input");
+      const storyId = requireString(input.storyId, "storyId");
+      if (!(input.cardBytes instanceof Uint8Array)) {
+        throw badInput("cardBytes must be a Uint8Array");
+      }
+      return { storyId, cardBytes: input.cardBytes };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, _plan, context) => {
+      return await service.importCard(
+        input.storyId,
+        input.cardBytes,
+        context.storyMutationRequest
+      );
+    }
+  }),
 
   continueStory: define<"continueStory">({
     parse: (value) => {
@@ -806,15 +825,27 @@ const MUTATIONS: MutationRegistry = {
     storyId: (input) => input.storyId,
     execute: async (service, input, plan, context) => {
       const rewriteId = plan.entityId("rewrite");
-      // A rewrite mints exactly one new node — the sibling take named by
-      // `takeId` — so its presence on reload is the committed marker: a
-      // provider-uncertain retry that finds it never re-enters the provider.
+      // A take-mode rewrite mints exactly one new node — the sibling take
+      // named by `takeId` — so its presence on reload is the committed
+      // marker: a provider-uncertain retry that finds it never re-enters the
+      // provider. Minted for every rewrite, used only in take mode.
       const takeId = plan.entityId("rewrite-take");
       if (needsCompatibilityGenerationRecovery(plan, context)) {
         const story = await service.stories.loadForMutation(input.storyId);
-        const takeCommitted = story.nodes.some((node) => node.id === takeId);
-        if (plan.generationAction(takeCommitted) === "return-committed") {
-          return takeId;
+        if (resolveRewriteDestination(input.body.destination) === "take") {
+          const takeCommitted = story.nodes.some((node) => node.id === takeId);
+          if (plan.generationAction(takeCommitted) === "return-committed") {
+            return takeId;
+          }
+        } else {
+          // In place mode mints no new node, so the committed marker is the
+          // target's own rewriteId — the same check this used before #310
+          // made every rewrite a take. Restored now that in-place is the
+          // default again.
+          const node = story.nodes.find((candidate) => candidate.id === input.nodeId);
+          if (plan.generationAction(node !== undefined && nodeRewriteId(node) === rewriteId) === "return-committed") {
+            return input.nodeId;
+          }
         }
       }
       return await service.rewriteNode(

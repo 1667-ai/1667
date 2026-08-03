@@ -40,6 +40,7 @@ interface MutationEntityNamespaces {
   importNovelAI: "story" | "import-node";
   importScenario: "story" | "import-node";
   importLorebook: never;
+  importCard: never;
   continueStory: never;
 
   rewriteNode: "rewrite" | "rewrite-take";

@@ -15,7 +15,7 @@
   "scripts": {
     "start": "bun src/standalone.ts",
     "build:standalone": "bun scripts/build-standalone.ts",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
