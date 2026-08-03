@@ -335,6 +335,23 @@ export function bannedStringsTransportForPreset(
   return preset === "koboldcpp" ? "native" : "token";
 }
 
+/** Reads the way `resolveSamplingLogitBias` decides whether a preset's
+ * phraseBias entries must reject special-token control syntax
+ * (`<|eot_id|>`, `<end_of_turn>`, `[INST]`, and siblings —
+ * server/sampling-phrase-bias.ts, `SPECIAL_TOKEN_SYNTAX`) before ever
+ * probing them (issue #311 review, third pass, finding I) — the same
+ * pure-function-of-preset shape `bannedStringsTransportForPreset` above
+ * already established, and for the same reason (finding M): every caller
+ * with a preset in hand, the TUI's demo-mode preview included, derives the
+ * identical decision from it instead of each caller re-deciding, or one of
+ * them forgetting to. KoboldCpp only — llama.cpp's own live probe already
+ * asks the documented `parse_special: false` and needs no such guard. */
+export function phraseBiasSpecialTokenGuardForPreset(
+  preset: SettingsPresetV2 | "legacy-v1"
+): boolean {
+  return preset === "koboldcpp";
+}
+
 /** One of a "shadowed" or "overridden" entry's own tokens, joined to the
  * entry that actually wrote its final weight — see
  * `SamplingBiasEntryResolution` for why this must be one record and not two

@@ -1,4 +1,8 @@
-import { bannedStringsTransportForPreset, type SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
+import {
+  bannedStringsTransportForPreset,
+  phraseBiasSpecialTokenGuardForPreset,
+  type SamplingBiasResolutionResult
+} from "../../shared/sampling-capabilities.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
 import type { ProviderProbeTarget } from "../../shared/settings-v2-types.js";
 import {
@@ -36,21 +40,34 @@ import {
  * `server/story-service.ts`'s real `resolveSamplingBias` worker method uses.
  *
  * `request.settings` (issue #311 review, second pass, finding C) decides
- * bannedStrings' transport the same pure-function-of-preset way the real
- * resolver does — `bannedStringsTransportForPreset`, shared by both, rather
- * than this file re-deciding "koboldcpp" by hand or, as an earlier version
- * of this fix did, not deciding at all. That earlier version called the
- * shared merge directly with no preset in hand, so a KoboldCpp demo profile
- * rendered a banned string "resolved" with fake token IDs while the real
- * backend renders it literal text — the very divergence this file exists to
- * rule out (issue #282 round 4's whole reason for calling the real merge
- * instead of re-implementing it). `request.settings` is always the routed
- * connection's document-target form in demo mode (`settingsProviderProbeTarget`,
- * tui/src/settings-provider-probe.ts, only ever returns the resolved
- * `GenerationSettings` form for a non-editable view, which demo mode never
- * is) — a caller with no settings at all (a bare preview with no route
- * selected yet) gets "token", the transport every preset but KoboldCpp uses,
- * the same default `resolveSamplingLogitBias` itself falls back to.
+ * every preset-dependent rule `resolveSamplingLogitBias` takes a parameter
+ * for the same pure-function-of-preset way the real resolver does —
+ * `bannedStringsTransportForPreset` for the bannedStrings transport,
+ * `phraseBiasSpecialTokenGuardForPreset` for the KoboldCpp special-token
+ * guard (issue #311 review, third pass, finding M) — both shared with the
+ * real resolver, rather than this file re-deciding "koboldcpp" by hand, or,
+ * as two earlier versions of this fix each did in turn, not deciding at
+ * all. The transport gap (round two): calling the shared merge directly
+ * with no preset in hand rendered a KoboldCpp banned string "resolved" with
+ * fake token IDs while the real backend rendered it literal text. The
+ * special-token gap (round three): the guard, added to reject a phrase like
+ * `<|eot_id|>` before it could ever resolve to a boosted end-of-turn token,
+ * lived inside the live-probe layer only a real network request reaches —
+ * demo's own synchronous fake tokenizer never went through it, so the same
+ * phrase rendered "resolved" here while the real resolver correctly
+ * refused it. Both are exactly the divergence this file exists to rule out
+ * (issue #282 round 4's whole reason for calling the real merge instead of
+ * re-implementing it) — the fix each time is the same shape: derive the
+ * preset once, feed every rule `resolveSamplingLogitBias` now takes a
+ * parameter for from it, the same way the real resolver's own preset
+ * dispatch (`resolveWithLiveProbe`, server/sampling-phrase-bias.ts) does.
+ * `request.settings` is always the routed connection's document-target form
+ * in demo mode (`settingsProviderProbeTarget`, tui/src/settings-provider-probe.ts,
+ * only ever returns the resolved `GenerationSettings` form for a
+ * non-editable view, which demo mode never is) — a caller with no settings
+ * at all (a bare preview with no route selected yet) gets every rule's own
+ * "no preset" default, the same ones `resolveSamplingLogitBias` itself
+ * falls back to.
  */
 export function demoResolveSamplingBias(
   request: ResolveSamplingBiasInput & { readonly settings?: ProviderProbeTarget }
@@ -59,11 +76,12 @@ export function demoResolveSamplingBias(
     request,
     normalizeStorySamplingBias(request.storyPhraseBias, request.storyBannedStrings)
   );
-  const transport = bannedStringsTransportForPreset(demoPresetFor(request.settings));
+  const preset = demoPresetFor(request.settings);
   return resolveSamplingLogitBias(
     combined,
     (text) => ({ kind: "single-token", tokenId: demoTokenId(text) }),
-    transport
+    bannedStringsTransportForPreset(preset),
+    phraseBiasSpecialTokenGuardForPreset(preset)
   );
 }
 

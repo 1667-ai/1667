@@ -750,6 +750,40 @@ describe("Sampling Settings user flow", () => {
     expect(frame).not.toContain("‹ — ›");
   });
 
+  // Regression test for issue #311 review, third pass, finding M:
+  // `demoResolveSamplingBias`'s special-token guard (finding I) lived inside
+  // the live-probe layer only a real network request reaches; demo mode's
+  // own synchronous fake tokenizer went through `resolveSamplingLogitBias`
+  // directly and never saw it, so a KoboldCpp demo profile rendered
+  // `<|eot_id|>` as a healthy `resolved` phrase-bias row — exactly the
+  // truncate-every-generation case the guard exists to make unreachable,
+  // rendered as safe. This is the third time the editor-preview-versus-
+  // request guarantee has broken on this exact path (#282 round 4, this
+  // issue's first pass finding C, and now this rule) — like the banned-
+  // string test above, this leaves `source.api.resolveSamplingBias`
+  // untouched, so it proves the real demo resolver itself carries the
+  // guard, not a mock of it.
+  test("a KoboldCpp phrase bias spelling special-token syntax is kept out by the real demo resolver, not accepted as resolved", async () => {
+    const { source, state, press } = settingsHarness();
+    useKoboldcppSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("phrase-bias");
+
+    await press(key("n"));
+    setSamplingEdit(state, "<|eot_id|>:-10");
+    await press(key("return"));
+    await Promise.resolve();
+
+    // Kept out, the same as any other phrase the resolver cannot honestly
+    // bias — never accepted as a healthy "resolved" row with a fake token
+    // ID standing in for what a real KoboldCpp server might have answered.
+    expect(state.settings?.draft.sampling.phraseBias).toEqual([]);
+    expect(state.settings?.sampling?.result).toContain("kept out");
+    expect(state.settings?.sampling?.result).toContain("no exact token");
+  });
+
   test("escape peels list, sampling, and Settings layers in order", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
