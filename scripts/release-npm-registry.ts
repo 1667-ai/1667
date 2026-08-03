@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { isPrereleaseVersion } from "./release-publication-assets.js";
 import { lstatSync, realpathSync } from "node:fs";
 import {
   mkdtemp,
@@ -111,7 +112,7 @@ export class NpmReleaseRegistry implements NpmPublicationRegistry {
         await runNpm(this.#npm, [
           "publish",
           packageToPublish.tarballPath,
-          "--tag=latest",
+          `--tag=${npmDistTagForVersion(packageToPublish.version)}`,
           "--access=public",
           "--provenance",
           "--ignore-scripts",
@@ -326,15 +327,20 @@ export function validateRegistryNextTag(
     throw new NpmRegistryPendingError(`${expected.name} has no npm dist-tags`);
   }
   const tags = object(record["dist-tags"], `${expected.name} npm dist-tags`);
-  if (tags.next === undefined) {
-    throw new NpmRegistryPendingError(`${expected.name} has no npm next tag`);
+  // The same rule that chose the tag at publish decides which tag proves the
+  // publication landed. Checking a fixed tag here would pass only for the
+  // channel that happened to be hard-coded.
+  const channel = npmDistTagForVersion(expected.version);
+  const named = tags[channel];
+  if (named === undefined) {
+    throw new NpmRegistryPendingError(`${expected.name} has no npm ${channel} tag`);
   }
-  if (typeof tags.next !== "string") {
-    throw new Error(`${expected.name} has invalid npm next tag metadata`);
+  if (typeof named !== "string") {
+    throw new Error(`${expected.name} has invalid npm ${channel} tag metadata`);
   }
-  if (tags.next !== expected.version) {
+  if (named !== expected.version) {
     throw new NpmRegistryPendingError(
-      `${expected.name} npm next tag does not name ${expected.version}`
+      `${expected.name} npm ${channel} tag does not name ${expected.version}`
     );
   }
 }
@@ -380,6 +386,22 @@ function npmFailureStdout(error: unknown): string | null {
   if (!(error instanceof Error)) return null;
   const stdout = (error as Error & { readonly stdout?: unknown }).stdout;
   return typeof stdout === "string" ? stdout : null;
+}
+
+/**
+ * The channel a version publishes into, decided by the version itself.
+ *
+ * npm performs its Trusted Publishing exchange inside `npm publish` and nowhere
+ * else, so a dist-tag cannot be moved afterwards without a credential this
+ * project does not have. Choosing the tag here means the tag is right the first
+ * time and no version ever has to change channel.
+ *
+ * A prerelease is a release candidate and publishes to `beta`. Everything else
+ * publishes to `latest`. This is the split `installScriptChannelsForVersion`
+ * already applies to Installer file names.
+ */
+export function npmDistTagForVersion(version: string): "beta" | "latest" {
+  return isPrereleaseVersion(version) ? "beta" : "latest";
 }
 
 function npmVersionAlreadyExists(error: unknown): boolean {
