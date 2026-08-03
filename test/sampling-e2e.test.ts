@@ -182,6 +182,44 @@ test("saved KoboldCpp sampling with the new knobs reaches the wire", {
   assert.equal("mirostat" in body, false);
 });
 
+// Tau and eta left set after Mirostat goes off once blocked the whole
+// settings save. The serializer and the panel each cover their half, but
+// every case above has Mirostat on, so this walks that state through a real
+// save, restart, and request.
+test("mirostat off with tau and eta configured omits all three mirostat fields on the wire", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t);
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-mirostat-off-e2e-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const sampling: SamplingSettingsV2 = {
+    ...EMPTY_SAMPLING_V2,
+    topP: 0.9,
+    seed: 42,
+    mirostat: null,
+    mirostatTau: 5,
+    mirostatEta: 0.1
+  };
+  await store.save(saveCommand(
+    `m1.1767225600009.${"9".repeat(32)}`,
+    1,
+    documentFor(fixture.origin, "llama-cpp", "e2e-model", sampling)
+  ));
+  const runtime = await store.loadGeneration();
+  assert.deepEqual(providerRuntimeFor(runtime.settings).sampling, sampling);
+  await collect(streamCompletion(runtime.settings, PROMPT, new AbortController().signal));
+  const body = fixture.bodies.at(-1)!;
+  assert.equal("mirostat" in body, false);
+  assert.equal("mirostat_tau" in body, false);
+  assert.equal("mirostat_eta" in body, false);
+  // The ordinary knobs must still reach the wire, so this test would fail
+  // if sampling were dropped wholesale rather than just the inactive
+  // mirostat knobs.
+  assert.equal(body.top_p, 0.9);
+  assert.equal(body.seed, 42);
+});
+
 test("an LM Studio route with DRY configured refuses to save, naming the reason", {
   skip: !ownedLoopbackHttpSupported()
 }, async (t) => {
