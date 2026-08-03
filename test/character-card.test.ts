@@ -415,3 +415,15 @@ function wellFormed(value: string): boolean {
   }
   return true;
 }
+
+test("a ccv3 chunk that does not hold a V3 card fails rather than importing the fallback", () => {
+  // The `ccv3` chunk is preferred, so a chunk holding V2-shaped JSON means the
+  // two chunks disagree. Importing it silently would discard the `chara`
+  // fallback without ever telling the writer.
+  const v2Payload = Buffer.from(JSON.stringify(v2Card({ name: "FallbackOnly" })), "utf8").toString("base64");
+
+  assert.throws(
+    () => parseCharacterCard(png(textChunk("ccv3", v2Payload), textChunk("chara", v2Payload))),
+    /ccv3 chunk does not hold a Character Card V3/
+  );
+});

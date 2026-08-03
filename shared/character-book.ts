@@ -26,6 +26,9 @@ type CharacterBookLoss =
   | "selective"
   | "caseSensitive"
   | "useRegex"
+  | "keyed"
+  | "scanned"
+  | "marked"
   | "decorated"
   | "refused";
 
@@ -46,6 +49,12 @@ const CHARACTER_BOOK_LOSS_PHRASES: LossPhrases<CharacterBookLoss> = {
     `${count} ${countNoun(count, "entry", "entries")} lost case-sensitive matching; a fact key ignores letter case`,
   useRegex: (count) =>
     `${count} ${countNoun(count, "entry", "entries")} marked their keys as a regular expression; a fact key is literal`,
+  keyed: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")} lost added or excluded keys; a fact keys on one list`,
+  scanned: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")} lost a search range; a fact is judged on every request`,
+  marked: (count) =>
+    `${count} ${countNoun(count, "entry", "entries")} marked as a greeting or an icon; each imports as an ordinary fact`,
   decorated: (count) => `${count} V3 ${countNoun(count, "decorator")} read and removed from the fact text`,
   refused: (count) => `${count} ${countNoun(count, "entry", "entries")} skipped for @@dont_activate`
 };
@@ -61,6 +70,17 @@ const TIMING_DECORATORS: ReadonlySet<string> = new Set([
   "@@keep_activate_after_match",
   "@@dont_activate_after_match"
 ]);
+
+/** `@@additional_keys` and `@@exclude_keys` change which words activate the
+ * entry; `@@scan_depth` changes how far back the search looks. Each is an
+ * activation mechanism, so each gets its own reason rather than the generic
+ * one — a writer whose fact fires on the wrong words learns why. */
+const KEY_DECORATORS: ReadonlySet<string> = new Set(["@@additional_keys", "@@exclude_keys"]);
+
+/** These mark the entry as something other than lore. 1667 has no greeting or
+ * icon, so the entry still imports as an ordinary Fact and the report says the
+ * card meant it as something else. */
+const MARKER_DECORATORS: ReadonlySet<string> = new Set(["@@is_greeting", "@@is_user_icon"]);
 
 /**
  * Turn a Character Card `character_book` into the Lorebook entry shape the
@@ -143,12 +163,18 @@ function convertCharacterBookEntry(item: Record<string, unknown>, macroName: str
   let depthDecorator = false;
   let roleDecorator = false;
   let timingDecorator = false;
+  let keyDecorator = false;
+  let scanDecorator = false;
+  let markerDecorator = false;
   let otherDecorator = false;
   for (const line of decorated.decorators) {
     const name = decoratorName(line);
     if (name === "@@depth") depthDecorator = true;
     else if (name === "@@role") roleDecorator = true;
     else if (TIMING_DECORATORS.has(name)) timingDecorator = true;
+    else if (KEY_DECORATORS.has(name)) keyDecorator = true;
+    else if (name === "@@scan_depth") scanDecorator = true;
+    else if (MARKER_DECORATORS.has(name)) markerDecorator = true;
     else otherDecorator = true;
   }
 
@@ -187,6 +213,9 @@ function convertCharacterBookEntry(item: Record<string, unknown>, macroName: str
   if (depthDecorator) losses.push("positioned");
   if (roleDecorator) losses.push("role");
   if (timingDecorator) losses.push("timed");
+  if (keyDecorator) losses.push("keyed");
+  if (scanDecorator) losses.push("scanned");
+  if (markerDecorator) losses.push("marked");
   if (otherDecorator) losses.push("decorated");
 
   if (Array.isArray(item.secondary_keys) && item.secondary_keys.length > 0) {

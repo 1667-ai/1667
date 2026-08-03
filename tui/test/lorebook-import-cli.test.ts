@@ -9,6 +9,12 @@ import { runStoryImport } from "../src/import-cli.js";
 import { runStoryExport } from "../src/export-cli.js";
 import { createWorkerStoryApi } from "../src/worker-api.js";
 
+/** These tests open a project worker and move real Facts through it. Bun's
+ * default per-test bound is five seconds, which a loaded machine exceeds — the
+ * failures seen were 5.2s and 5.8s. The work is legitimate, so the bound moves
+ * rather than the test. */
+const HEAVY_IMPORT_TIMEOUT_MS = 30_000;
+
 const created: string[] = [];
 
 afterEach(async () => {
@@ -75,7 +81,7 @@ test("lorebook import round-trip from 1667 export --format lorebook", async () =
 
   expect(fact2).toBeDefined();
   expect(fact2?.text).toBe("The compass points north.");
-});
+}, HEAVY_IMPORT_TIMEOUT_MS);
 
 test("lorebook import from a PNG-embedded Lorebook", async () => {
   const { root, stories } = await projectWithStories(["PNG Target"]);
@@ -109,7 +115,7 @@ test("lorebook import from a PNG-embedded Lorebook", async () => {
   expect(targetStory.facts).toHaveLength(1);
   expect(targetStory.facts[0]?.tag).toBe("PNG Tag");
   expect(targetStory.facts[0]?.text).toBe("PNG Fact text");
-});
+}, HEAVY_IMPORT_TIMEOUT_MS);
 
 test("200-entry Lorebook imports 128 Facts and reports remainder", async () => {
   const { root, stories } = await projectWithStories(["Ceiling Target"]);
@@ -140,7 +146,7 @@ test("200-entry Lorebook imports 128 Facts and reports remainder", async () => {
   await service.dispose();
 
   expect(targetStory.facts).toHaveLength(128);
-});
+}, HEAVY_IMPORT_TIMEOUT_MS);
 
 test("wrong verb errors for 1667 import and 1667 import-lorebook", async () => {
   const { root, stories } = await projectWithStories(["Wrong Verb Story"]);
@@ -210,7 +216,7 @@ test("import-lorebook reads a SillyTavern World Info file", async () => {
   } finally {
     await backend.dispose();
   }
-});
+}, HEAVY_IMPORT_TIMEOUT_MS);
 
 test("an archive with nothing to import reports zero rather than failing", async () => {
   // Every entry switched off is a valid file. The writer gets a report, and the
@@ -237,7 +243,7 @@ test("an archive with nothing to import reports zero rather than failing", async
   } finally {
     await backend.dispose();
   }
-});
+}, HEAVY_IMPORT_TIMEOUT_MS);
 
 function buildPngLorebook(jsonText: string): Uint8Array {
   const signature = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);

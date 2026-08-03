@@ -138,7 +138,7 @@ test("a leading V3 decorator is stripped from the fact text and named", () => {
 
 test("a decorator this reader does not classify falls to the generic reason", () => {
   const book = entriesFromCharacterBook({
-    entries: [{ content: "@@is_greeting 0\nThe keeper never leaves the light.", keys: ["keeper"] }]
+    entries: [{ content: "@@some_future_thing 0\nThe keeper never leaves the light.", keys: ["keeper"] }]
   }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
@@ -311,4 +311,41 @@ test("book-level scan_depth, token_budget, and recursive_scanning are each named
   for (const absent of ["scan depth", "token budget", "recursive scanning"]) {
     assert.ok(!bareReport.includes(absent), `${absent} should not be reported: ${bareReport}`);
   }
+});
+
+test("key-changing decorators are named as a key loss, not the generic one", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@additional_keys lantern,dark\nBody.", keys: ["k"] }]
+  }, "Mira");
+
+  const report = fidelityReport(book.fidelity);
+
+  assert.ok(report.includes("1 entry lost added or excluded keys; a fact keys on one list"), report);
+  assert.ok(!report.includes("V3 decorator"), report);
+});
+
+test("a per-entry scan depth is named as a search-range loss", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@scan_depth 4\nBody.", keys: ["k"] }]
+  }, "Mira");
+
+  const report = fidelityReport(book.fidelity);
+
+  assert.ok(report.includes("1 entry lost a search range; a fact is judged on every request"), report);
+  assert.ok(!report.includes("V3 decorator"), report);
+});
+
+test("an entry the card marked as a greeting says so and still imports", () => {
+  const book = entriesFromCharacterBook({
+    entries: [{ content: "@@is_greeting 0\nHello, traveller.", keys: ["k"] }]
+  }, "Mira");
+
+  const result = factsFromEntries(book.entries, 128);
+  const report = fidelityReport([...result.fidelity, ...book.fidelity]);
+
+  assert.equal(result.facts[0]?.text, "Hello, traveller.", "the entry still arrives");
+  assert.ok(
+    report.includes("1 entry marked as a greeting or an icon; each imports as an ordinary fact"),
+    report
+  );
 });

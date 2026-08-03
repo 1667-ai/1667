@@ -110,7 +110,20 @@ function parsePngCard(bytes: Uint8Array): CharacterCardCore {
   // `chara` with a V2-shaped fallback for older readers. Prefer `ccv3` when
   // the chunk is present at all; fall back to `chara` only when it is not.
   const v3Text = readPngTextChunk(bytes, "ccv3");
-  if (v3Text !== null) return parseJsonCardText(v3Text);
+  if (v3Text !== null) {
+    // The chunk is preferred, so it also has to be what it claims. A `ccv3`
+    // holding V2-shaped JSON would otherwise import silently while the
+    // `chara` fallback — possibly the newer of the two — is discarded, and
+    // nothing would tell the writer the two chunks disagree.
+    const card = parseJsonCardText(v3Text);
+    if (card.version !== 3) {
+      throw new Error(
+        "The ccv3 chunk does not hold a Character Card V3. This card's metadata disagrees with itself;"
+        + " export it again from the editor that made it."
+      );
+    }
+    return card;
+  }
   const jsonText = readPngTextChunk(bytes, "chara");
   if (jsonText === null) {
     throw new Error("No character data found. This may be an ordinary image or its card metadata was stripped.");
