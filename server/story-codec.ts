@@ -35,9 +35,9 @@ import {
   nodeStubTokens,
   nodeStubWords,
   reusableStoredRevisionId,
-  reusableTokenProbabilityId,
-  takePendingTokenProbabilities
+  reusableTokenProbabilityId
 } from "./story-node-text.js";
+import { takePendingTokenProbabilities } from "./story-node-token-probabilities.js";
 import { reusableRevisionId, type StoryRevisionSnapshot } from "./story-snapshot.js";
 import { setStoryAutonameId, storyAutonameId } from "./story-metadata.js";
 import { boundedString } from "./story-wire-validation.js";

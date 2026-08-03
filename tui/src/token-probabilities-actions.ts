@@ -3,7 +3,7 @@ import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import type { ResolvedKey } from "./keys.js";
-import { createStoryViewModel, rowPart } from "./model.js";
+import { createStoryViewModel, rowPart, type StoryPart } from "./model.js";
 import type { RuntimeState, TokenProbabilitiesViewerState } from "./state.js";
 import {
   resolveTokenProbabilityEmptyReason,
@@ -19,21 +19,19 @@ export async function openTokenProbabilities(
 ): Promise<void> {
   const part = rowPart(createStoryViewModel(state.payload, state.stream), state.focusIndex);
   if (part === null) return;
-  state.mode = "PROBS";
-  state.probs = initialProbsState(part.id, part.stub.tokenProbabilities === true, source);
-  context.repaint();
-  if (part.stub.tokenProbabilities === true) {
-    await loadTokenProbabilities(state, source, context, part.id);
-  }
+  await showTake(state, source, context, part);
 }
 
 /** Local state only: unlike NAV's own focus, `nodeId` does not travel back
  *  onto `state.focusIndex` when the viewer closes — the same choice the
- *  request viewer's own `cursor` makes for the message it is looking at. */
+ *  request viewer's own `cursor` makes for the message it is looking at.
+ *  The viewer only ever opens from NAV (both `openTokenProbabilities` call
+ *  sites run under that mode), so closing it always lands back on NAV — no
+ *  return mode to carry in state for it. */
 export function closeTokenProbabilities(state: RuntimeState): void {
   const probs = state.probs;
   if (probs === null) return;
-  state.mode = probs.returnMode;
+  state.mode = "NAV";
   state.probs = null;
 }
 
@@ -99,10 +97,26 @@ async function moveToNextPart(
   const index = view.parts.findIndex((part) => part.id === probs.nodeId);
   const next = index === -1 ? undefined : view.parts[index + 1];
   if (next === undefined) return;
-  state.probs = initialProbsState(next.id, next.stub.tokenProbabilities === true, source);
+  await showTake(state, source, context, next);
+}
+
+/** Open the viewer on `part`: reset to its first token, request the record
+ *  when the stub says one exists, and repaint before the fetch settles so a
+ *  slow load still shows the loading state right away. Shared by
+ *  `openTokenProbabilities` (mode "NAV" → "PROBS") and `moveToNextPart`
+ *  (already "PROBS"), which differ only in whether `state.mode` needs to
+ *  change at all. */
+async function showTake(
+  state: RuntimeState,
+  source: AppSource,
+  context: ActionContext,
+  part: StoryPart
+): Promise<void> {
+  state.mode = "PROBS";
+  state.probs = initialProbsState(part.id, part.stub.tokenProbabilities === true, source);
   context.repaint();
-  if (next.stub.tokenProbabilities === true) {
-    await loadTokenProbabilities(state, source, context, next.id);
+  if (part.stub.tokenProbabilities === true) {
+    await loadTokenProbabilities(state, source, context, part.id);
   }
 }
 
@@ -118,8 +132,7 @@ function initialProbsState(
     expanded: false,
     record: null,
     loading: hasRecord,
-    empty: hasRecord ? null : resolveTokenProbabilityEmptyReason(source.settingsView),
-    returnMode: "NAV"
+    empty: hasRecord ? null : resolveTokenProbabilityEmptyReason(source.settingsView)
   };
 }
 

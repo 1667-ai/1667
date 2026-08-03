@@ -16,8 +16,7 @@ import {
   HASH_PATTERN,
   STORY_SCHEMA_VERSION,
   StoryFormatError,
-  manifestRevisionIds,
-  manifestTokenProbabilityIds,
+  liveObjectIds,
   parseManifest,
   serializeManifest,
   sha256,
@@ -49,7 +48,7 @@ import {
   requireNode,
   switchLine as switchTreeLine
 } from "./story-nodes.js";
-import { StoryObjectStore, type LiveStoryObjectIds } from "./story-objects.js";
+import { StoryObjectStore, type LiveStoryObjectIds, type ObjectKind } from "./story-objects.js";
 import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
   BoundedCleanupQueue,
@@ -94,10 +93,18 @@ type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
 interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boolean }
 /** One story's provider-snapshot pins, kept apart by object kind — mixing
  * them would protect a revision hash from the probabilities sweep pass (or
- * vice versa), silently defeating the pin. */
-interface ProviderSnapshotPins {
-  readonly revisions: Map<ObjectHash, number>;
-  readonly probabilities: Map<ObjectHash, number>;
+ * vice versa), silently defeating the pin. Shaped like StoryObjectStore's own
+ * per-kind collections (server/story-objects.ts) for the same reason: only
+ * `revisions` and `probabilities` are ever populated (`LiveStoryObjectIds`
+ * has no `chunks`), but sharing the kind-generic shape lets `addPins` and
+ * `releasePins` run as one loop each instead of one call per kind. */
+type ProviderSnapshotPins = Record<ObjectKind, Map<ObjectHash, number>>;
+/** The two kinds `LiveStoryObjectIds` ever carries — the subset of
+ * `ProviderSnapshotPins`' kinds that pinning and its release loop touch. */
+const LIVE_OBJECT_KINDS = ["revisions", "probabilities"] as const satisfies readonly (keyof LiveStoryObjectIds)[];
+
+function emptyProviderSnapshotPins(): ProviderSnapshotPins {
+  return { chunks: new Map(), revisions: new Map(), probabilities: new Map() };
 }
 
 const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
@@ -186,24 +193,20 @@ export class StoryStore {
       throw new Error("Cannot pin a deleted provider snapshot");
     }
     const storyId = session.storyId;
-    const revisionIds = [
-      ...new Set(manifestRevisionIds(manifest.content))
-    ];
-    const probabilityIds = [
-      ...new Set(manifestTokenProbabilityIds(manifest.content))
-    ];
-    const pins = this.providerSnapshotPins.get(storyId)
-      ?? { revisions: new Map<ObjectHash, number>(), probabilities: new Map<ObjectHash, number>() };
+    const live = liveObjectIds(manifest.content);
+    const dedupedLive: LiveStoryObjectIds = {
+      revisions: [...new Set(live.revisions)],
+      probabilities: [...new Set(live.probabilities)]
+    };
+    const pins = this.providerSnapshotPins.get(storyId) ?? emptyProviderSnapshotPins();
     this.providerSnapshotPins.set(storyId, pins);
-    addPins(pins.revisions, revisionIds);
-    addPins(pins.probabilities, probabilityIds);
+    for (const kind of LIVE_OBJECT_KINDS) addPins(pins[kind], dedupedLive[kind]);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      releasePins(pins.revisions, revisionIds);
-      releasePins(pins.probabilities, probabilityIds);
-      if (pins.revisions.size === 0 && pins.probabilities.size === 0) {
+      for (const kind of LIVE_OBJECT_KINDS) releasePins(pins[kind], dedupedLive[kind]);
+      if (Object.values(pins).every((map) => map.size === 0)) {
         this.providerSnapshotPins.delete(storyId);
       }
       this.cleanupQueue.schedule(storyId);
@@ -521,8 +524,7 @@ export class StoryStore {
     }
     if (slot.kind === "v5") {
       const { manifest: current, sourceSchemaVersion } = slot;
-      const previousRevisionIds = manifestRevisionIds(current);
-      const previousProbabilityIds = manifestTokenProbabilityIds(current);
+      const previousLive = liveObjectIds(current);
       const cleanup = await StoryCleanupIntent.begin(this.bundlePath(story.id), story.id);
       const duplicate = await this.removeVerifiedLegacyDuplicate(story.id);
       if (duplicate !== null) requireDurableCommit(duplicate, `Removing legacy duplicate ${story.id}`);
@@ -534,23 +536,21 @@ export class StoryStore {
         const snapshot = candidate !== undefined && isCurrentSnapshot(candidate, current) ? candidate : undefined;
         if (snapshot !== undefined) {
           objects.adoptKnownGraph(snapshot.revisions, { committed: true });
-          objects.adoptCommittedProbabilityIds([...snapshot.probabilityIds]);
+          objects.adoptCommittedIds("probabilities", [...snapshot.probabilityIds]);
         }
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
-        const nextRevisionIds = new Set(manifestRevisionIds(manifest));
-        const nextProbabilityIds = new Set(manifestTokenProbabilityIds(manifest));
+        const nextLive = liveObjectIds(manifest);
+        const nextRevisionIds = new Set(nextLive.revisions);
+        const nextProbabilityIds = new Set(nextLive.probabilities);
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
         const settled = await cleanup.settle(
           sourceSchemaVersion !== STORY_SCHEMA_VERSION
-            || previousRevisionIds.some((revisionId) => !nextRevisionIds.has(revisionId))
-            || previousProbabilityIds.some((id) => !nextProbabilityIds.has(id))
+            || previousLive.revisions.some((revisionId) => !nextRevisionIds.has(revisionId))
+            || previousLive.probabilities.some((id) => !nextProbabilityIds.has(id))
         );
         await objects.flush();
-        await objects.verifyGraph({
-          revisions: manifestRevisionIds(manifest),
-          probabilities: manifestTokenProbabilityIds(manifest)
-        });
+        await objects.verifyGraph(nextLive);
         const commit = await this.writeManifest(this.manifestPath(story.id), serializeManifest(manifest));
         this.snapshots.set(story, captureStorySnapshot(story, manifest, objects.verifiedRevisionGraph()));
         requireDurableCommit(commit, `Saving story ${story.id}`);
@@ -639,34 +639,29 @@ export class StoryStore {
       const slot = await readStoredStorySlot(this.dir, id);
       await afterCommit(`cleaning old objects for story ${id}`, async () => {
         if (!await cleanupPending(this.bundlePath(id))) return;
-        const liveRevisionIds = slot.kind === "v5"
-          ? manifestRevisionIds(slot.manifest)
-          : slot.kind === "v6-live"
-            ? manifestRevisionIds(slot.manifest.content)
+        // A single `live` value, not two independently-nullable ones: the two
+        // used to be computed by identical-shaped ternaries, which meant one
+        // could in principle end up null while the other did not — a branch
+        // that could never actually fire, since both tested the same
+        // `slot.kind`, but only by review discipline rather than by
+        // construction. Deriving both from one manifest (or one explicit
+        // empty-live case) makes that impossible instead of merely unlikely.
+        const content = manifestContentFromSlot(slot);
+        const live = content !== null
+          ? liveObjectIds(content)
           : slot.kind === "v6-deleted"
-            ? []
+            ? { revisions: [], probabilities: [] }
             : null;
-        const liveProbabilityIds = slot.kind === "v5"
-          ? manifestTokenProbabilityIds(slot.manifest)
-          : slot.kind === "v6-live"
-            ? manifestTokenProbabilityIds(slot.manifest.content)
-          : slot.kind === "v6-deleted"
-            ? []
-            : null;
-        if (liveRevisionIds === null || liveProbabilityIds === null) return;
+        if (live === null) return;
         const pinned = this.providerSnapshotPins.get(id);
         const beganWithPins = pinned !== undefined;
-        const protectedRevisionIds = pinned === undefined
-          ? liveRevisionIds
-          : [...new Set([...liveRevisionIds, ...pinned.revisions.keys()])];
-        const protectedProbabilityIds = pinned === undefined
-          ? liveProbabilityIds
-          : [...new Set([...liveProbabilityIds, ...pinned.probabilities.keys()])];
-        const completed = await this.sweep(
-          this.bundlePath(id),
-          { revisions: protectedRevisionIds, probabilities: protectedProbabilityIds },
-          signal
-        );
+        const protectedIds: LiveStoryObjectIds = pinned === undefined
+          ? live
+          : {
+              revisions: [...new Set([...live.revisions, ...pinned.revisions.keys()])],
+              probabilities: [...new Set([...live.probabilities, ...pinned.probabilities.keys()])]
+            };
+        const completed = await this.sweep(this.bundlePath(id), protectedIds, signal);
         if (completed
           && !beganWithPins
           && !this.providerSnapshotPins.has(id)) {
@@ -697,6 +692,14 @@ function releasePins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]):
 }
 
 function isErrorCode(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }
+
+/** The live V5 content a slot carries, discriminated on `slot.kind` exactly
+ *  once — a legacy or V6-deleted slot has none. */
+function manifestContentFromSlot(slot: StoredStorySlot): StoryManifestV5 | null {
+  if (slot.kind === "v5") return slot.manifest;
+  if (slot.kind === "v6-live") return slot.manifest.content;
+  return null;
+}
 
 function aggregateVersionFromSlot(
   slot: Extract<StoredStorySlot, { kind: "v5" | "v6-live" | "v6-deleted" }>

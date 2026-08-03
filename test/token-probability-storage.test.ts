@@ -12,7 +12,7 @@ import { parseManifest, serializeManifest, sha256, type StoryManifestV5 } from "
 import { commitTake } from "../server/story-nodes.js";
 import { StoryStore } from "../server/stories.js";
 import type { SettingsStore } from "../server/settings.js";
-import { createTokenProbabilities } from "../shared/token-probabilities.js";
+import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import { EMPTY_SAMPLING_V2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
@@ -29,7 +29,7 @@ import { testApp } from "./story-server-fixture.js";
  * a real model.
  *
  * The addendum tests below (append, replace, misalignment) cover
- * server/story-node-text.ts's attachTakeTokenProbabilities, which places
+ * server/story-node-token-probabilities.ts's attachTakeTokenProbabilities, which places
  * those captured steps inside the take's actual stored text — see
  * shared/token-probabilities.ts's alignTokenProbabilities, unit-tested
  * directly in test/token-probabilities.test.ts.
@@ -260,12 +260,11 @@ test("a take whose recording cannot be aligned stores no object, and the generat
   // request — but it stands in for whatever narrower mismatch would trip
   // alignTokenProbabilities's null case, and this is the surface that case
   // must protect: the diagnostic must never cost the writer their prose.
-  const unrelated = createTokenProbabilities(
-    3,
-    [{ token: "completely unrelated capture", logprob: -0.1, alternatives: [] }],
-    undefined,
-    0
-  );
+  const unrelated: CapturedTokenProbabilities = {
+    requested: 3,
+    steps: [{ token: "completely unrelated capture", logprob: -0.1, alternatives: [] }],
+    truncated: false
+  };
   const prose = "Real story prose that shares nothing with the capture.";
 
   await stories.withLock(story.id, async () => {

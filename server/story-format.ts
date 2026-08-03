@@ -37,7 +37,7 @@ import {
 import { assertStrictV5Manifest, MAX_STORY_MANIFEST_BYTES } from "./story-v5-strict.js";
 
 export { HASH_PATTERN, StoryFormatError, requireHash } from "./story-format-facts.js";
-export { manifestRevisionIds, manifestTokenProbabilityIds } from "./story-format-nodes.js";
+export { liveObjectIds, manifestTokenProbabilityIds } from "./story-format-nodes.js";
 export { hasUnpairedSurrogate } from "./story-format-unicode.js";
 export const STORY_FORMAT = "1667-story";
 /** StoryTavern objects are content-addressed. Read their exact identifiers so

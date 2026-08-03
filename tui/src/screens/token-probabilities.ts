@@ -117,7 +117,11 @@ function populatedBody(
   width: number,
   barCells: number | null
 ): FrameLine[] {
-  const tokenIndex = Math.max(0, Math.min(record.steps.length - 1, probs.tokenIndex));
+  // `tokenIndex`/`altIndex` are clamped once, in the reducer
+  // (`moveToken`/`moveAlternative`, token-probabilities-actions.ts), against
+  // this same `record` — it does not change while the viewer is open, so
+  // re-clamping here would only repeat a bound the reducer already holds.
+  const tokenIndex = probs.tokenIndex;
   const step = record.steps[tokenIndex];
   const measure = Math.max(20, width - 4);
   const span = tokenProbabilitySpan(record, tokenIndex);
@@ -138,7 +142,7 @@ function populatedBody(
   ));
   lines.push(fitLine(columnHeader(barCells), width));
   const rows = tokenProbabilityAlternativeRows(step, probs.expanded);
-  const altIndex = Math.max(0, Math.min(rows.length - 1, probs.altIndex));
+  const altIndex = probs.altIndex;
   rows.forEach((row, index) => {
     lines.push(fitLine(alternativeRow(row, index === altIndex, barCells), width));
   });

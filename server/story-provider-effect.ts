@@ -1,7 +1,7 @@
 import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
 import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
-import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import {
   GenerationResultError,
   GenerationStoppedError,
@@ -9,7 +9,8 @@ import {
 } from "./errors.js";
 import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
-import { attachTakeTokenProbabilities, nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
+import { nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
+import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 import {
   appendContinuationToNode,
   commitTake,
@@ -48,7 +49,7 @@ export interface ContinueStoryEffect extends TakeCommit {
    *  Optional so callers unconcerned with this feature (tests, other commit
    *  sources) need not think about it; the one production construction site,
    *  `continueStory` in server/generation-http.ts, always supplies it. */
-  readonly tokenProbabilities?: TokenProbabilityRecord | null;
+  readonly tokenProbabilities?: CapturedTokenProbabilities | null;
   readonly cancelled?: AbortSignal;
 }
 

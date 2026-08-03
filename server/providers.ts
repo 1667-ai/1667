@@ -22,11 +22,9 @@ import {
   resolveProviderHeaders
 } from "./provider-runtime.js";
 import { providerSseEvents } from "./provider-sse.js";
-import { MAX_TOKEN_PROBABILITY_STEPS, type TokenProbabilityStep } from "../shared/token-probabilities.js";
 import {
+  createTokenProbabilityCapture,
   dryRunProbabilityStep,
-  finalizeTokenProbabilities,
-  parseOpenAiLogprobsEntry,
   refuseTokenProbabilities,
   tokenProbabilitiesRefused,
   tokenProbabilityRefusalKey,
@@ -112,10 +110,9 @@ async function* streamOpenAiCompatible(
       let streamed = false;
       const outputRedactor = createProviderStreamRedactor(secrets);
       // Fresh per attempt: only the attempt that actually finishes ever
-      // reaches finalizeTokenProbabilities below, so a retried attempt's
-      // partial capture (if any) is never mixed with the one that succeeds.
-      const probabilitySteps: TokenProbabilityStep[] = [];
-      let probabilitiesTruncated = false;
+      // calls capture.finish() below, so a retried attempt's partial capture
+      // (if any) is never mixed with the one that succeeds.
+      const capture = createTokenProbabilityCapture(tokenProbabilities, requestedAlternatives, secrets);
       try {
         let decodedBytes = 0;
         for await (const data of providerSseEvents(
@@ -137,9 +134,7 @@ async function* streamOpenAiCompatible(
           if (data === "[DONE]") {
             const tail = outputRedactor.finish();
             if (tail.length > 0) yield tail;
-            finalizeTokenProbabilities(
-              tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated, secrets
-            );
+            capture.finish();
             return;
           }
           const parsed = parseEvent(data, secrets);
@@ -147,27 +142,7 @@ async function* streamOpenAiCompatible(
           if (isObject(choice) && typeof choice.finish_reason === "string" && outcome !== undefined) {
             outcome.finishReason = choice.finish_reason === "length" ? "length" : "stop";
           }
-          if (tokenProbabilities !== undefined && requestedAlternatives !== null && !probabilitiesTruncated) {
-            // OpenAI streams `logprobs.content` incrementally, one entry per
-            // event; KoboldCpp sends the whole array in a final chunk — never
-            // assume one element per event, and never assume every event
-            // carries one (issue #291 phase 2, point 2).
-            const logprobs = isObject(choice) ? choice.logprobs : undefined;
-            const content = isObject(logprobs) ? logprobs.content : undefined;
-            if (Array.isArray(content)) {
-              for (const entry of content) {
-                if (probabilitySteps.length >= MAX_TOKEN_PROBABILITY_STEPS) {
-                  probabilitiesTruncated = true;
-                  break;
-                }
-                const step = parseOpenAiLogprobsEntry(entry);
-                // A malformed entry is skipped, not thrown: a broken
-                // diagnostic must never cost the writer their prose (issue
-                // #291 phase 2, point 3).
-                if (step !== null) probabilitySteps.push(step);
-              }
-            }
-          }
+          capture.observe(choice);
           const delta = isObject(choice) && isObject(choice.delta) ? choice.delta.content : undefined;
           if (typeof delta === "string" && delta.length > 0) {
             decodedBytes = requireOutputWithinLimit(settings, decodedBytes, delta);
@@ -177,9 +152,7 @@ async function* streamOpenAiCompatible(
         }
         const tail = outputRedactor.finish();
         if (tail.length > 0) yield tail;
-        finalizeTokenProbabilities(
-              tokenProbabilities, requestedAlternatives, probabilitySteps, probabilitiesTruncated, secrets
-            );
+        capture.finish();
         return;
       } catch (error) {
         const tail = outputRedactor.finish();
@@ -197,7 +170,7 @@ async function* streamOpenAiCompatible(
         if (
           streamed
           || attempt >= 3
-          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort, tokenProbabilityKey)
+          || !adjustRejectedParameter(body, error, prompt.operation, explicitEffort, settings)
         ) throw error;
       }
     }
@@ -213,7 +186,7 @@ function adjustRejectedParameter(
   error: unknown,
   kind: PromptOperation,
   explicitEffort: boolean,
-  tokenProbabilityKey: string
+  settings: GenerationSettings
 ): boolean {
   if (!(error instanceof ProviderError) || error.status !== 400) return false;
   let detail: Record<string, unknown>;
@@ -254,7 +227,7 @@ function adjustRejectedParameter(
   ) {
     delete body.logprobs;
     delete body.top_logprobs;
-    refuseTokenProbabilities(tokenProbabilityKey);
+    refuseTokenProbabilities(tokenProbabilityRefusalKey(settings));
     return true;
   }
   return false;
@@ -472,35 +445,29 @@ async function* streamDryRun(
       : prompt.operation === "summary"
         ? dryRunSummary(prompt)
         : dryRunContinuation(instruction);
-  const captureProbabilities = requestedAlternatives !== undefined && requestedAlternatives !== null;
-  const probabilitySteps: TokenProbabilityStep[] = [];
-  let probabilitiesTruncated = false;
+  // Dry run reaches no endpoint and is given no credential, so it has no
+  // secret that a captured token could carry back.
+  const capture = createTokenProbabilityCapture(tokenProbabilities, requestedAlternatives ?? null, []);
+  // A capture with nothing to record still needs a definite `requested` to
+  // build a step from; the value is discarded either way once `capture.push`
+  // sees this capture is inactive, so any in-bounds fallback does.
+  const requested = requestedAlternatives ?? 1;
   let stepIndex = 0;
   // Keep the first chunk's leading boundary character: append continuations are
   // joined byte-for-byte, so a leading space is meaningful.
   for (const word of text.match(/\s*\S+/g) ?? []) {
     if (signal.aborted) return;
     yield word;
-    if (captureProbabilities && !probabilitiesTruncated) {
-      // Dry-run really does fabricate one step per yielded chunk — it is not
-      // pretending, the way an unavailable sampling knob would be (issue
-      // #291 phase 2). Deterministic: no clock, no randomness, so the same
-      // prompt always fabricates the same record.
-      if (probabilitySteps.length >= MAX_TOKEN_PROBABILITY_STEPS) {
-        probabilitiesTruncated = true;
-      } else {
-        probabilitySteps.push(dryRunProbabilityStep(word, requestedAlternatives, stepIndex));
-      }
-    }
+    // Dry-run really does fabricate one step per yielded chunk — it is not
+    // pretending, the way an unavailable sampling knob would be (issue #291
+    // phase 2). Deterministic: no clock, no randomness, so the same prompt
+    // always fabricates the same record.
+    capture.push(dryRunProbabilityStep(word, requested, stepIndex));
     stepIndex += 1;
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
   if (outcome !== undefined) outcome.finishReason = "stop";
-  // Dry run reaches no endpoint and is given no credential, so it has no
-  // secret that a captured token could carry back.
-  finalizeTokenProbabilities(
-    tokenProbabilities, captureProbabilities ? requestedAlternatives : null, probabilitySteps, probabilitiesTruncated, []
-  );
+  capture.finish();
 }
 
 function dryRunSummary(prompt: PromptPlan): string {

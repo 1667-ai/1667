@@ -6,12 +6,6 @@ import {
   type SettingsView
 } from "../../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../../shared/types.js";
-import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
-import {
-  resolveTokenProbabilities,
-  tokenProbabilityUnavailableReasonCompact,
-  type TokenProbabilityResolution
-} from "../../shared/token-probability-capabilities.js";
 import { THEME_NAMES, type UserConfig } from "./config.js";
 import type { KeyAction } from "./keys.js";
 import {
@@ -32,7 +26,13 @@ import {
 } from "./settings-provider-choices.js";
 import { settingsModelChoices } from "./settings-model-discovery.js";
 import { promptCacheSummaryParts } from "./settings-cache-summary.js";
-import { samplingContextForOverlay, samplingRowValue } from "./sampling-model.js";
+import { samplingRowValue } from "./sampling-model.js";
+import { cycleProfileField, markControlMutation } from "./settings-profile-cycle.js";
+import {
+  tokenProbabilitiesRowHint,
+  tokenProbabilitiesRowState,
+  tokenProbabilitiesRowValue
+} from "./settings-token-probabilities-row.js";
 import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
@@ -92,6 +92,7 @@ export function settingsRows(
     && isPlainHttp(settings.baseUrl)
     && settings.allowInsecureHttp !== true;
   const cache = promptCacheSummaryParts(overlay.view, overlay.draft);
+  const tokenProbabilities = tokenProbabilitiesRowState(overlay);
   return [
     {
       id: "theme", section: "app", label: "theme",
@@ -164,8 +165,8 @@ export function settingsRows(
     },
     {
       id: "token-probabilities", section: "generation", label: "alt count",
-      value: tokenProbabilitiesRowValue(overlay),
-      hint: tokenProbabilitiesRowHint(overlay)
+      value: tokenProbabilitiesRowValue(tokenProbabilities),
+      hint: tokenProbabilitiesRowHint(tokenProbabilities)
     },
     routeRow("default-route", "default", overlay, "default"),
     routeRow("prose-route", "prose", overlay, "prose"),
@@ -278,19 +279,13 @@ export function cycleEffortControl(
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return null;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) return null;
-  const choices = generationEffortChoices(document, profileId);
-  const index = choices.indexOf(profile.effort);
-  const effort = choices[index < 0
-    ? 0
-    : (index + step + choices.length) % choices.length]!;
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    profiles: { ...document.profiles, [profileId]: { ...profile, effort } }
-  }, profileId);
-  markControlMutation(overlay);
-  return effort;
+  return cycleProfileField(
+    overlay,
+    step,
+    generationEffortChoices(document, profileId),
+    (profile) => profile.effort,
+    (profile, effort) => ({ ...profile, effort })
+  ) ?? null;
 }
 
 export function cycleCachePolicyControl(
@@ -311,102 +306,6 @@ export function promptCacheRowValue(view: SettingsView, draft?: SettingsOverlayS
   return `‹ ${parts.policy} › · ${
     parts.kind === "available" ? parts.detail : `unavailable · ${parts.reason}`
   }`;
-}
-
-/** `off`, then every alternative count a request can ask for.
- *  `MAX_ALTERNATIVE_TOKENS` is the provider ceiling
- *  `shared/token-probabilities.ts` enforces, so this row can never cycle
- *  past it — `off` is the field's absence, never the number 0. */
-const TOKEN_PROBABILITIES_CHOICES: readonly (number | null)[] = [
-  null,
-  ...Array.from({ length: MAX_ALTERNATIVE_TOKENS }, (_, index) => index + 1)
-];
-
-/** Every other row here answers a draft with no document by falling back
- *  rather than by throwing, and this one runs on every settings render, not
- *  only while the Sampling panel is open. `samplingContextForOverlay` throws
- *  on that state, so the guard belongs on this side of the call: a route
- *  with nothing to read from can offer nothing either way. */
-function tokenProbabilitiesResolution(
-  overlay: SettingsOverlayState
-): TokenProbabilityResolution {
-  if (overlay.view.editable
-    && (overlay.draft.document === null || overlay.draft.selectedProfileId === null)) {
-    return { kind: "unavailable", reason: "legacy-v1" };
-  }
-  return resolveTokenProbabilities(samplingContextForOverlay(overlay));
-}
-
-function currentTokenProbabilities(overlay: SettingsOverlayState): number | null {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return null;
-  return document.profiles[profileId]?.tokenProbabilities ?? null;
-}
-
-/** The choices `←→` and `↵` cycle through. Every route offers `off`; only a
- *  route the capability matrix reports available also offers a count, so
- *  cycling on an unavailable route stays a no-op instead of writing a value
- *  the request was never going to carry. */
-function tokenProbabilitiesChoices(overlay: SettingsOverlayState): readonly (number | null)[] {
-  return tokenProbabilitiesResolution(overlay).kind === "available"
-    ? TOKEN_PROBABILITIES_CHOICES
-    : [null];
-}
-
-/** F-2's unavailable look, matched from the sampling panel's own scalar rows
- *  (`tui/src/screens/sampling-panel.ts`): the value chip collapses to
- *  `‹ — ›` and the hint carries the matrix's short reason, rather than
- *  showing a count the request will not actually carry. */
-function tokenProbabilitiesRowValue(overlay: SettingsOverlayState): string {
-  const resolution = tokenProbabilitiesResolution(overlay);
-  if (resolution.kind === "unavailable") return "‹ — ›";
-  const count = currentTokenProbabilities(overlay);
-  return `‹ ${count === null ? "off" : count} ›`;
-}
-
-function tokenProbabilitiesRowHint(overlay: SettingsOverlayState): string {
-  const resolution = tokenProbabilitiesResolution(overlay);
-  return resolution.kind === "unavailable"
-    ? tokenProbabilityUnavailableReasonCompact(resolution.reason)
-    : "alternatives kept as token probabilities";
-}
-
-/** C-09 cycler, following `cycleEffortControl`: `off` writes a
- *  `profiles[profileId]` with the key dropped, and every other position
- *  writes it present with a count in `1..MAX_ALTERNATIVE_TOKENS` — the field
- *  is never set to `0`, and never set to `undefined`. */
-export function cycleTokenProbabilitiesControl(
-  overlay: SettingsOverlayState,
-  step: -1 | 1
-): string | null {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return null;
-  const profile = document.profiles[profileId];
-  if (profile === undefined) return null;
-  const choices = tokenProbabilitiesChoices(overlay);
-  const index = choices.indexOf(currentTokenProbabilities(overlay));
-  const next = choices[index < 0
-    ? 0
-    : (index + step + choices.length) % choices.length]!;
-  overlay.draft = settingsTextDraftForDocument({
-    ...document,
-    profiles: { ...document.profiles, [profileId]: profileWithTokenProbabilities(profile, next) }
-  }, profileId);
-  markControlMutation(overlay);
-  return next === null ? "off" : String(next);
-}
-
-function profileWithTokenProbabilities(
-  profile: GenerationProfileV2,
-  tokenProbabilities: number | null
-): GenerationProfileV2 {
-  if (tokenProbabilities === null) {
-    const { tokenProbabilities: _dropped, ...rest } = profile;
-    return rest;
-  }
-  return { ...profile, tokenProbabilities };
 }
 
 function effortRowValue(overlay: SettingsOverlayState): string {
@@ -524,12 +423,6 @@ function modelRowValue(overlay: SettingsOverlayState): string {
     ? model.length === 0 ? "choose model" : settingsModelDisplayText(model)
     : settingsModelDisplayText(selected.name);
   return `‹ ${label} ›`;
-}
-
-function markControlMutation(overlay: SettingsOverlayState): void {
-  overlay.deleteArmedProfileId = null;
-  overlay.result = null;
-  if (overlay.conflict !== null) overlay.conflict.armed = false;
 }
 
 function isPlainHttp(value: string): boolean {

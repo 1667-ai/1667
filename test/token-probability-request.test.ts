@@ -17,7 +17,7 @@ import type { PromptCacheWirePlan } from "../server/provider-cache-policy.js";
 import type { PromptPlan } from "../shared/prompt-plan.js";
 import {
   MAX_TOKEN_PROBABILITY_STEPS,
-  type TokenProbabilityRecord
+  type CapturedTokenProbabilities
 } from "../shared/token-probabilities.js";
 import { EMPTY_SAMPLING_V2, type SettingsPresetV2 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
@@ -344,7 +344,7 @@ async function captureWithSecret(
   secretEnv: string,
   secret: string,
   events: readonly Record<string, unknown>[]
-): Promise<{ record: TokenProbabilityRecord | null; text: string }> {
+): Promise<{ record: CapturedTokenProbabilities | null; text: string }> {
   process.env[secretEnv] = secret;
   t.after(() => { delete process.env[secretEnv]; });
   const originalFetch = globalThis.fetch;

@@ -12,12 +12,13 @@ import {
 } from "../shared/story-tree.js";
 import { appendContinuationText } from "../shared/story-text.js";
 import type { CoveredExtent, EditNodeRequest, HumanEditAttribution, PruneUnusedTakesRequest, Story, StoryNode } from "../shared/types.js";
-import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { CapturedTokenProbabilities } from "../shared/token-probabilities.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
 import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
-import { attachTakeTokenProbabilities, setNodeRewriteId } from "./story-node-text.js";
+import { setNodeRewriteId } from "./story-node-text.js";
+import { attachTakeTokenProbabilities } from "./story-node-token-probabilities.js";
 
 export interface NewNodeOptions {
   id?: string;
@@ -189,11 +190,11 @@ export interface TakeCommit {
    *  takes, starter-vault seeding — leaves this absent. Both the new-take and
    *  the `appendTo` branch below attach it, aligned to whichever text this
    *  commit actually stores (issue #291 addendum) — see
-   *  `attachTakeTokenProbabilities` in server/story-node-text.ts. An append
+   *  `attachTakeTokenProbabilities` in server/story-node-token-probabilities.ts. An append
    *  that lands on an already-recorded take replaces the stored record
    *  rather than merging into it: the viewer shows the most recent
    *  generation, never a combination of several. */
-  tokenProbabilities?: TokenProbabilityRecord | null;
+  tokenProbabilities?: CapturedTokenProbabilities | null;
 }
 
 export function hasCommittedGeneration(
@@ -276,7 +277,7 @@ export function appendToActiveLeaf(
   model: string,
   genId?: string,
   committedAt?: string,
-  tokenProbabilities?: TokenProbabilityRecord | null
+  tokenProbabilities?: CapturedTokenProbabilities | null
 ): StoryNode {
   validateTextHash(expectedTextHash);
   const node = requireNode(story, nodeId);
@@ -301,7 +302,7 @@ export function appendContinuationToNode(
   model: string,
   genId?: string,
   committedAt?: string,
-  tokenProbabilities?: TokenProbabilityRecord | null
+  tokenProbabilities?: CapturedTokenProbabilities | null
 ): StoryNode {
   validateTextHash(expectedTextHash);
   if (node.role === "summary") {

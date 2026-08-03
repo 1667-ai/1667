@@ -56,6 +56,18 @@ export interface TokenProbabilityStep {
   readonly alternatives: readonly AlternativeToken[];
 }
 
+/** What the stream capture has in hand before commit-time alignment places it
+ *  inside a take's stored text: the same fields as a stored record, minus
+ *  `textOffset`, which is meaningless until alignment computes it. Kept as
+ *  its own type — not a partial `TokenProbabilityRecord` — so a capture can
+ *  never be persisted without first going through `createTokenProbabilities`
+ *  and a real offset. */
+export interface CapturedTokenProbabilities {
+  readonly requested: number;
+  readonly steps: readonly TokenProbabilityStep[];
+  readonly truncated: boolean;
+}
+
 export interface TokenProbabilityRecord {
   readonly format: typeof TOKEN_PROBABILITY_FORMAT;
   readonly schemaVersion: typeof TOKEN_PROBABILITY_SCHEMA_VERSION;
@@ -63,7 +75,10 @@ export interface TokenProbabilityRecord {
   readonly requested: number;
   /** UTF-16 offset in the take's stored text where the concatenation of these
    *  steps begins. An append records only the streamed tail, and a trimmed
-   *  take drops leading recorded text, so this is rarely 0. */
+   *  take drops leading recorded text, so this is rarely 0. Always a real,
+   *  computed offset — nothing in this module can construct a record with a
+   *  placeholder value here; `createTokenProbabilities` requires the caller
+   *  to supply one. */
   readonly textOffset: number;
   readonly steps: readonly TokenProbabilityStep[];
   /** Present only when a bound stopped the recording short. */
@@ -90,19 +105,19 @@ export function probabilityOf(logprob: number): number {
 }
 
 /** Construct a record from already-decoded parts, enforcing every bound.
- *  Both `parseTokenProbabilities` and the phase-2 stream capture that builds
- *  a record incrementally go through here, so a bound can never be enforced
- *  in one path and forgotten in the other. `textOffset` comes last, after the
- *  optional `truncated`, because a required parameter cannot follow an
- *  optional one — callers that know it (the addendum's alignment step) pass
- *  it; the phase-2 capture, which does not know it yet, passes 0 and lets
- *  commit-time alignment build the real record. */
+ *  Both `parseTokenProbabilities` and commit-time alignment
+ *  (`alignTokenProbabilities` below, and its callers in
+ *  server/story-node-token-probabilities.ts) go through here, so a bound can
+ *  never be enforced in one path and forgotten in the other. `textOffset` is
+ *  separate from `captured` because only alignment knows where the steps sit
+ *  inside a take's stored text — the stream capture itself does not, which
+ *  is exactly why it hands off a `CapturedTokenProbabilities` rather than a
+ *  full record. */
 export function createTokenProbabilities(
-  requested: number,
-  steps: readonly TokenProbabilityStep[],
-  truncated: boolean | undefined,
+  captured: CapturedTokenProbabilities,
   textOffset: number
 ): TokenProbabilityRecord {
+  const { requested, steps, truncated } = captured;
   if (!Number.isSafeInteger(requested) || requested < 1 || requested > MAX_ALTERNATIVE_TOKENS) {
     throw new TokenProbabilityFormatError(`requested must be an integer in 1..${MAX_ALTERNATIVE_TOKENS}`);
   }
@@ -120,7 +135,7 @@ export function createTokenProbabilities(
     requested,
     textOffset,
     steps: steps.map((step, index) => cloneStep(step, index)),
-    ...(truncated === true ? { truncated: true as const } : {})
+    ...(truncated ? { truncated: true as const } : {})
   };
   assertEncodedSize(record);
   return record;
@@ -289,7 +304,7 @@ export function parseTokenProbabilities(
   if (value.truncated !== undefined && value.truncated !== true) {
     throw new TokenProbabilityFormatError("truncated must be true when present");
   }
-  const record = createTokenProbabilities(requested, steps, value.truncated === true, textOffset);
+  const record = createTokenProbabilities({ requested, steps, truncated: value.truncated === true }, textOffset);
   if (serializeTokenProbabilities(record) !== raw) {
     throw new TokenProbabilityFormatError("Token probabilities are not canonically serialized");
   }

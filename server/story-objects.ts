@@ -62,6 +62,15 @@ const OBJECT_TEMP_PATTERN = exactStringPattern(
   "\\.1667-([a-f0-9]{64})-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.tmp"
 );
 const SHARD_PATTERN = exactStringPattern("[a-f0-9]{2}");
+/** Exact wording preserved per kind from before `adoptCommittedIds` unified
+ *  the two revision/probabilities methods it replaces; `chunks` is unused
+ *  today (nothing yet calls `adoptCommittedIds("chunks", ...)`) but keeps the
+ *  table complete for `ObjectKind`. */
+const COMMITTED_ID_LABELS: Record<ObjectKind, string> = {
+  chunks: "committed chunk id",
+  revisions: "committed revision id",
+  probabilities: "committed token probabilities id"
+};
 
 export interface StoryObjectStoreOptions {
   /** Injectable hard-link primitive for reuse-path failure simulation. */
@@ -101,14 +110,18 @@ export class StoryObjectStore {
     probabilities: new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
-  /** Bare revision ids adopted from the currently committed manifest. Their
+  /** Bare ids adopted from the currently committed manifest, kept apart by
+   * object kind like `verifiedObjects` and `pendingObjects` above. Their
    * bodies were never read by this instance, so they are held apart from
-   * `verifiedObjects`, which only ever contains hashes proven against bytes. */
-  private readonly trustedCommittedRevisions = new Set<ObjectHash>();
-  /** Same trust, for token probability objects. They have no nested graph to
-   * enumerate — a probabilities object is a leaf, unlike a revision's chunks —
-   * so a bare id is all there is to adopt. */
-  private readonly trustedCommittedProbabilities = new Set<ObjectHash>();
+   * `verifiedObjects`, which only ever contains hashes proven against bytes.
+   * A probabilities object has no nested graph to enumerate — it is a leaf,
+   * unlike a revision's chunks — so a bare id is all there is to adopt for
+   * either kind. */
+  private readonly trustedCommitted: Record<ObjectKind, Set<ObjectHash>> = {
+    chunks: new Set(),
+    revisions: new Set(),
+    probabilities: new Set()
+  };
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
   private readonly linkObject: typeof link;
@@ -248,7 +261,7 @@ export class StoryObjectStore {
       const known = this.knownRevisions.get(hash);
       if (known !== undefined && this.verifiedObjects.revisions.has(hash)) {
         for (const chunkHash of known.chunks) chunkIds.add(chunkHash);
-      } else if (this.trustedCommittedRevisions.has(hash)) {
+      } else if (this.trustedCommitted.revisions.has(hash)) {
         // A bare committed id: its body and chunks were verified before the
         // committed manifest could publish, so nothing is left to enumerate.
       } else {
@@ -268,7 +281,7 @@ export class StoryObjectStore {
       ...new Set(live.probabilities.map((hash) => requireHash(hash, "live token probabilities id")))
     ];
     const unverifiedProbabilities = probabilityIds.filter((hash) =>
-      !this.verifiedObjects.probabilities.has(hash) && !this.trustedCommittedProbabilities.has(hash));
+      !this.verifiedObjects.probabilities.has(hash) && !this.trustedCommitted.probabilities.has(hash));
     await mapWithConcurrency(unverifiedProbabilities, OBJECT_IO_CONCURRENCY, (hash) =>
       this.requireObject("probabilities", hash)
     );
@@ -312,22 +325,17 @@ export class StoryObjectStore {
     }
   }
 
-  /** Trust bare revision ids published by the currently committed manifest.
-   * Every id a manifest references was verified before that manifest could
+  /** Trust bare ids published by the currently committed manifest, kept
+   * apart by object kind like the rest of this store's per-kind state. Every
+   * id a manifest references was verified before that manifest could
    * publish, so those objects are durable even when this session never read
-   * their bodies; verifyGraph re-reads only ids outside the committed set. */
-  adoptCommittedRevisionIds(revisionIds: readonly ObjectHash[]): void {
-    for (const hash of revisionIds) {
-      this.trustedCommittedRevisions.add(requireHash(hash, "committed revision id"));
-    }
-  }
-
-  /** Same trust as `adoptCommittedRevisionIds`, for token probability ids.
-   * A probabilities object has no chunks to mirror into `verifiedObjects`, so
-   * unlike `adoptKnownGraph` there is nothing else this needs to do. */
-  adoptCommittedProbabilityIds(probabilityIds: readonly ObjectHash[]): void {
-    for (const hash of probabilityIds) {
-      this.trustedCommittedProbabilities.add(requireHash(hash, "committed token probabilities id"));
+   * their bodies; verifyGraph re-reads only ids outside the committed set. A
+   * probabilities object has no chunks to mirror into `verifiedObjects` the
+   * way `adoptKnownGraph` does for revisions, so there is nothing else this
+   * needs to do for either kind. */
+  adoptCommittedIds(kind: ObjectKind, ids: readonly ObjectHash[]): void {
+    for (const hash of ids) {
+      this.trustedCommitted[kind].add(requireHash(hash, COMMITTED_ID_LABELS[kind]));
     }
   }
 

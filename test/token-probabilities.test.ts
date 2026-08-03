@@ -21,6 +21,7 @@ import {
   parseTokenProbabilities,
   probabilityOf,
   serializeTokenProbabilities,
+  type CapturedTokenProbabilities,
   type TokenProbabilityRecord,
   type TokenProbabilityStep
 } from "../shared/token-probabilities.js";
@@ -134,8 +135,16 @@ test("probabilityOf clamps to [0, 1]", () => {
 
 // --- serialize / parse: byte-stable round trip ---
 
+function captured(
+  requested: number,
+  steps: readonly TokenProbabilityStep[],
+  truncated = false
+): CapturedTokenProbabilities {
+  return { requested, steps, truncated };
+}
+
 function sampleRecord(): TokenProbabilityRecord {
-  return createTokenProbabilities(3, [
+  return createTokenProbabilities(captured(3, [
     {
       token: "pit",
       logprob: -0.887,
@@ -145,7 +154,7 @@ function sampleRecord(): TokenProbabilityRecord {
         { token: "well", logprob: -4.074 }
       ]
     }
-  ], undefined, 0);
+  ]), 0);
 }
 
 test("a record round-trips through serialize/parse byte-for-byte", () => {
@@ -157,7 +166,7 @@ test("a record round-trips through serialize/parse byte-for-byte", () => {
 });
 
 test("a truncated record keeps the flag through a round trip and only then", () => {
-  const truncated = createTokenProbabilities(1, [{ token: "a", logprob: -0.1, alternatives: [] }], true, 0);
+  const truncated = createTokenProbabilities(captured(1, [{ token: "a", logprob: -0.1, alternatives: [] }], true), 0);
   const truncatedText = serializeTokenProbabilities(truncated);
   assert.match(truncatedText, /"truncated":true/);
   assert.deepEqual(parseTokenProbabilities(truncatedText), truncated);
@@ -201,49 +210,49 @@ function baseWire(overrides: Record<string, unknown> = {}): string {
 test("build and parse reject a step count over the limit", () => {
   const step: TokenProbabilityStep = { token: "x", logprob: -0.1, alternatives: [] };
   const steps = Array.from({ length: MAX_TOKEN_PROBABILITY_STEPS + 1 }, () => step);
-  assert.throws(() => createTokenProbabilities(1, steps, undefined, 0), /step limit/);
+  assert.throws(() => createTokenProbabilities(captured(1, steps), 0), /step limit/);
   assert.throws(() => parseTokenProbabilities(baseWire({ steps })), /step limit/);
 });
 
 test("build and parse reject an alternative count over the limit on one step", () => {
   const alternatives = Array.from({ length: MAX_ALTERNATIVE_TOKENS + 1 }, () => ({ token: "x", logprob: -0.1 }));
   const steps = [{ token: "pit", logprob: -0.1, alternatives }];
-  assert.throws(() => createTokenProbabilities(1, steps, undefined, 0), /alternative limit/);
+  assert.throws(() => createTokenProbabilities(captured(1, steps), 0), /alternative limit/);
   assert.throws(() => parseTokenProbabilities(baseWire({ steps })), /alternative limit/);
 });
 
 test("build and parse reject a token past the character limit", () => {
   const longToken = "x".repeat(MAX_TOKEN_PROBABILITY_TEXT_CHARS + 1);
   const steps = [{ token: longToken, logprob: -0.1, alternatives: [] }];
-  assert.throws(() => createTokenProbabilities(1, steps, undefined, 0), /character limit/);
+  assert.throws(() => createTokenProbabilities(captured(1, steps), 0), /character limit/);
   assert.throws(() => parseTokenProbabilities(baseWire({ steps })), /character limit/);
 });
 
 test("build and parse reject an unpaired surrogate in a token", () => {
   const steps = [{ token: "\ud800", logprob: -0.1, alternatives: [] }];
-  assert.throws(() => createTokenProbabilities(1, steps, undefined, 0), /surrogate/);
+  assert.throws(() => createTokenProbabilities(captured(1, steps), 0), /surrogate/);
   assert.throws(() => parseTokenProbabilities(baseWire({ steps })), /surrogate/);
 });
 
 test("build rejects a positive or non-finite logprob", () => {
   assert.throws(
-    () => createTokenProbabilities(1, [{ token: "x", logprob: 0.1, alternatives: [] }], undefined, 0),
+    () => createTokenProbabilities(captured(1, [{ token: "x", logprob: 0.1, alternatives: [] }]), 0),
     /logprob/
   );
   assert.throws(
-    () => createTokenProbabilities(1, [{ token: "x", logprob: Number.NaN, alternatives: [] }], undefined, 0),
+    () => createTokenProbabilities(captured(1, [{ token: "x", logprob: Number.NaN, alternatives: [] }]), 0),
     /logprob/
   );
   assert.throws(
-    () => createTokenProbabilities(1, [{ token: "x", logprob: Number.POSITIVE_INFINITY, alternatives: [] }], undefined, 0),
+    () => createTokenProbabilities(captured(1, [{ token: "x", logprob: Number.POSITIVE_INFINITY, alternatives: [] }]), 0),
     /logprob/
   );
 });
 
 test("build rejects a negative or non-integer textOffset", () => {
   const steps = [{ token: "x", logprob: -0.1, alternatives: [] }];
-  assert.throws(() => createTokenProbabilities(1, steps, undefined, -1), /textOffset/);
-  assert.throws(() => createTokenProbabilities(1, steps, undefined, 1.5), /textOffset/);
+  assert.throws(() => createTokenProbabilities(captured(1, steps), -1), /textOffset/);
+  assert.throws(() => createTokenProbabilities(captured(1, steps), 1.5), /textOffset/);
 });
 
 test("parse rejects a positive or non-finite logprob", () => {
@@ -255,8 +264,8 @@ test("parse rejects a positive or non-finite logprob", () => {
 });
 
 test("build and parse reject a requested count out of 1..MAX_ALTERNATIVE_TOKENS", () => {
-  assert.throws(() => createTokenProbabilities(0, [], undefined, 0), /requested/);
-  assert.throws(() => createTokenProbabilities(MAX_ALTERNATIVE_TOKENS + 1, [], undefined, 0), /requested/);
+  assert.throws(() => createTokenProbabilities(captured(0, []), 0), /requested/);
+  assert.throws(() => createTokenProbabilities(captured(MAX_ALTERNATIVE_TOKENS + 1, []), 0), /requested/);
   assert.throws(() => parseTokenProbabilities(baseWire({ requested: 0, steps: [] })), /requested/);
   assert.throws(
     () => parseTokenProbabilities(baseWire({ requested: MAX_ALTERNATIVE_TOKENS + 1, steps: [] })),
@@ -271,7 +280,7 @@ test("build rejects an encoded size over the byte limit", () => {
   const longToken = "x".repeat(MAX_TOKEN_PROBABILITY_TEXT_CHARS);
   const alternatives = Array.from({ length: 5 }, () => ({ token: longToken, logprob: -0.1 }));
   const steps = Array.from({ length: 3_000 }, () => ({ token: longToken, logprob: -0.1, alternatives }));
-  assert.throws(() => createTokenProbabilities(20, steps, undefined, 0), /byte size limit/);
+  assert.throws(() => createTokenProbabilities(captured(20, steps), 0), /byte size limit/);
 });
 
 test("parse rejects a payload over the byte limit before decoding it", () => {
@@ -309,9 +318,9 @@ test("build and parse reject a negative or non-integer textOffset", () => {
 });
 
 test("a record with a non-zero textOffset round-trips byte-for-byte, key ordered right after requested", () => {
-  const record = createTokenProbabilities(3, [
+  const record = createTokenProbabilities(captured(3, [
     { token: "pit", logprob: -0.887, alternatives: [] }
-  ], undefined, 42);
+  ]), 42);
   const text = serializeTokenProbabilities(record);
   assert.match(text, /"requested":3,"textOffset":42,"steps":/);
   assert.deepEqual(parseTokenProbabilities(text), record);

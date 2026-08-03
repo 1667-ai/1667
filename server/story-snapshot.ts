@@ -26,7 +26,7 @@ export interface StoryRevisionSnapshot {
    *  fingerprint still matches — mirrors `revisions` above, but a
    *  probabilities object has no nested chunk graph to carry, so an id set is
    *  all that is needed (`server/story-objects.ts`'s
-   *  `adoptCommittedProbabilityIds`). */
+   *  `adoptCommittedIds`). */
   probabilityIds: Set<ObjectHash>;
 }
 

@@ -315,7 +315,6 @@ export interface TokenProbabilitiesViewerState {
   /** Populated once loading settles with no record to show: why, and — for
    *  `preset-unknown` and `protocol` — which presets do support it. */
   empty: TokenProbabilityEmptyReason | null;
-  returnMode: "NAV";
 }
 
 /** The last answer the token-count lane published, held against the exact

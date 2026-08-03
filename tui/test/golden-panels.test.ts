@@ -703,7 +703,7 @@ function populatedTokenProbabilitiesSource(requested = 16) {
   };
   const words = text.match(/\s*\S+/g) ?? [];
   const steps = words.map((word, index) => dryRunProbabilityStep(word, requested, index));
-  const record = createTokenProbabilities(requested, steps, false, 0);
+  const record = createTokenProbabilities({ requested, steps, truncated: false }, 0);
   const source = demoAppSource();
   source.payload = marked;
   source.api = { ...source.api, getTokenProbabilities: async () => record };

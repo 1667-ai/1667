@@ -158,9 +158,15 @@ export function samplingLayerRowIndex(
     : row.panel === target));
 }
 
-export function samplingContextForOverlay(
+/** Null exactly when the view is editable but the draft has no document or
+ *  no selected profile — a broken draft, not a route the capability matrix
+ *  can speak to. `samplingContextForOverlay` throws on that state because it
+ *  was written for the Sampling panel, where the precondition always holds;
+ *  a caller that can run while the draft is still settling (issue #291's
+ *  token-probabilities row, on every Settings render) reads this instead. */
+export function samplingContextForOverlayOrNull(
   overlay: SettingsOverlayState
-): SamplingContext {
+): SamplingContext | null {
   if (!overlay.view.editable) {
     return {
       protocol: "legacy-v1",
@@ -171,10 +177,18 @@ export function samplingContextForOverlay(
   }
   const document = overlay.draft.document;
   const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) {
+  if (document === null || profileId === null) return null;
+  return samplingContextForRoute(resolveSettingsProfile(document, profileId));
+}
+
+export function samplingContextForOverlay(
+  overlay: SettingsOverlayState
+): SamplingContext {
+  const context = samplingContextForOverlayOrNull(overlay);
+  if (context === null) {
     throw new Error("editable settings draft is unavailable");
   }
-  return samplingContextForRoute(resolveSettingsProfile(document, profileId));
+  return context;
 }
 
 export function samplingScalarRows(

@@ -13,10 +13,10 @@ import {
   cycleEffortControl,
   cycleProfileControl,
   cycleRouteControl,
-  cycleTokenProbabilitiesControl,
   stepSettingsScalar,
   type ScalarMagnitude
 } from "./settings-profile-controls.js";
+import { cycleTokenProbabilitiesControl } from "./settings-token-probabilities-row.js";
 import { isSettingsScalarRow } from "./settings-scalar.js";
 import type {
   RuntimeState,

@@ -1,10 +1,10 @@
 import type { GenerationSettings } from "../shared/types.js";
 import {
   MAX_ALTERNATIVE_TOKENS,
+  MAX_TOKEN_PROBABILITY_STEPS,
   MAX_TOKEN_PROBABILITY_TEXT_CHARS,
-  createTokenProbabilities,
   type AlternativeToken,
-  type TokenProbabilityRecord,
+  type CapturedTokenProbabilities,
   type TokenProbabilityStep
 } from "../shared/token-probabilities.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
@@ -21,12 +21,14 @@ import { redactProviderSecrets } from "./provider-runtime.js";
 
 /** Filled as the stream runs when the request asked for token probabilities.
  *  Callers that want them pass a box the provider fills, the same pattern as
- *  `StreamOutcome` in server/providers.ts. `record` is built exactly once, at
- *  stream finalization — `createTokenProbabilities` re-serializes the whole
- *  record to check its byte bound, so calling it per chunk would be
- *  needless, quadratic work. */
+ *  `StreamOutcome` in server/providers.ts. `record` is filled exactly once,
+ *  at stream finalization (`createTokenProbabilityCapture`'s `finish`) —
+ *  never rebuilt per chunk. It carries the raw capture, not yet a persisted
+ *  `TokenProbabilityRecord`: commit-time alignment
+ *  (server/story-node-token-probabilities.ts) is what places it inside a
+ *  take's stored text and turns it into one. */
 export interface TokenProbabilityCollector {
-  record: TokenProbabilityRecord | null;
+  record: CapturedTokenProbabilities | null;
 }
 
 /** Mirrors providers.ts's SAMPLING_REFUSED, but for `logprobs`/
@@ -62,8 +64,9 @@ export function forgetRefusedTokenProbabilities(): void {
  *  with it. A malformed entry — the wrong shape, a positive or non-finite
  *  logprob, an over-long token — is skipped rather than thrown (issue #291
  *  phase 2, point 3): a broken diagnostic must never cost the writer their
- *  prose, and one bad entry among thousands must not discard the rest. */
-export function parseOpenAiLogprobsEntry(value: unknown): TokenProbabilityStep | null {
+ *  prose, and one bad entry among thousands must not discard the rest.
+ *  Private: only `createTokenProbabilityCapture`'s `observe` calls this. */
+function parseOpenAiLogprobsEntry(value: unknown): TokenProbabilityStep | null {
   if (!isObject(value)) return null;
   if (!isValidTokenProbabilityText(value.token) || !isValidLogprob(value.logprob)) return null;
   const rawAlternatives = value.top_logprobs;
@@ -88,29 +91,6 @@ function isValidLogprob(value: unknown): value is number {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/** `createTokenProbabilities` re-validates every bound; the per-entry checks
- *  above already screen ordinary malformed entries, so a throw here is a
- *  last-resort guard (for example a step count that reached the cap exactly
- *  as the byte bound was also crossed). Token probabilities are a
- *  diagnostic, never a reason to fail the generation itself.
- *
- *  `textOffset` is 0 here, a placeholder: this is the raw capture, still in
- *  the order the stream produced it, not yet placed inside the take's stored
- *  text. The commit path realigns it — see `alignTokenProbabilities` in
- *  shared/token-probabilities.ts and its callers in server/story-node-text.ts
- *  — before anything is persisted. */
-function safeCreateTokenProbabilities(
-  requested: number,
-  steps: readonly TokenProbabilityStep[],
-  truncated: boolean
-): TokenProbabilityRecord | null {
-  try {
-    return createTokenProbabilities(requested, steps, truncated, 0);
-  } catch {
-    return null;
-  }
 }
 
 /** Every string a provider put in this record, in the order it sent them.
@@ -145,21 +125,68 @@ function carriesProviderSecret(
   return redactProviderSecrets(captured, secrets) !== captured;
 }
 
-/** Builds the record exactly once, at stream finalization — never per chunk
- *  (issue #291 phase 2, point 1). Leaves the box null, rather than storing an
- *  empty record, when nothing usable ever arrived (point 7) or when the
- *  provider returned its own credential inside one. */
-export function finalizeTokenProbabilities(
+/** Owns one attempt's capture state end to end, so neither the state nor its
+ *  interpretation has to live in server/providers.ts (issue #291 structural
+ *  review, finding F2): `observe` is the OpenAI-compatible per-event parser,
+ *  `push` takes an already-built step (dry-run's deterministic fabrication),
+ *  and `finish` is the old `finalizeTokenProbabilities` — building the box
+ *  exactly once, at stream finalization, never per chunk (issue #291 phase
+ *  2, point 1).
+ *
+ *  A fresh instance per attempt is load-bearing: only the attempt that
+ *  actually finishes ever calls `finish`, so a retried attempt's partial
+ *  capture is never mixed with the one that succeeds — server/providers.ts
+ *  creates one `const capture = ...` per attempt, not once per request. */
+export function createTokenProbabilityCapture(
   collector: TokenProbabilityCollector | undefined,
-  requested: number | null,
-  steps: readonly TokenProbabilityStep[],
-  truncated: boolean,
+  requestedAlternatives: number | null,
   secrets: readonly string[]
-): void {
-  if (collector === undefined || requested === null) return;
-  collector.record = steps.length === 0 || carriesProviderSecret(steps, secrets)
-    ? null
-    : safeCreateTokenProbabilities(requested, steps, truncated);
+): { observe(choice: unknown): void; push(step: TokenProbabilityStep): void; finish(): void } {
+  const active = collector !== undefined && requestedAlternatives !== null;
+  const steps: TokenProbabilityStep[] = [];
+  let truncated = false;
+
+  function push(step: TokenProbabilityStep): void {
+    if (!active || truncated) return;
+    if (steps.length >= MAX_TOKEN_PROBABILITY_STEPS) {
+      truncated = true;
+      return;
+    }
+    steps.push(step);
+  }
+
+  return {
+    observe(choice: unknown): void {
+      if (!active || truncated) return;
+      // OpenAI streams `logprobs.content` incrementally, one entry per
+      // event; KoboldCpp sends the whole array in a final chunk — never
+      // assume one element per event, and never assume every event carries
+      // one (issue #291 phase 2, point 2).
+      const logprobs = isObject(choice) ? choice.logprobs : undefined;
+      const content = isObject(logprobs) ? logprobs.content : undefined;
+      if (!Array.isArray(content)) return;
+      for (const entry of content) {
+        if (steps.length >= MAX_TOKEN_PROBABILITY_STEPS) {
+          truncated = true;
+          break;
+        }
+        const step = parseOpenAiLogprobsEntry(entry);
+        // A malformed entry is skipped, not thrown: a broken diagnostic must
+        // never cost the writer their prose (issue #291 phase 2, point 3).
+        if (step !== null) steps.push(step);
+      }
+    },
+    push,
+    finish(): void {
+      // Leaves the box null, rather than storing an empty capture, when
+      // nothing usable ever arrived (point 7) or when the provider returned
+      // its own credential inside one.
+      if (collector === undefined || requestedAlternatives === null) return;
+      collector.record = steps.length === 0 || carriesProviderSecret(steps, secrets)
+        ? null
+        : { requested: requestedAlternatives, steps, truncated };
+    }
+  };
 }
 
 /** A closed, fixed vocabulary for dry-run's fabricated alternatives — never
