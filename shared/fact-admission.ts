@@ -72,13 +72,14 @@ export interface FixedContextSelection extends FixedContextAdmission {
    *  shedding — zero here is a different situation from "shed everything and
    *  still over": there was nothing this pass could have done. */
   readonly droppableCount: number;
-  /** True when the Author's Note costs more than the returned Facts message,
-   *  by the same estimator this selection already measured both with. Only
-   *  meaningful when `fits` is false: `assertFixedContextFits`
-   *  (server/generation-admission.ts) reads it to name the Author's Note
-   *  rather than the Facts in its error, without re-measuring either text
-   *  itself. False (and unread) in every branch where `fits` is true. */
-  readonly noteExceedsFacts: boolean;
+  /** Which side of the fixed prompt is to blame when it does not fit, by the
+   *  same estimator this selection already measured both with — `null`
+   *  exactly when `fits` is true, in every branch that returns one,
+   *  because nothing is over budget to blame. `assertFixedContextFits`
+   *  (server/generation-admission.ts) reads this together with
+   *  `droppableCount` to choose which of its three errors to throw,
+   *  without re-measuring the Author's Note or the Facts message itself. */
+  readonly overBudgetCause: "note" | "facts" | null;
 }
 
 /**
@@ -122,7 +123,7 @@ export function selectFactsForFixedContext(
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
       fits: true, fixedTokens: fixedContextTokens(initialMessage, authorsNote, otherFixed),
-      usableTokens: null, droppableCount, noteExceedsFacts: false
+      usableTokens: null, droppableCount, overBudgetCause: null
     };
   }
   const usable = settings.contextWindow - settings.maxTokens;
@@ -130,7 +131,7 @@ export function selectFactsForFixedContext(
   if (initialFixed <= usable) {
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
-      fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount, noteExceedsFacts: false
+      fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount, overBudgetCause: null
     };
   }
 
@@ -168,16 +169,20 @@ export function selectFactsForFixedContext(
     .map((fact) => ({ factId: fact.id, reason: "priority" }));
   const factsMessage = formatFactsMessage(kept);
   const fixed = fixedContextTokens(factsMessage, authorsNote, otherFixed);
-  // Only computed once shedding still leaves the prompt over budget: which of
-  // the Author's Note or the Facts message costs more decides which one a
-  // still-over-budget error blames (assertFixedContextFits,
-  // server/generation-admission.ts).
-  const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
-  const factsCost = factsMessage === null ? 0 : upperBoundTokens(factsMessage);
+  // Shedding can land exactly on a fit, not just short of one — reaching
+  // this branch does not by itself mean "still over budget". Gate on the
+  // real outcome, so `overBudgetCause` stays null whenever the returned
+  // selection fits here too, and only measures the Author's Note against
+  // the Facts message when there is something left to blame.
+  let overBudgetCause: FixedContextSelection["overBudgetCause"] = null;
+  if (fixed > usable) {
+    const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
+    const factsCost = factsMessage === null ? 0 : upperBoundTokens(factsMessage);
+    overBudgetCause = noteCost > factsCost ? "note" : "facts";
+  }
   return {
     facts: kept, factsMessage, dropped: [...ownCapDrops, ...spaceDrops],
-    fits: fixed <= usable, fixedTokens: fixed, usableTokens: usable, droppableCount,
-    noteExceedsFacts: noteCost > factsCost
+    fits: fixed <= usable, fixedTokens: fixed, usableTokens: usable, droppableCount, overBudgetCause
   };
 }
 

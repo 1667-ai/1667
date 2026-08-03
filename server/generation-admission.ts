@@ -32,7 +32,7 @@ export function assertFixedContextFits(
   }
   const usable = selection.usableTokens ?? 0;
   const fixed = selection.fixedTokens;
-  if (selection.noteExceedsFacts) {
+  if (selection.overBudgetCause === "note") {
     throw new ServiceError(
       400,
       `The Author's Note is too large for the model's context window ` +
