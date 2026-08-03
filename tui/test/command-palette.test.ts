@@ -233,7 +233,9 @@ function renderCommands(
     instruction: "",
     operation: "continue" as const,
     targetId: source.payload.path.at(-1)?.id ?? null,
-    assistantPrefill: true
+    assistantPrefill: true,
+    contextWindow: source.settings.contextWindow,
+    maxTokens: source.settings.maxTokens
   };
   const estimate = nextRequestEstimate(source.payload, request);
   return { lines: renderPanels(base, state, hits, width, height, estimate).lines, hits };

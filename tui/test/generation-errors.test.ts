@@ -49,12 +49,13 @@ function stoppedTakeRace(
     }
     if (outcome === "partial-null") return null;
     if (target.appendTo !== undefined) throw new Error("expected a new take");
-    return createNode(storyId, {
+    const payload = await createNode(storyId, {
       parentId: target.parentId ?? null,
       instruction,
       text: "complete take won the Stop race",
       genId: requestGenId
     });
+    return { payload, droppedFacts: [] };
   };
   if (gateSave) {
     source.api.createNode = async (...args) => {

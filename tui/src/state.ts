@@ -6,6 +6,9 @@ import type {
   StorySummary,
   TextRange
 } from "../../shared/types.js";
+import type { FactPriority } from "../../shared/fact-activation.js";
+import type { FactDraft } from "../../shared/fact-draft.js";
+import type { FactEditorRow } from "./fact-editor-rows.js";
 import type { ConnectionState } from "./connection.js";
 import type { FilePathPrompt } from "./path-completion.js";
 import type { NoticeLog } from "./notice-log.js";
@@ -34,6 +37,7 @@ import type {
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
+import type { StoryScalarField } from "./story-scalar-fields.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
 
@@ -254,7 +258,12 @@ export type InlineEditorTarget =
       /** Current draft depth. Saving the note sends this alongside the text. */
       depth: number;
     }
-  | { kind: "author-brief"; expected: string }
+  /** Author Brief or the Facts budget — see story-scalar-fields.ts, whose
+   *  table is the one place their difference lives. `expected` is the
+   *  field's authoritative value as composer text — for facts-budget that
+   *  means "empty is unset", matching the composer's own text, so
+   *  reconciliation compares like the Author's Note editor does. */
+  | { kind: "story-scalar"; field: StoryScalarField; expected: string }
   | { kind: "settings-prompt"; owner: SettingsOverlayState; scope: "global" };
 
 export interface FactEditorTarget {
@@ -291,10 +300,17 @@ export interface FactEditorSession extends EditorSessionBase {
   tag: ComposerState;
   activation: StoryFact["activation"];
   keys: ComposerState;
-  focus: "tag" | "activation" | "keys" | "body";
-  initialFact: Pick<StoryFact, "tag" | "activation" | "keys" | "text">;
+  priority: FactPriority;
+  /** Budget as typed text; empty means "no budget set". Parsed on commit,
+   *  the same way authorsNote and Fact keys already are. */
+  budget: ComposerState;
+  focus: FactEditorRow;
+  /** Draft-of-Fact: what the editor would already match if nothing changed —
+   *  see shared/fact-draft.ts. Rebased on a clean reconcile, replaced on save. */
+  initialFact: FactDraft;
   tagCutConfirmation: EditorSessionBase["cutConfirmation"];
   keysCutConfirmation: EditorSessionBase["cutConfirmation"];
+  budgetCutConfirmation: EditorSessionBase["cutConfirmation"];
 }
 
 export type DocumentEditorSession =

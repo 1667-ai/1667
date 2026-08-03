@@ -1,12 +1,12 @@
 import type { StoryFact } from "../../shared/types.js";
+import { EMPTY_FACT_DRAFT, factDraftOf } from "../../shared/fact-draft.js";
 import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { createComposer } from "./composer-model.js";
-import {
-  formatFactKeys,
-  initializeFactEditorHistory
-} from "./fact-editor-policy.js";
+import { formatFactBudget, formatFactKeys } from "./fact-editor-draft.js";
+import { initializeFactEditorHistory } from "./fact-editor-policy.js";
 import { serializePart, stripGuidance } from "./editor.js";
 import { createStoryViewModel, rowPart } from "./model.js";
+import { storyScalarFieldSpec, type StoryScalarField } from "./story-scalar-fields.js";
 import type {
   FactEditorSession,
   InlineEditorSession,
@@ -49,20 +49,18 @@ export function openFactEditor(state: RuntimeState, fact: StoryFact | null): voi
     tag: createComposer(fact?.tag ?? ""),
     activation: fact?.activation ?? "always",
     keys: createComposer(formatFactKeys(fact?.keys ?? [])),
+    priority: fact?.priority ?? "normal",
+    budget: createComposer(formatFactBudget(fact?.budgetTokens)),
     focus: "body",
-    initialFact: {
-      tag: fact?.tag ?? null,
-      activation: fact?.activation ?? "always",
-      keys: [...(fact?.keys ?? [])],
-      text
-    },
+    initialFact: fact === null ? EMPTY_FACT_DRAFT : factDraftOf(fact),
     title: `${fact === null ? "new" : "edit"} fact`,
     placeholder: "fact text…",
     returnMode: "FACTS",
     conflict: null,
     cutConfirmation: null,
     tagCutConfirmation: null,
-    keysCutConfirmation: null
+    keysCutConfirmation: null,
+    budgetCutConfirmation: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -77,16 +75,19 @@ export function openFactFromSelection(state: RuntimeState, text: string): void {
     tag: createComposer(""),
     activation: "always",
     keys: createComposer(""),
+    priority: "normal",
+    budget: createComposer(""),
     focus: "body",
     // This prefill is an unsaved draft, so Ctrl+S must create it unchanged.
-    initialFact: { tag: null, activation: "always", keys: [], text: "" },
+    initialFact: EMPTY_FACT_DRAFT,
     title: "new fact from selection",
     placeholder: "fact text…",
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null,
     tagCutConfirmation: null,
-    keysCutConfirmation: null
+    keysCutConfirmation: null,
+    budgetCutConfirmation: null
   };
   initializeFactEditorHistory(editor);
   openFactSession(state, editor);
@@ -126,13 +127,27 @@ export function openAuthorsNoteEditor(state: RuntimeState): void {
 }
 
 export function openAuthorBriefEditor(state: RuntimeState): void {
-  const initial = state.payload.authorBrief ?? "";
+  openStoryScalarEditor(state, "author-brief");
+}
+
+/** The story's total Facts budget. Its text field follows the same "empty
+ *  means unset" convention as the per-Fact budget field. */
+export function openFactsBudgetEditor(state: RuntimeState): void {
+  openStoryScalarEditor(state, "facts-budget");
+}
+
+/** Author Brief and the Facts budget both open through this one path,
+ *  table-driven by STORY_SCALAR_FIELDS (see story-scalar-fields.ts) — the
+ *  next story-level scalar is a table row, not a new open function. */
+function openStoryScalarEditor(state: RuntimeState, field: StoryScalarField): void {
+  const spec = storyScalarFieldSpec(field);
+  const expected = spec.read(state.payload);
   openInlineEditor(state, {
-    target: { kind: "author-brief", expected: initial },
-    composer: createComposer(initial),
-    initial,
-    title: "author brief",
-    placeholder: "Override the machine-wide author brief for this story. ⌃s keeps it.",
+    target: { kind: "story-scalar", field, expected },
+    composer: createComposer(expected),
+    initial: expected,
+    title: spec.title,
+    placeholder: spec.placeholder,
     returnMode: "NAV",
     conflict: null,
     cutConfirmation: null

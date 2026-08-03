@@ -129,6 +129,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       { storyId, brief },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
+    setFactsBudget: async (storyId, budgetTokens) => rememberPayload(await transport.call(
+      "setFactsBudget",
+      { storyId, budgetTokens },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = rememberPayload(await transport.call("loadStory", { id }));
@@ -250,6 +255,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     deleteFact: async (storyId, factId) => rememberPayload(await transport.call(
       "deleteFact",
       { storyId, factId },
+      { expectedAggregateVersion: await expectedVersion(storyId) }
+    )),
+    reorderFact: async (storyId, factId, toIndex) => rememberPayload(await transport.call(
+      "reorderFact",
+      { storyId, factId, body: { toIndex } },
       { expectedAggregateVersion: await expectedVersion(storyId) }
     )),
     createChapterBreak: async (storyId, parentPartId, title = "") => {
@@ -376,7 +386,9 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
             expectedAggregateVersion: await expectedVersion(storyId)
           }
         );
-        return result === null ? null : rememberPayload(result);
+        return result === null
+          ? null
+          : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
     rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {

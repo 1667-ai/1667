@@ -10,6 +10,7 @@ import {
   resumeDirectComposer
 } from "./composer-ownership.js";
 import { continuationIntent } from "./continuation-intent.js";
+import { factDropNotice } from "./facts-model.js";
 import { isPlainNavigation } from "./keys.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode, rowPart } from "./model.js";
 import type { PendingGenerationDraft, RuntimeState, StoryScreenState, StreamView } from "./state.js";
@@ -163,7 +164,7 @@ export async function generate(
     const apiTarget = append
       ? { appendTo: leaf!.id, expectedTextHash: appendBaseHash! }
       : { parentId };
-    const updated = await source.api.continueStory(
+    const result = await source.api.continueStory(
       storyId,
       instruction,
       genId,
@@ -179,7 +180,8 @@ export async function generate(
       },
       signal
     );
-    if (updated !== null && storyCurrent()) {
+    if (result !== null && storyCurrent()) {
+      const updated = result.payload;
       adoptSameStoryPayload(state, updated);
       const landed = new Map(state.freshLandedAt);
       const landedId = updated.path.at(-1)?.id;
@@ -188,6 +190,12 @@ export async function generate(
       focusLandedGeneration(state, source, updated, settlementMayOwnFocus());
       adopted = true;
       clearPendingGenerationDraft(state, pendingDraft, stream);
+      // Admission's real, post-shedding drop set — not the pre-flight guess
+      // the context meter shows before the request is sent (see issue #281
+      // review finding C). A toast is the one honest way to say what this
+      // specific request actually dropped, after the fact.
+      const notice = factDropNotice(result.droppedFacts);
+      if (notice !== null) state.toast = notice;
     }
   } catch (error) {
     if (!signal.aborted && storyCurrent()) {

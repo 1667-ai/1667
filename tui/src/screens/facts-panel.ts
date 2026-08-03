@@ -3,7 +3,9 @@ import {
   boundedFactSelection,
   factBody,
   factName,
+  factPriorityGlyph,
   factRows,
+  factStatusDisplay,
   factTags
 } from "../facts-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
@@ -56,9 +58,10 @@ export function renderFactsPanel(
   const tags = factTags(state.payload.facts);
   const selection = boundedFactSelection(state.payload.facts, overlay, overlay.query);
   const rows = factRows(state.payload.facts, selection.selectedTag, overlay.query);
-  const activeFactIds = new Set(estimate.activeFactIds);
   const keyedFacts = state.payload.facts.filter(({ activation }) => activation === "keyed");
-  const activeKeyedCount = keyedFacts.filter(({ id }) => activeFactIds.has(id)).length;
+  const activeKeyedCount = keyedFacts.filter(
+    ({ id }) => estimate.factStatuses.get(id)?.kind === "sent"
+  ).length;
   const contentWidth = panelHorizontalGeometry(width).contentWidth;
   const columns = factColumns(contentWidth);
   const chipLines: FrameLine[] = [[raisedSegment("  tags  ", "chrome")]];
@@ -111,7 +114,13 @@ export function renderFactsPanel(
     const fact = rows[index]!;
     const body = factBody(fact);
     const selected = index === selection.cursor;
-    const activeKeyed = fact.activation === "keyed" && activeFactIds.has(fact.id);
+    const requestStatus = estimate.factStatuses.get(fact.id) ?? { kind: "not-matched" as const };
+    const display = factStatusDisplay(fact.activation, requestStatus);
+    const statusBase = display.glyph.length === 0 ? display.word : `${display.glyph} ${display.word}`;
+    const priorityChar = factPriorityGlyph(fact.priority);
+    // A blank glyph for "normal" priority keeps the column at its established
+    // width for the common case; low/high only cost one more cell.
+    const status = priorityChar.length === 0 ? statusBase : `${statusBase} ${priorityChar}`;
     content.push([
       raisedSegment(cellPad(selected ? "  ▸ " : "", columns.lead),
         selected ? "focus / accent" : "chrome"),
@@ -120,10 +129,7 @@ export function renderFactsPanel(
       raisedSegment(cellPad(truncate(fact.tag ?? "—", Math.max(0, columns.tag - 1)), columns.tag),
         "accent · deep"),
       raisedSegment(cellPad(body.length > 0 ? body : "—", columns.note), "chrome"),
-      raisedSegment(cellPad(fact.activation === "always"
-        ? "always"
-        : activeKeyed ? "✓ keyed" : "· keyed", columns.status),
-      activeKeyed ? "focus / accent" : "chrome")
+      raisedSegment(cellPad(status, columns.status), display.emphasis)
     ]);
     targets.push({ kind: "list", index });
   }
@@ -142,10 +148,10 @@ export function renderFactsPanel(
     : overlay.deleteArmedId === null
       ? width < 100
         ? "↑↓ · tab · ↵ edit · / filter · e edit · n new · d delete · esc"
-        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d delete · esc"
       : width < 100
         ? "↑↓ · tab · ↵ · / filter · e edit · n new · d confirms · esc keeps"
-        : "↑↓ · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
+        : "↑↓ · ⇧↑↓ move · tab tags · ↵ edit · / filter · e edit · n new · d confirms · esc keeps";
   const activationCount = keyedFacts.length === 0
     ? ""
     : ` · ${activeKeyedCount}/${keyedFacts.length} keyed`;

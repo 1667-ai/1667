@@ -15,6 +15,7 @@ export function storyFieldApi(mutate: MutateStoryPayload): {
   renameStory: (id: string, title: string) => Promise<StoryPayload>;
   setAuthorsNote: (storyId: string, note: string, depth?: number) => Promise<StoryPayload>;
   setAuthorBrief: (storyId: string, brief: string) => Promise<StoryPayload>;
+  setFactsBudget: (storyId: string, budgetTokens: number | null) => Promise<StoryPayload>;
 } {
   return {
     renameStory: (id, title) => mutate(id, "PATCH", `/api/stories/${id}`, { title }),
@@ -29,6 +30,13 @@ export function storyFieldApi(mutate: MutateStoryPayload): {
       "PUT",
       `/api/stories/${storyId}/author-brief`,
       { brief }
+    ),
+    // null clears the story's Facts budget.
+    setFactsBudget: (storyId, budgetTokens) => mutate(
+      storyId,
+      "PUT",
+      `/api/stories/${storyId}/facts-budget`,
+      { budgetTokens }
     )
   };
 }

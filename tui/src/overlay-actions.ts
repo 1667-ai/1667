@@ -9,7 +9,12 @@ import { connectionFailed, connectionSucceeded } from "./connection.js";
 import { writeStoryExport } from "./export-file.js";
 import { boundedFactCursor, boundedFactSelection, factRows, factTags } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
-import { openAuthorBriefEditor, openAuthorsNoteEditor, openFactEditor } from "./editor-action.js";
+import {
+  openAuthorBriefEditor,
+  openAuthorsNoteEditor,
+  openFactEditor,
+  openFactsBudgetEditor
+} from "./editor-action.js";
 import { generationBusy, openTag, runPartAction } from "./story-actions.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import { createUnusedTakesPrunePlan } from "./prune-model.js";
@@ -41,7 +46,7 @@ import {
 } from "./request-viewer-actions.js";
 
 import type { AppSource } from "./app.js";
-import type { RuntimeState } from "./state.js";
+import type { FactsOverlayState, RuntimeState } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 
 export type OverlayActionContext = ActionContext;
@@ -283,8 +288,42 @@ async function factsAction(
     if (state.facts === overlay) {
       Object.assign(overlay, boundedFactSelection(state.payload.facts, overlay, overlay.query));
     }
+  } else if (
+    (resolved.action === "move-item-up" || resolved.action === "move-item-down")
+    && selected !== undefined
+  ) {
+    await moveFact(resolved, state, overlay, selected.id, source, context);
   }
   return true;
+}
+
+/** Array order is emit order (see shared/story-facts.ts), so reordering only
+ * makes sense against the real, unfiltered list — a tag chip or a live query
+ * reshuffles `rows`, and "up" in that view would not mean "earlier" here. */
+async function moveFact(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  overlay: FactsOverlayState,
+  factId: string,
+  source: AppSource,
+  context: OverlayActionContext
+): Promise<void> {
+  if (overlay.selectedTag !== null || overlay.query.length > 0) {
+    state.toast = "clear the tag and filter to reorder facts";
+    return;
+  }
+  const from = state.payload.facts.findIndex((fact) => fact.id === factId);
+  if (from === -1) return;
+  const toIndex = resolved.action === "move-item-up" ? from - 1 : from + 1;
+  if (toIndex < 0 || toIndex >= state.payload.facts.length) return;
+  await context.backend.run("reordering fact", async (task) => {
+    const payload = await source.api.reorderFact(task.storyId, factId, toIndex);
+    if (!task.storyCurrent()) return;
+    adoptSameStoryPayload(state, payload);
+    if (state.facts === overlay) {
+      overlay.cursor = boundedFactCursor(toIndex, payload.facts.length);
+    }
+  });
 }
 
 async function commandsAction(resolved: ResolvedKey, state: RuntimeState, source: AppSource, context: OverlayActionContext): Promise<boolean> {
@@ -374,6 +413,7 @@ async function runCommand(command: PaletteCommand, state: RuntimeState, source: 
   else if (command.id === "tag-line") openTag(state);
   else if (command.id === "authors-note") openAuthorsNoteEditor(state);
   else if (command.id === "author-brief") openAuthorBriefEditor(state);
+  else if (command.id === "facts-budget") openFactsBudgetEditor(state);
   else if (command.id === "switch-story") await openLibrary(state, source, context);
   else if (command.id === "rename-story") {
     const targetId = state.payload.id;
