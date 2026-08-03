@@ -323,14 +323,29 @@ function resolveNativeBannedStrings(
   phraseBias: readonly ScopedSamplingBiasEntry[]
 ): readonly SamplingBiasNativeBannedStringResolution[] {
   return bannedStrings.map((entry): SamplingBiasNativeBannedStringResolution => {
-    const variantTexts = SAMPLING_BIAS_VARIANT_VALUES.map((variant) =>
-      samplingBiasVariantText(entry.phrase, variant));
+    const variantTexts = new Set(surfaceVariantTexts(entry.phrase));
+    // Both sides are variant-expanded, not only the banned string's (issue
+    // #311 review, second pass, finding B — corrected after the first
+    // implementation only expanded the banned string and compared against
+    // each phraseBias entry's bare, unvaried phrase): on every token-merge
+    // preset, phraseBias "ember" and bannedStrings "Ember" genuinely fight
+    // over the same tokens, because *both* entries' own variant sets include
+    // "Ember" and " Ember" ("Ember" typed vs. "ember" capitalized share a
+    // form). Comparing only the banned string's variants against a
+    // phraseBias phrase's bare text would have missed that exact case —
+    // "Ember" is not textually "ember" — even though the two entries would
+    // collide identically to the same-case repro this fix was written for.
     const conflict = phraseBias.find((candidate) =>
-      candidate.scope === entry.scope && variantTexts.includes(candidate.phrase));
+      candidate.scope === entry.scope
+      && surfaceVariantTexts(candidate.phrase).some((text) => variantTexts.has(text)));
     return conflict === undefined
       ? { kind: "native", phrase: entry.phrase, scope: entry.scope }
       : { kind: "blocked", phrase: entry.phrase, scope: entry.scope, conflictingPhrase: conflict.phrase };
   });
+}
+
+function surfaceVariantTexts(phrase: string): readonly string[] {
+  return SAMPLING_BIAS_VARIANT_VALUES.map((variant) => samplingBiasVariantText(phrase, variant));
 }
 
 interface SamplingBiasWrite {

@@ -643,6 +643,42 @@ test("resolveSamplingBias blocks a KoboldCpp banned string that contradicts a sa
   assert.equal(storyScope.conflictingPhrase, "dragon");
 });
 
+// Regression test: an earlier implementation of the contradiction check
+// (issue #311, second pass, finding B) expanded only the banned string's
+// four surface variants and compared them against each phraseBias entry's
+// bare, unvaried phrase — so phraseBias "ember" and bannedStrings "Ember"
+// were never flagged, even though the two entries genuinely fight over the
+// same tokens on every token-merge preset: phraseBias "ember"'s own four
+// variants include "Ember" and " Ember", which are exactly two of
+// bannedStrings "Ember"'s variants too. Both sides must be variant-expanded
+// for the check to catch every case the token-merge presets would.
+test("resolveSamplingBias blocks a KoboldCpp banned string that contradicts a same-scope phrase bias in a different letter case", {
+  skip: !ownedLoopbackHttpSupported()
+}, async (t) => {
+  const fixture = await startProviderFixture(t, undefined, { koboldTokenizeMap: KOBOLDCPP_FIXTURE_TOKENS });
+  const service = StoryService.withoutDiagnostics({
+    dataDir: await temporaryDataDirectory(t, "1667-resolve-bias-kobold-contradiction-case-")
+  });
+  await service.init();
+  t.after(() => service.dispose());
+
+  const document = documentFor(fixture.origin, "koboldcpp", "kobold-model", EMPTY_SAMPLING_V2);
+
+  const result = await service.resolveSamplingBias({
+    settings: { kind: "settings-document", document, purpose: "default" },
+    logitBias: {},
+    phraseBias: [{ phrase: "ember", weight: 5 }],
+    bannedStrings: ["Ember"]
+  });
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") throw new Error("unreachable");
+  assert.equal(result.nativeBannedStrings.length, 1);
+  const entry = result.nativeBannedStrings[0]!;
+  assert.equal(entry.kind, "blocked");
+  if (entry.kind !== "blocked") throw new Error("unreachable");
+  assert.equal(entry.conflictingPhrase, "ember");
+});
+
 // The genuine cross-scope case: the profile boosts "wolf" and the story
 // separately bans it — settled rule 2 says a cross-scope conflict is a
 // non-blocking "override", never told apart from a same-scope contradiction

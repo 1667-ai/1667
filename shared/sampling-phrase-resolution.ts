@@ -264,18 +264,22 @@ export type SamplingBiasEntryResolution =
  * rejected for being multi-token the way a token-ID bias would be.
  *
  * "blocked" (issue #311, second pass) is the one way a native banned string
- * still refuses: when its phrase, or any of its four surface variants,
- * textually matches a `phraseBias` phrase in the same scope — a writer who
- * configured a direct self-contradiction (boost "ember", ban "ember") is
- * refused on every other preset already, because the two entries fight over
- * the same resolved token there (`settleTokenOwnership` marks the phraseBias
- * entry "shadowed"). A native banned string never resolves a token to
- * compare, so it cannot reuse that token-ownership machinery honestly; this
- * checks the same contradiction the only way available to it — the literal
- * text both entries would act on — and blocks on it the same as "rejected"
- * or "shadowed" does for the other four (`firstBlockedNativeBannedString`).
- * `conflictingPhrase` names the phraseBias phrase it collided with, for the
- * message the caller builds around it (`samplingBiasNativeBlockedMessage`).
+ * still refuses: when any of its own four surface variants textually
+ * matches any of a same-scope `phraseBias` phrase's own four surface
+ * variants — a writer who configured a direct self-contradiction (boost
+ * "ember", ban "ember") is refused on every other preset already, because
+ * the two entries fight over the same resolved token there
+ * (`settleTokenOwnership` marks the phraseBias entry "shadowed"). A native
+ * banned string never resolves a token to compare, so it cannot reuse that
+ * token-ownership machinery honestly; this checks the same contradiction
+ * the only way available to it — literal text overlap between both
+ * entries' own variant sets, not only the banned string's (a phraseBias
+ * "ember" and a bannedStrings "Ember" collide on the token-merge presets
+ * exactly as a same-case pair does, since "Ember" is a shared surface form
+ * of both) — and blocks on it the same as "rejected" or "shadowed" does for
+ * the other four (`firstBlockedNativeBannedString`). `conflictingPhrase`
+ * names the phraseBias phrase it collided with, for the message the caller
+ * builds around it (`samplingBiasNativeBlockedMessage`).
  */
 export type SamplingBiasNativeBannedStringResolution =
   | { readonly kind: "native"; readonly phrase: string; readonly scope: SamplingBiasScope }
