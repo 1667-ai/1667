@@ -83,8 +83,7 @@ export function factsFromCharacterCard(source: CharacterCardSections): FactInput
   }
   const expandedSections = sections.map((section) => ({
     ...section,
-    text: section.text.replace(MACROS, (_match, kind: string) =>
-      kind.toLowerCase() === "char" ? macroName : "the protagonist")
+    text: expandCharacterCardMacros(section.text, macroName)
   }));
 
   const pieces = expandedSections.flatMap((section) => splitSection(name, section));
@@ -312,6 +311,28 @@ function nonEmptyTrimmed(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Expand `{{char}}` and `{{user}}` exactly once, case-insensitively — the V3
+ * spec's own two macros. `{{char}}` expands to `macroName` (the card's
+ * nickname when it names one, `name` otherwise, per `characterCardMacroName`
+ * below); a Fact has no reader identity for `{{user}}` to expand to, so it
+ * names the role instead.
+ *
+ * Shared by `factsFromCharacterCard` for the card's core sections and by
+ * `entriesFromCharacterBook` (`character-book.js`) for a `character_book`
+ * entry, so both halves of one card resolve the same macro the same way. */
+export function expandCharacterCardMacros(text: string, macroName: string): string {
+  return text.replace(MACROS, (_match, kind: string) =>
+    kind.toLowerCase() === "char" ? macroName : "the protagonist");
+}
+
+/** The identity `{{char}}` expands to: the V3 `nickname` when the card gives
+ * one, `name` otherwise — the same fallback `factsFromCharacterCard` applies
+ * to the core sections, so a `character_book` entry agrees with them. A V1 or
+ * V2 card has no `nickname`, so this is always `name` for those. */
+export function characterCardMacroName(card: Pick<CharacterCardCore, "name" | "nickname">): string {
+  return nonEmptyTrimmed(card.nickname) ?? card.name;
 }
 
 function expandedMacroLength(text: string, name: string): number {

@@ -776,13 +776,20 @@ export class StoryService extends StoryServiceRuntime {
     if (archiveBytes.byteLength > MAX_IMPORT_BYTES) {
       throw new ServiceError(413, "Request body too large");
     }
-    const lorebook = parseLorebookArchive(archiveBytes);
     const story = await this.stories.load(storyId);
     const room = MAX_FACTS - story.facts.length;
+    // `parseLorebookArchive` and `factsFromArchive` live in `shared/`, so they
+    // throw an ordinary `Error` for malformed JSON, an unreadable PNG, an
+    // entry-shape refusal, or an oversized archive — they have no server-side
+    // status code to reach for. This is the service boundary that gives that
+    // failure a public 4xx instead of the 500 an unclassified `Error` gets.
     // This path sends the Facts as one createFact body, so the body budget
     // applies here. A container import builds the story in process and does not
     // pass one.
-    const importResult = factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
+    const importResult = importValidation(() => {
+      const lorebook = parseLorebookArchive(archiveBytes);
+      return factsFromArchive(lorebook, room, MAX_JSON_BODY_BYTES);
+    });
     // An archive can hold nothing this story can take: no entries, every entry
     // disabled, or every entry refused. That is a report, not a failure, and
     // `createFacts` already answers `false` (-> STORY_UNCHANGED) for a request
@@ -811,7 +818,11 @@ export class StoryService extends StoryServiceRuntime {
     // character_book Facts alike, not the character_book alone.
     const story = await this.stories.load(storyId);
     const room = MAX_FACTS - story.facts.length;
-    const plan = planCardImport(cardBytes, room);
+    // `planCardImport` lives in `shared/`, so it throws an ordinary `Error`
+    // for malformed JSON, an unsupported spec version, an unsupported
+    // container, an entry-count ceiling, or oversized text — the same
+    // boundary translation `importLorebook` above applies to its own parser.
+    const plan = importValidation(() => planCardImport(cardBytes, room));
     // A card can hold nothing this story can take: no room left for even one
     // Fact. That is a report, not a failure, and `createFacts` already
     // answers `false` (-> STORY_UNCHANGED) for a request that asks for what
@@ -951,6 +962,21 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+}
+
+/** Run a `shared/` import parser and translate its ordinary `Error` into a
+ * public 4xx `ServiceError`, the same convention `server/import-nai.ts` and
+ * its siblings already throw directly, since they live in `server/` and can
+ * import `ServiceError` themselves. A `shared/` parser cannot: it has no
+ * status code to reach for, so this service-boundary call gives its failure
+ * one instead of letting it fall through unclassified to a private 500. */
+function importValidation<Value>(parse: () => Value): Value {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof ServiceError) throw error;
+    throw new ServiceError(400, error instanceof Error ? error.message : String(error));
+  }
 }
 
 function storyFromContainerImport(

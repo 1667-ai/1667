@@ -1,4 +1,5 @@
 import {
+  characterCardMacroName,
   factsFromCharacterCard,
   parseCharacterCard,
   type CharacterCardSections
@@ -71,7 +72,8 @@ export function planCardImport(bytes: Uint8Array, room: number): CardImportPlan 
     // makes the reservation more conservative, never less.
     const bookRoom = Math.max(0, roomCap - characterFacts.length);
     const bookBudget = Math.max(0, MAX_JSON_BODY_BYTES - factImportRequestBytes(characterFacts));
-    const imported = importEntries(entriesFromCharacterBook(card.characterBook), bookRoom, bookBudget);
+    const macroName = characterCardMacroName(card);
+    const imported = importEntries(entriesFromCharacterBook(card.characterBook, macroName), bookRoom, bookBudget);
     bookFacts = imported.facts;
     fidelity.push(...imported.fidelity);
   }

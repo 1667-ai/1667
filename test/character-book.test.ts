@@ -11,7 +11,7 @@ test("a character_book entry maps to a Fact through the shared Entry Mapping", (
       { content: "The keeper never leaves the light.", comment: "Premise", constant: true },
       { content: "Retired.", comment: "Off", enabled: false }
     ]
-  });
+  }, "Mira");
 
   assert.equal(book.sourceCount, 3);
   const result = factsFromEntries(book.entries, 128);
@@ -31,13 +31,27 @@ test("a character_book entry maps to a Fact through the shared Entry Mapping", (
   });
 });
 
+test("{{char}} and {{user}} expand in a character_book entry, matching the card's core sections", () => {
+  const book = entriesFromCharacterBook({
+    entries: [
+      { content: "{{char}} waits for {{USER}} here.", keys: ["k"] },
+      { content: "Retired.", comment: "Off", enabled: false, keys: ["k"] }
+    ]
+  }, "Liz");
+
+  assert.equal(book.entries[0]?.text, "Liz waits for the protagonist here.");
+  // A disabled entry still carries expanded text, even though it never
+  // reaches the Entry Mapping as an active Fact.
+  assert.equal(book.entries[1]?.text, "Retired.");
+});
+
 test("name is preferred over comment for the display name", () => {
   const book = entriesFromCharacterBook({
     entries: [
       { content: "Body.", name: "FromName", comment: "FromComment", keys: ["k"] },
       { content: "Body.", comment: "FromComment", keys: ["j"] }
     ]
-  });
+  }, "Mira");
 
   assert.equal(book.entries[0]?.displayName, "FromName");
   assert.equal(book.entries[1]?.displayName, "FromComment");
@@ -51,7 +65,7 @@ test("the mechanisms a Fact has no place for are named, not approximated", () =>
       { content: "Needs both.", keys: ["b"], selective: true, secondary_keys: ["c"] },
       { content: "Case matters.", keys: ["D"], case_sensitive: true }
     ]
-  });
+  }, "Mira");
 
   const report = fidelityReport([...factsFromEntries(book.entries, 128).fidelity, ...book.fidelity]);
 
@@ -70,7 +84,7 @@ test("position, insertion_order, and priority are one loss, not three", () => {
       { content: "B.", keys: ["b"], priority: 5 },
       { content: "C.", keys: ["c"], position: "before_char", insertion_order: 1, priority: 2 }
     ]
-  });
+  }, "Mira");
 
   const report = fidelityReport([...factsFromEntries(book.entries, 128).fidelity, ...book.fidelity]);
 
@@ -80,7 +94,7 @@ test("position, insertion_order, and priority are one loss, not three", () => {
 test("a regex-marked entry drops its keys instead of keeping a pattern as literal text", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "Body.", keys: ["/storm(s)?/i"], use_regex: true }]
-  });
+  }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
   const report = fidelityReport([...result.fidelity, ...book.fidelity]);
@@ -96,7 +110,7 @@ test("a regex-marked entry drops its keys instead of keeping a pattern as litera
 test("use_regex on an entry with no keys reports nothing; there was nothing to lose", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "Body.", keys: [], use_regex: true, constant: true }]
-  });
+  }, "Mira");
 
   const report = fidelityReport(factsFromEntries(book.entries, 128).fidelity);
 
@@ -111,7 +125,7 @@ test("a leading V3 decorator is stripped from the fact text and named", () => {
       content: "@@depth 0\n@@role assistant\nThe keeper never leaves the light.",
       keys: ["keeper"]
     }]
-  });
+  }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
   const report = fidelityReport([...result.fidelity, ...book.fidelity]);
@@ -125,7 +139,7 @@ test("a leading V3 decorator is stripped from the fact text and named", () => {
 test("a decorator this reader does not classify falls to the generic reason", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "@@is_greeting 0\nThe keeper never leaves the light.", keys: ["keeper"] }]
-  });
+  }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
   const report = fidelityReport([...result.fidelity, ...book.fidelity]);
@@ -137,7 +151,7 @@ test("a decorator this reader does not classify falls to the generic reason", ()
 test("an activation-timing decorator is named as a timed loss", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "@@activate_only_after 3\nBody.", keys: ["k"] }]
-  });
+  }, "Mira");
 
   const report = fidelityReport(book.fidelity);
 
@@ -147,7 +161,7 @@ test("an activation-timing decorator is named as a timed loss", () => {
 test("@@activate makes a character_book entry always-active, the same as World Info", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "@@activate\nAlways in play.", keys: ["k"] }]
-  });
+  }, "Mira");
 
   assert.equal(book.entries[0]?.forceActivation, true);
   assert.equal(book.entries[0]?.text, "Always in play.");
@@ -159,7 +173,7 @@ test("@@dont_activate suppresses a character_book entry, matching the World Info
       { content: "@@dont_activate\nNot in play.", keys: ["k"] },
       { content: "In play.", keys: ["j"] }
     ]
-  });
+  }, "Mira");
 
   assert.equal(book.entries.length, 1);
   assert.equal(book.entries[0]?.text, "In play.");
@@ -170,7 +184,7 @@ test("@@dont_activate suppresses a character_book entry, matching the World Info
 test("@@activate wins over @@dont_activate in a character_book entry, matching World Info", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "@@activate\n@@dont_activate\nIn play after all.", keys: ["k"] }]
-  });
+  }, "Mira");
 
   assert.equal(book.entries.length, 1);
   assert.equal(book.entries[0]?.forceActivation, true);
@@ -179,7 +193,7 @@ test("@@activate wins over @@dont_activate in a character_book entry, matching W
 test("prose that only looks like a decorator once the entry starts elsewhere is untouched", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "Some text.\n@@depth 0\nMore text.", keys: ["k"] }]
-  });
+  }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
 
@@ -189,7 +203,7 @@ test("prose that only looks like a decorator once the entry starts elsewhere is 
 test("an entry that cannot be read at all is counted, not skipped silently", () => {
   const book = entriesFromCharacterBook({
     entries: ["junk", { content: "Real.", keys: ["k"] }]
-  });
+  }, "Mira");
 
   assert.equal(book.sourceCount, 2);
   const result = factsFromEntries(book.entries, 128, undefined, book.sourceCount);
@@ -201,9 +215,9 @@ test("an entry that cannot be read at all is counted, not skipped silently", () 
 });
 
 test("a book that is not an object, or has no entries array, reads as empty rather than throwing", () => {
-  assert.deepEqual(entriesFromCharacterBook("nonsense"), { entries: [], sourceCount: 0, fidelity: [] });
-  assert.deepEqual(entriesFromCharacterBook({ name: "Untitled" }), { entries: [], sourceCount: 0, fidelity: [] });
-  assert.deepEqual(entriesFromCharacterBook(undefined), { entries: [], sourceCount: 0, fidelity: [] });
+  assert.deepEqual(entriesFromCharacterBook("nonsense", "Mira"), { entries: [], sourceCount: 0, fidelity: [] });
+  assert.deepEqual(entriesFromCharacterBook({ name: "Untitled" }, "Mira"), { entries: [], sourceCount: 0, fidelity: [] });
+  assert.deepEqual(entriesFromCharacterBook(undefined, "Mira"), { entries: [], sourceCount: 0, fidelity: [] });
 });
 
 test("a constant entry is always-active and a keyed entry keeps its keys", () => {
@@ -212,7 +226,7 @@ test("a constant entry is always-active and a keyed entry keeps its keys", () =>
       { content: "Always.", constant: true, keys: ["ignored-when-constant"] },
       { content: "Keyed.", keys: ["storm", "snow"] }
     ]
-  });
+  }, "Mira");
 
   assert.equal(book.entries[0]?.forceActivation, true);
   assert.equal(book.entries[1]?.forceActivation, false);
@@ -222,7 +236,7 @@ test("a constant entry is always-active and a keyed entry keeps its keys", () =>
 test("enabled: false does not arrive, matching the shared disabled-entry rule", () => {
   const book = entriesFromCharacterBook({
     entries: [{ content: "Off.", keys: ["k"], enabled: false }]
-  });
+  }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
 
@@ -245,7 +259,7 @@ test("a disabled entry does not report what it would have lost, mirroring World 
       case_sensitive: true,
       use_regex: true
     }]
-  });
+  }, "Mira");
 
   const result = factsFromEntries(book.entries, 128);
   const report = fidelityReport([...result.fidelity, ...book.fidelity]);
@@ -268,7 +282,7 @@ test("a refused entry does not report a decorator loss it never used either", ()
   // not additionally report the generic decorator loss for it.
   const book = entriesFromCharacterBook({
     entries: [{ content: "@@dont_activate\nNot in play.", keys: ["k"] }]
-  });
+  }, "Mira");
 
   const report = fidelityReport(book.fidelity);
 
@@ -282,7 +296,7 @@ test("book-level scan_depth, token_budget, and recursive_scanning are each named
     scan_depth: 4,
     token_budget: 512,
     recursive_scanning: true
-  });
+  }, "Mira");
   const report = fidelityReport(withSettings.fidelity);
 
   assert.ok(report.includes("scan depth omitted"), report);
@@ -291,7 +305,7 @@ test("book-level scan_depth, token_budget, and recursive_scanning are each named
 
   const withoutSettings = entriesFromCharacterBook({
     entries: [{ content: "Body.", keys: ["k"] }]
-  });
+  }, "Mira");
   const bareReport = fidelityReport(withoutSettings.fidelity);
 
   for (const absent of ["scan depth", "token budget", "recursive scanning"]) {

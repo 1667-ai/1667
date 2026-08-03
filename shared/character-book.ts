@@ -1,6 +1,7 @@
 import { countNoun, lossLines, type LossPhrases } from "./fidelity.js";
 import type { LorebookEntry } from "./lorebook-entry.js";
 import { readLeadingDecorators } from "./entry-decorators.js";
+import { expandCharacterCardMacros } from "./character-card.js";
 import { isRecord } from "./types.js";
 
 /** A `character_book` can hold far more entries than a story has room for. The
@@ -76,8 +77,14 @@ const TIMING_DECORATORS: ReadonlySet<string> = new Set([
  * them: `@@activate` and `@@dont_activate` decide whether the entry arrives
  * at all, so the same suppressed entry behaves the same way whether it
  * arrives as a World Info export or inside the V3 card it was written in.
+ *
+ * `macroName` is the same substitution identity the card's core sections
+ * resolve `{{char}}` to — the V3 nickname when the card gives one, the name
+ * otherwise (`characterCardMacroName` in `character-card.js`) — so a
+ * `character_book` entry agrees with the rest of the same card instead of
+ * reaching the Entry Mapping with the braces intact.
  */
-export function entriesFromCharacterBook(value: unknown): CharacterBookEntries {
+export function entriesFromCharacterBook(value: unknown, macroName: string): CharacterBookEntries {
   const source = isRecord(value) && Array.isArray(value.entries) ? value.entries : [];
   if (source.length > MAX_CHARACTER_BOOK_ENTRIES) {
     throw new Error(
@@ -95,7 +102,7 @@ export function entriesFromCharacterBook(value: unknown): CharacterBookEntries {
       losses.push("unreadable");
       continue;
     }
-    const converted = convertCharacterBookEntry(item);
+    const converted = convertCharacterBookEntry(item, macroName);
     losses.push(...converted.losses);
     if (converted.entry !== null) entries.push(converted.entry);
   }
@@ -130,8 +137,9 @@ interface ConvertedEntry {
   readonly losses: readonly CharacterBookLoss[]; // repeats allowed, one per occurrence
 }
 
-function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntry {
+function convertCharacterBookEntry(item: Record<string, unknown>, macroName: string): ConvertedEntry {
   const decorated = readLeadingDecorators(typeof item.content === "string" ? item.content : "");
+  const text = expandCharacterCardMacros(decorated.content, macroName);
   let depthDecorator = false;
   let roleDecorator = false;
   let timingDecorator = false;
@@ -165,7 +173,7 @@ function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntr
   if (item.enabled === false) {
     return {
       entry: {
-        text: decorated.content,
+        text,
         displayName,
         keys: [],
         forceActivation: false,
@@ -212,7 +220,7 @@ function convertCharacterBookEntry(item: Record<string, unknown>): ConvertedEntr
 
   return {
     entry: {
-      text: decorated.content,
+      text,
       displayName,
       keys,
       forceActivation: item.constant === true || forced,

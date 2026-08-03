@@ -7,6 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { initializeProject } from "../server/project-discovery.js";
 import { StoryService } from "../server/story-service.js";
+import { toPublicServiceError } from "../server/service-error-policy.js";
 import { planCardImport } from "../shared/card-import.js";
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +37,72 @@ test("a card whose whole value is its character_book still imports, empty core f
   assert.equal(plan.facts.length, 2, "no Character fact; both Facts come from the book");
   assert.equal(plan.facts[0]?.tag, "Weather");
   assert.equal(plan.facts[1]?.tag, "Premise");
+});
+
+test("a V3 card's nickname expands {{char}} in its character_book entries too, not just its core sections", () => {
+  const plan = planCardImport(encoder.encode(JSON.stringify({
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Elizabeth",
+      nickname: "Liz",
+      description: "{{char}} waits.",
+      character_book: {
+        entries: [{ content: "{{char}} lives here.", name: "Home", keys: ["home"] }]
+      }
+    }
+  })), 128);
+
+  assert.equal(plan.facts[0]?.text, "Name: Elizabeth\n\nDescription:\nLiz waits.");
+  const bookFact = plan.facts.find((fact) => fact.tag === "Home");
+  assert.equal(bookFact?.text, "Liz lives here.");
+});
+
+test("a malformed card produces a 4xx with its real message, not a 500 Internal server error", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-card-import-4xx-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const story = await service.createStory("Card target");
+
+  await assert.rejects(
+    () => service.importCard(story.id, encoder.encode("not json"), undefined),
+    (error: unknown) => {
+      const publicError = toPublicServiceError(error);
+      assert.equal(publicError.status, 400, `expected a 4xx, got ${publicError.status}`);
+      assert.match(publicError.message, /not valid JSON/);
+      return true;
+    }
+  );
+
+  await service.dispose();
+});
+
+// `importLorebook` has the same load-room-map-create shape as `importCard`
+// and shares the same `shared/`-parser-throws-ordinary-Error boundary; this
+// pins the same 4xx translation down for it so the two do not drift apart.
+test("a malformed lorebook produces a 4xx with its real message too, matching the card boundary", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-lorebook-import-4xx-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+
+  const project = await initializeProject(root);
+  const service = StoryService.withoutDiagnostics({ dataDir: project.directory });
+  await service.init();
+  const story = await service.createStory("Lorebook target");
+
+  await assert.rejects(
+    () => service.importLorebook(story.id, encoder.encode("not json"), undefined),
+    (error: unknown) => {
+      const publicError = toPublicServiceError(error);
+      assert.equal(publicError.status, 400, `expected a 4xx, got ${publicError.status}`);
+      assert.match(publicError.message, /not valid JSON/);
+      return true;
+    }
+  );
+
+  await service.dispose();
 });
 
 test("E2E integration: import-card adds JSON and PNG card Facts, and a V3 card's Facts and book", async (t) => {
