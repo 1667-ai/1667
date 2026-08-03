@@ -143,13 +143,23 @@ const DRY_RUN_LOGPROB_STEP = 0.4;
  *  drawn from the fixed table above, keyed off the step's position so two
  *  different positions in the same prompt do not repeat the same table
  *  entries. Dry-run really does fabricate these — it is not pretending, the
- *  way an unavailable sampling knob would be. */
+ *  way an unavailable sampling knob would be.
+ *
+ *  Every alternative carries the sampled token's own leading boundary. A real
+ *  tokenizer puts the space before the word inside the token, so every
+ *  alternative at one position begins the same way; alternatives that dropped
+ *  it would sit one cell left of the sampled token in the viewer and read as
+ *  a broken column rather than as the boundary it is. */
 export function dryRunProbabilityStep(word: string, requested: number, stepIndex: number): TokenProbabilityStep {
   const bounded = Math.min(requested, MAX_ALTERNATIVE_TOKENS);
+  const boundary = word.slice(0, word.length - word.trimStart().length);
   const alternatives: AlternativeToken[] = [{ token: word, logprob: DRY_RUN_BASE_LOGPROB }];
   for (let rank = 1; rank < bounded; rank++) {
     const candidate = DRY_RUN_ALTERNATIVE_TOKENS[(stepIndex + rank) % DRY_RUN_ALTERNATIVE_TOKENS.length]!;
-    alternatives.push({ token: candidate, logprob: DRY_RUN_BASE_LOGPROB - rank * DRY_RUN_LOGPROB_STEP });
+    alternatives.push({
+      token: `${boundary}${candidate}`,
+      logprob: DRY_RUN_BASE_LOGPROB - rank * DRY_RUN_LOGPROB_STEP
+    });
   }
   return { token: word, logprob: DRY_RUN_BASE_LOGPROB, alternatives };
 }

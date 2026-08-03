@@ -38,6 +38,8 @@ import type {
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
+import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
+import type { TokenProbabilityEmptyReason } from "./token-probabilities-model.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
@@ -284,6 +286,37 @@ export interface RequestViewerState {
   returnMode: "NAV" | "COMPOSE";
 }
 
+/** The token probability viewer (issue #291 phase 4), open on one take.
+ *
+ * Unlike `RequestViewerState.cursor` — which is reclamped every render
+ * against an estimate rebuilt from the live payload — `tokenIndex` and
+ * `altIndex` are clamped once, in the reducer, directly against `record`:
+ * the record does not change while the surface is open, so there is no
+ * second, render-time source of truth to keep it honest against. */
+export interface TokenProbabilitiesViewerState {
+  /** The take being inspected. Re-resolved against the live payload on
+   *  every render, so a rare concurrent edit degrades to the empty state
+   *  instead of describing a part that moved out from under it. */
+  nodeId: string;
+  /** Selected step, index into `record.steps`. Meaningless while loading or
+   *  empty. */
+  tokenIndex: number;
+  /** Selected alternative, index into the *displayed* rows for the current
+   *  step — which includes the synthetic "n more under 1%" row when one is
+   *  collapsed. See `tokenProbabilityAlternativeRows`. */
+  altIndex: number;
+  /** Whether the current step's under-1% alternatives are unfolded. Reset
+   *  whenever `tokenIndex` moves — each token starts collapsed. */
+  expanded: boolean;
+  /** Null while the fetch is in flight, or when the take has none. */
+  record: TokenProbabilityRecord | null;
+  loading: boolean;
+  /** Populated once loading settles with no record to show: why, and — for
+   *  `preset-unknown` and `protocol` — which presets do support it. */
+  empty: TokenProbabilityEmptyReason | null;
+  returnMode: "NAV";
+}
+
 /** The last answer the token-count lane published, held against the exact
  *  projection inputs and the route that produced it. The render path trusts it
  *  only while both still match, so a rendered mark always describes the prompt
@@ -410,6 +443,8 @@ export interface StoryScreenState extends OverlayState {
   retakePrompt: RetakePromptSession | null;
   /** Read-only projection of the next provider request. */
   request: RequestViewerState | null;
+  /** The read-only token probability viewer, or null when it is closed. */
+  probs: TokenProbabilitiesViewerState | null;
   toast: string | null;
   /** C-37: every notice the session has shown, so a capped channel never
    *  loses a message for good. `!` opens it. */

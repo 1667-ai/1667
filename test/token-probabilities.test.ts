@@ -6,6 +6,7 @@ import {
   resolveTokenProbabilities,
   tokenProbabilityUnavailableReason,
   tokenProbabilityUnavailableReasonCompact,
+  TOKEN_PROBABILITY_SUPPORTED_PRESETS,
   type TokenProbabilityResolution,
   type TokenProbabilityUnavailableReason
 } from "../shared/token-probability-capabilities.js";
@@ -76,6 +77,21 @@ for (const fixture of RESOLUTION_FIXTURES) {
     assert.deepEqual(resolveTokenProbabilities(fixture.context, fixture.refused), fixture.expected);
   });
 }
+
+test("the exported supported-preset list agrees with every allow-listed fixture", () => {
+  // The token probability viewer names these presets in its empty state
+  // (issue #291 phase 4) when the reason is `preset-unknown` or `protocol`.
+  // Rebuilding the list from the fixtures above catches a preset added to
+  // one table and not the other.
+  const allowListed = RESOLUTION_FIXTURES
+    .filter((fixture) => fixture.refused !== true
+      && fixture.context.protocol === "openai-chat-completions"
+      && fixture.context.preset !== "dry-run"
+      && fixture.expected.kind === "available")
+    .map((fixture) => fixture.context.preset)
+    .sort();
+  assert.deepEqual([...TOKEN_PROBABILITY_SUPPORTED_PRESETS].sort(), allowListed);
+});
 
 test("presentation text matches the documented wording for every unavailable reason", () => {
   assert.equal(tokenProbabilityUnavailableReason("legacy-v1"), "Format 1 settings are read-only.");

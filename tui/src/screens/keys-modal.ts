@@ -178,6 +178,10 @@ const SECTIONS: readonly KeysModalSection[] = [
         binding("navOpenRequest"),
         binding("composeOpenRequest")
       ]),
+      // "probabilities" alone breaks the minimum-width panel's word wrap
+      // (no hyphenation, and nothing else in this reference runs past ten
+      // letters), so this reads the feature's purpose, not its noun.
+      entry("how sure the model was", [binding("navOpenProbs")]),
       entry("everything the app said", [
         binding("navOpenLog"),
         binding("navOpenLogShifted"),

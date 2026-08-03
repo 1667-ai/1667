@@ -40,6 +40,7 @@ import { renderKeysOverlay } from "./keys-modal.js";
 import { renderMapScreen } from "./map.js";
 import { renderSearchScreen } from "./search.js";
 import { renderRequestViewerScreen } from "./request-viewer.js";
+import { renderTokenProbabilitiesScreen } from "./token-probabilities.js";
 import { renderLogScreen } from "./log.js";
 import { wrapFeedback } from "./feedback-wrap.js";
 import { renderPanels } from "./panels.js";
@@ -149,6 +150,11 @@ export function renderStoryScreen(state: StoryScreenState, options: StoryScreenO
     return renderRequestViewerScreen(
       state, state.request, projectedRequest.context,
       estimate, options.width, height, options.deadlines, promptTokenCount
+    );
+  }
+  if (state.mode === "PROBS" && state.probs !== null) {
+    return renderTokenProbabilitiesScreen(
+      state, state.probs, estimate, options.width, height, options.deadlines
     );
   }
   const editor = state.mode === "EDITOR" ? state.editor : null;

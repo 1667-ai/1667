@@ -60,6 +60,14 @@ const TOKEN_PROBABILITY_PRESETS: ReadonlySet<SettingsPresetV2> = new Set<Setting
   // fields, so both resolve "preset-unknown".
 ]);
 
+/** The presets `TOKEN_PROBABILITY_PRESETS` allows, in the fixed order the
+ *  set above declares them — so an empty state that names "the presets that
+ *  do support it" (the token probability viewer, `preset-unknown` and
+ *  `protocol`) reads the one list this module already maintains, rather than
+ *  a second copy a caller could let drift. */
+export const TOKEN_PROBABILITY_SUPPORTED_PRESETS: readonly SettingsPresetV2[] =
+  Object.freeze([...TOKEN_PROBABILITY_PRESETS]);
+
 export function resolveTokenProbabilities(
   context: SamplingContext,
   refused?: boolean
