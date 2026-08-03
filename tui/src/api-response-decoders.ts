@@ -425,7 +425,7 @@ const FACT_DROP_REASONS: ReadonlySet<string> = new Set(["priority", "fact-budget
 /** What generation admission actually shed to fit the fixed prompt — see
  *  server/generation-admission.ts. Empty on every response but a real
  *  continuation is expected and is not itself an error. */
-export function decodeFactBudgetDrops(value: unknown): FactBudgetDrop[] {
+function decodeFactBudgetDrops(value: unknown): FactBudgetDrop[] {
   if (!Array.isArray(value)) throw new Error("The server returned an invalid dropped-facts list.");
   return value.map((entry) => {
     const record = responseRecord(entry, "dropped fact");

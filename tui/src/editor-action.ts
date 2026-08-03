@@ -321,14 +321,10 @@ async function saveFactEditor(
   const validated = factEditorSavePayload(editor);
   if (!validated.ok) return void (state.toast = validated.toast);
   if (!confirmOverwrite(state, editor)) return;
-  const submitted = {
-    tag: validated.draft.tag,
-    activation: validated.draft.activation,
-    keys: [...validated.draft.keys],
-    priority: validated.draft.priority,
-    budgetTokens: validated.draft.budgetTokens,
-    text: validated.draft.text
-  };
+  // Spread the draft rather than listing its fields here: FactInput and
+  // FactPatch are all-optional, so a hand-listed literal would let a new
+  // FactDraft field compile and silently never reach the API (issue #316).
+  const submitted = { ...validated.draft, keys: [...validated.draft.keys] };
   const submittedTagText = editor.tag.text;
   const submittedActivation = editor.activation;
   const submittedKeysText = editor.keys.text;

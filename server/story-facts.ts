@@ -153,14 +153,27 @@ function requireToIndex(value: unknown): number {
   return toIndex as number;
 }
 
+/** The structural slice of `Story` (and `StoryPayload`) that Facts admission
+ *  depends on. Both satisfy this without a cast, so one caller with a `Story`
+ *  and another with a `StoryPayload` reach the same selection through the
+ *  same function — see `activeBudgetedFacts` below, which
+ *  tui/src/request-projection.ts calls for exactly that reason (issue #316):
+ *  that call site is the input the shared window-pressure selection sheds
+ *  from, so it is the last place the context meter and the real request
+ *  could otherwise drift apart. */
+export interface FactsBudgetSource {
+  readonly facts: readonly StoryFact[];
+  readonly factsBudgetTokens?: number;
+}
+
 /** Facts whose activation matches, further shed against the story's own Facts
  * budget (if any). This is the set a request would actually admit before
  * model-context-window pressure gets a further say — see
  * server/generation-admission.ts for that second, provider-window-sized pass. */
-export function activeBudgetedFacts(story: Story, context?: FactScanContext): FactBudgetSelection {
+export function activeBudgetedFacts(source: FactsBudgetSource, context?: FactScanContext): FactBudgetSelection {
   return selectFactsWithinBudget(
-    selectActiveFacts(story.facts, context),
-    story.factsBudgetTokens ?? null,
+    selectActiveFacts(source.facts, context),
+    source.factsBudgetTokens ?? null,
     { spaceDropReason: "total-budget" }
   );
 }

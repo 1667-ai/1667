@@ -324,31 +324,23 @@ export function resetFactEditorHistory(editor: FactEditorSession): void {
   resetComposerEditHistory(editor.composer);
 }
 
-/** Share cut-confirmation ownership while the active Fact field changes. */
+/** Share cut-confirmation ownership while the active Fact field changes.
+ *  Reads and writes through FACT_EDITOR_ROW_TABLE's cutConfirmation accessors
+ *  rather than re-encoding the row-to-buffer mapping as a conditional chain —
+ *  a chain like that fell back to the body's cut confirmation for any row a
+ *  future edit added without updating it here too (issue #316). */
 export function factEditorBuffer(editor: FactEditorSession): {
   composer: ComposerState;
   cutConfirmation: FactEditorSession["cutConfirmation"];
 } {
+  const spec = factEditorRowSpec(editor.focus);
   return {
-    composer: factEditorActiveComposer(editor),
+    composer: spec.composer(editor),
     get cutConfirmation() {
-      return editor.focus === "tag"
-        ? editor.tagCutConfirmation
-        : editor.focus === "keys" || editor.focus === "activation"
-          ? editor.keysCutConfirmation
-        : editor.focus === "budget" || editor.focus === "priority"
-          ? editor.budgetCutConfirmation
-        : editor.cutConfirmation;
+      return spec.cutConfirmation.get(editor);
     },
     set cutConfirmation(value) {
-      if (editor.focus === "tag") editor.tagCutConfirmation = value;
-      else if (editor.focus === "keys" || editor.focus === "activation") {
-        editor.keysCutConfirmation = value;
-      }
-      else if (editor.focus === "budget" || editor.focus === "priority") {
-        editor.budgetCutConfirmation = value;
-      }
-      else editor.cutConfirmation = value;
+      spec.cutConfirmation.set(editor, value);
     }
   };
 }
