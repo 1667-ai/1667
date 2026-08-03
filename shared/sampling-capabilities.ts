@@ -258,13 +258,13 @@ const PRESET_WIRE_OVERRIDES: Readonly<
 // no OpenAI-compatible endpoint schema that accepts `banned_tokens` by name.
 // The document's own description of `/v1/chat/completions` reads, verbatim:
 // "This is an OpenAI compatibility endpoint. ... All KoboldCpp samplers are
-// supported, please refer to /api/v1/generate for more details" — `banned_
-// tokens` sits in that same GenerationInput schema alongside every sampler
-// the document does show passed through, which is why 1667 sends it there
-// rather than leaving KoboldCpp's best-documented banned-string mechanism
-// unused. It remains an unverified pass-through, never confirmed against a
-// running KoboldCpp build (issue #311 review note: a fixture can assert
-// 1667's own assumption about the wire shape, not a real server's
+// supported, please refer to /api/v1/generate for more details" —
+// `banned_tokens` sits in that same GenerationInput schema alongside every
+// sampler the document does show passed through, which is why 1667 sends it
+// there rather than leaving KoboldCpp's best-documented banned-string
+// mechanism unused. It remains an unverified pass-through, never confirmed
+// against a running KoboldCpp build (issue #311 review note: a fixture can
+// assert 1667's own assumption about the wire shape, not a real server's
 // behavior — see test/sampling-e2e-fixtures.ts). A banned string on
 // KoboldCpp, like on every other preset, makes the text unlikely, never
 // impossible — see the field comment on SamplingSettingsV2.bannedStrings.
