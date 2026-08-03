@@ -59,7 +59,12 @@ export function countModelPromptTextTokens(
   const encoder = modelTokenizer(model);
   if (encoder === null) return null;
   try {
-    return messageContents.map((content) => encoder.encode(content).length);
+    // `encode` refuses text that spells a special token, and story prose is
+    // free to contain one: a passage about a model, or a pasted transcript,
+    // can hold `<|endoftext|>` verbatim. Refusing it would report `no-source`
+    // for that route and leave the whole session estimated. Here the spelling
+    // is prose, so it is tokenized as prose.
+    return messageContents.map((content) => encoder.encode_ordinary(content).length);
   } catch {
     return null;
   }

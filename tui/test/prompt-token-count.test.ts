@@ -374,6 +374,116 @@ describe("prompt token count lane", () => {
     lane.dispose();
   });
 
+  test("a model-server count is asked again once it has aged, an unchanged prompt notwithstanding", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    let clockNow = 1_000;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => {
+        calls += 1;
+        return {
+          kind: "counted", source: "koboldcpp-tokencount", grade: "near-exact",
+          total: 100 + calls, perMessage: null
+        };
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel, now: () => clockNow
+    });
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(calls).toBe(1);
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(calls).toBe(1);
+
+    // The same local server can be running a different model by now. Without
+    // this the client would never ask again, and the backend's own age bound
+    // would never be reached.
+    clockNow += 60_000;
+    lane.notify();
+    clock.fireAll();
+    await flush();
+
+    expect(calls).toBe(2);
+    expect(state.promptTokenCount?.count).toEqual({
+      kind: "counted", source: "koboldcpp-tokencount", grade: "near-exact",
+      total: 102, perMessage: null
+    });
+    lane.dispose();
+  });
+
+  test("opening the request viewer asks again rather than trusting an old answer", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => {
+        calls += 1;
+        return {
+          kind: "counted", source: "llama-cpp-tokenize", grade: "near-exact",
+          total: 500, perMessage: null
+        };
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    lane.notify();
+    clock.fireAll();
+    await flush();
+    expect(calls).toBe(1);
+
+    // The viewer is on demand and can afford a full count, so it takes one
+    // instead of showing whatever the meter last happened to hold.
+    state.mode = "REQUEST";
+    lane.notify();
+    await flush();
+
+    expect(calls).toBe(2);
+    // And it never blinked back to an estimate on the way.
+    expect(state.promptTokenCount?.count.kind).toBe("counted");
+    lane.dispose();
+  });
+
+  test("a new story is counted at once, not held behind the old one's cooldown", async () => {
+    const { state, clock, repaint } = fixture();
+    let calls = 0;
+    let failing = true;
+    const api: PromptTokenCountApi = {
+      countPromptTokens: async () => {
+        calls += 1;
+        if (failing) throw new Error("tokenizer unreachable");
+        return countedAnswer(31);
+      }
+    };
+    const lane = startPromptTokenCountLane({
+      state, api, repaint, schedule: clock.schedule, cancel: clock.cancel
+    });
+
+    state.mode = "REQUEST";
+    lane.notify();
+    await flush();
+    expect(calls).toBe(1);
+
+    // A different story is a different prompt. It does not inherit the backoff
+    // that the previous one's failure armed.
+    failing = false;
+    state.mode = "NAV";
+    state.payload = { ...state.payload, id: "a-different-story" };
+    lane.notify();
+    clock.fireDelay(250);
+    await flush();
+
+    expect(calls).toBe(2);
+    expect(state.promptTokenCount?.count).toEqual(countedAnswer(31));
+    lane.dispose();
+  });
+
   test("dispose aborts an in-flight call and leaves no timer pending", async () => {
     const { state, clock, repaint } = fixture();
     const signals: AbortSignal[] = [];

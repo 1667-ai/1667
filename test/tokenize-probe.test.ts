@@ -87,6 +87,27 @@ test("an OpenAI model this build cannot tokenize keeps the estimate", async (t) 
   assert.deepEqual(result, { kind: "estimate", reason: "no-source" });
 });
 
+test("prose that spells a special token is counted as prose", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("the bundled tokenizer must not reach the network");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  // A story about a model, or a transcript pasted into one, can hold this
+  // spelling verbatim. Refusing it would report no tokenize source for the
+  // route and leave the rest of the session estimated.
+  const result = await countPromptTokens(
+    settings({ preset: "openai", baseUrl: "https://api.openai.com", model: "gpt-5" }),
+    [{ role: "user", content: "The screen showed <|endoftext|> and went dark." }]
+  );
+
+  assert.equal(result.kind, "counted");
+  if (result.kind !== "counted") return;
+  assert.equal(result.grade, "exact");
+  assert.equal(result.total, 14 + 4 + 3);
+});
+
 test("an Anthropic official preset returns the endpoint's exact total, no split, and lifts system into system", async (t) => {
   const originalFetch = globalThis.fetch;
   let capturedBody: unknown;
@@ -241,6 +262,14 @@ test("a probe that exceeds its deadline returns the probe-failed estimate", asyn
   globalThis.fetch = (async (input) => {
     assert.ok(input instanceof Request);
     return await new Promise<Response>((_resolve, reject) => {
+      // The deadline here is ten milliseconds, so on a loaded machine it can
+      // already have passed by the time this runs. An `abort` listener added
+      // to a signal that has aborted never fires, and the request would then
+      // hang for the whole run rather than fail.
+      if (input.signal.aborted) {
+        reject(input.signal.reason);
+        return;
+      }
       input.signal.addEventListener("abort", () => reject(input.signal.reason), { once: true });
     });
   }) as typeof fetch;
@@ -267,6 +296,12 @@ test("caller cancellation propagates instead of degrading to an estimate", async
     assert.ok(input instanceof Request);
     markStarted();
     return await new Promise<Response>((_resolve, reject) => {
+      // Same reason as the deadline fixture above: a signal that has already
+      // aborted never delivers the event.
+      if (input.signal.aborted) {
+        reject(input.signal.reason);
+        return;
+      }
       input.signal.addEventListener("abort", () => reject(input.signal.reason), { once: true });
     });
   }) as typeof fetch;
