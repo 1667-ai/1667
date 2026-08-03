@@ -1,6 +1,7 @@
 import { activePath, computeRollups } from "../shared/story-tree.js";
 import type { NodeStub, Story, StoryPayload } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { nodeStubPreview, nodeStubTokens, nodeStubWords } from "./story-node-text.js";
 import { boundedString } from "./story-wire-validation.js";
@@ -13,6 +14,11 @@ export function buildStoryPayload(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  const authorsNoteDepth = storedAuthorsNoteDepth(authorsNote, story.authorsNoteDepth);
+  const canonicalBrief = storedAuthorBrief(story.authorBrief);
+  const authorBrief = canonicalBrief === undefined
+    ? undefined
+    : boundedString(canonicalBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
   return {
     id: story.id,
     title: story.title,
@@ -20,9 +26,12 @@ export function buildStoryPayload(
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
     ...(authorsNote === undefined ? {} : { authorsNote }),
+    ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
+    ...(authorBrief === undefined ? {} : { authorBrief }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
+    ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id);
       if (rollup === undefined) throw new Error(`Missing rollup for node: ${node.id}`);

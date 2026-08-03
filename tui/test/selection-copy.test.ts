@@ -400,15 +400,20 @@ describe("active selection copy", () => {
       tag: createComposer(""),
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "tag",
-      initialFact: { tag: null, activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: null, activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 20, height: 12 });
     state.composerSelectionProjection = frame.derived.composerSelectionProjection;
@@ -448,15 +453,20 @@ describe("active selection copy", () => {
       tag,
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "tag",
-      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: "people", activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -494,15 +504,20 @@ describe("active selection copy", () => {
       tag,
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "body",
-      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: "people", activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -542,15 +557,20 @@ describe("active selection copy", () => {
       tag,
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "tag",
-      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: "people", activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -594,15 +614,20 @@ describe("active selection copy", () => {
       tag,
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "body",
-      initialFact: { tag: "people", activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: "people", activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const frame = renderStoryScreen(state, { width: 40, height: 12 });
     const projection = frame.derived.composerSelectionProjection!;
@@ -642,9 +667,12 @@ describe("active selection copy", () => {
       tag: createComposer("weather\nurgent"),
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "body",
       initialFact: {
-        tag: "weather\nurgent", activation: "always", keys: [], text: composer.text
+        tag: "weather\nurgent", activation: "always", keys: [],
+        priority: "normal", budgetTokens: undefined, text: composer.text
       },
       title: "edit fact",
       placeholder: "fact text…",
@@ -652,7 +680,8 @@ describe("active selection copy", () => {
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const width = 50;
     const frame = renderStoryScreen(state, { width, height: 12 });
@@ -715,15 +744,20 @@ describe("active selection copy", () => {
       tag: createComposer(""),
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "body",
-      initialFact: { tag: null, activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: null, activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "edit fact",
       placeholder: "fact text…",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     const width = 40;
     const frame = renderStoryScreen(state, { width, height: 12 });

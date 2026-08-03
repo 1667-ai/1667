@@ -17,7 +17,7 @@ import {
 } from "../shared/import-markdown-wire.js";
 import type { StoryService } from "./story-service.js";
 import { streamResponse } from "./stream-response.js";
-import { optionalString, requireString, requireStringValue } from "./validation.js";
+import { optionalString, requireNumberValue, requireString, requireStringValue } from "./validation.js";
 import {
   requireAnyHttpCapability,
   requireHttpCapability
@@ -317,7 +317,33 @@ async function handleApi(
       200,
       await mutate("setAuthorsNote", {
         storyId: id,
-        note: requireStringValue(body.note, "note")
+        note: requireStringValue(body.note, "note"),
+        ...(body.depth === undefined ? {} : { depth: requireNumberValue(body.depth, "depth") })
+      })
+    );
+  }
+
+  if (head === "stories" && id !== undefined
+    && sub === "author-brief" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setAuthorBrief", {
+        storyId: id,
+        brief: requireStringValue(body.brief, "brief")
+      })
+    );
+  }
+  if (head === "stories" && id !== undefined
+    && sub === "facts-budget" && method === "PUT") {
+    const body = await jsonBody();
+    return sendJson(
+      response,
+      200,
+      await mutate("setFactsBudget", {
+        storyId: id,
+        budgetTokens: body.budgetTokens
       })
     );
   }
@@ -406,7 +432,7 @@ async function handleApi(
           })
         }
       }, onDelta, signal),
-      (story) => ({ type: "done", story }),
+      (result) => ({ type: "done", story: result.payload, droppedFacts: result.droppedFacts }),
       operation.signal,
       context.errorReporter,
       "continueStory");
@@ -533,7 +559,7 @@ async function handleApi(
         onDelta,
         signal
       ),
-      () => ({ type: "done" }),
+      (nodeId) => ({ type: "done", nodeId }),
       operation.signal,
       context.errorReporter,
       "rewriteNode");
@@ -612,6 +638,14 @@ async function handleApi(
         factId: subId
       }));
     }
+  }
+  if (head === "stories" && id !== undefined && sub === "facts"
+    && subId !== undefined && action === "reorder" && method === "POST") {
+    return sendJson(response, 200, await mutate("reorderFact", {
+      storyId: id,
+      factId: subId,
+      body: await jsonBody()
+    }));
   }
   if (head === "stories" && id !== undefined && sub === "import-lorebook" && method === "POST") {
     const rawBuffer = await readBufferBody(request, MAX_IMPORT_BYTES, operation.signal);

@@ -706,6 +706,7 @@ describe("review regressions", () => {
       historyDraft: "stale draft",
       retakePrompt: {
         nodeId: "p12",
+        intent: { kind: "retake" as const },
         composer: retakeComposer,
         composerScrollTop: 0,
         returnState: {

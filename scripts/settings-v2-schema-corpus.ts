@@ -60,6 +60,7 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: null,
+    seed: 7,
     dryMultiplier: null,
     dryBase: null,
     dryRange: null,

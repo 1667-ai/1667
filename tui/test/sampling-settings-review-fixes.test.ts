@@ -13,8 +13,8 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { setComposerText } from "../src/composer-model.js";
 import {
-  SAMPLING_LAYER_ROWS,
   samplingContextForOverlay,
+  samplingLayerRowIndex,
   samplingScalarRows
 } from "../src/sampling-model.js";
 import { resolveSettingsProfile } from "../../shared/settings-route.js";
@@ -27,11 +27,6 @@ import {
   selectRow,
   settingsHarness
 } from "./settings-test-harness.js";
-
-// Rows moved once #292 appended the DRY/XTC/temperature-shaping sections
-// after `stop` and `logit bias` — derive the index instead of hardcoding it.
-const STOP_ROW = SAMPLING_LAYER_ROWS.findIndex((row) => row.kind === "list" && row.panel === "stop");
-const LOGIT_BIAS_ROW = SAMPLING_LAYER_ROWS.findIndex((row) => row.kind === "list" && row.panel === "logit-bias");
 
 describe("Sampling Settings review regressions", () => {
   test("authoritative publish closes a clean Sampling panel before the next key", async () => {
@@ -105,7 +100,7 @@ describe("Sampling Settings review regressions", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, STOP_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     await press(key("n"));
     setSamplingEdit(state, "END");
@@ -117,7 +112,7 @@ describe("Sampling Settings review regressions", () => {
     expect(state.settings?.draft.sampling.stop).toEqual([]);
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     await press(key("n"));
     setSamplingEdit(state, "42:7");
@@ -136,13 +131,13 @@ describe("Sampling Settings review regressions", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, STOP_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     const stopFrame = render(state, 120, 24);
     expect(stopFrame).toContain("reorder");
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     const logitFrame = render(state, 120, 24);
     expect(logitFrame).not.toContain("reorder");

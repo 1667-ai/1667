@@ -21,7 +21,12 @@ read_when:
 | story line | The selected path through story parts |
 | tag | A name and a status on the end of one story line |
 | Fact | One note that 1667 sends with a provider request |
+| Fact priority | The rank 1667 uses to choose which Fact to drop first |
+| Fact budget | The token limit on one Fact |
+| Facts budget | The token limit on the total of a story's Facts |
 | Author's Note | One short instruction that 1667 sends near the end of each provider request |
+| Author's Note depth | The number of story parts from the end where the Author's Note occurs |
+| Author Brief | The story or machine-wide instruction that 1667 sends with each provider request |
 | Archive | A NovelAI `.story`, `.scenario`, or `.lorebook` file |
 | Container | A `.story` Archive that contains prose and settings |
 | Lorebook | A collection of NovelAI Lorebook Entries |

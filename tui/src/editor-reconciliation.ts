@@ -1,11 +1,10 @@
 import type { StoryFact } from "../../shared/types.js";
+import { factDraftOf, sameFactDraft } from "../../shared/fact-draft.js";
+import { resolveAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { setComposerText } from "./composer-model.js";
-import {
-  factEditorChanged,
-  formatFactKeys,
-  factEditorPersistedTag,
-  resetFactEditorHistory
-} from "./fact-editor-policy.js";
+import { applyFactDraftToEditor, factDraftFromEditor, factEditorChanged } from "./fact-editor-draft.js";
+import { resetFactEditorHistory } from "./fact-editor-policy.js";
+import { storyScalarFieldSpec } from "./story-scalar-fields.js";
 import type {
   FactEditorSession,
   InlineEditorSession,
@@ -40,9 +39,41 @@ export function reconcileFactEditor(state: RuntimeState): void {
 export function reconcileAuthorsNoteEditor(state: RuntimeState): void {
   const editor = state.editor;
   if (editor?.kind !== "document" || editor.target.kind !== "authors-note") return;
+  const target = editor.target;
   const authoritative = state.payload.authorsNote ?? "";
-  editor.target.expected = authoritative;
-  reconcileEditorDocument(state, editor, authoritative, "Author's Note changed during recovery");
+  const authoritativeDepth = resolveAuthorsNoteDepth(state.payload.authorsNoteDepth);
+  // A depth draft the writer never touched rebases quietly; one they changed
+  // stays their own, the same way a pristine vs. dirty text draft behaves.
+  const depthPristine = target.depth === target.expectedDepth;
+  target.expectedDepth = authoritativeDepth;
+  if (depthPristine) target.depth = authoritativeDepth;
+  target.expected = authoritative;
+  // A depth the writer moved while the authority moved it elsewhere is the
+  // same standoff as two texts that disagree, and it earns the same
+  // confirmation. Without this the draft would save over the recovered depth
+  // with no warning, because the text alone still matches.
+  reconcileEditorDocument(
+    state,
+    editor,
+    authoritative,
+    "Author's Note changed during recovery",
+    target.depth === authoritativeDepth
+  );
+}
+
+/** Reconcile an authoritative story-scalar refresh (Author Brief, the Facts
+ *  budget — see story-scalar-fields.ts) against the active draft. One
+ *  reconciler for every field in STORY_SCALAR_FIELDS, table-driven the same
+ *  way opening and saving are — each field is one field, so its text is
+ *  always the whole draft. */
+export function reconcileStoryScalarEditor(state: RuntimeState): void {
+  const editor = state.editor;
+  if (editor?.kind !== "document" || editor.target.kind !== "story-scalar") return;
+  const target = editor.target;
+  const spec = storyScalarFieldSpec(target.field);
+  const authoritative = spec.read(state.payload);
+  target.expected = authoritative;
+  reconcileEditorDocument(state, editor, authoritative, `${spec.title} changed during recovery`, true);
 }
 
 function reconcileFactDocument(
@@ -51,22 +82,24 @@ function reconcileFactDocument(
   current: StoryFact,
   message: string
 ): void {
-  const draftMatches = factEditorPersistedTag(editor) === current.tag
-    && editor.activation === current.activation
-    && editor.keys.text === formatFactKeys(current.keys)
-    && editor.composer.text === current.text;
+  const draft = factDraftOf(current);
+  // "Does the live editor already show exactly this Fact" goes through the
+  // same FactDraft equality every other Fact comparison in the app uses
+  // (see shared/fact-draft.ts), rather than a field-by-field compare hand-
+  // listed here a third time — issue #281 review finding A. An editor whose
+  // buffers do not currently parse to any FactDraft (empty body, an invalid
+  // keys or budget entry) plainly is not already showing this one.
+  const liveDraft = factDraftFromEditor(editor);
+  const draftMatches = liveDraft !== null && sameFactDraft(liveDraft, draft);
   if (draftMatches) {
-    editor.initialFact = editableFact(current);
+    editor.initialFact = draft;
     editor.conflict = null;
     return;
   }
   if (!factEditorChanged(editor)) {
-    setComposerText(editor.tag, current.tag ?? "");
-    editor.activation = current.activation;
-    setComposerText(editor.keys, formatFactKeys(current.keys));
-    setComposerText(editor.composer, current.text);
+    applyFactDraftToEditor(editor, draft);
     resetFactEditorHistory(editor);
-    editor.initialFact = editableFact(current);
+    editor.initialFact = draft;
     editor.conflict = null;
     state.toast = `${message} · editor refreshed`;
     return;
@@ -79,18 +112,22 @@ function reconcileFactDocument(
   state.toast = editor.conflict.message;
 }
 
+/** `otherFieldsMatch` reports whether every field beyond the text agrees with
+ * the authoritative story. Each caller states it, because a target that gains
+ * a field must not reconcile on its text alone. */
 function reconcileEditorDocument(
   state: RuntimeState,
   editor: InlineEditorSession,
   authoritative: string,
-  message: string
+  message: string,
+  otherFieldsMatch: boolean
 ): void {
-  if (editor.composer.text === authoritative) {
+  if (editor.composer.text === authoritative && otherFieldsMatch) {
     editor.initial = authoritative;
     editor.conflict = null;
     return;
   }
-  if (editor.composer.text === editor.initial) {
+  if (editor.composer.text === editor.initial && otherFieldsMatch) {
     setComposerText(editor.composer, authoritative);
     editor.initial = authoritative;
     editor.conflict = null;
@@ -105,23 +142,10 @@ function reconcileEditorDocument(
   state.toast = editor.conflict.message;
 }
 
+/** Same Fact record, not just the same draft content — a deleted-then-recreated
+ *  Fact with identical fields is still a different `base` to reconcile against. */
 function sameEditableFact(left: StoryFact | null, right: StoryFact): boolean {
   return left !== null
     && left.id === right.id
-    && left.tag === right.tag
-    && left.activation === right.activation
-    && left.keys.length === right.keys.length
-    && left.keys.every((key, index) => key === right.keys[index])
-    && left.text === right.text;
-}
-
-function editableFact(
-  fact: StoryFact
-): Pick<StoryFact, "tag" | "activation" | "keys" | "text"> {
-  return {
-    tag: fact.tag,
-    activation: fact.activation,
-    keys: [...fact.keys],
-    text: fact.text
-  };
+    && sameFactDraft(factDraftOf(left), factDraftOf(right));
 }

@@ -15,7 +15,7 @@ import { setComposerText } from "../src/composer-model.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import {
   SAMPLING_LAYER_ROWS,
-  type SamplingLayerRowSpec
+  samplingLayerRowIndex
 } from "../src/sampling-model.js";
 import { samplingListPanelInfo } from "../src/sampling-list-model.js";
 import { createWrapCache } from "../src/wrap.js";
@@ -26,22 +26,6 @@ import {
   selectRow,
   settingsHarness
 } from "./settings-test-harness.js";
-
-// Rows moved once #292 appended the DRY/XTC/temperature-shaping sections
-// after `stop` and `logit bias`. Deriving the index from SAMPLING_LAYER_ROWS,
-// instead of a hardcoded number, keeps these tests honest the next time a
-// knob is inserted.
-const STOP_ROW = layerRowIndex((row) => row.kind === "list" && row.panel === "stop");
-const LOGIT_BIAS_ROW = layerRowIndex((row) => row.kind === "list" && row.panel === "logit-bias");
-const DRY_BREAKERS_ROW = layerRowIndex((row) => row.kind === "list" && row.panel === "dry-breakers");
-const MIROSTAT_ROW = layerRowIndex((row) => row.kind === "scalar" && row.knob === "mirostat");
-const MIROSTAT_TAU_ROW = layerRowIndex((row) => row.kind === "scalar" && row.knob === "mirostatTau");
-
-function layerRowIndex(predicate: (row: SamplingLayerRowSpec) => boolean): number {
-  const index = SAMPLING_LAYER_ROWS.findIndex(predicate);
-  if (index < 0) throw new Error("row not found in SAMPLING_LAYER_ROWS");
-  return index;
-}
 
 describe("Sampling Settings user flow", () => {
   test("every sampling parameter a profile can hold has a row in the panel", () => {
@@ -190,13 +174,55 @@ describe("Sampling Settings user flow", () => {
     await press(key("left"));
     await press(key("left"));
     expect(state.settings?.draft.sampling.repeatPenalty).toBe(null);
+
+    await press(key("down"));
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.seed).toBe(1);
+    await press(key("right"));
+    expect(state.settings?.draft.sampling.seed).toBe(2);
+    await press(key("left"));
+    await press(key("left"));
+    expect(state.settings?.draft.sampling.seed).toBe(null);
+  });
+
+  test("seed accepts direct integer entry and rejects non-integer text", async () => {
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("seed"));
+    await press(key("return"));
+
+    setSamplingEdit(state, "1.5");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).not.toBe(null);
+    expect(state.settings?.draft.sampling.seed).toBe(null);
+
+    setSamplingEdit(state, "42");
+    await press(key("return"));
+    expect(state.settings?.sampling?.edit).toBe(null);
+    expect(state.settings?.draft.sampling.seed).toBe(42);
+  });
+
+  test("seed is disabled for Anthropic with the same protocol reason as other OpenAI-only scalars", async () => {
+    const { source, state, press } = settingsHarness();
+    useAnthropicSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("seed"));
+
+    const frame = render(state, 80, 24);
+    const seedLine = frame.split("\n").find((line) => line.includes("seed"));
+    expect(seedLine).toContain("‹ — ›");
+
+    await press(key("return"));
+    expect(state.settings?.sampling?.result).toBe("seed disabled · not in protocol");
+    expect(state.settings?.draft.sampling.seed).toBe(null);
   });
 
   test("adds, edits, reorders, and deletes stop sequences", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, STOP_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
 
     await press(key("n"));
@@ -222,7 +248,7 @@ describe("Sampling Settings user flow", () => {
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
 
     await press(key("n"));
@@ -283,7 +309,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, STOP_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     const stopFrame = render(state, 80, 24);
     expect(stopFrame).toContain("no stop sequences yet.");
@@ -291,7 +317,7 @@ describe("Sampling Settings user flow", () => {
     expect(stopFrame.split("\n").every((line) => visibleWidth(line) <= 80)).toBeTrue();
 
     await press(key("escape"));
-    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     const logitFrame = render(state, 80, 24);
     expect(logitFrame).toContain("no biased tokens yet.");
@@ -304,7 +330,7 @@ describe("Sampling Settings user flow", () => {
     useSupportedSettings(source);
     await enterSampling(state, press);
 
-    await moveLayer2Cursor(press, STOP_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     await press(key("n"));
     let frame = render(state, 80, 24);
@@ -321,7 +347,7 @@ describe("Sampling Settings user flow", () => {
 
     await press(key("escape"));
     await press(key("escape"));
-    await moveLayer2Cursor(press, LOGIT_BIAS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("logit-bias"));
     await press(key("return"));
     await press(key("n"));
     frame = render(state, 80, 24);
@@ -341,7 +367,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, STOP_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("stop"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("stop");
     await press(key("escape"));
@@ -392,7 +418,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, MIROSTAT_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("mirostat"));
 
     expect(state.settings?.draft.sampling.mirostat).toBe(null);
     expect(mirostatRowLine(render(state, 100, 40))).toContain("‹ off ›");
@@ -419,7 +445,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, MIROSTAT_TAU_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("mirostatTau"));
 
     const offFrame = render(state, 100, 40);
     expect(offFrame).toContain("Mirostat is off.");
@@ -449,7 +475,7 @@ describe("Sampling Settings user flow", () => {
     const saved: SaveSettingsCommand[] = [];
     installSave(source, saved);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, MIROSTAT_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("mirostat"));
 
     await press(key("right"));
     expect(state.settings?.draft.sampling.mirostat).toBe(1);
@@ -492,7 +518,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, DRY_BREAKERS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("dry-breakers"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("dry-breakers");
 
@@ -516,6 +542,27 @@ describe("Sampling Settings user flow", () => {
     expect(state.settings?.draft.sampling.dryBreakers).toEqual(["\n"]);
   });
 
+  test("the Settings sampling row names a counted list, so breakers do not read as stop", async () => {
+    // The summary once spelled every array knob `stop`, which held only while
+    // `stop` was the one list. A dry breaker then counted itself as a stop
+    // sequence on the Settings row.
+    const { source, state, press } = settingsHarness();
+    useSupportedSettings(source);
+    await enterSampling(state, press);
+
+    await moveLayer2Cursor(press, samplingLayerRowIndex("dry-breakers"));
+    await press(key("return"));
+    await press(key("n"));
+    setSamplingEdit(state, "*");
+    await press(key("return"));
+    await press(key("escape"));
+    await press(key("escape"));
+
+    const row = render(state, 120, 36).split("\n").find((line) => line.includes("▸ sampling"));
+    expect(row).toContain("dry breakers 1");
+    expect(row).not.toContain("stop");
+  });
+
   test("rejects a dry breaker over 40 UTF-8 bytes even under the 40-scalar cap", async () => {
     // llama.cpp's DRY sampler truncates a breaker at 40 bytes, not 40
     // scalars, so a breaker of well under 40 scalars can still overrun that
@@ -525,7 +572,7 @@ describe("Sampling Settings user flow", () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source);
     await enterSampling(state, press);
-    await moveLayer2Cursor(press, DRY_BREAKERS_ROW);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("dry-breakers"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("dry-breakers");
 
@@ -576,19 +623,13 @@ async function moveLayer2Cursor(
   for (let index = 0; index < target; index += 1) await press(key("down"));
 }
 
-function useSupportedSettings(
+function useProviderSettings(
   source: ReturnType<typeof demoAppSource>,
-  baseUrl = "http://127.0.0.1:8080/v1"
+  provider: { provider: "openai-compatible" | "anthropic"; baseUrl: string; model: string }
 ): void {
   const active = source.settingsView;
   if (!active.editable) throw new Error("demo settings must be editable");
-  const generation = {
-    ...source.settings,
-    provider: "openai-compatible" as const,
-    baseUrl,
-    model: "gpt-5.2",
-    apiKeyEnv: null
-  };
+  const generation = { ...source.settings, ...provider, apiKeyEnv: null };
   const document = applyBasicSettingsDraft(active.document, generation);
   source.settingsView = {
     ...active,
@@ -596,6 +637,21 @@ function useSupportedSettings(
     effective: basicSettingsFromDocument(document)
   } satisfies SettingsView;
   source.api.getSettings = async () => source.settingsView;
+}
+
+function useSupportedSettings(
+  source: ReturnType<typeof demoAppSource>,
+  baseUrl = "http://127.0.0.1:8080/v1"
+): void {
+  useProviderSettings(source, {
+    provider: "openai-compatible", baseUrl, model: "gpt-5.2"
+  });
+}
+
+function useAnthropicSettings(source: ReturnType<typeof demoAppSource>): void {
+  useProviderSettings(source, {
+    provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "claude-fixture"
+  });
 }
 
 function publishSamplingRefresh(

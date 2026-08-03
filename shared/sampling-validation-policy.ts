@@ -22,6 +22,7 @@ export const SAMPLING_SCALAR_DESCRIPTORS = {
   frequencyPenalty: { minimum: -2, maximum: 2, integer: false },
   presencePenalty: { minimum: -2, maximum: 2, integer: false },
   repeatPenalty: { minimum: 1, maximum: 10, integer: false },
+  seed: { minimum: 1, maximum: 999_999, integer: true },
   dryMultiplier: { minimum: 0, maximum: 5, integer: false },
   dryBase: { minimum: 1, maximum: 4, integer: false },
   dryRange: { minimum: 0, maximum: 131_072, integer: true },

@@ -32,6 +32,8 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   previewChapterBreakRemoval: "local",
   renameStory: "local",
   setAuthorsNote: "local",
+  setAuthorBrief: "local",
+  setFactsBudget: "local",
   autonameStory: "generation",
   acknowledgeUnknownOutcomes: "local",
   deleteStory: "local",
@@ -47,6 +49,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   createFact: "local",
   patchFact: "local",
   deleteFact: "local",
+  reorderFact: "local",
   createChapterBreak: "local",
   renameChapterBreak: "local",
   removeChapterBreak: "local",
@@ -165,6 +168,10 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     && httpMethod === "GET") return "exportMarkdown";
   if (sub === "authors-note" && parts.length === 5
     && httpMethod === "PUT") return "setAuthorsNote";
+  if (sub === "author-brief" && parts.length === 5
+    && httpMethod === "PUT") return "setAuthorBrief";
+  if (sub === "facts-budget" && parts.length === 5
+    && httpMethod === "PUT") return "setFactsBudget";
   if (sub === "switch" && parts.length === 5
     && httpMethod === "POST") return "switchLine";
   if (sub === "continue" && parts.length === 5
@@ -224,5 +231,7 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (subId !== undefined && parts.length === 6
       && httpMethod === "DELETE") return "deleteFact";
   }
+  if (sub === "facts" && subId !== undefined && action === "reorder"
+    && parts.length === 7 && httpMethod === "POST") return "reorderFact";
   throw new Error(`No HTTP operation policy for ${httpMethod} ${path}`);
 }

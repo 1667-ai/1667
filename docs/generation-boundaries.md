@@ -22,27 +22,53 @@ withholds that suffix. A missing required anchor rejects the generation and keep
 the original passage unchanged.
 
 Boundary whitespace stays owned by the original selection. Only generated prose
-between the verified anchors is spliced into the active take in place.
+between the verified anchors replaces the selection. 1667 saves the result as
+a new take next to the original take. The original take keeps its
+descendant takes. The new take has none. The story line then runs through
+the new take instead. For example: a rewrite in story part 12 of a 30-part
+story removes story parts 13 through 30 from the story line.
+
+A writer cannot rewrite a chapter summary. A chapter summary is not part of
+the active story line, so this operation cannot reach it.
 
 ## Author's Note boundary
 
 The Author's Note is per-story steering for a continuation or a prompted
-retake. 1667 sends it immediately before the last story part. 1667 sends it
-again for each request.
+retake. 1667 sends it again for each request.
+
+The Author's Note depth sets how many story parts from the end the note comes
+before. The default depth is 1: 1667 sends the note immediately before the
+last story part. A story that sets no depth keeps this default placement. A
+depth larger than the number of story parts clamps: 1667 sends the note
+before every part, right after the stable prefix. `shared/continuation-plan.ts`
+computes the placement and reports the depth it actually used, so the request
+viewer shows the real placement, not only the requested one.
 
 Official OpenAI Chat Completions receives a late `system` message. Anthropic
-Messages and OpenAI-compatible endpoints receive the fold form in the last
-`user` message.
+Messages and OpenAI-compatible endpoints receive the fold form in the message
+that follows the note, at any depth.
 
 A highlighted rewrite does not use the Author's Note. A summary take does not
 use it. The autoname operation does not use it.
 
+## Author Brief boundary
+
+The Author Brief is the standing `author-brief` block that opens the stable
+prefix of every generation request. 1667 resolves one value for each request.
+A story Author Brief wins when the story has one. The machine-wide default
+Author Brief applies otherwise. `shared/author-brief.ts` holds this lookup
+order. The server and the TUI request viewer both call it, so the request
+viewer shows the same brief that the server sends.
+
+The Author Brief applies to a continuation request, a prompted retake, a
+highlighted rewrite, and an autoname request. A summary take does not use it.
+
 All generation operations first build the provider-neutral block model in
-`shared/prompt-plan.ts`. Author brief, facts, operation contract, and source
-blocks form a stable prefix. Request text, selections, boundary tags, and
-completion markers form the volatile suffix. The renderer rejects any stable
-block placed after volatility begins; provider adapters and the TUI context
-meter both consume the same model.
+`shared/prompt-plan.ts`. The Author Brief, facts, operation contract, and
+source blocks form a stable prefix. Request text, selections, boundary tags,
+and completion markers form the volatile suffix. The renderer rejects any
+stable block placed after volatility begins; provider adapters and the TUI
+context meter both consume the same model.
 
 Continuation admission is owned by `StoryService` and keyed by the exact
 `(storyId, genId)` tuple. A committed ID returns the stored story before

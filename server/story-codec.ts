@@ -5,7 +5,8 @@ import {
   type StoryFact,
   type StoryNode
 } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
 import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
 import { activePath } from "../shared/story-tree.js";
 import { countWords } from "../shared/story-text.js";
@@ -66,6 +67,11 @@ export async function encodeStoryBundle(
   const authorsNote = story.authorsNote === undefined || story.authorsNote === ""
     ? undefined
     : boundedString(story.authorsNote, "story.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  const authorsNoteDepth = storedAuthorsNoteDepth(authorsNote, story.authorsNoteDepth);
+  const canonicalBrief = storedAuthorBrief(story.authorBrief);
+  const authorBrief = canonicalBrief === undefined
+    ? undefined
+    : boundedString(canonicalBrief, "story.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
   validateFactBodies(story.facts);
   for (const node of story.nodes) if (isNodeTextHydrated(node)) validateNodeAttribution(node);
   await objects.init();
@@ -106,6 +112,8 @@ export async function encodeStoryBundle(
     tag: fact.tag,
     ...(fact.activation === "always" ? {} : { activation: fact.activation }),
     ...(fact.keys.length === 0 ? {} : { keys: [...fact.keys] }),
+    ...(fact.priority === undefined || fact.priority === "normal" ? {} : { priority: fact.priority }),
+    ...(fact.budgetTokens === undefined ? {} : { budgetTokens: fact.budgetTokens }),
     revisionId: factRevisionIds[index]!,
     createdAt: fact.createdAt,
     updatedAt: fact.updatedAt,
@@ -120,10 +128,13 @@ export async function encodeStoryBundle(
     updatedAt: story.updatedAt,
     ...(story.origin === undefined ? {} : { origin: { ...story.origin } }),
     ...(authorsNote === undefined ? {} : { authorsNote }),
+    ...(authorsNoteDepth === undefined ? {} : { authorsNoteDepth }),
+    ...(authorBrief === undefined ? {} : { authorBrief }),
     ...(storyAutonameId(story) === undefined ? {} : { autonameId: storyAutonameId(story) }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
+    ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
     activeWordCount: activePath(story).reduce((sum, node) => sum + nodeStubWords(node), 0),
     nodes,
     facts,
@@ -195,6 +206,8 @@ export async function decodeStoryBundle(
     tag: stored.tag,
     activation: stored.activation ?? "always",
     keys: stored.keys === undefined ? [] : [...stored.keys],
+    ...(stored.priority === undefined || stored.priority === "normal" ? {} : { priority: stored.priority }),
+    ...(stored.budgetTokens === undefined ? {} : { budgetTokens: stored.budgetTokens }),
     text: texts[cursor++]!,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
@@ -210,9 +223,18 @@ export async function decodeStoryBundle(
     ...(manifest.authorsNote === undefined || manifest.authorsNote === ""
       ? {}
       : { authorsNote: manifest.authorsNote }),
+    ...(storedAuthorsNoteDepth(manifest.authorsNote, manifest.authorsNoteDepth) === undefined
+      ? {}
+      : { authorsNoteDepth: manifest.authorsNoteDepth }),
+    ...(storedAuthorBrief(manifest.authorBrief) === undefined
+      ? {}
+      : { authorBrief: manifest.authorBrief }),
     ...(manifest.firstChapterTitle === undefined
       ? {}
       : { firstChapterTitle: manifest.firstChapterTitle }),
+    ...(manifest.factsBudgetTokens === undefined
+      ? {}
+      : { factsBudgetTokens: manifest.factsBudgetTokens }),
     nodes,
     activeRootId: manifest.activeRootId,
     tags: manifest.bookmarks.map((stored) => ({
@@ -265,7 +287,7 @@ function requireEncodedRevision(value: ObjectHash | undefined, nodeId: string): 
 function validateFactBodies(facts: readonly StoryFact[]): void {
   for (const fact of facts) {
     try {
-      parseFactMetadata(fact.activation, fact.keys, `Fact ${fact.id}`);
+      parseFactMetadata(fact.activation, fact.keys, `Fact ${fact.id}`, fact.priority);
     } catch (error) {
       if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
       throw error;

@@ -39,6 +39,7 @@ export function parseSampling(value: unknown, label: string): SamplingSettingsV2
         samplingScalarOrNull(knob, sampling[knob], `${label}.${knob}`)
       ])
     ),
+    seed: samplingScalarOrNull("seed", sampling.seed, `${label}.seed`),
     stop: validateSamplingStopSequences(sampling.stop, `${label}.stop`),
     logitBias: validateSamplingLogitBias(sampling.logitBias, `${label}.logitBias`),
     dryBreakers: validateSamplingDryBreakers(sampling.dryBreakers, `${label}.dryBreakers`)

@@ -7,6 +7,7 @@ import {
   decodeChapterBreakRemovalPreview,
   decodeChapterBreakRemovedResponse,
   decodeContextWindowResponse,
+  decodeContinueStoryResponse,
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
@@ -17,7 +18,9 @@ import {
   decodeStoryResponse,
 } from "./api-response-decoders.js";
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
+import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 
 import type {
   TagStatus,
@@ -29,6 +32,7 @@ import type {
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
+  ReorderFactRequest,
   RewriteRequest,
   StoryNode,
   StoryPayload,
@@ -120,7 +124,10 @@ export interface StoryApi {
   createStory(title?: string): Promise<StoryPayload>;
   loadStory(id: string): Promise<StoryPayload>;
   renameStory(id: string, title: string): Promise<StoryPayload>;
-  setAuthorsNote(storyId: string, note: string): Promise<StoryPayload>;
+  setAuthorsNote(storyId: string, note: string, depth?: number): Promise<StoryPayload>;
+  setAuthorBrief(storyId: string, brief: string): Promise<StoryPayload>;
+  /** null clears the story's Facts budget. */
+  setFactsBudget(storyId: string, budgetTokens: number | null): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
@@ -140,6 +147,9 @@ export interface StoryApi {
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
   patchFact(storyId: string, factId: string, body: FactPatch): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
+  /** Move a Fact to a new position among the story's Facts — array order is
+   *  emit order, so this is the Facts surface's "arrange" control. */
+  reorderFact(storyId: string, factId: string, toIndex: number): Promise<StoryPayload>;
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
@@ -169,14 +179,20 @@ export interface StoryApi {
     target: ContinueTarget,
     onDelta: (text: string) => void,
     signal: AbortSignal
-  ): Promise<StoryPayload | null>;
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
     nodeId: string,
     body: RewriteRequest,
     onDelta: (text: string) => void,
-    signal: AbortSignal
-  ): Promise<void>;
+    signal: AbortSignal,
+    /** Fires the instant the take id is known — durable server-side from
+     * that point on — and strictly before any refresh this call makes on
+     * its way back to the caller. The caller (rewrite-action.ts) uses this
+     * to record commitment one layer below where its own await resolves, so
+     * a refresh that then rejects cannot hide a take that already landed. */
+    onCommitted?: (takeId: string) => void
+  ): Promise<string | null>;
   createSummaryTake(
     storyId: string,
     body: { nodeId: string; offset?: number; expected?: string },
@@ -547,18 +563,7 @@ export function createApi(
       }
     },
     loadStory: loadVersionedStory,
-    renameStory: (id, title) => mutateStoryPayload(
-      id,
-      "PATCH",
-      `/api/stories/${id}`,
-      { title }
-    ),
-    setAuthorsNote: (storyId, note) => mutateStoryPayload(
-      storyId,
-      "PUT",
-      `/api/stories/${storyId}/authors-note`,
-      { note }
-    ),
+    ...storyFieldApi(mutateStoryPayload),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
         const current = await loadVersionedStory(id);
@@ -717,6 +722,12 @@ export function createApi(
       "DELETE",
       `/api/stories/${storyId}/facts/${factId}`
     ),
+    reorderFact: (storyId, factId, toIndex) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/reorder`,
+      { toIndex } satisfies ReorderFactRequest
+    ),
     createChapterBreak: async (storyId, parentPartId, title = "") => {
       const result = await request(
         "POST",
@@ -831,17 +842,26 @@ export function createApi(
         signal
       );
       if (done === null) return null;
-      return versions.rememberPayload(decodeStoryResponse(done.story));
+      const result = decodeContinueStoryResponse(done);
+      versions.rememberPayload(result.payload);
+      return result;
     },
-    rewriteNode: async (storyId, nodeId, body, onDelta, signal) => {
-      await stream(
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
+      const done = await stream(
         storyId,
         `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
         body,
         onDelta,
         signal
       );
+      if (done === null) return null;
+      if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
+      // The take is durable this instant — tell the caller before the
+      // confirming reload below, which can itself reject and otherwise
+      // swallow the fact that the take already landed.
+      onCommitted?.(done.nodeId);
       await loadVersionedStory(storyId);
+      return done.nodeId;
     },
     createSummaryTake: async (storyId, body, onDelta, signal) => {
       const done = await stream(

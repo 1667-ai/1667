@@ -32,6 +32,17 @@ export interface ProjectedStorySelection {
   spans: StorySelectionSpan[];
 }
 
+/** True only for a selection a rewrite could actually target: exactly one
+ *  span, over prose text (a `:text` key, not a direction line or anything
+ *  else), and non-empty. Both the part menu and the palette gate their
+ *  "Rewrite selection" entry on this so neither offers an action whose only
+ *  possible outcome is `resolveRewriteTarget` refusing it. */
+export function canRewriteSelection(spans: readonly StorySelectionSpan[]): boolean {
+  if (spans.length !== 1) return false;
+  const span = spans[0]!;
+  return span.key.endsWith(":text") && span.end > span.start;
+}
+
 export type ProjectedComposerSelection =
   | (SelectionCell & { kind: "range" })
   | { kind: "uneditable"; sourceId?: string }

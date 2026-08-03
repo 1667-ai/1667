@@ -25,6 +25,9 @@ interface V5Fixture {
   createdAt: string;
   updatedAt: string;
   authorsNote?: string;
+  authorsNoteDepth?: number;
+  authorBrief?: string;
+  factsBudgetTokens?: number;
   activeWordCount: number;
   nodes: Array<Record<string, unknown>>;
   facts: Array<Record<string, unknown>>;
@@ -115,6 +118,15 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     invalidNestedV5("v5-comma-in-fact-key", richV5, (copy) => {
       copy.facts[0]!.keys = ["red, blue"];
     }),
+    invalidNestedV5("v5-invalid-fact-priority", richV5, (copy) => {
+      copy.facts[0]!.priority = "urgent";
+    }),
+    invalidNestedV5("v5-fact-budget-over-bound", richV5, (copy) => {
+      copy.facts[0]!.budgetTokens = 0;
+    }),
+    invalidNestedV5("v5-facts-budget-over-bound", richV5, (copy) => {
+      copy.factsBudgetTokens = 0;
+    }),
     invalidNestedV5("v5-unknown-tag-key", richV5, (copy) => {
       copy.bookmarks[0]!.surprise = true;
     }),
@@ -123,8 +135,13 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     }),
     invalid("v5-title-over-bound", v5.id, JSON.stringify({ ...v5, title: "x".repeat(4_097) })),
     invalid("v5-authors-note-over-bound", v5.id, JSON.stringify({ ...v5, authorsNote: "x".repeat(4_001) })),
+    invalid("v5-authors-note-depth-zero", v5.id, JSON.stringify({ ...v5, authorsNote: "Note.", authorsNoteDepth: 0 })),
+    invalid("v5-authors-note-depth-above-max", v5.id, JSON.stringify({ ...v5, authorsNote: "Note.", authorsNoteDepth: 11 })),
+    invalid("v5-authors-note-depth-non-integer", v5.id, JSON.stringify({ ...v5, authorsNote: "Note.", authorsNoteDepth: 1.5 })),
+    invalid("v5-author-brief-over-bound", v5.id, JSON.stringify({ ...v5, authorBrief: "x".repeat(65_537) })),
     invalid("v5-unpaired-surrogate", v5.id, JSON.stringify({ ...v5, title: "\ud800" }), true),
     invalid("v5-authors-note-unpaired-surrogate", v5.id, JSON.stringify({ ...v5, authorsNote: "\ud800" }), true),
+    invalid("v5-author-brief-unpaired-surrogate", v5.id, JSON.stringify({ ...v5, authorBrief: "\ud800" }), true),
     invalid("v5-story-id-final-newline", `${v5.id}\n`, JSON.stringify({ ...v5, id: `${v5.id}\n` })),
     invalid("v5-hash-final-newline", nodeV5.id, JSON.stringify({
       ...nodeV5,
@@ -275,6 +292,9 @@ function richV5Manifest(): RichV5Fixture {
     ...v5Manifest(),
     title: "Complete",
     authorsNote: "A note for the author.",
+    authorsNoteDepth: 3,
+    authorBrief: "A standing brief for the author.",
+    factsBudgetTokens: 4_000,
     activeWordCount: 1,
     origin: {
       storyId: "origin-story",
@@ -308,6 +328,8 @@ function richV5Manifest(): RichV5Fixture {
       tag: "Lore",
       activation: "keyed",
       keys: ["door", "green door"],
+      priority: "high",
+      budgetTokens: 100,
       revisionId: HASH,
       createdAt: NOW,
       updatedAt: NOW,

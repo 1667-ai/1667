@@ -16,8 +16,10 @@ import {
 import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
-import { createFacts, deleteFact, patchFact } from "./story-facts.js";
-import { setAuthorsNote } from "./story-authors-note.js";
+import { createFacts, deleteFact, patchFact, reorderFact } from "./story-facts.js";
+import { authorsNoteApplied, setAuthorsNote } from "./story-authors-note.js";
+import { authorBriefApplied, setAuthorBrief } from "./story-author-brief.js";
+import { setFactsBudget } from "./story-facts-budget.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
   LocalStoryMutationMethod,
@@ -74,6 +76,7 @@ export class StoryServiceLocal {
   async setAuthorsNote(
     id: string,
     note: string,
+    depth?: number,
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     this.dependencies.ensureOpen();
@@ -90,14 +93,66 @@ export class StoryServiceLocal {
         mutationRequest,
         "setAuthorsNote",
         (story) => {
-          if ((story.authorsNote ?? "") === normalized) return STORY_UNCHANGED;
-          setAuthorsNote(story, normalized);
+          if (authorsNoteApplied(story, normalized, depth)) return STORY_UNCHANGED;
+          setAuthorsNote(story, normalized, depth);
         }
       );
     }
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
-      (story) => { setAuthorsNote(story, normalized); }
+      (story) => { setAuthorsNote(story, normalized, depth); }
+    ));
+  }
+
+  async setAuthorBrief(
+    id: string,
+    brief: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (this.dependencies.dataFormat() < 4) {
+      throw new ServiceError(
+        409,
+        "Setting an Author Brief requires a project on data format 4; this directory is not upgraded.",
+        "data_directory_version_unsupported"
+      );
+    }
+    const normalized = brief.trim().length === 0 ? "" : brief;
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setAuthorBrief",
+        (story) => {
+          if (authorBriefApplied(story, normalized)) return STORY_UNCHANGED;
+          setAuthorBrief(story, normalized);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setAuthorBrief(story, normalized); }
+    ));
+  }
+
+  async setFactsBudget(
+    id: string,
+    budgetTokens: number | null,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setFactsBudget",
+        (story) => {
+          if ((story.factsBudgetTokens ?? null) === budgetTokens) return STORY_UNCHANGED;
+          setFactsBudget(story, budgetTokens);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setFactsBudget(story, budgetTokens); }
     ));
   }
 
@@ -442,6 +497,26 @@ export class StoryServiceLocal {
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
       (story) => deleteFact(story, factId)
+    ));
+  }
+
+  async reorderFact(
+    id: string,
+    factId: string,
+    body: unknown,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "reorderFact",
+        (story) => { reorderFact(story, factId, body); }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => reorderFact(story, factId, body)
     ));
   }
 

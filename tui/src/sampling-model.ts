@@ -64,6 +64,7 @@ export const SAMPLING_SCALAR_PRESENTATION: Readonly<Record<SamplingScalarKnob, S
   frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
   presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
   repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
+  seed: { step: 1, neutral: 1, precision: 0 },
   dryMultiplier: { step: 0.05, neutral: 0, precision: 2, hint: "0 disables" },
   dryBase: { step: 0.05, neutral: 1.75, precision: 2 },
   dryRange: { step: 64, neutral: 0, precision: 0, hint: "0 disables" },
@@ -110,6 +111,7 @@ export const SAMPLING_LAYER_ROWS: readonly SamplingLayerRowSpec[] = [
   { kind: "scalar", knob: "frequencyPenalty" },
   { kind: "scalar", knob: "presencePenalty" },
   { kind: "scalar", knob: "repeatPenalty" },
+  { kind: "scalar", knob: "seed" },
   { kind: "list", panel: "stop" },
   { kind: "list", panel: "logit-bias" },
   { kind: "scalar", knob: "dryMultiplier", section: "dry · don't repeat yourself" },
@@ -130,6 +132,14 @@ export function samplingLayerRowIdentity(
   return row.kind === "scalar"
     ? `sampling:scalar:${row.knob}`
     : `sampling:list:${row.panel}`;
+}
+
+export function samplingLayerRowIndex(
+  target: SamplingScalarKnob | Exclude<SamplingPanelId, "sampling">
+): number {
+  return SAMPLING_LAYER_ROWS.findIndex((row) => (row.kind === "scalar"
+    ? row.knob === target
+    : row.panel === target));
 }
 
 export function samplingContextForOverlay(
@@ -186,12 +196,17 @@ export function samplingListRows(
 }
 
 export function samplingSummary(sampling: SamplingSettingsV2): string {
+  // Every line names its own knob. The counted lines used to be spelled `stop`
+  // and `bias`, which held only while `stop` was the one list and `logitBias`
+  // the one record — a second list read as a second `stop`.
   const fields = SAMPLING_KNOB_V2_VALUES.map((knob) => {
     const value = sampling[knob];
     if (typeof value === "number") return `${samplingKnobLabel(knob)} ${value}`;
-    if (Array.isArray(value) && value.length > 0) return `stop ${value.length}`;
-    if (value !== null && !Array.isArray(value) && Object.keys(value).length > 0) {
-      return `bias ${Object.keys(value).length}`;
+    if (Array.isArray(value)) {
+      return value.length === 0 ? null : `${samplingKnobLabel(knob)} ${value.length}`;
+    }
+    if (value !== null && Object.keys(value).length > 0) {
+      return `${samplingKnobLabel(knob)} ${Object.keys(value).length}`;
     }
     return null;
   }).filter((value): value is string => value !== null);

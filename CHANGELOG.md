@@ -5,6 +5,27 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Facts now support a move order, a priority, and a token budget.** Select a
+  Fact in the Facts panel and press `Shift+Up Arrow` or `Shift+Down Arrow` to
+  move it. The Fact editor gains a priority row (`low`, `normal`, or `high`,
+  selected with the arrow keys) and a budget row (a token count, or empty for
+  no cap), controlling which Facts drop first when a request does not fit
+  the model's context window. Open the command palette and select
+  **facts budget** to cap the combined tokens every Fact in a request may
+  spend. A request that does not fit now drops droppable Facts by priority
+  instead of failing outright, and the context meter and the Facts panel
+  state what was dropped, and why. Thanks @10fra for the request.
+- **The Author's Note now has a depth setting.** Depth sets how many story
+  parts from the end the note lands before. The default depth, 1, is today's
+  placement: immediately before the last story part. Open the Author's Note
+  editor and press `⌥-` or `⌥=` to change it. The request viewer shows the
+  placement the note actually used.
+- **Stories can now override the default Author Brief.** Open the command
+  palette. Select **Author brief**. A story Author Brief overrides the
+  machine-wide default for that story's continuation, prompted retake,
+  highlighted rewrite, and autoname requests. A story with no Author Brief of
+  its own keeps the machine-wide default. Thanks @10fra for the request.
+
 - **`1667 import-lorebook` now reads a SillyTavern World Info file.** Give the
   `.json` file to the command or to `import archive` in the command palette.
   1667 reads the file to know its format. A constant Entry becomes an always

@@ -50,6 +50,7 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
     repeatPenalty: 1.1,
+    seed: 42,
     dryMultiplier: 0.8,
     dryBase: 1.75,
     dryRange: 1024,
@@ -82,6 +83,7 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequency_penalty: body.frequency_penalty,
     presence_penalty: body.presence_penalty,
     repeat_penalty: body.repeat_penalty,
+    seed: body.seed,
     dry_multiplier: body.dry_multiplier,
     dry_base: body.dry_base,
     dry_penalty_last_n: body.dry_penalty_last_n,
@@ -101,6 +103,7 @@ test("saved llama.cpp sampling survives activation and restart and reaches the w
     frequency_penalty: 0.2,
     presence_penalty: -0.1,
     repeat_penalty: 1.1,
+    seed: 42,
     dry_multiplier: 0.8,
     dry_base: 1.75,
     dry_penalty_last_n: 1024,
@@ -270,6 +273,22 @@ test("Anthropic lowering uses stop_sequences and does not emit OpenAI stop", {
   const body = fixture.bodies.at(-1)!;
   assert.deepEqual(body.stop_sequences, ["END"]);
   assert.equal("stop" in body, false);
+});
+
+test("Anthropic Messages rejects seed at save time without changing the active document", async (t) => {
+  const dataDir = await initializedFormat2Directory(t, "1667-sampling-anthropic-seed-save-");
+  const store = new SettingsStore(dataDir, { now: () => FIXED_TIME });
+  await store.init(2);
+  const before = (await store.loadView()).document;
+  const candidate = documentFor("https://api.anthropic.com", "anthropic", "claude-opus-4-5", {
+    ...EMPTY_SAMPLING_V2,
+    seed: 42
+  }, "anthropic");
+  await assert.rejects(
+    () => store.save(saveCommand(MUTATION_C, 1, candidate)),
+    /seed.*protocol/u
+  );
+  assert.deepEqual((await store.loadView()).document, before);
 });
 
 function documentFor(

@@ -84,7 +84,9 @@ function logicalRequestBody(
       };
     case "createStory": return { title: input.title };
     case "renameStory": return { title: input.title };
-    case "setAuthorsNote": return { note: input.note };
+    case "setAuthorsNote": return { note: input.note, depth: input.depth };
+    case "setAuthorBrief": return { brief: input.brief };
+    case "setFactsBudget": return { budgetTokens: input.budgetTokens };
     case "acknowledgeUnknownOutcomes":
       return { originalProviderMutationId: input.originalProviderMutationId };
     case "createChapterBreak": return { parentPartId: input.parentPartId, title: input.title };
@@ -118,6 +120,7 @@ function logicalRequestBody(
     case "takeFromCut":
     case "createFact":
     case "patchFact":
+    case "reorderFact":
     case "rewriteNode":
     case "createSummaryTake":
       return input.body;

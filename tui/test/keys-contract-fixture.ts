@@ -106,15 +106,20 @@ export async function composerChangedThroughSurface(
       tag: createComposer(""),
       activation: "always",
       keys: createComposer(""),
+      priority: "normal",
+      budget: createComposer(""),
       focus: "body",
-      initialFact: { tag: null, activation: "always", keys: [], text: composer.text },
+      initialFact: {
+        tag: null, activation: "always", keys: [], priority: "normal", budgetTokens: undefined, text: composer.text
+      },
       title: "Edit fact",
       placeholder: "Fact text",
       returnMode: "FACTS",
       conflict: null,
       cutConfirmation: null,
       tagCutConfirmation: null,
-      keysCutConfirmation: null
+      keysCutConfirmation: null,
+      budgetCutConfirmation: null
     };
     await inlineEditorAction(resolved, state, source, context);
   } else {

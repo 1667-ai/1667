@@ -6,13 +6,17 @@ import {
   type PromptPart
 } from "../../shared/chapters.js";
 import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
+import { resolveAuthorBrief } from "../../shared/author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../../shared/authors-note.js";
 import { selectActiveFacts } from "../../shared/fact-activation.js";
+import { selectFactsWithinBudget, type FactBudgetDrop } from "../../shared/fact-budget.js";
+import { previewFixedContextAdmission } from "../../server/generation-admission.js";
 import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
-import { formatFactsMessage } from "../../shared/story-facts.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "./continuation-intent.js";
+import { factRequestStatuses, type FactRequestStatus } from "./facts-model.js";
 
 export interface ContextBreakdown {
   voice: number;
@@ -26,7 +30,20 @@ export interface RequestTokenEstimate {
   tokens: number;
   breakdown: ContextBreakdown;
   chapters: RequestChapterProjection[];
-  activeFactIds: string[];
+  /** Sent, not-matched, or dropped-with-reason, for every Fact in the story —
+   *  see tui/src/facts-model.ts. Replaces a plain "is it active" boolean,
+   *  which could not tell a Fact that never matched from one the budget shed. */
+  factStatuses: ReadonlyMap<string, FactRequestStatus>;
+  /** Every Fact that will not reach the provider: shed by the story's own
+   *  Facts budget, by a Fact's own budgetTokens cap, or — previewed here via
+   *  `previewFixedContextAdmission`, the same selection
+   *  server/generation-admission.ts runs on the real request — by
+   *  model-context-window pressure. A comment here used to say window
+   *  pressure was a server-only last resort this meter could not preview;
+   *  that was true only because the two selections had not yet been shared
+   *  (issue #281 review finding H), and it made the meter, the Facts panel,
+   *  and the request viewer all describe a prompt that was not the one sent. */
+  droppedFacts: readonly FactBudgetDrop[];
 }
 
 export interface NextRequestEstimate extends RequestTokenEstimate {
@@ -65,6 +82,12 @@ interface NextRequestBaseContext {
   /** Current COMPOSE draft; NAV passes an empty string for an empty Continue. */
   instruction: string;
   assistantPrefill: boolean;
+  /** The configured model window and output cap — the same two settings
+   *  fields server/generation-admission.ts reads to decide whether Facts
+   *  need to be shed for window pressure. Required so that decision can be
+   *  previewed here rather than guessed at (see droppedFacts above). */
+  contextWindow: number | null;
+  maxTokens: number;
 }
 
 export type NextRequestContext = NextRequestBaseContext & (
@@ -93,10 +116,16 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     nodes: promptNodes(payload),
     instruction: intent.instruction
   });
-  const plan = continuationPlan(
-    request.systemPrompt,
-    formatFactsMessage(activeFacts),
-    payload.authorsNote ?? null,
+  const budgetedFacts = selectFactsWithinBudget(activeFacts, payload.factsBudgetTokens ?? null, {
+    spaceDropReason: "total-budget"
+  });
+  const authorsNotePlacement: AuthorsNotePlacement | null = payload.authorsNote === undefined
+    ? null
+    : { text: payload.authorsNote, depth: resolveAuthorsNoteDepth(payload.authorsNoteDepth) };
+  const buildPlan = (factsMessage: string | null): ContinuationPlan => continuationPlan(
+    resolveAuthorBrief(payload.authorBrief, request.systemPrompt),
+    factsMessage,
+    authorsNotePlacement,
     intent.contextParts,
     intent.instruction,
     intent.appendLast,
@@ -105,6 +134,20 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     payload.chapterBreaks,
     promptNodes(payload)
   );
+  // The same window-pressure selection server/generation-admission.ts runs on
+  // the real request, previewed rather than sent — see previewFixedContextAdmission.
+  // Reusing that function (not just its arithmetic) is what keeps this meter
+  // from describing a prompt the server would not actually send.
+  const { plan, admission: windowAdmission } = previewFixedContextAdmission(
+    { contextWindow: request.contextWindow, maxTokens: request.maxTokens },
+    budgetedFacts.kept,
+    payload.authorsNote ?? null,
+    buildPlan
+  );
+  // windowAdmission.dropped can only add "priority" (window-pressure) drops:
+  // its own-cap re-check runs against budgetedFacts.kept, which is already
+  // under every Fact's own cap, so it never finds a new own-cap drop there.
+  const droppedFacts = [...budgetedFacts.dropped, ...windowAdmission.dropped];
   const breakdown: ContextBreakdown = { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 };
   const tokensByPart = new Map<string, number>();
   const messages = renderPromptPlan(plan.prompt);
@@ -171,7 +214,12 @@ export function nextRequestEstimate(payload: StoryPayload, request: NextRequestC
     tokens: Object.values(breakdown).reduce((sum, tokens) => sum + tokens, 0),
     breakdown,
     chapters,
-    activeFactIds: activeFacts.map((fact) => fact.id)
+    factStatuses: factRequestStatuses(
+      payload.facts,
+      new Set(activeFacts.map((fact) => fact.id)),
+      droppedFacts
+    ),
+    droppedFacts
   };
 }
 

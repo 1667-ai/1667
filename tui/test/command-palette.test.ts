@@ -50,7 +50,7 @@ describe("grouped command palette model", () => {
 
   test("Suggested reacts to recovery, request ownership, prose, and an existing line tag", () => {
     const source = demoAppSource();
-    const ready = commandContext(source.payload, false, false);
+    const ready = commandContext(source.payload, { connectionDown: false, requestActive: false, canRewriteSelection: false });
     expect(ready.lineTagged).toBeTrue();
     expect(commandPaletteModel("", false, ready).sections[0]!.matches.map((match) => match.command.id))
       .toEqual(["summary", "export"]);
@@ -71,7 +71,7 @@ describe("grouped command palette model", () => {
     }).sections[0]!.matches.map((match) => match.command.id)).toEqual(["export"]);
 
     const empty = commandPaletteModel("", false, {
-      connectionDown: false, requestActive: false, hasProse: false, lineTagged: false
+      connectionDown: false, requestActive: false, hasProse: false, lineTagged: false, canRewriteSelection: false
     });
     expect(empty.sections[0]!.matches.map((match) => match.command.id)).toEqual(["export"]);
   });
@@ -108,9 +108,19 @@ describe("grouped command palette model", () => {
     });
   });
 
+  test("Author Brief is a Story command with no NAV shortcut", () => {
+    const brief = commandMatches("author brief", false)
+      .find(({ command }) => command.id === "author-brief")?.command;
+    expect(brief).toMatchObject({
+      section: "story",
+      mutating: true
+    });
+    expect(brief?.shortcut).toBe(undefined);
+  });
+
   test("retains command identity across live Suggested reordering", () => {
     const source = demoAppSource();
-    const context = commandContext(source.payload, false, true);
+    const context = commandContext(source.payload, { connectionDown: false, requestActive: true, canRewriteSelection: false });
     const active = commandPaletteModel("", false, context);
     const cursor = active.selectable.findIndex(({ command }) => command.id === "switch-story");
     const settled = commandPaletteModel("", false, { ...context, requestActive: false });
@@ -166,7 +176,7 @@ describe("grouped command palette rendering", () => {
 
   test("paints and hits the retained command identity after Suggested reorders", () => {
     const source = demoAppSource();
-    const context = commandContext(source.payload, false, true);
+    const context = commandContext(source.payload, { connectionDown: false, requestActive: true, canRewriteSelection: false });
     const active = commandPaletteModel("", false, context);
     const staleCursor = active.selectable.findIndex(({ command }) => command.id === "switch-story");
     const settled = commandPaletteModel("", false, { ...context, requestActive: false });
@@ -223,7 +233,9 @@ function renderCommands(
     instruction: "",
     operation: "continue" as const,
     targetId: source.payload.path.at(-1)?.id ?? null,
-    assistantPrefill: true
+    assistantPrefill: true,
+    contextWindow: source.settings.contextWindow,
+    maxTokens: source.settings.maxTokens
   };
   const estimate = nextRequestEstimate(source.payload, request);
   return { lines: renderPanels(base, state, hits, width, height, estimate).lines, hits };

@@ -114,6 +114,7 @@ test("sampling parses as a closed optional profile object and projects to runtim
     topP: 0.9,
     frequencyPenalty: 0.2,
     presencePenalty: -0.1,
+    seed: 7,
     stop: ["END", "DONE"],
     logitBias: { "15043": 1 }
   };
@@ -170,6 +171,8 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   assert.throws(() => parseSettingsDocumentV2(withSampling({ topP: 2 })), /topP/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ topK: 100_001 })), /topK/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ repeatPenalty: 0.9 })), /repeatPenalty/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ seed: 0 })), /seed/);
+  assert.throws(() => parseSettingsDocumentV2(withSampling({ seed: 1_000_000 })), /seed/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["", "END"] })), /stop/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ stop: ["END", "END"] })), /repeats/);
   assert.throws(() => parseSettingsDocumentV2(withSampling({ logitBias: { "01": 1 } })), /logitBias/);

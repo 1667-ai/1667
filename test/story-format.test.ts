@@ -389,6 +389,47 @@ test("story format: default Fact metadata stays omitted and keys do not change i
   assert.deepEqual((await decodeStoryBundle(keyedManifest, dir)).story, keyed);
 });
 
+test("story format: Fact priority and budget round-trip, and an old manifest without them still decodes", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-fact-priority-budget-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const objects = new StoryObjectStore(dir);
+  const fact = {
+    id: "fact",
+    tag: null,
+    text: "The red door is locked.",
+    activation: "always" as const,
+    keys: [] as string[],
+    createdAt: NOW,
+    updatedAt: NOW
+  };
+
+  // The default priority, and no per-Fact or story Facts budget, never reach
+  // disk — this manifest is byte-for-byte what an old story already has, so
+  // decoding it stands in for "an old manifest without these fields".
+  const plainStory = { ...runtimeStory([node("root", null, "Opening")]), facts: [fact] };
+  const plain = await encodeStoryBundle(plainStory, objects);
+  assert.equal("priority" in plain.facts[0]!, false);
+  assert.equal("budgetTokens" in plain.facts[0]!, false);
+  assert.equal("factsBudgetTokens" in plain, false);
+  const plainDecoded = await decodeStoryBundle(plain, dir);
+  assert.equal(plainDecoded.story.facts[0]!.priority, undefined);
+  assert.equal(plainDecoded.story.facts[0]!.budgetTokens, undefined);
+  assert.equal(plainDecoded.story.factsBudgetTokens, undefined);
+
+  // A non-default priority, a per-Fact budget, and a story-level Facts budget
+  // all survive encode -> decode exactly.
+  const richStory = {
+    ...plainStory,
+    facts: [{ ...fact, priority: "high" as const, budgetTokens: 250 }],
+    factsBudgetTokens: 4_000
+  };
+  const richManifest = await encodeStoryBundle(richStory, objects);
+  assert.equal(richManifest.facts[0]!.priority, "high");
+  assert.equal(richManifest.facts[0]!.budgetTokens, 250);
+  assert.equal(richManifest.factsBudgetTokens, 4_000);
+  assert.deepEqual((await decodeStoryBundle(richManifest, dir)).story, richStory);
+});
+
 function node(id: string, parentId: string | null, text: string, activeChildId: string | null = null): StoryNode {
   return { id, parentId, instruction: "Continue", text, model: "test", createdAt: NOW, activeChildId };
 }
@@ -472,5 +513,89 @@ test("story format: author note round-trips, omits empty values, and enforces sc
   assert.throws(
     () => buildStoryPayload({ ...base, authorsNote: "😀".repeat(4_001) }),
     /4,000 Unicode scalar values/
+  );
+});
+
+test("story format: author note depth round-trips and never survives without its note", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-authors-note-depth-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const base: Story = {
+    id: "story-authors-note-depth", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [node("root", null, "Opening")],
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+  const withDepth: Story = { ...base, authorsNote: "Steer it darker.", authorsNoteDepth: 3 };
+
+  const stored = await encodeStoryBundle(withDepth, objects);
+  assert.equal(stored.authorsNoteDepth, 3);
+  assert.deepEqual((await decodeStoryBundle(stored, dir)).story, withDepth);
+  assert.equal(buildStoryPayload(withDepth).authorsNoteDepth, 3);
+
+  // A depth with no note means nothing: the codebase never keeps it.
+  const noteless = { ...base, authorsNoteDepth: 3 };
+  const encodedNoteless = await encodeStoryBundle(noteless, objects);
+  assert.equal("authorsNoteDepth" in encodedNoteless, false);
+  assert.equal("authorsNoteDepth" in buildStoryPayload(noteless), false);
+
+  // A whitespace-only note is no note, so no depth outlives it. Only another
+  // writer's manifest can hold one: this product's routes trim first.
+  const blankNote = { ...base, authorsNote: "  \n", authorsNoteDepth: 3 };
+  const encodedBlank = await encodeStoryBundle(blankNote, objects);
+  assert.equal("authorsNoteDepth" in encodedBlank, false);
+  assert.equal("authorsNoteDepth" in buildStoryPayload(blankNote), false);
+
+  // Absence already means the default placement, so an explicit default from
+  // another writer canonicalizes away instead of riding along for ever.
+  const explicitDefault = { ...base, authorsNote: "Steer it darker.", authorsNoteDepth: 1 };
+  const encodedDefault = await encodeStoryBundle(explicitDefault, objects);
+  assert.equal("authorsNoteDepth" in encodedDefault, false);
+  assert.equal("authorsNoteDepth" in buildStoryPayload(explicitDefault), false);
+  assert.equal(
+    "authorsNoteDepth" in (await decodeStoryBundle(
+      { ...encodedDefault, authorsNoteDepth: 1 },
+      dir
+    )).story,
+    false
+  );
+});
+
+test("story format: author brief round-trips, omits empty values, and enforces scalar bounds", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-author-brief-format-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const base: Story = {
+    id: "story-author-brief", title: "Tree", createdAt: NOW, updatedAt: NOW,
+    nodes: [node("root", null, "Opening")],
+    activeRootId: "root", tags: [], recentNodeIds: [], facts: [], chapterBreaks: []
+  };
+  const objects = new StoryObjectStore(dir);
+
+  const absent = await encodeStoryBundle({ ...base, authorBrief: "" }, objects);
+  assert.equal("authorBrief" in absent, false);
+  assert.equal("authorBrief" in buildStoryPayload({ ...base, authorBrief: "" }), false);
+
+  // A whitespace-only brief overrides nothing, because the prompt falls back
+  // to the machine-wide brief. No boundary may report it as an override.
+  const blank = { ...base, authorBrief: " \n\t" };
+  assert.equal("authorBrief" in (await encodeStoryBundle(blank, objects)), false);
+  assert.equal("authorBrief" in buildStoryPayload(blank), false);
+
+  const brief = "😀 Write in short, clipped sentences.";
+  const stored = await encodeStoryBundle({ ...base, authorBrief: brief }, objects);
+  assert.equal(stored.authorBrief, brief);
+  assert.deepEqual((await decodeStoryBundle(stored, dir)).story, { ...base, authorBrief: brief });
+  assert.equal(buildStoryPayload({ ...base, authorBrief: brief }).authorBrief, brief);
+
+  await assert.rejects(
+    () => encodeStoryBundle({ ...base, authorBrief: "😀".repeat(65_537) }, objects),
+    /65,536 Unicode scalar values/
+  );
+  await assert.rejects(
+    () => encodeStoryBundle({ ...base, authorBrief: "broken \ud800" }, objects),
+    /unpaired Unicode surrogate/
+  );
+  assert.throws(
+    () => buildStoryPayload({ ...base, authorBrief: "😀".repeat(65_537) }),
+    /65,536 Unicode scalar values/
   );
 });

@@ -22,6 +22,7 @@ import {
   composerTitle,
   renderComposerFooter,
   renderComposerTop,
+  type ComposerPromptKind,
   type ComposerStatus
 } from "./composer-chrome.js";
 import {
@@ -59,8 +60,9 @@ export interface ComposerLayoutOptions {
   scrollTop?: number | null;
   focusDim?: boolean;
   narrow?: boolean;
-  /** Enter commits a retake of an existing part, so the footer relabels. */
-  retaking?: boolean;
+  /** Enter commits a retake or a rewrite of an existing part, so the footer
+   *  relabels; `null`/absent is the persistent Direct composer. */
+  promptKind?: ComposerPromptKind;
   /** Alternate copy for the shared in-TUI document editor. */
   title?: string;
   /** Optional top-rule status. The normal inline line counter remains the default. */
@@ -131,7 +133,7 @@ export function renderComposerLayout(options: ComposerLayoutOptions): ComposerLa
     options.narrow === true,
     options.footerNotice ?? null,
     options.footerHints,
-    options.retaking === true
+    options.promptKind ?? null
   ).slice(0, footerCapacity);
   // Inline always leaves one row of story visible plus the status row.
   const bodyCapacity = fullscreen

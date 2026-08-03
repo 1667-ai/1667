@@ -1,6 +1,7 @@
 import { countWords } from "../../shared/story-text.js";
+import { normalizeAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
-import { attributionAfterHumanEdit } from "../../shared/human-edit.js";
+import { activeHumanAttribution, attributionAfterHumanEdit, attributionAfterReplacement } from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -52,6 +53,7 @@ const EDITED = DEMO_EDITED_AT;
 
 export const DEMO_CONTINUE_TEXT = " while the compass needle scratched one small circle in the wood.";
 export const DEMO_GENERATED_TEXT = " The lantern flame bent toward the compass, though no door had opened.";
+export const DEMO_REWRITE_TEXT = "the lantern's flame steadied and held";
 export interface DemoController {
   payload(): StoryPayload;
   switchTo(nodeId: string, options?: { stopAtNode?: boolean }): StoryPayload;
@@ -67,6 +69,14 @@ export interface DemoController {
   createEditedTake(sourceNodeId: string, instruction: string, text: string): StoryPayload;
   addSummaryTake(text: string): StoryPayload;
   editNode(nodeId: string, patch: { instruction?: string; text?: string }): StoryPayload;
+  /** Splice [start, end) with a model replacement, exactly the attribution
+   *  shape `applyRewrite` (server/story-provider-effect.ts) commits — never
+   *  the human-edit path `editNode` uses, which would credit the writer with
+   *  words the model wrote. Commits as a new sibling take, mirroring
+   *  `applyRewrite`. A chapter summary never reaches this: it is not on the
+   *  active path, so nothing upstream can ever resolve one as a rewrite
+   *  target. Returns the id of the new take. */
+  rewriteNode(nodeId: string, start: number, end: number, replacement: string): { payload: StoryPayload; nodeId: string };
   deleteNode(nodeId: string, expectedSubtreeCount: number): StoryPayload;
   pruneUnusedTakes(expected: PruneUnusedTakesRequest): StoryPayload;
   putBookmark(nodeId: string, name: string, status: TagStatus): StoryPayload;
@@ -75,12 +85,15 @@ export interface DemoController {
   openStory(id: string): StoryPayload;
   createStory(): StoryPayload;
   renameStory(title: string): StoryPayload;
-  setAuthorsNote(authorsNote: string): StoryPayload;
+  setAuthorsNote(authorsNote: string, depth?: number): StoryPayload;
+  setAuthorBrief(authorBrief: string): StoryPayload;
+  setFactsBudget(budgetTokens: number | null): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
   patchFact(id: string, input: FactPatch): StoryPayload;
   deleteFact(id: string): StoryPayload;
+  reorderFact(id: string, toIndex: number): StoryPayload;
   createChapterBreak(parentPartId: string, title?: string): { payload: StoryPayload; breakId: string };
   renameChapterBreak(breakId: string | null, title: string): StoryPayload;
   removeChapterBreak(breakId: string): { payload: StoryPayload; removed: RemovedChapterBreak };
@@ -165,13 +178,13 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     createChild(parentId, instruction, text, human = false, genId) {
-      createDemoTake(story, parentId, instruction, text, human, null, genId);
+      createDemoTake(story, parentId, instruction, text, human, { genId });
       return payloadFrom(story);
     },
     createEditedTake(sourceNodeId, instruction, text) {
       const source = story.nodes.find((node) => node.id === sourceNodeId);
       if (source === undefined) throw new Error(`Unknown demo node: ${sourceNodeId}`);
-      createDemoTake(story, source.parentId, instruction, text, source.human === true, source);
+      createDemoTake(story, source.parentId, instruction, text, source.human === true, { source });
       return payloadFrom(story);
     },
     addSummaryTake(text) {
@@ -193,6 +206,20 @@ export function createDemoController(dense = false): DemoController {
       }
       node.updatedAt = EDITED;
       return payloadFrom(story);
+    },
+    rewriteNode(nodeId, start, end, replacement) {
+      const node = story.nodes.find((candidate) => candidate.id === nodeId);
+      if (node === undefined) throw new Error(`Unknown demo node: ${nodeId}`);
+      const originalText = node.text;
+      const attribution = attributionAfterReplacement(
+        activeHumanAttribution(node), start, end, replacement.length, originalText.length
+      );
+      const text = originalText.slice(0, start) + replacement + originalText.slice(end);
+      const take = createDemoTake(story, node.parentId, node.instruction, text, node.human === true, {
+        source: node,
+        attributionOverride: attribution
+      });
+      return { payload: payloadFrom(story), nodeId: take.id };
     },
     deleteNode(nodeId, expectedSubtreeCount) {
       return deleteDemoNode(nodeId, expectedSubtreeCount);
@@ -244,10 +271,32 @@ export function createDemoController(dense = false): DemoController {
       return payloadFrom(story);
     },
     renameStory(title) { story.title = title; story.updatedAt = CREATED; return payloadFrom(story); },
-    setAuthorsNote(authorsNote) {
+    setAuthorsNote(authorsNote, depth) {
       const normalized = authorsNote.trim().length === 0 ? undefined : authorsNote;
-      if (normalized === undefined) delete story.authorsNote;
-      else story.authorsNote = normalized;
+      if (normalized === undefined) {
+        delete story.authorsNote;
+        delete story.authorsNoteDepth;
+      } else {
+        story.authorsNote = normalized;
+        if (depth !== undefined) {
+          const normalizedDepth = normalizeAuthorsNoteDepth(depth);
+          if (normalizedDepth === null) delete story.authorsNoteDepth;
+          else story.authorsNoteDepth = normalizedDepth;
+        }
+      }
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
+    setAuthorBrief(authorBrief) {
+      const normalized = authorBrief.trim().length === 0 ? undefined : authorBrief;
+      if (normalized === undefined) delete story.authorBrief;
+      else story.authorBrief = normalized;
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
+    setFactsBudget(budgetTokens) {
+      if (budgetTokens === null) delete story.factsBudgetTokens;
+      else story.factsBudgetTokens = budgetTokens;
       story.updatedAt = EDITED;
       return payloadFrom(story);
     },
@@ -265,7 +314,9 @@ export function createDemoController(dense = false): DemoController {
         activation: input.activation ?? "always",
         keys: input.keys === undefined ? [] : [...input.keys],
         createdAt: CREATED,
-        updatedAt: CREATED
+        updatedAt: CREATED,
+        ...(input.priority === undefined || input.priority === "normal" ? {} : { priority: input.priority }),
+        ...(input.budgetTokens === undefined ? {} : { budgetTokens: input.budgetTokens })
       });
       return payloadFrom(story);
     },
@@ -276,10 +327,26 @@ export function createDemoController(dense = false): DemoController {
       if (input.text !== undefined) fact.text = input.text;
       if (input.activation !== undefined) fact.activation = input.activation;
       if (input.keys !== undefined) fact.keys = [...input.keys];
+      if (input.priority !== undefined) {
+        if (input.priority === "normal") delete fact.priority;
+        else fact.priority = input.priority;
+      }
+      if (input.budgetTokens !== undefined) {
+        if (input.budgetTokens === null) delete fact.budgetTokens;
+        else fact.budgetTokens = input.budgetTokens;
+      }
       fact.updatedAt = CREATED;
       return payloadFrom(story);
     },
     deleteFact(id) { story.facts = story.facts.filter((fact) => fact.id !== id); return payloadFrom(story); },
+    reorderFact(id, toIndex) {
+      const from = story.facts.findIndex((fact) => fact.id === id);
+      if (from === -1) throw new Error(`Unknown demo fact: ${id}`);
+      const clamped = Math.max(0, Math.min(toIndex, story.facts.length - 1));
+      const [fact] = story.facts.splice(from, 1);
+      story.facts.splice(clamped, 0, fact!);
+      return payloadFrom(story);
+    },
     createChapterBreak(parentPartId, title = "") {
       const breakId = createDemoChapterBreak(story, parentPartId, title, CREATED);
       return { payload: payloadFrom(story), breakId };
@@ -359,9 +426,17 @@ function payloadFrom(story: Story): StoryPayload {
     ...(story.authorsNote === undefined || story.authorsNote.trim() === ""
       ? {}
       : { authorsNote: story.authorsNote }),
+    ...(story.authorsNote === undefined || story.authorsNote.trim() === ""
+      || story.authorsNoteDepth === undefined
+      ? {}
+      : { authorsNoteDepth: story.authorsNoteDepth }),
+    ...(story.authorBrief === undefined || story.authorBrief.trim() === ""
+      ? {}
+      : { authorBrief: story.authorBrief }),
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
+    ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id)!;
       const base = {
@@ -467,7 +542,9 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     createStory: async () => demo.createStory(),
     loadStory: async (id) => demo.openStory(id),
     renameStory: async (_id, title) => demo.renameStory(title),
-    setAuthorsNote: async (_storyId, authorsNote) => demo.setAuthorsNote(authorsNote),
+    setAuthorsNote: async (_storyId, authorsNote, depth) => demo.setAuthorsNote(authorsNote, depth),
+    setAuthorBrief: async (_storyId, authorBrief) => demo.setAuthorBrief(authorBrief),
+    setFactsBudget: async (_storyId, budgetTokens) => demo.setFactsBudget(budgetTokens),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },
@@ -492,7 +569,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     editNode: async (_storyId, node, patch) => demo.editNode(node.id, patch),
     deleteNode: async (_storyId, nodeId, expectedSubtreeCount) => demo.deleteNode(nodeId, expectedSubtreeCount),
     pruneUnusedTakes: async (_storyId, expected) => demo.pruneUnusedTakes(expected),
-    takeFromCut: async () => unavailable("Selection rewrite"),
+    takeFromCut: async () => unavailable("Take from cut"),
     putBookmark: async (_storyId, nodeId, name, label) => demo.putBookmark(nodeId, name, label),
     deleteBookmark: async (_storyId, nodeId) => demo.deleteBookmark(nodeId),
     createFact: async (_storyId, body) => {
@@ -503,6 +580,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     patchFact: async (_storyId, factId, body) => demo.patchFact(factId, body),
     deleteFact: async (_storyId, factId) => demo.deleteFact(factId),
+    reorderFact: async (_storyId, factId, toIndex) => demo.reorderFact(factId, toIndex),
     createChapterBreak: async (_storyId, parentPartId, title = "") => demo.createChapterBreak(parentPartId, title),
     renameChapterBreak: async (_storyId, breakId, title) => demo.renameChapterBreak(breakId, title),
     removeChapterBreak: async (_storyId, breakId) => demo.removeChapterBreak(breakId),
@@ -579,12 +657,29 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         onDelta(delta);
       }
       if (signal.aborted) return null;
-      if (target.appendTo !== undefined) {
-        return demo.appendGenerated(instruction, landed, true, genId);
-      }
-      return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
+      // The fixture has no real context window to press against, so it never
+      // sheds a Fact — droppedFacts is honestly empty rather than simulated.
+      const payload = target.appendTo !== undefined
+        ? demo.appendGenerated(instruction, landed, true, genId)
+        : demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
+      return { payload, droppedFacts: [] };
     },
-    rewriteNode: async () => unavailable("Selection rewrite"),
+    rewriteNode: async (_storyId, nodeId, body, onDelta, signal, onCommitted) => {
+      let landed = "";
+      for await (const delta of streamFake(DEMO_REWRITE_TEXT, { wpm: 700, signal })) {
+        landed += delta;
+        onDelta(delta);
+      }
+      if (signal.aborted) return null;
+      const node = demo.payload().path.find((candidate) => candidate.id === nodeId);
+      if (node === undefined) return null;
+      const result = demo.rewriteNode(nodeId, body.start, body.end, landed);
+      // Mirrors the real adapters: the fixture's own "commit" already
+      // happened above, so tell the caller before returning rather than
+      // pretend it waits on some refresh of its own.
+      onCommitted?.(result.nodeId);
+      return result.nodeId;
+    },
     createSummaryTake: async (_storyId, _body, onDelta, signal) => {
       let landed = "";
       for await (const delta of streamFake(DEMO_SUMMARY_TEXT, { wpm: 700, signal })) {

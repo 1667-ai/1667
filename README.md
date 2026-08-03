@@ -24,7 +24,9 @@ repository contains the terminal user interface (TUI) and its backend runtime.
 - Read a story as a story line, a tree, or a mass map.
 - View Facts and estimated request context in the side rail.
 - Keep one Author's Note for the next continuation or prompted retake.
+- Override the default Author Brief for one story.
 - Use keys to include a Fact only when the request context matches it.
+- Order, rank, and budget Facts so a full context window drops low-value ones first.
 - Inspect the next provider request in the request viewer.
 - Manage chapter boundaries and chapter summaries in the Chapters view.
 - Edit story parts, facts, and chapter summaries in the full-screen editor.
@@ -104,6 +106,7 @@ context can contain:
 - Facts
 - Chapter summaries
 - Author's Note
+- Author Brief
 - User instructions
 
 1667 sends the selected credential in the authentication header when a

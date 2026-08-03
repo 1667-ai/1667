@@ -5,7 +5,8 @@ import {
   MAX_RECENT_LINES,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "../shared/authors-note.js";
+import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
 import { HASH_PATTERN, StoryFormatError } from "./story-format-facts.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 import {
@@ -20,6 +21,7 @@ import {
   safeInteger
 } from "./story-wire-validation.js";
 import { FactActivationError, parseFactMetadata } from "../shared/fact-activation.js";
+import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 
 export const MAX_STORY_MANIFEST_BYTES = 16 * 1024 * 1024;
 export const MAX_STORY_TITLE_CHARS = MAX_STORED_TITLE_CHARS;
@@ -36,7 +38,7 @@ export const STORY_ID_PATTERN = exactStringPattern(STORY_ID_PATTERN_SOURCE);
 const ROOT = closedShape([
   "format", "schemaVersion", "id", "title", "createdAt", "updatedAt", "activeWordCount",
   "nodes", "facts", "activeRootId", "bookmarks", "recentNodeIds", "chapterBreaks"
-], ["origin", "authorsNote", "autonameId", "firstChapterTitle"]);
+], ["origin", "authorsNote", "authorsNoteDepth", "authorBrief", "autonameId", "firstChapterTitle", "factsBudgetTokens"]);
 const ORIGIN = closedShape(["storyId", "storyTitle", "partId", "offset", "createdAt"]);
 const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
@@ -49,7 +51,7 @@ const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
 const RANGE = closedShape(["start", "end"]);
 const FACT = closedShape(
   ["id", "tag", "revisionId", "createdAt", "updatedAt"],
-  ["sourcePartId", "activation", "keys"]
+  ["sourcePartId", "activation", "keys", "priority", "budgetTokens"]
 );
 const TAG = closedShape(["nodeId", "name", "label", "color", "createdAt"]);
 const CHAPTER_BREAK = closedShape(["id", "parentPartId", "title", "createdAt"]);
@@ -86,6 +88,13 @@ export function assertStrictV5Manifest(
     boundedString(manifest.firstChapterTitle, "manifest.firstChapterTitle", MAX_STORY_TITLE_CHARS);
   }
   optionalBoundedString(manifest.authorsNote, "manifest.authorsNote", MAX_AUTHORS_NOTE_CHARS);
+  if (manifest.authorsNoteDepth !== undefined) {
+    safeInteger(manifest.authorsNoteDepth, "manifest.authorsNoteDepth", { min: 1, max: MAX_AUTHORS_NOTE_DEPTH });
+  }
+  optionalBoundedString(manifest.authorBrief, "manifest.authorBrief", MAX_AUTHOR_BRIEF_CHARS);
+  if (manifest.factsBudgetTokens !== undefined) {
+    safeInteger(manifest.factsBudgetTokens, "manifest.factsBudgetTokens", { min: 1, max: MAX_STORY_FACTS_BUDGET_TOKENS });
+  }
   boundedArray(manifest.nodes, "manifest.nodes", MAX_STORY_COLLECTION_ITEMS)
     .forEach((entry, index) => assertNode(entry, `manifest.nodes[${index}]`));
   boundedArray(manifest.facts, "manifest.facts", MAX_FACTS)
@@ -164,10 +173,13 @@ function assertFact(value: unknown, label: string): void {
   timestamp(fact.updatedAt, `${label}.updatedAt`);
   optionalIdentifier(fact.sourcePartId, `${label}.sourcePartId`);
   try {
-    parseFactMetadata(fact.activation, fact.keys, label);
+    parseFactMetadata(fact.activation, fact.keys, label, fact.priority);
   } catch (error) {
     if (error instanceof FactActivationError) throw new StoryFormatError(error.message);
     throw error;
+  }
+  if (fact.budgetTokens !== undefined) {
+    safeInteger(fact.budgetTokens, `${label}.budgetTokens`, { min: 1, max: MAX_FACT_BUDGET_TOKENS });
   }
 }
 

@@ -1,8 +1,9 @@
 import { assertStoryAggregateVersion } from "./story-aggregate-version.js";
-import { MAX_AUTHORS_NOTE_CHARS } from "./authors-note.js";
+import { isValidAuthorsNoteDepth, MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "./authors-note.js";
+import { MAX_AUTHOR_BRIEF_CHARS } from "./author-brief.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 import { FactActivationError, parseFactMetadata } from "./fact-activation.js";
-import type { FactActivation } from "./fact-activation.js";
+import type { FactActivation, FactPriority } from "./fact-activation.js";
 
 export interface TextRange {
   /** UTF-16 offsets, matching String.slice and textarea selection offsets. */
@@ -26,13 +27,17 @@ export const MAX_FACTS = 128;
 export const MAX_FACT_TEXT_CHARS = 4_000;
 export const MAX_FACT_TAG_CHARS = 48;
 
-export type { FactActivation };
+export type { FactActivation, FactPriority };
 
 export interface FactInput {
   tag?: string | null;
   text: string;
   activation?: FactActivation;
   keys?: string[];
+  /** Default "normal" when omitted. */
+  priority?: FactPriority;
+  /** Positive estimated-token cap; a Fact over its own cap is dropped, never truncated. */
+  budgetTokens?: number;
   sourcePartId?: string;
 }
 
@@ -41,10 +46,19 @@ export interface FactPatch {
   text?: string;
   activation?: FactActivation;
   keys?: string[];
+  priority?: FactPriority;
+  /** null clears a previously set per-Fact budget. */
+  budgetTokens?: number | null;
 }
 
 /** Wire body of POST /api/stories/:id/facts. */
 export type CreateFactsRequest = FactInput | { facts: FactInput[] };
+
+/** Wire body of POST /api/stories/:id/facts/:factId/reorder. */
+export interface ReorderFactRequest {
+  /** The Fact's new position among story.facts, 0-based. Clamped server-side. */
+  toIndex: number;
+}
 
 export interface StoryFact {
   id: string;
@@ -54,6 +68,10 @@ export interface StoryFact {
   keys: string[];
   createdAt: string;
   updatedAt: string;
+  /** Shedding rank under window pressure; absent means "normal". */
+  priority?: FactPriority;
+  /** Estimated-token cap on this Fact alone; absent means uncapped. */
+  budgetTokens?: number;
   sourcePartId?: string;
 }
 
@@ -170,6 +188,13 @@ export interface StoryPayload {
   updatedAt: string;
   origin?: StoryOrigin;
   authorsNote?: string;
+  /** How many story parts from the end the note lands before. Absent means
+   *  the default placement (immediately before the last part). See
+   *  `resolveAuthorsNoteDepth`. */
+  authorsNoteDepth?: number;
+  /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
+   *  to the machine-wide value. See `resolveAuthorBrief`. */
+  authorBrief?: string;
   firstChapterTitle?: string;
   nodes: NodeStub[];
   path: StoryNode[];
@@ -177,6 +202,8 @@ export interface StoryPayload {
   tags: Tag[];
   recentNodeIds: string[];
   facts: StoryFact[];
+  /** Estimated-token cap across every emitted Fact; absent means uncapped. */
+  factsBudgetTokens?: number;
   chapterBreaks: ChapterBreak[];
   /** Successor-Q optimistic-concurrency token. Predecessor responses omit it. */
   aggregateVersion?: import("./story-aggregate-version.js").StoryAggregateVersion;
@@ -215,6 +242,9 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
     throw new Error("The server returned invalid story payload.recentNodeIds.");
   }
   facts.forEach(assertStoryFact);
+  if (candidate.factsBudgetTokens !== undefined) {
+    requirePositiveInteger(candidate.factsBudgetTokens, "story payload", "factsBudgetTokens");
+  }
   chapterBreaks.forEach(assertChapterBreak);
   if (candidate.origin !== undefined) assertStoryOrigin(candidate.origin);
   if (
@@ -224,6 +254,8 @@ export function assertPromptReadyStoryPayload(value: unknown): asserts value is 
     throw new Error("The server returned an invalid story payload.firstChapterTitle.");
   }
   assertAuthorsNote(candidate.authorsNote);
+  assertAuthorsNoteDepth(candidate.authorsNoteDepth);
+  assertAuthorBrief(candidate.authorBrief);
   if (candidate.aggregateVersion !== undefined) {
     assertStoryAggregateVersion(
       candidate.aggregateVersion,
@@ -292,12 +324,17 @@ function assertStoryFact(value: unknown): void {
   if (fact.activation !== "always" && fact.activation !== "keyed") invalidField("fact", "activation");
   if (!Array.isArray(fact.keys)) invalidField("fact", "keys");
   try {
-    parseFactMetadata(fact.activation, fact.keys, "fact");
+    parseFactMetadata(fact.activation, fact.keys, "fact", fact.priority);
   } catch (error) {
     if (error instanceof FactActivationError) throw new Error(`The server returned an invalid fact.keys: ${error.message}`);
     throw error;
   }
+  if (fact.budgetTokens !== undefined) requirePositiveInteger(fact.budgetTokens, "fact", "budgetTokens");
   optionalString(fact, "sourcePartId", "fact");
+}
+
+function requirePositiveInteger(value: unknown, label: string, field: string): void {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) invalidField(label, field);
 }
 
 export function assertChapterBreak(value: unknown): asserts value is ChapterBreak {
@@ -373,6 +410,13 @@ export interface Story {
   updatedAt: string;
   origin?: StoryOrigin;
   authorsNote?: string;
+  /** How many story parts from the end the note lands before. Absent means
+   *  the default placement (immediately before the last part). See
+   *  `resolveAuthorsNoteDepth`. */
+  authorsNoteDepth?: number;
+  /** Story-scoped override of `writing.defaultAuthorBrief`; absent falls back
+   *  to the machine-wide value. See `resolveAuthorBrief`. */
+  authorBrief?: string;
   /** Chapter one has no opening break to carry a name, so it carries one here.
    * Absent means unnamed, and an unnamed chapter one reads as the story. */
   firstChapterTitle?: string;
@@ -381,6 +425,8 @@ export interface Story {
   tags: Tag[];
   recentNodeIds: string[];
   facts: StoryFact[];
+  /** Estimated-token cap across every emitted Fact; absent means uncapped. */
+  factsBudgetTokens?: number;
   chapterBreaks: ChapterBreak[];
 }
 
@@ -393,6 +439,28 @@ function assertAuthorsNote(value: unknown): void {
   if (unicodeScalarLength(value, MAX_AUTHORS_NOTE_CHARS) > MAX_AUTHORS_NOTE_CHARS) {
     throw new Error(
       `The server returned an invalid story payload.authorsNote: must contain at most ${MAX_AUTHORS_NOTE_CHARS.toLocaleString()} Unicode scalar values.`
+    );
+  }
+}
+
+function assertAuthorsNoteDepth(value: unknown): void {
+  if (value === undefined) return;
+  if (!isValidAuthorsNoteDepth(value)) {
+    throw new Error(
+      `The server returned an invalid story payload.authorsNoteDepth: must be an integer from 1 to ${MAX_AUTHORS_NOTE_DEPTH}.`
+    );
+  }
+}
+
+function assertAuthorBrief(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== "string") invalidField("story payload", "authorBrief");
+  if (hasUnpairedSurrogate(value)) {
+    throw new Error("The server returned an invalid story payload.authorBrief: contains an unpaired Unicode surrogate.");
+  }
+  if (unicodeScalarLength(value, MAX_AUTHOR_BRIEF_CHARS) > MAX_AUTHOR_BRIEF_CHARS) {
+    throw new Error(
+      `The server returned an invalid story payload.authorBrief: must contain at most ${MAX_AUTHOR_BRIEF_CHARS.toLocaleString()} Unicode scalar values.`
     );
   }
 }
