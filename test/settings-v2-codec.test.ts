@@ -379,6 +379,46 @@ test("sampling bounds and closed-shape rules fail before request lowering", () =
   })), /unknown key/);
 });
 
+// The schema and the codec bound dryBreakers differently on purpose. The
+// generated JSON Schema says `maxLength: 40`, which counts characters, because
+// JSON Schema cannot express a byte length; the codec says 40 UTF-8 bytes, to
+// match llama.cpp's own byte-level truncation. "€" is one character and three
+// bytes, so 14 of them clear the schema and must still fail the codec. The
+// pair of assertions is the point: one character count on either side of the
+// byte line.
+test("a dry breaker of 14 \"€\" characters is refused for exceeding 40 UTF-8 bytes, and 13 parses", () => {
+  // dryBreakers is a llama.cpp and KoboldCpp extension, so this case switches
+  // the connection preset the way the ollama case above does.
+  const base = convertGenerationSettingsV1(legacy(
+    "openai-compatible",
+    "https://models.example/v1",
+    "model-fixture",
+    null
+  ));
+  const llamaCpp = {
+    ...base,
+    connections: {
+      ...base.connections,
+      "migrated:connection": {
+        ...base.connections["migrated:connection"]!,
+        preset: "llama-cpp" as const
+      }
+    }
+  };
+  const withBreaker = (breaker: string) => parseSettingsDocumentV2({
+    ...llamaCpp,
+    profiles: {
+      ...llamaCpp.profiles,
+      default: {
+        ...llamaCpp.profiles.default!,
+        sampling: { ...EMPTY_SAMPLING_V2, dryBreakers: [breaker] }
+      }
+    }
+  });
+  assert.throws(() => withBreaker("€".repeat(14)), /dryBreakers.*must be 1\.\.40 UTF-8 bytes/);
+  assert.doesNotThrow(() => withBreaker("€".repeat(13)));
+});
+
 test("save-time sampling validation refuses unavailable preset and model cells", () => {
   const base = convertGenerationSettingsV1(legacy(
     "openai-compatible",

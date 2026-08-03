@@ -5,6 +5,7 @@ import path from "node:path";
 import type { KeyEvent } from "@opentui/core";
 import { handleKey, initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
+import { recordSessionNotices } from "../src/notice-log.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
@@ -286,24 +287,50 @@ test("a busy backend explains itself in the panel", async () => {
   expect(state.card?.error).toBe("another task is running · start the import again");
 });
 
-test("a V3 card keeps the panel open with the module error", async () => {
+test("an unsupported spec_version keeps the panel open with the named reason", async () => {
   const root = await temporaryDirectory();
   const file = path.join(root, "v3.json");
-  await writeFile(file, JSON.stringify({ spec: "chara_card_v3", data: {} }), "utf8");
+  await writeFile(file, JSON.stringify({ spec: "chara_card_v3", spec_version: "9.9", data: {} }), "utf8");
 
   const source = demoAppSource();
   const state = await runImport(source, file);
-  const error = "Character Card V3 is not supported yet; export a V2 PNG or JSON card.";
 
   expect(state.mode).toBe("CARD");
-  expect(state.card?.error).toBe(error);
-  const frame = frameText(renderStoryScreen(state, {
-    width: 120,
-    height: 36,
-    wrapCache: createWrapCache()
-  }).lines);
-  expect(frame).toContain("· Character Card V3 is not supported yet; export a V2 PNG");
-  expect(frame).toContain("or JSON card.");
+  expect(state.card?.error).toBe(
+    'Unsupported Character Card V3 spec version; expected a 3.x version, got "9.9".'
+  );
+});
+
+test("a V3 card imports its Facts and its character_book, with the full report in the log", async () => {
+  const root = await temporaryDirectory();
+  const file = path.join(root, "v3.json");
+  await writeFile(file, JSON.stringify(v3Card()), "utf8");
+
+  const source = demoAppSource();
+  const before = source.payload.facts.length;
+  const state = await runImport(source, file);
+
+  // The short description and personality pack into one Character fact, plus
+  // two facts from the character_book: one keyed, one constant.
+  expect(state.payload.facts).toHaveLength(before + 3);
+  expect(state.payload.facts.at(-3)).toMatchObject({ tag: "Character" });
+  expect(state.payload.facts.at(-2)).toMatchObject({ tag: "Weather", activation: "keyed", keys: ["storm"] });
+  expect(state.payload.facts.at(-1)).toMatchObject({ tag: "Premise", activation: "always" });
+
+  expect(state.card).toBe(null);
+  expect(state.mode).toBe("NAV");
+  expect(state.toast).toContain('imported 3 facts for "Wren"');
+  // `!` reaches the log from NAV; the composer path uses "full report in the
+  // log" instead, matching the archive import panel's own reasoning.
+  expect(state.toast).toContain("! full report");
+
+  // Run the recorder the app runs, so the toast lands in the log the same way
+  // it does at runtime, and the whole report survives directly under it.
+  recordSessionNotices(state);
+  const texts = state.notices.entries.map((entry) => String(entry.text));
+  expect(texts[0]).toContain("! full report");
+  expect(texts[1]).toContain("1 tag not imported");
+  expect(texts[1]).toContain("creator not imported");
 });
 
 async function runImport(
@@ -351,6 +378,27 @@ function card(): Record<string, unknown> {
       description: "A cartographer.",
       personality: "Exacting but kind.",
       scenario: ""
+    }
+  };
+}
+
+function v3Card(): Record<string, unknown> {
+  return {
+    spec: "chara_card_v3",
+    spec_version: "3.0",
+    data: {
+      name: "Wren",
+      description: "A lighthouse keeper.",
+      personality: "Watchful.",
+      scenario: "",
+      tags: ["coastal"],
+      creator: "someone",
+      character_book: {
+        entries: [
+          { content: "The pass closes in winter.", name: "Weather", keys: ["storm"] },
+          { content: "The light never goes dark.", comment: "Premise", constant: true }
+        ]
+      }
     }
   };
 }

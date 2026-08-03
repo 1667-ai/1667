@@ -1,6 +1,6 @@
 import { deriveChapters, summaryNodeInstruction } from "../shared/chapters.js";
 import { activePath, isChapterSummary, nodeById } from "../shared/story-tree.js";
-import type { Story, StoryNode } from "../shared/types.js";
+import { resolveRewriteDestination, type RewriteDestination, type Story, type StoryNode } from "../shared/types.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import {
   GenerationResultError,
@@ -9,7 +9,7 @@ import {
 } from "./errors.js";
 import { sha256 } from "./story-format.js";
 import { setStoryAutonameId } from "./story-metadata.js";
-import { attachTakeTokenProbabilities, setNodeRewriteId } from "./story-node-text.js";
+import { attachTakeTokenProbabilities, nodeRewriteId, setNodeRewriteId } from "./story-node-text.js";
 import {
   appendContinuationToNode,
   commitTake,
@@ -60,12 +60,17 @@ export interface RewriteNodeEffect {
   readonly expectedUpdatedAt?: string;
   readonly text: string;
   readonly attribution?: StoryNode["attribution"];
+  readonly rewrittenSpans?: StoryNode["rewrittenSpans"];
   readonly updatedAt: string;
   readonly rewriteId?: string;
   /** The new take's id. Deterministic when the caller supplies one (worker
    *  mutations always do), so `story.nodes.some(n => n.id === takeId)` is a
-   *  committed marker exactly like `SummaryTakeEffect.commitIds.summaryNodeId`. */
+   *  committed marker exactly like `SummaryTakeEffect.commitIds.summaryNodeId`.
+   *  Only minted into the tree when `destination` resolves to "take". */
   readonly takeId?: string;
+  /** Absent resolves to "in-place" — see `resolveRewriteDestination`. A
+   *  chapter summary overrides this to "in-place" regardless (see below). */
+  readonly destination?: RewriteDestination;
   readonly cancelled?: AbortSignal;
 }
 
@@ -302,11 +307,27 @@ async function applyRewrite(
   hydratePath: HydrateProviderPath
 ): Promise<AppliedProviderStoryEffect<StoryNode>> {
   requireNotCancelled(effect.cancelled, "Story rewriting was cancelled");
-  if (effect.takeId !== undefined) {
+  const requested = resolveRewriteDestination(effect.destination);
+  const target = nodeById(story, effect.nodeId);
+  // A chapter summary is a dead end (`createTake` refuses a chapter-summary
+  // parent) and `createEditedTake` already refuses to sibling one, so it
+  // always replaces in place, no matter which destination was requested.
+  // Keep this the one place that decides it — nowhere else re-checks
+  // `isChapterSummary` for a rewrite.
+  const inPlace = requested !== "take" || (target !== null && isChapterSummary(target));
+  if (inPlace) {
+    // In place mode mints no new node, so there is nothing for a replay to
+    // find in `story.nodes` — the marker is `rewriteId` stamped on the
+    // target instead, the same idea take mode's `takeId` presence serves
+    // below. This is the branch a review once called unreachable and #310
+    // removed; it is reachable again now that in-place is possible.
+    if (target !== null && effect.rewriteId !== undefined && nodeRewriteId(target) === effect.rewriteId) {
+      return { changed: false, value: target };
+    }
+  } else if (effect.takeId !== undefined) {
     const existing = story.nodes.find((candidate) => candidate.id === effect.takeId);
     if (existing !== undefined) return { changed: false, value: existing };
   }
-  const target = nodeById(story, effect.nodeId);
   if (target === null) {
     throw new GenerationResultError(
       409,
@@ -323,14 +344,10 @@ async function applyRewrite(
       "The node changed while rewriting; nothing was saved."
     );
   }
-  // A chapter summary is a dead end (`createTake` refuses a chapter-summary
-  // parent) and `createEditedTake` already refuses to sibling one, so a
-  // rewrite of a chapter summary keeps the pre-take-rewrite behaviour: it
-  // splices in place instead of trying to branch off a node the tree does
-  // not let anything branch from.
-  if (isChapterSummary(target)) {
+  if (inPlace) {
     target.text = effect.text;
     target.attribution = effect.attribution;
+    target.rewrittenSpans = effect.rewrittenSpans;
     target.updatedAt = effect.updatedAt;
     setNodeRewriteId(target, effect.rewriteId);
     return { changed: true, value: target };
@@ -349,6 +366,7 @@ async function applyRewrite(
   });
   node.createdAt = effect.updatedAt;
   node.attribution = effect.attribution;
+  node.rewrittenSpans = effect.rewrittenSpans;
   setNodeRewriteId(node, effect.rewriteId);
   createTake(story, node);
   return { changed: true, value: node };

@@ -111,6 +111,7 @@ test("story format: V5 bundle round-trips nodes, attribution, tags, recents, and
       ...node("child", "root", "Edited prose"),
       updatedAt: "2026-01-02T00:00:00.000Z",
       attribution: { source: "human", ranges: [{ start: 0, end: 6 }], deletedCharacters: 3 },
+      rewrittenSpans: [{ start: 7, end: 12 }],
       human: true,
       genId: "g1"
     }, { ...node("summary", "root", "Recap"), role: "summary" }],
@@ -277,6 +278,9 @@ test("story format: V4 manifest fails closed across the tree matrix", () => {
   reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [{ start: -1, end: 2 }] }; }, /invalid human edit range/);
   reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [], deletedCharacters: 0 }; }, /positive integer/);
   reject((m) => { m.nodes[0]!.attribution = { source: "human", ranges: [], deletedCharacters: 1.5 }; }, /must be an integer/);
+  reject((m) => { m.nodes[0]!.rewrittenSpans = [{ start: -1, end: 2 }]; }, /invalid rewritten span/);
+  reject((m) => { m.nodes[0]!.rewrittenSpans = [{ start: 4, end: 2 }]; }, /invalid rewritten span/);
+  reject((m) => { m.nodes[0]!.rewrittenSpans = [{ start: 2, end: 4 }, { start: 0, end: 3 }]; }, /invalid rewritten span/);
   const empty = { ...structuredClone(base), nodes: [], activeRootId: "root", tags: [], recentNodeIds: [] };
   assert.throws(() => parseManifest(JSON.stringify(empty), empty.id), /must be null/);
 });
@@ -359,6 +363,16 @@ test("story format: runtime attribution is bounded by its node text", async (t) 
     attribution: { source: "human", ranges: [{ start: 0, end: 99 }] }
   }]);
   await assert.rejects(() => encodeStoryBundle(story, new StoryObjectStore(dir)), /invalid human edit range/);
+});
+
+test("story format: runtime rewrittenSpans is bounded by its node text", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "1667-v4-rewritten-spans-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const story = runtimeStory([{
+    ...node("root", null, "short"),
+    rewrittenSpans: [{ start: 0, end: 99 }]
+  }]);
+  await assert.rejects(() => encodeStoryBundle(story, new StoryObjectStore(dir)), /invalid rewritten span/);
 });
 
 test("story format: default Fact metadata stays omitted and keys do not change its text hash", async (t) => {

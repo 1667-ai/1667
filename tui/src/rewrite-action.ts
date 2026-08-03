@@ -1,4 +1,4 @@
-import type { StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
+import type { RewriteDestination, StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
 import type { ActionTask } from "./action-runtime.js";
 import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
@@ -110,7 +110,10 @@ export async function submitRewriteComposer(
   context: RewriteActionContext,
   prompt: RetakePromptSession,
   intent: Extract<PromptIntent, { kind: "rewrite" }>,
-  instruction: string
+  instruction: string,
+  /** Absent means "in-place" — the ordinary send. `"take"` only ever arrives
+   *  from the composer's second fixed key (story-actions.ts's composeAction). */
+  destination?: RewriteDestination
 ): Promise<void> {
   const resolved = resolveRewriteRange(state.payload, prompt.nodeId, intent.start, intent.end, intent.expected);
   if ("error" in resolved) {
@@ -133,7 +136,7 @@ export async function submitRewriteComposer(
     state.composer.fullscreen = false;
     suspendRetakeComposer(state, prompt);
     state.mode = "NAV";
-    await runSelectionRewrite(state, source, context, resolved, instruction, pendingDraft, task);
+    await runSelectionRewrite(state, source, context, resolved, instruction, pendingDraft, task, destination);
   });
 }
 
@@ -154,7 +157,8 @@ async function runSelectionRewrite(
   target: RewriteTarget,
   instruction: string,
   pendingDraft: PendingGenerationDraft,
-  task: ActionTask
+  task: ActionTask,
+  destination?: RewriteDestination
 ): Promise<void> {
   const node = target.node;
   const controller = new AbortController();
@@ -183,7 +187,13 @@ async function runSelectionRewrite(
     const takeId = await source.api.rewriteNode(
       task.storyId,
       node.id,
-      { start: target.start, end: target.end, instruction, expected: target.expected },
+      {
+        start: target.start, end: target.end, instruction, expected: target.expected,
+        // Absent means "in-place" (shared/types.ts's resolveRewriteDestination) —
+        // omitted rather than always stamped, so a plain send keeps sending the
+        // exact body shape it always has.
+        ...(destination === undefined ? {} : { destination })
+      },
       (delta) => {
         if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
         appendStreamText(stream, delta);
@@ -229,7 +239,10 @@ async function runSelectionRewrite(
       rememberFocus(state, source);
     }
     clearPendingGenerationDraft(state, pendingDraft);
-    state.toast = "selection rewritten";
+    // Mirrors the manual-edit pair's "edited take created" / "take updated in
+    // place" (editor-action.ts): the writer needs to know which one just
+    // happened, not just that a rewrite did.
+    state.toast = destination === "take" ? "selection rewritten as a new take" : "selection rewritten in place";
   } catch (error) {
     if (controller.signal.aborted) {
       await reloadAfterStop(state, source, task.storyId, task.storyCurrent);

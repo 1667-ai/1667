@@ -59,12 +59,19 @@ const DECLARED_DIVERGENCES = [
   { label: "shift+return", event: key("return", { shift: true }),
     actions: ["newline", "newline", "commit-field"] },
   { label: "ctrl+s", event: key("s", { ctrl: true }),
-    actions: ["none", "save-edit", "commit-field"] },
+    // COMPOSE diverges as of issue #319: the rewrite composer's second
+    // fixed key (the same key EDITOR already uses to fork a take), inert
+    // outside a rewrite composer (story-actions.ts's composeAction).
+    actions: ["send-as-take", "save-edit", "commit-field"] },
   { label: "ctrl+o", event: key("o", { sequence: "\u000f", ctrl: true }),
     actions: ["none", "save-edit-inplace", "none"] },
   { label: "ctrl+shift+s", event: key("s", { ctrl: true, shift: true }),
-    // Settings field commit still treats ctrl+s (with or without shift) as keep.
-    actions: ["none", "save-edit-inplace", "commit-field"] },
+    // Settings field commit still treats ctrl+s (with or without shift) as
+    // keep. COMPOSE's send-as-take check does not gate on the shift bit
+    // either — unlike EDITOR it has only one non-default destination, so a
+    // terminal that reports shift alongside ctrl+s (or fails to, and
+    // delivers the identical raw byte plain ctrl+s does) still reaches it.
+    actions: ["send-as-take", "save-edit-inplace", "commit-field"] },
   { label: "ctrl+c", event: key("c", { ctrl: true }),
     actions: ["none", "copy-selection", "none"] },
   { label: "ctrl+x", event: key("x", { ctrl: true }),

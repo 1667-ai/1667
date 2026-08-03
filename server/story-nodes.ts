@@ -15,7 +15,7 @@ import type { CoveredExtent, EditNodeRequest, HumanEditAttribution, PruneUnusedT
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import { sliceWellFormedUtf16Prefix } from "../shared/unicode.js";
 import { ServiceError as HttpError } from "./errors.js";
-import { attributionAfterHumanEdit } from "../shared/human-edit.js";
+import { attributionAfterHumanEdit, rewrittenSpansAfterHumanEdit } from "../shared/human-edit.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import { attachTakeTokenProbabilities, setNodeRewriteId } from "./story-node-text.js";
 
@@ -129,13 +129,23 @@ export function createEditedTake(
   });
   if (text !== source.text) {
     node.attribution = attributionAfterHumanEdit(source.attribution, source.text, text);
-  } else if (source.attribution !== undefined) {
-    node.attribution = source.attribution === null
-      ? null
-      : {
-        ...source.attribution,
-        ranges: source.attribution.ranges.map((range) => ({ ...range }))
-      };
+    // Writing over a rewritten span reclaims it as human, the same as an
+    // in-place edit does (`applyHumanEdit` below) — a fork changes who wrote
+    // the prose, not the rule for how that ownership moves.
+    const rewrittenSpans = rewrittenSpansAfterHumanEdit(source.rewrittenSpans, source.text, text);
+    if (rewrittenSpans.length > 0) node.rewrittenSpans = rewrittenSpans;
+  } else {
+    if (source.attribution !== undefined) {
+      node.attribution = source.attribution === null
+        ? null
+        : {
+          ...source.attribution,
+          ranges: source.attribution.ranges.map((range) => ({ ...range }))
+        };
+    }
+    if (source.rewrittenSpans !== undefined) {
+      node.rewrittenSpans = source.rewrittenSpans.map((range) => ({ ...range }));
+    }
   }
   return createTake(story, node);
 }
@@ -326,6 +336,11 @@ export function applyHumanEdit(story: Story, nodeId: string, request: EditNodeRe
   let chapterSummaryTextChanged = false;
   if (request.text !== undefined && request.text !== node.text) {
     node.attribution = attributionAfterHumanEdit(node.attribution, node.text, request.text);
+    // Same reclaim rule as `createEditedTake`: prose the writer just edited
+    // is theirs now, whether or not the model rewrote it first.
+    const rewrittenSpans = rewrittenSpansAfterHumanEdit(node.rewrittenSpans, node.text, request.text);
+    if (rewrittenSpans.length > 0) node.rewrittenSpans = rewrittenSpans;
+    else delete node.rewrittenSpans;
     node.text = request.text;
     if (isChapterSummary(node)) {
       node.editedByUser = true;

@@ -68,6 +68,9 @@ export function buildStoryPayload(
       ...node,
       ...(node.attribution == null ? {} : {
         attribution: { ...node.attribution, ranges: node.attribution.ranges.map((range) => ({ ...range })) }
+      }),
+      ...(node.rewrittenSpans === undefined ? {} : {
+        rewrittenSpans: node.rewrittenSpans.map((range) => ({ ...range }))
       })
     })),
     activeRootId: story.activeRootId,

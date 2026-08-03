@@ -324,9 +324,12 @@ describe("hit map clickable chrome", () => {
     expect(state.mode).toBe("COMPOSE");
     expect(state.retakePrompt?.intent.kind).toBe("rewrite");
     const frame = render(state, 120, 30);
-    expect(plainLine(frame.find((line) => plainLine(line).includes("enter rewrites this passage"))!))
+    expect(plainLine(frame.find((line) => plainLine(line).includes("enter rewrites in place"))!))
       .not.toContain("…");
-    expect(clickText(frame, state, "enter rewrites this passage")).toEqual({ action: "send" });
+    expect(clickText(frame, state, "enter rewrites in place")).toEqual({ action: "send" });
+    // The composer's other destination (issue #319) — its own click target,
+    // distinct from "enter" above, so clicking it cannot send in place.
+    expect(clickText(frame, state, "⌃s as take")).toEqual({ action: "send-as-take" });
     expect(clickText(frame, state, "⇧enter newline")).toEqual({ action: "newline" });
     expect(clickText(frame, state, "esc cancels")).toEqual({ action: "cancel" });
   });

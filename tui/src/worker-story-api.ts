@@ -382,6 +382,15 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       rememberPayload(result.payload);
       return result;
     },
+    importCard: async (storyId, cardBytes) => {
+      const result = await transport.call(
+        "importCard",
+        { storyId, cardBytes },
+        { expectedAggregateVersion: await expectedVersion(storyId) }
+      );
+      rememberPayload(result.payload);
+      return result;
+    },
 
     continueStory: async (storyId, instruction, genId, target, onDelta, signal) => {
       return await runProviderMutation(storyId, async () => {

@@ -1,7 +1,12 @@
 import { countWords } from "../../shared/story-text.js";
 import { normalizeAuthorsNoteDepth } from "../../shared/authors-note.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
-import { activeHumanAttribution, attributionAfterHumanEdit, attributionAfterReplacement } from "../../shared/human-edit.js";
+import {
+  activeHumanAttribution,
+  attributionAfterHumanEdit,
+  attributionAfterReplacement,
+  rewrittenSpansAfterReplacement
+} from "../../shared/human-edit.js";
 import { estimateTokens } from "../../shared/tokens.js";
 import { basicSettingsFromDocument } from "../../shared/settings-basic-draft.js";
 import { selectSettingsRoute } from "../../shared/settings-route.js";
@@ -12,11 +17,14 @@ import type {
   GenerationSettings,
   NodeStub,
   PruneUnusedTakesRequest,
+  RewriteDestination,
   Story,
   StoryPayload,
   StorySummary,
   TagStatus
 } from "../../shared/types.js";
+import { MAX_FACTS, resolveRewriteDestination } from "../../shared/types.js";
+import { planCardImport } from "../../shared/card-import.js";
 import type {
   ModelDiscoveryResultV2,
   SettingsDocumentV2,
@@ -71,13 +79,19 @@ export interface DemoController {
   addSummaryTake(text: string): StoryPayload;
   editNode(nodeId: string, patch: { instruction?: string; text?: string }): StoryPayload;
   /** Splice [start, end) with a model replacement, exactly the attribution
-   *  shape `applyRewrite` (server/story-provider-effect.ts) commits — never
-   *  the human-edit path `editNode` uses, which would credit the writer with
-   *  words the model wrote. Commits as a new sibling take, mirroring
-   *  `applyRewrite`. A chapter summary never reaches this: it is not on the
-   *  active path, so nothing upstream can ever resolve one as a rewrite
-   *  target. Returns the id of the new take. */
-  rewriteNode(nodeId: string, start: number, end: number, replacement: string): { payload: StoryPayload; nodeId: string };
+   *  and rewritten-span shapes `applyRewrite` (server/story-provider-effect.ts)
+   *  commits — never the human-edit path `editNode` uses, which would credit
+   *  the writer with words the model wrote. `destination` mirrors
+   *  `resolveRewriteDestination` (shared/types.ts): absent or "in-place"
+   *  mutates `nodeId` itself; "take" commits a new sibling instead, the only
+   *  shape this returned before issue #319. A chapter summary never reaches
+   *  this: it is not on the active path, so nothing upstream can ever
+   *  resolve one as a rewrite target. Returns the id of the node the
+   *  replacement landed on — `nodeId` itself for "in-place", a fresh id for
+   *  "take". */
+  rewriteNode(
+    nodeId: string, start: number, end: number, replacement: string, destination?: RewriteDestination
+  ): { payload: StoryPayload; nodeId: string };
   deleteNode(nodeId: string, expectedSubtreeCount: number): StoryPayload;
   pruneUnusedTakes(expected: PruneUnusedTakesRequest): StoryPayload;
   putBookmark(nodeId: string, name: string, status: TagStatus): StoryPayload;
@@ -208,17 +222,28 @@ export function createDemoController(dense = false): DemoController {
       node.updatedAt = EDITED;
       return payloadFrom(story);
     },
-    rewriteNode(nodeId, start, end, replacement) {
+    rewriteNode(nodeId, start, end, replacement, destination) {
       const node = story.nodes.find((candidate) => candidate.id === nodeId);
       if (node === undefined) throw new Error(`Unknown demo node: ${nodeId}`);
       const originalText = node.text;
       const attribution = attributionAfterReplacement(
         activeHumanAttribution(node), start, end, replacement.length, originalText.length
       );
+      const rewrittenSpans = rewrittenSpansAfterReplacement(node.rewrittenSpans, start, end, replacement.length);
       const text = originalText.slice(0, start) + replacement + originalText.slice(end);
+      if (resolveRewriteDestination(destination) !== "take") {
+        // Mirrors `applyRewrite`'s in-place branch: mutate the same node,
+        // mint nothing new — issue #319's new default.
+        node.text = text;
+        node.attribution = attribution;
+        node.rewrittenSpans = rewrittenSpans;
+        node.updatedAt = EDITED;
+        return { payload: payloadFrom(story), nodeId: node.id };
+      }
       const take = createDemoTake(story, node.parentId, node.instruction, text, node.human === true, {
         source: node,
-        attributionOverride: attribution
+        attributionOverride: attribution,
+        rewrittenSpansOverride: rewrittenSpans
       });
       return { payload: payloadFrom(story), nodeId: take.id };
     },
@@ -647,6 +672,13 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     importNovelAI: async () => unavailable("NovelAI import"),
     importScenario: async () => unavailable("NovelAI scenario import"),
     importLorebook: async () => unavailable("NovelAI Lorebook import"),
+    importCard: async (_storyId, cardBytes) => {
+      const room = MAX_FACTS - demo.payload().facts.length;
+      const plan = planCardImport(cardBytes, room);
+      let payload = demo.payload();
+      for (const fact of plan.facts) payload = demo.createFact(fact);
+      return { payload, plan };
+    },
     exportMarkdown: async () => demo.exportMarkdown(),
     searchStories: async (search, signal) => {
       // The fixture answers instantly, so the only cancellation it can honour
@@ -678,7 +710,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
       if (signal.aborted) return null;
       const node = demo.payload().path.find((candidate) => candidate.id === nodeId);
       if (node === undefined) return null;
-      const result = demo.rewriteNode(nodeId, body.start, body.end, landed);
+      const result = demo.rewriteNode(nodeId, body.start, body.end, landed, body.destination);
       // Mirrors the real adapters: the fixture's own "commit" already
       // happened above, so tell the caller before returning rather than
       // pretend it waits on some refresh of its own.

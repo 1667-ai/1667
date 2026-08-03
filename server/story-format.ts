@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  MAX_REWRITTEN_SPANS,
   type TagStatus,
   type ChapterBreak,
   type CoveredExtent,
@@ -7,6 +8,7 @@ import {
   type Story,
   type StoryNode,
   type StoryOrigin,
+  type TextRange,
 } from "../shared/types.js";
 import type { FactActivation, FactPriority } from "../shared/fact-activation.js";
 import { FactBudgetError, parseStoryFactsBudgetTokens } from "../shared/fact-budget.js";
@@ -148,6 +150,7 @@ export interface StoredNodeV1 {
    *  did not ask for them. */
   tokenProbabilityId?: ObjectHash;
   attribution?: HumanEditAttribution | null;
+  rewrittenSpans?: TextRange[];
   activeChildId: string | null;
 }
 
@@ -482,6 +485,32 @@ export function validateNodeAttribution(node: StoryNode): void {
     node.attribution === undefined ? undefined : [node.attribution],
     [node.text]
   );
+}
+
+/** Same bounds `validateNodeAttribution` holds attribution ranges to, applied
+ *  to rewritten spans: sorted, non-overlapping, and inside the node's own
+ *  text. A stale span surviving a cut or a truncation would otherwise point
+ *  past the text a reader is looking at. */
+export function validateNodeRewrittenSpans(node: StoryNode): void {
+  const spans = node.rewrittenSpans;
+  if (spans === undefined) return;
+  if (spans.length > MAX_REWRITTEN_SPANS) {
+    throw new StoryFormatError(`Node ${node.id} rewrittenSpans exceeds the ${MAX_REWRITTEN_SPANS}-span limit`);
+  }
+  let previousEnd = -1;
+  for (const range of spans) {
+    if (
+      !Number.isSafeInteger(range.start)
+      || !Number.isSafeInteger(range.end)
+      || range.start < 0
+      || range.start >= range.end
+      || range.end > node.text.length
+      || range.start < previousEnd
+    ) {
+      throw new StoryFormatError(`Node ${node.id} has an invalid rewritten span`);
+    }
+    previousEnd = range.end;
+  }
 }
 
 interface LegacyPart {

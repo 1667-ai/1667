@@ -3,6 +3,7 @@ import {
   MAX_FACT_TAG_CHARS,
   MAX_HUMAN_EDIT_RANGES,
   MAX_RECENT_LINES,
+  MAX_REWRITTEN_SPANS,
   MAX_STORED_TITLE_CHARS
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
@@ -44,7 +45,8 @@ const NODE = closedShape([
   "id", "parentId", "instruction", "model", "createdAt", "revisionId", "activeChildId"
 ], [
   "preview", "words", "tokens", "updatedAt", "genId", "rewriteId", "role", "chapterBreakId",
-  "coveredExtent", "madeAt", "editedByUser", "human", "syntheticEmpty", "tokenProbabilityId", "attribution"
+  "coveredExtent", "madeAt", "editedByUser", "human", "syntheticEmpty", "tokenProbabilityId",
+  "attribution", "rewrittenSpans"
 ]);
 const EXTENT = closedShape(["fromPartId", "toPartId"]);
 const ATTRIBUTION = closedShape(["source", "ranges"], ["deletedCharacters"]);
@@ -144,6 +146,9 @@ function assertNode(value: unknown, label: string): void {
   if (node.attribution !== undefined && node.attribution !== null) {
     assertAttribution(node.attribution, `${label}.attribution`);
   }
+  if (node.rewrittenSpans !== undefined) {
+    assertRewrittenSpans(node.rewrittenSpans, `${label}.rewrittenSpans`);
+  }
   nullableIdentifier(node.activeChildId, `${label}.activeChildId`);
 }
 
@@ -165,6 +170,15 @@ function assertAttribution(value: unknown, label: string): void {
   if (attribution.deletedCharacters !== undefined) {
     safeInteger(attribution.deletedCharacters, `${label}.deletedCharacters`, { min: 1 });
   }
+}
+
+function assertRewrittenSpans(value: unknown, label: string): void {
+  boundedArray(value, label, MAX_REWRITTEN_SPANS).forEach((entry, index) => {
+    const rangeLabel = `${label}[${index}]`;
+    const range = closedRecord(entry, rangeLabel, RANGE);
+    safeInteger(range.start, `${rangeLabel}.start`, { min: 0 });
+    safeInteger(range.end, `${rangeLabel}.end`, { min: 0 });
+  });
 }
 
 function assertFact(value: unknown, label: string): void {

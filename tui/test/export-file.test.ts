@@ -192,6 +192,14 @@ function collector(): {
   };
 }
 
+/** Both tests here open a project worker and then run the export command,
+ *  which opens a second one. That is two process starts and two module graphs
+ *  before the first assertion, and it measures 4 to 5 seconds on a loaded
+ *  machine — either side of Bun's five-second default. The bound below states
+ *  what the work costs, so a busy CI runner reports a real failure rather than
+ *  the clock. See issue 322. */
+const WORKER_EXPORT_TIMEOUT_MS = 30_000;
+
 describe("export command", () => {
   test("runs against a project worker and gives duplicate bulk titles separate files", async () => {
     const root = await temporaryDirectory();
@@ -225,7 +233,7 @@ describe("export command", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, WORKER_EXPORT_TIMEOUT_MS);
 
   test("writes an archive through a project worker and reports its fidelity", async () => {
     const root = await temporaryDirectory();
@@ -268,7 +276,7 @@ describe("export command", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, WORKER_EXPORT_TIMEOUT_MS);
 });
 
 describe("export help", () => {

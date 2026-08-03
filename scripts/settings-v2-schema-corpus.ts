@@ -252,6 +252,19 @@ export function settingsV2Corpus(): SettingsV2CorpusCase[] {
       withTokenProbabilities(sampledOpenAi, MAX_ALTERNATIVE_TOKENS + 1),
       false
     ),
+    // The generated schema bounds dryBreakers.items with maxLength: 40,
+    // which JSON Schema defines as a count of Unicode characters — a
+    // 41-character ASCII breaker is exactly what that bound catches. This
+    // is a different, narrower claim than the codec's own 40-UTF-8-byte cap
+    // (test/settings-v2-codec.test.ts covers the byte cap and the
+    // deliberate gap between the two): do not add a case here for a
+    // breaker that is under 40 characters but over 40 bytes (for example
+    // 14 "€" characters) — the schema accepts that one by design, so
+    // asserting schemaValid: false for it would encode a false claim.
+    invalid("document-sampling-dry-breakers-character-limit", "document", withSampling(sampledOpenAi, {
+      ...sampledOpenAi.profiles.default!.sampling!,
+      dryBreakers: ["x".repeat(41)]
+    }), false),
     invalid("document-nfd-string", "document", {
       ...INITIAL_SETTINGS_DOCUMENT_V2,
       writing: { defaultAuthorBrief: "Cafe\u0301" }

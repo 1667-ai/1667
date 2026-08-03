@@ -12,6 +12,7 @@ import test from "node:test";
 import {
   NpmRegistryPendingError
 } from "../scripts/release-npm-provenance.js";
+import { npmDistTagForVersion } from "../scripts/release-npm-registry.js";
 import {
   NpmReleaseRegistry
 } from "../scripts/release-npm-registry.js";
@@ -185,7 +186,7 @@ function registryFor(
         }
       } : {
         name: expected.name,
-        "dist-tags": { next: expected.version }
+        "dist-tags": { [npmDistTagForVersion(expected.version)]: expected.version }
       }), {
         headers: { "content-type": "application/json" },
         status: 200
@@ -289,3 +290,15 @@ function provenanceAudit(expected: NpmPublicationPackage): unknown {
     }]
   };
 }
+
+/**
+ * npm performs its Trusted Publishing exchange inside `npm publish` and nowhere
+ * else, so the dist-tag a version lands on cannot be moved afterwards. The tag
+ * has to be right at publish, and the rule that picks it is the version itself.
+ */
+test("a prerelease publishes to beta and a release publishes to latest", () => {
+  assert.equal(npmDistTagForVersion("0.2.1"), "latest");
+  assert.equal(npmDistTagForVersion("1.0.0"), "latest");
+  assert.equal(npmDistTagForVersion("0.3.0-rc.1"), "beta");
+  assert.equal(npmDistTagForVersion("1.0.0-beta.7"), "beta");
+});

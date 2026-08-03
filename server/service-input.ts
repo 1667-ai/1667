@@ -1,11 +1,13 @@
 import type { SearchRequest } from "../shared/story-search.js";
-import type {
-  CreateNodeRequest,
-  EditNodeRequest,
-  PruneUnusedTakesRequest,
-  RewriteRequest,
-  SwitchRequest,
-  TakeFromCutRequest
+import {
+  REWRITE_DESTINATIONS,
+  type CreateNodeRequest,
+  type EditNodeRequest,
+  type PruneUnusedTakesRequest,
+  type RewriteDestination,
+  type RewriteRequest,
+  type SwitchRequest,
+  type TakeFromCutRequest
 } from "../shared/types.js";
 import { ServiceError } from "./errors.js";
 import { hasDefinedProperty, requireRecord, requireString, requireStringValue } from "./validation.js";
@@ -95,8 +97,16 @@ export function parseRewrite(value: unknown): RewriteRequest {
     start: requireNumber(body.start, "start"),
     end: requireNumber(body.end, "end"),
     expected: requireString(body.expected, "expected"),
-    instruction: body.instruction === undefined ? "" : requireStringValue(body.instruction, "instruction")
+    instruction: body.instruction === undefined ? "" : requireStringValue(body.instruction, "instruction"),
+    ...(body.destination === undefined ? {} : { destination: requireRewriteDestination(body.destination) })
   };
+}
+
+function requireRewriteDestination(value: unknown): RewriteDestination {
+  if (!(REWRITE_DESTINATIONS as readonly unknown[]).includes(value)) {
+    throw new ServiceError(400, `destination must be one of: ${REWRITE_DESTINATIONS.join(", ")}`);
+  }
+  return value as RewriteDestination;
 }
 
 export function parseSummaryTake(value: unknown): Record<string, unknown> {

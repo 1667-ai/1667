@@ -393,7 +393,7 @@ test("pending dry-run rewrites reconcile a committed take without duplicating it
     let story = await service.createStory("Rewrite recovery");
     story = await service.createNode(story.id, { parentId: null, text: "The blue door." });
     const nodeId = story.nodes[0]!.id;
-    const body = { start: 4, end: 8, expected: "blue", instruction: "Change the color" };
+    const body = { start: 4, end: 8, expected: "blue", instruction: "Change the color", destination: "take" as const };
     const input = { storyId: story.id, nodeId, body };
     const rewriteMutationId = mutationId("d");
     const takeId = await leavePendingAfterCommit(service, rewriteMutationId, "rewriteNode", input);
@@ -416,6 +416,45 @@ test("pending dry-run rewrites reconcile a committed take without duplicating it
     assert.equal(after.path[0]!.text, committed.path[0]!.text);
     // The source survives, unrewritten, reachable as a sibling of the take.
     assert.equal(after.nodes.find((node) => node.id === nodeId)?.preview, "The blue door.");
+  } finally {
+    await service.dispose();
+  }
+});
+
+test("pending dry-run rewrites reconcile a committed in-place edit without duplicating it", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "1667-rewrite-inplace-recovery-"));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const service = StoryService.withoutDiagnostics({ dataDir });
+  await service.init();
+  try {
+    let story = await service.createStory("Rewrite recovery");
+    story = await service.createNode(story.id, { parentId: null, text: "The blue door." });
+    const nodeId = story.nodes[0]!.id;
+    // destination absent: in-place is the default, so this mints no new node.
+    const body = { start: 4, end: 8, expected: "blue", instruction: "Change the color" };
+    const input = { storyId: story.id, nodeId, body };
+    const rewriteMutationId = mutationId("e");
+    const resolvedId = await leavePendingAfterCommit(service, rewriteMutationId, "rewriteNode", input);
+    // In place mints no new node, so the operation answers the target's own id.
+    assert.equal(resolvedId, nodeId);
+    const committed = await service.loadStory(story.id);
+    assert.equal(committed.nodes.length, 1);
+    let replayDeltas = 0;
+
+    const recovered = await runWorkerMutation(
+      service, rewriteMutationId, "rewriteNode", input, () => { replayDeltas += 1; }
+    );
+    const after = await service.loadStory(story.id);
+
+    // The replay finds the target's own rewriteId marker already committed
+    // and never re-enters the provider — the marker `worker-mutations.ts`
+    // used before #310 made every rewrite a take, restored now that in-place
+    // rewrites exist again.
+    assert.equal(recovered, nodeId);
+    assert.equal(replayDeltas, 0);
+    assert.equal(after.nodes.length, 1);
+    assert.equal(after.path[0]!.id, nodeId);
+    assert.equal(after.path[0]!.text, committed.path[0]!.text);
   } finally {
     await service.dispose();
   }

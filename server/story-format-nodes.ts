@@ -1,10 +1,11 @@
-import { isTagStatus, MAX_RECENT_LINES, type HumanEditAttribution } from "../shared/types.js";
+import { isTagStatus, MAX_RECENT_LINES, type HumanEditAttribution, type TextRange } from "../shared/types.js";
 import {
   StoryFormatError,
   arrayField,
   arrayValue,
   integerField,
   optionalString,
+  parseRewrittenSpans,
   parseSingleAttribution,
   parseStoredFacts,
   parseVersionAttributions,
@@ -340,6 +341,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
   const parentId = nullableString(node.parentId, `${label}.parentId`);
   const activeChildId = nullableString(node.activeChildId, `${label}.activeChildId`);
   const attribution = parseSingleAttribution(node.attribution, `${label}.attribution`);
+  const rewrittenSpans = parseRewrittenSpans(node.rewrittenSpans, `${label}.rewrittenSpans`);
   const human = optionalTrue(node.human, `${label}.human`);
   const syntheticEmpty = optionalTrue(node.syntheticEmpty, `${label}.syntheticEmpty`);
   const role = optionalRole(node.role, `${label}.role`);
@@ -379,6 +381,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     revisionId: requireHash(node.revisionId, `${label}.revisionId`),
     ...(tokenProbabilityId === undefined ? {} : { tokenProbabilityId }),
     ...(attribution === undefined ? {} : { attribution }),
+    ...(rewrittenSpans === undefined ? {} : { rewrittenSpans }),
     activeChildId
   };
   if (syntheticEmpty === true && (
@@ -497,6 +500,10 @@ export function cloneAttribution(value: HumanEditAttribution | null): HumanEditA
         ranges: value.ranges.map((range) => ({ ...range })),
         ...(value.deletedCharacters === undefined ? {} : { deletedCharacters: value.deletedCharacters })
       };
+}
+
+export function cloneRewrittenSpans(value: readonly TextRange[] | undefined): TextRange[] | undefined {
+  return value === undefined ? undefined : value.map((range) => ({ ...range }));
 }
 
 function nullableString(value: unknown, label: string): string | null {

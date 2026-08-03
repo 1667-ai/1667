@@ -86,8 +86,14 @@ export const IMPORT_CARD_HELP = `1667 import-card — add character card Facts t
 
 Usage: 1667 import-card --story <id-or-title> [--data <path>|--global] <file...>
 
-Adds Facts from one or more V1 or V2 JSON or PNG character cards to a story
-that already exists. It does not make a new story, so --story is required.
+Adds Facts from one or more V1, V2, or V3 JSON or PNG character cards to a
+story that already exists. It does not make a new story, so --story is
+required. A PNG with a V3 'ccv3' chunk reads that chunk over a V1 or V2
+'chara' fallback.
+
+A V2 or V3 card's embedded character_book becomes Facts too, one for each
+entry, through the same mapping as 1667 import-lorebook. The command reports
+what it imported or omitted on standard error.
 
 The command palette command 'import character card' does the same for the open
 story.

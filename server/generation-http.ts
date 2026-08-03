@@ -9,7 +9,11 @@ import {
 } from "./errors.js";
 import { hasDefinedProperty, optionalString, requireString } from "./validation.js";
 import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalizeGeneratedTitle } from "./autoname.js";
-import { activeHumanAttribution, attributionAfterReplacement } from "../shared/human-edit.js";
+import {
+  activeHumanAttribution,
+  attributionAfterReplacement,
+  rewrittenSpansAfterReplacement
+} from "../shared/human-edit.js";
 import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
@@ -24,7 +28,7 @@ import {
   type DeltaConsumer
 } from "./generation-stream.js";
 import { activeLeaf, activePath, nodeById, pathTo } from "../shared/story-tree.js";
-import type { GenerationSettings, Story } from "../shared/types.js";
+import { resolveRewriteDestination, type GenerationSettings, type Story } from "../shared/types.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import {
   createPromptCacheRequest,
@@ -327,6 +331,7 @@ export async function rewriteNode(
   const start = body.start;
   const end = body.end;
   const expected = requireString(body.expected, "expected");
+  const destination = resolveRewriteDestination(body.destination);
   const requested = (optionalString(body.instruction) ?? "").trim();
   const selectionWords = countWordsForTarget(expected);
   // A few highlighted words is thesaurus use: bare replacement wording, no seam
@@ -417,7 +422,8 @@ export async function rewriteNode(
     expected,
     instruction,
     bareMode,
-    phraseMode
+    phraseMode,
+    destination
   });
   const requireLeftAnchor = plan.leftAnchor.length > 0 && plan.prompt.turns.at(-1)?.role !== "assistant";
   const output = new AnchoredOutputFilter(plan.leftAnchor, plan.rightAnchor, plan.endMarker, requireLeftAnchor, {
@@ -491,9 +497,11 @@ export async function rewriteNode(
         replacementText.length,
         originalText.length
       ),
+      rewrittenSpans: rewrittenSpansAfterReplacement(part.rewrittenSpans, start, end, replacementText.length),
       updatedAt: new Date().toISOString(),
       rewriteId,
       takeId,
+      destination,
       cancelled: signal
     });
     return node.id;

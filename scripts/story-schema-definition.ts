@@ -12,7 +12,8 @@ import {
   MAX_FACTS,
   MAX_FACT_TAG_CHARS,
   MAX_HUMAN_EDIT_RANGES,
-  MAX_RECENT_LINES
+  MAX_RECENT_LINES,
+  MAX_REWRITTEN_SPANS
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
@@ -155,6 +156,7 @@ function nodeSchema(): Schema {
     // did not ask for them.
     tokenProbabilityId: ref("Hash256"),
     attribution: nullable(ref("Attribution")),
+    rewrittenSpans: { type: "array", maxItems: MAX_REWRITTEN_SPANS, items: ref("TextRange") },
     activeChildId: nullable(ref("Identifier"))
   };
   return {

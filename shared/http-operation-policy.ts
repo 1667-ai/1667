@@ -73,6 +73,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   importNovelAI: "transfer",
   importScenario: "transfer",
   importLorebook: "local",
+  importCard: "local",
   continueStory: "generation",
   rewriteNode: "generation",
   createSummaryTake: "generation"
@@ -235,6 +236,7 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     if (httpMethod === "DELETE") return "deleteBookmark";
   }
   if (sub === "import-lorebook" && parts.length === 5 && httpMethod === "POST") return "importLorebook";
+  if (sub === "import-card" && parts.length === 5 && httpMethod === "POST") return "importCard";
   if (sub === "facts" && action === undefined) {
 
     if (subId === undefined && parts.length === 5

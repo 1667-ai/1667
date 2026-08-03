@@ -1,4 +1,4 @@
-import type { StoryPayload } from "../shared/types.js";
+import { resolveRewriteDestination, type StoryPayload } from "../shared/types.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import { summarizeChapter } from "./chapter-summary.js";
 import {
@@ -182,6 +182,11 @@ export class StoryServiceGeneration {
     options: GenerationMutationHooks & { rewriteId?: string; takeId?: string } = {}
   ): Promise<string | null> {
     const body = parseRewrite(value);
+    // In place mode mints no new node, so a replay must answer the target's
+    // own id — the take id it would otherwise return was never minted.
+    const replayValue = resolveRewriteDestination(body.destination) === "take"
+      ? (options.takeId ?? null)
+      : nodeId;
     if (options.mutationRequest !== undefined) {
       return await this.dependencies.cancellable(signal, async (active) => {
         const committed =
@@ -208,7 +213,7 @@ export class StoryServiceGeneration {
                 options.takeId,
                 options.bindIntent
               ),
-            replayValue: () => options.takeId ?? null
+            replayValue: () => replayValue
           }
         );
         return committed.value;
