@@ -320,36 +320,74 @@ export type SamplingBiasNativeBannedStringResolution =
       readonly conflict: SamplingBiasShadowOwner;
     };
 
-/** Reads the way `resolveSamplingLogitBias` decides a preset's bannedStrings
- * transport (server/sampling-phrase-bias.ts) — a pure function of preset, so
- * every caller that has a preset in hand (a real request, save-time
- * validation, and the TUI's demo-mode preview alike, issue #311 review
- * finding C) computes the identical decision the shared merge itself acts
- * on, instead of each caller guessing or hard-coding "koboldcpp" by hand.
- * "token": every configured bannedStrings phrase is tokenized and merged
- * into `logit_bias`, exactly like phraseBias. "native": KoboldCpp only —
- * see `SamplingBiasNativeBannedStringResolution` above. */
-export function bannedStringsTransportForPreset(
-  preset: SettingsPresetV2 | "legacy-v1"
-): "token" | "native" {
-  return preset === "koboldcpp" ? "native" : "token";
+/**
+ * Every preset-dependent rule `resolveSamplingLogitBias` (server/sampling-
+ * phrase-bias.ts) and its own preset dispatch (`resolveWithLiveProbe`, same
+ * file) need, derived once from a preset and carried as one value instead
+ * of a growing list of separate parameters, each behind its own
+ * near-identical `...ForPreset` function.
+ *
+ * This replaces what used to be two such functions,
+ * `bannedStringsTransportForPreset` and `phraseBiasSpecialTokenGuardForPreset`
+ * (issue #311 review, round six): threading a new preset-dependent rule as
+ * a new positional parameter, backed by a new near-identical pure function,
+ * is exactly the gap that has opened three times on this path — #282 round
+ * 4, this issue's round two, and again round three — because each fix added
+ * one more rule in the same shape instead of removing the shape itself.
+ * `serializeLiveProbe` below is the rule that made the pattern worth
+ * collapsing rather than repeating a third time: every caller with a preset
+ * in hand — a real request, save-time validation, and the TUI's demo-mode
+ * preview alike — now derives every rule from one call, so a rule can never
+ * be threaded to one caller and forgotten by another. Adding a fourth rule
+ * means adding one field here, not one parameter at every call site.
+ */
+export interface SamplingBiasPresetRules {
+  /** "token": every configured bannedStrings phrase is tokenized and merged
+   * into `logit_bias`, exactly like phraseBias. "native": KoboldCpp only —
+   * see `SamplingBiasNativeBannedStringResolution` above. */
+  readonly bannedStringsTransport: "token" | "native";
+  /** Whether a phraseBias entry matching special-token control syntax
+   * (`<|eot_id|>`, `<end_of_turn>`, `[INST]`, and siblings —
+   * server/sampling-phrase-bias.ts, `SPECIAL_TOKEN_SYNTAX`) must be
+   * rejected before it ever reaches a live tokenize probe. KoboldCpp
+   * only — llama.cpp's own live probe already asks the documented
+   * `parse_special: false` and needs no such guard. */
+  readonly rejectSpecialTokenSyntax: boolean;
+  /** Whether this preset's live tokenize probe must be serialized per
+   * server rather than run at `LIVE_TOKENIZE_PROBE_CONCURRENCY`
+   * (server/sampling-phrase-bias.ts) — see `withKoboldCppTokenCountLock`
+   * (server/context-probe.ts) for why: KoboldCpp answers
+   * `/api/extra/tokencount` from a process-global buffer its own upstream
+   * source documents as shared unsafely. `resolveWithLiveProbe` reads this
+   * field to choose between KoboldCpp's own, serializing probe builder and
+   * llama.cpp's, which keeps its full concurrency. */
+  readonly serializeLiveProbe: boolean;
 }
 
-/** Reads the way `resolveSamplingLogitBias` decides whether a preset's
- * phraseBias entries must reject special-token control syntax
- * (`<|eot_id|>`, `<end_of_turn>`, `[INST]`, and siblings —
- * server/sampling-phrase-bias.ts, `SPECIAL_TOKEN_SYNTAX`) before ever
- * probing them (issue #311 review, third pass, finding I) — the same
- * pure-function-of-preset shape `bannedStringsTransportForPreset` above
- * already established, and for the same reason (finding M): every caller
- * with a preset in hand, the TUI's demo-mode preview included, derives the
- * identical decision from it instead of each caller re-deciding, or one of
- * them forgetting to. KoboldCpp only — llama.cpp's own live probe already
- * asks the documented `parse_special: false` and needs no such guard. */
-export function phraseBiasSpecialTokenGuardForPreset(
+const TOKEN_TRANSPORT_SAMPLING_BIAS_PRESET_RULES: SamplingBiasPresetRules = {
+  bannedStringsTransport: "token",
+  rejectSpecialTokenSyntax: false,
+  serializeLiveProbe: false
+};
+
+const KOBOLDCPP_SAMPLING_BIAS_PRESET_RULES: SamplingBiasPresetRules = {
+  bannedStringsTransport: "native",
+  rejectSpecialTokenSyntax: true,
+  serializeLiveProbe: true
+};
+
+/** The one place every preset-dependent sampling-bias rule is decided — see
+ * `SamplingBiasPresetRules` above. A pure function of preset, so every
+ * caller that has a preset in hand computes the identical rules the shared
+ * merge itself acts on, instead of each caller guessing or hard-coding
+ * "koboldcpp" by hand (issue #311 review, second pass, finding C; round six
+ * collapsed what were then two of these functions into this one). */
+export function samplingBiasPresetRules(
   preset: SettingsPresetV2 | "legacy-v1"
-): boolean {
-  return preset === "koboldcpp";
+): SamplingBiasPresetRules {
+  return preset === "koboldcpp"
+    ? KOBOLDCPP_SAMPLING_BIAS_PRESET_RULES
+    : TOKEN_TRANSPORT_SAMPLING_BIAS_PRESET_RULES;
 }
 
 /** One of a "shadowed" or "overridden" entry's own tokens, joined to the
@@ -427,7 +465,7 @@ export type TokenizerUnavailableCause = (typeof TOKENIZER_UNAVAILABLE_CAUSE_VALU
  * but a KoboldCpp one with bannedStrings configured — `bannedStrings` itself
  * stays empty on exactly that route, since `resolveSamplingLogitBias`
  * (server/sampling-phrase-bias.ts) never tokenizes a native-transport entry
- * in the first place. See `bannedStringsTransportForPreset` and
+ * in the first place. See `samplingBiasPresetRules` and
  * `SamplingBiasNativeBannedStringResolution` above for why this is a
  * separate field rather than a fifth kind inside `bannedStrings`.
  */

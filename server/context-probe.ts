@@ -274,21 +274,45 @@ export type KoboldCppTokenizeProbeResult =
  * first caller to read `ids` — `countKoboldCpp` already posts to this same
  * endpoint and already validates `value`, but only ever reads that field.
  *
- * That same documented example is also why this cannot be used as-is: its
+ * That same documented example is also why a naive request needs a fix: its
  * `ids` begins `1`, the model's BOS token, for text that is otherwise nine
  * ordinary tokens. A lexically single-token phrase therefore comes back as
  * two IDs — `[BOS, token]` — on any BOS-adding build, which is the normal
  * case, and every surface variant of it would be misclassified multi-token
- * and rejected. `/api/extra/tokencount`'s own request schema names exactly
- * one field, `prompt` — there is no documented flag to ask for the ids
- * without it, unlike llama.cpp's `/tokenize`, which documents `parse_special`
- * (see `probeLlamaCppTokenize` above). The fix has to come from observed
- * behaviour instead: `server/sampling-phrase-bias.ts`'s
- * `koboldCppLiveTokenizeProbe` tokenizes the empty string once per
- * resolution through this same function, treats whatever `ids` comes back as
- * that build's unconditional prefix, and strips it (`stripKoboldCppBosPrefix`
- * below) from every phrase's `ids` before this module's caller classifies
- * it. This function itself stays a thin, honest wrapper around the wire
+ * and rejected, unless the request asks otherwise. The published request
+ * schema for this endpoint names exactly one field, `prompt` — but the
+ * implementation accepts a second, undocumented one. `koboldcpp.py:6680`:
+ *
+ *     tcaddspecial = genparams.get('special', True)
+ *     countdata = tokenize_ids(countprompt, tcaddspecial)
+ *
+ * `special` defaults to `true` and reaches the tokenizer as `addbos`
+ * (`token_count(const char* input, bool addbos)` in the C++ layer below
+ * that Python) — the same flag that decides whether BOS is prepended. This
+ * function sends `special: false` (issue #311 review, round five), which on
+ * a build that honours it makes `ids` come back without the prefix in the
+ * first place. An earlier version of this fix rejected sending this flag at
+ * all, on the strength of the published schema alone, which lists only
+ * `prompt`; the schema is incomplete, and the source is what actually
+ * ships.
+ *
+ * `server/sampling-phrase-bias.ts`'s `koboldCppLiveTokenizeProbe` still
+ * tokenizes the empty string once per resolution through this same
+ * function and strips whatever prefix comes back (`stripKoboldCppBosPrefix`
+ * below) — kept as a fallback, not removed, because `special` is
+ * undocumented: a build that does not read it (an older release, or a
+ * fork) still returns whatever raw `ids` it always did, and only the
+ * calibration catches that honestly instead of silently trusting a flag
+ * the build may have ignored. The two compose safely rather than duplicate
+ * each other: on a build that honours `special: false`, the calibration
+ * probe's own prefix comes back empty and every later strip is a no-op;
+ * only a build that ignores the flag needs the strip to do real work. This
+ * does not touch the special-token guard elsewhere on this path
+ * (`SPECIAL_TOKEN_SYNTAX`, server/sampling-phrase-bias.ts): `addbos`/
+ * `special` controls only whether BOS is prepended, not whether text like
+ * `<end_of_turn>` parses as a control token rather than the literal
+ * characters a writer typed — the two are unrelated hazards with unrelated
+ * fixes. This function itself stays a thin, honest wrapper around the wire
  * response — the calibration and stripping live one layer up, where the
  * "once per resolution, not per phrase" batching already happens.
  *
@@ -313,7 +337,7 @@ export async function probeKoboldCppTokenize(
   signal?: AbortSignal
 ): Promise<KoboldCppTokenizeProbeResult> {
   try {
-    const data = await postKoboldCppTokenCount(settings, { prompt: text }, signal);
+    const data = await postKoboldCppTokenCount(settings, { prompt: text, special: false }, signal);
     if (!isObject(data)) return { kind: "failed" };
     if (!Array.isArray(data.ids)) return { kind: "no-ids" };
     const tokens = data.ids.filter((token): token is number =>
@@ -371,21 +395,85 @@ export function stripKoboldCppBosPrefix(
  * `body` is the caller's own: `countKoboldCpp` sends `{ messages }`, an
  * undocumented but already-shipped form (see its own comment in
  * server/tokenize-probe.ts) that lets a release compile a full chat
- * template; `probeKoboldCppTokenize` sends `{ prompt }`, the one field the
- * API document's own request schema names for this endpoint.
+ * template; `probeKoboldCppTokenize` sends `{ prompt, special: false }`.
+ *
+ * Every call here is serialized per server root through
+ * `withKoboldCppTokenCountLock` below (issue #311 review, round five,
+ * blocker) — see that function's own comment for why this endpoint, unlike
+ * llama.cpp's `/tokenize`, cannot safely answer two requests at once.
  */
 export async function postKoboldCppTokenCount(
   settings: GenerationSettings,
   body: Readonly<Record<string, unknown>>,
   signal?: AbortSignal
 ): Promise<unknown> {
-  return await postProviderJson(
-    settings,
-    `${providerRoot(settings)}/api/extra/tokencount`,
-    body,
-    {},
-    { signal, timeoutMs: probeTimeoutMs(settings) }
+  const root = providerRoot(settings);
+  return await withKoboldCppTokenCountLock(root, () =>
+    postProviderJson(
+      settings,
+      `${root}/api/extra/tokencount`,
+      body,
+      {},
+      { signal, timeoutMs: probeTimeoutMs(settings) }
+    )
   );
+}
+
+/**
+ * Serializes every call to KoboldCpp's `POST /api/extra/tokencount` against
+ * one server root — per root, not a single process-wide queue, so two
+ * different KoboldCpp servers (or two settings values that happen to
+ * normalize to two different roots) queue independently, and a llama.cpp
+ * route (`postLlamaCppTokenize` above) is entirely unaffected and keeps its
+ * full `LIVE_TOKENIZE_PROBE_CONCURRENCY` (issue #311 review, round five,
+ * blocker).
+ *
+ * KoboldCpp's own upstream source is the evidence this is required, not
+ * merely cautious. `expose.cpp`'s `token_count` handler answers from a
+ * process-global buffer, by its own comment:
+ *
+ *     static std::vector<int> toks; //just share a static object for token counting
+ *     ...
+ *     toks = gpttype_get_token_arr(inputstr, addbos);
+ *     output.count = toks.size();
+ *     output.ids = toks.data(); //this may be slightly unsafe
+ *
+ * `output.ids` is a raw pointer into `toks`, and `koboldcpp.py`'s
+ * `tokenize_ids` only copies out of that pointer *after* `token_count`
+ * returns. The request handler itself answers `/api/extra/tokencount`
+ * before ever taking KoboldCpp's own generation lock — the handler sits at
+ * `koboldcpp.py:6674`, `modelbusy.acquire` not until `:7091` — so two
+ * requests genuinely can reach `token_count` at the same time on a real
+ * server, not only in principle. `server/sampling-phrase-bias.ts`'s
+ * `liveProbeVariantTokenizer` fans out up to `LIVE_TOKENIZE_PROBE_CONCURRENCY`
+ * (8) probes at once for exactly this endpoint; without serialization, two
+ * overlapping calls can reallocate or overwrite the buffer the other is
+ * still reading out of, and the failure is silent — a phrase resolves to
+ * plausible-looking but wrong token ids, quietly biasing a token the writer
+ * never asked for.
+ *
+ * Only `postKoboldCppTokenCount` routes through this (`serializeLiveProbe`,
+ * `SamplingBiasPresetRules`, shared/sampling-phrase-resolution.ts, is how
+ * `resolveWithLiveProbe` decides to reach it in the first place) — so
+ * `countKoboldCpp` (server/tokenize-probe.ts), which shares this same
+ * function, joins the same per-root queue automatically: the buffer it
+ * shares with `probeKoboldCppTokenize` is the same one for either caller.
+ *
+ * Implementation: `koboldCppTokenCountLocks` holds, per root, a promise
+ * that resolves once every call queued against that root so far has
+ * settled. `previous.then(run, run)` runs `run` only after `previous`
+ * settles, whether `previous` fulfilled or rejected — a failed call must
+ * never leave the next one waiting forever. The tail stored back into the
+ * map never itself rejects (`.then(() => undefined, () => undefined)`), so
+ * one caller's failure cannot poison the queue for the next.
+ */
+const koboldCppTokenCountLocks = new Map<string, Promise<unknown>>();
+
+function withKoboldCppTokenCountLock<T>(root: string, run: () => Promise<T>): Promise<T> {
+  const previous = koboldCppTokenCountLocks.get(root) ?? Promise.resolve();
+  const current = previous.then(run, run);
+  koboldCppTokenCountLocks.set(root, current.then(() => undefined, () => undefined));
+  return current;
 }
 
 function ollamaModelMatches(

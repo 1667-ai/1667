@@ -408,6 +408,11 @@ test("resolveSamplingBias resolves KoboldCpp phrase bias through the tokencount 
     fixture.koboldTokenizeBodies.map((body) => body.prompt).sort(),
     ["", " Ember", " ember", "Ember", "ember"]
   );
+  // Issue #311 review, round five: every call, calibration included, asks
+  // for `special: false` — koboldcpp.py:6680 maps this to the C++ layer's
+  // `addbos`, the flag that decides whether the response's `ids` is
+  // prefixed with BOS at all.
+  assert.ok(fixture.koboldTokenizeBodies.every((body) => body.special === false));
 });
 
 // Issue #311 review, first pass, BLOCKER: KoboldCpp's own documented

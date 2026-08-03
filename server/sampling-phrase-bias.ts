@@ -1,12 +1,12 @@
 import {
-  bannedStringsTransportForPreset,
-  phraseBiasSpecialTokenGuardForPreset,
   promptBiasTokenizerEncoding,
+  samplingBiasPresetRules,
   samplingBiasVariantText,
   SAMPLING_BIAS_VARIANT_VALUES,
   type PromptBiasEncoding,
   type SamplingBiasEntryResolution,
   type SamplingBiasNativeBannedStringResolution,
+  type SamplingBiasPresetRules,
   type SamplingBiasResolutionResult,
   type SamplingBiasScope,
   type SamplingBiasShadowConflict,
@@ -228,7 +228,7 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
  * every other array here keeps with its own input. "token" (the default)
  * tokenizes bannedStrings exactly like phraseBias, unchanged from before this
  * parameter existed — every caller that predates it keeps its exact prior
- * behavior. "native" — KoboldCpp only, decided by `bannedStringsTransportForPreset`
+ * behavior. "native" — KoboldCpp only, decided by `samplingBiasPresetRules`
  * (shared/sampling-phrase-resolution.ts) — never tokenizes bannedStrings at
  * all: `bannedStrings` on the result is empty, and every configured banned
  * string resolves instead into `nativeBannedStrings`
@@ -243,13 +243,12 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
 export function resolveSamplingLogitBias(
   sampling: SamplingBiasMergeInput,
   tokenizeVariant: SyncVariantTokenizer,
-  bannedStringsTransport: "token" | "native" = "token",
-  rejectSpecialTokenSyntax = false
+  rules: SamplingBiasPresetRules = samplingBiasPresetRules("legacy-v1")
 ): SamplingBiasResolutionResult {
-  const isNative = bannedStringsTransport === "native";
-  // `rejectSpecialTokenSyntax` (issue #311 review, third pass, finding M):
-  // enforced here, in the one merge function every caller with a preset in
-  // hand shares — a real request, save-time validation, and the TUI's
+  const isNative = rules.bannedStringsTransport === "native";
+  // `rules.rejectSpecialTokenSyntax` (issue #311 review, third pass, finding
+  // M): enforced here, in the one merge function every caller with a preset
+  // in hand shares — a real request, save-time validation, and the TUI's
   // demo-mode preview alike (`demoResolveSamplingBias`,
   // tui/src/demo-token-ids.ts) — rather than inside the live-probe layer
   // demo never goes through. That was the actual defect: the guard, added
@@ -260,7 +259,7 @@ export function resolveSamplingLogitBias(
   // this exact class of gap has opened on this path (#282 round 4, this
   // issue's first pass, and now this rule) — see `SPECIAL_TOKEN_SYNTAX`'s
   // own doc comment for what it catches and why.
-  const guardedTokenizeVariant: SyncVariantTokenizer = rejectSpecialTokenSyntax
+  const guardedTokenizeVariant: SyncVariantTokenizer = rules.rejectSpecialTokenSyntax
     ? (text) => (SPECIAL_TOKEN_SYNTAX.test(text) ? { kind: "unencodable" } : tokenizeVariant(text))
     : tokenizeVariant;
   // Collapsed from five separate `isNative` branches to two (issue #311
@@ -286,19 +285,29 @@ export function resolveSamplingLogitBias(
   // already-tested mechanism every other collision goes through, instead of
   // a second, hand-rolled copy that could quietly disagree with the first
   // (which is exactly what happened: an earlier version's own copy silently
-  // skipped every cross-scope case). `resolvedTokens`/`candidateVariants`
-  // are computed once here and threaded into both `nativeBannedStringWrites`
-  // and `classifyNativeBannedStrings` below (issue #311 review, third pass,
-  // finding N) — the two used to each rebuild their own copy of the
-  // collision predicate, `candidateVariants` included, on the save path's
-  // own five-second probe deadline. See `collidingPhraseBiasTokens`'s own
-  // comment for the full reasoning.
-  const resolvedTokens = isNative ? resolvedTokenIdsByIndex(phraseResolutions) : [];
-  const candidateVariants = isNative
-    ? sampling.phraseBias.map((candidate) => new Set(surfaceVariantTexts(candidate.phrase)))
+  // skipped every cross-scope case). `phraseCandidates` bundles each
+  // phraseBias entry's own resolved tokens and surface-variant texts, and
+  // `bannedStringCollisions` runs the collision scan itself exactly once
+  // per banned string — both computed here and passed as plain values into
+  // `nativeBannedStringWrites` and `classifyNativeBannedStrings` below
+  // (issue #311 review, third pass, finding N; round four found that fix
+  // incomplete — see `collidingPhraseBiasTokens`'s own comment for why the
+  // scan itself, not only the variant-set allocations, was still doubled).
+  const phraseCandidates: readonly SamplingBiasPhraseCandidate[] = isNative
+    ? sampling.phraseBias.map((entry, index): SamplingBiasPhraseCandidate => {
+        const resolution = phraseResolutions[index]!;
+        return {
+          entry,
+          variants: new Set(surfaceVariantTexts(entry.phrase)),
+          tokenIds: resolution.kind === "rejected" ? [] : resolution.tokenIds
+        };
+      })
+    : [];
+  const bannedStringCollisions: readonly (readonly (readonly number[])[])[] = isNative
+    ? sampling.bannedStrings.map((entry) => collidingPhraseBiasTokens(entry, phraseCandidates))
     : [];
   const nativeWrites = isNative
-    ? nativeBannedStringWrites(sampling.bannedStrings, sampling.phraseBias, candidateVariants, resolvedTokens)
+    ? nativeBannedStringWrites(sampling.bannedStrings, bannedStringCollisions)
     : [];
 
   // One ordered write list, scope-major then source-major within a scope
@@ -336,7 +345,7 @@ export function resolveSamplingLogitBias(
   const bannedStrings = bannedResolutions.map((resolution, index) =>
     settleTokenOwnership(resolution, tokenBannedStrings[index]!.weight, views));
   const nativeBannedStrings = isNative
-    ? classifyNativeBannedStrings(sampling.bannedStrings, sampling.phraseBias, candidateVariants, resolvedTokens, views)
+    ? classifyNativeBannedStrings(sampling.bannedStrings, bannedStringCollisions, views)
     : [];
 
   // A native banned string's borrowed writes exist only to decide who wins
@@ -376,31 +385,51 @@ export function resolveSamplingLogitBias(
   };
 }
 
+/** One phraseBias entry's own resolved tokens and surface-variant texts —
+ * everything `collidingPhraseBiasTokens` below needs about a candidate,
+ * bundled into one value, index-aligned with `sampling.phraseBias`, and
+ * built exactly once by `resolveSamplingLogitBias` above. `tokenIds` is
+ * empty for a "rejected" entry, which never tokenized at all and so has
+ * none to lend a colliding native banned string. */
+interface SamplingBiasPhraseCandidate {
+  readonly entry: ScopedSamplingBiasEntry;
+  readonly variants: ReadonlySet<string>;
+  readonly tokenIds: readonly number[];
+}
+
 /**
- * Every phraseBias entry a native banned string is contesting, with the real
- * tokens borrowed from each — the one predicate `nativeBannedStringWrites`
- * and `classifyNativeBannedStrings` below both derive from (issue #311
- * review, third pass, finding N): the two used to each carry their own copy
- * of this exact loop, and nothing tied them together — precisely the "second
- * hand-rolled copy that can quietly disagree with the first" this round's
- * whole rework exists to eliminate; a same-scope-only earlier version of
- * this predicate is exactly what shipped the round-two cross-scope bug.
+ * Every real token id a native banned string is contesting, borrowed from
+ * whichever phraseBias candidates it textually collides with — the one
+ * predicate `nativeBannedStringWrites` and `classifyNativeBannedStrings`
+ * below both derive from (issue #311 review, third pass, finding N): the
+ * two used to each carry their own copy of this exact loop, and nothing
+ * tied them together — precisely the "second hand-rolled copy that can
+ * quietly disagree with the first" this round's whole rework exists to
+ * eliminate; a same-scope-only earlier version of this predicate is exactly
+ * what shipped the round-two cross-scope bug.
+ *
+ * `resolveSamplingLogitBias` above calls this once per banned string and
+ * passes the result — index-aligned with `sampling.bannedStrings` — to both
+ * callers, rather than each caller calling this once per banned string on
+ * its own (issue #311 review, round four, finding N found the first fix
+ * incomplete): finding N's original pass hoisted `candidateVariants` and
+ * `resolvedTokens` out of the inner loop so neither caller rebuilt a
+ * phraseBias entry's four surface-variant strings per banned string, but
+ * `nativeBannedStringWrites` and `classifyNativeBannedStrings` still each
+ * called this function once per banned string independently — the
+ * collision *scan* itself, not only the string allocations it used to
+ * repeat, was still doubled. Also dropped the returned `candidate` field an
+ * earlier shape carried alongside `tokenIds` — neither caller ever read it,
+ * only `tokenIds`, so returning bare token-id arrays here removes a field
+ * that existed for no reader.
  *
  * A collision is literal-text overlap between both entries' own four
  * surface variants — the only identity a native banned string has to
- * compare with, since it never resolves a token of its own.
- * `candidateVariants` is `phraseBias`'s own variant sets, index-aligned,
- * computed once by the caller and passed in rather than rebuilt here per
- * banned string (also finding N): this runs on the settings-save path's own
- * five-second probe deadline, and a phraseBias entry's four surface-variant
- * strings do not depend on which banned string is asking — an inner-loop
- * rebuild here is O(bannedStrings × phraseBias) string allocations for a
- * value that is the same every time.
- *
- * Restricted to phraseBias entries that actually resolved to real tokens: a
- * phrase that never tokenized (`rejected`) already blocks the resolution on
- * its own account and contests no real token here to collide over. Skips a
- * pair whose weights already agree (finding H): both bannedStrings' fixed
+ * compare with, since it never resolves a token of its own. Restricted to
+ * phraseBias entries that actually resolved to real tokens: a phrase that
+ * never tokenized (`rejected`) already blocks the resolution on its own
+ * account and contests no real token here to collide over. Skips a pair
+ * whose weights already agree (finding H): both bannedStrings' fixed
  * minimum weight and a phraseBias entry's own configured weight happening
  * to coincide is not a contradiction — `settleTokenOwnership` never flags
  * mere agreement as a conflict, and writing an identical weight again would
@@ -409,20 +438,15 @@ export function resolveSamplingLogitBias(
  */
 function collidingPhraseBiasTokens(
   entry: ScopedSamplingBiasEntry,
-  phraseBias: readonly ScopedSamplingBiasEntry[],
-  candidateVariants: readonly ReadonlySet<string>[],
-  resolvedTokens: readonly (readonly number[])[]
-): readonly { readonly candidate: ScopedSamplingBiasEntry; readonly tokenIds: readonly number[] }[] {
+  candidates: readonly SamplingBiasPhraseCandidate[]
+): readonly (readonly number[])[] {
   const entryVariants = surfaceVariantTexts(entry.phrase);
-  const collisions: { readonly candidate: ScopedSamplingBiasEntry; readonly tokenIds: readonly number[] }[] = [];
-  phraseBias.forEach((candidate, index) => {
-    if (candidate.weight === entry.weight) return;
-    const tokenIds = resolvedTokens[index]!;
-    if (tokenIds.length === 0) return;
-    const variants = candidateVariants[index]!;
-    if (!entryVariants.some((text) => variants.has(text))) return;
-    collisions.push({ candidate, tokenIds });
-  });
+  const collisions: (readonly number[])[] = [];
+  for (const candidate of candidates) {
+    if (candidate.entry.weight === entry.weight) continue;
+    if (candidate.tokenIds.length === 0) continue;
+    if (entryVariants.some((text) => candidate.variants.has(text))) collisions.push(candidate.tokenIds);
+  }
   return collisions;
 }
 
@@ -431,7 +455,8 @@ function collidingPhraseBiasTokens(
  * (issue #311) is contesting — issue #311 review, third pass, findings G/H.
  * A native banned string never tokenizes, so it has no real token of its
  * own; borrowing a colliding phraseBias entry's own resolved tokens
- * (`collidingPhraseBiasTokens` above) is what lets
+ * (`collidingPhraseBiasTokens`'s precomputed result, `collisionsByBannedString`,
+ * index-aligned with `bannedStrings`) is what lets
  * `collectOwnership`/`settleTokenOwnership` — already exhaustively tested
  * for scope-major precedence, same-scope-versus-cross-scope, and weight
  * *agreement* never being a conflict — decide who wins exactly the way they
@@ -446,13 +471,11 @@ function collidingPhraseBiasTokens(
  */
 function nativeBannedStringWrites(
   bannedStrings: readonly ScopedSamplingBiasEntry[],
-  phraseBias: readonly ScopedSamplingBiasEntry[],
-  candidateVariants: readonly ReadonlySet<string>[],
-  resolvedTokens: readonly (readonly number[])[]
+  collisionsByBannedString: readonly (readonly (readonly number[])[])[]
 ): readonly SamplingBiasWrite[] {
   const writes: SamplingBiasWrite[] = [];
-  for (const entry of bannedStrings) {
-    for (const { tokenIds } of collidingPhraseBiasTokens(entry, phraseBias, candidateVariants, resolvedTokens)) {
+  bannedStrings.forEach((entry, index) => {
+    for (const tokenIds of collisionsByBannedString[index]!) {
       for (const tokenId of tokenIds) {
         writes.push({
           tokenId,
@@ -462,7 +485,7 @@ function nativeBannedStringWrites(
         });
       }
     }
-  }
+  });
   return writes;
 }
 
@@ -493,14 +516,12 @@ function nativeBannedStringWrites(
  */
 function classifyNativeBannedStrings(
   bannedStrings: readonly ScopedSamplingBiasEntry[],
-  phraseBias: readonly ScopedSamplingBiasEntry[],
-  candidateVariants: readonly ReadonlySet<string>[],
-  resolvedTokens: readonly (readonly number[])[],
+  collisionsByBannedString: readonly (readonly (readonly number[])[])[],
   views: SamplingBiasOwnershipViews
 ): readonly SamplingBiasNativeBannedStringResolution[] {
-  return bannedStrings.map((entry): SamplingBiasNativeBannedStringResolution => {
+  return bannedStrings.map((entry, index): SamplingBiasNativeBannedStringResolution => {
     const borrowedTokens = new Set<number>();
-    for (const { tokenIds } of collidingPhraseBiasTokens(entry, phraseBias, candidateVariants, resolvedTokens)) {
+    for (const tokenIds of collisionsByBannedString[index]!) {
       for (const tokenId of tokenIds) borrowedTokens.add(tokenId);
     }
     if (borrowedTokens.size === 0) return { kind: "native", phrase: entry.phrase, scope: entry.scope };
@@ -511,17 +532,6 @@ function classifyNativeBannedStrings(
       ? { kind: "blocked", phrase: entry.phrase, scope: entry.scope, conflict }
       : { kind: "overridden", phrase: entry.phrase, scope: entry.scope, conflict };
   });
-}
-
-/** Every phraseBias entry's own resolved token IDs, indexed the same way
- * `phraseResolutions` is — empty for a "rejected" entry, which never
- * tokenized at all and so has none to lend a colliding native banned string
- * (`nativeBannedStringWrites`/`classifyNativeBannedStrings` above, issue
- * #311 review, third pass). */
-function resolvedTokenIdsByIndex(
-  phraseResolutions: readonly SamplingBiasEntryResolution[]
-): readonly (readonly number[])[] {
-  return phraseResolutions.map((resolution) => (resolution.kind === "rejected" ? [] : resolution.tokenIds));
 }
 
 function surfaceVariantTexts(phrase: string): readonly string[] {
@@ -879,20 +889,36 @@ export async function resolveSamplingBiasForSettings(
  * llama.cpp and KoboldCpp both resolve phraseBias by asking that server to
  * tokenize, live, once per distinct surface-variant text
  * (`liveProbeVariantTokenizer` below) instead of trusting a reported model
- * name — the one thing that makes them a shared branch at all. They differ
- * in exactly two respects, both captured here rather than duplicated:
+ * name — the one thing that makes them a shared branch at all. `rules`
+ * (`samplingBiasPresetRules`, shared/sampling-phrase-resolution.ts) is where
+ * every respect they differ in is captured, computed once here from
+ * `preset` and read wherever this function or `resolveSamplingLogitBias`
+ * needs one of those differences, rather than duplicated:
  *
- * - Which endpoint answers (`probeLlamaCppTokenize` vs. the KoboldCpp probe
- *   `koboldCppLiveTokenizeProbe` below builds, prefix-calibrated per issue
- *   #311's original finding — see that function's own comment).
- * - `bannedStringsTransportForPreset` (shared/sampling-phrase-resolution.ts):
- *   llama.cpp documents no native banned-string field, so its bannedStrings
- *   resolves through the exact same token-ID merge phraseBias does
- *   ("token"). KoboldCpp's `banned_tokens` takes literal phrase text and
- *   needs no tokenizer at all ("native") — pushed into `resolveSamplingLogitBias`
- *   itself (issue #311, second pass, finding D), not applied to its output
- *   the way an earlier version of this function did, so `probeInput` below
- *   only has to decide what to *probe*, never what to report.
+ * - Which endpoint answers: `rules.serializeLiveProbe` chooses between the
+ *   KoboldCpp probe `koboldCppLiveTokenizeProbe` below builds
+ *   (prefix-calibrated per issue #311's original finding — see that
+ *   function's own comment — and, per issue #311 review round five,
+ *   serialized per server against KoboldCpp's own shared tokenize buffer,
+ *   see `withKoboldCppTokenCountLock`, server/context-probe.ts) and
+ *   `probeLlamaCppTokenize`, which needs neither.
+ * - `rules.bannedStringsTransport`: llama.cpp documents no native
+ *   banned-string field, so its bannedStrings resolves through the exact
+ *   same token-ID merge phraseBias does ("token"). KoboldCpp's
+ *   `banned_tokens` takes literal phrase text and needs no tokenizer at all
+ *   ("native") — pushed into `resolveSamplingLogitBias` itself (issue #311,
+ *   second pass, finding D), not applied to its output the way an earlier
+ *   version of this function did, so `probeInput` below only has to decide
+ *   what to *probe*, never what to report.
+ * - `rules.rejectSpecialTokenSyntax`: KoboldCpp only — see
+ *   `SPECIAL_TOKEN_SYNTAX`'s own comment for why llama.cpp needs no
+ *   equivalent guard: its own probe already asks the documented
+ *   `parse_special: false` and gets a verified answer. Passed through to
+ *   `resolveSamplingLogitBias` itself, not applied here (issue #311 review,
+ *   third pass, finding M) — that is the one merge function demo mode's own
+ *   preview also calls, so a preset-derived rule enforced there, not inside
+ *   the live-probe layer demo never reaches, is what lets demo inherit it
+ *   automatically instead of missing it a fourth time.
  *
  * A writer who configured only bannedStrings on KoboldCpp must not have
  * their request blocked by an unreachable server that a text-only ban never
@@ -906,30 +932,21 @@ async function resolveWithLiveProbe(
   settings: GenerationSettings,
   signal: AbortSignal | undefined
 ): Promise<SamplingBiasResolutionResult> {
-  const bannedStringsTransport = bannedStringsTransportForPreset(preset);
-  // KoboldCpp only — see `SPECIAL_TOKEN_SYNTAX`'s own comment for why
-  // llama.cpp needs no equivalent guard: its own probe already asks the
-  // documented `parse_special: false` and gets a verified answer. Passed
-  // through to `resolveSamplingLogitBias` itself, not applied here (issue
-  // #311 review, third pass, finding M) — that is the one merge function
-  // demo mode's own preview also calls, so a preset-derived rule enforced
-  // there, not inside the live-probe layer demo never reaches, is what lets
-  // demo inherit it automatically instead of missing it a fourth time.
-  const rejectSpecialTokenSyntax = phraseBiasSpecialTokenGuardForPreset(preset);
-  const probeInput: SamplingBiasMergeInput = bannedStringsTransport === "native"
+  const rules = samplingBiasPresetRules(preset);
+  const probeInput: SamplingBiasMergeInput = rules.bannedStringsTransport === "native"
     ? { ...combined, bannedStrings: [] }
     : combined;
   if (probeInput.phraseBias.length === 0 && probeInput.bannedStrings.length === 0) {
-    return resolveSamplingLogitBias(combined, neverCalledTokenizer, bannedStringsTransport, rejectSpecialTokenSyntax);
+    return resolveSamplingLogitBias(combined, neverCalledTokenizer, rules);
   }
-  const probe = preset === "koboldcpp"
+  const probe = rules.serializeLiveProbe
     ? await koboldCppLiveTokenizeProbe(settings, signal)
     : probeLlamaCppTokenize;
   if (typeof probe !== "function") return { kind: "tokenizer-unavailable", cause: probe };
   const tokenizer = await liveProbeVariantTokenizer(probeInput, probe, settings, signal);
   return tokenizer === null
     ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
-    : resolveSamplingLogitBias(combined, tokenizer, bannedStringsTransport, rejectSpecialTokenSyntax);
+    : resolveSamplingLogitBias(combined, tokenizer, rules);
 }
 
 /**

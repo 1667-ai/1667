@@ -253,7 +253,7 @@ function isSamplingScalarKnob(knob: SamplingKnobV2): knob is SamplingScalarKnobV
  * KoboldCpp's own `banned_tokens` field instead of being tokenized into
  * `logitBias`. Empty on every other preset: `nativeBannedStrings` is filled
  * only by that one transport, itself reachable only on KoboldCpp
- * (`bannedStringsTransportForPreset`, shared/sampling-phrase-resolution.ts)
+ * (`samplingBiasPresetRules`, shared/sampling-phrase-resolution.ts)
  * — a native `bannedStrings` entry on any other preset is not a runtime
  * state this field can even represent, let alone reach the wire under the
  * wrong field name (issue #311 review, second pass, finding A). */
