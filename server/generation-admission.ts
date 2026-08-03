@@ -1,7 +1,6 @@
 import {
   admitFactsWith,
   selectFactsForFixedContext,
-  upperBoundTokens,
   type FixedContextAdmission,
   type FixedContextSettings
 } from "../shared/fact-admission.js";
@@ -31,12 +30,9 @@ export function assertFixedContextFits(
   if (selection.fits) {
     return { facts: selection.facts, factsMessage: selection.factsMessage, dropped: selection.dropped };
   }
-  const notePresent = authorsNote !== null && authorsNote.trim().length > 0;
-  const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
-  const factsTokens = selection.factsMessage === null ? 0 : upperBoundTokens(selection.factsMessage);
   const usable = selection.usableTokens ?? 0;
   const fixed = selection.fixedTokens;
-  if (noteCost > factsTokens) {
+  if (selection.noteExceedsFacts) {
     throw new ServiceError(
       400,
       `The Author's Note is too large for the model's context window ` +

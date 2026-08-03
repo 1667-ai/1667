@@ -16,7 +16,7 @@ import type { GenerationSettings, StoryFact } from "./types.js";
  */
 
 /** Conservative token bound for fixed prompt text. */
-export function upperBoundTokens(text: string): number {
+function upperBoundTokens(text: string): number {
   let ascii = 0;
   let wide = 0;
   for (const char of text) {
@@ -72,6 +72,13 @@ export interface FixedContextSelection extends FixedContextAdmission {
    *  shedding — zero here is a different situation from "shed everything and
    *  still over": there was nothing this pass could have done. */
   readonly droppableCount: number;
+  /** True when the Author's Note costs more than the returned Facts message,
+   *  by the same estimator this selection already measured both with. Only
+   *  meaningful when `fits` is false: `assertFixedContextFits`
+   *  (server/generation-admission.ts) reads it to name the Author's Note
+   *  rather than the Facts in its error, without re-measuring either text
+   *  itself. False (and unread) in every branch where `fits` is true. */
+  readonly noteExceedsFacts: boolean;
 }
 
 /**
@@ -115,7 +122,7 @@ export function selectFactsForFixedContext(
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
       fits: true, fixedTokens: fixedContextTokens(initialMessage, authorsNote, otherFixed),
-      usableTokens: null, droppableCount
+      usableTokens: null, droppableCount, noteExceedsFacts: false
     };
   }
   const usable = settings.contextWindow - settings.maxTokens;
@@ -123,7 +130,7 @@ export function selectFactsForFixedContext(
   if (initialFixed <= usable) {
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
-      fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount
+      fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount, noteExceedsFacts: false
     };
   }
 
@@ -161,9 +168,16 @@ export function selectFactsForFixedContext(
     .map((fact) => ({ factId: fact.id, reason: "priority" }));
   const factsMessage = formatFactsMessage(kept);
   const fixed = fixedContextTokens(factsMessage, authorsNote, otherFixed);
+  // Only computed once shedding still leaves the prompt over budget: which of
+  // the Author's Note or the Facts message costs more decides which one a
+  // still-over-budget error blames (assertFixedContextFits,
+  // server/generation-admission.ts).
+  const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
+  const factsCost = factsMessage === null ? 0 : upperBoundTokens(factsMessage);
   return {
     facts: kept, factsMessage, dropped: [...ownCapDrops, ...spaceDrops],
-    fits: fixed <= usable, fixedTokens: fixed, usableTokens: usable, droppableCount
+    fits: fixed <= usable, fixedTokens: fixed, usableTokens: usable, droppableCount,
+    noteExceedsFacts: noteCost > factsCost
   };
 }
 
