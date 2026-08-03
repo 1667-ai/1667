@@ -19,13 +19,14 @@ import {
   parseManifest,
   serializeManifest,
   validateNodeAttribution,
+  validateNodeRewrittenSpans,
   type ObjectHash,
   type StoredFactV1,
   type StoredNodeV1,
   type StoryManifestV5,
   type TextRevisionV1
 } from "./story-format.js";
-import { cloneAttribution } from "./story-format-nodes.js";
+import { cloneAttribution, cloneRewrittenSpans } from "./story-format-nodes.js";
 import { createStoryReadCache, StoryObjectStore } from "./story-objects.js";
 import {
   attachStoredNodeText,
@@ -77,7 +78,10 @@ export async function encodeStoryBundle(
   const phraseBias = optionalPhraseBias(story.phraseBias);
   const bannedStrings = optionalBannedStrings(story.bannedStrings);
   validateFactBodies(story.facts);
-  for (const node of story.nodes) if (isNodeTextHydrated(node)) validateNodeAttribution(node);
+  for (const node of story.nodes) if (isNodeTextHydrated(node)) {
+    validateNodeAttribution(node);
+    validateNodeRewrittenSpans(node);
+  }
   await objects.init();
   const revisionIds: Array<ObjectHash | undefined> = story.nodes.map((node) =>
     reusableStoredRevisionId(node) ?? reusableRevisionId(snapshot, node.id, node.text)
@@ -108,6 +112,7 @@ export async function encodeStoryBundle(
     ...(node.human === undefined ? {} : { human: node.human }),
     revisionId: requireEncodedRevision(revisionIds[index], node.id),
     ...(node.attribution === undefined ? {} : { attribution: cloneAttribution(node.attribution) }),
+    ...(node.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(node.rewrittenSpans) }),
     activeChildId: node.activeChildId
   }));
   const factRevisionIds = await objects.storeTexts(story.facts.map((fact) => fact.text), reuseFrom);
@@ -193,6 +198,7 @@ export async function decodeStoryBundle(
       createdAt: stored.createdAt,
       ...(stored.updatedAt === undefined ? {} : { updatedAt: stored.updatedAt }),
       ...(stored.attribution === undefined ? {} : { attribution: cloneAttribution(stored.attribution) }),
+      ...(stored.rewrittenSpans === undefined ? {} : { rewrittenSpans: cloneRewrittenSpans(stored.rewrittenSpans) }),
       ...(stored.human === undefined ? {} : { human: stored.human }),
       ...(stored.genId === undefined ? {} : { genId: stored.genId }),
       ...(stored.role === undefined ? {} : { role: stored.role }),
@@ -203,7 +209,10 @@ export async function decodeStoryBundle(
       activeChildId: stored.activeChildId
     };
     attachStoredNodeText(node, stored, text);
-    if (text !== null) validateNodeAttribution(node);
+    if (text !== null) {
+      validateNodeAttribution(node);
+      validateNodeRewrittenSpans(node);
+    }
     return node;
   });
   let cursor = revisionNodes.length;
@@ -286,6 +295,7 @@ export async function hydrateStoryNodes(story: Story, nodeIds: readonly string[]
   for (const [index, { node }] of targets.entries()) {
     hydrateStoredNodeText(node, texts[index]!);
     validateNodeAttribution(node);
+    validateNodeRewrittenSpans(node);
   }
 }
 

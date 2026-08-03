@@ -111,6 +111,9 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     invalidNestedV5("v5-unknown-range-key", richV5, (copy) => {
       copy.nodes[0]!.attribution!.ranges[0]!.surprise = true;
     }),
+    invalidNestedV5("v5-unknown-rewritten-span-key", richV5, (copy) => {
+      copy.nodes[0]!.rewrittenSpans![0]!.surprise = true;
+    }),
     invalidNestedV5("v5-unknown-extent-key", richV5, (copy) => {
       copy.nodes[1]!.coveredExtent!.surprise = true;
     }),
@@ -302,6 +305,7 @@ interface RichNodeFixture extends Record<string, unknown> {
     deletedCharacters?: number;
     surprise?: boolean;
   };
+  rewrittenSpans?: Array<Record<string, unknown>>;
   coveredExtent?: Record<string, unknown>;
 }
 
@@ -332,7 +336,8 @@ function richV5Manifest(): RichV5Fixture {
       genId: "generation-one",
       rewriteId: "rewrite-one",
       human: true,
-      attribution: { source: "human", ranges: [{ start: 0, end: 1 }], deletedCharacters: 1 }
+      attribution: { source: "human", ranges: [{ start: 0, end: 1 }], deletedCharacters: 1 },
+      rewrittenSpans: [{ start: 2, end: 4 }]
     }, {
       ...storedNode(),
       id: "summary",

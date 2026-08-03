@@ -605,7 +605,10 @@ describe("demo action pipeline", () => {
     const composeFrame = frameText(renderStoryScreen(state, { width: 100, height: 30 }).lines);
     expect(composeFrame).toContain("REWRITE");
     expect(composeFrame).not.toContain("RETAKE");
-    expect(composeFrame).toContain("enter rewrites this passage");
+    // Issue #319: the footer must name both destinations, since the second
+    // key (⌃s) has no other way to be discovered.
+    expect(composeFrame).toContain("enter rewrites in place");
+    expect(composeFrame).toContain("⌃s as take");
   });
 
   test("canceling a prompted retake restores the exact hidden Direct composer", async () => {

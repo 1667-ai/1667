@@ -32,7 +32,7 @@ import { resolveLogKey } from "./notice-log.js";
 export type KeyAction =
   | "focus-next" | "focus-previous" | "take-next" | "take-previous" | "take-at"
   | "undo" | "top" | "leaf" | "toggle-instructions" | "toggle-prompt" | "compose"
-  | "cancel" | "quit" | "send" | "newline" | "history-previous"
+  | "cancel" | "quit" | "send" | "send-as-take" | "newline" | "history-previous"
   | "save-edit" | "save-edit-inplace" | "commit-field"
   | "history-next" | "backspace" | "input" | "none" | "open-map"
   | "cycle-map-view" | "toggle-path-takes" | "toggle-sketches" | "map-follow" | "map-cycle-sort"
@@ -394,6 +394,14 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     const composeChord = resolveReferenceBinding("compose-chord", key, mode, mapView);
     if (composeChord !== null) return { action: composeChord.action };
     if (key.ctrl && key.name.toLowerCase() === "f") return { action: "toggle-compose-fullscreen" };
+    // The rewrite composer's second fixed destination (issue #319, and
+    // docs/generation-boundaries.md): plain `enter` always replaces in
+    // place, `⌃s` always sends the result as a new take instead — the exact
+    // key a manual edit already uses to fork a take (plain ctrl+s in
+    // EDITOR, above), just with the opposite default here. Outside a
+    // rewrite composer it resolves but does nothing (story-actions.ts's
+    // composeAction), same as an unbound chord elsewhere.
+    if (key.ctrl && key.name.toLowerCase() === "s") return { action: "send-as-take" };
     if (key.name === "return") return { action: key.shift ? "newline" : "send" };
     // LF / Ctrl+J inserts a line; it never sends the draft.
     if (isLinefeedKey(key)) return { action: "newline" };

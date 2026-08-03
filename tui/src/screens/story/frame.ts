@@ -8,7 +8,7 @@ export type LogoDisplayRole =
   | "logo red" | "logo orange" | "logo yellow" | "logo green"
   | "logo cyan" | "logo blue" | "logo violet";
 
-export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "danger text" | "context warning"
+export type DisplayRole = PaletteRole | "brass dim" | "human edit dim" | "rewritten" | "danger text" | "context warning"
   | "context voice" | "context facts" | "context recent" | "context summary" | "context note"
   | "context growth" | "context growth pulse" | "fresh 1" | "fresh 2"
   | "match wash" | "match ink"
@@ -358,6 +358,17 @@ export function fitLine(line: FrameLine, width: number): FrameLine {
 const ALIAS_COLOR: Record<DisplayAlias, (palette: Palette) => ColorInput> = {
   "brass dim": (palette) => palette.brassDim,
   "human edit dim": (palette) => palette.humanEditDim,
+  // A rewritten span (issue #319) marks provenance, not an alert, so it
+  // borrows a hue the theme already owns rather than minting a new one —
+  // the same call doc 12b's meter slices made. `tag · alt` reads as "a
+  // different kind of content" everywhere else it appears (an alt-status
+  // take, the Facts meter slice), which fits a passage with a different
+  // author than the prose around it, and every theme already keeps it clear
+  // of both `human edit` and `summary`. It does not vary with focus: like
+  // `summary`, it names a durable fact about the passage rather than the
+  // transient reading-position emphasis that dims the rest of an unfocused
+  // row, so a writer scrolled past it can still see the mark.
+  "rewritten": (palette) => palette.color("tag · alt"),
   "danger text": (palette) => palette.dangerText,
   "context warning": (palette) => palette.contextWarning,
   "context voice": (palette) => palette.color("human edit"),

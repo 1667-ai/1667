@@ -24,6 +24,9 @@ export interface StoryPart {
   isSummary: boolean;
   instruction: string;
   humanSpans: TextRange[];
+  /** Ranges of prose a rewrite replaced (issue #319) — parallel to
+   *  `humanSpans`, painted its own way (row-layout.ts). */
+  rewrittenSpans: TextRange[];
   words: number;
 }
 
@@ -178,6 +181,7 @@ function createParts(payload: StoryPayload): StoryPart[] {
       isSummary: node.role === "summary",
       instruction: node.instruction,
       humanSpans: node.attribution?.source === "human" ? node.attribution.ranges : [],
+      rewrittenSpans: node.rewrittenSpans ?? [],
       words: stub.words
     }];
   });

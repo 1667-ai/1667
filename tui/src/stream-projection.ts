@@ -1,5 +1,9 @@
 import { DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
-import { activeHumanAttribution, attributionAfterReplacement } from "../../shared/human-edit.js";
+import {
+  activeHumanAttribution,
+  attributionAfterReplacement,
+  rewrittenSpansAfterReplacement
+} from "../../shared/human-edit.js";
 import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
 import {
   appendContinuationText,
@@ -13,7 +17,8 @@ import {
   type HumanEditAttribution,
   type NodeStub,
   type StoryNode,
-  type StoryPayload
+  type StoryPayload,
+  type TextRange
 } from "../../shared/types.js";
 import type { StreamView } from "./state.js";
 import {
@@ -53,6 +58,9 @@ interface ProjectionEntry {
    *  and append: append only ever extends settled text (nothing earlier
    *  shifts), and a take starts from no attribution at all. */
   targetAttribution: HumanEditAttribution | null;
+  /** Same frozen-baseline treatment as `targetAttribution`, for the spans an
+   *  earlier rewrite left behind. Undefined for take and append. */
+  targetRewrittenSpans: readonly TextRange[] | undefined;
 }
 
 const PROJECTIONS = new WeakMap<StoryPayload, ProjectionEntry>();
@@ -101,7 +109,8 @@ export function projectedPart(payload: StoryPayload, stream: StreamView, target:
       text: spliceRewriteText(target.text, rewrite, replacement),
       attribution: attributionAfterReplacement(
         activeHumanAttribution(target), rewrite.start, rewrite.end, replacement.length, target.text.length
-      )
+      ),
+      rewrittenSpans: rewrittenSpansAfterReplacement(target.rewrittenSpans, rewrite.start, rewrite.end, replacement.length)
     };
   }
   return { ...target, text: appendContinuationText(target.text, stream.text) };
@@ -151,6 +160,9 @@ function refreshProjection(entry: ProjectionEntry, stream: StreamView, substanti
       entry.node.text = spliceRewriteText(entry.settledText, rewrite, replacement);
       entry.node.attribution = attributionAfterReplacement(
         entry.targetAttribution, rewrite.start, rewrite.end, replacement.length, entry.settledText.length
+      );
+      entry.node.rewrittenSpans = rewrittenSpansAfterReplacement(
+        entry.targetRewrittenSpans, rewrite.start, rewrite.end, replacement.length
       );
       entry.wordState = appendWordCount(WORD_COUNT_START, entry.node.text);
       entry.scannedLength = stream.text.length;
@@ -244,7 +256,7 @@ function takeProjection(payload: StoryPayload, stream: StreamView, text: string)
     recentNodeIds,
     activeRootId: stream.parentId === null ? stream.targetId : payload.activeRootId
   };
-  return projectionEntry(stream, "", wordState, projected, node, streamedStub, null);
+  return projectionEntry(stream, "", wordState, projected, node, streamedStub, null, undefined);
 }
 
 function appendProjection(payload: StoryPayload, stream: StreamView): ProjectionEntry | null {
@@ -271,7 +283,7 @@ function appendProjection(payload: StoryPayload, stream: StreamView): Projection
     return streamedStub;
   });
   const projected: StoryPayload = { ...payload, path, nodes };
-  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub, null);
+  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub, null, undefined);
 }
 
 /** The target keeps its id and path position; only its text changes, spliced
@@ -288,10 +300,12 @@ function rewriteProjection(payload: StoryPayload, stream: StreamView, text: stri
   const spliced = spliceRewriteText(target.text, rewrite, text);
   const wordState = appendWordCount(WORD_COUNT_START, spliced);
   const targetAttribution = activeHumanAttribution(target);
+  const targetRewrittenSpans = target.rewrittenSpans;
   const node: StoryNode = {
     ...target,
     text: spliced,
     attribution: attributionAfterReplacement(targetAttribution, rewrite.start, rewrite.end, text.length, target.text.length),
+    rewrittenSpans: rewrittenSpansAfterReplacement(targetRewrittenSpans, rewrite.start, rewrite.end, text.length),
     updatedAt: stream.startedAt
   };
   const path = payload.path.map((part, index) => index === targetIndex ? node : part);
@@ -306,7 +320,7 @@ function rewriteProjection(payload: StoryPayload, stream: StreamView, text: stri
     return streamedStub;
   });
   const projected: StoryPayload = { ...payload, path, nodes };
-  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub, targetAttribution);
+  return projectionEntry(stream, target.text, wordState, projected, node, streamedStub, targetAttribution, targetRewrittenSpans);
 }
 
 /** Splice the streamed replacement into settled text at the rewrite's
@@ -326,7 +340,8 @@ function projectionEntry(
   projected: StoryPayload,
   node: StoryNode,
   stub: NodeStub | null,
-  targetAttribution: HumanEditAttribution | null
+  targetAttribution: HumanEditAttribution | null,
+  targetRewrittenSpans: readonly TextRange[] | undefined
 ): ProjectionEntry {
   return {
     stream,
@@ -337,7 +352,8 @@ function projectionEntry(
     projected,
     node,
     stub,
-    targetAttribution
+    targetAttribution,
+    targetRewrittenSpans
   };
 }
 

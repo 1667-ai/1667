@@ -424,7 +424,19 @@ export async function composeAction(
   ) !== null) return;
   if (resolved.action === "history-previous") return historyMove(state, -1);
   if (resolved.action === "history-next") return historyMove(state, 1);
-  if (resolved.action === "send") {
+  if (resolved.action === "send" || resolved.action === "send-as-take") {
+    const retakePrompt = state.retakePrompt;
+    // Carries `retakePrompt` and its narrowed `intent` in one value instead
+    // of two separately-nullable ones — `rewriteIntent` alone told the
+    // compiler nothing about `retakePrompt`, which is exactly why the send
+    // call below used to need a `!` on it.
+    const rewriteSession = retakePrompt !== null && retakePrompt.intent.kind === "rewrite"
+      ? { prompt: retakePrompt, intent: retakePrompt.intent }
+      : null;
+    // The take-destination key (issue #319) only means something inside a
+    // rewrite composer; everywhere else in COMPOSE it resolves but is simply
+    // unbound, same as any other unadvertised chord — not worth a toast.
+    if (resolved.action === "send-as-take" && rewriteSession === null) return;
     if (generationBusy(state)) {
       state.toast = "stream running · esc stops it first · draft kept";
       return;
@@ -434,15 +446,17 @@ export async function composeAction(
       return;
     }
     const instruction = state.composer.text;
-    const retakePrompt = state.retakePrompt;
     // A rewrite composer targets a live text range, not a node to retake or
     // continue: it must re-resolve that range against the current payload
     // (the story may have moved while it sat open) and calls a differently
     // shaped API (start/end/expected, not parentId/regenerateNode). That
     // belongs beside the operation it drives — rewrite-action.ts — rather
     // than widening `generate()`'s already-branchy retake/direct path.
-    if (retakePrompt !== null && retakePrompt.intent.kind === "rewrite") {
-      await submitRewriteComposer(state, source, context, retakePrompt, retakePrompt.intent, instruction);
+    if (rewriteSession !== null) {
+      await submitRewriteComposer(
+        state, source, context, rewriteSession.prompt, rewriteSession.intent, instruction,
+        resolved.action === "send-as-take" ? "take" : undefined
+      );
       return;
     }
     const retakeNode = retakePrompt === null

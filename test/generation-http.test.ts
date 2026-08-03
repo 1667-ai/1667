@@ -346,7 +346,7 @@ providerTest("generation HTTP: aborting a continuation does not commit a full ta
   assert.equal(saved.path.some((node) => node.genId === "abort-mid-stream"), false);
 });
 
-providerTest("generation HTTP: rewrite commits as a new take and keeps the source reachable as a sibling", async (t) => {
+providerTest("generation HTTP: rewrite replaces in place by default, adds no node, and records a rewritten span", async (t) => {
   const model = await fakeModel(t, (body, response) => {
     const messages = body.messages as Array<{ content: string }>;
     assert.match(messages.at(-1)!.content, /<rw-[a-f0-9]+-excerpt>/);
@@ -359,6 +359,43 @@ providerTest("generation HTTP: rewrite commits as a new take and keeps the sourc
   const start = root.text.indexOf("red");
   const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${root.id}/rewrite`, post({
     start, end: start + 3, instruction: "Change the color.", expected: "red"
+    // destination absent: in-place is the default.
+  }));
+  const events = await response.text();
+  assert.match(events, /"type":"done"/);
+  const nodeId = /"type":"done","nodeId":"([^"]+)"/.exec(events)?.[1];
+  // The operation answers the target's own id, not a new take's.
+  assert.equal(nodeId, root.id);
+
+  const saved = await getStory(base, story.id);
+  // No sibling take: the story keeps exactly the two nodes it started with,
+  // and the child written under the source stays on the active line — the
+  // whole point of replacing in place instead of forking.
+  assert.equal(saved.nodes.length, 2);
+  assert.equal(saved.path.length, 2);
+  assert.equal(saved.path[0]!.id, root.id);
+  assert.equal(saved.path[0]!.text, "The blue door opened.");
+  assert.equal(saved.path[1]!.text, "Dawn followed.");
+  // An in-place splice touches updatedAt — unlike a freshly created take.
+  assert.ok(saved.path[0]!.updatedAt);
+  // The replacement itself is recorded as a rewritten span.
+  const replacedAt = saved.path[0]!.text.indexOf("blue");
+  assert.deepEqual(saved.path[0]!.rewrittenSpans, [{ start: replacedAt, end: replacedAt + "blue".length }]);
+});
+
+providerTest("generation HTTP: rewrite opts into a new take and keeps the source reachable as a sibling", async (t) => {
+  const model = await fakeModel(t, (body, response) => {
+    const messages = body.messages as Array<{ content: string }>;
+    assert.match(messages.at(-1)!.content, /<rw-[a-f0-9]+-excerpt>/);
+    stream(response, ["blue"]);
+  });
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  let story = await seededStory(base, "The red door opened.");
+  const root = story.path[0]!;
+  story = await json(`${base}/api/stories/${story.id}/nodes`, post({ parentId: root.id, text: "Dawn followed." }));
+  const start = root.text.indexOf("red");
+  const response = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${root.id}/rewrite`, post({
+    start, end: start + 3, instruction: "Change the color.", expected: "red", destination: "take"
   }));
   const events = await response.text();
   assert.match(events, /"type":"done"/);
@@ -378,6 +415,46 @@ providerTest("generation HTTP: rewrite commits as a new take and keeps the sourc
   assert.equal(saved.path[0]!.updatedAt, undefined);
   const source = saved.nodes.find((node) => node.id === root.id);
   assert.equal(source?.preview, "The red door opened.");
+});
+
+providerTest("generation HTTP: a later human edit moves a rewritten span, and writing over it reclaims that prose as human", async (t) => {
+  const model = await fakeModel(t, (_body, response) => stream(response, ["crimson"]));
+  const base = await testApp(t, modelSettings(model.baseUrl));
+  const story = await seededStory(base, "The red door opened. Quiet followed.");
+  const root = story.path[0]!;
+  const start = root.text.indexOf("red");
+  const rewrite = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${root.id}/rewrite`, post({
+    start, end: start + "red".length, instruction: "Pick a richer color.", expected: "red"
+  }));
+  assert.match(await rewrite.text(), /"type":"done"/);
+  let saved = await getStory(base, story.id);
+  const rewrittenWord = "crimson";
+  let spanStart = saved.path[0]!.text.indexOf(rewrittenWord);
+  assert.deepEqual(saved.path[0]!.rewrittenSpans, [{ start: spanStart, end: spanStart + rewrittenWord.length }]);
+
+  // An edit earlier in the text shifts the span exactly as it shifts a
+  // human span, without touching the model's word.
+  const prefixed = `Well, ${saved.path[0]!.text}`;
+  saved = await json(`${base}/api/stories/${story.id}/nodes/${root.id}`, {
+    method: "PATCH",
+    headers: { ...API_PROTOCOL_HEADERS, "content-type": "application/json" },
+    body: JSON.stringify({ text: prefixed, expectedTextHash: sha256(saved.path[0]!.text) })
+  });
+  spanStart = saved.path[0]!.text.indexOf(rewrittenWord);
+  assert.deepEqual(saved.path[0]!.rewrittenSpans, [{ start: spanStart, end: spanStart + rewrittenWord.length }]);
+
+  // Writing over the rewritten word reclaims it as human and clears the span.
+  const reclaimed = saved.path[0]!.text.replace(rewrittenWord, "green");
+  saved = await json(`${base}/api/stories/${story.id}/nodes/${root.id}`, {
+    method: "PATCH",
+    headers: { ...API_PROTOCOL_HEADERS, "content-type": "application/json" },
+    body: JSON.stringify({ text: reclaimed, expectedTextHash: sha256(saved.path[0]!.text) })
+  });
+  assert.equal(saved.path[0]!.rewrittenSpans, undefined);
+  assert.equal(saved.path[0]!.attribution?.source, "human");
+  assert.ok(saved.path[0]!.attribution!.ranges.some(
+    (range) => saved.path[0]!.text.slice(range.start, range.end) === "green"
+  ));
 });
 
 providerTest("generation HTTP: rewrite Fact selection scans through the target, not the active-line tail", async (t) => {
@@ -435,7 +512,7 @@ providerTest("generation HTTP: instructed passage rewrite preserves both semanti
   assert.equal(saved.path[0]!.text, "Before, storm-dark rain crossed the stones. Dawn followed.");
 });
 
-providerTest("generation HTTP: rewrite of a summary node commits as a new summary take", async (t) => {
+providerTest("generation HTTP: an opt-in rewrite of a summary node commits as a new summary take", async (t) => {
   const base = await testApp(t, ABSENT_SETTINGS_V1);
   const story = await seededStory(base, "Opening.");
   const summaryResponse = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/summary-take`, post({ nodeId: story.path[0]!.id }));
@@ -447,8 +524,11 @@ providerTest("generation HTTP: rewrite of a summary node commits as a new summar
   assert.equal(summary.role, "summary");
 
   const expected = summary.text.slice(0, 5);
+  // A plain inline summary is not a chapter summary, so it still needs the
+  // opt-in to see the take path at all — the default is in-place like
+  // everything else.
   const rewrite = await fetchWithApiProtocol(`${base}/api/stories/${story.id}/nodes/${summary.id}/rewrite`, post({
-    start: 0, end: expected.length, expected, instruction: "Reword the heading."
+    start: 0, end: expected.length, expected, instruction: "Reword the heading.", destination: "take"
   }));
   const rewriteEvents = await rewrite.text();
   assert.match(rewriteEvents, /"type":"done"/);

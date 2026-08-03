@@ -22,11 +22,19 @@ withholds that suffix. A missing required anchor rejects the generation and keep
 the original passage unchanged.
 
 Boundary whitespace stays owned by the original selection. Only generated prose
-between the verified anchors replaces the selection. 1667 saves the result as
-a new take next to the original take. The original take keeps its
-descendant takes. The new take has none. The story line then runs through
-the new take instead. For example: a rewrite in story part 12 of a 30-part
-story removes story parts 13 through 30 from the story line.
+between the verified anchors replaces the selection. By default, 1667 replaces
+the selection in the current take. The story line and its later story parts
+stay in place.
+
+The writer can ask for a new take instead. The rewrite composer has a second
+key for this request. It is the same key a manual edit uses to fork a take.
+The new take starts next to the original take. The original take keeps its
+descendant takes. The new take has none. The story line then runs through the
+new take instead. For example: an opt-in rewrite in story part 12 of a
+30-part story removes story parts 13 through 30 from the story line.
+
+1667 records the range of prose that a rewrite replaced as a rewritten span
+on the story part. See [Technical terms](technical-terms.md) for this term.
 
 A writer cannot rewrite a chapter summary. A chapter summary is not part of
 the active story line, so this operation cannot reach it.
