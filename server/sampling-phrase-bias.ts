@@ -249,28 +249,11 @@ export function resolveSamplingLogitBias(
     ...scopedWrites("story", "bannedStrings", sampling.bannedStrings, bannedResolutions)
   ];
 
-  const weightByToken: Record<string, number> = {};
-  const ownerByToken = new Map<number, SamplingBiasShadowOwner>();
-  const scopeWeightByToken: Record<SamplingBiasScope, Record<string, number>> = { profile: {}, story: {} };
-  const scopeOwnerByToken: Record<SamplingBiasScope, Map<number, SamplingBiasShadowOwner>> = {
-    profile: new Map(),
-    story: new Map()
-  };
-  for (const write of writes) {
-    const token = String(write.tokenId);
-    weightByToken[token] = write.weight;
-    ownerByToken.set(write.tokenId, write.owner);
-    scopeWeightByToken[write.scope][token] = write.weight;
-    scopeOwnerByToken[write.scope].set(write.tokenId, write.owner);
-  }
-
-  const views: SamplingBiasOwnershipViews = {
-    combined: { weightByToken, ownerByToken },
-    byScope: {
-      profile: { weightByToken: scopeWeightByToken.profile, ownerByToken: scopeOwnerByToken.profile },
-      story: { weightByToken: scopeWeightByToken.story, ownerByToken: scopeOwnerByToken.story }
-    }
-  };
+  // Built through the views themselves, not as four loose maps paired up
+  // afterwards: a hand-written pairing compiles just as happily when a
+  // scope's weights are matched with another scope's owners, which is the
+  // one mistake this shape exists to rule out.
+  const views = collectOwnership(writes);
 
   const phraseBias = phraseResolutions.map((resolution, index) =>
     settleTokenOwnership(resolution, sampling.phraseBias[index]!.weight, views));
@@ -279,10 +262,10 @@ export function resolveSamplingLogitBias(
 
   return {
     kind: "resolved",
-    logitBias: weightByToken,
+    logitBias: views.combined.weightByToken,
     phraseBias,
     bannedStrings,
-    resolvedEntryCount: Object.keys(weightByToken).length
+    resolvedEntryCount: Object.keys(views.combined.weightByToken).length
   };
 }
 
@@ -291,6 +274,26 @@ interface SamplingBiasWrite {
   readonly weight: number;
   readonly scope: SamplingBiasScope;
   readonly owner: SamplingBiasShadowOwner;
+}
+
+/** One pass over the ordered writes, filling the combined view and the
+ * writing scope's view together. Every view is filled by the same loop, so a
+ * weight and its owner can never come from different maps. */
+function collectOwnership(writes: readonly SamplingBiasWrite[]): SamplingBiasOwnershipViews {
+  interface OwnershipBuilder {
+    readonly weightByToken: Record<string, number>;
+    readonly ownerByToken: Map<number, SamplingBiasShadowOwner>;
+  }
+  const view = (): OwnershipBuilder => ({ weightByToken: {}, ownerByToken: new Map() });
+  const combined = view();
+  const byScope: Record<SamplingBiasScope, OwnershipBuilder> = { profile: view(), story: view() };
+  for (const write of writes) {
+    for (const target of [combined, byScope[write.scope]]) {
+      target.weightByToken[String(write.tokenId)] = write.weight;
+      target.ownerByToken.set(write.tokenId, write.owner);
+    }
+  }
+  return { combined, byScope };
 }
 
 /** A token's current weight and who owns it, read together — every place

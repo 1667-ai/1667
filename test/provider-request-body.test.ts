@@ -1066,7 +1066,7 @@ test("a story phrase-bias entry outranks a colliding profile numeric logitBias e
 // bug is 5 — the story writing the *same* weight the profile's own losing
 // entry already had. There, the cross-scope map's final value coincidentally
 // equals `ownWeight`, `conflicts` comes back empty, and the old code returned
-// early before ever consulting `scopeMerged` — silently dropping the real
+// early before ever consulting `views.byScope` — silently dropping the real
 // same-scope conflict. The loop below includes that exact value alongside
 // ordinary ones, so a future change that reopens the gate on any single
 // weight fails here, not just on 5.
