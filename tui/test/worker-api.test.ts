@@ -107,14 +107,29 @@ describe("embedded backend worker", () => {
       story = await api.patchFact(story.id, factId, {
         text: "The door is midnight blue.",
         activation: "always",
-        keys: ["midnight door", "blue door"]
+        keys: ["midnight door", "blue door"],
+        priority: "high",
+        budgetTokens: 500
       });
       expect(story.facts[0]).toMatchObject({
         text: "The door is midnight blue.",
         activation: "always",
-        keys: ["midnight door", "blue door"]
+        keys: ["midnight door", "blue door"],
+        priority: "high",
+        budgetTokens: 500
       });
+      story = await api.createFact(story.id, { text: "Second fact." });
+      const secondFactId = story.facts[1]!.id;
+      story = await api.reorderFact(story.id, secondFactId, 0);
+      expect(story.facts.map((fact) => fact.id)).toEqual([secondFactId, factId]);
+
+      story = await api.setFactsBudget(story.id, 4_000);
+      expect(story.factsBudgetTokens).toBe(4_000);
+      story = await api.setFactsBudget(story.id, null);
+      expect(story.factsBudgetTokens).toBe(undefined);
+
       story = await api.deleteFact(story.id, factId);
+      story = await api.deleteFact(story.id, secondFactId);
       expect(story.facts).toHaveLength(0);
 
       const createdBreak = await api.createChapterBreak(story.id, root.id, "Chapter Two");
@@ -147,9 +162,10 @@ describe("embedded backend worker", () => {
         (text) => deltas.push(text),
         new AbortController().signal
       );
-      expect(continued?.path.at(-1)?.genId).toBe("worker-continue");
+      expect(continued?.payload.path.at(-1)?.genId).toBe("worker-continue");
       expect(deltas.join("").length > 0).toBeTrue();
-      story = continued!;
+      expect(continued?.droppedFacts).toEqual([]);
+      story = continued!.payload;
 
       const rewriteDeltas: string[] = [];
       await api.rewriteNode(
@@ -361,7 +377,7 @@ describe("embedded backend worker", () => {
         { parentId: undefined, appendTo: leaf.id, expectedTextHash: await textHash(leaf.text) },
         () => {},
         new AbortController().signal
-      ))!;
+      ))!.payload;
       expect(story.path[0]!.text.length).toBeGreaterThan(leaf.text.length);
 
       story = await backend.api.createFact(story.id, { tag: "Place", text: "Old" });

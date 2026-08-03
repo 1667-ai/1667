@@ -7,12 +7,11 @@ import {
   undoComposerEditOwner,
   type ComposerState
 } from "./composer-model.js";
-import {
-  FactActivationError,
-  parseFactKeys
-} from "../../shared/fact-activation.js";
+import { FACT_PRIORITIES } from "../../shared/fact-activation.js";
 import { graphemeCells } from "./cell-width.js";
 import { wrappedComposerLayout } from "./composer-wrapping.js";
+import { factEditorTag } from "./fact-editor-draft.js";
+import { nextFactEditorRow, type FactEditorRow } from "./fact-editor-rows.js";
 import { factTagPresets } from "./facts-model.js";
 import type { ResolvedKey } from "./keys.js";
 import type { FactEditorSession, RuntimeState } from "./state.js";
@@ -22,7 +21,85 @@ export const FACT_EDITOR_FOOTER =
 export const FACT_TAG_COMPOSER_SOURCE = "fact-tag";
 export const FACT_ACTIVATION_COMPOSER_SOURCE = "fact-activation";
 export const FACT_KEYS_COMPOSER_SOURCE = "fact-keys";
+export const FACT_PRIORITY_COMPOSER_SOURCE = "fact-priority";
+export const FACT_BUDGET_COMPOSER_SOURCE = "fact-budget-tokens";
 export const FACT_BODY_COMPOSER_SOURCE = "fact-body";
+
+interface FactEditorRowSpec {
+  readonly row: FactEditorRow;
+  readonly sourceId: string;
+  /** A choice row has no text composer of its own — it borrows a neighbor's
+   *  buffer identity only for cut-confirmation and undo grouping, never for
+   *  actual text input, so a click there gets no composer to type into. Only
+   *  a "text" row is that buffer's real owner: focusing a "choice" row always
+   *  resets the buffer it borrows (see setFactEditorFocus), because a choice
+   *  row never has a selection or cut of its own to preserve there. */
+  readonly kind: "text" | "choice";
+  readonly composer: (editor: FactEditorSession) => ComposerState;
+  readonly cutConfirmation: {
+    get(editor: FactEditorSession): FactEditorSession["cutConfirmation"];
+    set(editor: FactEditorSession, value: FactEditorSession["cutConfirmation"]): void;
+  };
+}
+
+/** One entry per FACT_EDITOR_ROWS row, typed as a record so every row has one
+ *  — an array looked up with `.find(...)!` let a row be added to
+ *  FACT_EDITOR_ROWS without a table entry and fail only at runtime, the
+ *  first time focus reached it (issue #281 review finding C). Every "which
+ *  buffer backs this row", "which row does this click source belong to", and
+ *  "which cut-confirmation belongs to this row" lookup derives from here —
+ *  see setFactEditorFocus and handleFactEditorHistory below, which used to
+ *  re-encode this same mapping by hand. */
+const FACT_EDITOR_ROW_TABLE: Record<FactEditorRow, FactEditorRowSpec> = {
+  tag: {
+    row: "tag", sourceId: FACT_TAG_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.tag,
+    cutConfirmation: {
+      get: (editor) => editor.tagCutConfirmation,
+      set: (editor, value) => { editor.tagCutConfirmation = value; }
+    }
+  },
+  activation: {
+    row: "activation", sourceId: FACT_ACTIVATION_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.keys,
+    cutConfirmation: {
+      get: (editor) => editor.keysCutConfirmation,
+      set: (editor, value) => { editor.keysCutConfirmation = value; }
+    }
+  },
+  keys: {
+    row: "keys", sourceId: FACT_KEYS_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.keys,
+    cutConfirmation: {
+      get: (editor) => editor.keysCutConfirmation,
+      set: (editor, value) => { editor.keysCutConfirmation = value; }
+    }
+  },
+  priority: {
+    row: "priority", sourceId: FACT_PRIORITY_COMPOSER_SOURCE, kind: "choice",
+    composer: (editor) => editor.budget,
+    cutConfirmation: {
+      get: (editor) => editor.budgetCutConfirmation,
+      set: (editor, value) => { editor.budgetCutConfirmation = value; }
+    }
+  },
+  budget: {
+    row: "budget", sourceId: FACT_BUDGET_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.budget,
+    cutConfirmation: {
+      get: (editor) => editor.budgetCutConfirmation,
+      set: (editor, value) => { editor.budgetCutConfirmation = value; }
+    }
+  },
+  body: {
+    row: "body", sourceId: FACT_BODY_COMPOSER_SOURCE, kind: "text",
+    composer: (editor) => editor.composer,
+    cutConfirmation: {
+      get: (editor) => editor.cutConfirmation,
+      set: (editor, value) => { editor.cutConfirmation = value; }
+    }
+  }
+};
 
 const ACTIVATION_TEXT_ACTIONS = new Set<ResolvedKey["action"]>([
   "input", "backspace", "delete-forward", "delete-word-left", "delete-word-right",
@@ -42,26 +119,55 @@ export function handleFactEditorCommand(
       cycleFactEditorActivation(editor);
       return true;
     }
-    if (editor.focus === "keys") {
-      setFactEditorFocus(editor, resolved.index === -1 ? "activation" : "body");
+    if (editor.focus === "priority") {
+      cycleFactEditorPriority(editor, resolved.index === -1 ? -1 : 1);
+      return true;
+    }
+    // Keys and budget have no presets of their own to tab through — Tab
+    // instead skips them to their neighbor, in the same row order the
+    // vertical-move handler below navigates by.
+    if (editor.focus === "keys" || editor.focus === "budget") {
+      setFactEditorFocus(editor, nextFactEditorRow(editor.focus, resolved.index === -1 ? -1 : 1));
       return true;
     }
     cycleFactEditorTag(state, editor, resolved.index === -1 ? -1 : 1);
     return true;
   }
-  if (editor.focus === "activation") {
-    if (resolved.action === "cursor-left" || resolved.action === "cursor-right"
-      || resolved.action === "newline") {
-      cycleFactEditorActivation(editor);
-      return true;
-    }
-    if (ACTIVATION_TEXT_ACTIONS.has(resolved.action)) {
-      state.toast = "use left or right to select Fact activation";
-      return true;
-    }
+  if (editor.focus === "activation"
+    && handleChoiceRowKeys(resolved, state, "activation", () => cycleFactEditorActivation(editor))) {
+    return true;
+  }
+  if (editor.focus === "priority"
+    && handleChoiceRowKeys(resolved, state, "priority", (direction) => cycleFactEditorPriority(editor, direction))) {
+    return true;
   }
   if (resolved.action === "edit-tag") {
     selectFactEditorTag(state, editor);
+    return true;
+  }
+  return false;
+}
+
+/** Left/right (and newline, for parity with every other row) cycle a
+ *  choice-row value in place; every text-editing gesture is blocked with an
+ *  explanation instead of silently doing nothing. Shared by activation and
+ *  priority, the editor's two small fixed-option fields. */
+function handleChoiceRowKeys(
+  resolved: ResolvedKey,
+  state: RuntimeState,
+  label: string,
+  cycle: (direction: -1 | 1) => void
+): boolean {
+  if (resolved.action === "cursor-left") {
+    cycle(-1);
+    return true;
+  }
+  if (resolved.action === "cursor-right" || resolved.action === "newline") {
+    cycle(1);
+    return true;
+  }
+  if (ACTIVATION_TEXT_ACTIONS.has(resolved.action)) {
+    state.toast = `use left or right to select Fact ${label}`;
     return true;
   }
   return false;
@@ -96,27 +202,28 @@ export function selectFactEditorTag(
   state.toast = "type a custom tag · saved tags join this slider";
 }
 
-/** Centralize Fact editor focus changes and clear sibling selection/cut ownership. */
+/** Centralize Fact editor focus changes and clear sibling selection/cut
+ *  ownership. Iterates FACT_EDITOR_ROW_TABLE's text rows, the buffer-owning
+ *  rows, clearing each one's selection and cut-confirmation, except the
+ *  buffer the new focus itself owns. A choice row (activation, priority)
+ *  never owns a buffer, so focusing one always resets whichever buffer it
+ *  borrows: it has no selection or cut of its own there to preserve. */
 export function setFactEditorFocus(
   editor: FactEditorSession,
   focus: FactEditorSession["focus"]
 ): void {
   editor.focus = focus;
-  if (focus !== "tag") {
-    editor.tag.anchor = null;
-    editor.tagCutConfirmation = null;
-  }
-  if (focus !== "keys") {
-    editor.keys.anchor = null;
-    editor.keysCutConfirmation = null;
-  }
-  if (focus !== "body") {
-    editor.composer.anchor = null;
-    editor.cutConfirmation = null;
+  const focusSpec = factEditorRowSpec(focus);
+  const focusedComposer = focusSpec.composer(editor);
+  for (const spec of Object.values(FACT_EDITOR_ROW_TABLE)) {
+    if (spec.kind !== "text") continue;
+    if (focusSpec.kind === "text" && spec.composer(editor) === focusedComposer) continue;
+    spec.composer(editor).anchor = null;
+    spec.cutConfirmation.set(editor, null);
   }
 }
 
-/** Keep the tag and key fields on one line. */
+/** Keep the tag, keys, and budget fields on one line. */
 export function factEditorInsert(
   editor: FactEditorSession,
   raw: string,
@@ -126,10 +233,12 @@ export function factEditorInsert(
   if (editor.focus === "activation") {
     return { blocked: "use left or right to select Fact activation" };
   }
+  if (editor.focus === "priority") {
+    return { blocked: "use left or right to select Fact priority" };
+  }
   if (source === "newline" || /^[\r\n\u2028\u2029]+$/u.test(raw)) {
-    return { blocked: editor.focus === "tag"
-      ? "fact tags stay on one line"
-      : "fact keys stay on one line" };
+    const label = editor.focus === "tag" ? "fact tags" : editor.focus === "keys" ? "fact keys" : "fact budget";
+    return { blocked: `${label} stay on one line` };
   }
   return {
     text: raw.replace(/[\r\n\u2028\u2029]+/gu, " ")
@@ -139,9 +248,7 @@ export function factEditorInsert(
 export function factEditorActiveComposer(
   editor: FactEditorSession
 ): ComposerState {
-  if (editor.focus === "tag") return editor.tag;
-  if (editor.focus === "keys" || editor.focus === "activation") return editor.keys;
-  return editor.composer;
+  return factEditorRowSpec(editor.focus).composer(editor);
 }
 
 /** Resolve generic projected source identity at the Fact editor boundary. */
@@ -149,23 +256,17 @@ export function factEditorComposerForSource(
   editor: FactEditorSession,
   sourceId: string | undefined
 ): ComposerState | null {
-  if (sourceId === FACT_TAG_COMPOSER_SOURCE) {
-    setFactEditorFocus(editor, "tag");
-    return editor.tag;
-  }
-  if (sourceId === FACT_ACTIVATION_COMPOSER_SOURCE) {
-    setFactEditorFocus(editor, "activation");
-    return null;
-  }
-  if (sourceId === FACT_KEYS_COMPOSER_SOURCE) {
-    setFactEditorFocus(editor, "keys");
-    return editor.keys;
-  }
-  if (sourceId === FACT_BODY_COMPOSER_SOURCE) {
-    setFactEditorFocus(editor, "body");
-    return editor.composer;
-  }
-  return sourceId === undefined ? factEditorActiveComposer(editor) : null;
+  if (sourceId === undefined) return factEditorActiveComposer(editor);
+  const spec = Object.values(FACT_EDITOR_ROW_TABLE).find((candidate) => candidate.sourceId === sourceId);
+  if (spec === undefined) return null;
+  setFactEditorFocus(editor, spec.row);
+  // A choice row (activation, priority) has no text composer of its own to
+  // offer a click — see FactEditorRowSpec.kind.
+  return spec.kind === "choice" ? null : spec.composer(editor);
+}
+
+function factEditorRowSpec(row: FactEditorRow): FactEditorRowSpec {
+  return FACT_EDITOR_ROW_TABLE[row];
 }
 
 export function factEditorSelectionMessage(
@@ -193,23 +294,33 @@ export function handleFactEditorHistory(
     state.toast = redo ? "nothing to redo" : "nothing to undo";
     return true;
   }
-  setFactEditorFocus(editor,
-    owner === editor.tag ? "tag" : owner === editor.keys ? "keys" : "body");
+  setFactEditorFocus(editor, factEditorRowForComposer(editor, owner));
   disarmFactEditor(editor);
   return true;
 }
 
+/** Which row owns `composer` as its buffer — the text row, never a choice
+ *  row that only borrows it (see FactEditorRowSpec.kind). `owner` always
+ *  comes from one of the four text buffers, so this always finds one; the
+ *  fallback exists only to keep the return type total. */
+function factEditorRowForComposer(editor: FactEditorSession, owner: ComposerState): FactEditorRow {
+  return Object.values(FACT_EDITOR_ROW_TABLE).find(
+    (candidate) => candidate.kind === "text" && candidate.composer(editor) === owner
+  )?.row ?? "body";
+}
+
 /** Link the editable Fact fields to one bounded delta journal. */
 export function initializeFactEditorHistory(
-  editor: Pick<FactEditorSession, "tag" | "keys" | "composer">
+  editor: Pick<FactEditorSession, "tag" | "keys" | "budget" | "composer">
 ): void {
-  shareComposerEditHistory([editor.tag, editor.keys, editor.composer]);
+  shareComposerEditHistory([editor.tag, editor.keys, editor.budget, editor.composer]);
 }
 
 /** Reset the composite journal after an authoritative buffer replacement. */
 export function resetFactEditorHistory(editor: FactEditorSession): void {
   resetComposerEditHistory(editor.tag);
   resetComposerEditHistory(editor.keys);
+  resetComposerEditHistory(editor.budget);
   resetComposerEditHistory(editor.composer);
 }
 
@@ -225,6 +336,8 @@ export function factEditorBuffer(editor: FactEditorSession): {
         ? editor.tagCutConfirmation
         : editor.focus === "keys" || editor.focus === "activation"
           ? editor.keysCutConfirmation
+        : editor.focus === "budget" || editor.focus === "priority"
+          ? editor.budgetCutConfirmation
         : editor.cutConfirmation;
     },
     set cutConfirmation(value) {
@@ -232,12 +345,18 @@ export function factEditorBuffer(editor: FactEditorSession): {
       else if (editor.focus === "keys" || editor.focus === "activation") {
         editor.keysCutConfirmation = value;
       }
+      else if (editor.focus === "budget" || editor.focus === "priority") {
+        editor.budgetCutConfirmation = value;
+      }
       else editor.cutConfirmation = value;
     }
   };
 }
 
-/** Move through the Fact fields and the first body visual row. */
+/** Move through the Fact fields and the first body visual row. Every row but
+ *  the body moves to its FACT_EDITOR_ROWS neighbor, clamped at either end —
+ *  the body is multi-line, so it only yields focus on Up from its own first
+ *  visual row, and never yields it on Down at all. */
 export function handleFactEditorVerticalMove(
   resolved: ResolvedKey,
   editor: FactEditorSession,
@@ -246,27 +365,17 @@ export function handleFactEditorVerticalMove(
   if (resolved.action !== "cursor-up" && resolved.action !== "cursor-down") {
     return false;
   }
-  if (editor.focus === "tag") {
-    if (resolved.action === "cursor-down") {
-      setFactEditorFocus(editor, "activation");
-    }
-    return true;
-  }
-  if (editor.focus === "activation") {
-    setFactEditorFocus(editor, resolved.action === "cursor-up" ? "tag" : "keys");
-    return true;
-  }
-  if (editor.focus === "keys") {
-    if (resolved.action === "cursor-up") setFactEditorFocus(editor, "activation");
-    else setFactEditorFocus(editor, "body");
+  const direction = resolved.action === "cursor-up" ? -1 : 1;
+  if (editor.focus !== "body") {
+    setFactEditorFocus(editor, nextFactEditorRow(editor.focus, direction));
     return true;
   }
   const layout = wrappedComposerLayout(editor.composer, wrapWidth);
   if (resolved.action === "cursor-up" && layout.cursorRow === 0) {
-    setFactEditorFocus(editor, "keys");
-    editor.keys.anchor = null;
-    editor.keys.cursor = Math.min(
-      tagLength(editor.keys.text),
+    setFactEditorFocus(editor, "budget");
+    editor.budget.anchor = null;
+    editor.budget.cursor = Math.min(
+      tagLength(editor.budget.text),
       composerPosition(editor.composer).column
     );
     return true;
@@ -274,80 +383,16 @@ export function handleFactEditorVerticalMove(
   return false;
 }
 
-export function factEditorTag(editor: FactEditorSession): string | null {
-  const tag = editor.tag.text.trim();
-  return tag.length === 0 ? null : tag;
-}
-
-export function factEditorTagLabel(editor: FactEditorSession): string {
-  return factEditorTag(editor)?.replace(/[\r\n\u2028\u2029]+/gu, "↵") ?? "none";
-}
-
-export function factEditorChanged(editor: FactEditorSession): boolean {
-  return factEditorTagChanged(editor)
-    || editor.activation !== editor.initialFact.activation
-    || factEditorKeysChanged(editor)
-    || editor.composer.text !== editor.initialFact.text;
-}
-
-/** Preserve the stored tag until the writer changes the tag field. */
-export function factEditorPersistedTag(editor: FactEditorSession): string | null {
-  return factEditorTagChanged(editor)
-    ? factEditorTag(editor)
-    : editor.initialFact.tag;
-}
-
-export function factEditorSavePayload(
-  editor: FactEditorSession
-): { ok: true; tag: string | null; activation: FactEditorSession["activation"];
-  keys: string[]; text: string } | { ok: false; toast: string } {
-  if (editor.composer.text.trim().length === 0) {
-    return { ok: false, toast: "fact text cannot be empty" };
-  }
-  const parsedKeys = factEditorKeys(editor);
-  if (!parsedKeys.ok) return parsedKeys;
-  return {
-    ok: true,
-    tag: factEditorPersistedTag(editor),
-    activation: editor.activation,
-    keys: factEditorKeysChanged(editor) ? parsedKeys.keys : [...editor.initialFact.keys],
-    text: editor.composer.text
-  };
-}
-
-export function formatFactKeys(keys: readonly string[]): string {
-  return keys.join(", ");
-}
-
-function factEditorTagChanged(editor: FactEditorSession): boolean {
-  return editor.tag.text !== (editor.initialFact.tag ?? "");
-}
-
-function factEditorKeysChanged(editor: FactEditorSession): boolean {
-  return editor.keys.text !== formatFactKeys(editor.initialFact.keys);
-}
-
-function factEditorKeys(
-  editor: FactEditorSession
-): { ok: true; keys: string[] } | { ok: false; toast: string } {
-  if (editor.keys.text.trim().length === 0) return { ok: true, keys: [] };
-  const keys = editor.keys.text.split(",").map((key) => key.trim());
-  if (keys.some((key) => key.length === 0)) {
-    return { ok: false, toast: "fact keys cannot contain an empty entry" };
-  }
-  try {
-    return { ok: true, keys: parseFactKeys(keys) };
-  } catch (error) {
-    if (error instanceof FactActivationError) {
-      return { ok: false, toast: error.message };
-    }
-    throw error;
-  }
-}
 
 function cycleFactEditorActivation(editor: FactEditorSession): void {
   disarmFactEditor(editor);
   editor.activation = editor.activation === "always" ? "keyed" : "always";
+}
+
+function cycleFactEditorPriority(editor: FactEditorSession, direction: -1 | 1): void {
+  disarmFactEditor(editor);
+  const at = FACT_PRIORITIES.indexOf(editor.priority);
+  editor.priority = FACT_PRIORITIES[(at + direction + FACT_PRIORITIES.length) % FACT_PRIORITIES.length]!;
 }
 
 function replaceTagText(
@@ -373,4 +418,5 @@ function disarmFactEditor(editor: FactEditorSession): void {
   editor.cutConfirmation = null;
   editor.tagCutConfirmation = null;
   editor.keysCutConfirmation = null;
+  editor.budgetCutConfirmation = null;
 }

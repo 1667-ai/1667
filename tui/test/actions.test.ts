@@ -319,6 +319,39 @@ describe("demo action pipeline", () => {
     expect(chapter.state.chapters?.deleteArmedId).toBe("chapter-break-2");
   });
 
+  test("shift+up/down reorders the focused Fact in the unfiltered list only", async () => {
+    const shiftedArrow = (name: "up" | "down") => modifiedKey(name, { shift: true });
+    const { state, press, pressKey } = harness();
+    await press("f");
+    expect(state.mode).toBe("FACTS");
+    const idsInOrder = () => state.payload.facts.map((fact) => fact.id);
+    const original = idsInOrder();
+    expect(original[0]).toBe("fact-1");
+
+    // Moving the focused (first) Fact down swaps it with its neighbor; the
+    // cursor follows it so a repeated move keeps walking the same Fact.
+    await pressKey(shiftedArrow("down"));
+    expect(idsInOrder()).toEqual([original[1], original[0], ...original.slice(2)]);
+    expect(state.facts?.cursor).toBe(1);
+
+    await pressKey(shiftedArrow("up"));
+    expect(idsInOrder()).toEqual(original);
+    expect(state.facts?.cursor).toBe(0);
+
+    // Moving the topmost Fact up, or the bottommost down, is a no-op rather
+    // than an error — there is nowhere further to go.
+    await pressKey(shiftedArrow("up"));
+    expect(idsInOrder()).toEqual(original);
+
+    // A tag filter narrows the visual list; array order underneath is no
+    // longer what "up" or "down" would mean, so the move key is inert and
+    // explains why instead of reordering something unexpected.
+    state.facts!.selectedTag = "people";
+    await pressKey(shiftedArrow("down"));
+    expect(idsInOrder()).toEqual(original);
+    expect(state.toast).toBe("clear the tag and filter to reorder facts");
+  });
+
   test("palette cleanup previews then prunes every unused leaf take", async () => {
     const { state, press } = harness();
     await press(":", ":");

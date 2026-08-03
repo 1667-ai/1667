@@ -463,7 +463,8 @@ describe("demo action runtime and input", () => {
     const cache = createWrapCache<ProseStyle>();
     state.mode = "COMPOSE";
     state.composer = createComposer("land this direction");
-    source.api.continueStory = async () => ({ ...state.payload, title: "authoritative result" });
+    source.api.continueStory = async () =>
+      ({ payload: { ...state.payload, title: "authoritative result" }, droppedFacts: [] });
 
     await composeAction({ action: "send" }, state, source, {
       cache, repaint: () => undefined, renderer: null,

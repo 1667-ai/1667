@@ -5,6 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Facts now support a move order, a priority, and a token budget.** Select a
+  Fact in the Facts panel and press `Shift+Up Arrow` or `Shift+Down Arrow` to
+  move it. The Fact editor gains a priority row (`low`, `normal`, or `high`,
+  selected with the arrow keys) and a budget row (a token count, or empty for
+  no cap), controlling which Facts drop first when a request does not fit
+  the model's context window. Open the command palette and select
+  **facts budget** to cap the combined tokens every Fact in a request may
+  spend. A request that does not fit now drops droppable Facts by priority
+  instead of failing outright, and the context meter and the Facts panel
+  state what was dropped, and why. Thanks @10fra for the request.
 - **The Sampling group now accepts phrase bias and banned strings.** Type a
   text phrase and a weight. Or type a banned string. 1667 tokenizes the
   phrase four ways: as typed, with a leading space, with a capital letter,

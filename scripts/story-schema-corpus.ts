@@ -27,6 +27,7 @@ interface V5Fixture {
   authorsNote?: string;
   authorsNoteDepth?: number;
   authorBrief?: string;
+  factsBudgetTokens?: number;
   activeWordCount: number;
   nodes: Array<Record<string, unknown>>;
   facts: Array<Record<string, unknown>>;
@@ -116,6 +117,15 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
     }),
     invalidNestedV5("v5-comma-in-fact-key", richV5, (copy) => {
       copy.facts[0]!.keys = ["red, blue"];
+    }),
+    invalidNestedV5("v5-invalid-fact-priority", richV5, (copy) => {
+      copy.facts[0]!.priority = "urgent";
+    }),
+    invalidNestedV5("v5-fact-budget-over-bound", richV5, (copy) => {
+      copy.facts[0]!.budgetTokens = 0;
+    }),
+    invalidNestedV5("v5-facts-budget-over-bound", richV5, (copy) => {
+      copy.factsBudgetTokens = 0;
     }),
     invalidNestedV5("v5-unknown-tag-key", richV5, (copy) => {
       copy.bookmarks[0]!.surprise = true;
@@ -284,6 +294,7 @@ function richV5Manifest(): RichV5Fixture {
     authorsNote: "A note for the author.",
     authorsNoteDepth: 3,
     authorBrief: "A standing brief for the author.",
+    factsBudgetTokens: 4_000,
     activeWordCount: 1,
     origin: {
       storyId: "origin-story",
@@ -317,6 +328,8 @@ function richV5Manifest(): RichV5Fixture {
       tag: "Lore",
       activation: "keyed",
       keys: ["door", "green door"],
+      priority: "high",
+      budgetTokens: 100,
       revisionId: HASH,
       createdAt: NOW,
       updatedAt: NOW,

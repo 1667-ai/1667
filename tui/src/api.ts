@@ -7,6 +7,7 @@ import {
   decodeChapterBreakRemovalPreview,
   decodeChapterBreakRemovedResponse,
   decodeContextWindowResponse,
+  decodeContinueStoryResponse,
   decodeDeleteStoryResponse,
   decodeSearchResponse,
   decodeStoryCatalogPageResponse,
@@ -24,6 +25,7 @@ import type { SamplingPhraseBiasEntryV2 } from "../../shared/settings-v2-types.j
 import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 
 import type {
   TagStatus,
@@ -35,6 +37,7 @@ import type {
   GenerationSettings,
   ModelServerCheckResult,
   PruneUnusedTakesRequest,
+  ReorderFactRequest,
   RewriteRequest,
   StoryNode,
   StoryPayload,
@@ -128,6 +131,8 @@ export interface StoryApi {
   renameStory(id: string, title: string): Promise<StoryPayload>;
   setAuthorsNote(storyId: string, note: string, depth?: number): Promise<StoryPayload>;
   setAuthorBrief(storyId: string, brief: string): Promise<StoryPayload>;
+  /** null clears the story's Facts budget. */
+  setFactsBudget(storyId: string, budgetTokens: number | null): Promise<StoryPayload>;
   autonameStory(id: string): Promise<StoryPayload>;
   acknowledgeUnknownOutcomes(
     storyId: string,
@@ -147,6 +152,9 @@ export interface StoryApi {
   createFact(storyId: string, body: CreateFactsRequest): Promise<StoryPayload>;
   patchFact(storyId: string, factId: string, body: FactPatch): Promise<StoryPayload>;
   deleteFact(storyId: string, factId: string): Promise<StoryPayload>;
+  /** Move a Fact to a new position among the story's Facts — array order is
+   *  emit order, so this is the Facts surface's "arrange" control. */
+  reorderFact(storyId: string, factId: string, toIndex: number): Promise<StoryPayload>;
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
@@ -184,7 +192,7 @@ export interface StoryApi {
     target: ContinueTarget,
     onDelta: (text: string) => void,
     signal: AbortSignal
-  ): Promise<StoryPayload | null>;
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null>;
   rewriteNode(
     storyId: string,
     nodeId: string,
@@ -727,6 +735,12 @@ export function createApi(
       "DELETE",
       `/api/stories/${storyId}/facts/${factId}`
     ),
+    reorderFact: (storyId, factId, toIndex) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/reorder`,
+      { toIndex } satisfies ReorderFactRequest
+    ),
     createChapterBreak: async (storyId, parentPartId, title = "") => {
       const result = await request(
         "POST",
@@ -848,7 +862,9 @@ export function createApi(
         signal
       );
       if (done === null) return null;
-      return versions.rememberPayload(decodeStoryResponse(done.story));
+      const result = decodeContinueStoryResponse(done);
+      versions.rememberPayload(result.payload);
+      return result;
     },
     rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted) => {
       const done = await stream(

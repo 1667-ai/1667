@@ -88,11 +88,13 @@ export interface DemoController {
   renameStory(title: string): StoryPayload;
   setAuthorsNote(authorsNote: string, depth?: number): StoryPayload;
   setAuthorBrief(authorBrief: string): StoryPayload;
+  setFactsBudget(budgetTokens: number | null): StoryPayload;
   deleteStory(): StoryPayload;
   autonameStory(): StoryPayload;
   createFact(input: FactInput): StoryPayload;
   patchFact(id: string, input: FactPatch): StoryPayload;
   deleteFact(id: string): StoryPayload;
+  reorderFact(id: string, toIndex: number): StoryPayload;
   createChapterBreak(parentPartId: string, title?: string): { payload: StoryPayload; breakId: string };
   renameChapterBreak(breakId: string | null, title: string): StoryPayload;
   removeChapterBreak(breakId: string): { payload: StoryPayload; removed: RemovedChapterBreak };
@@ -293,6 +295,12 @@ export function createDemoController(dense = false): DemoController {
       story.updatedAt = EDITED;
       return payloadFrom(story);
     },
+    setFactsBudget(budgetTokens) {
+      if (budgetTokens === null) delete story.factsBudgetTokens;
+      else story.factsBudgetTokens = budgetTokens;
+      story.updatedAt = EDITED;
+      return payloadFrom(story);
+    },
     deleteStory() {
       story = { id: "demo-empty", title: "Untitled", createdAt: CREATED, updatedAt: CREATED,
         nodes: [], activeRootId: null, recentNodeIds: [], tags: [], facts: [], chapterBreaks: [] };
@@ -307,7 +315,9 @@ export function createDemoController(dense = false): DemoController {
         activation: input.activation ?? "always",
         keys: input.keys === undefined ? [] : [...input.keys],
         createdAt: CREATED,
-        updatedAt: CREATED
+        updatedAt: CREATED,
+        ...(input.priority === undefined || input.priority === "normal" ? {} : { priority: input.priority }),
+        ...(input.budgetTokens === undefined ? {} : { budgetTokens: input.budgetTokens })
       });
       return payloadFrom(story);
     },
@@ -318,10 +328,26 @@ export function createDemoController(dense = false): DemoController {
       if (input.text !== undefined) fact.text = input.text;
       if (input.activation !== undefined) fact.activation = input.activation;
       if (input.keys !== undefined) fact.keys = [...input.keys];
+      if (input.priority !== undefined) {
+        if (input.priority === "normal") delete fact.priority;
+        else fact.priority = input.priority;
+      }
+      if (input.budgetTokens !== undefined) {
+        if (input.budgetTokens === null) delete fact.budgetTokens;
+        else fact.budgetTokens = input.budgetTokens;
+      }
       fact.updatedAt = CREATED;
       return payloadFrom(story);
     },
     deleteFact(id) { story.facts = story.facts.filter((fact) => fact.id !== id); return payloadFrom(story); },
+    reorderFact(id, toIndex) {
+      const from = story.facts.findIndex((fact) => fact.id === id);
+      if (from === -1) throw new Error(`Unknown demo fact: ${id}`);
+      const clamped = Math.max(0, Math.min(toIndex, story.facts.length - 1));
+      const [fact] = story.facts.splice(from, 1);
+      story.facts.splice(clamped, 0, fact!);
+      return payloadFrom(story);
+    },
     createChapterBreak(parentPartId, title = "") {
       const breakId = createDemoChapterBreak(story, parentPartId, title, CREATED);
       return { payload: payloadFrom(story), breakId };
@@ -411,6 +437,7 @@ function payloadFrom(story: Story): StoryPayload {
     ...(story.firstChapterTitle === undefined || story.firstChapterTitle === ""
       ? {}
       : { firstChapterTitle: story.firstChapterTitle }),
+    ...(story.factsBudgetTokens === undefined ? {} : { factsBudgetTokens: story.factsBudgetTokens }),
     nodes: story.nodes.map((node): NodeStub => {
       const rollup = rollups.get(node.id)!;
       const base = {
@@ -518,6 +545,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     renameStory: async (_id, title) => demo.renameStory(title),
     setAuthorsNote: async (_storyId, authorsNote, depth) => demo.setAuthorsNote(authorsNote, depth),
     setAuthorBrief: async (_storyId, authorBrief) => demo.setAuthorBrief(authorBrief),
+    setFactsBudget: async (_storyId, budgetTokens) => demo.setFactsBudget(budgetTokens),
     autonameStory: async () => demo.autonameStory(),
     acknowledgeUnknownOutcomes: async () => demo.autonameStory(),
     deleteStory: async () => { demo.deleteStory(); return { ok: true }; },
@@ -553,6 +581,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     patchFact: async (_storyId, factId, body) => demo.patchFact(factId, body),
     deleteFact: async (_storyId, factId) => demo.deleteFact(factId),
+    reorderFact: async (_storyId, factId, toIndex) => demo.reorderFact(factId, toIndex),
     createChapterBreak: async (_storyId, parentPartId, title = "") => demo.createChapterBreak(parentPartId, title),
     renameChapterBreak: async (_storyId, breakId, title) => demo.renameChapterBreak(breakId, title),
     removeChapterBreak: async (_storyId, breakId) => demo.removeChapterBreak(breakId),
@@ -630,10 +659,12 @@ export function demoStoryApi(demo: DemoController): StoryApi {
         onDelta(delta);
       }
       if (signal.aborted) return null;
-      if (target.appendTo !== undefined) {
-        return demo.appendGenerated(instruction, landed, true, genId);
-      }
-      return demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
+      // The fixture has no real context window to press against, so it never
+      // sheds a Fact — droppedFacts is honestly empty rather than simulated.
+      const payload = target.appendTo !== undefined
+        ? demo.appendGenerated(instruction, landed, true, genId)
+        : demo.createChild(target.parentId ?? null, instruction, landed, false, genId);
+      return { payload, droppedFacts: [] };
     },
     rewriteNode: async (_storyId, nodeId, body, onDelta, signal, onCommitted) => {
       let landed = "";

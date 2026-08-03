@@ -121,7 +121,8 @@ describe("chapter view models", () => {
       tokens: 0,
       breakdown: { voice: 0, facts: 0, recent: 0, summary: 0, note: 0 },
       chapters: [],
-      activeFactIds: []
+      factStatuses: new Map(),
+      droppedFacts: []
     };
 
     const frame = frameText(renderPanels(base, state, hits, 120, 24, estimate).lines);
@@ -163,7 +164,11 @@ function requestFor(payload: StoryPayload, targetId = payload.path.at(-1)?.id ??
     instruction: "",
     operation: "continue",
     targetId,
-    assistantPrefill: true
+    assistantPrefill: true,
+    // No window: these tests are about chapter structure, not window-pressure
+    // shedding, so leave that preview switched off.
+    contextWindow: null,
+    maxTokens: 0
   };
 }
 

@@ -1,3 +1,4 @@
+import { factDropNotice } from "../../facts-model.js";
 import {
   contextSeverity,
   formatTokensNarrow,
@@ -53,8 +54,8 @@ const CATEGORIES: readonly Category[] = [
  * alone, so a thin split pane can be shorter than the expanded block. The forms
  * below are ordered tallest first and shed decoration before meaning — the rule
  * goes, then the gauge, and the request line itself is the last to go. Every
- * form keeps the chapter notice for as long as it has a row to spare, because
- * that notice is the only actionable thing the meter ever says. */
+ * form keeps the fact-drop and chapter notices for as long as it has a row to
+ * spare, because they are the actionable things the meter can say. */
 export function contextMeterLines(
   model: RailModel,
   expanded: boolean,
@@ -76,13 +77,18 @@ export function contextMeterLines(
     [request, gauge],
     [request]
   ];
-  // What to do about it, in the two cases the meter can answer: the request
-  // does not fit, or a chapter is worth summarizing. Both outrank decoration
-  // and both yield to the request line itself.
+  // What the meter can say beyond the numbers, tallest-need first: the request
+  // does not fit; content silently went missing to the story's own Facts
+  // budget; a chapter is worth summarizing. All three outrank decoration and
+  // all three yield to the request line itself.
+  const dropNotice = factDropNotice(model.droppedFacts);
   const tail: FrameLine[] = [
     ...severity === "over"
       ? [[segment(OVER_REMEDY, "danger text")] as FrameLine]
       : [],
+    ...dropNotice === null
+      ? []
+      : [[segment(truncate(dropNotice, RAIL_CONTENT_WIDTH), "context warning")] as FrameLine],
     ...model.chapterNotice === null
       ? []
       : [[segment(truncate(model.chapterNotice, RAIL_CONTENT_WIDTH), "focus / accent")] as FrameLine]

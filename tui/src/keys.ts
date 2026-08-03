@@ -49,6 +49,7 @@ export type KeyAction =
   | "typewriter" | "edit" | "write" | "regenerate" | "retake-with-prompt" | "apply"
   | "open-library" | "open-facts" | "open-commands" | "open-settings"
   | "open-selected" | "new-item" | "duplicate-item" | "rename-item" | "delete-item"
+  | "move-item-up" | "move-item-down"
   | "open-authors-note" | "note-depth-decrease" | "note-depth-increase"
   | "filter" | "cycle" | "check" | "detect-context" | "discard-pending" | "retry" | "continue"
   | "scroll-down" | "scroll-up" | "scroll-line-down" | "scroll-line-up" | "toggle-rail" | "copy-part" | "copy-line" | "open-actions" | "focus-index"
@@ -107,6 +108,7 @@ export function isPlainNavigation(state: PlainNavigationState): boolean {
 export const MUTATING_ACTIONS: ReadonlySet<KeyAction> = new Set([
   "prune", "apply", "delete-tag", "edit", "write", "regenerate", "tag",
   "new-item", "duplicate-item", "rename-item", "delete-item", "discard-pending",
+  "move-item-up", "move-item-down",
   "create-chapter", "summarize-chapter", "open-authors-note", "save-edit", "save-edit-inplace"
 ]);
 
@@ -570,6 +572,14 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       return { action: mode === "FACTS" && !overlayTyping ? "edit" : "open-selected" };
     }
     if (key.name === "backspace") return { action: "backspace" };
+    // `⇧↑`/`⇧↓` reposition the focused row instead of moving focus — Facts
+    // only, since order is meaningless in the library and command lists.
+    if (mode === "FACTS" && !overlayTyping && key.shift && key.name === "down") {
+      return { action: "move-item-down" };
+    }
+    if (mode === "FACTS" && !overlayTyping && key.shift && key.name === "up") {
+      return { action: "move-item-up" };
+    }
     if (key.name === "down") return { action: "focus-next" };
     if (key.name === "up") return { action: "focus-previous" };
     if (!overlayTyping) {

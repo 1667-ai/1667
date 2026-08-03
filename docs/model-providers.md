@@ -34,12 +34,71 @@ parts in the assembled request context. It also scans the current instruction.
 An `always` Fact can keep keys. The keys do not control that Fact until you
 select `keyed`.
 
+Below the keys row, the Fact editor shows a priority row and a budget row.
+Use `Up Arrow` or `Down Arrow` to reach them. See
+[Fact priority and Fact budget](#fact-priority-and-fact-budget).
+
 The Facts panel shows `always`, `✓ keyed`, or `· keyed` for each Fact. The
 `✓ keyed` status means that the next request includes the Fact. The side rail
 uses `✓` for an active keyed Fact. It uses `·` for an inactive keyed Fact.
 
 In Library or Facts, press `/` to start a filter. The list changes when you
 type. Press `Enter` to close the filter.
+
+### Arrange Facts
+
+Facts appear in a request in the order that they appear in the Facts panel.
+Select a Fact. Press `Shift+Up Arrow` or `Shift+Down Arrow` to move it up or
+down. Clear the tag filter and the text filter first. The move keys work only
+on the full, unfiltered list.
+
+### Fact priority and Fact budget
+
+Each Fact has a priority: `low`, `normal`, or `high`. The default priority is
+`normal`. 1667 uses priority to choose which Fact to drop first when a
+request does not fit the model's context window.
+
+Open the Fact editor and move to the priority row. Use `Left Arrow` or
+`Right Arrow` to select `low`, `normal`, or `high`.
+
+An `always` Fact at `normal` or `high` priority never drops. A `keyed` Fact
+can drop at any priority. Set an `always` Fact to `low` priority to let it
+drop too.
+
+A Fact can also have a Fact budget: a limit on its own estimated token count.
+1667 drops a Fact that goes over its Fact budget. This rule applies even to
+an `always` Fact at `normal` or `high` priority. A Fact budget is an
+instruction on that one Fact. It always overrides the priority exemption.
+1667 never shortens a Fact's text. A Fact rides whole in a request, or 1667
+drops it whole.
+
+Open the Fact editor and move to the budget row. Type a whole number of
+tokens. Leave the row empty to remove the Fact budget.
+
+A story can hold a Facts budget: a limit on the combined estimated token
+count of every Fact in a request. When the total goes over the Facts budget,
+1667 drops the lowest-priority Facts first until the total fits.
+
+Open the command palette and select **facts budget**. Type a whole number of
+tokens, then press `Ctrl+S`. Leave the field empty and press `Ctrl+S` to
+remove the Facts budget.
+
+### See a Fact's priority
+
+The Facts panel status column and the side rail show a Fact's priority next
+to its activation status. `↓` marks a `low` priority Fact. `↑` marks a
+`high` priority Fact. A `normal` priority Fact shows no priority mark.
+
+### Fit a request into the context window
+
+When a request does not fit the model's context window, 1667 first applies
+the Facts budget. If the request still does not fit, 1667 drops droppable
+Facts by priority, one at a time, until it fits.
+
+1667 rejects the request only when it still does not fit after 1667 drops
+every droppable Fact.
+
+The context meter states how many Facts a request dropped, and why.
 
 Select the system prompt row to open the full-screen editor. This machine-wide
 value is the default Author Brief. A story that sets its own Author Brief uses
@@ -66,7 +125,12 @@ because the request plan does not contain credentials.
 
 Each story can hold one Author's Note. Press `a` to write it. 1667 sends the
 Author's Note with each continuation request. 1667 puts it immediately before
-the last story part.
+the last story part by default.
+
+The Author's Note has a depth setting. Depth sets how many story parts from
+the end the note lands before. The default depth is 1. Open the Author's Note
+editor. Press `⌥-` to decrease the depth or `⌥=` to increase it. The request
+viewer shows the placement the note actually used.
 
 The Author's Note is not a Fact. A Fact is reference data. The Author's Note is
 an instruction for the next passage.

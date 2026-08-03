@@ -10,6 +10,7 @@ import type {
   StoryPayload,
   StorySummary
 } from "../../shared/types.js";
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
   SAMPLING_BIAS_VARIANT_VALUES,
@@ -327,6 +328,34 @@ export function decodeUnknownOutcomeStatusResponse(
 export function decodeStoryResponse(value: unknown): StoryPayload {
   assertPromptReadyStoryPayload(value);
   return value;
+}
+
+const FACT_DROP_REASONS: ReadonlySet<string> = new Set(["priority", "fact-budget", "total-budget"]);
+
+/** What generation admission actually shed to fit the fixed prompt — see
+ *  server/generation-admission.ts. Empty on every response but a real
+ *  continuation is expected and is not itself an error. */
+export function decodeFactBudgetDrops(value: unknown): FactBudgetDrop[] {
+  if (!Array.isArray(value)) throw new Error("The server returned an invalid dropped-facts list.");
+  return value.map((entry) => {
+    const record = responseRecord(entry, "dropped fact");
+    const factId = stringField(record, "factId", "dropped fact");
+    const reason = record.reason;
+    if (typeof reason !== "string" || !FACT_DROP_REASONS.has(reason)) {
+      invalidField("dropped fact", "reason");
+    }
+    return { factId, reason: reason as FactBudgetDrop["reason"] };
+  });
+}
+
+export function decodeContinueStoryResponse(
+  value: unknown
+): { payload: StoryPayload; droppedFacts: FactBudgetDrop[] } {
+  const record = responseRecord(value, "continue-story result");
+  return {
+    payload: decodeStoryResponse(record.story),
+    droppedFacts: decodeFactBudgetDrops(record.droppedFacts)
+  };
 }
 
 export function decodeChapterBreakCreatedResponse(

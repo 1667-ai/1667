@@ -1,12 +1,15 @@
 import { composerPosition } from "../../composer-model.js";
+import { factEditorTagLabel } from "../../fact-editor-draft.js";
 import {
   FACT_ACTIVATION_COMPOSER_SOURCE,
+  FACT_BUDGET_COMPOSER_SOURCE,
   FACT_EDITOR_FOOTER,
   FACT_BODY_COMPOSER_SOURCE,
   FACT_KEYS_COMPOSER_SOURCE,
-  FACT_TAG_COMPOSER_SOURCE,
-  factEditorTagLabel
+  FACT_PRIORITY_COMPOSER_SOURCE,
+  FACT_TAG_COMPOSER_SOURCE
 } from "../../fact-editor-policy.js";
+import { FACT_EDITOR_ROWS } from "../../fact-editor-rows.js";
 import type { ComposerState } from "../../composer-model.js";
 import type { FactEditorSession } from "../../state.js";
 import {
@@ -78,6 +81,23 @@ export function renderFactEditorLayout(
     body.fieldWidth,
     FACT_KEYS_COMPOSER_SOURCE
   );
+  const priority = renderComposerChoiceRow({
+    indent: "",
+    fieldWidth: body.fieldWidth,
+    label: "priority",
+    value: editor.priority,
+    sourceId: FACT_PRIORITY_COMPOSER_SOURCE,
+    sourceStart: null,
+    focused: editor.focus === "priority"
+  });
+  const budget = renderTextInput(
+    editor.budget,
+    editor.focus === "budget",
+    "budget",
+    "uncapped",
+    body.fieldWidth,
+    FACT_BUDGET_COMPOSER_SOURCE
+  );
   return {
     ...body,
     lines: [
@@ -85,18 +105,19 @@ export function renderFactEditorLayout(
       tag,
       activation,
       keys,
+      priority,
+      budget,
       ...body.lines.slice(1).map((line) =>
         composerSource(line, FACT_BODY_COMPOSER_SOURCE))
     ],
-    lineCount: body.lineCount + 3,
-    bodyRows: body.bodyRows + 3,
-    cursorViewportRow: editor.focus === "tag"
-      ? 0
-      : editor.focus === "activation"
-        ? 1
-        : editor.focus === "keys"
-          ? 2
-          : body.cursorViewportRow + 3
+    lineCount: body.lineCount + 5,
+    bodyRows: body.bodyRows + 5,
+    // Every row but the body sits at its FACT_EDITOR_ROWS index, in the five
+    // header lines inserted above; the body's own viewport row shifts down
+    // by that same five.
+    cursorViewportRow: editor.focus === "body"
+      ? body.cursorViewportRow + 5
+      : FACT_EDITOR_ROWS.indexOf(editor.focus)
   };
 }
 
