@@ -1,89 +1,46 @@
 import {
-  DELTA_BATCH_WINDOW_MS,
-  MAX_DELTA_BATCH_BYTES,
   MAX_UNACKNOWLEDGED_DELTA_BATCHES,
   MAX_UNACKNOWLEDGED_DELTA_BYTES,
   type WorkerOperationId,
   type WorkerToMainMessage
 } from "../shared/worker-protocol.js";
+import { DeltaBatcher } from "./delta-batcher.js";
 
 type DeltaMessage = Extract<WorkerToMainMessage, { type: "delta" }>;
 
-/** Batches generation output and stops its producer at a bounded credit window. */
+/** Batches generation output over `DeltaBatcher` (the same batching policy
+ *  the HTTP path uses, `server/stream-response.ts`) and stops its producer
+ *  at a bounded credit window: this class's own contribution is the
+ *  postMessage-specific backpressure gate and sequence numbering, not the
+ *  batching timing itself. */
 export class WorkerDeltaBatcher {
-  private chunks: string[] = [];
-  private bytes = 0;
+  private readonly batcher: DeltaBatcher;
   private sequence = 0;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private unacknowledged = new Map<number, number>();
+  private readonly unacknowledged = new Map<number, number>();
   private unacknowledgedBytes = 0;
-  private creditWaiters = new Set<() => void>();
-  private sendQueue = Promise.resolve();
-  private timedFlush: Promise<void> | null = null;
-  private unsentText = "";
+  private readonly creditWaiters = new Set<() => void>();
   private disposed = false;
 
   constructor(
     private readonly id: WorkerOperationId,
     private readonly post: (message: DeltaMessage) => void
-  ) {}
+  ) {
+    this.batcher = new DeltaBatcher(
+      (text, bytes) => this.send(text, bytes)
+    );
+  }
 
   async push(text: string): Promise<void> {
-    for (const chunk of splitUtf8(text, MAX_DELTA_BATCH_BYTES)) {
-      await this.waitForTimedFlush();
-      if (this.disposed) return;
-      const bytes = byteLength(chunk);
-      if (this.bytes > 0 && this.bytes + bytes > MAX_DELTA_BATCH_BYTES) await this.flush();
-      this.chunks.push(chunk);
-      this.bytes += bytes;
-      this.unsentText += chunk;
-      if (this.bytes >= MAX_DELTA_BATCH_BYTES) await this.flush();
-      else if (this.timer === null) {
-        this.timer = setTimeout(() => {
-          this.timer = null;
-          const flushing = this.flushBuffered();
-          this.timedFlush = flushing;
-          void flushing.finally(() => {
-            if (this.timedFlush === flushing) this.timedFlush = null;
-          });
-        }, DELTA_BATCH_WINDOW_MS);
-      }
-    }
+    await this.batcher.push(text);
   }
 
   async flush(): Promise<void> {
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-    await this.waitForTimedFlush();
-    await this.flushBuffered();
-    await this.sendQueue;
+    await this.batcher.flush();
   }
 
   /** Remove all accepted text that has not entered the main-thread queue. */
   takeUnsent(): string {
-    if (this.disposed || this.unsentText.length === 0) return "";
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-    const text = this.unsentText;
-    this.unsentText = "";
-    this.chunks = [];
-    this.bytes = 0;
-    return text;
-  }
-
-  private async flushBuffered(): Promise<void> {
-    if (this.chunks.length === 0 || this.disposed) return;
-    const text = this.chunks.join("");
-    const bytes = this.bytes;
-    this.chunks = [];
-    this.bytes = 0;
-    const send = this.sendQueue.then(() => this.send(text, bytes));
-    this.sendQueue = send.catch(() => undefined);
-    await send;
-  }
-
-  private async waitForTimedFlush(): Promise<void> {
-    if (this.timedFlush !== null) await this.timedFlush;
+    return this.batcher.takeUnsent();
   }
 
   acknowledge(sequence: number): void {
@@ -97,11 +54,7 @@ export class WorkerDeltaBatcher {
 
   dispose(): void {
     this.disposed = true;
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-    this.chunks = [];
-    this.bytes = 0;
-    this.unsentText = "";
+    this.batcher.dispose();
     this.unacknowledged.clear();
     this.unacknowledgedBytes = 0;
     this.releaseCreditWaiters();
@@ -110,10 +63,6 @@ export class WorkerDeltaBatcher {
   private async send(text: string, bytes: number): Promise<void> {
     await this.waitForCredit(bytes);
     if (this.disposed) return;
-    if (!this.unsentText.startsWith(text)) {
-      throw new Error("Worker delta queue lost its accepted-text prefix");
-    }
-    this.unsentText = this.unsentText.slice(text.length);
     const sequence = this.sequence++;
     this.unacknowledged.set(sequence, bytes);
     this.unacknowledgedBytes += bytes;
@@ -133,28 +82,4 @@ export class WorkerDeltaBatcher {
     for (const resolve of this.creditWaiters) resolve();
     this.creditWaiters.clear();
   }
-}
-
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
-function splitUtf8(value: string, maxBytes: number): string[] {
-  if (value.length === 0) return [];
-  if (byteLength(value) <= maxBytes) return [value];
-  const chunks: string[] = [];
-  let chunk = "";
-  let bytes = 0;
-  for (const character of value) {
-    const characterBytes = byteLength(character);
-    if (bytes + characterBytes > maxBytes && chunk.length > 0) {
-      chunks.push(chunk);
-      chunk = "";
-      bytes = 0;
-    }
-    chunk += character;
-    bytes += characterBytes;
-  }
-  if (chunk.length > 0) chunks.push(chunk);
-  return chunks;
 }

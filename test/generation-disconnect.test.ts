@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import test from "node:test";
@@ -19,6 +18,8 @@ import type { StoryStore } from "../server/stories.js";
 import type { Story } from "../shared/types.js";
 import { streamResponse } from "../server/stream-response.js";
 import { PromptCacheRuntime } from "../server/provider-cache-policy.js";
+import { MAX_DELTA_BATCH_BYTES } from "../shared/worker-protocol.js";
+import { FakeResponse } from "./fake-http-response.js";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -195,7 +196,12 @@ test("HTTP stream adapter aborts generation before and after SSE opens", async (
       response as unknown as ServerResponse,
       async (onDelta, signal) => {
         observedSignal = signal;
-        if (phase === "streaming") onDelta("first");
+        // A batch only leaves the process once it clears a threshold or the
+        // batching window elapses (server/delta-batcher.ts); a byte-threshold
+        // batch clears synchronously, with no timer involved, so awaiting it
+        // here deterministically opens the SSE session before the "close"
+        // below, the same way one small unbatched delta used to.
+        if (phase === "streaming") await onDelta("x".repeat(MAX_DELTA_BATCH_BYTES));
         started();
         await gate;
         return { ok: true };
@@ -283,31 +289,38 @@ test("confirmed operation cancellation wins before response close", async () => 
   assert.equal(response.ends, 1);
 });
 
-test("HTTP stream adapter waits for response drain before reading more model output", async () => {
+test("HTTP stream adapter batches a small delta instead of gating the model on the socket", async () => {
+  // Batching decouples model production from the network up to its own
+  // thresholds (server/delta-batcher.ts): one small delta below the byte
+  // threshold is accepted and returned immediately, unlike the old
+  // one-write-per-delta path where every delta wait on the socket.
   const request = Readable.from([]) as unknown as IncomingMessage;
   const response = new FakeResponse();
   response.acceptWrites = false;
-  let passedBackpressure = false;
+  let ranToCompletion = false;
   const running = streamResponse(
     request,
     response as unknown as ServerResponse,
     async (onDelta) => {
       await onDelta("first");
-      passedBackpressure = true;
+      ranToCompletion = true;
       return { ok: true };
     },
     (value) => value
   );
 
   await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(ranToCompletion, true);
+  // The batch still has to leave the process before the stream can finish:
+  // the flush before "done" waits on the same drain event a per-delta write
+  // always did, so the stream is not done yet.
   assert.equal(response.writes, 1);
-  assert.equal(passedBackpressure, false);
+  assert.equal(response.ends, 0);
 
   response.acceptWrites = true;
   response.emit("drain");
   await running;
 
-  assert.equal(passedBackpressure, true);
   assert.equal(response.writes, 2);
   assert.equal(response.ends, 1);
 });
@@ -411,24 +424,6 @@ test("routine HTTP stream cancellation does not create an incident", async (t) =
     ""
   );
 });
-
-class FakeResponse extends EventEmitter {
-  destroyed = false;
-  closed = false;
-  writableEnded = false;
-  headersWritten = 0;
-  writes = 0;
-  ends = 0;
-  output = "";
-  acceptWrites = true;
-  writeHead(): this { this.headersWritten += 1; return this; }
-  write(value: unknown): boolean {
-    this.writes += 1;
-    this.output += String(value);
-    return this.acceptWrites;
-  }
-  end(): this { this.writableEnded = true; this.ends += 1; return this; }
-}
 
 function fixture(): Story {
   return {
