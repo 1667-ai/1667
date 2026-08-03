@@ -1423,10 +1423,10 @@ test("a failed KoboldCpp tokenize probe reports the tokenizer as unavailable, an
 // The other half of point 3: a banned string configured alongside a probe
 // that will never answer must not be swept up in phraseBias's failure — a
 // writer who only wanted a banned string never needed the probe at all
-// (server/sampling-phrase-bias.ts, resolveKoboldCppSamplingBias). This is
-// the request-serializer-boundary proof that the draft stays correct: the
-// request either ships with the banned string honored, or it does not ship
-// at all — never a silent partial application.
+// (server/sampling-phrase-bias.ts, resolveWithLiveProbe's "native" transport
+// branch). This is the request-serializer-boundary proof that the draft
+// stays correct: the request either ships with the banned string honored,
+// or it does not ship at all — never a silent partial application.
 test("a KoboldCpp banned string ships even when the tokenize probe would fail, because it never asks it", async () => {
   const body = await buildOpenAiChatRequestBody(
     withSampling(
