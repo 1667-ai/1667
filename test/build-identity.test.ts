@@ -27,12 +27,12 @@ test("source identity is explicit and cannot masquerade as a packaged build", ()
   // HTTP retry identity. v10 added global search and hit pagination. v11 adds
   // Markdown reimport and naming chapter one. v12 adds NovelAI import. v13 adds
   // the Author's Note route. v14 adds required Fact activation metadata. v15
-  // adds the Author Brief route and the Author's Note depth field. An older
-  // peer must fail at preflight.
+  // adds the Author Brief route and the Author's Note depth field. v16 adds the
+  // prompt token-count route. An older peer must fail at preflight.
   assert.equal(
     HTTP_API_PROTOCOL_VERSION,
-    15,
-    "The Author Brief route and the Author's Note depth require HTTP API v15"
+    16,
+    "The prompt token-count route requires HTTP API v16"
   );
   const source = createSourceBuildIdentity("1.2.3");
   assert.deepEqual(source, {

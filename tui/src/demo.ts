@@ -618,6 +618,8 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     },
     checkModelServer: async () => ({ state: "ready", message: "dry-run model server is ready" }),
     probeContextWindow: async () => ({ contextWindow: DEMO_SETTINGS.contextWindow }),
+    // The demo has no provider behind it, so there is never a tokenize source.
+    countPromptTokens: async () => ({ kind: "estimate", reason: "no-source" }),
     discoverModels: async (): Promise<ModelDiscoveryResultV2> => ({
       observedAt: "2026-01-01T00:00:00.000Z",
       models: [

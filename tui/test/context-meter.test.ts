@@ -7,13 +7,18 @@ import {
   contextSeverity,
   gaugeFill,
   formatTokensEstimate,
+  formatTokensNarrow,
   formatTokensScaled,
   requestWindow,
   type RailModel
 } from "../src/rail.js";
 import type { HitRows } from "../src/hit.js";
 import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
-import { nextRequestContext } from "../src/request-context.js";
+import {
+  nextRequestContext,
+  projectNextRequest,
+  promptProjectionIdentity
+} from "../src/request-context.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { contextMeterLines } from "../src/screens/story/context-meter.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";
@@ -29,6 +34,7 @@ import { assertPromptReadyStoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../src/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 
 function request(
   systemPrompt: string,
@@ -198,6 +204,183 @@ describe("honest next-request context meter", () => {
     expect(expanded).toContain("▮ note");
     expect(expanded).toContain(String(model.breakdown.note));
     expect(frameText(railLines(emptyModel, true))).not.toContain("▮ note");
+  });
+
+  test("an exact count from a complete-array source drops the mark on the total only", () => {
+    // A long note pushes every category past 1,000 tokens, where a mark
+    // actually shows up in the legend — under that threshold the narrow form
+    // never wears one regardless of grade.
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(8_000));
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    const count: PromptTokenCount = {
+      kind: "counted", source: "anthropic-count-tokens", grade: "exact",
+      total: estimate.tokens + 11, perMessage: null
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const collapsed = frameText(railLines(model));
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.contextTokens).toBe(estimate.tokens + 11);
+    expect(model.totalGrade).toBe("exact");
+    expect(model.perMessageGrade).toBe("estimate");
+    expect(collapsed).toContain(`next request  ${formatTokensScaled(model.contextTokens)} /`);
+    expect(collapsed).not.toContain(`~${formatTokensScaled(model.contextTokens)}`);
+    // A source that counts only the complete array leaves every category on
+    // the client's own estimate, and it keeps its `~`.
+    expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a near-exact total earns ≈, and every category keeps ~ with no per-message split", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(8_000));
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    const count: PromptTokenCount = {
+      kind: "counted", source: "llama-cpp-tokenize", grade: "near-exact",
+      total: estimate.tokens + 6, perMessage: null
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const collapsed = frameText(railLines(model));
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.totalGrade).toBe("near-exact");
+    expect(collapsed).toContain(`next request  ≈${formatTokensScaled(model.contextTokens)} /`);
+    expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a small estimated category keeps its mark, so it cannot read as counted", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("a short note");
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    // A complete-array source: the total is counted, every category stays an
+    // estimate. The note category needs no rounding, which is exactly where a
+    // bare number would be indistinguishable from an exact count of that size.
+    const count: PromptTokenCount = {
+      kind: "counted", source: "anthropic-count-tokens", grade: "exact",
+      total: estimate.tokens + 6, perMessage: null
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.breakdown.note).toBeLessThan(1_000);
+    expect(model.perMessageGrade).toBe("estimate");
+    expect(expanded).toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a per-message split marks the category rows, and the total can run ahead of their sum", () => {
+    const demo = createDemoController();
+    const payload = demo.setAuthorsNote("x".repeat(8_000));
+    const next = request("Write vivid prose.", payload.path.at(-1)!.id);
+    const estimate = nextRequestEstimate(payload, next);
+    const perMessage = estimate.messageTokenCounts.map((tokens) => tokens + 1);
+    // The bundled OpenAI tokenizer adds reply-priming tokens that belong to no
+    // message, so the total legitimately runs ahead of the per-message sum.
+    const total = perMessage.reduce((sum, tokens) => sum + tokens, 0) + 3;
+    const count: PromptTokenCount = {
+      kind: "counted", source: "bundled-openai", grade: "exact", total, perMessage
+    };
+    const model = buildRailModel(payload, "", estimate.tokens + 20_000, estimate, 0, 0, count);
+    const expanded = frameText(railLines(model, true));
+
+    expect(model.contextTokens).toBe(total);
+    expect(model.perMessageGrade).toBe("exact");
+    expect(Object.values(model.breakdown).reduce((sum, value) => sum + value, 0)).toBe(total - 3);
+    expect(expanded).toContain(formatTokensNarrow(model.breakdown.note));
+    expect(expanded).not.toContain(`~${formatTokensNarrow(model.breakdown.note)}`);
+  });
+
+  test("a stale stored shape falls back to the estimate exactly as if there were no count", () => {
+    const source = demoAppSource();
+    const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
+    const state = initialState(source, false);
+    state.promptTokenCount = {
+      // Deliberately does not describe the current projection.
+      identity: {
+        ...promptProjectionIdentity(state, projectNextRequest(state).context),
+        instruction: "a stale draft"
+      },
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "anthropic-count-tokens", grade: "exact", total: 5, perMessage: null
+      }
+    };
+    const text = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+
+    expect(text).toBe(baseline);
+  });
+
+  test("a count from the previous connection is not shown against the new one", () => {
+    const source = demoAppSource();
+    const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
+    const state = initialState(source, false);
+    // The prose is untouched, so the projection still matches exactly. Only
+    // the route moved — which is enough to retire the count it produced.
+    state.promptTokenCount = {
+      identity: promptProjectionIdentity(state, projectNextRequest(state).context),
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
+      }
+    };
+    const counted = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+    expect(counted).not.toBe(baseline);
+
+    state.generationRoute = "openai-compatible http://localhost:11434/v1 llama3";
+    const afterRouteChange = frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines);
+
+    expect(afterRouteChange).toBe(baseline);
+  });
+
+  test("a count taken on the page still stands when the request viewer opens", () => {
+    const source = demoAppSource();
+    const state = initialState(source, false);
+    state.promptTokenCount = {
+      identity: promptProjectionIdentity(state, projectNextRequest(state).context),
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
+      }
+    };
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines))
+      .toContain(formatTokensScaled(4_242));
+
+    // Ctrl+R moves `mode` but sends the very same messages to the very same
+    // route. The viewer exists to show the request the meter just counted, so
+    // it must show that count rather than falling back to `~`.
+    state.mode = "REQUEST";
+    state.request = { cursor: 0, scrollTop: -1, returnMode: "NAV" };
+
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines))
+      .toContain(formatTokensScaled(4_242));
+  });
+
+  test("a count is retired by an edit that keeps every message the same length", () => {
+    const source = demoAppSource();
+    const baseline = frameText(renderStoryScreen(initialState(source, false), { width: 140, height: 36 }).lines);
+    const state = initialState(source, false);
+    state.promptTokenCount = {
+      identity: promptProjectionIdentity(state, projectNextRequest(state).context),
+      route: state.generationRoute,
+      count: {
+        kind: "counted", source: "bundled-openai", grade: "exact", total: 4_242, perMessage: null
+      }
+    };
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines)).not.toBe(baseline);
+
+    // Same message count, same roles, same UTF-16 lengths — and a token count
+    // that is nothing like the one on screen, because these characters cost
+    // about twice what the ASCII they replace does. Swapping one take for
+    // another of equal length does this in a single keypress, so a check that
+    // only measured lengths would keep painting the old number as exact.
+    const replaced = "あ".repeat(state.systemPrompt.length);
+    expect(replaced.length).toBe(state.systemPrompt.length);
+    state.systemPrompt = replaced;
+
+    expect(frameText(renderStoryScreen(state, { width: 140, height: 36 }).lines))
+      .not.toContain(formatTokensScaled(4_242));
   });
 
   test("formats large request values with bounded k/m/b/t units", () => {

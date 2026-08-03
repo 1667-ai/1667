@@ -37,6 +37,8 @@ import type {
 } from "./selection-projection.js";
 import type { SettingsTextDraft } from "./settings-text.js";
 import type { SettingsModelPicker } from "./settings-model-picker.js";
+import type { PromptTokenCount } from "../../shared/tokenize-source.js";
+import type { PromptProjectionIdentity } from "./request-context.js";
 import type { StoryScalarField } from "./story-scalar-fields.js";
 
 export type BackendTaskKind = "action" | "connection-reconcile" | "explicit-retry";
@@ -245,6 +247,16 @@ export interface RequestViewerState {
   returnMode: "NAV" | "COMPOSE";
 }
 
+/** The last answer the token-count lane published, held against the exact
+ *  projection inputs and the route that produced it. The render path trusts it
+ *  only while both still match, so a rendered mark always describes the prompt
+ *  on screen and the connection that would receive it. */
+export interface PromptTokenCountRecord {
+  readonly identity: PromptProjectionIdentity;
+  readonly route: string;
+  readonly count: PromptTokenCount;
+}
+
 export type InlineEditorTarget =
   | { kind: "part"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
   | { kind: "human-take"; node: StoryNode; pathIndex: number; savedNode: StoryNode | null }
@@ -422,6 +434,13 @@ export interface StoryScreenState extends OverlayState {
   storySelectionProjection: StorySelectionProjection | null;
   /** Visible owner for the one unsettled backend action. */
   backendTask: { id: number; kind: BackendTaskKind; label: string; storyId: string } | null;
+  /** The freshest counted (or estimate) answer for the projected next request,
+   *  or null before the lane has ever answered for this story. */
+  promptTokenCount: PromptTokenCountRecord | null;
+  /** Identity of the prose route the backend counts against. A token count
+   *  belongs to the route that produced it, and this is what tells two routes
+   *  apart — see `generationRouteKey` and PromptTokenCountRecord. */
+  generationRoute: string;
 }
 
 export type PendingGenerationDraft =

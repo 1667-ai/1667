@@ -489,6 +489,13 @@ export function providerUrl(settings: GenerationSettings, pathName: string): str
   return `${base}/${path}`;
 }
 
+/** Strips a trailing /v1 and any trailing slashes to get the server's own
+ *  root, for the handful of provider-specific routes — model lists, context
+ *  probes, native token counts — that live beside /v1 rather than under it. */
+export function providerRoot(settings: GenerationSettings): string {
+  return settings.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
 function parseEvent(data: string, secrets: readonly string[]): Record<string, unknown> {
   try {
     const parsed = JSON.parse(data) as unknown;

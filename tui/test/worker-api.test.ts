@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { MAX_IMPORT_BYTES, MAX_STORED_TITLE_CHARS } from "../../shared/types.js";
+import type { ChatMessage } from "../../shared/prompt-plan.js";
 import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
@@ -69,6 +70,12 @@ describe("embedded backend worker", () => {
       expect((await api.checkModelServer(saved.effective)).state).toBe("ready");
       expect((await api.probeContextWindow(saved.effective)).contextWindow).toBe(null);
       expect((await api.discoverModels(saved.effective)).models).toEqual([]);
+      // No settings and no story id: dry-run has no tokenize source, so the
+      // effective prose route (also dry-run here) keeps the estimate.
+      expect(await api.countPromptTokens([{ role: "user", content: "Hi" }])).toEqual({
+        kind: "estimate",
+        reason: "no-source"
+      });
 
       let story = await api.createStory("Worker contract");
       expect((await api.listStories()).map(({ id }) => id)).toContain(story.id);
@@ -328,6 +335,15 @@ describe("embedded backend worker", () => {
       expect(await rejection(api.loadStory("missing-story"))).toMatchObject({
         code: "not_found",
         status: 404
+      } satisfies Partial<WorkerApiError>);
+      // A malformed role is refused before it ever reaches the tokenize
+      // probe: a probe failure always falls back to an estimate rather than
+      // throwing, so the only way this call can reject at all is validation.
+      expect(await rejection(api.countPromptTokens(
+        [{ role: "villain", content: "not a real role" }] as unknown as ChatMessage[]
+      ))).toMatchObject({
+        code: "invalid_request",
+        status: 400
       } satisfies Partial<WorkerApiError>);
       expect(await rejection(api.importSillyTavern("x".repeat(MAX_IMPORT_BYTES + 1)))).toMatchObject({
         code: "content_too_large",
@@ -917,6 +933,31 @@ describe("embedded backend worker", () => {
         value: { contextWindow: null }
       });
       expect(await pending).toEqual({ contextWindow: null });
+    } finally {
+      await backend.dispose();
+    }
+  });
+
+  test("gives token counting its own deadline", async () => {
+    const worker = new FakeWorker(true);
+    const backend = await createWorkerStoryApi({
+      worker,
+      readyTimeoutMs: 100,
+      unaryTimeoutMs: 5
+    });
+    try {
+      expect(PROVIDER_CHECK_METHODS.has("countPromptTokens")).toBeTrue();
+      const pending = backend.api.countPromptTokens([{ role: "user", content: "Hi" }]);
+      const request = await waitForRequest(worker, "countPromptTokens");
+      expect(request.deadlineMs - Date.now()).toBeGreaterThan(
+        WORKER_PROVIDER_CHECK_TIMEOUT_MS - 1_000
+      );
+      worker.message({
+        type: "result",
+        id: request.id,
+        value: { kind: "estimate", reason: "no-source" }
+      });
+      expect(await pending).toEqual({ kind: "estimate", reason: "no-source" });
     } finally {
       await backend.dispose();
     }

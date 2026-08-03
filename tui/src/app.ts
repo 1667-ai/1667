@@ -50,7 +50,7 @@ import { searchAction } from "./search-actions.js";
 import { abortPendingSearch } from "./search-request.js";
 import { actionsMenuAction, armPrune, tagAction, composeAction, generate, generationBusy, navAction, openTag, pruneAction, requestGenerationStop, rerouteFromMap, type ActionContext } from "./story-actions.js";
 import { createWrapCache, type ProseStyle } from "./wrap.js";
-import { deriveContinuationRuntime } from "./runtime-settings.js";
+import { deriveContinuationRuntime, generationRouteKey } from "./runtime-settings.js";
 import {
   ActionRuntime,
   beginInteraction,
@@ -78,6 +78,7 @@ import {
   retirePresentedSelection
 } from "./presented-selection.js";
 import type { BackgroundUpdateStarter } from "./update-runtime.js";
+import { startPromptTokenCountLane, type PromptTokenCountLane } from "./prompt-token-count.js";
 
 export { recoveryNotice } from "./recovery-orchestration.js";
 
@@ -206,6 +207,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
   let backendFailure: Error | null = null;
   let stopRecoveryOrchestration: (() => void) | null = null;
   let stopUpdateCheck: (() => void) | null = null;
+  let tokenCountLane: PromptTokenCountLane | null = null;
   let resolveExit!: () => void;
   const exit = new Promise<void>((resolve) => { resolveExit = resolve; });
 
@@ -258,8 +260,13 @@ export async function runInteractive(source: AppSource): Promise<void> {
     // the log is filled here as well as at the end of `dispatch`.
     recordSessionNotices(state);
     frames.invalidate();
+    // `repaint` is the one funnel every dispatched action already passes
+    // through, so the token-count lane rides it instead of the dispatcher
+    // needing a second notification path (see prompt-token-count.ts).
+    tokenCountLane?.notify();
   };
   const backend = new ActionRuntime(state, repaint);
+  tokenCountLane = startPromptTokenCountLane({ state, api: source.api, repaint });
   const captureProfile = () => {
     if (!profileEnabled || profileReport !== null) return;
     let native = null;
@@ -276,6 +283,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
     frames.dispose();
     stopRecoveryOrchestration?.();
     stopUpdateCheck?.();
+    tokenCountLane?.dispose();
     backend.dispose();
     source.connection?.dispose();
     resolveExit();
@@ -725,7 +733,9 @@ export function initialState(source: AppSource, renderMode: boolean): RuntimeSta
     composerClaimEpoch: 0,
     quitArmed: false,
     interactionVersion: 0,
-    backendTask: null
+    backendTask: null,
+    promptTokenCount: null,
+    generationRoute: generationRouteKey(source.settingsView.effectiveProse)
   };
   bindLiveReadingPositionState(state);
   return state;

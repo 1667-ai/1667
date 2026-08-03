@@ -13,6 +13,12 @@ import type {
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
+  COUNTED_TOKENIZE_SOURCE_VALUES,
+  TOKEN_COUNT_FALLBACK_VALUES,
+  TOKENIZE_SOURCE_CONTRACTS,
+  type PromptTokenCount
+} from "../../shared/tokenize-source.js";
+import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
 } from "../../shared/settings-response-decoder.js";
 export {
@@ -152,6 +158,44 @@ export function decodeContextWindowResponse(value: unknown): { contextWindow: nu
   const response = responseRecord(value, "context-window probe");
   return {
     contextWindow: nullablePositiveIntegerField(response, "contextWindow", "context-window probe response")
+  };
+}
+
+export function decodePromptTokenCount(value: unknown): PromptTokenCount {
+  const response = responseRecord(value, "prompt token count");
+  const kind = response.kind;
+  if (kind === "estimate") {
+    const reason = response.reason;
+    if (!isMember(TOKEN_COUNT_FALLBACK_VALUES, reason)) {
+      invalidField("prompt token count response", "reason");
+    }
+    return { kind: "estimate", reason };
+  }
+  if (kind !== "counted") invalidField("prompt token count response", "kind");
+  const source = response.source;
+  // `none` is not among them: a counted answer names the source that counted it.
+  if (!isMember(COUNTED_TOKENIZE_SOURCE_VALUES, source)) {
+    invalidField("prompt token count response", "source");
+  }
+  // A source is not free to claim any grade, nor a split it cannot produce.
+  // Both are fixed by the source itself (shared/tokenize-source.ts), so a
+  // response disagreeing with its own source is malformed, not a stronger
+  // answer — accepting it would take the mark off a number that never earned
+  // one.
+  const contract = TOKENIZE_SOURCE_CONTRACTS[source];
+  if (response.grade !== contract.grade) invalidField("prompt token count response", "grade");
+  const perMessage = decodePerMessageTokenCounts(response.perMessage, "prompt token count response");
+  if (!contract.perMessage && perMessage !== null) {
+    invalidField("prompt token count response", "perMessage");
+  }
+  return {
+    kind: "counted",
+    source,
+    // Taken from the contract, not the wire: the two were just proved equal,
+    // and the contract is the side that decides.
+    grade: contract.grade,
+    total: nonNegativeIntegerField(response, "total", "prompt token count response"),
+    perMessage
   };
 }
 
@@ -328,6 +372,25 @@ function nullablePositiveIntegerField(
 ): number | null {
   if (value[field] === null) return null;
   return positiveIntegerField(value, field, label);
+}
+
+/** Aligned one-to-one with the counted messages, or null when the source
+ *  counts only a complete array. */
+function decodePerMessageTokenCounts(value: unknown, label: string): readonly number[] | null {
+  if (value === null) return null;
+  if (
+    !Array.isArray(value)
+    || !value.every((entry) => typeof entry === "number" && Number.isSafeInteger(entry) && entry >= 0)
+  ) {
+    invalidField(label, "perMessage");
+  }
+  return value as readonly number[];
+}
+
+/** Narrow a wire value against the shared list that declares it, so a decoder
+ * never carries its own copy of a union that can grow without it. */
+function isMember<T extends string>(values: readonly T[], candidate: unknown): candidate is T {
+  return typeof candidate === "string" && (values as readonly string[]).includes(candidate);
 }
 
 function booleanField(value: Record<string, unknown>, field: string, label: string): boolean {

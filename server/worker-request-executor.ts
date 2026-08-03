@@ -319,6 +319,8 @@ async function invokeReadOnly(
         requireRecord(input.settings, "settings"),
         signal
       );
+    case "countPromptTokens":
+      return await service.countPromptTokens(input.messages, signal);
     default:
       throw new ServiceError(
         400,
