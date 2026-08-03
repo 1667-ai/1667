@@ -47,6 +47,14 @@ HTTP server mode requires the machine tier outside the project.
 The project `.gitignore` excludes machine-local provider secret files. It also
 excludes `lock` and `run.json`.
 
+## Story objects
+
+1667 stores story prose in the project tier as text revisions and chunks. A
+story can also hold a third kind of stored object. It holds the alternative
+tokens the model weighed for one take, when that take requested them. Each
+time 1667 saves the project, it removes a stored object that no take refers
+to.
+
 ## Project lock
 
 One writer can own a project. An advisory lock on `.1667/lock` enforces this

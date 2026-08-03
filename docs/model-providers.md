@@ -4,6 +4,7 @@ read_when:
   - configuring a model provider
   - changing Facts or the context meter
   - changing the request viewer
+  - changing token probabilities
   - changing connection credentials, deadlines, or transport rules
 ---
 
@@ -233,7 +234,8 @@ Save a new credential target before you use it to read a model list.
 ## Use Generation Profiles and Generation Routes
 
 A **Generation Profile** is one set of model behavior settings. It contains a
-model, a temperature, a maximum output, a reasoning effort, and a cache policy.
+model, a temperature, a maximum output, a reasoning effort, a cache policy,
+and an alternative count.
 
 Select the **profile** row to see a Generation Profile. Use `Left Arrow` or
 `Right Arrow` to select a different Generation Profile. Press `n` to create a
@@ -253,6 +255,11 @@ meter uses the active prose route.
 Select the **cache** row to set the cache policy. Use `Left Arrow` or
 `Right Arrow` to select `off`, `auto`, or `long`. Settings shows an unavailable
 message when the selected model cannot use the cache policy.
+
+Select the **alt count** row to set the token probability count. Use
+`Left Arrow` or `Right Arrow` to select `off` or a number from 1 to 20. The
+TUI checks the value against the selected protocol and preset. The TUI
+renders an unavailable row as `‹ — ›` with a short reason.
 
 ## Sampling settings
 
@@ -318,6 +325,49 @@ Press `Esc` to return to Settings. Press `s` to save the Settings draft.
 The TUI checks each value against the selected protocol, preset, and model.
 The TUI renders an unavailable scalar row as `‹ — ›`. The TUI shows a short
 reason. The TUI keeps the draft when a save cannot use a configured value.
+
+## Token probabilities
+
+A token probability is the probability that the model gave one generated
+token. An alternative token is one token that the model weighed at one
+position. The token probability viewer shows the alternative tokens of one
+take.
+
+Token probabilities are off by default. An alternative token count makes
+each response much larger. The provider must report every alternative
+token at every position, not only the token it chose.
+
+A Generation Profile holds the alternative count in
+`profiles.<id>.tokenProbabilities`. The **alt count** row in Settings sets
+it. See [Use Generation Profiles and Generation
+Routes](#use-generation-profiles-and-generation-routes).
+
+1667 sends the fields only to a preset that documents them:
+
+| Preset | Sends token probabilities |
+| --- | --- |
+| OpenAI | Yes |
+| OpenRouter | Yes |
+| llama.cpp | Yes |
+| KoboldCpp | Yes |
+| LM Studio | Yes |
+| Ollama | No |
+| custom | No |
+
+Ollama and a custom endpoint do not document the fields. 1667 never sends
+the fields there. Anthropic Messages has no token probability field. 1667
+never sends the fields there either.
+
+A model can refuse the fields, even on a preset that documents them. 1667
+then sends the request again without them. The generation keeps its prose
+either way.
+
+Select a story part that has prose. Press `l` to open the token probability
+viewer. The viewer shows the take's prose with the selected token marked.
+Below the prose, it shows the alternative tokens the model weighed at that
+position, with their probabilities and log probabilities. Use `←` and `→`
+to move between tokens. Use `↑` and `↓` to move between alternatives. Use
+`Tab` to move to the next story part.
 
 ## Credentials and deadlines
 

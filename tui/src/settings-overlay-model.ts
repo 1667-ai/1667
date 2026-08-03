@@ -63,6 +63,7 @@ export const SETTINGS_ROW_IDS = [
   "context-window",
   "effort",
   "cache-policy",
+  "token-probabilities",
   "default-route",
   "prose-route",
   "utility-route",
@@ -320,6 +321,7 @@ export function settingsRowCycles(row: SettingsRowId): boolean {
     || row === "profile"
     || row === "effort"
     || row === "cache-policy"
+    || row === "token-probabilities"
     || row === "default-route"
     || row === "prose-route"
     || row === "utility-route";

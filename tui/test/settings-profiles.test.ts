@@ -10,6 +10,7 @@ import type {
   SettingsView,
   ProviderProbeTarget
 } from "../../shared/settings-v2-types.js";
+import { MAX_ALTERNATIVE_TOKENS } from "../../shared/token-probabilities.js";
 import { setComposerText } from "../src/composer-model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
@@ -305,6 +306,91 @@ describe("Generation Profile settings", () => {
     state.settings!.draft = settingsTextDraftForDocument(unsupported);
     await press(key("right"));
     expect(state.settings?.draft.document?.profiles.default?.effort).toBe("default");
+  });
+
+  test("alternatives writes the count on, and clears the field entirely on off", async () => {
+    const { source, state, press } = settingsHarness();
+    const current = installNetworkSettings(source);
+    const commands: SaveSettingsCommand[] = [];
+    source.api.saveSettings = async (command) => {
+      commands.push(command);
+      const saved = savedView(current, command.document);
+      source.settingsView = saved;
+      return savedResult(saved);
+    };
+
+    await openSettings(press);
+    expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
+    await selectRow(press, state, "token-probabilities");
+    await press(key("right"));
+    await press(key("right"));
+    expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(2);
+    await press(key("s"));
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]!.document.profiles.default!.tokenProbabilities).toBe(2);
+
+    await selectRow(press, state, "token-probabilities");
+    await press(key("left"));
+    await press(key("left"));
+    expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
+    await press(key("s"));
+
+    expect(commands).toHaveLength(2);
+    // Absent, not written as `tokenProbabilities: 0` and not written as
+    // `undefined` — the key itself must be gone from the saved document.
+    expect(Object.hasOwn(commands[1]!.document.profiles.default!, "tokenProbabilities")).toBe(false);
+  });
+
+  test("alternatives cycles off and 1..20 without ever landing on 0 or 21", async () => {
+    const { source, state, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    await selectRow(press, state, "token-probabilities");
+    const current = () => state.settings?.draft.document?.profiles.default?.tokenProbabilities;
+
+    for (let count = 1; count <= MAX_ALTERNATIVE_TOKENS; count += 1) {
+      await press(key("right"));
+      expect(current()).toBe(count);
+    }
+    // One more step past the ceiling wraps back to off, never 21.
+    await press(key("right"));
+    expect(current()).toBe(undefined);
+
+    // Stepping down from off wraps to the top of the range, never 0 or negative.
+    await press(key("left"));
+    expect(current()).toBe(MAX_ALTERNATIVE_TOKENS);
+  });
+
+  test("alternatives shows the capability matrix's reason instead of a value on an unavailable preset", async () => {
+    const { source, state, cache, press } = settingsHarness();
+    installNetworkSettings(source);
+    await openSettings(press);
+    const document = state.settings?.draft.document;
+    if (document === null || document === undefined) throw new Error("editable document missing");
+    const modelId = document.profiles.default!.modelId;
+    const connectionId = document.models[modelId]!.connectionId;
+    // Ollama documents no token-probability fields (shared/token-probability-
+    // capabilities.ts), while remaining a perfectly ordinary openai-chat-
+    // completions connection — the same "preset-unknown" case a live Ollama
+    // endpoint hits.
+    const unavailable = {
+      ...document,
+      connections: {
+        ...document.connections,
+        [connectionId]: { ...document.connections[connectionId]!, preset: "ollama" as const }
+      }
+    };
+    state.settings!.draft = settingsTextDraftForDocument(unavailable);
+    await selectRow(press, state, "token-probabilities");
+    const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
+    expect(frame).toContain("‹ — ›");
+    expect(frame).toContain("unknown endpoint");
+
+    // Cycling an unavailable row is a no-op: it never writes a count the
+    // request was never going to carry.
+    await press(key("right"));
+    expect(state.settings?.draft.document?.profiles.default?.tokenProbabilities).toBe(undefined);
   });
 
   test("a nonmatching discovery result does not allocate a model during save", async () => {

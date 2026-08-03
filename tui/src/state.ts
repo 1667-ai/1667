@@ -161,6 +161,7 @@ export type SettingsRowId =
   | "context-window"
   | "effort"
   | "cache-policy"
+  | "token-probabilities"
   | "default-route"
   | "prose-route"
   | "utility-route"

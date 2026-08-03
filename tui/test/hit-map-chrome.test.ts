@@ -735,9 +735,9 @@ describe("hit map clickable chrome", () => {
     }
 
     // Theme, compose focus, provider, insecure HTTP, profile, effort, cache,
-    // sampling and three routes — plus the three C-08 scalars, whose chips
-    // open on the same column.
-    expect(opens.size).toBe(13);
+    // alternatives, and three routes — plus the three C-08 scalars, whose
+    // chips open on the same column.
+    expect(opens.size).toBe(14);
     expect(new Set(opens.values()).size).toBe(1);
   });
 
