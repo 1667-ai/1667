@@ -49,6 +49,7 @@ export const STORY_MUTATION_METHODS = [
   "importNovelAI",
   "importScenario",
   "importLorebook",
+  "importCard",
   "continueStory",
   "rewriteNode",
   "createSummaryTake",

@@ -374,9 +374,15 @@ function assertCoveredExtent(value: unknown, label: string): void {
   requireStrings(extent, label, "fromPartId", "toPartId");
 }
 
+/** The one place every reader and validator checks "is this a JSON object,
+ * not an array or null." */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function requireRecord(value: unknown, message: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error(message);
+  return value;
 }
 
 function requireArray(value: Record<string, unknown>, field: string, label: string): unknown[] {
@@ -608,6 +614,14 @@ export const MAX_STORED_TITLE_CHARS = 4096;
 
 /** Shared ceiling for JSON API bodies, measured as received UTF-8 bytes. */
 export const MAX_JSON_BODY_BYTES = 1_000_000;
+
+const factRequestBytesEncoder = new TextEncoder();
+
+/** Exact UTF-8 size of the body `api.createFact` sends for a batch of Facts.
+ * Not card-specific: a lorebook import sizes its request the same way. */
+export function factImportRequestBytes(facts: readonly FactInput[]): number {
+  return factRequestBytesEncoder.encode(JSON.stringify({ facts })).byteLength;
+}
 
 /** Graceful drain window before a hung backend is force-terminated. */
 export const BACKEND_SHUTDOWN_GRACE_MS = 30_000;

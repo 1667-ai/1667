@@ -1,10 +1,10 @@
 import { inlineValue, resolveImportProject, separatedValue } from "./import-project.js";
 import type { StorySummary } from "../../shared/types.js";
-import { planCardImport } from "./card-import.js";
 import { readImportBytes } from "../../server/import-file.js";
 import { selectStory } from "./story-selector.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { createWorkerStoryApi } from "./worker-api.js";
+import { fidelityReport } from "../../shared/fidelity.js";
 
 export interface CardImportCommand {
   readonly story: string;
@@ -60,8 +60,12 @@ export async function runCardImport(
     const story = selectStory(await backend.api.listStories(), command.story);
     for (const file of command.files) {
       try {
-        const plan = planCardImport(await readImportBytes(file));
-        await backend.api.createFact(story.id, { facts: [...plan.facts] });
+        const bytes = await readImportBytes(file);
+        // The service loads the story and computes its own room, fresh for
+        // each file, the same way `importLorebook` does — an earlier file in
+        // this same run can already have used up the story's space.
+        const { plan } = await backend.api.importCard(story.id, bytes);
+        errorOutput.write(`${plain(file)}: ${fidelityReport(plan.fidelity)}\n`);
         const skipped = plan.skipped.length === 0
           ? ""
           : `; skipped ${plan.skipped.join(", ")}`;

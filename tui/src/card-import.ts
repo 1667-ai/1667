@@ -1,37 +1,7 @@
-import {
-  factImportRequestBytes,
-  factsFromCharacterCard,
-  parseCharacterCard,
-  type CharacterCardSections
-} from "../../shared/character-card.js";
-import type { FactInput } from "../../shared/types.js";
+import type { CardImportPlan } from "../../shared/card-import.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
-import { MAX_JSON_BODY_BYTES } from "../../shared/types.js";
 
-const SECTION_NAMES = ["description", "personality", "scenario"] as const;
-
-export interface CardImportPlan {
-  readonly name: string;
-  readonly facts: readonly FactInput[];
-  readonly used: readonly string[];
-  readonly skipped: readonly string[];
-}
-
-/** Convert one character-card file's bytes into one atomic import plan. */
-export function planCardImport(bytes: Uint8Array): CardImportPlan {
-  const card = parseCharacterCard(bytes);
-  const used = SECTION_NAMES.filter((section) => card[section].trim().length > 0);
-  const skipped = SECTION_NAMES.filter((section) => card[section].trim().length === 0);
-  const sections: CharacterCardSections = { name: card.name };
-  for (const section of used) sections[section] = card[section];
-  const facts = factsFromCharacterCard(sections);
-  if (factImportRequestBytes(facts) > MAX_JSON_BODY_BYTES) {
-    throw new Error(
-      `The card converts to ${facts.length} facts that exceed the 1 MB request limit; shorten the character text.`
-    );
-  }
-  return { name: card.name, facts, used, skipped };
-}
+export type { CardImportPlan } from "../../shared/card-import.js";
 
 /** Describe the plan for a toast or another concise status line. */
 export function describeCardImport(plan: CardImportPlan): string {
