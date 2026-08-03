@@ -463,7 +463,8 @@ describe("demo action runtime and input", () => {
     const cache = createWrapCache<ProseStyle>();
     state.mode = "COMPOSE";
     state.composer = createComposer("land this direction");
-    source.api.continueStory = async () => ({ ...state.payload, title: "authoritative result" });
+    source.api.continueStory = async () =>
+      ({ payload: { ...state.payload, title: "authoritative result" }, droppedFacts: [] });
 
     await composeAction({ action: "send" }, state, source, {
       cache, repaint: () => undefined, renderer: null,
@@ -584,7 +585,9 @@ describe("demo action runtime and input", () => {
       stopInteractionVersion: null
     };
     const active = commandMatches(
-      "", state.demo, commandContext(state.payload, state.connection.down, true)
+      "", state.demo, commandContext(state.payload, {
+        connectionDown: state.connection.down, requestActive: true, canRewriteSelection: false
+      })
     );
     const cursor = active.findIndex(({ command }) => command.id === "switch-story");
     expect(cursor).toBeGreaterThan(-1);

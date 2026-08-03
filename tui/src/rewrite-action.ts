@@ -1,0 +1,306 @@
+import type { StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
+import type { ActionTask } from "./action-runtime.js";
+import type { AppSource } from "./app.js";
+import { createStoryViewModel, rowIndexForNode } from "./model.js";
+import { openRetakeComposer, suspendRetakeComposer } from "./composer-ownership.js";
+import { clearPendingGenerationDraft, restorePendingGenerationDraft } from "./generation-action.js";
+import { recordHumanWords } from "./config.js";
+import { humanWordsOf } from "./rail.js";
+import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, RuntimeState, StreamView } from "./state.js";
+import type { ActionContext } from "./action-context.js";
+import { rememberFocus } from "./reading-position-persist.js";
+import { adoptSameStoryPayload } from "./story-adoption.js";
+import { appendStreamText, emptyStreamText } from "./stream-text.js";
+import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
+
+export interface RewriteTarget extends TextRange {
+  readonly node: StoryNode;
+  readonly expected: string;
+}
+
+export interface RewriteTargetError {
+  readonly error: string;
+}
+
+const NO_SELECTION_MESSAGE = "highlight story text before rewriting it";
+const STALE_SELECTION_MESSAGE = "the story changed · highlight it again";
+
+/** Pure and independent of `state.actions` so both the part-actions menu
+ * (bound to a menu-opened part) and the command palette (bound only to a
+ * captured selection) can resolve the same target from their own inputs. */
+export function resolveRewriteTarget(
+  payload: StoryPayload,
+  partId: string,
+  spans: readonly StorySelectionSpan[]
+): RewriteTarget | RewriteTargetError {
+  if (!canRewriteSelection(spans)) return { error: NO_SELECTION_MESSAGE };
+  const span = spans[0]!;
+  if (span.key !== `${partId}:text`) return { error: NO_SELECTION_MESSAGE };
+  return resolveRewriteRange(payload, partId, span.start, span.end, span.text.slice(span.start, span.end));
+}
+
+/** The staleness check behind `resolveRewriteTarget`, factored out so the
+ * open-composer path and the send-time re-check can share it. A span only
+ * exists at the moment a selection is captured; by send time the composer
+ * has kept nothing but these three values (see `PromptIntent`'s `rewrite`
+ * case), so re-validation calls this directly instead of reconstructing one. */
+function resolveRewriteRange(
+  payload: StoryPayload,
+  partId: string,
+  start: number,
+  end: number,
+  expected: string
+): RewriteTarget | RewriteTargetError {
+  const node = payload.path.find((candidate) => candidate.id === partId);
+  if (node === undefined) return { error: NO_SELECTION_MESSAGE };
+  // Recompute against the live node rather than trusting the captured range:
+  // the story can change under a highlighted passage between the moment the
+  // selection was made and the moment the writer confirms the rewrite.
+  const live = node.text.slice(start, end);
+  if (live !== expected) return { error: STALE_SELECTION_MESSAGE };
+  return { node, start, end, expected: live };
+}
+
+/** The palette captures a selection independent of any menu-bound part, so
+ * it recovers which part owns the highlighted prose from the span's own key
+ * instead of trusting a caller-supplied id. Only a prose-text span qualifies
+ * — an instruction/direction-line span answers a different key suffix. */
+export function partIdFromTextSelection(spans: readonly StorySelectionSpan[]): string | null {
+  if (!canRewriteSelection(spans)) return null;
+  const suffix = ":text";
+  return spans[0]!.key.slice(0, -suffix.length);
+}
+
+type RewriteActionContext = Pick<ActionContext, "backend" | "cache" | "repaint">;
+
+const REWRITE_STOPPING_TOAST = "rewrite stopping · nothing saved yet";
+const REWRITE_ALREADY_SAVED_TOAST = "rewrite already saved · finishing up";
+
+/** Choosing "Rewrite selection" opens the composer this returns rather than
+ * running anything — the writer may leave it empty for a plain regenerate
+ * or type an instruction, and only `submitRewriteComposer` (the composer's
+ * send path) ever calls the API. Seeded blank: unlike a retake, a rewrite
+ * instruction has nothing to do with the node's own original instruction. */
+export function openRewriteComposer(
+  state: RuntimeState,
+  target: RewriteTarget
+): RetakePromptSession {
+  return openRetakeComposer(state, target.node.id, "", {
+    kind: "rewrite",
+    start: target.start,
+    end: target.end,
+    expected: target.expected
+  });
+}
+
+/** The composer's send path for a rewrite intent — the counterpart of
+ * `composeAction`'s inline retake branch (story-actions.ts), factored out
+ * here since it belongs beside the operation it drives. Re-resolves the
+ * target against the live payload (the story may have moved while the
+ * composer sat open); everything past that — history, human-word tracking,
+ * the pending draft, and composer/mode ownership — runs *inside*
+ * `context.backend.run`'s callback, the same discipline the retake send path
+ * uses (story-actions.ts's `composeAction`). If `ActionRuntime.run` refuses
+ * because another task already owns the backend, none of that handoff has
+ * happened: the composer, history, and typed instruction are all untouched
+ * rather than abandoned mid-flight with nothing left to restore them from. */
+export async function submitRewriteComposer(
+  state: RuntimeState,
+  source: AppSource,
+  context: RewriteActionContext,
+  prompt: RetakePromptSession,
+  intent: Extract<PromptIntent, { kind: "rewrite" }>,
+  instruction: string
+): Promise<void> {
+  const resolved = resolveRewriteRange(state.payload, prompt.nodeId, intent.start, intent.end, intent.expected);
+  if ("error" in resolved) {
+    state.composer.fullscreen = false;
+    state.toast = resolved.error;
+    return;
+  }
+  await context.backend.run("rewriting prose", async (task) => {
+    if (instruction.trim().length > 0) {
+      state.history.push(instruction);
+      if (!state.demo) {
+        source.config = recordHumanWords(source.config, humanWordsOf(instruction));
+        state.config = source.config;
+      }
+    }
+    state.historyIndex = state.history.length;
+    state.historyDraft = null;
+    const pendingDraft: PendingGenerationDraft = { kind: "retake", text: instruction, retakePrompt: prompt, restored: false };
+    state.pendingGenerationDraft = pendingDraft;
+    state.composer.fullscreen = false;
+    suspendRetakeComposer(state, prompt);
+    state.mode = "NAV";
+    await runSelectionRewrite(state, source, context, resolved, instruction, pendingDraft, task);
+  });
+}
+
+/** The rewrite request itself, run from inside `submitRewriteComposer`'s
+ * `context.backend.run` callback so this task owns the line through
+ * reload/adopt settlement — the same discipline `summary-action.ts` uses for
+ * its own claimed operation. `pendingDraft` is the composer's own draft;
+ * threading it through and recovering it on failure/stop gives a rewrite the
+ * same "typed instruction survives an unlucky request" guarantee a retake
+ * gets from the identical object shape — until the take commits server-side,
+ * past which recovering it would resurrect a composer aimed at a node the
+ * new take has already replaced (see the `committed` handling below and in
+ * `requestRewriteStop`). This has exactly one caller, so it stays local. */
+async function runSelectionRewrite(
+  state: RuntimeState,
+  source: AppSource,
+  context: RewriteActionContext,
+  target: RewriteTarget,
+  instruction: string,
+  pendingDraft: PendingGenerationDraft,
+  task: ActionTask
+): Promise<void> {
+  const node = target.node;
+  const controller = new AbortController();
+  // Unlike generate(), this never re-checks state.abort: ActionRuntime.run
+  // refuses a second task while state.backendTask is set, and this task
+  // holds that ownership through settlement. `active` is kept as a local
+  // reference (rather than re-reading state.abort each time) so the
+  // finally block's identity check and requestRewriteStop's `committed`
+  // read always agree on exactly which claim they mean.
+  const active = { kind: "rewrite" as const, controller, committed: false };
+  state.abort = active;
+  const stream: StreamView = {
+    targetId: node.id,
+    parentId: node.parentId,
+    append: false,
+    rewrite: { start: target.start, end: target.end },
+    instruction,
+    startedAt: new Date().toISOString(),
+    composerClaimEpoch: state.composerClaimEpoch,
+    ...emptyStreamText()
+  };
+  state.stream = stream;
+  context.repaint();
+
+  try {
+    const takeId = await source.api.rewriteNode(
+      task.storyId,
+      node.id,
+      { start: target.start, end: target.end, instruction, expected: target.expected },
+      (delta) => {
+        if (!task.owns() || !task.storyCurrent() || state.stream !== stream) return;
+        appendStreamText(stream, delta);
+        context.repaint();
+      },
+      controller.signal,
+      // Fires inside the adapter, before its own confirming refresh — the
+      // one layer lower than this call's own resolution where commitment
+      // actually happens (api.ts, worker-story-api.ts). Recording it here
+      // closes the window where that refresh rejects (or Escape races it)
+      // between a durable take and this task ever learning about it.
+      () => { active.committed = true; }
+    );
+    if (controller.signal.aborted) {
+      return await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+    }
+    if (takeId === null) {
+      // Not an abort and not an error — the request simply landed nothing.
+      // The draft is otherwise indistinguishable from a failed one: restore
+      // it here too, but only on this story (a story switch already means
+      // some newer surface, never this dormant draft, owns the composer).
+      if (task.storyCurrent()) restorePendingGenerationDraft(state, pendingDraft, task.interactionCurrent());
+      return;
+    }
+    // Reassigning here is normally a no-op — the `onCommitted` hook above
+    // already set this before this call resolved — but it is the only
+    // record of commitment for an adapter (or test stub) that resolves a
+    // take id without ever calling that hook. Neither a failed confirming
+    // reload below nor an Escape racing this window may resurrect the
+    // pre-rewrite draft or claim nothing was saved — requestRewriteStop
+    // reads this same flag on `active` (== state.abort while it is current).
+    active.committed = true;
+    if (!task.storyCurrent()) return;
+
+    const payload = await source.api.loadStory(task.storyId);
+    if (!task.storyCurrent()) return;
+    adoptSameStoryPayload(state, payload);
+    const landed = new Map(state.freshLandedAt);
+    landed.set(takeId, Date.now());
+    state.freshLandedAt = landed;
+    if (task.interactionCurrent()) {
+      state.focusIndex = Math.max(0, rowIndexForNode(createStoryViewModel(payload), takeId));
+      rememberFocus(state, source);
+    }
+    clearPendingGenerationDraft(state, pendingDraft);
+    state.toast = "selection rewritten";
+  } catch (error) {
+    if (controller.signal.aborted) {
+      await reloadAfterStop(state, source, task.storyId, task.storyCurrent);
+    } else if (task.storyCurrent()) {
+      if (active.committed) {
+        // Only the confirming reload failed; the take itself already landed.
+        // Clear the stale draft instead of resurrecting a composer aimed at
+        // a node the new take has already replaced on the active path, and
+        // let the error speak for what actually went wrong.
+        clearPendingGenerationDraft(state, pendingDraft);
+      } else {
+        restorePendingGenerationDraft(state, pendingDraft, task.interactionCurrent());
+      }
+      state.toast = error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    if (state.abort === active) state.abort = null;
+    if (state.stream === stream) state.stream = null;
+    context.cache.invalidate();
+    context.repaint();
+  }
+}
+
+/** Escape restores the local UI immediately for a rewrite that has not yet
+ * committed — an aborted rewrite before that point saves nothing
+ * server-side, so restoration is safe.
+ *
+ * Mirrors `requestGenerationStop`'s instant draft restoration: the typed
+ * instruction reappears in a reopened composer on the same tick as the
+ * keypress, before the abort signal even reaches the in-flight request.
+ * Restoration is unconditional (not gated on "nothing substantive streamed
+ * yet") because — before commitment — a rewrite never has partial text worth
+ * landing: it either fails outright or resolves one complete replacement,
+ * never a growing draft the way generation's append/continue does. Falling
+ * back to the stopping/stopped toast pair only covers the one case
+ * restoration itself reports failure: a newer Direct claim already retired
+ * this draft out from under the request.
+ *
+ * Once `runSelectionRewrite` marks its claim committed, that premise no
+ * longer holds: the replacement is already durable server-side, so this
+ * reports the landing instead of resurrecting a composer aimed at a node the
+ * new take has already replaced. */
+export function requestRewriteStop(state: RuntimeState, repaint: () => void): void {
+  const active = state.abort;
+  if (active?.kind !== "rewrite") return;
+  if (active.committed) {
+    state.toast = REWRITE_ALREADY_SAVED_TOAST;
+    repaint();
+    return;
+  }
+  const restored = restorePendingGenerationDraft(state, state.pendingGenerationDraft, true);
+  active.controller.abort();
+  state.stream = null;
+  state.toast = restored ? null : REWRITE_STOPPING_TOAST;
+  repaint();
+}
+
+async function reloadAfterStop(
+  state: RuntimeState,
+  source: AppSource,
+  storyId: string,
+  storyCurrent: () => boolean
+): Promise<void> {
+  if (!storyCurrent()) return;
+  try {
+    const payload = await source.api.loadStory(storyId);
+    if (storyCurrent()) adoptSameStoryPayload(state, payload);
+    if (state.toast === REWRITE_STOPPING_TOAST) state.toast = "rewrite stopped · nothing saved";
+  } catch (error) {
+    if (state.toast === REWRITE_STOPPING_TOAST) {
+      state.toast = error instanceof Error ? error.message : String(error);
+    }
+  }
+}

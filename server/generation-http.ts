@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { fixedPromptTexts, renderPromptPlan } from "../shared/prompt-plan.js";
+import { renderPromptPlan } from "../shared/prompt-plan.js";
 import { resolveAuthorBrief } from "../shared/author-brief.js";
 import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../shared/authors-note.js";
 import {
@@ -12,11 +12,13 @@ import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalize
 import { activeHumanAttribution, attributionAfterReplacement } from "../shared/human-edit.js";
 import { streamCompletion } from "./providers.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
-import { assertFixedContextFits, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
-import { factsSystemMessage, rewriteFactsSystemMessage } from "./story-facts.js";
+import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "./story-facts.js";
+import { formatFactsMessage } from "../shared/story-facts.js";
 import {
   streamModel,
   type DeltaConsumer
@@ -56,7 +58,8 @@ export async function autonameStory(
   // covers facts plus the builder-owned fixed texts, so a long story with a
   // small fact is shortened rather than refused. Factless stories keep the
   // pre-facts 24k excerpt byte-for-byte.
-  const titleFacts = factsSystemMessage(snapshot);
+  const titleBudgeted = activeBudgetedFacts(snapshot);
+  const titleFacts = formatFactsMessage(titleBudgeted.kept);
   const authorBrief = resolveAuthorBrief(snapshot.authorBrief, settings.systemPrompt);
   const briefChars = Math.min(authorBrief.trim().length, 2_000);
   const promptCharBudget = titleFacts === null || settings.contextWindow === null
@@ -66,8 +69,15 @@ export async function autonameStory(
         Math.max(1_000, (settings.contextWindow - titleSettings.maxTokens) * 3
           - titleFacts.length - briefChars - 800)
       );
-  const { prompt: titlePrompt } = autonamePrompt(snapshot, authorBrief, promptCharBudget, titleFacts);
-  assertFixedContextFits(titleSettings, titleFacts, null, fixedPromptTexts(titlePrompt));
+  // The char budget stays fixed across a possible rebuild below — a few Facts
+  // shorter than assumed only makes it more conservative, never wrong.
+  const { plan: titlePlan } = admitFactsIntoPrompt(
+    titleSettings,
+    titleBudgeted.kept,
+    null,
+    (factsMessage) => autonamePrompt(snapshot, authorBrief, promptCharBudget, factsMessage)
+  );
+  const titlePrompt = titlePlan.prompt;
   await bindIntent?.(titleSettings, { kind: "title", messages: renderPromptPlan(titlePrompt) });
   try {
     for await (const delta of streamCompletion(
@@ -124,7 +134,13 @@ export async function continueStory(
   onDelta: DeltaConsumer,
   signal: AbortSignal,
   providerStarted: () => void | Promise<void> = () => {},
-  bindIntent?: BindGenerationIntent
+  bindIntent?: BindGenerationIntent,
+  /** Fired once, synchronously, with whatever admission actually shed to fit
+   *  the fixed prompt — the only place this real, post-shedding drop set
+   *  exists. A caller that wants to tell the writer what happened (rather
+   *  than the pre-flight guess the context meter shows before the request is
+   *  sent) reads it here; the committed Story carries no trace of it. */
+  onFactsDropped?: (dropped: readonly FactBudgetDrop[]) => void
 ): Promise<Story | null> {
   if (signal.aborted) return null;
   const requestedInstruction = (optionalString(body.instruction) ?? "").trim();
@@ -172,7 +188,7 @@ export async function continueStory(
     }
     contextParts = parentId === null ? [] : pathTo(story, parentId);
   }
-  const facts = factsSystemMessage(story, {
+  const budgetedFacts = activeBudgetedFacts(story, {
     contextParts,
     chapterBreaks: story.chapterBreaks,
     nodes: story.nodes,
@@ -191,24 +207,34 @@ export async function continueStory(
   generationAdmission.rememberModel(id, genId, model);
   // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
   // reject prefill must first echo a short exact boundary which we strip below.
-  const continuation = continuationPlan(
-    authorBrief,
-    facts,
-    authorsNotePlacement,
-    contextParts,
-    instruction,
-    appendTo !== null,
-    supportsAssistantPrefill(settings),
-    null,
-    story.chapterBreaks,
-    story.nodes
+  const { plan: continuation, admission } = admitFactsIntoPrompt(
+    settings,
+    budgetedFacts.kept,
+    authorsNote,
+    (factsMessage) => continuationPlan(
+      authorBrief,
+      factsMessage,
+      authorsNotePlacement,
+      contextParts,
+      instruction,
+      appendTo !== null,
+      supportsAssistantPrefill(settings),
+      null,
+      story.chapterBreaks,
+      story.nodes
+    )
   );
-  assertFixedContextFits(settings, facts, authorsNote, fixedPromptTexts(continuation.prompt));
+  // `admission.dropped` alone misses whatever the story's own Facts budget or
+  // a Fact's own budgetTokens cap already removed from `budgetedFacts.kept`
+  // before admission ever saw it — combine both so a Fact that never reached
+  // the prompt is never reported as if nothing had been dropped (issue #281
+  // review finding I).
+  onFactsDropped?.([...budgetedFacts.dropped, ...admission.dropped]);
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
     contextPartIds: contextParts.map((part) => part.id),
-    facts,
+    facts: admission.factsMessage,
     authorsNote,
     authorsNoteDepth: story.authorsNoteDepth ?? null,
     authorBrief: story.authorBrief ?? null,
@@ -287,9 +313,10 @@ export async function rewriteNode(
   signal: AbortSignal,
   providerStarted: () => void | Promise<void> = () => {},
   rewriteId?: string,
+  takeId?: string,
   bindIntent?: BindGenerationIntent
-): Promise<boolean> {
-  if (signal.aborted) return false;
+): Promise<string | null> {
+  if (signal.aborted) return null;
   const start = body.start;
   const end = body.end;
   const expected = requireString(body.expected, "expected");
@@ -310,7 +337,7 @@ export async function rewriteNode(
       ? "Reword this: give a different word or short phrase with the same meaning that fits the sentence seamlessly."
       : "Write this passage again. Keep what happens the same, but find fresh words, images, and rhythm.";
   const story = await stories.loadForMutation(id);
-  if (signal.aborted) return false;
+  if (signal.aborted) return null;
   const part = activePath(story).find((node) => node.id === partId);
   if (part === undefined) throw new HttpError(404, `Node not found on the active path: ${partId}`);
   if (
@@ -322,34 +349,24 @@ export async function rewriteNode(
     throw new HttpError(409, "The selection no longer matches the stored text — reload the story.");
   }
   const originalText = part.text;
-  const facts = rewriteFactsSystemMessage(story, partId, instruction, expected);
+  const budgetedFacts = activeBudgetedFactsForRewrite(story, partId, instruction, expected);
   const { settings, promptCache } = await settingsStore.loadGeneration("prose");
-  if (signal.aborted) return false;
+  if (signal.aborted) return null;
   // A fresh nonce makes the rewrite markers and output terminator impossible to
   // collide with prose already in the story.
   const tag = `rw-${randomUUID().slice(0, 8)}`;
-  const common = {
-    story,
-    facts,
-    partId,
-    start,
-    end,
-    expected,
-    instruction,
-    lengthTarget: lengthTarget(expected, requested !== ""),
-    authorBrief: resolveAuthorBrief(story.authorBrief, settings.systemPrompt),
-    tag
-  };
-  const plan = bareMode
-    ? phraseRewritePlan({ ...common, passage: !phraseMode })
-    : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
-  // Measure the fixed rewrite prompt from the semantic plan so admission cannot
-  // drift from later prompt wording.
-  assertFixedContextFits(settings, facts, null, fixedPromptTexts(plan.prompt));
+  const rewriteAuthorBrief = resolveAuthorBrief(story.authorBrief, settings.systemPrompt);
   // Rewriting is a precision task: high temperatures break exact seam copying
   // long before they improve prose. A plain regenerate also gets a hard output
   // budget, so a model that ignores the word band runs out after a few dozen
   // tokens and fails cleanly instead of streaming paragraphs first.
+  //
+  // Computed before admission, and passed to it below, so admission reserves
+  // the output budget this request actually sends. Passing the unmodified
+  // `settings` there instead once reserved the far larger global maxTokens —
+  // Facts could be shed, or the rewrite refused outright, to make room for an
+  // output the request was never going to produce (issue #281 review finding
+  // G).
   const rewriteSettings: GenerationSettings = {
     ...settings,
     // A null temperature normally defers to the provider default — too hot here.
@@ -358,10 +375,34 @@ export async function rewriteNode(
       ? Math.min(settings.maxTokens, rewriteOutputBudget(selectionWords))
       : settings.maxTokens
   };
+  // Measure the fixed rewrite prompt from the semantic plan so admission cannot
+  // drift from later prompt wording.
+  const { plan, admission } = admitFactsIntoPrompt(
+    rewriteSettings,
+    budgetedFacts.kept,
+    null,
+    (factsMessage) => {
+      const common = {
+        story,
+        facts: factsMessage,
+        partId,
+        start,
+        end,
+        expected,
+        instruction,
+        lengthTarget: lengthTarget(expected, requested !== ""),
+        authorBrief: rewriteAuthorBrief,
+        tag
+      };
+      return bareMode
+        ? phraseRewritePlan({ ...common, passage: !phraseMode })
+        : rewritePlan({ ...common, assistantPrefill: supportsAssistantPrefill(settings) });
+    }
+  );
   await bindIntent?.(rewriteSettings, {
     kind: "rewrite",
     story: { title: story.title, nodes: activePath(story), chapterBreaks: story.chapterBreaks },
-    facts,
+    facts: admission.factsMessage,
     authorBrief: story.authorBrief ?? null,
     partId,
     start,
@@ -385,16 +426,21 @@ export async function rewriteNode(
     providerStarted,
     createPromptCacheRequest(promptCacheRuntime, promptCache, id, plan.prompt.operation)
   );
-  if (replacement === null) return false;
+  if (replacement === null) return null;
+  // Issue #277 stage 1: point a writer whose seam contract just failed at the
+  // reliable fallback — a plain regenerate skips the exact-boundary step
+  // entirely. Remove this pointer once stage 2 gives an instructed rewrite a
+  // bare mode of its own, so the seam contract stops being the only path.
+  const SMALL_MODEL_POINTER = " Smaller models often cannot complete this exact-boundary step; a plain regenerate (a rewrite with no instruction) is the reliable alternative.";
   if (requireLeftAnchor && !output.matchedPrefix) {
-    throw new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved.");
+    throw new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved." + SMALL_MODEL_POINTER);
   }
   // The end marker is required even when nothing follows the selection: without
   // it, a rewrite at the end of the story is an unverifiable free continuation.
   if (plan.endMarker.length > 0 && !output.matchedContract) {
-    throw new GenerationResultError(502, plan.rightAnchor.length > 0
+    throw new GenerationResultError(502, (plan.rightAnchor.length > 0
       ? "The model did not reconnect the replacement to the exact text after it; nothing was saved."
-      : "The model did not finish its replacement cleanly; nothing was saved.");
+      : "The model did not finish its replacement cleanly; nothing was saved.") + SMALL_MODEL_POINTER);
   }
   // Small models echo the markers back despite being told not to; splicing that
   // in would put a literal <rewrite> tag into the prose. Strip them defensively,
@@ -424,7 +470,7 @@ export async function rewriteNode(
   const replacementText =
     plan.leadingWhitespace + cleaned.trim() + plan.trailingWhitespace;
   try {
-    return await stories.commitProviderEffect(id, {
+    const node = await stories.commitProviderEffect(id, {
       kind: "rewrite",
       nodeId: partId,
       expectedText: originalText,
@@ -440,8 +486,10 @@ export async function rewriteNode(
       ),
       updatedAt: new Date().toISOString(),
       rewriteId,
+      takeId,
       cancelled: signal
     });
+    return node.id;
   } catch (error) {
     if (error instanceof HttpError
       && error.code === "story_manifest_requires_successor") {

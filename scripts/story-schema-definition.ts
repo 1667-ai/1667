@@ -16,7 +16,8 @@ import {
 } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, MAX_AUTHORS_NOTE_DEPTH } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS } from "../shared/author-brief.js";
-import { MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
+import { FACT_PRIORITIES, MAX_FACT_KEY_SCALARS, MAX_FACT_KEYS } from "../shared/fact-activation.js";
+import { MAX_FACT_BUDGET_TOKENS, MAX_STORY_FACTS_BUDGET_TOKENS } from "../shared/fact-budget.js";
 import { HASH_PATTERN } from "../server/story-format-facts.js";
 import { exactStringPatternSource } from "../server/story-wire-patterns.js";
 import {
@@ -39,6 +40,7 @@ export function storyManifestSchema(): Schema {
     Identifier: { type: "string", minLength: 1, maxLength: MAX_STORY_IDENTIFIER_CHARS },
     Hash256: { type: "string", pattern: HASH_PATTERN.source },
     FactActivation: { enum: ["always", "keyed"] },
+    FactPriority: { enum: [...FACT_PRIORITIES] },
     FactKey: {
       type: "string",
       minLength: 1,
@@ -79,7 +81,9 @@ export function storyManifestSchema(): Schema {
         type: "array",
         maxItems: MAX_FACT_KEYS,
         items: ref("FactKey")
-      }
+      },
+      priority: ref("FactPriority"),
+      budgetTokens: boundedInteger(1, MAX_FACT_BUDGET_TOKENS)
     }, ["id", "tag", "revisionId", "createdAt", "updatedAt"]),
     StoredTagV5: closed({
       nodeId: ref("Identifier"),
@@ -185,6 +189,7 @@ function strictV5Schema(): Schema {
     // manifest written before chapter one could be named, and absent again
     // whenever the name is cleared.
     firstChapterTitle: boundedString(MAX_STORY_TITLE_CHARS),
+    factsBudgetTokens: boundedInteger(1, MAX_STORY_FACTS_BUDGET_TOKENS),
     activeWordCount: unsignedInteger(),
     nodes: { type: "array", maxItems: MAX_STORY_COLLECTION_ITEMS, items: ref("StoredNodeV5") },
     facts: { type: "array", maxItems: MAX_FACTS, items: ref("StoredFactV5") },

@@ -152,14 +152,20 @@ test("a llama.cpp preset returns the near-exact templated-prompt count", async (
     assert.ok(input instanceof Request);
     calls.push(input.url);
     if (input.url === "https://models.example/apply-template") {
-      const body = JSON.parse(await input.text()) as { messages: unknown };
+      const body = JSON.parse(await input.text()) as { messages: unknown; model: unknown };
       assert.deepEqual(body.messages, messages);
+      // A multi-model server picks from the body, so both calls have to name
+      // the model that will serve the request.
+      assert.equal(body.model, "fixture");
       return Response.json({ prompt: "<s>rendered prompt</s>" });
     }
     assert.equal(input.url, "https://models.example/tokenize");
-    const body = JSON.parse(await input.text()) as { content: unknown; add_special: unknown };
+    const body = JSON.parse(await input.text()) as {
+      content: unknown; add_special: unknown; model: unknown;
+    };
     assert.equal(body.content, "<s>rendered prompt</s>");
     assert.equal(body.add_special, true);
+    assert.equal(body.model, "fixture");
     return Response.json({ tokens: [1, 2, 3, 4, 5] });
   }) as typeof fetch;
   t.after(() => { globalThis.fetch = originalFetch; });

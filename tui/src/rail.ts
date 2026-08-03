@@ -1,8 +1,9 @@
+import type { FactBudgetDrop } from "../../shared/fact-budget.js";
 import { countWords } from "../../shared/story-text.js";
 import type { StoryFact, StoryPayload } from "../../shared/types.js";
 import type { PromptTokenCount, TokenCountGrade } from "../../shared/tokenize-source.js";
 import type { UserConfig } from "./config.js";
-import { factBody, factName } from "./facts-model.js";
+import { factBody, factName, type FactRequestStatus } from "./facts-model.js";
 import type { AppMode } from "./keys.js";
 import type { ContextBreakdown, NextRequestEstimate } from "./request-projection.js";
 
@@ -22,9 +23,11 @@ export interface RailFact {
   name: string;
   tag: string;
   activation: StoryFact["activation"];
-  /** Included in the next generation request. */
-  active: boolean;
+  /** Sent, not-matched, or dropped-with-reason — see tui/src/facts-model.ts. */
+  status: FactRequestStatus;
   body: string;
+  /** Shedding rank under window pressure; "normal" is the default. */
+  priority: NonNullable<StoryFact["priority"]>;
 }
 
 export interface RequestWindow {
@@ -69,6 +72,9 @@ export interface RailModel {
   window: RequestWindow | null;
   breakdown: ContextBreakdown;
   chapterNotice: string | null;
+  /** Facts the story's own Facts budget shed out of this request; empty when
+   *  nothing had to give. See RequestTokenEstimate.droppedFacts. */
+  droppedFacts: readonly FactBudgetDrop[];
 }
 
 export interface ResolvedTokenCount {
@@ -139,7 +145,6 @@ export function buildRailModel(
   maxOutputTokens = 0,
   count: PromptTokenCount | null = null
 ): RailModel {
-  const activeFactIds = new Set(estimate.activeFactIds);
   const facts = payload.facts.map((fact: StoryFact, index): RailFact => {
     const name = factName(fact);
     return {
@@ -147,8 +152,9 @@ export function buildRailModel(
       name,
       tag: fact.tag ?? "",
       activation: fact.activation,
-      active: activeFactIds.has(fact.id),
-      body: factBody(fact)
+      status: estimate.factStatuses.get(fact.id) ?? { kind: "not-matched" },
+      body: factBody(fact),
+      priority: fact.priority ?? "normal"
     };
   });
   // The rail is a fixed-height window, so a long list gets cut. Facts the next
@@ -156,7 +162,7 @@ export function buildRailModel(
   // firing, never on the ones the rail exists to surface. Payload order breaks
   // ties, and each row keeps its payload index, so clicks are unaffected.
   const railRank = (fact: RailFact): number =>
-    fact.activation === "keyed" ? (fact.active ? 0 : 2) : 1;
+    fact.activation === "keyed" ? (fact.status.kind === "sent" ? 0 : 2) : 1;
   facts.sort((left, right) => railRank(left) - railRank(right) || left.index - right.index);
   // Mirror what generation actually sends: the assembler drops everything
   // before the latest summary, and directions travel with their parts.
@@ -174,8 +180,8 @@ export function buildRailModel(
     facts,
     factCount: payload.facts.length,
     keyedFactCount: facts.filter(({ activation }) => activation === "keyed").length,
-    activeKeyedCount: facts.filter(({ activation, active }) =>
-      activation === "keyed" && active).length,
+    activeKeyedCount: facts.filter(({ activation, status }) =>
+      activation === "keyed" && status.kind === "sent").length,
     contextTokens,
     totalGrade: resolved.totalGrade,
     perMessageGrade: resolved.perMessageGrade,
@@ -183,6 +189,7 @@ export function buildRailModel(
     maxOutputTokens: Math.max(0, maxOutputTokens),
     window: requestWindow(contextTokens, contextWindow),
     breakdown,
+    droppedFacts: estimate.droppedFacts,
     chapterNotice: biggest !== null
       ? `ch ${biggest.number} · summarize frees ${formatTokensEstimate(biggest.savings)}`
       : stale !== null ? `ch ${stale.number} summary stale` : null

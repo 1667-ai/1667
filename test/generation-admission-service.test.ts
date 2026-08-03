@@ -41,5 +41,5 @@ test("cancelled continuation releases its story/gen admission for retry", async 
     new AbortController().signal
   );
   assert.ok(retried);
-  assert.equal(retried.path.some((node) => node.genId === request.genId), true);
+  assert.equal(retried.payload.path.some((node) => node.genId === request.genId), true);
 });

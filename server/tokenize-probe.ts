@@ -223,10 +223,18 @@ async function countLlamaCpp(
 ): Promise<CountedProbe> {
   const root = providerRoot(settings);
   const timeoutMs = probeTimeoutMs(settings);
+  // A llama.cpp server can hold several models and picks one from the body.
+  // Without the name, the count could describe a model other than the one that
+  // will serve the request — and it would still be marked. A blank name is how
+  // this preset says "whatever is loaded", so it is left out rather than sent
+  // empty. probeContextWindow makes the same distinction for /props.
+  const route: Record<string, unknown> = settings.model.length === 0
+    ? {}
+    : { model: settings.model };
   const templated = await postProviderJson(
     settings,
     `${root}/apply-template`,
-    { messages },
+    { ...route, messages },
     {},
     { signal, timeoutMs }
   );
@@ -236,7 +244,7 @@ async function countLlamaCpp(
   const tokenized = await postProviderJson(
     settings,
     `${root}/tokenize`,
-    { content: templated.prompt, add_special: true },
+    { ...route, content: templated.prompt, add_special: true },
     {},
     { signal, timeoutMs }
   );

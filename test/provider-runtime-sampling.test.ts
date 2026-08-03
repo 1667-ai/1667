@@ -5,9 +5,10 @@ import {
   providerRuntimeFromV2,
   resolveProviderHeaders
 } from "../server/provider-runtime.js";
-import type {
-  ModelCapabilitiesV2,
-  ModelConnectionV2
+import {
+  EMPTY_SAMPLING_V2,
+  type ModelCapabilitiesV2,
+  type ModelConnectionV2
 } from "../shared/settings-v2-types.js";
 import type { GenerationSettings } from "../shared/types.js";
 
@@ -37,13 +38,8 @@ test("v2 runtime keeps legacy credential positions before explicit sampling", ()
     }
   };
   const sampling = {
+    ...EMPTY_SAMPLING_V2,
     topP: 0.9,
-    topK: null,
-    minP: null,
-    frequencyPenalty: null,
-    presencePenalty: null,
-    repeatPenalty: null,
-    seed: null,
     stop: ["END"],
     logitBias: { "2": -1 }
   } as const;

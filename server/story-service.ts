@@ -16,6 +16,7 @@ import type {
   StoryPayload,
   StorySummary
 } from "../shared/types.js";
+import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type {
   ProviderRecoveryContext
 } from "../shared/provider-recovery.js";
@@ -256,6 +257,14 @@ export class StoryService extends StoryServiceRuntime {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     return await this.storyLocal.setAuthorBrief(id, brief, mutationRequest);
+  }
+
+  async setFactsBudget(
+    id: string,
+    budgetTokens: number | null,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.setFactsBudget(id, budgetTokens, mutationRequest);
   }
 
   async autonameStory(
@@ -533,6 +542,15 @@ export class StoryService extends StoryServiceRuntime {
     mutationRequest?: unknown
   ): Promise<StoryPayload> {
     return await this.storyLocal.deleteFact(id, factId, mutationRequest);
+  }
+
+  async reorderFact(
+    id: string,
+    factId: string,
+    body: unknown,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyLocal.reorderFact(id, factId, body, mutationRequest);
   }
 
   async getSettings(): Promise<SettingsView> {
@@ -819,7 +837,7 @@ export class StoryService extends StoryServiceRuntime {
     onDelta: DeltaConsumer,
     signal: AbortSignal,
     hooks: GenerationMutationHooks = {}
-  ): Promise<StoryPayload | null> {
+  ): Promise<{ payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null> {
     return await this.storyGeneration.continueStory(
       id,
       body,
@@ -835,8 +853,8 @@ export class StoryService extends StoryServiceRuntime {
     value: unknown,
     onDelta: DeltaConsumer,
     signal: AbortSignal,
-    options: GenerationMutationHooks & { rewriteId?: string } = {}
-  ): Promise<boolean> {
+    options: GenerationMutationHooks & { rewriteId?: string; takeId?: string } = {}
+  ): Promise<string | null> {
     return await this.storyGeneration.rewriteNode(
       id,
       nodeId,

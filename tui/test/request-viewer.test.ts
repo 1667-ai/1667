@@ -367,7 +367,7 @@ describe("next request viewer", () => {
     expect(state.composer).toBe(direct);
 
     const target = state.payload.path.at(-1)!;
-    const retake = openRetakeComposer(state, target.id, "Keep this retake prompt.");
+    const retake = openRetakeComposer(state, target.id, "Keep this retake prompt.", { kind: "retake" });
     await pressRequest();
     expect(state.retakePrompt).toBe(retake);
     expect(state.composer).toBe(retake.composer);
@@ -429,7 +429,7 @@ describe("next request viewer", () => {
     for (const retake of [false, true]) {
       const { source, state } = harness();
       const draft = retake ? "Keep this palette retake." : "Keep this palette Direct draft.";
-      if (retake) openRetakeComposer(state, state.payload.path.at(-1)!.id, draft);
+      if (retake) openRetakeComposer(state, state.payload.path.at(-1)!.id, draft, { kind: "retake" });
       else {
         state.mode = "COMPOSE";
         setComposerText(state.composer, draft);

@@ -16,9 +16,10 @@ import {
 import type { SettingsStore } from "./settings.js";
 import type { StoryAggregateSession } from "./story-aggregate-session.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
-import { createFacts, deleteFact, patchFact } from "./story-facts.js";
+import { createFacts, deleteFact, patchFact, reorderFact } from "./story-facts.js";
 import { authorsNoteApplied, setAuthorsNote } from "./story-authors-note.js";
 import { authorBriefApplied, setAuthorBrief } from "./story-author-brief.js";
+import { setFactsBudget } from "./story-facts-budget.js";
 import { HASH_PATTERN, sha256 } from "./story-format.js";
 import type {
   LocalStoryMutationMethod,
@@ -130,6 +131,28 @@ export class StoryServiceLocal {
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
       (story) => { setAuthorBrief(story, normalized); }
+    ));
+  }
+
+  async setFactsBudget(
+    id: string,
+    budgetTokens: number | null,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "setFactsBudget",
+        (story) => {
+          if ((story.factsBudgetTokens ?? null) === budgetTokens) return STORY_UNCHANGED;
+          setFactsBudget(story, budgetTokens);
+        }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { setFactsBudget(story, budgetTokens); }
     ));
   }
 
@@ -474,6 +497,26 @@ export class StoryServiceLocal {
     return buildStoryPayload(await this.dependencies.stories.mutate(
       id,
       (story) => deleteFact(story, factId)
+    ));
+  }
+
+  async reorderFact(
+    id: string,
+    factId: string,
+    body: unknown,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "reorderFact",
+        (story) => { reorderFact(story, factId, body); }
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => reorderFact(story, factId, body)
     ));
   }
 

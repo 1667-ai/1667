@@ -7,16 +7,17 @@ import {
   beginNewSamplingEdit,
   beginSamplingEdit,
   boundedSamplingCursor,
-  deleteSamplingItem,
-  moveStopSequence,
   SAMPLING_LAYER_ROWS,
+  SAMPLING_SCALAR_PRESENTATION,
   samplingListRows,
   samplingScalarRows,
-  setLogitBias,
-  setSamplingScalar,
-  setStopSequence,
-  type SamplingScalarKnob
+  setSamplingScalar
 } from "./sampling-model.js";
+import {
+  deleteSamplingItem,
+  moveSamplingListItem,
+  setSamplingListItem
+} from "./sampling-list-model.js";
 import { disarmSettingsConflict } from "./settings-overlay-model.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
@@ -87,8 +88,8 @@ export async function samplingOverlayAction(
     const step = resolved.action === "take-next" ? 1 : -1;
     if (nested.panel === "sampling") {
       stepSamplingScalar(settings, step);
-    } else if (nested.panel === "stop") {
-      moveStopSequence(settings, step);
+    } else {
+      moveSamplingListItem(settings, nested.panel, step);
     }
   }
 }
@@ -131,7 +132,7 @@ function stepSamplingScalar(
       : `${presentation.label} disabled · ${presentation.reasonCompact}`;
     return;
   }
-  const spec = SAMPLING_SCALAR_STEPS[knob];
+  const spec = SAMPLING_SCALAR_PRESENTATION[knob];
   const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
   const current = settings.draft.sampling[knob];
   if (current === null) {
@@ -154,20 +155,6 @@ function stepSamplingScalar(
   if (error !== null) nested.result = `row kept · ${error}`;
 }
 
-const SAMPLING_SCALAR_STEPS: Readonly<Record<SamplingScalarKnob, {
-  readonly step: number;
-  readonly neutral: number;
-  readonly precision: number;
-}>> = {
-  topP: { step: 0.05, neutral: 1, precision: 2 },
-  topK: { step: 1, neutral: 0, precision: 0 },
-  minP: { step: 0.01, neutral: 0, precision: 2 },
-  frequencyPenalty: { step: 0.1, neutral: 0, precision: 1 },
-  presencePenalty: { step: 0.1, neutral: 0, precision: 1 },
-  repeatPenalty: { step: 0.05, neutral: 1, precision: 2 },
-  seed: { step: 1, neutral: 1, precision: 0 }
-};
-
 function roundSamplingValue(value: number, precision: number): number {
   const factor = 10 ** precision;
   const rounded = Math.round(value * factor) / factor;
@@ -183,9 +170,7 @@ function samplingEditAction(resolved: ResolvedKey, state: RuntimeState): void {
   if (resolved.action === "commit-field") {
     const error = edit.kind === "scalar"
       ? setSamplingScalar(settings, edit.knob, edit.composer.text)
-      : edit.kind === "stop"
-        ? setStopSequence(settings, edit.index, edit.composer.text)
-        : setLogitBias(settings, edit.index, edit.composer.text);
+      : setSamplingListItem(settings, edit.kind, edit.index, edit.composer.text);
     if (error !== null) {
       nested.result = `row kept · ${error}`;
       return;

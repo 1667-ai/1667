@@ -6,8 +6,8 @@ export type CommandSectionId = "suggested" | "story" | "take" | "view" | "system
 export type CommandId =
   | "export" | "summary" | "tag-line"
   | "switch-story" | "rename-story" | "folder" | "autoname" | "import-card" | "import-archive"
-  | "authors-note" | "author-brief"
-  | "direct-take" | "retake" | "prune"
+  | "authors-note" | "author-brief" | "facts-budget"
+  | "direct-take" | "retake" | "rewrite-selection" | "prune"
   | "tags" | "chapters" | "chapter" | "prompts"
   | "next-request"
   | "settings" | "reconnect" | "disconnect" | "theme";
@@ -24,6 +24,9 @@ export interface PaletteCommand {
   demoOnly?: boolean;
   mutating?: boolean;
   theme?: ThemeName;
+  /** Extra live gate beyond demo/mutating, e.g. rewrite-selection needing a
+   *  selection this build can actually rewrite. Absent means always allowed. */
+  requires?: (context: CommandPaletteContext) => boolean;
 }
 
 export interface CommandMatch {
@@ -56,13 +59,18 @@ export interface CommandPaletteContext {
   requestActive: boolean;
   hasProse: boolean;
   lineTagged: boolean;
+  /** A captured selection this build can actually rewrite — not merely
+   *  "some selection exists" (see `canRewriteSelection` in
+   *  selection-projection.ts). */
+  canRewriteSelection: boolean;
 }
 
 const DEFAULT_CONTEXT: CommandPaletteContext = {
   connectionDown: false,
   requestActive: false,
   hasProse: true,
-  lineTagged: false
+  lineTagged: false,
+  canRewriteSelection: false
 };
 
 const SECTIONS: ReadonlyArray<{ id: CommandSectionId; label: string }> = [
@@ -86,9 +94,15 @@ const COMMANDS: readonly PaletteCommand[] = [
   { id: "import-card", section: "story", name: "import character card", description: "add a card's fields as Facts", mutating: true },
   { id: "authors-note", section: "story", name: "author's note", description: "steer the next passage with style, tone, or current truth", shortcut: "a", mutating: true },
   { id: "author-brief", section: "story", name: "author brief", description: "override the machine-wide author brief for this story", mutating: true },
+  { id: "facts-budget", section: "story", name: "facts budget", description: "cap the combined estimated tokens every Fact spends in a request", mutating: true },
 
   { id: "direct-take", section: "take", name: "direct take", description: "write the next take from an instruction", shortcut: "i" },
   { id: "retake", section: "take", name: "retake", description: "retake the focused part as a sibling", shortcut: "r", mutating: true },
+  {
+    id: "rewrite-selection", section: "take", name: "rewrite selection",
+    description: "regenerate the highlighted text", mutating: true,
+    requires: (context) => context.canRewriteSelection
+  },
   { id: "prune", section: "take", name: "prune drafts & discarded", description: "review unused leaf takes before removal", shortcut: "d", mutating: true },
 
   { id: "tags", section: "view", name: "tag manager", description: "inspect or delete remembered leaves" },
@@ -108,15 +122,15 @@ const COMMANDS: readonly PaletteCommand[] = [
 
 export function commandContext(
   payload: StoryPayload,
-  connectionDown: boolean,
-  requestActive: boolean
+  context: { connectionDown: boolean; requestActive: boolean; canRewriteSelection: boolean }
 ): CommandPaletteContext {
   const leafId = payload.path.at(-1)?.id ?? null;
   return {
-    connectionDown,
-    requestActive,
+    connectionDown: context.connectionDown,
+    requestActive: context.requestActive,
     hasProse: payload.path.length > 0,
-    lineTagged: leafId !== null && payload.tags.some((tag) => tag.nodeId === leafId)
+    lineTagged: leafId !== null && payload.tags.some((tag) => tag.nodeId === leafId),
+    canRewriteSelection: context.canRewriteSelection
   };
 }
 
@@ -126,7 +140,8 @@ export function commandPaletteModel(
   demo: boolean,
   context: CommandPaletteContext = DEFAULT_CONTEXT
 ): CommandPaletteModel {
-  const allowed = COMMANDS.filter((command) => demo || command.demoOnly !== true);
+  const allowed = COMMANDS.filter((command) => (demo || command.demoOnly !== true)
+    && (command.requires === undefined || command.requires(context)));
   const candidates = allowed.map(matchCommand).filter((match): match is CommandMatch => match !== null);
   const needle = query.trim().toLocaleLowerCase();
   // A literal label/description hit is intent, not just another fuzzy score.

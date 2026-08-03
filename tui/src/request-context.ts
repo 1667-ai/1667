@@ -7,10 +7,19 @@ import { streamHasSubstantiveText } from "./stream-text.js";
 type RequestContextState = Pick<
   StoryScreenState,
   "payload" | "stream" | "focusIndex" | "mode" | "composer" | "retakePrompt"
-  | "systemPrompt" | "assistantPrefill" | "request"
+  | "systemPrompt" | "assistantPrefill" | "request" | "contextWindow" | "maxTokens"
 >;
 
-/** The generation seam and prompt settings used by every next-request meter. */
+/** The generation seam and prompt settings used by every next-request meter.
+ *
+ * A rewrite composer's own request has a different shape entirely (excerpt
+ * and seam contract, word band, clamped temperature, tight output budget)
+ * that lives in `server/generation-prompts.ts` and is not available to this
+ * layer. Rather than mis-describe it as a retake of the whole part, or feed
+ * its typed instruction into a continuation plan it has nothing to do with,
+ * a rewrite composer projects the same baseline the story would show with no
+ * composer open at all — truthful, if incomplete, until a real rewrite
+ * projection exists. */
 export function nextRequestContext(
   state: RequestContextState,
   view: StoryViewModel = createStoryViewModel(state.payload, state.stream)
@@ -18,11 +27,16 @@ export function nextRequestContext(
   const focused = rowPart(view, state.focusIndex);
   const composeRequest = state.mode === "COMPOSE"
     || state.mode === "REQUEST" && state.request?.returnMode === "COMPOSE";
-  const activeRetakeNodeId = composeRequest ? state.retakePrompt?.nodeId ?? null : null;
+  const rewriteComposer = composeRequest && state.retakePrompt?.intent.kind === "rewrite";
+  const activeRetakeNodeId = composeRequest && state.retakePrompt?.intent.kind === "retake"
+    ? state.retakePrompt.nodeId
+    : null;
   const base = {
     systemPrompt: state.systemPrompt,
-    instruction: composeRequest ? state.composer.text : "",
-    assistantPrefill: state.assistantPrefill
+    instruction: composeRequest && !rewriteComposer ? state.composer.text : "",
+    assistantPrefill: state.assistantPrefill,
+    contextWindow: state.contextWindow,
+    maxTokens: state.maxTokens
   };
   return activeRetakeNodeId !== null
     && view.visiblePayload.path.some((node) => node.id === activeRetakeNodeId)

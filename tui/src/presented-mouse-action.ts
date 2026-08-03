@@ -5,6 +5,7 @@ import { factRows } from "./facts-model.js";
 import { commandContext, commandMatches, commandSelectionId } from "./command-model.js";
 import { libraryRows } from "./library-model.js";
 import { searchRows, selectedSearchRow } from "./search-model.js";
+import { canRewriteSelection } from "./selection-projection.js";
 import { currentPartActions } from "./story-actions.js";
 import { createStoryIndex } from "../../shared/story-model.js";
 import { childrenOf, nodeById } from "../../shared/story-tree.js";
@@ -241,7 +242,11 @@ function listRowIdentity(state: MouseActionState, index: number | undefined): st
     const match = commandMatches(
       state.commands.query,
       state.demo,
-      commandContext(state.payload, state.connection.down, state.requestActive ?? false)
+      commandContext(state.payload, {
+        connectionDown: state.connection.down,
+        requestActive: state.requestActive ?? false,
+        canRewriteSelection: canRewriteSelection(state.commands.selection?.spans ?? [])
+      })
     )[index];
     return match === undefined ? null : commandSelectionId(match.command);
   }

@@ -2,7 +2,7 @@ import type { StoryNode } from "../../shared/types.js";
 
 export type PartActionId =
   | "direct" | "continue" | "retake" | "retake-with-prompt" | "write" | "edit"
-  | "copy" | "fact-from-selection" | "tag" | "prune";
+  | "copy" | "fact-from-selection" | "rewrite-selection" | "tag" | "prune";
 
 export interface PartAction {
   id: PartActionId;
@@ -13,13 +13,23 @@ export interface PartAction {
 /** Local prompt/confirmation phases that must never freeze a virtual stream ID
  * as their eventual mutation target. */
 export function partActionRequiresPersistedTarget(id: PartActionId): boolean {
-  return id === "tag" || id === "prune" || id === "retake-with-prompt";
+  return id === "tag" || id === "prune" || id === "retake-with-prompt" || id === "rewrite-selection";
 }
 
+/** "none": no selection. "text": a selection exists but is not one
+ *  `resolveRewriteTarget` could ever accept (spans two parts, or is not a
+ *  `:text` span). "rewritable": exactly what a rewrite can target. */
+export type PartActionSelection = "none" | "text" | "rewritable";
+
 /** OpenCode-style actions for one part, filtered to what it can actually do. */
-export function partActions(node: StoryNode | undefined, isLeaf: boolean, hasSelection = false): PartAction[] {
+export function partActions(
+  node: StoryNode | undefined,
+  isLeaf: boolean,
+  selection: PartActionSelection = "none"
+): PartAction[] {
   if (node === undefined) return [];
   const summary = node.role === "summary";
+  const hasSelection = selection !== "none";
   const actions: PartAction[] = [
     { id: "continue", name: "Continue", description: isLeaf ? "extend this part" : "write a new part below" },
     { id: "direct", name: "Direct", description: "type what happens next here" }
@@ -39,6 +49,11 @@ export function partActions(node: StoryNode | undefined, isLeaf: boolean, hasSel
     id: "fact-from-selection",
     name: "New fact from selection",
     description: "edit the text and optional tag"
+  });
+  if (selection === "rewritable") actions.push({
+    id: "rewrite-selection",
+    name: "Rewrite selection",
+    description: "regenerate the highlighted text"
   });
   actions.push(
     { id: "tag", name: "Tag", description: "name the line this part ends" },
