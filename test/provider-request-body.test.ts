@@ -852,8 +852,7 @@ test("a story phrase-bias entry adds to the profile's own, merging into one requ
     ),
     PROMPT,
     OMIT_PLANS[0]!,
-    undefined,
-    storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] }) }
   );
   assert.deepEqual(body.logit_bias, {
     "99999": 5,
@@ -880,8 +879,7 @@ test("a story phrase-bias entry applies even when the profile has nothing in the
     ),
     PROMPT,
     OMIT_PLANS[0]!,
-    undefined,
-    storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] })
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 3 }] }) }
   );
   assert.deepEqual(body.logit_bias, {
     "24912": 3,
@@ -913,8 +911,7 @@ test("a story with no phrase-bias or banned-strings value inherits the profile v
     ),
     PROMPT,
     OMIT_PLANS[0]!,
-    undefined,
-    storySampling({})
+    { storySampling: storySampling({}) }
   );
   const expected = { "24912": 3, "40617": 3, "13225": 3, "32949": 3 };
   assert.deepEqual(withoutStory.logit_bias, expected);
@@ -935,8 +932,7 @@ test("a story entry overriding a profile entry does not block, and the story wei
     ),
     PROMPT,
     OMIT_PLANS[0]!,
-    undefined,
-    storySampling({ phraseBias: [{ phrase: "hello", weight: -7 }] })
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: -7 }] }) }
   );
   assert.deepEqual(body.logit_bias, {
     "24912": -7,
@@ -959,13 +955,14 @@ test("a conflict between two entries in the same scope still blocks, even when t
       ),
       PROMPT,
       OMIT_PLANS[0]!,
-      undefined,
-      storySampling({
-        phraseBias: [
-          { phrase: "hello", weight: 5 },
-          { phrase: "Hello", weight: 9 }
-        ]
-      })
+      {
+        storySampling: storySampling({
+          phraseBias: [
+            { phrase: "hello", weight: 5 },
+            { phrase: "Hello", weight: 9 }
+          ]
+        })
+      }
     ),
     /Could not use "hello" as configured: "hello" loses its bias on "Hello", " Hello" to this story's phrase bias "Hello"/
   );
@@ -983,10 +980,131 @@ test("a story value on a preset with no phrase-bias support stays unavailable", 
       withSampling(settings("openai-compatible"), "openrouter", sampling({})),
       PROMPT,
       OMIT_PLANS[0]!,
-      undefined,
-      storySampling({ phraseBias: [{ phrase: "hello", weight: 1 }] })
+      { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 1 }] }) }
     ),
     /Configured sampling parameter phrase bias is unavailable/
+  );
+});
+
+// Regression test for issue #341 finding 1: the merge that decided what
+// ships was source-major (every phraseBias entry, then every bannedStrings
+// entry, then the raw numeric map, regardless of scope) while the
+// classification rule assumed scope-major (a story entry only ever loses to
+// another story entry). Across sources that assumption was false: a profile
+// bannedStrings entry outranked a story phraseBias entry on the wire even
+// though decision 4 says the story value must win. "hello" (profile,
+// bannedStrings) and "hello" (story, phraseBias) collide on every one of
+// "hello"'s four tokens; the story's weight must be what ships, not the
+// profile's fixed banned-string minimum.
+test("a story phrase-bias entry outranks a colliding profile banned string, and the story weight ships", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({ bannedStrings: ["hello"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 20 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": 20,
+    "40617": 20,
+    "13225": 20,
+    "32949": 20
+  });
+});
+
+// Regression test for issue #341 finding 1, the same defect against the raw
+// numeric logitBias map: the old merge applied `logitBias` unconditionally
+// last, after every phraseBias and bannedStrings entry of *either* scope, so
+// a profile logitBias entry always won even against a story phraseBias entry
+// that named the exact same tokens. The profile's numeric pins here collide
+// with every one of "hello"'s four tokens; the story's weight must ship.
+test("a story phrase-bias entry outranks a colliding profile numeric logitBias entry, and the story weight ships", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      { ...settings("openai-compatible"), model: "gpt-4o" },
+      "openai",
+      sampling({
+        logitBias: { "24912": -100, "40617": -100, "13225": -100, "32949": -100 }
+      })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 20 }] }) }
+  );
+  assert.deepEqual(body.logit_bias, {
+    "24912": 20,
+    "40617": 20,
+    "13225": 20,
+    "32949": 20
+  });
+});
+
+// Regression test for issue #341 finding 1b, the mirror form: two entries in
+// the *same* scope (here, profile) genuinely conflict with each other —
+// "hello" and "Hello" share two tokens and write different weights — which
+// #282 has always blocked. Deciding "shadowed" from whichever entry the
+// *overall* map remembers as final owner breaks that guarantee the moment an
+// unrelated story entry also touches the same tokens and ends up as that
+// overall owner: the profile-vs-profile conflict is still real, but the old
+// rule saw only a cross-scope loss to the story entry and called both
+// profile entries "overridden", so the request would have shipped the
+// story's weight without ever reporting the profile's own internal
+// disagreement. The story entry here does not conflict with either profile
+// entry in the sense that matters (it is a legitimate cross-scope override);
+// the profile's own same-scope conflict must still block regardless.
+test("two profile entries that conflict with each other still block, even when a story entry ends up owning the token", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({
+          phraseBias: [
+            { phrase: "hello", weight: 5 },
+            { phrase: "Hello", weight: 9 }
+          ]
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      { storySampling: storySampling({ phraseBias: [{ phrase: "hello", weight: 99 }] }) }
+    ),
+    /Could not use "hello" as configured: "hello" loses its bias on/
+  );
+});
+
+// Regression test for issue #341 finding 1b, the form the second review
+// found first: two entries in the *story* scope conflict with each other —
+// "hello" and "Hello" again — while a profile numeric logitBias entry also
+// pins two of the same tokens. The profile entry never conflicts with either
+// story entry in the sense that matters (a legitimate cross-scope override
+// either way); the story's own same-scope conflict between its two entries
+// must still block.
+test("two story entries that conflict with each other still block, even alongside an unrelated profile logitBias entry", async () => {
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        { ...settings("openai-compatible"), model: "gpt-4o" },
+        "openai",
+        sampling({
+          logitBias: { "24912": -100, "40617": -100, "13225": -100, "32949": -100 }
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!,
+      {
+        storySampling: storySampling({
+          phraseBias: [
+            { phrase: "hello", weight: 5 },
+            { phrase: "Hello", weight: 9 }
+          ]
+        })
+      }
+    ),
+    /Could not use "hello" as configured: "hello" loses its bias on/
   );
 });
 

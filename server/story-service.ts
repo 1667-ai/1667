@@ -67,6 +67,7 @@ import type { CreationMethod } from "./story-creation-record.js";
 import { checkModelServer } from "./server-check.js";
 import { discoverProviderModels } from "./model-discovery.js";
 import {
+  normalizeStorySamplingBias,
   parseResolveSamplingBiasInput,
   resolveSamplingBiasForSettings
 } from "./sampling-phrase-bias.js";
@@ -620,9 +621,9 @@ export class StoryService extends StoryServiceRuntime {
     const record = requireRecord(value, "resolveSamplingBias input");
     const settings = await this.settings.resolveProviderProbe(record.settings);
     const input = parseResolveSamplingBiasInput(record);
-    return await resolveSamplingBiasForSettings(input, settings, signal, {
-      phraseBias: input.storyPhraseBias ?? [],
-      bannedStrings: input.storyBannedStrings ?? []
+    return await resolveSamplingBiasForSettings(input, settings, {
+      signal,
+      storySampling: normalizeStorySamplingBias(input.storyPhraseBias, input.storyBannedStrings)
     });
   }
 

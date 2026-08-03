@@ -1,6 +1,7 @@
 import type { SamplingBiasResolutionResult } from "../../shared/sampling-capabilities.js";
 import {
   combineSamplingBiasSources,
+  normalizeStorySamplingBias,
   resolveSamplingLogitBias,
   type ResolveSamplingBiasInput
 } from "../../server/sampling-phrase-bias.js";
@@ -28,15 +29,17 @@ import {
  * are combined with the profile's own fields the same way the real request
  * combines them — via `combineSamplingBiasSources`, not a demo-only copy of
  * that logic, for the exact reason given above about `resolveSamplingLogitBias`
- * itself.
+ * itself. Normalized through `normalizeStorySamplingBias` rather than this
+ * file's own `?? []` pair (issue #341 finding 6), the same shared defaulting
+ * `server/story-service.ts`'s real `resolveSamplingBias` worker method uses.
  */
 export function demoResolveSamplingBias(
   request: ResolveSamplingBiasInput
 ): SamplingBiasResolutionResult {
-  const combined = combineSamplingBiasSources(request, {
-    phraseBias: request.storyPhraseBias ?? [],
-    bannedStrings: request.storyBannedStrings ?? []
-  });
+  const combined = combineSamplingBiasSources(
+    request,
+    normalizeStorySamplingBias(request.storyPhraseBias, request.storyBannedStrings)
+  );
   return resolveSamplingLogitBias(combined, (text) => ({
     kind: "single-token",
     tokenId: demoTokenId(text)

@@ -48,6 +48,36 @@ test("provider admission is recorded only immediately before a real fetch", asyn
   assert.equal(admissions, 1);
 });
 
+// Regression test for issue #341 finding 2b: the dry-run branch of
+// streamCompletion returned before applySamplingFields ever ran, because
+// dry-run builds no request body at all — so a story's phrase bias or
+// banned strings silently generated placeholder text instead of refusing
+// the way a real request, or the editor's own preview, would. Dry run
+// supports no sampling parameter at all (resolveSamplingKnob's dry-run
+// branch reports every knob unavailable), so the fix reuses that same
+// availability check, scoped to the logit-bias family, before any
+// placeholder text is produced. A story with nothing configured must keep
+// generating exactly as before.
+test("dry-run refuses a story's phrase bias the same way a real request would, and still generates with nothing configured", async () => {
+  await drain(streamCompletion(settings("dry-run"), prompt("continue"), new AbortController().signal, {
+    storySampling: { phraseBias: [], bannedStrings: [] }
+  }));
+
+  await assert.rejects(
+    drain(streamCompletion(settings("dry-run"), prompt("continue"), new AbortController().signal, {
+      storySampling: { phraseBias: [{ phrase: "hello", weight: 3 }], bannedStrings: [] }
+    })),
+    /Configured sampling parameter phrase bias is unavailable: Dry run does not send provider requests\./
+  );
+
+  await assert.rejects(
+    drain(streamCompletion(settings("dry-run"), prompt("continue"), new AbortController().signal, {
+      storySampling: { phraseBias: [], bannedStrings: ["hello"] }
+    })),
+    /Configured sampling parameter phrase bias is unavailable: Dry run does not send provider requests\./
+  );
+});
+
 test("cache rolling state advances only with provider admission", async () => {
   const runtime = new PromptCacheRuntime({ countOpenAiTokens: () => 1_024 });
   const cacheContext: PromptCacheContext = {

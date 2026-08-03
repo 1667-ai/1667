@@ -44,12 +44,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   available for the routed model.
 - **A story can now set its own phrase bias and banned strings.** Open the
   command palette. Select **phrase bias** or **banned strings**. Each list
-  adds to the profile's own list; it does not replace it. When a story entry
-  and a profile entry name the same token with different weights, the story
-  entry wins and 1667 does not block the request. When two entries in the
-  same list name the same token with different weights, 1667 still blocks
-  the request, the same as it already does for two profile entries. Thanks
-  @10fra for the request.
+  adds to the profile's own list; it does not replace it. 1667 merges the
+  profile's lists first, then the story's lists, so when a story entry and a
+  profile entry name the same token with different weights, the story entry
+  wins and 1667 does not block the request. When two profile entries, or two
+  story entries, name the same token with different weights, 1667 still
+  blocks the request, the same as it already does for two profile entries,
+  even when a third entry from the other side also names that token and
+  wins it. Thanks @10fra for the request.
 - **Character card import now reads Character Card V3.** This covers V3 JSON
   and the `ccv3` PNG chunk; when a PNG has both `ccv3` and a V1 or V2 `chara`
   fallback, 1667 reads `ccv3`. A V3 or V2 card's embedded `character_book`

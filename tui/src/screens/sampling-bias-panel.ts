@@ -82,6 +82,18 @@ function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
     const owners = samplingBiasShadowOwners(resolution.entry).map(samplingBiasShadowOwnerText);
     return `‹ — › shadowed by ${owners.join(" and ")}`;
   }
+  // `SamplingBiasRowResolution` has no "overridden" member at all — the
+  // settings overlay never combines a story, so `samplingBiasRowResolution`
+  // (../sampling-bias-resolution.js) throws rather than producing one — so
+  // "resolved" really is the only kind left here. Checked explicitly instead
+  // of falling through to it (issue #341 finding 3: an earlier version fell
+  // through here too, which would have silently reported an overridden
+  // entry's discarded weight as though it had shipped, the moment anything
+  // upstream started producing one), so a new row kind added later fails to
+  // compile here instead of rendering as "resolved" by default.
+  if (resolution.kind !== "resolved") {
+    throw new Error(`Unhandled sampling-bias row resolution: ${JSON.stringify(resolution)}`);
+  }
   return resolution.tokenIds.length === 0
     ? "0 tokens"
     : `→ ${resolution.tokenIds.join(",")}`;

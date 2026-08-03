@@ -62,29 +62,73 @@ export interface StorySamplingBias {
   readonly bannedStrings: readonly string[];
 }
 
-/** Reads a story's phraseBias/bannedStrings overlay into `StorySamplingBias`,
- * defaulting each absent list to empty — the one place every request-path
- * caller (server/generation-http.ts) turns a loaded `Story` into the shape
- * `streamCompletion`'s `storySampling` option and `resolveSamplingBiasForSettings`
- * both expect, the same way `resolveAuthorBrief` is the one place every
- * caller reads a story's author-brief override. */
-export function storySamplingBias(story: Pick<Story, "phraseBias" | "bannedStrings">): StorySamplingBias {
-  return { phraseBias: story.phraseBias ?? [], bannedStrings: story.bannedStrings ?? [] };
+/** Normalizes a pair of independently-optional phraseBias/bannedStrings
+ * lists into one `StorySamplingBias`, or `undefined` when the story truly
+ * contributes nothing (issue #341 finding 5/6). `{phraseBias:[],
+ * bannedStrings:[]}` and `undefined` both mean "this story adds nothing to
+ * the profile", and leaving them as two live encodings is what forced
+ * `applySamplingFields` to keep a `storyHasBias` boolean whose only job was
+ * re-deriving the distinction this function now settles once. Every caller
+ * that used to write its own `?? []` pair over two optional fields —
+ * `storySamplingBias` below (a real `Story`'s own fields), the
+ * `resolveSamplingBias` worker method (server/story-service.ts), and its
+ * demo-mode counterpart (tui/src/demo-token-ids.ts) — shares this one
+ * defaulting instead. */
+export function normalizeStorySamplingBias(
+  phraseBias: readonly SamplingPhraseBiasEntryV2[] | undefined,
+  bannedStrings: readonly string[] | undefined
+): StorySamplingBias | undefined {
+  const resolvedPhraseBias = phraseBias ?? [];
+  const resolvedBannedStrings = bannedStrings ?? [];
+  if (resolvedPhraseBias.length === 0 && resolvedBannedStrings.length === 0) return undefined;
+  return { phraseBias: resolvedPhraseBias, bannedStrings: resolvedBannedStrings };
+}
+
+/** Reads a story's phraseBias/bannedStrings overlay into `StorySamplingBias`
+ * — the one place every request-path caller (server/generation-http.ts)
+ * turns a loaded `Story` into the shape `streamCompletion`'s `storySampling`
+ * option and `resolveSamplingBiasForSettings` both expect, the same way
+ * `resolveAuthorBrief` is the one place every caller reads a story's
+ * author-brief override. `undefined` when the story has neither list set —
+ * matching `combineSamplingBiasSources`'s own "omitted, not merely empty"
+ * contract for a caller with no story in play at all. */
+export function storySamplingBias(story: Pick<Story, "phraseBias" | "bannedStrings">): StorySamplingBias | undefined {
+  return normalizeStorySamplingBias(story.phraseBias, story.bannedStrings);
+}
+
+/** `signal` and `storySampling` travel everywhere together, from a real
+ * request down to `resolveSamplingBiasForSettings` below — every layer in
+ * between (`provider-request-body.ts`'s two body builders,
+ * `applySamplingFields`, `mergedLogitBiasValue`) reads neither itself, only
+ * passes both on to the next. Issue #341 finding 5: keeping them as two
+ * separate trailing optionals let any one of those layers grow one without
+ * the other; bundled into a single value, that is no longer possible
+ * structurally, and a layer that has to touch this at all touches the whole
+ * thing. `signal` stays meaningful with no story in play at all — the
+ * llama-cpp tokenize probe below needs it for a profile-only phraseBias or
+ * bannedStrings value exactly as it did before issue #341 — so bundling the
+ * two does not imply either depends on the other. */
+export interface StorySamplingRequest {
+  readonly signal?: AbortSignal;
+  readonly storySampling?: StorySamplingBias;
 }
 
 /** Builds the one merge input every caller resolves against: the profile's
- * phraseBias and bannedStrings first (scope "profile"), then the story's, if
- * any (scope "story") — issue #341 decision 4: profile entries merge first,
- * so a story entry with the same resolved token wins the later write in
- * `resolveSamplingLogitBias`'s merge loop, the same "last write wins" rule
- * that already decides a same-scope conflict. Story wins by *position*, not
- * by a special case — that is what keeps this one merge algorithm honest for
- * both a same-scope shadow (#282, unchanged) and a cross-scope override
- * (#341, new). `story` is omitted entirely (not just empty) by every caller
- * that has no story in play (settings-save validation, the profile editor's
- * own preview) — omitting it must produce the exact byte-identical merge
- * #282 already shipped, which the scope tag alone accomplishes: every entry
- * bottoms out "profile", so no shadow can ever become an "overridden". */
+ * phraseBias and bannedStrings (scope "profile"), then the story's, if any
+ * (scope "story") — the array order here is cosmetic, kept profile-then-
+ * story for readability only. `resolveSamplingLogitBias` does not trust this
+ * array's position to establish authority (issue #341 finding 1: a merge
+ * that trusted array position was *source*-major — every phraseBias entry,
+ * then every bannedStrings entry, then the raw numeric map — which let a
+ * profile bannedStrings or logitBias entry beat a story phraseBias entry
+ * even though the story is supposed to have the last word). It re-derives
+ * scope-major order from each entry's own `scope` tag instead, so this
+ * function's only job is tagging, not ordering. `story` is omitted entirely
+ * (not just empty) by every caller that has no story in play (settings-save
+ * validation, the profile editor's own preview) — omitting it must produce
+ * the exact byte-identical merge #282 already shipped, which the scope tag
+ * alone accomplishes: every entry bottoms out "profile", so no shadow can
+ * ever become an "overridden". */
 export function combineSamplingBiasSources(
   profile: Pick<SamplingSettingsV2, "logitBias" | "phraseBias" | "bannedStrings">,
   story?: StorySamplingBias
@@ -128,11 +172,19 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
  * An entry that fails is "rejected", not dropped — see
  * SamplingBiasEntryResolution — so the editor can show the writer why.
  *
- * Merge order, least to most authoritative: phraseBias, then bannedStrings,
- * then the explicit numeric logitBias map. bannedStrings intentionally
- * outranks phraseBias (a stronger "exclude this" signal), and an explicit
- * numeric logitBias entry always wins over anything derived from text,
- * because the writer typed that exact token ID.
+ * Merge order, least to most authoritative: **scope first** — every profile
+ * entry, then every story entry (issue #341 finding 1) — and, within one
+ * scope, phraseBias, then bannedStrings, then (profile only) the explicit
+ * numeric logitBias map, exactly as before. Scope has to be the primary
+ * split, not source kind: a merge that applied every phraseBias entry, then
+ * every bannedStrings entry, then the numeric map, regardless of scope, let
+ * a profile bannedStrings or logitBias entry beat a story phraseBias entry —
+ * the story losing to the profile it is supposed to override, silently
+ * reported as a non-blocking "override" in the other direction. Within a
+ * scope, bannedStrings intentionally outranks phraseBias (a stronger
+ * "exclude this" signal), and an explicit numeric logitBias entry always
+ * wins over anything derived from text, because the writer typed that exact
+ * token ID — both unchanged from before scope existed at all.
  *
  * Two entries can resolve to overlapping token IDs even though the writer
  * never named a token twice — variant expansion makes that unavoidable, not
@@ -154,13 +206,14 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
  *
  * Every entry arrives already scoped (`ScopedSamplingBiasEntry`/
  * `ScopedBannedString` — issue #341, `combineSamplingBiasSources` builds
- * this from a profile and an optional story overlay). That scope changes
- * nothing about the merge itself — "least to most authoritative" and "later
- * write wins" are exactly as they were — it only changes what
- * `settleTokenOwnership` calls a real conflict once one is found: the same
- * scope as the entry that lost is "shadowed" (blocks, #282's rule); a
- * different scope is "overridden" (does not block — the whole point of a
- * story adding its own bias on top of the profile's).
+ * this from a profile and an optional story overlay). `settleTokenOwnership`
+ * decides "shadowed" versus "overridden" from a *second*, independent
+ * reduction — the same last-write-wins merge run again, restricted to only
+ * this entry's own scope (issue #341 finding 1b) — not from whichever entry
+ * the *overall* map happens to remember, because a third entry from the
+ * other scope can end up as the token's final, overall owner and hide a real
+ * same-scope disagreement underneath it. See `settleTokenOwnership` for why
+ * that distinction is load-bearing.
  */
 export function resolveSamplingLogitBias(
   sampling: SamplingBiasMergeInput,
@@ -171,38 +224,43 @@ export function resolveSamplingLogitBias(
   const bannedResolutions = sampling.bannedStrings.map((entry) =>
     resolveEntry(entry.phrase, entry.scope, tokenizeVariant));
 
-  // Built once, from every resolved entry, before any shadow is decided —
-  // this object is both the wire value and the yardstick every entry below
-  // is measured against. `tokenOwner` rides along only to *name* whichever
-  // entry wrote a token's final weight, for the message; it plays no part in
-  // deciding whether a shadow exists.
+  // One ordered write list, scope-major then source-major within a scope
+  // (issue #341 finding 1) — built once from every resolved entry's own
+  // `scope` tag, never from the input arrays' position, so a caller cannot
+  // accidentally restore the old, wrong source-major order by handing the
+  // entries in a different sequence. Applied below in two reductions over
+  // the same list: the overall one (`merged`/`tokenOwner`, last write wins
+  // across every scope) decides what ships and, when an entry loses, who is
+  // named for it; the per-scope one (`scopeMerged`, issue #341 finding 1b)
+  // decides, independently, whether an entry lost to one of its *own* scope
+  // — see `settleTokenOwnership`.
+  const writes: readonly SamplingBiasWrite[] = [
+    ...scopedWrites("profile", "phraseBias", sampling.phraseBias, phraseResolutions),
+    ...scopedWrites("profile", "bannedStrings", sampling.bannedStrings, bannedResolutions),
+    ...Object.entries(sampling.logitBias).map(([token, weight]): SamplingBiasWrite => ({
+      tokenId: Number(token),
+      weight,
+      scope: "profile",
+      owner: { source: "logitBias" }
+    })),
+    ...scopedWrites("story", "phraseBias", sampling.phraseBias, phraseResolutions),
+    ...scopedWrites("story", "bannedStrings", sampling.bannedStrings, bannedResolutions)
+  ];
+
   const merged: Record<string, number> = {};
   const tokenOwner = new Map<number, SamplingBiasTokenOwner>();
-  phraseResolutions.forEach((resolution, index) => {
-    if (resolution.kind !== "resolved") return;
-    const entry = sampling.phraseBias[index]!;
-    for (const id of resolution.tokenIds) {
-      merged[String(id)] = entry.weight;
-      tokenOwner.set(id, { source: "phraseBias", index, scope: entry.scope });
-    }
-  });
-  bannedResolutions.forEach((resolution, index) => {
-    if (resolution.kind !== "resolved") return;
-    const entry = sampling.bannedStrings[index]!;
-    for (const id of resolution.tokenIds) {
-      merged[String(id)] = SAMPLING_LOGIT_BIAS_POLICY.minimum;
-      tokenOwner.set(id, { source: "bannedStrings", index, scope: entry.scope });
-    }
-  });
-  for (const [token, weight] of Object.entries(sampling.logitBias)) {
-    merged[token] = weight;
-    tokenOwner.set(Number(token), { source: "logitBias" });
+  const scopeMerged: Record<SamplingBiasScope, Record<string, number>> = { profile: {}, story: {} };
+  for (const write of writes) {
+    const token = String(write.tokenId);
+    merged[token] = write.weight;
+    tokenOwner.set(write.tokenId, write.owner);
+    scopeMerged[write.scope][token] = write.weight;
   }
 
   const phraseBias = phraseResolutions.map((resolution, index) =>
-    settleTokenOwnership(resolution, sampling.phraseBias[index]!.weight, merged, tokenOwner, sampling));
+    settleTokenOwnership(resolution, sampling.phraseBias[index]!.weight, merged, tokenOwner, scopeMerged, sampling));
   const bannedStrings = bannedResolutions.map((resolution) =>
-    settleTokenOwnership(resolution, SAMPLING_LOGIT_BIAS_POLICY.minimum, merged, tokenOwner, sampling));
+    settleTokenOwnership(resolution, SAMPLING_LOGIT_BIAS_POLICY.minimum, merged, tokenOwner, scopeMerged, sampling));
 
   return {
     kind: "resolved",
@@ -221,6 +279,41 @@ type SamplingBiasTokenOwner =
     }
   | { readonly source: "logitBias" };
 
+interface SamplingBiasWrite {
+  readonly tokenId: number;
+  readonly weight: number;
+  readonly scope: SamplingBiasScope;
+  readonly owner: SamplingBiasTokenOwner;
+}
+
+/** Every write a phraseBias or bannedStrings entry of exactly `scope` makes,
+ * in the entries' own array order (issue #341 finding 1: filtering by scope
+ * here, rather than trusting the array's overall position, is what makes the
+ * merge order scope-major regardless of how `combineSamplingBiasSources`
+ * happened to interleave profile and story entries in its own arrays).
+ * `entries`/`resolutions` are index-aligned, exactly as every other walk in
+ * this file assumes. */
+function scopedWrites(
+  scope: SamplingBiasScope,
+  source: "phraseBias" | "bannedStrings",
+  entries: readonly (ScopedSamplingBiasEntry | ScopedBannedString)[],
+  resolutions: readonly SamplingBiasEntryResolution[]
+): SamplingBiasWrite[] {
+  const writes: SamplingBiasWrite[] = [];
+  resolutions.forEach((resolution, index) => {
+    if (resolution.kind !== "resolved") return;
+    const entry = entries[index]!;
+    if (entry.scope !== scope) return;
+    const weight = source === "phraseBias"
+      ? (entry as ScopedSamplingBiasEntry).weight
+      : SAMPLING_LOGIT_BIAS_POLICY.minimum;
+    for (const tokenId of resolution.tokenIds) {
+      writes.push({ tokenId, weight, scope, owner: { source, index, scope } });
+    }
+  });
+  return writes;
+}
+
 /** Downgrades a "resolved" entry once the already-built merged map disagrees
  * with it about at least one of its own tokens — i.e. some other entry's
  * weight, not this one's, is what the map actually carries for that token
@@ -238,21 +331,35 @@ type SamplingBiasTokenOwner =
  * finding 1): a shadow can split its lost tokens across two different
  * owners (one taken by an explicit numeric `logitBias` entry, another by a
  * different phrase), and picking only the first token's owner to represent
- * all of them blamed the wrong entry for the rest.
+ * all of them blamed the wrong entry for the rest. This part is unchanged by
+ * issue #341: `merged`/`tokenOwner` still decide what ships and who is named
+ * for it, exactly as #282 shipped.
  *
- * A real conflict downgrades to "shadowed" when at least one winning owner
- * shares this entry's own scope, and to "overridden" (issue #341) only when
- * every winning owner is a *different* scope — a story entry that loses one
- * token to another story entry and a different token to the profile is still
- * a real same-scope mistake on the first token, so it must still block, the
- * same as it would with no story involved at all. `logitBias` has no scope
- * of its own (it is a profile-only field); it counts as "profile" for this
- * comparison, the same as any other profile entry. */
+ * What changed (issue #341 finding 1b) is how "shadowed" versus "overridden"
+ * is decided. The old rule read the scope straight off `conflicts`' owner —
+ * whichever entry the *overall*, cross-scope merge remembers as the final
+ * writer of a lost token. That is wrong whenever a *third* entry, from the
+ * scope neither this entry nor its real rival belongs to, ends up as that
+ * final writer: two profile entries can genuinely conflict with each other,
+ * one shadowing the other exactly as #282 requires, and then an unrelated
+ * story entry that also happens to touch the same token becomes the overall
+ * owner — at which point the old rule saw only a cross-scope loss to the
+ * story entry and called both profile entries "overridden", silently
+ * dropping a same-scope conflict #282 would have blocked before a story
+ * could touch anything. `scopeMerged` is the identical last-write-wins
+ * reduction as `merged`, computed a second time, restricted to entries of
+ * this entry's own scope only — so it still answers "did one of my own kind
+ * write over me" even when a different scope's entry is what the wire
+ * actually carries. A real conflict (`conflicts.length > 0`, i.e. the entry
+ * lost *something* to *someone*) blocks exactly when it also lost at least
+ * one of its own tokens within its own scope; otherwise every winning owner
+ * really is a different scope, and the loss is a legitimate "overridden". */
 function settleTokenOwnership(
   resolution: SamplingBiasEntryResolution,
   ownWeight: number,
   merged: Readonly<Record<string, number>>,
   tokenOwner: ReadonlyMap<number, SamplingBiasTokenOwner>,
+  scopeMerged: Readonly<Record<SamplingBiasScope, Readonly<Record<string, number>>>>,
   sampling: SamplingBiasMergeInput
 ): SamplingBiasEntryResolution {
   if (resolution.kind !== "resolved") return resolution;
@@ -262,7 +369,8 @@ function settleTokenOwnership(
     conflicts.push({ tokenId, owner: shadowOwnerFor(tokenId, tokenOwner, sampling) });
   }
   if (conflicts.length === 0) return resolution;
-  const blocking = conflicts.some((conflict) => ownerScope(conflict.owner) === resolution.scope);
+  const blocking = resolution.tokenIds.some((tokenId) =>
+    scopeMerged[resolution.scope][String(tokenId)] !== ownWeight);
   return {
     kind: blocking ? "shadowed" : "overridden",
     phrase: resolution.phrase,
@@ -271,10 +379,6 @@ function settleTokenOwnership(
     tokenIds: resolution.tokenIds,
     conflicts
   };
-}
-
-function ownerScope(owner: SamplingBiasShadowOwner): SamplingBiasScope {
-  return owner.source === "logitBias" ? "profile" : owner.scope;
 }
 
 /** Names the entry that owns `tokenId` in the already-built merged map. Every
@@ -402,21 +506,23 @@ function neverCalledTokenizer(): SamplingBiasVariantOutcome {
  * never needs a tokenizer at all, on any preset, so that case is handled
  * once instead of once per branch.
  *
- * `story`, when supplied, adds one story's own phraseBias/bannedStrings on
- * top of `sampling`'s (issue #341) — combined once, here, via
- * `combineSamplingBiasSources`, into the single scoped set every branch
+ * `request.storySampling`, when supplied, adds one story's own phraseBias/
+ * bannedStrings on top of `sampling`'s (issue #341) — combined once, here,
+ * via `combineSamplingBiasSources`, into the single scoped set every branch
  * below resolves. Every caller that has no story in play (settings-save
  * validation, none of which reaches this function at all — see
  * `resolveSamplingLogitBiasForEncoding`'s own callers) or omits it gets the
- * exact `sampling`-only resolution #282 already shipped.
+ * exact `sampling`-only resolution #282 already shipped. `request.signal`
+ * travels alongside it — see `StorySamplingRequest` for why the two are one
+ * parameter, not two.
  */
 export async function resolveSamplingBiasForSettings(
   sampling: Pick<SamplingSettingsV2, "logitBias" | "phraseBias" | "bannedStrings">,
   settings: GenerationSettings,
-  signal?: AbortSignal,
-  story?: StorySamplingBias
+  request: StorySamplingRequest = {}
 ): Promise<SamplingBiasResolutionResult> {
-  const combined = combineSamplingBiasSources(sampling, story);
+  const { signal, storySampling } = request;
+  const combined = combineSamplingBiasSources(sampling, storySampling);
   const needsTokenizer = combined.phraseBias.length > 0 || combined.bannedStrings.length > 0;
   if (!needsTokenizer) return resolveSamplingLogitBias(combined, neverCalledTokenizer);
   if (settings.provider !== "openai-compatible") {
@@ -556,12 +662,12 @@ function parseLogitBiasField(value: unknown): Readonly<Record<string, number>> {
 }
 
 /** Structural-only phraseBias parsing, shared by `parseResolveSamplingBiasInput`
- * above and the `setStorySampling` worker mutation
- * (server/worker-mutations.ts) — both are wire boundaries that hand off to a
- * precise, save-time-strength validator afterward (`shared/sampling-
- * validation-policy.ts`'s `validateSamplingPhraseBias`, run by
- * server/story-sampling.ts for the mutation and by save-time validation for
- * a profile), so staying permissive here is deliberate, not a gap. */
+ * above and the `setPhraseBias` worker mutation (server/worker-mutations.ts)
+ * — both are wire boundaries that hand off to a precise, save-time-strength
+ * validator afterward (`shared/sampling-validation-policy.ts`'s
+ * `validateSamplingPhraseBias`, run by server/story-sampling.ts for the
+ * mutation and by save-time validation for a profile), so staying permissive
+ * here is deliberate, not a gap. */
 export function parsePhraseBiasField(
   value: unknown
 ): readonly { readonly phrase: string; readonly weight: number }[] {
