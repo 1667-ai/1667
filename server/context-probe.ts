@@ -32,7 +32,7 @@ export async function probeContextWindow(
         settings,
         providerUrl(settings, `/v1/models/${encodeURIComponent(settings.model)}`),
         { "anthropic-version": "2023-06-01" },
-        { signal, timeoutMs: probeTimeout(settings) }
+        { signal, timeoutMs: probeTimeoutMs(settings) }
       );
       return isObject(data) ? positive(data.max_input_tokens) : null;
     });
@@ -230,18 +230,40 @@ export async function postLlamaCppTokenize(
     `${root}/tokenize`,
     { ...route, content, ...extras },
     {},
-    { signal, timeoutMs: probeTimeout(settings) }
+    { signal, timeoutMs: probeTimeoutMs(settings) }
   );
 }
+
+/** What one call to `probeKoboldCppTokenize` found — a discriminated result
+ * rather than `readonly number[] | null` (issue #311 review, second pass,
+ * finding E), so a caller can tell "the server answered, but without token
+ * IDs" apart from "the server did not answer at all". Collapsing both into
+ * `null`, as an earlier version of this function did, blamed a `probe-failed`
+ * network message on a server that had, in fact, answered — an old KoboldCpp
+ * build that reports only `value` (see the doc comment on
+ * `probeKoboldCppTokenize` below) is a supported configuration, not a
+ * transient outage.
+ * - "ok": a well-formed `ids` array — possibly empty, which is legitimate
+ *   only for the empty-string calibration probe (`server/sampling-phrase-
+ *   bias.ts`, `koboldCppLiveTokenizeProbe`); see `probeKoboldCppTokenize`'s
+ *   own comment for why a non-empty prompt tokenizing to zero IDs is instead
+ *   "failed".
+ * - "no-ids": the response was a JSON object, but had no `ids` array at all
+ *   — the release-old-enough-to-read-only-`prompt` case.
+ * - "failed": network failure, timeout, non-JSON response, or an `ids`
+ *   array that failed validation (a non-integer entry, for example) — every
+ *   case where 1667 cannot trust anything the server said. */
+export type KoboldCppTokenizeProbeResult =
+  | { readonly kind: "ok"; readonly ids: readonly number[] }
+  | { readonly kind: "no-ids" }
+  | { readonly kind: "failed" };
 
 /**
  * Ask a KoboldCpp server to tokenize `text` against whatever model it
  * actually has loaded — the same authority-by-construction llama.cpp's
  * `/tokenize` gives `probeLlamaCppTokenize` above, and the second caller of
  * `postKoboldCppTokenCount` below (server/tokenize-probe.ts's `countKoboldCpp`
- * is the first). Returns null on any failure (network, timeout, malformed
- * response) — the caller (server/sampling-phrase-bias.ts) treats null as
- * "tokenizer unavailable", the same contract `probeLlamaCppTokenize` keeps.
+ * is the first).
  *
  * Response shape is KoboldCpp's own, quoted from its API document
  * (https://github.com/LostRuins/koboldcpp/blob/concedo/embd_res/kcpp_docs.embd,
@@ -251,6 +273,33 @@ export async function postLlamaCppTokenize(
  * "integer" }`, example `"ids": [1, 22557, 28725, …]`. Issue #311 is the
  * first caller to read `ids` — `countKoboldCpp` already posts to this same
  * endpoint and already validates `value`, but only ever reads that field.
+ *
+ * That same documented example is also why this cannot be used as-is: its
+ * `ids` begins `1`, the model's BOS token, for text that is otherwise nine
+ * ordinary tokens. A lexically single-token phrase therefore comes back as
+ * two IDs — `[BOS, token]` — on any BOS-adding build, which is the normal
+ * case, and every surface variant of it would be misclassified multi-token
+ * and rejected. `/api/extra/tokencount`'s own request schema names exactly
+ * one field, `prompt` — there is no documented flag to ask for the ids
+ * without it, unlike llama.cpp's `/tokenize`, which documents `parse_special`
+ * (see `probeLlamaCppTokenize` above). The fix has to come from observed
+ * behaviour instead: `server/sampling-phrase-bias.ts`'s
+ * `koboldCppLiveTokenizeProbe` tokenizes the empty string once per
+ * resolution through this same function, treats whatever `ids` comes back as
+ * that build's unconditional prefix, and strips it (`stripKoboldCppBosPrefix`
+ * below) from every phrase's `ids` before this module's caller classifies
+ * it. This function itself stays a thin, honest wrapper around the wire
+ * response — the calibration and stripping live one layer up, where the
+ * "once per resolution, not per phrase" batching already happens.
+ *
+ * A non-empty `text` that tokenizes to zero IDs is treated the same as a
+ * missing `ids` field — "failed", not a legitimate zero-token outcome
+ * (issue #311 review, second pass, finding E): no real tokenizer maps
+ * non-empty text to nothing, so an empty array here is itself evidence the
+ * response cannot be trusted, the same systemic fact a malformed response
+ * already is. The one legitimate empty `ids` response is for `text === ""`
+ * itself — the calibration probe — where it means "this build adds no BOS",
+ * not "did not answer".
  *
  * KoboldCpp is a single loaded model per server instance, unlike llama.cpp's
  * router mode, so unlike `postLlamaCppTokenize` this sends no `model`
@@ -262,17 +311,54 @@ export async function probeKoboldCppTokenize(
   settings: GenerationSettings,
   text: string,
   signal?: AbortSignal
-): Promise<readonly number[] | null> {
+): Promise<KoboldCppTokenizeProbeResult> {
   try {
     const data = await postKoboldCppTokenCount(settings, { prompt: text }, signal);
-    if (!isObject(data) || !Array.isArray(data.ids)) return null;
+    if (!isObject(data)) return { kind: "failed" };
+    if (!Array.isArray(data.ids)) return { kind: "no-ids" };
     const tokens = data.ids.filter((token): token is number =>
       typeof token === "number" && Number.isSafeInteger(token) && token >= 0);
-    return tokens.length === data.ids.length ? tokens : null;
+    if (tokens.length !== data.ids.length) return { kind: "failed" };
+    if (tokens.length === 0 && text.length > 0) return { kind: "failed" };
+    return { kind: "ok", ids: tokens };
   } catch {
     signal?.throwIfAborted();
-    return null;
+    return { kind: "failed" };
   }
+}
+
+/**
+ * Strips a KoboldCpp build's calibrated, constant tokenization prefix
+ * (`server/sampling-phrase-bias.ts`, `koboldCppLiveTokenizeProbe`) from one
+ * phrase's `ids`, or reports that the assumption did not hold for this
+ * response.
+ *
+ * Two edge cases the issue #311 review (first pass) asked to be handled
+ * explicitly:
+ * - `ids` does not actually begin with `prefix` — the build's prefix turned
+ *   out not to be the constant the calibration probe assumed it was. Rather
+ *   than guess which part of `ids` is the "real" tokenization, this reports
+ *   the same honest failure a calibration probe that never answered would
+ *   (`server/sampling-phrase-bias.ts` maps it to `"probe-failed"`) — the
+ *   review's own words: "if the prefix cannot be established, return
+ *   tokenizer-unavailable rather than guessing."
+ * - `ids` equals `prefix` exactly, leaving zero tokens once stripped. No
+ *   special case is needed for this one: an empty result flows back to the
+ *   ordinary classification (`tokenIds.length === 1 ? "single-token" :
+ *   "multi-token"`) the same as any other non-single-token count, landing as
+ *   "multi-token" with an empty `tokenIds` — rejected, the same honest
+ *   outcome a phrase that needs two or more tokens gets, never approximated
+ *   as free or as single-token.
+ */
+export function stripKoboldCppBosPrefix(
+  ids: readonly number[],
+  prefix: readonly number[]
+): readonly number[] | null {
+  if (ids.length < prefix.length) return null;
+  for (let index = 0; index < prefix.length; index += 1) {
+    if (ids[index] !== prefix[index]) return null;
+  }
+  return ids.slice(prefix.length);
 }
 
 /**
@@ -298,7 +384,7 @@ export async function postKoboldCppTokenCount(
     `${providerRoot(settings)}/api/extra/tokencount`,
     body,
     {},
-    { signal, timeoutMs: probeTimeout(settings) }
+    { signal, timeoutMs: probeTimeoutMs(settings) }
   );
 }
 
@@ -340,12 +426,19 @@ async function getJson(
     {
       allowPresetQuery,
       signal,
-      timeoutMs: probeTimeout(settings)
+      timeoutMs: probeTimeoutMs(settings)
     }
   );
 }
 
-function probeTimeout(settings: GenerationSettings): number {
+/** Exported so `server/tokenize-probe.ts` shares this one definition instead
+ * of keeping a byte-identical private copy (issue #311 review, second pass,
+ * finding F): before this change the divergence was cosmetic, since both
+ * copies computed the same number; `countKoboldCpp`'s own probe now shares
+ * `postKoboldCppTokenCount` with `probeKoboldCppTokenize`, so a future edit
+ * to one copy and not the other would make the two callers of that one
+ * shared endpoint disagree about how long to wait on it. */
+export function probeTimeoutMs(settings: GenerationSettings): number {
   return Math.min(providerRuntimeFor(settings).timeouts.totalMs, 30_000);
 }
 

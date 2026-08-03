@@ -89,6 +89,14 @@ function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
   // impossible" promise every banned string keeps (see the field comment on
   // SamplingSettingsV2.bannedStrings).
   if (resolution.kind === "native") return "→ literal text (KoboldCpp anti-slop)";
+  // "blocked" (issue #311, second pass): the literal-text counterpart to
+  // "shadowed" — a same-scope phrase bias claims the identical word this
+  // banned string names, so KoboldCpp would boost and ban it at once. Named
+  // the same way "shadowed" names its own conflict, one clause instead of a
+  // token-ID breakdown this outcome never had to begin with.
+  if (resolution.kind === "blocked") {
+    return `‹ — › conflicts with phrase bias ${JSON.stringify(resolution.conflictingPhrase)}`;
+  }
   // `SamplingBiasRowResolution` has no "overridden" member at all — the
   // settings overlay never combines a story, so `samplingBiasRowResolution`
   // (../sampling-bias-resolution.js) throws rather than producing one — so

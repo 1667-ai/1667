@@ -1,9 +1,11 @@
 import {
+  bannedStringsTransportForPreset,
   promptBiasTokenizerEncoding,
   samplingBiasVariantText,
   SAMPLING_BIAS_VARIANT_VALUES,
   type PromptBiasEncoding,
   type SamplingBiasEntryResolution,
+  type SamplingBiasNativeBannedStringResolution,
   type SamplingBiasResolutionResult,
   type SamplingBiasScope,
   type SamplingBiasShadowConflict,
@@ -21,7 +23,7 @@ import type { GenerationSettings, Story } from "../shared/types.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "../shared/unicode.js";
 import { ServiceError } from "./errors.js";
 import { promptBiasEncoderAvailable, tokenizePhraseTokenIds } from "./openai-prompt-tokenizer.js";
-import { probeKoboldCppTokenize, probeLlamaCppTokenize } from "./context-probe.js";
+import { probeKoboldCppTokenize, probeLlamaCppTokenize, stripKoboldCppBosPrefix } from "./context-probe.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
 
 /** One phraseBias entry or bannedStrings phrase, tagged with the scope
@@ -216,15 +218,38 @@ type SyncVariantTokenizer = (text: string) => SamplingBiasVariantOutcome;
  * other scope can end up as a token's final, overall owner and hide a real
  * same-scope disagreement underneath it. See `settleTokenOwnership` for why
  * that ordering is load-bearing.
+ *
+ * `bannedStringsTransport` (issue #311, second pass) is the one decision
+ * that used to live outside this function, applied to its output instead of
+ * pushed into its input — `resolveKoboldCppSamplingBias` deleted
+ * `bannedStrings` before calling this, then spread a hand-built "native"
+ * array onto the result afterward, breaking the index-alignment postcondition
+ * every other array here keeps with its own input. "token" (the default)
+ * tokenizes bannedStrings exactly like phraseBias, unchanged from before this
+ * parameter existed — every caller that predates it keeps its exact prior
+ * behavior. "native" — KoboldCpp only, decided by `bannedStringsTransportForPreset`
+ * (shared/sampling-phrase-resolution.ts) — never tokenizes bannedStrings at
+ * all: `bannedStrings` on the result is empty, and every configured banned
+ * string resolves instead into `nativeBannedStrings`
+ * (`resolveNativeBannedStrings` below), the one place that can produce it,
+ * so a native `phraseBias` entry is unrepresentable and this is the only
+ * function that ever fills the field — pushing the decision here, rather
+ * than leaving each preset's own caller to reassemble it, is what lets
+ * every caller with a preset in hand — a real request, save-time validation,
+ * and the TUI's demo-mode preview alike — get the identical decision for
+ * free (issue #311 review, second pass, finding C).
  */
 export function resolveSamplingLogitBias(
   sampling: SamplingBiasMergeInput,
-  tokenizeVariant: SyncVariantTokenizer
+  tokenizeVariant: SyncVariantTokenizer,
+  bannedStringsTransport: "token" | "native" = "token"
 ): SamplingBiasResolutionResult {
+  const isNative = bannedStringsTransport === "native";
   const phraseResolutions = sampling.phraseBias.map((entry) =>
     resolveEntry(entry.phrase, entry.scope, tokenizeVariant));
-  const bannedResolutions = sampling.bannedStrings.map((entry) =>
-    resolveEntry(entry.phrase, entry.scope, tokenizeVariant));
+  const bannedResolutions = isNative
+    ? []
+    : sampling.bannedStrings.map((entry) => resolveEntry(entry.phrase, entry.scope, tokenizeVariant));
 
   // One ordered write list, scope-major then source-major within a scope
   // (issue #341 finding 1) — built once from every resolved entry's own
@@ -235,10 +260,13 @@ export function resolveSamplingLogitBias(
   // (last write wins across every scope) decides what ships and, when an
   // entry loses, who is named for it; `byScope` (issue #341 finding 1b)
   // answers the same two questions restricted to one scope's own writes —
-  // see `settleTokenOwnership`, which asks `byScope` first.
+  // see `settleTokenOwnership`, which asks `byScope` first. A native
+  // bannedStrings entry contests no token at all, so it writes nothing here
+  // — the same "tokenInput.bannedStrings = []" shape the pre-refactor
+  // caller built by hand, now decided in one place instead of two.
   const writes: readonly SamplingBiasWrite[] = [
     ...scopedWrites("profile", "phraseBias", sampling.phraseBias, phraseResolutions),
-    ...scopedWrites("profile", "bannedStrings", sampling.bannedStrings, bannedResolutions),
+    ...(isNative ? [] : scopedWrites("profile", "bannedStrings", sampling.bannedStrings, bannedResolutions)),
     ...Object.entries(sampling.logitBias).map(([token, weight]): SamplingBiasWrite => ({
       tokenId: Number(token),
       weight,
@@ -246,7 +274,7 @@ export function resolveSamplingLogitBias(
       owner: { source: "logitBias" }
     })),
     ...scopedWrites("story", "phraseBias", sampling.phraseBias, phraseResolutions),
-    ...scopedWrites("story", "bannedStrings", sampling.bannedStrings, bannedResolutions)
+    ...(isNative ? [] : scopedWrites("story", "bannedStrings", sampling.bannedStrings, bannedResolutions))
   ];
 
   // Built through the views themselves, not as four loose maps paired up
@@ -257,16 +285,52 @@ export function resolveSamplingLogitBias(
 
   const phraseBias = phraseResolutions.map((resolution, index) =>
     settleTokenOwnership(resolution, sampling.phraseBias[index]!.weight, views));
-  const bannedStrings = bannedResolutions.map((resolution, index) =>
-    settleTokenOwnership(resolution, sampling.bannedStrings[index]!.weight, views));
+  const bannedStrings = isNative
+    ? []
+    : bannedResolutions.map((resolution, index) =>
+        settleTokenOwnership(resolution, sampling.bannedStrings[index]!.weight, views));
+  const nativeBannedStrings = isNative
+    ? resolveNativeBannedStrings(sampling.bannedStrings, sampling.phraseBias)
+    : [];
 
   return {
     kind: "resolved",
     logitBias: views.combined.weightByToken,
     phraseBias,
     bannedStrings,
+    nativeBannedStrings,
     resolvedEntryCount: Object.keys(views.combined.weightByToken).length
   };
+}
+
+/** Resolves every configured bannedStrings entry into its native outcome —
+ * "native" (ships as literal text) unless it collides, in the same scope,
+ * with a phraseBias phrase (issue #311, second pass, finding B): the two
+ * would fight over the same word on every other preset — bannedStrings
+ * intentionally outranks phraseBias within a scope (see this function's own
+ * caller's doc comment), so the phraseBias entry there always ends up
+ * "shadowed" and the save or request is refused. A native banned string
+ * never resolves a token to lose that fight over, so it cannot reuse
+ * `settleTokenOwnership`; this checks the same contradiction the only way
+ * available to it — the literal text — comparing the banned string's own
+ * four surface variants (the same expansion `resolveEntry` tokenizes
+ * elsewhere) against each same-scope phraseBias entry's plain phrase.
+ * Checked against every configured phraseBias entry, not only ones that
+ * went on to resolve: the contradiction is in what the writer configured,
+ * not in whether that configuration happened to tokenize cleanly. */
+function resolveNativeBannedStrings(
+  bannedStrings: readonly ScopedSamplingBiasEntry[],
+  phraseBias: readonly ScopedSamplingBiasEntry[]
+): readonly SamplingBiasNativeBannedStringResolution[] {
+  return bannedStrings.map((entry): SamplingBiasNativeBannedStringResolution => {
+    const variantTexts = SAMPLING_BIAS_VARIANT_VALUES.map((variant) =>
+      samplingBiasVariantText(entry.phrase, variant));
+    const conflict = phraseBias.find((candidate) =>
+      candidate.scope === entry.scope && variantTexts.includes(candidate.phrase));
+    return conflict === undefined
+      ? { kind: "native", phrase: entry.phrase, scope: entry.scope }
+      : { kind: "blocked", phrase: entry.phrase, scope: entry.scope, conflictingPhrase: conflict.phrase };
+  });
 }
 
 interface SamplingBiasWrite {
@@ -551,16 +615,15 @@ function neverCalledTokenizer(): SamplingBiasVariantOutcome {
  * so they can never disagree about what a draft resolves to.
  *
  * "openai" resolves locally against the tiktoken allow-list, synchronously
- * fast. "llama-cpp" has no such allow-list to trust (server/context-probe.ts,
- * probeLlamaCppTokenize) — instead every distinct surface-variant text the
- * draft needs is tokenized by asking that server directly, once each, before
- * the (still synchronous) merge runs. "koboldcpp" resolves phraseBias the
- * same live-probe way, through its own `/api/extra/tokencount`
- * (probeKoboldCppTokenize) — see `resolveKoboldCppSamplingBias` below for why
- * its bannedStrings takes a third path neither of those two use. Every other
- * preset has no tokenizer strategy at all: "tokenizer-unavailable" whenever
- * phraseBias or bannedStrings is non-empty, matching what resolveSamplingKnob
- * already reports as unavailable for those presets ahead of reaching here.
+ * fast. "llama-cpp" and "koboldcpp" share one live-probe branch below
+ * (`resolveWithLiveProbe` — issue #311, second pass, finding D unified what
+ * used to be two branches: llama-cpp inline here, koboldcpp through its own
+ * copy three functions down, duplicating the exact shape
+ * `liveProbeVariantTokenizer` was generalized over `probe` to avoid). Every
+ * other preset has no tokenizer strategy at all: "tokenizer-unavailable"
+ * whenever phraseBias or bannedStrings is non-empty, matching what
+ * resolveSamplingKnob already reports as unavailable for those presets
+ * ahead of reaching here.
  *
  * The "nothing to tokenize" guard is hoisted above every preset branch
  * (issue #282 review round 2, finding 7): a raw numeric logitBias map alone
@@ -593,66 +656,106 @@ export async function resolveSamplingBiasForSettings(
   if (runtime.preset === "openai") {
     return resolveSamplingLogitBiasForEncoding(combined, promptBiasTokenizerEncoding(settings.model));
   }
-  if (runtime.preset === "llama-cpp") {
-    const tokenizer = await liveProbeVariantTokenizer(combined, probeLlamaCppTokenize, settings, signal);
-    return tokenizer === null
-      ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
-      : resolveSamplingLogitBias(combined, tokenizer);
-  }
-  if (runtime.preset === "koboldcpp") {
-    return await resolveKoboldCppSamplingBias(combined, settings, signal);
+  if (runtime.preset === "llama-cpp" || runtime.preset === "koboldcpp") {
+    return await resolveWithLiveProbe(combined, runtime.preset, settings, signal);
   }
   return { kind: "tokenizer-unavailable", cause: "model-unknown" };
 }
 
 /**
- * KoboldCpp's bannedStrings resolves neither like llama-cpp's (a live probe
- * feeding the same token-ID merge) nor like a preset with no tokenizer
- * strategy at all: it needs no tokenizer, because KoboldCpp's anti-slop
- * `banned_tokens` field takes the literal phrase text and backtracks the
- * generated stream when it appears (see the field description quoted in
- * shared/sampling-capabilities.ts) — a multi-token phrase is not rejected
- * the way it would be for a token-ID bias. Every configured banned string
- * therefore reaches the "native" outcome unconditionally; `resolveSamplingLogitBias`
- * never even sees them (`tokenInput.bannedStrings` below is always empty),
- * so a token-ownership conflict — "shadowed"/"overridden" — cannot occur for
- * a banned string on this preset, because it never contests a token with
- * anything.
+ * llama.cpp and KoboldCpp both resolve phraseBias by asking that server to
+ * tokenize, live, once per distinct surface-variant text
+ * (`liveProbeVariantTokenizer` below) instead of trusting a reported model
+ * name — the one thing that makes them a shared branch at all. They differ
+ * in exactly two respects, both captured here rather than duplicated:
  *
- * phraseBias still resolves the same live-probe way llama-cpp's does — see
- * `resolveSamplingBiasForSettings` above — through `probeKoboldCppTokenize`
- * (server/context-probe.ts). That probe only runs when phraseBias is
- * actually configured: a writer who configured only bannedStrings must not
- * have their request blocked by an unreachable KoboldCpp server that a
- * text-only ban never needed to ask anything of.
+ * - Which endpoint answers (`probeLlamaCppTokenize` vs. the KoboldCpp probe
+ *   `koboldCppLiveTokenizeProbe` below builds, prefix-calibrated per issue
+ *   #311's original finding — see that function's own comment).
+ * - `bannedStringsTransportForPreset` (shared/sampling-phrase-resolution.ts):
+ *   llama.cpp documents no native banned-string field, so its bannedStrings
+ *   resolves through the exact same token-ID merge phraseBias does
+ *   ("token"). KoboldCpp's `banned_tokens` takes literal phrase text and
+ *   needs no tokenizer at all ("native") — pushed into `resolveSamplingLogitBias`
+ *   itself (issue #311, second pass, finding D), not applied to its output
+ *   the way an earlier version of this function did, so `probeInput` below
+ *   only has to decide what to *probe*, never what to report.
+ *
+ * A writer who configured only bannedStrings on KoboldCpp must not have
+ * their request blocked by an unreachable server that a text-only ban never
+ * needed to ask anything of — `probeInput` already dropped bannedStrings for
+ * a native-transport preset, so checking it alongside phraseBias below
+ * reduces exactly to "is there anything left to probe at all".
  */
-async function resolveKoboldCppSamplingBias(
+async function resolveWithLiveProbe(
   combined: SamplingBiasMergeInput,
+  preset: "llama-cpp" | "koboldcpp",
   settings: GenerationSettings,
   signal: AbortSignal | undefined
 ): Promise<SamplingBiasResolutionResult> {
-  const tokenInput: SamplingBiasMergeInput = { ...combined, bannedStrings: [] };
-  const tokenResolved = combined.phraseBias.length === 0
-    ? resolveSamplingLogitBias(tokenInput, neverCalledTokenizer)
-    : await resolveWithKoboldCppProbe(tokenInput, settings, signal);
-  if (tokenResolved.kind !== "resolved") return tokenResolved;
-  return {
-    ...tokenResolved,
-    bannedStrings: combined.bannedStrings.map((entry): SamplingBiasEntryResolution => (
-      { kind: "native", phrase: entry.phrase, scope: entry.scope }
-    ))
-  };
-}
-
-async function resolveWithKoboldCppProbe(
-  tokenInput: SamplingBiasMergeInput,
-  settings: GenerationSettings,
-  signal: AbortSignal | undefined
-): Promise<SamplingBiasResolutionResult> {
-  const tokenizer = await liveProbeVariantTokenizer(tokenInput, probeKoboldCppTokenize, settings, signal);
+  const bannedStringsTransport = bannedStringsTransportForPreset(preset);
+  const probeInput: SamplingBiasMergeInput = bannedStringsTransport === "native"
+    ? { ...combined, bannedStrings: [] }
+    : combined;
+  if (probeInput.phraseBias.length === 0 && probeInput.bannedStrings.length === 0) {
+    return resolveSamplingLogitBias(combined, neverCalledTokenizer, bannedStringsTransport);
+  }
+  const probe = preset === "koboldcpp"
+    ? await koboldCppLiveTokenizeProbe(settings, signal)
+    : probeLlamaCppTokenize;
+  if (typeof probe !== "function") return { kind: "tokenizer-unavailable", cause: probe };
+  const tokenizer = await liveProbeVariantTokenizer(probeInput, probe, settings, signal);
   return tokenizer === null
     ? { kind: "tokenizer-unavailable", cause: "probe-failed" }
-    : resolveSamplingLogitBias(tokenInput, tokenizer);
+    : resolveSamplingLogitBias(combined, tokenizer, bannedStringsTransport);
+}
+
+/**
+ * Builds a `LiveTokenizeProbe` for KoboldCpp's `/api/extra/tokencount`, or
+ * reports why one cannot be built — the calibrate-and-strip fix for the
+ * BOS-prefix problem `probeKoboldCppTokenize` (server/context-probe.ts)
+ * documents on itself: that endpoint's documented example shows `ids`
+ * beginning with the model's BOS token, so a single-token phrase comes back
+ * as two IDs on any BOS-adding build (the normal case) and every surface
+ * variant misclassifies multi-token.
+ *
+ * Tokenizes the empty string exactly once here — before the batch of
+ * surface-variant probes in `liveProbeVariantTokenizer` starts, not once per
+ * phrase — and treats whatever `ids` comes back as this build's
+ * unconditional prefix (self-calibrating: a build that adds no BOS reports
+ * an empty prefix and every subsequent strip is a no-op; a build that adds
+ * one, or more than one, is handled the same way without 1667 ever knowing
+ * which token ID is BOS for this model). Every later call strips that same
+ * prefix (`stripKoboldCppBosPrefix`) before the caller classifies the
+ * result.
+ *
+ * The calibration probe's own outcome already distinguishes "failed" from
+ * "no-ids" (`KoboldCppTokenizeProbeResult`) — surfaced here as the two
+ * `TokenizerUnavailableCause`s that already exist for exactly this
+ * distinction, rather than collapsing both into "probe-failed" the way an
+ * earlier version of this fix did: a build old enough to answer without
+ * `ids` answered, so "no-token-ids" is the honest cause, not a claim about
+ * its network (issue #311 review, second pass, finding E).
+ *
+ * A per-phrase call that itself comes back "no-ids" or "failed" — as
+ * opposed to the calibration call, checked here — is mapped to `null` by
+ * the returned closure, the same generic "probe-failed" every other
+ * `LiveTokenizeProbe` failure already reports: calibration having already
+ * confirmed this build *does* answer with `ids`, a later call losing that
+ * is a transport hiccup, not evidence about the build itself.
+ */
+async function koboldCppLiveTokenizeProbe(
+  settings: GenerationSettings,
+  signal: AbortSignal | undefined
+): Promise<LiveTokenizeProbe | "probe-failed" | "no-token-ids"> {
+  const calibration = await probeKoboldCppTokenize(settings, "", signal);
+  if (calibration.kind === "failed") return "probe-failed";
+  if (calibration.kind === "no-ids") return "no-token-ids";
+  const prefix = calibration.ids;
+  return async (probeSettings, text, probeSignal) => {
+    const result = await probeKoboldCppTokenize(probeSettings, text, probeSignal);
+    return result.kind === "ok" ? stripKoboldCppBosPrefix(result.ids, prefix) : null;
+  };
 }
 
 /** A local server answering a handful of small POSTs in parallel is normal;
@@ -662,8 +765,11 @@ async function resolveWithKoboldCppProbe(
 const LIVE_TOKENIZE_PROBE_CONCURRENCY = 8;
 
 /** One text tokenized against a live server, returning its token IDs or null
- * on failure — the shape `probeLlamaCppTokenize` and `probeKoboldCppTokenize`
- * (server/context-probe.ts) both already have. */
+ * on failure — the shape `probeLlamaCppTokenize` (server/context-probe.ts)
+ * already has, and `koboldCppLiveTokenizeProbe` above builds for KoboldCpp
+ * (that preset's own `probeKoboldCppTokenize` answers a richer, three-way
+ * result — server/context-probe.ts's `KoboldCppTokenizeProbeResult` — so it
+ * is not, itself, a `LiveTokenizeProbe`; the calibrating closure is). */
 type LiveTokenizeProbe = (
   settings: GenerationSettings,
   text: string,

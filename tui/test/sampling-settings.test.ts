@@ -492,6 +492,7 @@ describe("Sampling Settings user flow", () => {
         ]
       }],
       bannedStrings: [],
+      nativeBannedStrings: [],
       resolvedEntryCount: 4
     });
     await pending.promise;
@@ -505,7 +506,9 @@ describe("Sampling Settings user flow", () => {
   // literal text to KoboldCpp's own anti-slop field rather than tokenizing
   // it. The row must show that plainly, and the entry must stay committed:
   // "native" never blocks a commit (server/sampling-phrase-bias.ts,
-  // resolveKoboldCppSamplingBias), unlike "rejected" or "shadowed".
+  // resolveSamplingLogitBias's "native" transport), unlike "rejected" or
+  // "shadowed". Carried on its own `nativeBannedStrings` field, never as a
+  // member of `bannedStrings` (issue #311 review, second pass, finding A).
   test("a KoboldCpp banned string renders as native text, not resolved token IDs", async () => {
     const { source, state, press } = settingsHarness();
     useEncodedModelSettings(source);
@@ -525,7 +528,8 @@ describe("Sampling Settings user flow", () => {
       kind: "resolved",
       logitBias: {},
       phraseBias: [],
-      bannedStrings: [{ kind: "native", phrase: "a phrase with several words", scope: "profile" }],
+      bannedStrings: [],
+      nativeBannedStrings: [{ kind: "native", phrase: "a phrase with several words", scope: "profile" }],
       resolvedEntryCount: 0
     });
     await pending.promise;
@@ -574,6 +578,7 @@ describe("Sampling Settings user flow", () => {
         ]
       }],
       bannedStrings: [],
+      nativeBannedStrings: [],
       // Deliberately the shared 200-entry cap itself, not 4 — this proves
       // the displayed count and the new-entry gate both read the resolved
       // total (server/sampling-phrase-bias.ts, resolvedEntryCount), the
@@ -620,7 +625,14 @@ describe("Sampling Settings user flow", () => {
         return { kind: "tokenizer-unavailable", cause: "probe-failed" };
       }
       if (repaintsAtCallStart.length === 3) notifyThirdCallStarted();
-      return { kind: "resolved", logitBias: {}, phraseBias: [], bannedStrings: [], resolvedEntryCount: 0 };
+      return {
+        kind: "resolved",
+        logitBias: {},
+        phraseBias: [],
+        bannedStrings: [],
+        nativeBannedStrings: [],
+        resolvedEntryCount: 0
+      };
     };
 
     await enterSampling(state, press);
@@ -702,6 +714,40 @@ describe("Sampling Settings user flow", () => {
     expect(saved).toHaveLength(1);
     const profile = saved[0]!.document.profiles[saved[0]!.document.routing.default]!;
     expect(profile.sampling?.bannedStrings).toEqual(["forbidden word"]);
+  });
+
+  // Issue #311 review, second pass, finding C: `demoResolveSamplingBias`
+  // (tui/src/demo-token-ids.ts) calls the real shared merge
+  // (resolveSamplingLogitBias, server/sampling-phrase-bias.ts) rather than
+  // re-implementing it, precisely so demo mode and the real backend can
+  // never disagree about what a draft resolves to (issue #282 round 4). An
+  // earlier version of the KoboldCpp native-transport fix moved that
+  // decision above the function demo calls, without also teaching demo mode
+  // to derive it — so a KoboldCpp demo profile rendered a banned string
+  // "resolved" with fake token IDs while the real backend renders literal
+  // text, the exact divergence #282 round 4 exists to rule out. Unlike the
+  // KoboldCpp row test above, this leaves `source.api.resolveSamplingBias`
+  // untouched — the point is proving the real demo resolver, not a mock of
+  // it, derives "native" from the routed KoboldCpp preset on its own.
+  test("a KoboldCpp banned string renders as native text through the real demo resolver, not fake resolved token IDs", async () => {
+    const { source, state, press } = settingsHarness();
+    useKoboldcppSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("banned-strings"));
+    await press(key("return"));
+    expect(state.settings?.sampling?.panel).toBe("banned-strings");
+
+    await press(key("n"));
+    setSamplingEdit(state, "a phrase with several words");
+    await press(key("return"));
+    await Promise.resolve();
+
+    // Never un-committed: "native" is not a rejection, the same as the
+    // mocked-resolver test above.
+    expect(state.settings?.draft.sampling.bannedStrings).toEqual(["a phrase with several words"]);
+    const frame = render(state, 100, 24);
+    expect(frame).toContain("literal text");
+    expect(frame).not.toContain("‹ — ›");
   });
 
   test("escape peels list, sampling, and Settings layers in order", async () => {
@@ -956,6 +1002,7 @@ describe("Sampling Settings user flow", () => {
         conflicts: [{ tokenId: 123, owner: { source: "phraseBias", scope: "story", phrase: "other" } }]
       }],
       bannedStrings: [],
+      nativeBannedStrings: [],
       resolvedEntryCount: 1
     };
     sampling.biasResolution = { kind: "ready", result: overriddenResult };

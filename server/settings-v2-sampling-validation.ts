@@ -23,6 +23,7 @@ import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
 import {
   maxResolvedLogitBiasEntries,
   SamplingValidationError,
+  SAMPLING_NATIVE_BANNED_STRINGS_POLICY,
   validateSamplingBannedStrings,
   validateSamplingDryBreakers,
   validateSamplingLogitBias,
@@ -34,8 +35,10 @@ import {
 import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
 import {
+  firstBlockedNativeBannedString,
   firstBlockingSamplingBiasEntry,
   samplingBiasEntryRejectionMessage,
+  samplingBiasNativeBlockedMessage,
   type SamplingBiasResolutionResult
 } from "../shared/sampling-capabilities.js";
 import { combineSamplingBiasSources, resolveSamplingLogitBiasForEncoding } from "./sampling-phrase-bias.js";
@@ -174,11 +177,35 @@ export function validateSamplingRoute(
       + samplingBiasEntryRejectionMessage(blocking)
     );
   }
+  // A native bannedStrings entry (KoboldCpp only) is never a member of
+  // `resolved.bannedStrings`, so the check above cannot see it lose to a
+  // same-scope phraseBias phrase the way a tokenized entry would (issue
+  // #311, second pass, finding B) — checked separately here, the save-time
+  // counterpart to the same check server/provider-sampling.ts runs before a
+  // request.
+  const blockedNative = firstBlockedNativeBannedString(resolved.nativeBannedStrings);
+  if (blockedNative !== undefined) {
+    throw new SettingsFormatError(
+      `profile ${profileId} cannot use ${JSON.stringify(blockedNative.phrase)} as configured: `
+      + samplingBiasNativeBlockedMessage(blockedNative)
+    );
+  }
   const bound = maxResolvedLogitBiasEntries(preset);
   if (resolved.resolvedEntryCount > bound) {
     throw new SettingsFormatError(
       `profile ${profileId} resolves to ${resolved.resolvedEntryCount} logit-bias entries, `
       + `exceeding the ${bound}-entry limit for preset ${preset}`
+    );
+  }
+  // The combined-scope cap on native bannedStrings itself (issue #311
+  // review, second pass, "not required" item) — see
+  // SAMPLING_NATIVE_BANNED_STRINGS_POLICY's own comment for why this is a
+  // separate bound from the one just above, which binds only `logitBias`.
+  const nativeCount = new Set(resolved.nativeBannedStrings.map((entry) => entry.phrase)).size;
+  if (nativeCount > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
+    throw new SettingsFormatError(
+      `profile ${profileId} resolves to ${nativeCount} banned-string entries, exceeding the `
+      + `${SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries}-entry limit`
     );
   }
 }

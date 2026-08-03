@@ -1,16 +1,21 @@
 import {
+  firstBlockedNativeBannedString,
   firstBlockingSamplingBiasEntry,
   isLogitBiasFamilyKnob,
   resolveConfiguredSamplingKnobs,
   resolveSamplingKnob,
   samplingBiasEntryRejectionMessage,
+  samplingBiasNativeBlockedMessage,
   samplingBiasResolutionFailureMessage,
   samplingKnobLabel,
   samplingUnavailableReason,
   type ConfiguredSamplingKnob,
   type SamplingContext
 } from "../shared/sampling-capabilities.js";
-import { maxResolvedLogitBiasEntries } from "../shared/sampling-validation-policy.js";
+import {
+  maxResolvedLogitBiasEntries,
+  SAMPLING_NATIVE_BANNED_STRINGS_POLICY
+} from "../shared/sampling-validation-policy.js";
 import {
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   type SamplingKnobV2,
@@ -61,18 +66,35 @@ export async function applySamplingFields(
       );
     }
     const merged = await mergedSamplingBiasValue(sampling, settings, context.preset, request);
-    body[requireBiasFamilyWireField(context, sampling, "logitBias")] = merged.logitBias;
+    const logitBiasWireField = requireBiasFamilyWireField(context, sampling, "logitBias");
+    body[logitBiasWireField] = merged.logitBias;
     // Only written when non-empty (issue #311): every preset but KoboldCpp
-    // never populates this at all (mergedSamplingBiasValue only ever fills
-    // it from a "native" bannedStrings entry — see its own comment — and
-    // "native" is reachable only on KoboldCpp), and even there a route with
-    // only phraseBias or logitBias configured has nothing to put in it.
-    // KoboldCpp's `banned_tokens` documents no default, unlike `logit_bias`
-    // ("default": {}), so this skips sending an empty array where the
-    // unconditional `logit_bias` write above sends a documented-default
-    // empty object either way.
+    // never populates this at all (`mergedSamplingBiasValue` only ever fills
+    // it from `resolved.nativeBannedStrings` — see its own comment — and
+    // that field is filled only by KoboldCpp's own transport), and even
+    // there a route with only phraseBias or logitBias configured has
+    // nothing to put in it. KoboldCpp's `banned_tokens` documents no
+    // default, unlike `logit_bias` ("default": {}), so this skips sending an
+    // empty array where the unconditional `logit_bias` write above sends a
+    // documented-default empty object either way.
     if (merged.nativeBannedStrings.length > 0) {
-      body[requireBiasFamilyWireField(context, sampling, "bannedStrings")] = merged.nativeBannedStrings;
+      const bannedStringsWireField = requireBiasFamilyWireField(context, sampling, "bannedStrings");
+      // Defense in depth alongside the type-level fix (issue #311 review,
+      // second pass, finding A): `merged.nativeBannedStrings` should now be
+      // reachable only when `context.preset` is "koboldcpp", the one preset
+      // `PRESET_WIRE_OVERRIDES` gives its own `bannedStrings` field — but if
+      // that ever stopped being true, falling back to `logitBiasWireField`
+      // silently would overwrite the object just written above with an
+      // array of literal strings. Asserting the two fields differ, instead
+      // of trusting the fallback, turns that into a loud internal error
+      // rather than a silently dropped logit bias.
+      if (bannedStringsWireField === logitBiasWireField) {
+        throw new Error(
+          `sampling-bias native write would overwrite ${JSON.stringify(logitBiasWireField)} — `
+          + `preset ${JSON.stringify(context.preset)} has no distinct bannedStrings wire field override`
+        );
+      }
+      body[bannedStringsWireField] = merged.nativeBannedStrings;
     }
   }
   for (const { knob, resolution } of configured) {
@@ -106,10 +128,10 @@ export async function applySamplingFields(
  * The `bannedStrings` write below still asks for its own field explicitly,
  * never `logitBias`'s: that is the one member whose wire field can
  * genuinely diverge (`banned_tokens` on KoboldCpp, PRESET_WIRE_OVERRIDES),
- * and a route reaches that write only when a "native" entry actually exists
- * for it (`merged.nativeBannedStrings.length > 0`), which — see
- * `resolveKoboldCppSamplingBias`, server/sampling-phrase-bias.ts — is only
- * ever true when `bannedStrings` itself resolved availably. */
+ * and a route reaches that write only when `merged.nativeBannedStrings` is
+ * non-empty, which — see `resolveSamplingLogitBias`'s "native" transport,
+ * server/sampling-phrase-bias.ts — is only ever true when `bannedStrings`
+ * itself resolved availably on KoboldCpp. */
 function requireBiasFamilyWireField(
   context: SamplingContext,
   sampling: SamplingSettingsV2,
@@ -225,12 +247,16 @@ function isSamplingScalarKnob(knob: SamplingKnobV2): knob is SamplingScalarKnobV
 
 /** What one route's sampling bias resolves to on the wire: the merged
  * token-ID map every preset sends under its logit-bias field, plus — issue
- * #311, KoboldCpp only — the literal banned-string texts a "native"
- * resolution carries (server/sampling-phrase-bias.ts,
- * resolveKoboldCppSamplingBias), sent verbatim to KoboldCpp's own
- * `banned_tokens` field instead of being tokenized into `logitBias`. Empty
- * on every other preset: a "native" entry is reachable only on KoboldCpp
- * (`SamplingBiasEntryResolution`, shared/sampling-phrase-resolution.ts). */
+ * #311, KoboldCpp only — the literal banned-string texts
+ * `resolved.nativeBannedStrings` carries (server/sampling-phrase-bias.ts,
+ * `resolveSamplingLogitBias`'s "native" transport), sent verbatim to
+ * KoboldCpp's own `banned_tokens` field instead of being tokenized into
+ * `logitBias`. Empty on every other preset: `nativeBannedStrings` is filled
+ * only by that one transport, itself reachable only on KoboldCpp
+ * (`bannedStringsTransportForPreset`, shared/sampling-phrase-resolution.ts)
+ * — a native `bannedStrings` entry on any other preset is not a runtime
+ * state this field can even represent, let alone reach the wire under the
+ * wrong field name (issue #311 review, second pass, finding A). */
 interface MergedSamplingBiasValue {
   readonly logitBias: Readonly<Record<string, number>>;
   readonly nativeBannedStrings: readonly string[];
@@ -243,9 +269,18 @@ interface MergedSamplingBiasValue {
  * carry more entries than a preset (KoboldCpp) documents. There is one cap,
  * on one object, checked one way — and it binds only `logitBias`: KoboldCpp's
  * documented 16-entry cap is on its `logit_bias` dictionary specifically
- * (shared/sampling-validation-policy.ts), not on `banned_tokens`, which
- * carries no per-request count of its own in the API document, so a native
- * banned string never counts against it.
+ * (shared/sampling-validation-policy.ts), not on `banned_tokens`. A native
+ * banned string carries no count of its own against *that* cap — but it has
+ * its own, separate one, `SAMPLING_NATIVE_BANNED_STRINGS_POLICY`, checked
+ * below (issue #311 review, second pass, "not required" item: profile and
+ * story bannedStrings, deduplicated, are otherwise bounded only by their two
+ * independent 256-entry per-scope caps).
+ *
+ * Also refuses a "blocked" native bannedStrings entry — a same-scope
+ * contradiction with a phraseBias phrase (issue #311, second pass, finding
+ * B) — the same way `firstBlockingSamplingBiasEntry` above refuses a
+ * "rejected" or "shadowed" one; see `firstBlockedNativeBannedString`'s own
+ * comment for why it cannot be the same list.
  *
  * Async because a llama-cpp or KoboldCpp route resolves phraseBias by asking
  * that server to tokenize (server/context-probe.ts, probeLlamaCppTokenize /
@@ -268,6 +303,13 @@ async function mergedSamplingBiasValue(
       `Could not use ${JSON.stringify(blocking.phrase)} as configured: ${samplingBiasEntryRejectionMessage(blocking)}.`
     );
   }
+  const blockedNative = firstBlockedNativeBannedString(resolved.nativeBannedStrings);
+  if (blockedNative !== undefined) {
+    throw new ProviderError(
+      `Could not use ${JSON.stringify(blockedNative.phrase)} as configured: `
+      + `${samplingBiasNativeBlockedMessage(blockedNative)}.`
+    );
+  }
   const bound = maxResolvedLogitBiasEntries(resolvedPreset);
   if (resolved.resolvedEntryCount > bound) {
     throw new ProviderError(
@@ -275,9 +317,18 @@ async function mergedSamplingBiasValue(
       + `exceeding the ${bound}-entry limit for preset ${resolvedPreset}.`
     );
   }
-  const nativeBannedStrings = [...new Set(
-    resolved.bannedStrings.flatMap((entry) => entry.kind === "native" ? [entry.phrase] : [])
-  )];
+  // Every "blocked" native entry was already refused above, so what remains
+  // here is unconditionally "native" — a plain read (issue #311 review,
+  // second pass, finding F2), not the per-source ternary this used to be
+  // when a native entry rode `resolved.bannedStrings` alongside every other
+  // kind that list can hold.
+  const nativeBannedStrings = [...new Set(resolved.nativeBannedStrings.map((entry) => entry.phrase))];
+  if (nativeBannedStrings.length > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
+    throw new ProviderError(
+      `Resolved banned strings has ${nativeBannedStrings.length} entries, exceeding the `
+      + `${SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries}-entry limit.`
+    );
+  }
   return { logitBias: sortedLogitBias(resolved.logitBias), nativeBannedStrings };
 }
 

@@ -18,6 +18,7 @@ import {
   SAMPLING_BIAS_VARIANT_VALUES,
   TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
   type SamplingBiasEntryResolution,
+  type SamplingBiasNativeBannedStringResolution,
   type SamplingBiasResolutionResult,
   type SamplingBiasScope,
   type SamplingBiasShadowOwner,
@@ -190,8 +191,29 @@ export function decodeSamplingBiasResolutionResponse(
     logitBias: decodeLogitBiasRecord(response.logitBias, label),
     phraseBias: decodeSamplingBiasEntryList(response.phraseBias, label),
     bannedStrings: decodeSamplingBiasEntryList(response.bannedStrings, label),
+    nativeBannedStrings: decodeNativeBannedStringList(response.nativeBannedStrings, label),
     resolvedEntryCount: nonNegativeIntegerField(response, "resolvedEntryCount", label)
   };
+}
+
+function decodeNativeBannedStringList(
+  value: unknown,
+  label: string
+): readonly SamplingBiasNativeBannedStringResolution[] {
+  if (!Array.isArray(value)) invalidField(label, "nativeBannedStrings");
+  return value.map((entry) => decodeNativeBannedString(entry, `${label} native banned string`));
+}
+
+function decodeNativeBannedString(
+  value: unknown,
+  label: string
+): SamplingBiasNativeBannedStringResolution {
+  const record = responseRecord(value, label);
+  const phrase = stringField(record, "phrase", label);
+  const scope = decodeSamplingBiasScope(record.scope, label);
+  if (record.kind === "native") return { kind: "native", phrase, scope };
+  if (record.kind !== "blocked") invalidField(label, "kind");
+  return { kind: "blocked", phrase, scope, conflictingPhrase: stringField(record, "conflictingPhrase", label) };
 }
 
 function decodeTokenizerUnavailableCause(value: unknown, label: string): TokenizerUnavailableCause {
@@ -226,12 +248,10 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
   const record = responseRecord(value, label);
   const phrase = stringField(record, "phrase", label);
   const scope = decodeSamplingBiasScope(record.scope, label);
-  // "native" (issue #311) carries no variants and no token IDs at all — it
-  // never attempted tokenization, so decoding either field here would be
-  // decoding data the wire response never has. Checked before
-  // decodeSamplingBiasVariantList runs, unlike every other kind below, which
-  // all carry variants unconditionally.
-  if (record.kind === "native") return { kind: "native", phrase, scope };
+  // A native banned string (issue #311) is never a member of this union —
+  // see `decodeNativeBannedStringList` above, and the doc comment on
+  // `SamplingBiasEntryResolution` (shared/sampling-phrase-resolution.ts) for
+  // why. Every kind reachable here carries variants unconditionally.
   const variants = decodeSamplingBiasVariantList(record.variants, label);
   if (record.kind === "rejected") return { kind: "rejected", phrase, scope, variants };
   if (record.kind === "shadowed" || record.kind === "overridden") {

@@ -1260,8 +1260,13 @@ test("a KoboldCpp phrase resolves into logit_bias through the tokencount probe",
     "604": -4
   });
   // Every one of the four surface variants was actually asked for, not
-  // assumed from the typed form alone.
-  assert.deepEqual([...requestedPrompts].sort(), [" Ember", " ember", "Ember", "ember"]);
+  // assumed from the typed form alone — plus the one empty-string
+  // calibration probe `koboldCppLiveTokenizeProbe`
+  // (server/sampling-phrase-bias.ts) sends once per resolution to learn this
+  // build's BOS prefix (issue #311). This fixture never maps `""`, so it
+  // answers `{ value: 0, ids: [] }` — the legitimate "this build adds no
+  // BOS" calibration result, not a failure.
+  assert.deepEqual([...requestedPrompts].sort(), ["", " Ember", " ember", "Ember", "ember"]);
 });
 
 // Issue #311, point 2 — the decisive test for the feature: a banned string
@@ -1325,6 +1330,73 @@ test("a KoboldCpp request sends phrase bias and a banned string on their own sep
   );
   assert.deepEqual(body.logit_bias, { "601": 5, "602": 5, "603": 5, "604": 5 });
   assert.deepEqual(body.banned_tokens, ["a phrase with several words"]);
+});
+
+// Issue #311 review, second pass, BLOCKER B: the reviewer's own executed
+// repro — a profile configuring phraseBias "ember"@5 and bannedStrings
+// "ember" together used to ship both fields on KoboldCpp (boosting and
+// banning the identical word, both editor rows reading healthy) while every
+// other preset already refuses this exact self-contradiction (there, the
+// two entries fight over the same resolved token and the phraseBias entry
+// loses, "shadowed" — bannedStrings intentionally outranks phraseBias
+// within a scope, server/sampling-phrase-bias.ts). The request must refuse
+// here too, naming the conflict, not ship a body that boosts and bans the
+// same word.
+test("a KoboldCpp request refuses a banned string that contradicts a same-scope phrase bias", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withSampling(
+        settings("openai-compatible"),
+        "koboldcpp",
+        sampling({
+          phraseBias: [{ phrase: "ember", weight: 5 }],
+          bannedStrings: ["ember"]
+        })
+      ),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /"ember" conflicts with phrase bias "ember" in the same scope/
+  );
+});
+
+// The genuine cross-scope case: settled rule 2 says a cross-scope conflict
+// is a non-blocking override, never told apart from a same-scope
+// contradiction. A story banning a word the profile separately boosts must
+// still ship both — the story's own reason to exist.
+test("a KoboldCpp request ships a banned string that only contradicts a different scope's phrase bias", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const body = JSON.parse(await input.text()) as { prompt: unknown };
+    const prompt = body.prompt as string;
+    const tokenId = KOBOLDCPP_PHRASE_FIXTURE[prompt];
+    return Response.json({ value: tokenId === undefined ? 0 : 1, ids: tokenId === undefined ? [] : [tokenId] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ phraseBias: [{ phrase: "ember", weight: 5 }] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ bannedStrings: ["ember"] }) }
+  );
+  assert.deepEqual(body.logit_bias, { "601": 5, "602": 5, "603": 5, "604": 5 });
+  assert.deepEqual(body.banned_tokens, ["ember"]);
 });
 
 // Issue #311, point 3: a KoboldCpp server that does not answer the

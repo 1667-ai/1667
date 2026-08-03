@@ -10,7 +10,7 @@ import {
   type TokenizeSourceKind
 } from "../shared/tokenize-source.js";
 import type { GenerationSettings } from "../shared/types.js";
-import { postKoboldCppTokenCount, postLlamaCppTokenize } from "./context-probe.js";
+import { postKoboldCppTokenCount, postLlamaCppTokenize, probeTimeoutMs } from "./context-probe.js";
 import { countModelPromptTextTokens } from "./openai-prompt-tokenizer.js";
 import { postProviderJson } from "./provider-json.js";
 import { providerRuntimeFor } from "./provider-runtime.js";
@@ -286,10 +286,6 @@ async function countKoboldCpp(
     total: data.value,
     perMessage: null
   };
-}
-
-function probeTimeoutMs(settings: GenerationSettings): number {
-  return Math.min(providerRuntimeFor(settings).timeouts.totalMs, 30_000);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -96,8 +96,13 @@ export type LlamaCppFixtureTokenizeMap = Readonly<Record<string, Readonly<Record
  * asserts 1667's own assumption about the response shape (`{ value, ids }`,
  * quoted from the same API document) — not a verified round trip against a
  * real KoboldCpp server (issue #311, following the same caveat
- * `LlamaCppFixtureTokenizeMap` above already carries for its own fixture). */
-export type KoboldCppFixtureTokenizeMap = Readonly<Record<string, number>>;
+ * `LlamaCppFixtureTokenizeMap` above already carries for its own fixture).
+ * A value is either one token ID (the common single-token case) or several
+ * — issue #311 review, first pass: a fixture that could only ever answer
+ * one token per text could not exercise the multi-token "rejected" path for
+ * KoboldCpp the way `LLAMA_CPP_FIXTURE_TOKENS` never needed to, because that
+ * preset's own fixture is model-keyed instead of flat. */
+export type KoboldCppFixtureTokenizeMap = Readonly<Record<string, number | readonly number[]>>;
 
 export interface ProviderFixtureOptions {
   /** Issue #282 review round 5, finding 1: a genuine single-model llama.cpp
@@ -116,6 +121,30 @@ export interface ProviderFixtureOptions {
    * not answer that route at all, the same "unset means absent" shape
    * `tokenizeMap` already uses for llama.cpp's `/tokenize`. */
   readonly koboldTokenizeMap?: KoboldCppFixtureTokenizeMap;
+  /** Issue #311 review, first pass: the BOS (or other) prefix a KoboldCpp
+   * build unconditionally prepends to every `/api/extra/tokencount`
+   * response's `ids` — the exact shape the endpoint's own documented example
+   * shows (`"ids": [1, 22557, …]`, the leading `1` being BOS). Prepended to
+   * every response this fixture answers, calibration probe (`prompt: ""`)
+   * included, so a test can exercise `koboldCppLiveTokenizeProbe`'s
+   * calibrate-and-strip fix (server/sampling-phrase-bias.ts) against a
+   * fixture that actually behaves the way the bug report describes, not the
+   * no-BOS default every fixture used before this option existed. Undefined
+   * (the default) means no prefix — the exact fixture behavior before this
+   * option existed, so every caller that predates it keeps its exact
+   * previous coverage. */
+  readonly koboldBosPrefix?: readonly number[];
+  /** Issue #311 review, first pass, edge case: a literal prompt text named
+   * here gets no `koboldBosPrefix` prepended, even while every other prompt
+   * still gets it — modeling a KoboldCpp build whose calibrated prefix
+   * (learned from the empty-string probe) turns out not to actually be a
+   * prefix of one specific phrase's `ids`. This is 1667's own synthetic
+   * assumption-check, not a documented KoboldCpp behavior: no known build
+   * answers inconsistently this way. It exists to prove
+   * `koboldCppLiveTokenizeProbe`'s (server/sampling-phrase-bias.ts) "the
+   * prefix cannot be established" edge case reports tokenizer-unavailable
+   * rather than guessing which part of a mismatched response is real. */
+  readonly koboldBosPrefixExemptPrompts?: ReadonlySet<string>;
 }
 
 export async function startProviderFixture(
@@ -133,6 +162,8 @@ export async function startProviderFixture(
   const koboldTokenizeBodies: Record<string, unknown>[] = [];
   const allowBlankModel = options.allowBlankModel === true;
   const koboldTokenizeMap = options.koboldTokenizeMap;
+  const koboldBosPrefix = options.koboldBosPrefix ?? [];
+  const koboldBosPrefixExemptPrompts = options.koboldBosPrefixExemptPrompts ?? new Set<string>();
   const server = createServer((request, response) => {
     handleRequest(
       request,
@@ -142,6 +173,8 @@ export async function startProviderFixture(
       koboldTokenizeBodies,
       tokenizeMap,
       koboldTokenizeMap,
+      koboldBosPrefix,
+      koboldBosPrefixExemptPrompts,
       allowBlankModel
     ).catch((error: unknown) => {
       // A fixture assertion failing (assertLogitBiasBodyShape below) throws
@@ -167,6 +200,8 @@ async function handleRequest(
   koboldTokenizeBodies: Record<string, unknown>[],
   tokenizeMap: LlamaCppFixtureTokenizeMap | undefined,
   koboldTokenizeMap: KoboldCppFixtureTokenizeMap | undefined,
+  koboldBosPrefix: readonly number[],
+  koboldBosPrefixExemptPrompts: ReadonlySet<string>,
   allowBlankModel: boolean
 ): Promise<void> {
   if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
@@ -210,12 +245,19 @@ async function handleRequest(
       response.writeHead(400).end();
       return;
     }
-    const tokenId = koboldTokenizeMap[prompt];
+    const mapped = koboldTokenizeMap[prompt];
+    // Every response carries `koboldBosPrefix` first, `prompt` included
+    // (issue #311 review, first pass) — a real BOS-adding build prepends it
+    // unconditionally, the empty-string calibration probe included, which is
+    // exactly the behavior `koboldCppLiveTokenizeProbe`
+    // (server/sampling-phrase-bias.ts) calibrates against. A prompt named in
+    // `koboldBosPrefixExemptPrompts` gets no prefix at all, breaking that
+    // assumption on purpose — see that option's own comment.
+    const realTokens = mapped === undefined ? [] : (Array.isArray(mapped) ? mapped : [mapped]);
+    const prefix = koboldBosPrefixExemptPrompts.has(prompt) ? [] : koboldBosPrefix;
+    const ids = [...prefix, ...realTokens];
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({
-      value: tokenId === undefined ? 0 : 1,
-      ids: tokenId === undefined ? [] : [tokenId]
-    }));
+    response.end(JSON.stringify({ value: ids.length, ids }));
     return;
   }
   if (request.method !== "POST") {

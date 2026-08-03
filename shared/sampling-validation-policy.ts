@@ -97,6 +97,27 @@ export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
     ?? SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries;
 }
 
+// KoboldCpp's `banned_tokens` carries no per-request count limit in its own
+// API document (see the field description quoted in
+// shared/sampling-capabilities.ts) — unlike logit_bias, there is no
+// server-documented ceiling to defer to here the way
+// SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES.koboldcpp does. There is also
+// no natural "resolved" step that bounds it the way tokenization and merging
+// bounds logit_bias: a native banned string (issue #311) reaches the wire
+// exactly once per configured entry, profile and story combined and
+// deduplicated, with nothing else contesting it. Left unbounded, the two
+// independent 256-entry per-scope caps (SAMPLING_BANNED_STRINGS_POLICY.maxEntries)
+// a writer can configure at once — one on the profile, one on the story —
+// could still combine into 512 literal strings on the wire in one request
+// (issue #311 review, second pass, "not required" item). Rather than invent a
+// new operational number, or leave it structurally unbounded, this reuses the
+// same generous ceiling 1667 already applies to the tokenized logit_bias path
+// on every preset but KoboldCpp: one bound, on whichever bias-family object
+// actually reaches the wire.
+export const SAMPLING_NATIVE_BANNED_STRINGS_POLICY = {
+  maxEntries: SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries
+} as const;
+
 // The JSON schema still needs a structural, preset-agnostic ceiling on the
 // raw wire object — ajv has no way to see which preset a document targets.
 // Reuses SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries as that ceiling
