@@ -92,9 +92,10 @@ test("story objects: foreground cancellation leaves cleanup safe to retry", asyn
   const abort = new AbortController();
   abort.abort();
 
-  assert.equal(await objects.sweep([live], abort.signal), false);
+  const live1 = { revisions: [live], probabilities: [] };
+  assert.equal(await objects.sweep(live1, abort.signal), false);
   await readFile(objects.objectPath("revisions", stale));
-  assert.equal(await objects.sweep([live]), true);
+  assert.equal(await objects.sweep(live1), true);
   await assert.rejects(
     () => readFile(objects.objectPath("revisions", stale)),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT"

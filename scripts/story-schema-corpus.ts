@@ -147,6 +147,10 @@ export function storyManifestCorpus(): StoryManifestCorpusCase[] {
       ...nodeV5,
       nodes: [{ ...nodeV5.nodes[0], revisionId: `${HASH}\n` }]
     })),
+    invalid("v5-token-probability-hash-final-newline", nodeV5.id, JSON.stringify({
+      ...nodeV5,
+      nodes: [{ ...nodeV5.nodes[0], tokenProbabilityId: `${HASH}\n` }]
+    })),
     invalid("v5-noncanonical-deterministic-id", NONCANONICAL_DETERMINISTIC_ID, JSON.stringify({
       ...v5,
       id: NONCANONICAL_DETERMINISTIC_ID
@@ -312,6 +316,7 @@ function richV5Manifest(): RichV5Fixture {
       genId: "generation-one",
       rewriteId: "rewrite-one",
       human: true,
+      tokenProbabilityId: HASH,
       attribution: { source: "human", ranges: [{ start: 0, end: 1 }], deletedCharacters: 1 }
     }, {
       ...storedNode(),

@@ -14,6 +14,7 @@ import {
   decodeSettingsMutationResult,
   decodeSettingsViewResponse,
   decodeStoryResponse,
+  decodeTokenProbabilitiesResponse,
 } from "./api-response-decoders.js";
 import type {
   SamplingBiasResolutionResult
@@ -23,6 +24,7 @@ import type { RemovedChapterBreak } from "./api-response-decoders.js";
 import { storyFieldApi } from "./api-story-fields.js";
 import type { LorebookImport } from "../../shared/lorebook-entry.js";
 import type { FactBudgetDrop } from "../../shared/fact-budget.js";
+import type { TokenProbabilityRecord } from "../../shared/token-probabilities.js";
 
 import type {
   TagStatus,
@@ -137,6 +139,9 @@ export interface StoryApi {
   ): Promise<StoryPayload | null>;
   deleteStory(id: string): Promise<{ ok: true }>;
   exportMarkdown(id: string): Promise<string>;
+  /** One take's stored token probabilities. Rejects (404, distinguishably by
+   *  message) when the take has none. */
+  getTokenProbabilities(storyId: string, nodeId: string): Promise<TokenProbabilityRecord>;
   switchLine(storyId: string, nodeId: string, options?: Omit<SwitchRequest, "nodeId">): Promise<StoryPayload>;
   createNode(storyId: string, body: CreateNodeRequest): Promise<StoryPayload>;
   editNode(storyId: string, node: StoryNode, patch: { instruction?: string; text?: string }): Promise<StoryPayload>;
@@ -663,6 +668,11 @@ export function createApi(
         });
       },
       true
+    ),
+    getTokenProbabilities: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/token-probabilities`,
+      decodeTokenProbabilitiesResponse
     ),
     switchLine: (storyId, nodeId, options = {}) => mutateStoryPayload(
       storyId,

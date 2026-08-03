@@ -27,8 +27,33 @@ import { syncDirectory, writeSyncedFile } from "./story-lifecycle.js";
 import { readBoundedFile } from "./bounded-file.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
 import { RetainedStoryObjectDirectory } from "./story-object-directory.js";
+import {
+  MAX_TOKEN_PROBABILITY_BYTES,
+  parseTokenProbabilities,
+  serializeTokenProbabilities,
+  type TokenProbabilityRecord
+} from "../shared/token-probabilities.js";
+import {
+  drainPromises,
+  isErrorCode,
+  isLinkFallback,
+  objectFilename,
+  readIfPresent,
+  requireSweepActive,
+  SweepCancelled,
+  verifyExactObject,
+  type ObjectKind
+} from "./story-object-fs.js";
 
-type ObjectKind = "chunks" | "revisions";
+export type { ObjectKind } from "./story-object-fs.js";
+/** Every hash a save must protect from a concurrent sweep: the live
+ *  revision graph and the live token probability objects. Kept as one
+ *  object, not two positional lists, so a call site can never update one
+ *  without the other. */
+export interface LiveStoryObjectIds {
+  readonly revisions: readonly ObjectHash[];
+  readonly probabilities: readonly ObjectHash[];
+}
 const OBJECT_IO_CONCURRENCY = 16;
 const REVISION_IO_CONCURRENCY = 4;
 const TEXT_IO_CONCURRENCY = 4;
@@ -67,17 +92,23 @@ export function createStoryReadCache(): StoryReadCache {
 export class StoryObjectStore {
   private readonly verifiedObjects: Record<ObjectKind, Set<ObjectHash>> = {
     chunks: new Set(),
-    revisions: new Set()
+    revisions: new Set(),
+    probabilities: new Set()
   };
   private readonly pendingObjects: Record<ObjectKind, Map<ObjectHash, Promise<void>>> = {
     chunks: new Map(),
-    revisions: new Map()
+    revisions: new Map(),
+    probabilities: new Map()
   };
   private readonly knownRevisions = new Map<ObjectHash, TextRevisionV1>();
   /** Bare revision ids adopted from the currently committed manifest. Their
    * bodies were never read by this instance, so they are held apart from
    * `verifiedObjects`, which only ever contains hashes proven against bytes. */
   private readonly trustedCommittedRevisions = new Set<ObjectHash>();
+  /** Same trust, for token probability objects. They have no nested graph to
+   * enumerate — a probabilities object is a leaf, unlike a revision's chunks —
+   * so a bare id is all there is to adopt. */
+  private readonly trustedCommittedProbabilities = new Set<ObjectHash>();
   private readonly dirtyShards = new Set<string>();
   private firstWriteBarrier: Promise<void> | null = null;
   private readonly linkObject: typeof link;
@@ -95,7 +126,8 @@ export class StoryObjectStore {
     await this.ensureBundleDirectory();
     await drainPromises([
       this.withKind("chunks", true, async () => undefined),
-      this.withKind("revisions", true, async () => undefined)
+      this.withKind("revisions", true, async () => undefined),
+      this.withKind("probabilities", true, async () => undefined)
     ]);
   }
 
@@ -118,6 +150,28 @@ export class StoryObjectStore {
     return await mapWithConcurrency(texts, TEXT_IO_CONCURRENCY, (text) => this.storeText(text, reuseFrom));
   }
 
+  /** A take's captured token probabilities, content-addressed like text but
+   * stored as one leaf object with no chunking: the record is already bounded
+   * to `MAX_TOKEN_PROBABILITY_BYTES`, far below a chunk's own ceiling. */
+  async storeTokenProbabilities(
+    record: TokenProbabilityRecord,
+    reuseFrom?: StoryObjectStore
+  ): Promise<ObjectHash> {
+    const bytes = Buffer.from(serializeTokenProbabilities(record), "utf8");
+    const hash = sha256(bytes);
+    await this.putObject("probabilities", hash, bytes, reuseFrom);
+    return hash;
+  }
+
+  /** Bounded, hash-verified read of one take's stored token probabilities.
+   * Read at most once per request (the token probability viewer's GET
+   * route reads exactly one take), so unlike chunks and revisions this needs
+   * no cache. */
+  async readTokenProbabilities(hash: ObjectHash): Promise<TokenProbabilityRecord> {
+    const bytes = await this.readObject("probabilities", hash);
+    return parseTokenProbabilities(bytes.toString("utf8"), hash);
+  }
+
   async readText(hash: ObjectHash, cache = createStoryReadCache()): Promise<string> {
     const revision = await this.readRevision(hash, cache);
     const chunks = await mapWithConcurrency(revision.chunks, OBJECT_IO_CONCURRENCY, (chunkHash) =>
@@ -134,10 +188,13 @@ export class StoryObjectStore {
     return await mapWithConcurrency(hashes, TEXT_IO_CONCURRENCY, (hash) => this.readText(hash, cache));
   }
 
-  async sweep(liveRevisionIds: readonly ObjectHash[], signal?: AbortSignal): Promise<boolean> {
+  async sweep(live: LiveStoryObjectIds, signal?: AbortSignal): Promise<boolean> {
     try {
       requireSweepActive(signal);
-      const liveRevisions = new Set(liveRevisionIds.map((hash) => requireHash(hash, "live revision id")));
+      const liveRevisions = new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")));
+      const liveProbabilities = new Set(
+        live.probabilities.map((hash) => requireHash(hash, "live token probabilities id"))
+      );
       const liveChunks = new Set<ObjectHash>();
       const cache = createStoryReadCache();
 
@@ -156,11 +213,19 @@ export class StoryObjectStore {
         requireSweepActive(signal);
         await this.requireObject("chunks", hash);
       });
+      // A probabilities object is a leaf with nothing beneath it to mark; the
+      // read-and-hash-verify below both proves it survives and, on
+      // corruption, fails the whole sweep closed exactly like a chunk would.
+      await mapWithConcurrency([...liveProbabilities], OBJECT_IO_CONCURRENCY, async (hash) => {
+        requireSweepActive(signal);
+        await this.requireObject("probabilities", hash);
+      });
 
       requireSweepActive(signal);
       await drainPromises([
         this.sweepKind("revisions", liveRevisions, signal),
-        this.sweepKind("chunks", liveChunks, signal)
+        this.sweepKind("chunks", liveChunks, signal),
+        this.sweepKind("probabilities", liveProbabilities, signal)
       ]);
       return true;
     } catch (error) {
@@ -174,8 +239,8 @@ export class StoryObjectStore {
    * fresh writes, hydration reads, or a committed graph adopted from the
    * current manifest's snapshot — are durable; only ids outside that set are
    * read back, so save cost scales with changed objects, not story size. */
-  async verifyGraph(liveRevisionIds: readonly ObjectHash[]): Promise<void> {
-    const revisionIds = [...new Set(liveRevisionIds.map((hash) => requireHash(hash, "live revision id")))];
+  async verifyGraph(live: LiveStoryObjectIds): Promise<void> {
+    const revisionIds = [...new Set(live.revisions.map((hash) => requireHash(hash, "live revision id")))];
     const cache = createStoryReadCache();
     const chunkIds = new Set<ObjectHash>();
     const unverified: ObjectHash[] = [];
@@ -198,6 +263,15 @@ export class StoryObjectStore {
       for (const chunkHash of revisions[index]!.chunks) chunkIds.add(chunkHash);
     }
     await mapWithConcurrency([...chunkIds], OBJECT_IO_CONCURRENCY, (hash) => this.requireObject("chunks", hash));
+
+    const probabilityIds = [
+      ...new Set(live.probabilities.map((hash) => requireHash(hash, "live token probabilities id")))
+    ];
+    const unverifiedProbabilities = probabilityIds.filter((hash) =>
+      !this.verifiedObjects.probabilities.has(hash) && !this.trustedCommittedProbabilities.has(hash));
+    await mapWithConcurrency(unverifiedProbabilities, OBJECT_IO_CONCURRENCY, (hash) =>
+      this.requireObject("probabilities", hash)
+    );
   }
 
   objectPath(kind: ObjectKind, hash: ObjectHash): string {
@@ -245,6 +319,15 @@ export class StoryObjectStore {
   adoptCommittedRevisionIds(revisionIds: readonly ObjectHash[]): void {
     for (const hash of revisionIds) {
       this.trustedCommittedRevisions.add(requireHash(hash, "committed revision id"));
+    }
+  }
+
+  /** Same trust as `adoptCommittedRevisionIds`, for token probability ids.
+   * A probabilities object has no chunks to mirror into `verifiedObjects`, so
+   * unlike `adoptKnownGraph` there is nothing else this needs to do. */
+  adoptCommittedProbabilityIds(probabilityIds: readonly ObjectHash[]): void {
+    for (const hash of probabilityIds) {
+      this.trustedCommittedProbabilities.add(requireHash(hash, "committed token probabilities id"));
     }
   }
 
@@ -300,7 +383,11 @@ export class StoryObjectStore {
   private async readObject(kind: ObjectKind, hash: ObjectHash): Promise<Buffer> {
     let bytes: Buffer;
     try {
-      const limit = kind === "chunks" ? MAX_CHUNK_BYTES : MAX_REVISION_BYTES;
+      const limit = kind === "chunks"
+        ? MAX_CHUNK_BYTES
+        : kind === "probabilities"
+          ? MAX_TOKEN_PROBABILITY_BYTES
+          : MAX_REVISION_BYTES;
       bytes = await this.withShard(kind, hash, false, async (directory) =>
         await readBoundedFile(
           path.join(directory.path, objectFilename(kind, hash)),
@@ -613,47 +700,3 @@ export class StoryObjectStore {
   }
 }
 
-class SweepCancelled extends Error {}
-
-function requireSweepActive(signal?: AbortSignal): void {
-  if (signal?.aborted === true) throw new SweepCancelled();
-}
-
-async function readIfPresent(file: string, maxBytes: number, label: string): Promise<Buffer | null> {
-  try {
-    return await readBoundedFile(file, maxBytes, label);
-  } catch (error) {
-    if (isErrorCode(error, "ENOENT")) return null;
-    throw error;
-  }
-}
-
-function verifyExactObject(
-  actual: Buffer,
-  expected: Buffer,
-  kind: ObjectKind,
-  hash: ObjectHash
-): void {
-  if (sha256(actual) !== hash || !actual.equals(expected)) {
-    throw new StoryFormatError(`Existing ${kind} object is corrupt: ${hash}`);
-  }
-}
-
-function objectFilename(kind: ObjectKind, hash: ObjectHash): string {
-  return `${hash}${kind === "chunks" ? ".txt" : ".json"}`;
-}
-
-function isLinkFallback(error: unknown): boolean {
-  return ["EXDEV", "EPERM", "EACCES", "ENOSYS", "ENOTSUP", "EOPNOTSUPP", "ENOENT"]
-    .some((code) => isErrorCode(error, code));
-}
-
-function isErrorCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
-async function drainPromises(promises: readonly Promise<unknown>[]): Promise<void> {
-  const settled = await Promise.allSettled(promises);
-  const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failure !== undefined) throw failure.reason;
-}

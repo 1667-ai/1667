@@ -586,6 +586,14 @@ async function handleApi(
       body: await jsonBody()
     }));
   }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
+    && action === "token-probabilities" && method === "GET") {
+    return sendJson(
+      response,
+      200,
+      await service.getTokenProbabilities(id, subId)
+    );
+  }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {
       storyId: id,

@@ -151,6 +151,9 @@ function nodeSchema(): Schema {
     human: { const: true },
     syntheticEmpty: { const: true },
     revisionId: ref("Hash256"),
+    // The stored alternative tokens of this take. Absent when the generation
+    // did not ask for them.
+    tokenProbabilityId: ref("Hash256"),
     attribution: nullable(ref("Attribution")),
     activeChildId: nullable(ref("Identifier"))
   };

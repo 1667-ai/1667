@@ -295,6 +295,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       rememberPayload(result.payload);
       return result;
     },
+    getTokenProbabilities: async (storyId, nodeId) =>
+      await transport.call("getTokenProbabilities", { storyId, nodeId }),
     restoreChapterBreak: async (storyId, breakId, removed) => rememberPayload(
       await transport.call(
         "restoreChapterBreak",

@@ -17,12 +17,14 @@ import {
   STORY_SCHEMA_VERSION,
   StoryFormatError,
   manifestRevisionIds,
+  manifestTokenProbabilityIds,
   parseManifest,
   serializeManifest,
   sha256,
   type ObjectHash,
   type StoryManifestV5
 } from "./story-format.js";
+import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import { decodeStoryBundle, encodeStoryBundle, hydrateStoryNodes } from "./story-codec.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
 import {
@@ -47,7 +49,7 @@ import {
   requireNode,
   switchLine as switchTreeLine
 } from "./story-nodes.js";
-import { StoryObjectStore } from "./story-objects.js";
+import { StoryObjectStore, type LiveStoryObjectIds } from "./story-objects.js";
 import { KeyedSerialQueue } from "./keyed-serial-queue.js";
 import {
   BoundedCleanupQueue,
@@ -87,12 +89,19 @@ export const STORY_LIST_IO_CONCURRENCY = 4;
 export const STORY_UNCHANGED = Symbol("story-unchanged");
 
 type ResolvedStory = Extract<StoredStorySlot, { kind: "legacy" | "v5" | "v6-live" }>;
-type SweepObjects = (bundleDir: string, liveRevisionIds: readonly ObjectHash[], signal: AbortSignal) => Promise<boolean>;
+type SweepObjects = (bundleDir: string, live: LiveStoryObjectIds, signal: AbortSignal) => Promise<boolean>;
 type WriteManifest = (file: string, data: string) => Promise<CommitResult>;
 interface SwitchLineOptions { expectedLineFingerprint?: string; stopAtNode?: boolean }
+/** One story's provider-snapshot pins, kept apart by object kind — mixing
+ * them would protect a revision hash from the probabilities sweep pass (or
+ * vice versa), silently defeating the pin. */
+interface ProviderSnapshotPins {
+  readonly revisions: Map<ObjectHash, number>;
+  readonly probabilities: Map<ObjectHash, number>;
+}
 
-const sweepObjects: SweepObjects = async (bundleDir, liveRevisionIds, signal) =>
-  await new StoryObjectStore(bundleDir).sweep(liveRevisionIds, signal);
+const sweepObjects: SweepObjects = async (bundleDir, live, signal) =>
+  await new StoryObjectStore(bundleDir).sweep(live, signal);
 
 export class StoryStore {
   constructor(
@@ -108,7 +117,7 @@ export class StoryStore {
 
   private readonly snapshots = new WeakMap<Story, StoryRevisionSnapshot>();
   private readonly providerSnapshotPins =
-    new Map<string, Map<ObjectHash, number>>();
+    new Map<string, ProviderSnapshotPins>();
   /** One writer at a time per story. Read-modify-write is otherwise not atomic:
    *  a Stop and the stream's own commit can both load an unstamped story, both
    *  decide to write, and race — duplicating a node or losing the other's text.
@@ -167,7 +176,8 @@ export class StoryStore {
 
   /** Keep an admitted provider snapshot's immutable objects readable while
    * provider preparation runs outside the story claim. Cleanup retains the
-   * union of live and pinned revisions until the returned lease is released. */
+   * union of live and pinned revisions and token probability objects until
+   * the returned lease is released. */
   pinProviderSnapshot(
     session: StoryAggregateSession
   ): () => void {
@@ -179,22 +189,23 @@ export class StoryStore {
     const revisionIds = [
       ...new Set(manifestRevisionIds(manifest.content))
     ];
+    const probabilityIds = [
+      ...new Set(manifestTokenProbabilityIds(manifest.content))
+    ];
     const pins = this.providerSnapshotPins.get(storyId)
-      ?? new Map<ObjectHash, number>();
+      ?? { revisions: new Map<ObjectHash, number>(), probabilities: new Map<ObjectHash, number>() };
     this.providerSnapshotPins.set(storyId, pins);
-    for (const revisionId of revisionIds) {
-      pins.set(revisionId, (pins.get(revisionId) ?? 0) + 1);
-    }
+    addPins(pins.revisions, revisionIds);
+    addPins(pins.probabilities, probabilityIds);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      for (const revisionId of revisionIds) {
-        const count = pins.get(revisionId);
-        if (count === undefined || count <= 1) pins.delete(revisionId);
-        else pins.set(revisionId, count - 1);
+      releasePins(pins.revisions, revisionIds);
+      releasePins(pins.probabilities, probabilityIds);
+      if (pins.revisions.size === 0 && pins.probabilities.size === 0) {
+        this.providerSnapshotPins.delete(storyId);
       }
-      if (pins.size === 0) this.providerSnapshotPins.delete(storyId);
       this.cleanupQueue.schedule(storyId);
     };
   }
@@ -399,6 +410,31 @@ export class StoryStore {
     });
   }
 
+  /** One take's stored token probabilities, read directly from the manifest
+   *  and the object store — never through `Story`/`StoryNode`, which carry
+   *  presence only. 404s, distinguishably by message, when the story or the
+   *  take is missing and when the take exists but asked for no probabilities. */
+  async loadTokenProbabilities(id: string, nodeId: string): Promise<TokenProbabilityRecord> {
+    return await this.withIo(id, async () => {
+      let slot: ResolvedStory;
+      try {
+        slot = await this.resolveUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) throw new HttpError(404, `Take not found: ${nodeId}`);
+        throw error;
+      }
+      await this.schedulePendingCleanup(id);
+      if (slot.kind === "legacy") throw new HttpError(404, `Take not found: ${nodeId}`);
+      const manifest = slot.kind === "v5" ? slot.manifest : slot.manifest.content;
+      const stored = manifest.nodes.find((node) => node.id === nodeId);
+      if (stored === undefined) throw new HttpError(404, `Take not found: ${nodeId}`);
+      if (stored.tokenProbabilityId === undefined) {
+        throw new HttpError(404, "This take has no stored token probabilities.");
+      }
+      return await new StoryObjectStore(this.bundlePath(id)).readTokenProbabilities(stored.tokenProbabilityId);
+    });
+  }
+
   /** Every part's text, not only the reading line. Search is the one reader
    *  that must see the takes nobody is standing on. */
   async loadHydrated(id: string): Promise<Story> {
@@ -486,6 +522,7 @@ export class StoryStore {
     if (slot.kind === "v5") {
       const { manifest: current, sourceSchemaVersion } = slot;
       const previousRevisionIds = manifestRevisionIds(current);
+      const previousProbabilityIds = manifestTokenProbabilityIds(current);
       const cleanup = await StoryCleanupIntent.begin(this.bundlePath(story.id), story.id);
       const duplicate = await this.removeVerifiedLegacyDuplicate(story.id);
       if (duplicate !== null) requireDurableCommit(duplicate, `Removing legacy duplicate ${story.id}`);
@@ -495,17 +532,25 @@ export class StoryStore {
         const objects = new StoryObjectStore(this.bundlePath(story.id));
         const candidate = this.snapshots.get(story);
         const snapshot = candidate !== undefined && isCurrentSnapshot(candidate, current) ? candidate : undefined;
-        if (snapshot !== undefined) objects.adoptKnownGraph(snapshot.revisions, { committed: true });
+        if (snapshot !== undefined) {
+          objects.adoptKnownGraph(snapshot.revisions, { committed: true });
+          objects.adoptCommittedProbabilityIds([...snapshot.probabilityIds]);
+        }
         const manifest = await encodeStoryBundle(story, objects, reuseFrom, snapshot);
         const nextRevisionIds = new Set(manifestRevisionIds(manifest));
+        const nextProbabilityIds = new Set(manifestTokenProbabilityIds(manifest));
         // V2 temporal facts normalize to only their selected revision. Force the
         // first V4 sweep so older state objects that normalization hid are reaped.
         const settled = await cleanup.settle(
           sourceSchemaVersion !== STORY_SCHEMA_VERSION
             || previousRevisionIds.some((revisionId) => !nextRevisionIds.has(revisionId))
+            || previousProbabilityIds.some((id) => !nextProbabilityIds.has(id))
         );
         await objects.flush();
-        await objects.verifyGraph(manifestRevisionIds(manifest));
+        await objects.verifyGraph({
+          revisions: manifestRevisionIds(manifest),
+          probabilities: manifestTokenProbabilityIds(manifest)
+        });
         const commit = await this.writeManifest(this.manifestPath(story.id), serializeManifest(manifest));
         this.snapshots.set(story, captureStorySnapshot(story, manifest, objects.verifiedRevisionGraph()));
         requireDurableCommit(commit, `Saving story ${story.id}`);
@@ -601,15 +646,25 @@ export class StoryStore {
           : slot.kind === "v6-deleted"
             ? []
             : null;
-        if (liveRevisionIds === null) return;
+        const liveProbabilityIds = slot.kind === "v5"
+          ? manifestTokenProbabilityIds(slot.manifest)
+          : slot.kind === "v6-live"
+            ? manifestTokenProbabilityIds(slot.manifest.content)
+          : slot.kind === "v6-deleted"
+            ? []
+            : null;
+        if (liveRevisionIds === null || liveProbabilityIds === null) return;
         const pinned = this.providerSnapshotPins.get(id);
         const beganWithPins = pinned !== undefined;
         const protectedRevisionIds = pinned === undefined
           ? liveRevisionIds
-          : [...new Set([...liveRevisionIds, ...pinned.keys()])];
+          : [...new Set([...liveRevisionIds, ...pinned.revisions.keys()])];
+        const protectedProbabilityIds = pinned === undefined
+          ? liveProbabilityIds
+          : [...new Set([...liveProbabilityIds, ...pinned.probabilities.keys()])];
         const completed = await this.sweep(
           this.bundlePath(id),
-          protectedRevisionIds,
+          { revisions: protectedRevisionIds, probabilities: protectedProbabilityIds },
           signal
         );
         if (completed
@@ -628,6 +683,18 @@ export class StoryStore {
 
 function validateId(id: string): void { if (!isValidId(id)) throw new HttpError(400, "Invalid story id"); }
 function isValidId(id: string): boolean { return isStoryId(id); }
+
+function addPins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]): void {
+  for (const id of ids) pins.set(id, (pins.get(id) ?? 0) + 1);
+}
+
+function releasePins(pins: Map<ObjectHash, number>, ids: readonly ObjectHash[]): void {
+  for (const id of ids) {
+    const count = pins.get(id);
+    if (count === undefined || count <= 1) pins.delete(id);
+    else pins.set(id, count - 1);
+  }
+}
 
 function isErrorCode(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }
 

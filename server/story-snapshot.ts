@@ -1,6 +1,7 @@
 import type { Story } from "../shared/types.js";
 import { isNodeTextHydrated, refreshStoredNodeText } from "./story-node-text.js";
 import {
+  manifestTokenProbabilityIds,
   StoryFormatError,
   serializeManifest,
   sha256,
@@ -20,6 +21,13 @@ export interface StoryRevisionSnapshot {
   manifestFingerprint: ObjectHash;
   nodes: Map<string, SnapshotNode>;
   revisions: Map<ObjectHash, TextRevisionV1>;
+  /** Every take's stored token probabilities id in this manifest. The next
+   *  save trusts these as durable without re-reading them when the manifest
+   *  fingerprint still matches — mirrors `revisions` above, but a
+   *  probabilities object has no nested chunk graph to carry, so an id set is
+   *  all that is needed (`server/story-objects.ts`'s
+   *  `adoptCommittedProbabilityIds`). */
+  probabilityIds: Set<ObjectHash>;
 }
 
 export function captureStorySnapshot(
@@ -41,7 +49,12 @@ export function captureStorySnapshot(
     if (revision !== undefined) graph.set(stored.revisionId, revision);
     refreshStoredNodeText(node, stored);
   }
-  return { manifestFingerprint: manifestFingerprint(manifest), nodes, revisions: graph };
+  return {
+    manifestFingerprint: manifestFingerprint(manifest),
+    nodes,
+    revisions: graph,
+    probabilityIds: new Set(manifestTokenProbabilityIds(manifest))
+  };
 }
 
 export function isCurrentSnapshot(snapshot: StoryRevisionSnapshot, manifest: StoryManifestV5): boolean {

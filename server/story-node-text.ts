@@ -3,6 +3,7 @@ import { nodeStubPreviewText } from "../shared/node-stub.js";
 import { countWords } from "../shared/story-text.js";
 import { estimateTokens } from "../shared/tokens.js";
 import { hasUnpairedSurrogate } from "../shared/unicode.js";
+import { alignTokenProbabilities, createTokenProbabilities, type TokenProbabilityRecord } from "../shared/token-probabilities.js";
 import { StoryFormatError, type ObjectHash, type StoredNodeV1 } from "./story-format.js";
 
 interface StoredNodeTextState {
@@ -14,10 +15,23 @@ interface StoredNodeTextState {
   /** null means the immutable revision is intentionally not hydrated. */
   originalText: string | null;
   reusable: boolean;
+  /** The take's stored token probabilities object, carried forward from the
+   *  manifest this node was decoded from. Nothing in this phase ever changes
+   *  or clears an existing one, so — unlike revisionId — there is no reuse
+   *  condition to check. */
+  tokenProbabilityId?: ObjectHash;
 }
 
 const storedText = new WeakMap<StoryNode, StoredNodeTextState>();
 const rewriteIds = new WeakMap<StoryNode, string>();
+/** A continuation that captured token probabilities attaches the record to
+ *  its freshly created node the instant it commits (server/story-provider-
+ *  effect.ts, server/story-nodes.ts). The record is deliberately never a
+ *  property of StoryNode itself — a payload projection that shallow-copies a
+ *  node (buildStoryPayload's `path`) must never be able to leak it onto the
+ *  wire — so this side table is the only place it lives before
+ *  encodeStoryBundle turns it into a stored object and clears the entry. */
+const pendingTokenProbabilities = new WeakMap<StoryNode, TokenProbabilityRecord>();
 
 export function attachStoredNodeText(node: StoryNode, stored: StoredNodeV1, text: string | null): void {
   const rawPreview = stored.preview ?? (text === null ? undefined : nodeStubPreviewText(text));
@@ -34,7 +48,8 @@ export function attachStoredNodeText(node: StoryNode, stored: StoredNodeV1, text
     words,
     tokens,
     originalText: text,
-    reusable: stored.syntheticEmpty !== true
+    reusable: stored.syntheticEmpty !== true,
+    ...(stored.tokenProbabilityId === undefined ? {} : { tokenProbabilityId: stored.tokenProbabilityId })
   });
   setNodeRewriteId(node, stored.rewriteId);
   if (text !== null) verifyStoredStub(node, text);
@@ -53,6 +68,7 @@ export function refreshStoredNodeText(node: StoryNode, stored: StoredNodeV1): vo
   // Same revision with unchanged text was verified when first attached; skip
   // the per-save stub rescan of every unchanged path node.
   if (current !== undefined && current.revisionId === stored.revisionId
+    && current.tokenProbabilityId === stored.tokenProbabilityId
     && current.instruction === node.instruction
     && (current.originalText === null || current.originalText === node.text)
     && (stored.preview ?? current.preview) === current.preview
@@ -83,6 +99,61 @@ export function reusableStoredRevisionId(node: StoryNode): ObjectHash | undefine
   return state.reusable && (state.originalText === null || state.originalText === node.text)
     ? state.revisionId
     : undefined;
+}
+
+/** The take's already-stored token probabilities id, carried forward from the
+ *  manifest that produced this node. undefined both for a node with none and
+ *  for a freshly created node this process has never decoded. */
+export function reusableTokenProbabilityId(node: StoryNode): ObjectHash | undefined {
+  return storedText.get(node)?.tokenProbabilityId;
+}
+
+/** Attach a just-captured record to a brand-new node, exactly once, before
+ *  the same commit's encode consumes it (issue #291 phase 3). */
+export function attachPendingTokenProbabilities(node: StoryNode, record: TokenProbabilityRecord): void {
+  pendingTokenProbabilities.set(node, record);
+}
+
+/** Consume and clear the pending record so a later, unrelated encode of the
+ *  same long-lived Story object can never store it twice. */
+export function takePendingTokenProbabilities(node: StoryNode): TokenProbabilityRecord | undefined {
+  const record = pendingTokenProbabilities.get(node);
+  if (record !== undefined) pendingTokenProbabilities.delete(node);
+  return record;
+}
+
+/** Align a just-captured record to the text a take actually stored, and
+ *  attach it only when the two can be reconciled (issue #291 addendum). Both
+ *  a genuinely new take and an append call this — `storedSegment` and
+ *  `segmentStart` are what differ between them, see the two call sites in
+ *  server/story-nodes.ts and server/story-provider-effect.ts.
+ *
+ *  When alignment fails, this leaves the node exactly as it was: nothing new
+ *  is attached, and whatever was already pending (or already stored, from an
+ *  earlier take of the same node) is untouched. That matters for a second
+ *  append whose own recording cannot be aligned — the first append's record
+ *  simply keeps describing the text it already honestly describes, rather
+ *  than being cleared to match a "most recent generation" that itself
+ *  produced nothing storable.
+ *
+ *  A later, alignable append does replace it: `attachPendingTokenProbabilities`
+ *  overwrites the WeakMap entry, and the next encode stores the new object
+ *  under a fresh hash rather than reusing the old one — so the viewer always
+ *  shows the most recent generation that actually aligned, never a merge of
+ *  several. */
+export function attachTakeTokenProbabilities(
+  node: StoryNode,
+  record: TokenProbabilityRecord,
+  storedSegment: string,
+  segmentStart: number
+): void {
+  const aligned = alignTokenProbabilities(record.steps, storedSegment, segmentStart);
+  if (aligned === null) return;
+  attachPendingTokenProbabilities(
+    node,
+    createTokenProbabilities(record.requested, aligned.steps, record.truncated === true, aligned.textOffset)
+  );
+  node.tokenProbabilities = true;
 }
 
 export function nodeStubPreview(node: StoryNode): string {

@@ -213,6 +213,18 @@ export function manifestRevisionIds(manifest: StoryManifestV4 | StoryManifestV5)
     .concat(manifest.facts.map((fact) => fact.revisionId));
 }
 
+/** Every take's stored token probabilities id. Most nodes have none — the
+ *  field is absent whenever a generation did not ask for them — so this is
+ *  typically a small subset of `manifestRevisionIds`' length, not a parallel
+ *  one-to-one list. */
+export function manifestTokenProbabilityIds(manifest: StoryManifestV4 | StoryManifestV5): ObjectHash[] {
+  const ids: ObjectHash[] = [];
+  for (const node of manifest.nodes) {
+    if (node.tokenProbabilityId !== undefined) ids.push(node.tokenProbabilityId);
+  }
+  return ids;
+}
+
 function appendPartTakes(nodes: StoredNodeV1[], part: StoredPartV2, parentId: string | null): StoredNodeV1[] {
   const group = part.revisionIds.map((revisionId, index): StoredNodeV1 => ({
     id: index === part.activeRevision ? part.id : `${part.id}@v${index}`,
@@ -346,6 +358,9 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
   if (words !== undefined && words < 0) throw new StoryFormatError(`${label}.words must not be negative`);
   if (tokens !== undefined && tokens < 0) throw new StoryFormatError(`${label}.tokens must not be negative`);
   const chapter = parseStoredChapterNode(node, label);
+  const tokenProbabilityId = node.tokenProbabilityId === undefined
+    ? undefined
+    : requireHash(node.tokenProbabilityId, `${label}.tokenProbabilityId`);
   const stored: StoredNodeV1 = {
     id: stringField(node, "id"),
     parentId,
@@ -362,6 +377,7 @@ function parseStoredNode(value: unknown, index: number): StoredNodeV1 {
     ...(human === undefined ? {} : { human }),
     ...(syntheticEmpty === undefined ? {} : { syntheticEmpty }),
     revisionId: requireHash(node.revisionId, `${label}.revisionId`),
+    ...(tokenProbabilityId === undefined ? {} : { tokenProbabilityId }),
     ...(attribution === undefined ? {} : { attribution }),
     activeChildId
   };

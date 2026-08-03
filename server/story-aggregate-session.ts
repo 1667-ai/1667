@@ -15,6 +15,7 @@ import {
 import { pathTo } from "../shared/story-tree.js";
 import {
   manifestRevisionIds,
+  manifestTokenProbabilityIds,
   STORY_SCHEMA_VERSION,
   type ObjectHash,
   type TextRevisionV1
@@ -160,6 +161,7 @@ export class StoryAggregateSession {
     }
     this.preparedCleanupRetirement = false;
     const previousRevisionIds = manifestRevisionIds(this.snapshot.manifest.content);
+    const previousProbabilityIds = manifestTokenProbabilityIds(this.snapshot.manifest.content);
     const previous = Date.parse(story.updatedAt);
     story.updatedAt = new Date(
       Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)
@@ -182,11 +184,16 @@ export class StoryAggregateSession {
       // blocking unrelated saves.
       objects.adoptKnownGraph(this.liveGraph.revisions, { committed: true });
       objects.adoptCommittedRevisionIds(previousRevisionIds);
+      objects.adoptCommittedProbabilityIds(previousProbabilityIds);
     }
     const content = await encodeStoryBundle(story, objects);
     await objects.flush();
-    await objects.verifyGraph(manifestRevisionIds(content));
+    await objects.verifyGraph({
+      revisions: manifestRevisionIds(content),
+      probabilities: manifestTokenProbabilityIds(content)
+    });
     const nextRevisionIds = new Set(manifestRevisionIds(content));
+    const nextProbabilityIds = new Set(manifestTokenProbabilityIds(content));
     // Parsing normalizes V2-V4 sources before this diff can run (old fact
     // states collapse to their selected revision), so objects the
     // normalization dropped never appear in previousRevisionIds. Mirror the
@@ -194,6 +201,7 @@ export class StoryAggregateSession {
     this.preparedCleanupRetirement = await cleanup.settle(
       this.legacySchemaSource
         || previousRevisionIds.some((id) => !nextRevisionIds.has(id))
+        || previousProbabilityIds.some((id) => !nextProbabilityIds.has(id))
     ) === "retire-marker";
     return {
       story,

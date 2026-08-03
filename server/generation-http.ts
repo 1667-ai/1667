@@ -10,7 +10,7 @@ import {
 import { hasDefinedProperty, optionalString, requireString } from "./validation.js";
 import { autonamePrompt, GeneratedTitleError, MAX_STORY_CONTEXT_CHARS, normalizeGeneratedTitle } from "./autoname.js";
 import { activeHumanAttribution, attributionAfterReplacement } from "../shared/human-edit.js";
-import { streamCompletion } from "./providers.js";
+import { streamCompletion, type TokenProbabilityCollector } from "./providers.js";
 import { AnchoredOutputFilter, continuationPlan, DEFAULT_INSTRUCTION, phraseRewritePlan, rewritePlan, stripEchoedContext, supportsAssistantPrefill } from "./generation-prompts.js";
 import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
@@ -245,6 +245,11 @@ export async function continueStory(
   const continuationOutput = continuation.requiresEcho
     ? new AnchoredOutputFilter(continuation.leftAnchor, "", "", true)
     : undefined;
+  // Filled only when the request actually asked for and received token
+  // probabilities (server/token-probability-capture.ts decides that, not
+  // here) — a failure anywhere in that path leaves this null rather than
+  // failing the generation; token probabilities are a diagnostic.
+  const tokenProbabilities: TokenProbabilityCollector = { record: null };
   const raw = await streamModel(
     settings,
     continuation.prompt,
@@ -257,7 +262,8 @@ export async function continueStory(
       promptCache,
       id,
       continuation.prompt.operation
-    )
+    ),
+    tokenProbabilities
   );
   if (raw === null) return null;
   if (continuation.requiresEcho && continuationOutput?.matchedPrefix !== true) {
@@ -284,6 +290,7 @@ export async function continueStory(
         : nodeById(story, appendTo)?.activeChildId ?? null,
       expectedActiveRootId: story.activeRootId,
       expectedActiveLeafId: activePath(story).at(-1)?.id ?? null,
+      tokenProbabilities: tokenProbabilities.record,
       cancelled: signal
     });
   } catch (error) {
