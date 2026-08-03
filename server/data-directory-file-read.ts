@@ -144,6 +144,20 @@ export async function readBoundedMutableAuthorityFile(
   );
 }
 
+/**
+ * A reserved file was found with a link count outside the caller's accepted
+ * set. Callers that know a specific publication protocol may inspect the
+ * path itself for proof that this is their own transient state (see
+ * `private-file-publication.ts`) before deciding whether to wait and retry;
+ * anyone else should treat this exactly like any other unsafe-state error.
+ */
+export class UnsafeLinkCountError extends Error {
+  constructor(file: string) {
+    super(`Reserved data-directory file has an unsafe link count: ${file}`);
+    this.name = "UnsafeLinkCountError";
+  }
+}
+
 export function requireBoundedRegularFile(
   info: Stats,
   file: string,
@@ -159,7 +173,7 @@ export function requireBoundedRegularFile(
     process.platform !== "win32"
     && !allowedLinkCounts.includes(Number(info.nlink))
   ) {
-    throw new Error(`Reserved data-directory file has an unsafe link count: ${file}`);
+    throw new UnsafeLinkCountError(file);
   }
   if (process.platform !== "win32" && (requirePrivate || options.allowLegacyOwnerReadMode === true)) {
     const mode = Number(info.mode) & 0o777;

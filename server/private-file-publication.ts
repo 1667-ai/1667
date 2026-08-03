@@ -13,7 +13,8 @@ import {
   readBoundedRegularFile,
   requireBoundedRegularFile,
   requireSameFileIdentity,
-  sameFileIdentity
+  sameFileIdentity,
+  UnsafeLinkCountError
 } from "./data-directory-file-read.js";
 import { syncDirectory } from "./story-lifecycle.js";
 import {
@@ -230,22 +231,239 @@ export async function recoverPrivatePublication(
   const directory = path.dirname(file);
   await inspectPrivateDirectory(directory, policy.label);
   if (initialFinal === null) {
-    await inspectPrivateRegularFile(scratch, scratchPolicy, 1);
-    await unlink(scratch);
-    await syncPrivateDirectory(directory, policy.label);
+    await finishPreLinkScratch(file, scratch, policy, scratchPolicy, directory, initialScratch);
     return;
   }
 
-  const sameInode = sameFileIdentity(initialFinal, initialScratch);
-  const expectedLinks = sameInode ? 2 : 1;
-  const finalInfo = await inspectPrivateRegularFile(file, policy, expectedLinks);
-  const scratchInfo = await inspectPrivateRegularFile(scratch, scratchPolicy, expectedLinks);
-  if (sameInode) requireSameIdentity(finalInfo, scratchInfo, scratch);
+  if (sameFileIdentity(initialFinal, initialScratch)) {
+    await finishSameInodePublication(file, scratch, policy, scratchPolicy, directory);
+    return;
+  }
 
+  // Distinct scratch and final: an abandoned attempt that never reached
+  // `link`, sitting beside an already-published final. `publishPrivateFileNoReplace`
+  // refuses to start a fresh attempt while `file` already exists, so nothing
+  // live is racing this cleanup.
+  const finalInfo = await inspectPrivateRegularFile(file, policy, 1);
+  await inspectPrivateRegularFile(scratch, scratchPolicy, 1);
   await unlink(scratch);
   await syncPrivateDirectory(directory, policy.label);
   const recovered = await inspectPrivateRegularFile(file, policy, 1);
   requireSameIdentity(finalInfo, recovered, file);
+}
+
+/**
+ * A scratch exists and the final name does not: exactly the shape a writer's
+ * own scratch is in before its `link` call lands, and exactly what an
+ * abandoned pre-link crash leaves behind. The two are indistinguishable from
+ * one snapshot, so wait for the state to prove itself one way or the other
+ * before deleting anything: a live writer settles this in its own bounded
+ * fsync-and-link step, while a genuinely abandoned scratch never changes.
+ * Unlinking on the strength of a single stale observation would delete a live
+ * writer's own scratch before it ever reaches `link`.
+ */
+async function finishPreLinkScratch(
+  file: string,
+  scratch: string,
+  policy: PrivateFilePolicy,
+  scratchPolicy: PrivateFilePolicy,
+  directory: string,
+  initialScratch: Stats
+): Promise<void> {
+  await awaitPreLinkScratchSettled(file, scratch, initialScratch);
+  const [currentFinal, currentScratch] = await Promise.all([
+    optionalPathInfo(file),
+    optionalPathInfo(scratch)
+  ]);
+  const unchanged = currentFinal === null
+    && currentScratch !== null
+    && sameFileIdentity(initialScratch, currentScratch)
+    && Number(currentScratch.nlink) === 1;
+  if (!unchanged) {
+    // Something moved while waiting — a writer reached `link`, or another
+    // recovery pass already acted. Decide again from fresh state rather than
+    // continue down a branch that assumed the old one.
+    await recoverPrivatePublication(file, policy);
+    return;
+  }
+  try {
+    await inspectPrivateRegularFile(scratch, scratchPolicy, 1);
+    await unlink(scratch);
+  } catch (error) {
+    // One last, vanishingly small window between the check above and here:
+    // treat it the same as "something moved" rather than crash a concurrent
+    // writer or reader that resolved it in the meantime.
+    if (isErrorCode(error, "ENOENT") || error instanceof UnsafeLinkCountError) {
+      await recoverPrivatePublication(file, policy);
+      return;
+    }
+    throw error;
+  }
+  await syncPrivateDirectory(directory, policy.label);
+}
+
+/**
+ * Wait, without mutating anything, for a lone pre-link scratch to prove it is
+ * settled: still the same inode, still nlink 1, with `file` still absent. A
+ * live writer changes this quickly (write, fsync, `link`); a genuinely
+ * abandoned scratch never does, so exhausting the bound is itself the signal
+ * that nothing is using it.
+ */
+async function awaitPreLinkScratchSettled(
+  file: string,
+  scratch: string,
+  initialScratch: Stats
+): Promise<void> {
+  if (process.platform === "win32") return;
+  for (let attempt = 0; attempt < PUBLICATION_SETTLE_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(2 ** attempt, PUBLICATION_SETTLE_STEP_MS)));
+    }
+    const [fileInfo, scratchInfo] = await Promise.all([
+      optionalPathInfo(file),
+      optionalPathInfo(scratch)
+    ]);
+    if (
+      fileInfo !== null
+      || scratchInfo === null
+      || !sameFileIdentity(initialScratch, scratchInfo)
+      || Number(scratchInfo.nlink) !== 1
+    ) {
+      return;
+    }
+  }
+}
+
+/**
+ * A final entry and its scratch sibling share one inode: exactly the shape
+ * `publishPrivateFileNoReplace` holds between its `link` and its cleanup
+ * `unlink`. That could be a crash artifact, or it could be a live writer
+ * finishing right now — a plain read cannot tell the two apart from one
+ * snapshot, and a concurrent caller cannot either. Wait for it to settle on
+ * its own before touching either name: unlinking `scratch` on the assumption
+ * this is abandoned would delete a live writer's own scratch out from under
+ * it (that unlink is exactly the call `publishPrivateFileNoReplace` still has
+ * pending). Only once the wait is exhausted — no writer is finishing this —
+ * does recovery take over and complete the cleanup itself.
+ */
+async function finishSameInodePublication(
+  file: string,
+  scratch: string,
+  policy: PrivateFilePolicy,
+  scratchPolicy: PrivateFilePolicy,
+  directory: string
+): Promise<void> {
+  await awaitOwnPublicationSettled(file, scratch);
+  const [currentFinal, currentScratch] = await Promise.all([
+    optionalPathInfo(file),
+    optionalPathInfo(scratch)
+  ]);
+  if (currentScratch === null) {
+    // A writer (ours or a concurrent recovery call) already finished. Confirm
+    // the result rather than act on stale expectations.
+    if (currentFinal !== null) await inspectPrivateRegularFile(file, policy, 1);
+    return;
+  }
+  if (currentFinal === null || !sameFileIdentity(currentFinal, currentScratch)) {
+    // The shape changed while waiting; decide again against what is actually
+    // there now instead of continuing down a stale branch.
+    await recoverPrivatePublication(file, policy);
+    return;
+  }
+
+  try {
+    const finalInfo = await inspectPrivateRegularFile(file, policy, 2);
+    const scratchInfo = await inspectPrivateRegularFile(scratch, scratchPolicy, 2);
+    requireSameIdentity(finalInfo, scratchInfo, scratch);
+    await unlink(scratch);
+    await syncPrivateDirectory(directory, policy.label);
+    const recovered = await inspectPrivateRegularFile(file, policy, 1);
+    requireSameIdentity(finalInfo, recovered, file);
+  } catch (error) {
+    // One last, vanishingly small window between the fresh check above and
+    // here: treat it the same as "something moved" rather than crash a
+    // concurrent writer or reader that resolved it in the meantime.
+    if (isErrorCode(error, "ENOENT") || error instanceof UnsafeLinkCountError) {
+      await recoverPrivatePublication(file, policy);
+      return;
+    }
+    throw error;
+  }
+}
+
+const PUBLICATION_SETTLE_ATTEMPTS = 20;
+const PUBLICATION_SETTLE_STEP_MS = 64;
+
+/**
+ * Wait, without mutating anything, for a proven own-publication window to
+ * settle. The caller has already confirmed `file` and `scratch` share one
+ * inode with `nlink === 2` — the exact shape `publishPrivateFileNoReplace`
+ * holds between its `link` and its cleanup `unlink`. A live writer finishes
+ * that in a handful of local syscalls plus one directory fsync, so this
+ * returns almost immediately in the case it exists for. A pair that never
+ * settles is not a slow publication: the writer is gone, and the caller falls
+ * back to its own settled behaviour (a read fails closed; recovery finishes
+ * the cleanup itself).
+ */
+async function awaitOwnPublicationSettled(file: string, scratch: string): Promise<void> {
+  if (process.platform === "win32") return;
+  for (let attempt = 0; attempt < PUBLICATION_SETTLE_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(2 ** attempt, PUBLICATION_SETTLE_STEP_MS)));
+    }
+    const [fileInfo, scratchInfo] = await Promise.all([
+      optionalPathInfo(file),
+      optionalPathInfo(scratch)
+    ]);
+    if (!isProvenOwnPublicationWindow(fileInfo, scratchInfo)) return;
+  }
+}
+
+/**
+ * `nlink === 2` alone never justifies patience: a genuine second hard link
+ * must fail closed immediately, since a reader cannot otherwise tell it apart
+ * from this module's own transient publication state. Proof requires the
+ * exact companion this protocol produces — a scratch sibling at the reserved
+ * suffix path sharing the file's precise inode.
+ */
+function isProvenOwnPublicationWindow(
+  fileInfo: Stats | null,
+  scratchInfo: Stats | null
+): boolean {
+  return process.platform !== "win32"
+    && fileInfo !== null
+    && scratchInfo !== null
+    && Number(fileInfo.nlink) === 2
+    && sameFileIdentity(fileInfo, scratchInfo);
+}
+
+/**
+ * Read a reserved file this module may still be publishing. `nlink === 2` is
+ * rejected exactly like any other unsafe link count unless a same-suffix
+ * scratch sibling shares its inode. Only that proven, self-explained window
+ * gets a bounded wait for the writer's commit barrier and cleanup unlink; an
+ * unexplained `nlink === 2` is rejected on the first read, with no retry and
+ * no added latency.
+ */
+async function readReservedPrivateFile(
+  file: string,
+  policy: PrivateFilePolicy
+): Promise<Buffer> {
+  try {
+    return await readBoundedRegularFile(file, policy.maxBytes, regularFileOptions(policy, 1));
+  } catch (error) {
+    if (!(error instanceof UnsafeLinkCountError)) throw error;
+    const scratch = privatePublicationScratchPath(file);
+    const [fileInfo, scratchInfo] = await Promise.all([
+      optionalPathInfo(file),
+      optionalPathInfo(scratch)
+    ]);
+    if (!isProvenOwnPublicationWindow(fileInfo, scratchInfo)) throw error;
+    await awaitOwnPublicationSettled(file, scratch);
+    return await readBoundedRegularFile(file, policy.maxBytes, regularFileOptions(policy, 1));
+  }
 }
 
 export async function readOptionalPrivateFile(
@@ -256,7 +474,7 @@ export async function readOptionalPrivateFile(
   try {
     if (await optionalPathInfo(file) === null) return null;
     await inspectPrivateDirectory(path.dirname(file), policy.label);
-    return await readBoundedRegularFile(file, policy.maxBytes, regularFileOptions(policy, 1));
+    return await readReservedPrivateFile(file, policy);
   } catch (error) {
     if (isErrorCode(error, "ENOENT")) return null;
     throw error;
@@ -281,11 +499,7 @@ export async function readOptionalPrivateFiles(
   await inspectPrivateDirectory(directory, policy.label);
   return await Promise.all(files.map(async (file) => {
     try {
-      return await readBoundedRegularFile(
-        file,
-        policy.maxBytes,
-        regularFileOptions(policy, 1)
-      );
+      return await readReservedPrivateFile(file, policy);
     } catch (error) {
       if (isErrorCode(error, "ENOENT")) return null;
       throw error;
