@@ -1368,6 +1368,31 @@ test("a KoboldCpp banned string ships even when the tokenize probe would fail, b
   assert.deepEqual(body.banned_tokens, ["ember"]);
 });
 
+// Issue #341's story overlay (combineSamplingBiasSources) reuses unchanged
+// for KoboldCpp's native path: a story's own banned strings add to the
+// profile's, the same way they already do for the tokenized presets, and
+// the literal-text array 1667 actually sends dedupes an identical phrase
+// named by both scopes rather than repeating it — new logic
+// (mergedSamplingBiasValue's `[...new Set(...)]`, server/provider-sampling.ts)
+// this test exercises directly, since deduplication only matters once a
+// phrase can appear on the wire without being tokenized into a shared map.
+test("a KoboldCpp story banned string adds to the profile's own and dedupes an identical one", async () => {
+  const body = await buildOpenAiChatRequestBody(
+    withSampling(
+      settings("openai-compatible"),
+      "koboldcpp",
+      sampling({ bannedStrings: ["ember", "shared phrase"] })
+    ),
+    PROMPT,
+    OMIT_PLANS[0]!,
+    { storySampling: storySampling({ bannedStrings: ["shared phrase", "story-only phrase"] }) }
+  );
+  assert.deepEqual(
+    [...(body.banned_tokens as readonly string[])].sort(),
+    ["ember", "shared phrase", "story-only phrase"]
+  );
+});
+
 const KOBOLDCPP_PHRASE_FIXTURE: Readonly<Record<string, number>> = {
   ember: 601,
   " ember": 602,
