@@ -23,6 +23,13 @@ import { providerRoot, providerUrl } from "./providers.js";
  * here. The request projection assumes the same four tokens. */
 const MESSAGE_FRAMING_TOKENS = 4;
 
+/** OpenAI documents one snapshot that spends a token more on each message than
+ * every other model does. It is long superseded, and the bundled tokenizer
+ * still answers for it, so the count follows its own accounting rather than
+ * quietly running one token short for each message. */
+const LEGACY_FRAMING_MODELS = new Set(["gpt-3.5-turbo-0301"]);
+const LEGACY_MESSAGE_FRAMING_TOKENS = 5;
+
 /** Every chat completion is primed with `<|start|>assistant<|message|>`, which
  * no message in the array pays for. It is counted once, for the request. */
 const REPLY_PRIMING_TOKENS = 3;
@@ -161,7 +168,10 @@ async function probeByKind(
 function countBundled(model: string, messages: readonly ChatMessage[]): CountedProbe | null {
   const textTokens = countModelPromptTextTokens(model, messages.map((message) => message.content));
   if (textTokens === null) return null;
-  const perMessage = textTokens.map((tokens) => tokens + MESSAGE_FRAMING_TOKENS);
+  const framing = LEGACY_FRAMING_MODELS.has(model)
+    ? LEGACY_MESSAGE_FRAMING_TOKENS
+    : MESSAGE_FRAMING_TOKENS;
+  const perMessage = textTokens.map((tokens) => tokens + framing);
   return {
     total: perMessage.reduce((sum, count) => sum + count, 0) + REPLY_PRIMING_TOKENS,
     perMessage
@@ -230,7 +240,12 @@ async function countLlamaCpp(
     {},
     { signal, timeoutMs }
   );
-  if (!isObject(tokenized) || !Array.isArray(tokenized.tokens)) {
+  // The endpoint answers with token identifiers. Counting the length of an
+  // array of anything would turn an error payload into a near-exact count of
+  // however many entries it happened to hold.
+  if (!isObject(tokenized)
+    || !Array.isArray(tokenized.tokens)
+    || !tokenized.tokens.every(isTokenId)) {
     throw new Error("llama.cpp tokenize returned an unusable response shape");
   }
   return {
@@ -273,6 +288,10 @@ function probeTimeoutMs(settings: GenerationSettings): number {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isTokenId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {

@@ -791,7 +791,24 @@ test("HTTP StoryApi rejects malformed successful responses for every response fa
       grade: "exact",
       total: 3,
       perMessage: null
-    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.source"]
+    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.source"],
+    // A model server's count is near-exact and covers the whole array. A reply
+    // claiming otherwise would take the mark off a number that never earned
+    // it, so both are checked against the source that names them.
+    [{
+      kind: "counted",
+      source: "llama-cpp-tokenize",
+      grade: "exact",
+      total: 3,
+      perMessage: null
+    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.grade"],
+    [{
+      kind: "counted",
+      source: "llama-cpp-tokenize",
+      grade: "near-exact",
+      total: 3,
+      perMessage: [3]
+    }, () => api.countPromptTokens([{ role: "user", content: "Hi" }]), "prompt token count response.perMessage"]
   ];
   for (const [payload, request, expected] of malformed) {
     response = payload;

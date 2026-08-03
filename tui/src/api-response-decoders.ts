@@ -14,6 +14,7 @@ import type { SettingsDocumentV2 } from "../../shared/settings-v2-types.js";
 import {
   COUNTED_TOKENIZE_SOURCE_VALUES,
   TOKEN_COUNT_FALLBACK_VALUES,
+  TOKENIZE_SOURCE_CONTRACTS,
   type PromptTokenCount
 } from "../../shared/tokenize-source.js";
 import {
@@ -175,16 +176,25 @@ export function decodePromptTokenCount(value: unknown): PromptTokenCount {
   if (!isMember(COUNTED_TOKENIZE_SOURCE_VALUES, source)) {
     invalidField("prompt token count response", "source");
   }
-  const grade = response.grade;
-  if (grade !== "exact" && grade !== "near-exact") {
-    invalidField("prompt token count response", "grade");
+  // A source is not free to claim any grade, nor a split it cannot produce.
+  // Both are fixed by the source itself (shared/tokenize-source.ts), so a
+  // response disagreeing with its own source is malformed, not a stronger
+  // answer — accepting it would take the mark off a number that never earned
+  // one.
+  const contract = TOKENIZE_SOURCE_CONTRACTS[source];
+  if (response.grade !== contract.grade) invalidField("prompt token count response", "grade");
+  const perMessage = decodePerMessageTokenCounts(response.perMessage, "prompt token count response");
+  if (!contract.perMessage && perMessage !== null) {
+    invalidField("prompt token count response", "perMessage");
   }
   return {
     kind: "counted",
     source,
-    grade,
+    // Taken from the contract, not the wire: the two were just proved equal,
+    // and the contract is the side that decides.
+    grade: contract.grade,
     total: nonNegativeIntegerField(response, "total", "prompt token count response"),
-    perMessage: decodePerMessageTokenCounts(response.perMessage, "prompt token count response")
+    perMessage
   };
 }
 

@@ -53,6 +53,25 @@ export type TokenizeSource =
 const NO_SOURCE: TokenizeSource = { kind: "none", grade: "estimate", perMessage: false };
 
 /**
+ * What each source is worth, declared once. Both the resolution below and the
+ * wire decoder read it, so a source cannot arrive from the backend claiming a
+ * grade or a per-message split that it is not able to produce.
+ */
+export const TOKENIZE_SOURCE_CONTRACTS = {
+  "bundled-openai": { grade: "exact", perMessage: true },
+  "anthropic-count-tokens": { grade: "exact", perMessage: false },
+  "llama-cpp-tokenize": { grade: "near-exact", perMessage: false },
+  "koboldcpp-tokencount": { grade: "near-exact", perMessage: false }
+} as const satisfies Record<
+  Exclude<TokenizeSourceKind, "none">,
+  { readonly grade: "exact" | "near-exact"; readonly perMessage: boolean }
+>;
+
+function sourceFor(kind: Exclude<TokenizeSourceKind, "none">): TokenizeSource {
+  return { kind, ...TOKENIZE_SOURCE_CONTRACTS[kind] };
+}
+
+/**
  * The one place a preset names its tokenize source. The phrase-bias feature
  * needs the same llama.cpp and KoboldCpp servers, so it reads this too.
  *
@@ -71,21 +90,15 @@ export function tokenizeSourceFor(
     && isOfficialAnthropicBaseUrl(baseUrl ?? "")) {
     // The count endpoint names the model it counts for, so an unnamed model
     // has nothing to count against.
-    return model.length === 0
-      ? NO_SOURCE
-      : { kind: "anthropic-count-tokens", grade: "exact", perMessage: false };
+    return model.length === 0 ? NO_SOURCE : sourceFor("anthropic-count-tokens");
   }
   if (preset === "openai"
     && protocol === "openai-chat-completions"
     && isOfficialOpenAiBaseUrl(baseUrl ?? "")) {
-    return { kind: "bundled-openai", grade: "exact", perMessage: true };
+    return sourceFor("bundled-openai");
   }
-  if (preset === "llama-cpp") {
-    return { kind: "llama-cpp-tokenize", grade: "near-exact", perMessage: false };
-  }
-  if (preset === "koboldcpp") {
-    return { kind: "koboldcpp-tokencount", grade: "near-exact", perMessage: false };
-  }
+  if (preset === "llama-cpp") return sourceFor("llama-cpp-tokenize");
+  if (preset === "koboldcpp") return sourceFor("koboldcpp-tokencount");
   return NO_SOURCE;
 }
 

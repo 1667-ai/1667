@@ -182,6 +182,46 @@ test("a llama.cpp preset returns the near-exact templated-prompt count", async (
   ]);
 });
 
+test("a llama.cpp reply that is not token identifiers is not counted", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    if (input.url.endsWith("/apply-template")) return Response.json({ prompt: "rendered" });
+    // An error payload, not identifiers. Counting its length would report a
+    // whole story as a near-exact single token.
+    return Response.json({ tokens: ["context length exceeded"] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const result = await countPromptTokens(
+    settings({ preset: "llama-cpp", baseUrl: "https://models.example/v1", model: "fixture" }),
+    [{ role: "user", content: "A whole story's worth of prose." }]
+  );
+
+  assert.deepEqual(result, { kind: "estimate", reason: "probe-failed" });
+});
+
+test("the superseded OpenAI snapshot is counted with its own message framing", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("the bundled tokenizer must not reach the network");
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const messages: ChatMessage[] = [{ role: "user", content: "Continue the story about the lantern." }];
+  const official = { preset: "openai", baseUrl: "https://api.openai.com" } as const;
+
+  const current = await countPromptTokens(settings({ ...official, model: "gpt-4" }), messages);
+  const legacy = await countPromptTokens(
+    settings({ ...official, model: "gpt-3.5-turbo-0301" }),
+    messages
+  );
+
+  // Same encoding, one more token of framing for each message.
+  assert.equal(current.kind === "counted" ? current.total : null, 7 + 4 + 3);
+  assert.equal(legacy.kind === "counted" ? legacy.total : null, 7 + 5 + 3);
+});
+
 test("a KoboldCpp preset returns the near-exact tokencount", async (t) => {
   const messages: ChatMessage[] = [{ role: "user", content: "Continue." }];
   const originalFetch = globalThis.fetch;
