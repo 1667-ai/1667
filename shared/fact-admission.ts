@@ -16,7 +16,7 @@ import type { GenerationSettings, StoryFact } from "./types.js";
  */
 
 /** Conservative token bound for fixed prompt text. */
-export function upperBoundTokens(text: string): number {
+function upperBoundTokens(text: string): number {
   let ascii = 0;
   let wide = 0;
   for (const char of text) {
@@ -72,6 +72,14 @@ export interface FixedContextSelection extends FixedContextAdmission {
    *  shedding — zero here is a different situation from "shed everything and
    *  still over": there was nothing this pass could have done. */
   readonly droppableCount: number;
+  /** Which side of the fixed prompt is to blame when it does not fit, by the
+   *  same estimator this selection already measured both with — `null`
+   *  exactly when `fits` is true, in every branch that returns one,
+   *  because nothing is over budget to blame. `assertFixedContextFits`
+   *  (server/generation-admission.ts) reads this together with
+   *  `droppableCount` to choose which of its three errors to throw,
+   *  without re-measuring the Author's Note or the Facts message itself. */
+  readonly overBudgetCause: "note" | "facts" | null;
 }
 
 /**
@@ -115,7 +123,7 @@ export function selectFactsForFixedContext(
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
       fits: true, fixedTokens: fixedContextTokens(initialMessage, authorsNote, otherFixed),
-      usableTokens: null, droppableCount
+      usableTokens: null, droppableCount, overBudgetCause: null
     };
   }
   const usable = settings.contextWindow - settings.maxTokens;
@@ -123,7 +131,7 @@ export function selectFactsForFixedContext(
   if (initialFixed <= usable) {
     return {
       facts: ownCapSurvivors, factsMessage: initialMessage, dropped: ownCapDrops,
-      fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount
+      fits: true, fixedTokens: initialFixed, usableTokens: usable, droppableCount, overBudgetCause: null
     };
   }
 
@@ -161,9 +169,20 @@ export function selectFactsForFixedContext(
     .map((fact) => ({ factId: fact.id, reason: "priority" }));
   const factsMessage = formatFactsMessage(kept);
   const fixed = fixedContextTokens(factsMessage, authorsNote, otherFixed);
+  // Shedding can land exactly on a fit, not just short of one — reaching
+  // this branch does not by itself mean "still over budget". Gate on the
+  // real outcome, so `overBudgetCause` stays null whenever the returned
+  // selection fits here too, and only measures the Author's Note against
+  // the Facts message when there is something left to blame.
+  let overBudgetCause: FixedContextSelection["overBudgetCause"] = null;
+  if (fixed > usable) {
+    const noteCost = notePresent ? upperBoundTokens(authorsNote!) : 0;
+    const factsCost = factsMessage === null ? 0 : upperBoundTokens(factsMessage);
+    overBudgetCause = noteCost > factsCost ? "note" : "facts";
+  }
   return {
     facts: kept, factsMessage, dropped: [...ownCapDrops, ...spaceDrops],
-    fits: fixed <= usable, fixedTokens: fixed, usableTokens: usable, droppableCount
+    fits: fixed <= usable, fixedTokens: fixed, usableTokens: usable, droppableCount, overBudgetCause
   };
 }
 

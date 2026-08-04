@@ -22,7 +22,7 @@ import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
-import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "./story-facts.js";
+import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fact-selection.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
 import {
   streamModel,
