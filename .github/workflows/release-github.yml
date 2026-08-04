@@ -1,8 +1,9 @@
 name: Release (GitHub)
 
-# Publishes one archive per published release target as a GitHub pre-release,
-# with a build-provenance attestation over every uploaded file. Manual dispatch
-# only: a release is a decision, not a consequence of a push.
+# Publishes one archive per published release target as a GitHub release, with
+# a build-provenance attestation over every uploaded file. A prerelease version
+# publishes a prerelease; every other version publishes a release. Manual
+# dispatch only: a release is a decision, not a consequence of a push.
 #
 # The target list, the archive contents, the archive names, the checksum file,
 # and the release notes all come from scripts/release-github-assets.ts and the
@@ -13,10 +14,11 @@ on:
     inputs:
       version:
         description: >-
-          Version to release, without a leading v (for example 0.1.0-rc.1). It
-          must include a prerelease identifier. It must match the version in
-          package.json, tui/package.json, and the lockfile; the command that
-          checks the release source refuses it otherwise.
+          Version to release, without a leading v (for example 0.1.0-rc.1 or
+          0.3.0). It must match the version in package.json, tui/package.json,
+          and the lockfile; the command that checks the release source refuses
+          it otherwise. A prerelease version publishes a prerelease. Every
+          other version publishes a release.
         required: true
         type: string
 
@@ -290,9 +292,12 @@ jobs:
             exit 1
           fi
 
-      # Render both beta Installers from the same archive digests. This path
-      # publishes a prerelease SemVer, so stable Installers are absent.
-      - name: Render the beta Installers
+      # Render the Installers this version's channel produces: the beta
+      # Installers always, and the stable Installers too when the version is
+      # not a prerelease. scripts/release-install-script.ts decides that list
+      # from the version, so this step does not repeat the decision — it only
+      # checks the renderer kept its side of it.
+      - name: Render the release Installers
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -325,8 +330,13 @@ jobs:
             test -n "$name" || continue
             test -f "dist/assets/$name"
           done
-          test ! -e dist/assets/install-stable.sh
-          test ! -e dist/assets/install-stable.ps1
+          # A prerelease version's Installer list never names the stable
+          # Installers, so a prerelease release must not contain them either.
+          for name in install-stable.sh install-stable.ps1; do
+            if ! printf '%s\n' "$expected" | grep -qxF "$name"; then
+              test ! -e "dist/assets/$name"
+            fi
+          done
 
       # The redirection creates checksums.txt before the command reads the
       # directory, which is why the command never lists a file by that name.
@@ -342,10 +352,12 @@ jobs:
         with:
           subject-path: |
             dist/assets/*.tar.gz
-            dist/assets/install-beta.*
+            dist/assets/install-*
             dist/assets/checksums.txt
 
-      - name: Publish the pre-release
+      # A prerelease version marks the release a prerelease. Every other
+      # version leaves the flag unset, so GitHub treats it as a release.
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -353,12 +365,19 @@ jobs:
         run: |
           set -euo pipefail
           node --import tsx scripts/release-github-assets.ts notes "$VERSION" > dist/release-notes.md
+          prerelease_flag=""
+          if node --import tsx --input-type=module -e '
+            import { isPrereleaseVersion } from "./scripts/release-publication-assets.ts";
+            process.exit(isPrereleaseVersion(process.argv[1]) ? 0 : 1);
+          ' "$VERSION"; then
+            prerelease_flag="--prerelease"
+          fi
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$COMMIT" \
-            --prerelease \
+            $prerelease_flag \
             --title "1667 v$VERSION" \
             --notes-file dist/release-notes.md \
             dist/assets/*.tar.gz \
-            dist/assets/install-beta.* \
+            dist/assets/install-* \
             dist/assets/checksums.txt

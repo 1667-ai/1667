@@ -62,9 +62,9 @@ const REPOSITORY_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)
 // The version this release ships under. Release identity refuses a version the
 // checkout's manifests disagree with, so both derive from the product version.
 const VERSION = AI_1667_PRODUCT_VERSION;
-// This case needs a version that is not a prerelease, whatever the checkout is
-// on. The archive CLI asserts prerelease-ness before it compares the version to
-// the manifests, so the stable form of the product version reaches the refusal.
+// The stable form of the checked-out product version. Equal to VERSION when
+// the checkout is already stable, and a version the checked-out packages
+// disagree with otherwise — see the test below for how each case is judged.
 const STABLE_VERSION = AI_1667_PRODUCT_VERSION.replace(/-.*$/u, "");
 const PRERELEASE_VERSION = "0.1.0-rc.1";
 const SOURCE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -110,7 +110,12 @@ function workflowJobs(): ReadonlyMap<string, string> {
   return jobs;
 }
 
-test("the archive release CLI refuses the stable version reserved for npm", () => {
+// Issue #5: the archive path used to refuse every stable version outright, so
+// `latest` was unreachable through any command in this repository. It must
+// now accept a stable version on its own merits — the same merits every
+// version is judged on, prerelease or not: does it match the commit, the
+// timestamp, and this checkout's own package versions.
+test("the archive release CLI judges a stable version the same way as any other", () => {
   const run = spawnSync(
     process.execPath,
     [
@@ -127,15 +132,25 @@ test("the archive release CLI refuses the stable version reserved for npm", () =
       encoding: "utf8"
     }
   );
+  // "must be a prerelease" is gone in either branch below: nothing in this
+  // repository may refuse a stable version for lacking a prerelease
+  // identifier, whether or not it happens to equal the checked-out packages.
+  assert.doesNotMatch(run.stderr, /must be a prerelease/u);
+  if (STABLE_VERSION === VERSION) {
+    // The checkout's own product version already carries no prerelease
+    // identifier, so the stable form is the checked-out version, and check
+    // accepts it exactly as it accepts any other matching version.
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, `release source accepted: ${STABLE_VERSION} at ${
+      SOURCE_COMMIT} built ${BUILD_TIMESTAMP}\n`);
+    return;
+  }
+  // The checkout's product version is a prerelease, so its stable form
+  // disagrees with the checked-out package versions — the ordinary
+  // cross-check every mismatched version hits, not a stable-specific refusal.
   assert.notEqual(run.status, 0);
   assert.equal(run.stdout, "");
-  assert.match(
-    run.stderr,
-    new RegExp(
-      `GitHub archive release ${STABLE_VERSION.replaceAll(".", "\\.")} must be a prerelease`,
-      "u"
-    )
-  );
+  assert.match(run.stderr, /version does not match/u);
 });
 
 test("a published archive holds the executable, both licence files, and both manifests", () => {
@@ -717,6 +732,14 @@ test("the release notes stay true at every version the workflow can be dispatche
     }
     if (stable === null) {
       assert.doesNotMatch(notes, /a preview of/u, `v${version} is no preview`);
+      // Issue #5: a stable version now reaches this command, and its notes
+      // must not carry the "every release on this path is a pre-release"
+      // claim that was true only while a stable version could not.
+      assert.doesNotMatch(
+        notes,
+        /pre-release: the/u,
+        `notes for v${version} falsely claim every release here is a pre-release`
+      );
       continue;
     }
     // The prerelease explanation names the two version strings it was built
@@ -725,9 +748,16 @@ test("the release notes stay true at every version the workflow can be dispatche
       notes.includes(`This build is \`${version}\`, a preview of \`${stable}\`.`),
       `notes for v${version} explain the prerelease identifier with the wrong versions`
     );
+    assert.match(
+      notes,
+      /pre-release: the/u,
+      `notes for v${version} drop the pre-release explanation`
+    );
   }
-  // "Every release on this path is a pre-release" is a claim about the
-  // workflow, not about this version, so bind it to the workflow: `gh release
-  // create` marks every release this path publishes as one.
-  assert.match(WORKFLOW, /^\s+--prerelease\s*\\?$/mu);
+  // The workflow no longer hard-codes every release as a prerelease: `gh
+  // release create` carries `--prerelease` only when the dispatched version
+  // is itself a prerelease, decided by the same isPrereleaseVersion the rest
+  // of the release path reads.
+  assert.doesNotMatch(WORKFLOW, /^\s+--prerelease\s*\\?$/mu);
+  assert.match(WORKFLOW, /isPrereleaseVersion\(process\.argv\[1\]\)/u);
 });

@@ -46,13 +46,23 @@ export function releaseNotesMarkdown(version: string): string {
   const hasWindows = PUBLISHED_ARTIFACT_TARGETS.some((target) => {
     return releaseTargetForArtifact(target).platform === "win32";
   });
+  // "Every release on this path is a pre-release" was true of every version
+  // this workflow could publish before issue #5: the archive path refused a
+  // stable version outright. Now that a stable version reaches this notes
+  // command too, the claim has to be true of the version it is generated for,
+  // not of the workflow as a whole.
+  const prerelease = parseSemVer(version)!.prerelease.length > 0;
   return [
     `# 1667 v${version}`,
     "",
     "Native builds of 1667, a full-screen terminal environment for writing fiction",
-    "with language models. Every release on this path is a pre-release: the",
-    "interface, the stored data format, and the packaging can still change between",
-    "versions.",
+    ...(prerelease ? [
+      "with language models. Every release on this path is a pre-release: the",
+      "interface, the stored data format, and the packaging can still change between",
+      "versions."
+    ] : [
+      "with language models."
+    ]),
     "",
     "## Downloads",
     "",

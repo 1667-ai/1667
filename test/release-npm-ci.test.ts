@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   chmod,
@@ -18,12 +17,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { PUBLISHED_ARTIFACT_TARGETS } from "../shared/release-targets.js";
-import { releaseArchiveFileName } from "../scripts/release-archive.js";
 import {
   directoryAssetDigests,
   formatReleaseChecksums
 } from "../scripts/release-github-assets.js";
-import { renderInstallScriptsForVersion } from "../scripts/release-install-script.js";
 import {
   expectedGitHubReleaseAssetNames,
   expectedInstallerNames
@@ -33,9 +30,15 @@ import {
   verifyReleaseAttestations
 } from "../scripts/release-npm-ci.js";
 import {
+  assertGitHubReleaseCompatibleForPublication,
   publishOrVerifyGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
+import {
+  fakeReleaseGh,
+  writeArchiveOnlyReleaseAssetFixture,
+  writeReleaseAssetFixture
+} from "./release-npm-github-fixture.js";
 
 const VERSION = "1.2.3";
 const PRE_VERSION = "1.2.3-rc.1";
@@ -112,7 +115,7 @@ test("GitHub release publication verifies exact assets before and after upload",
   const notes = path.join(root, "notes.md");
   const gh = path.join(root, "gh");
   await mkdir(assets);
-  await writeReleaseAssetFixture(assets);
+  await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
   await execFileAsync(process.execPath, [
     "--import",
     "tsx",
@@ -233,74 +236,133 @@ test("GitHub release verification binds installers to channel digests and reject
   );
 });
 
+// Issue #5 review: release-github.yml can now create a GitHub release for a
+// stable version too, in a concurrency group release-npm.yml never shares.
+// assertGitHubReleaseCompatibleForPublication is what preflight calls to
+// discover an incompatible existing release before publish, rather than
+// after it, the way publishOrVerifyGitHubRelease alone would.
+test("assertGitHubReleaseCompatibleForPublication permits no release and permits a draft", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-existing-none-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = path.join(root, "remote");
+  const state = path.join(root, "state.json");
+  const log = path.join(root, "gh.log");
+  const gh = path.join(root, "gh");
+  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
+  await chmod(gh, 0o755);
+  const environment = { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root };
+
+  // Nothing to conflict with.
+  await assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh });
+
+  // publishOrVerifyGitHubRelease deletes and recreates a draft, so a draft
+  // cannot conflict with what it will do either, whatever it contains.
+  await mkdir(remote, { recursive: true });
+  await writeFile(state, JSON.stringify({ isDraft: true, isImmutable: false, isPrerelease: false }));
+  await assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh });
+});
+
+test("assertGitHubReleaseCompatibleForPublication permits a matching completed release and refuses a channel mismatch", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-existing-match-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = path.join(root, "remote");
+  const state = path.join(root, "state.json");
+  const log = path.join(root, "gh.log");
+  const gh = path.join(root, "gh");
+  await mkdir(remote, { recursive: true });
+  await writeReleaseAssetFixture(remote, VERSION, REPOSITORY);
+  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
+  await chmod(gh, 0o755);
+  const environment = { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root };
+
+  // A completed release carrying the full npm-publication asset set on the
+  // right channel — what a resumed or rerun workflow leaves behind. publish
+  // must be free to proceed.
+  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: false }));
+  await assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh });
+
+  // The same asset set, but the wrong channel for VERSION.
+  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: true }));
+  await assert.rejects(
+    assertGitHubReleaseCompatibleForPublication({ version: VERSION, environment, ghExecutable: gh }),
+    /is not an immutable release npm publication can publish alongside/u
+  );
+});
+
+test("assertGitHubReleaseCompatibleForPublication refuses an archive-only release release-github.yml could have created", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-existing-archive-only-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = path.join(root, "remote");
+  const state = path.join(root, "state.json");
+  const log = path.join(root, "gh.log");
+  const gh = path.join(root, "gh");
+  await mkdir(remote, { recursive: true });
+  await writeArchiveOnlyReleaseAssetFixture(remote, VERSION, REPOSITORY);
+  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: false }));
+  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
+  await chmod(gh, 0o755);
+
+  await assert.rejects(
+    assertGitHubReleaseCompatibleForPublication({
+      version: VERSION,
+      environment: { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root },
+      ghExecutable: gh
+    }),
+    /does not carry the asset set npm publication expects/u
+  );
+});
+
+/**
+ * Confirms, rather than assumes, what publishOrVerifyGitHubRelease does when
+ * it meets an archive-only release release-github.yml could have created: it
+ * does refuse — this is not a silent acceptance — but only after it has
+ * already downloaded the existing release, which in the real workflow is a
+ * step inside the `release` job that runs after `publish` has already
+ * written to npm. That npm write cannot be withdrawn once it lands, which is
+ * exactly why assertGitHubReleaseCompatibleForPublication has to run earlier,
+ * in `preflight`, before `publish` ever starts — this test is the evidence
+ * that the earlier check is doing real work and not guarding against
+ * something publishOrVerifyGitHubRelease already handled safely.
+ */
+test("publishOrVerifyGitHubRelease refuses an archive-only existing release too, but only after downloading it", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-npm-github-late-refusal-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const assets = path.join(root, "assets");
+  await mkdir(assets);
+  await writeReleaseAssetFixture(assets, VERSION, REPOSITORY);
+  const remote = path.join(root, "remote");
+  const state = path.join(root, "state.json");
+  const log = path.join(root, "gh.log");
+  const notes = path.join(root, "notes.md");
+  const gh = path.join(root, "gh");
+  await mkdir(remote, { recursive: true });
+  await writeArchiveOnlyReleaseAssetFixture(remote, VERSION, REPOSITORY);
+  await writeFile(state, JSON.stringify({ isDraft: false, isImmutable: true, isPrerelease: false }));
+  await writeFile(notes, "# Release\n");
+  await writeFile(gh, fakeReleaseGh({ remote, state, log }));
+  await chmod(gh, 0o755);
+
+  await assert.rejects(
+    publishOrVerifyGitHubRelease({
+      version: VERSION,
+      assetsDirectory: assets,
+      notesFile: notes,
+      environment: { GITHUB_REPOSITORY: REPOSITORY, GH_TOKEN: "test-token", HOME: root },
+      ghExecutable: gh
+    }),
+    /unexpected asset set/u
+  );
+  const calls = (await readFile(log, "utf8")).trimEnd().split("\n").map((line) => {
+    return JSON.parse(line) as string[];
+  });
+  // It reached "download" before refusing: the existing release passed the
+  // channel check (isPrerelease already matches VERSION's channel here), and
+  // was only caught by re-verifying the downloaded asset set, the step that
+  // happens after the workflow's npm publish job has already run.
+  assert.ok(calls.some((args) => args[1] === "download"));
+  assert.ok(!calls.some((args) => args[1] === "create"));
+});
+
 async function readdirNames(directory: string): Promise<string[]> {
   return await readdir(directory);
-}
-
-async function writeReleaseAssetFixture(
-  directory: string,
-  version: string = VERSION,
-  repository: string = REPOSITORY
-): Promise<void> {
-  const installerNames = new Set(expectedInstallerNames(version));
-  const names = expectedGitHubReleaseAssetNames(version).filter((name) => {
-    return name !== "checksums.txt" && !installerNames.has(name);
-  });
-  await Promise.all(names.map((name) => writeFile(path.join(directory, name), `${name}\n`)));
-  const digests: Record<string, string> = {};
-  for (const target of PUBLISHED_ARTIFACT_TARGETS) {
-    const archive = releaseArchiveFileName(version, target);
-    const bytes = await readFile(path.join(directory, archive));
-    digests[archive] = createHash("sha256").update(bytes).digest("hex");
-  }
-  const scripts = renderInstallScriptsForVersion({ version, repository, digests });
-  await Promise.all(
-    Object.entries(scripts).map(([name, body]) => writeFile(path.join(directory, name), body))
-  );
-  await writeFile(
-    path.join(directory, "checksums.txt"),
-    formatReleaseChecksums(directoryAssetDigests(directory))
-  );
-}
-
-function fakeReleaseGh(paths: {
-  readonly remote: string;
-  readonly state: string;
-  readonly log: string;
-}): string {
-  return [
-    `#!${process.execPath}`,
-    'const fs = require("node:fs");',
-    'const path = require("node:path");',
-    "const args = process.argv.slice(2);",
-    `const remote = ${JSON.stringify(paths.remote)};`,
-    `const state = ${JSON.stringify(paths.state)};`,
-    `fs.appendFileSync(${JSON.stringify(paths.log)}, \`\${JSON.stringify(args)}\\n\`);`,
-    "const command = args[1];",
-    "if (command === \"view\") {",
-    "  if (!fs.existsSync(state)) { process.stderr.write(\"release not found\\n\"); process.exit(1); }",
-    "  process.stdout.write(fs.readFileSync(state));",
-    "} else if (command === \"create\") {",
-    "  fs.mkdirSync(remote, { recursive: true });",
-    "  for (const file of args.slice(3)) {",
-    "    if (file.startsWith(\"--\")) break;",
-    "    fs.copyFileSync(file, path.join(remote, path.basename(file)));",
-    "  }",
-    "  fs.writeFileSync(state, JSON.stringify({isDraft:true,isImmutable:false,isPrerelease:true}));",
-    "} else if (command === \"download\") {",
-    "  const destination = args[args.indexOf(\"--dir\") + 1];",
-    "  for (const name of fs.readdirSync(remote)) {",
-    "    fs.copyFileSync(path.join(remote, name), path.join(destination, name));",
-    "  }",
-    "} else if (command === \"edit\") {",
-    "  fs.writeFileSync(state, JSON.stringify({isDraft:false,isImmutable:true,isPrerelease:true}));",
-    "} else if (command === \"delete\") {",
-    "  fs.rmSync(remote, { recursive: true, force: true });",
-    "  fs.rmSync(state, { force: true });",
-    "} else {",
-    "  process.stderr.write(`unsupported ${args.join(\" \")}\\n`);",
-    "  process.exit(2);",
-    "}",
-    ""
-  ].join("\n");
 }

@@ -48,16 +48,31 @@ export interface PublishGitHubReleaseOptions {
   readonly ghExecutable?: string;
 }
 
+export interface GitHubReleaseCompatibilityOptions {
+  readonly version: string;
+  readonly environment: GitHubReleaseEnvironment;
+  readonly ghExecutable?: string;
+}
+
 interface ReleaseState {
   readonly isDraft: boolean;
   readonly isImmutable: boolean;
   readonly isPrerelease: boolean;
 }
 
+interface ReleaseStateWithAssets extends ReleaseState {
+  readonly assetNames: readonly string[];
+}
+
 export async function publishOrVerifyGitHubRelease(
   options: PublishGitHubReleaseOptions
 ): Promise<void> {
   if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
+  // The one place this module decides prerelease vs. stable. Every check below
+  // reads this value rather than assuming a channel, so a stable version's
+  // release is required to be a stable release and a prerelease version's
+  // release is required to stay a prerelease, in both directions.
+  const prerelease = isPrereleaseVersion(options.version);
   const repository = requiredMatch(
     options.environment.GITHUB_REPOSITORY,
     REPOSITORY,
@@ -90,7 +105,7 @@ export async function publishOrVerifyGitHubRelease(
       repository,
       "--draft",
       "--verify-tag",
-      "--prerelease",
+      ...(prerelease ? ["--prerelease"] : []),
       "--latest=false",
       "--title",
       `1667 v${options.version}`,
@@ -99,7 +114,7 @@ export async function publishOrVerifyGitHubRelease(
     ], options.environment);
     created = true;
   } else {
-    requireImmutablePrerelease(state, "Existing");
+    requireImmutableReleaseChannel(state, prerelease, "Existing");
   }
   await verifyDownloadedRelease(gh, tag, repository, assets, options.environment);
   if (!created) return;
@@ -110,8 +125,64 @@ export async function publishOrVerifyGitHubRelease(
   );
   const published = await releaseState(gh, tag, repository, options.environment);
   if (published === null) throw new Error("Published GitHub release disappeared");
-  requireImmutablePrerelease(published, "Published");
+  requireImmutableReleaseChannel(published, prerelease, "Published");
   if (published.isDraft) throw new Error("Published GitHub release is still a draft");
+}
+
+/**
+ * Refuses to let npm publication proceed against an existing GitHub release
+ * for this tag that `publishOrVerifyGitHubRelease` could not later reconcile
+ * with — issue #5 review.
+ *
+ * Once a stable version can reach `release-github.yml`'s archive path too,
+ * both that workflow and this one can create a GitHub release for the same
+ * `v<version>` tag, and they run in separate concurrency groups: nothing
+ * serializes them against each other. `publishOrVerifyGitHubRelease` already
+ * refuses a channel mismatch and an asset-set mismatch (an archive-only
+ * release is missing the npm tarballs, the observations, and the artifact
+ * manifest), but only in the `release` job, which runs after `publish` has
+ * already written to npm. That write cannot be taken back. This performs the
+ * same two checks — channel and asset-name set — from `preflight`, before
+ * `publish` ever runs, so the same incompatibility fails while it is still
+ * survivable instead of after.
+ *
+ * A missing release and an existing draft are both left to
+ * `publishOrVerifyGitHubRelease`: a draft is deleted and recreated there, so
+ * neither can conflict with what `release` will do.
+ */
+export async function assertGitHubReleaseCompatibleForPublication(
+  options: GitHubReleaseCompatibilityOptions
+): Promise<void> {
+  if (!isSemVer(options.version)) throw new Error("GitHub release version is not SemVer");
+  const prerelease = isPrereleaseVersion(options.version);
+  const repository = requiredMatch(
+    options.environment.GITHUB_REPOSITORY,
+    REPOSITORY,
+    "GITHUB_REPOSITORY"
+  );
+  const gh = boundedExecutable(
+    options.ghExecutable
+      ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
+  );
+  const tag = `v${options.version}`;
+  const existing = await releaseStateWithAssets(gh, tag, repository, options.environment);
+  if (existing === null || existing.isDraft) return;
+  if (!existing.isImmutable || existing.isPrerelease !== prerelease) {
+    throw new Error(
+      `Existing GitHub release ${tag} is not an immutable ${
+        prerelease ? "prerelease" : "release"} npm publication can publish alongside`
+    );
+  }
+  const expected = [...expectedGitHubReleaseAssetNames(options.version)].sort();
+  const actual = [...existing.assetNames].sort();
+  const matches = actual.length === expected.length
+    && actual.every((name, index) => name === expected[index]);
+  if (!matches) {
+    throw new Error(
+      `Existing GitHub release ${tag} does not carry the asset set npm publication expects`
+      + " (an archive-only release cannot be published alongside)"
+    );
+  }
 }
 
 export function verifyNpmReleaseAssetDirectory(
@@ -262,9 +333,76 @@ async function releaseState(
   });
 }
 
-function requireImmutablePrerelease(state: ReleaseState, label: string): void {
-  if (state.isDraft || !state.isImmutable || !state.isPrerelease) {
-    throw new Error(`${label} GitHub release is not an immutable prerelease`);
+async function releaseStateWithAssets(
+  gh: string,
+  tag: string,
+  repository: string,
+  environment: GitHubReleaseEnvironment
+): Promise<ReleaseStateWithAssets | null> {
+  let stdout: string;
+  try {
+    ({ stdout } = await runGh(gh, [
+      "release",
+      "view",
+      tag,
+      "--repo",
+      repository,
+      "--json",
+      "isDraft,isImmutable,isPrerelease,assets"
+    ], environment));
+  } catch (error) {
+    if (isMissingRelease(error)) return null;
+    throw error;
+  }
+  const value = parseJsonRejectingDuplicateKeys(stdout);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("GitHub release state is not an object");
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join(",") !== "assets,isDraft,isImmutable,isPrerelease"
+    || typeof record.isDraft !== "boolean"
+    || typeof record.isImmutable !== "boolean"
+    || typeof record.isPrerelease !== "boolean"
+    || !Array.isArray(record.assets)) {
+    throw new Error("GitHub release state is invalid");
+  }
+  const assetNames = record.assets.map((entry, index) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)
+      || typeof (entry as Record<string, unknown>).name !== "string") {
+      throw new Error(`GitHub release asset entry ${index} is invalid`);
+    }
+    return (entry as Record<string, unknown>).name as string;
+  });
+  return Object.freeze({
+    isDraft: record.isDraft,
+    isImmutable: record.isImmutable,
+    isPrerelease: record.isPrerelease,
+    assetNames: Object.freeze(assetNames)
+  });
+}
+
+/**
+ * Refuses a release that is not immutable, and refuses a release whose
+ * `isPrerelease` flag disagrees with the version's own channel — in either
+ * direction. A prerelease version publishing over a stable release, or a
+ * stable version publishing over a prerelease, is a channel mismatch this
+ * repository must never paper over: npm cannot move a dist-tag once it
+ * publishes, so the GitHub release has to name the same channel npm just
+ * used.
+ *
+ * `expectedPrerelease` is always `true` on the one path this repository
+ * exercised before stable versions existed, so this refuses exactly what
+ * `requireImmutablePrerelease` used to refuse there, and nothing less.
+ */
+function requireImmutableReleaseChannel(
+  state: ReleaseState,
+  expectedPrerelease: boolean,
+  label: string
+): void {
+  if (state.isDraft || !state.isImmutable || state.isPrerelease !== expectedPrerelease) {
+    throw new Error(
+      `${label} GitHub release is not an immutable ${expectedPrerelease ? "prerelease" : "release"}`
+    );
   }
 }
 
@@ -359,6 +497,12 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
+    } else if (command === "check-existing" && process.argv.length === 4) {
+      const version = process.argv[3];
+      if (version === undefined) {
+        throw new Error("usage: release-npm-github.ts check-existing <version>");
+      }
+      await assertGitHubReleaseCompatibleForPublication({ version, environment: process.env });
     } else if (process.argv.length === 5 && command !== undefined
       && assetsDirectory !== undefined && notesFile !== undefined) {
       await publishOrVerifyGitHubRelease({
@@ -370,6 +514,7 @@ if (isMainModule()) {
     } else {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
+        + " | release-npm-github.ts check-existing <version>"
         + " | release-npm-github.ts <version> <assets> <notes>"
       );
     }

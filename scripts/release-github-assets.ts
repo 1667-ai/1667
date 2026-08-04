@@ -15,7 +15,6 @@ import {
   type BuiltArtifactTarget,
   type CanonicalReleaseTarget
 } from "../shared/release-targets.js";
-import { parseSemVer } from "../shared/semver.js";
 import {
   releaseArchiveStem,
   RELEASE_CHECKSUMS_FILE
@@ -185,13 +184,6 @@ export function assertRunnerBuildsTarget(
   return host;
 }
 
-function assertArchivePrereleaseVersion(version: string): void {
-  const parsed = parseSemVer(version);
-  if (parsed === null || parsed.prerelease.length === 0) {
-    throw new Error(`GitHub archive release ${version} must be a prerelease`);
-  }
-}
-
 function builtTarget(value: string | undefined): BuiltArtifactTarget {
   const target = BUILT_ARTIFACT_TARGETS.find((candidate) => candidate === value);
   if (target === undefined) throw new Error(`Unsupported release target ${String(value)}`);
@@ -239,11 +231,9 @@ function runCommand(argv: readonly string[]): string {
   if (command === "check") {
     if (rest.length !== 3) throw new Error(USAGE);
     const facts = sourceFacts(rest);
-    assertArchivePrereleaseVersion(facts.version);
     // Built and discarded. This rejects a version the release identity codec
-    // would reject, a stable version reserved for npm, and one the repository's
-    // own package versions disagree with, in the job that dispatches rather
-    // than on four runners at once.
+    // would reject, and one the repository's own package versions disagree
+    // with, in the job that dispatches rather than on four runners at once.
     const identities = releaseIdentitiesForSource(facts);
     return `release source accepted: ${identities.evidence.productVersion} at ${
       facts.sourceCommit} built ${facts.buildTimestamp}\n`;

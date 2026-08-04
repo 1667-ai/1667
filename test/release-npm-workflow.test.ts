@@ -317,6 +317,29 @@ test("publication rechecks protected state immediately before npm writes", () =>
   );
 });
 
+// Issue #5 review: release-github.yml can now create a GitHub release for a
+// stable version too, in a concurrency group this workflow never shares.
+// publishOrVerifyGitHubRelease (in the `release` job) already refuses an
+// incompatible existing release, but only after `publish` has already
+// written to npm. The check has to run in `preflight` — which `publish`
+// `needs`, so it always completes first — for that refusal to be survivable.
+test("an incompatible existing GitHub release is discovered in preflight, before publish can run", () => {
+  const preflight = job("preflight");
+  assert.match(preflight, /release-npm-github\.ts check-existing "\$VERSION"/u);
+  const install = preflight.indexOf("Install script-free runtime dependencies");
+  const checkExisting = preflight.indexOf(
+    "Refuse to publish over an incompatible existing GitHub release"
+  );
+  const evidence = preflight.indexOf("Collect source evidence before artifact download");
+  assert.ok(install !== -1 && checkExisting !== -1 && evidence !== -1);
+  assert.ok(install < checkExisting, "check-existing ran before tsx was installed");
+  assert.ok(checkExisting < evidence, "check-existing ran after preflight moved on");
+  assert.match(job("publish"), /^    needs: preflight$/mu);
+  // Nothing else in this workflow runs the compatibility check — a second
+  // call site could silently move behind an irreversible write again.
+  assert.equal((WORKFLOW.match(/check-existing/gu) ?? []).length, 1);
+});
+
 function job(
   name: "authorize" | "build" | "launcher" | "preflight" | "publish" | "release"
 ): string {

@@ -13,7 +13,8 @@ prepublication registry controls are complete. SBOM generation rejects
 signed-tag authorization fields.
 
 The repository supports local release package production and preflight. It
-publishes native archives as a GitHub pre-release.
+publishes native archives as a GitHub release. A prerelease version publishes
+a prerelease. Every other version publishes a release.
 
 Maintainers reserved the package names. Publish release packages only through
 the hosted workflow. Do not publish held targets. Do not move registry tags
@@ -321,13 +322,13 @@ The workflow has these jobs:
 3. `launcher` stages and packs the six release packages.
 4. `preflight` verifies the package set and retains the result.
 5. `publish` publishes the five platform packages before the launcher package.
-6. `release` verifies publication and publishes the GitHub pre-release.
+6. `release` verifies publication and publishes the GitHub release.
 
 A failed job can use the retained inputs from the same workflow run. The registry check
 accepts an existing version only when its digest and provenance are correct.
 It binds the provenance certificate to this repository, workflow, and ref.
 The `release-publication` Actions artifact supports job handoff and same-run retries.
-The immutable GitHub prerelease retains the tarballs, native observations, and artifact manifest.
+The immutable GitHub release retains the tarballs, native observations, and artifact manifest.
 Promotion does not depend on the Actions artifact retention period.
 
 The publish job creates a publication attempt ref before each npm write. The ref
@@ -467,8 +468,9 @@ The launcher job does not rebuild native executables. The release job does not
 rebuild them either.
 
 `.github/workflows/release-github.yml` reuses the same generator and archive
-policy. That path always publishes a prerelease SemVer. It includes
-`install-beta.sh` and `install-beta.ps1` only.
+policy. It includes `install-beta.sh` and `install-beta.ps1` for every
+version, and also includes `install-stable.sh` and `install-stable.ps1` for a
+non-prerelease version.
 
 A Managed Installation writes `.1667-install.json` next to the executable. Only
 a valid Ownership Record grants installation authority. npm, source, and copied
@@ -582,12 +584,13 @@ downloaded script to PowerShell. It verifies these cases:
 9. The Installer refuses a root that holds a file it does not own.
 10. The Installer rejects an incorrect build identity.
 
-## GitHub pre-release of native archives
+## GitHub release of native archives
 
 `.github/workflows/release-github.yml` publishes one archive per published
-release target. A maintainer dispatches it from the default branch and supplies
-the version. The version must include a prerelease identifier. The workflow
-refuses every other ref, and refuses a dirty checkout.
+release target. A maintainer dispatches it from the default branch and
+supplies the version. A prerelease version publishes a prerelease. Every
+other version publishes a release. The workflow refuses every other ref, and
+refuses a dirty checkout.
 
 `shared/release-targets.ts` decides which targets the GitHub workflow
 publishes. The `heldFromPublication` field contains this decision. The current
@@ -652,7 +655,7 @@ The workflow attests every uploaded file with
 `gh attestation verify <file> --repo 1667-ai/1667`.
 
 This path does not verify a tag signature, and the release notes claim none.
-The attestation is the evidence a GitHub pre-release offers. npm publication
+The attestation is the evidence a GitHub release offers here. npm publication
 still requires the trusted inputs above.
 
 ## Retain release evidence

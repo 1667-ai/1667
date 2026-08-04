@@ -428,6 +428,22 @@ jobs:
       - name: Install script-free runtime dependencies
         run: npm ci --ignore-scripts
 
+      # release-github.yml can also create a GitHub release for this same
+      # `v<version>` tag, in a separate concurrency group nothing here
+      # serializes against. publishOrVerifyGitHubRelease (the release job,
+      # below) already refuses a channel mismatch and an archive-only release
+      # missing the npm tarballs and artifact manifest, but only after
+      # `publish` has already written to npm — a write that cannot be taken
+      # back. Discover that same incompatibility here instead, before
+      # `publish` ever runs.
+      - name: Refuse to publish over an incompatible existing GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/release-npm-github.ts check-existing "$VERSION"
+
       - name: Collect source evidence before artifact download
         env:
           GH_TOKEN: ${{ github.token }}
