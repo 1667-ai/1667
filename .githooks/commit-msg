@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Refuses a commit message that gives an AI tool co-authorship.
+#
+# CI runs the same rules and is the gate that decides. This hook only moves
+# the feedback earlier, and `git commit --no-verify` skips it.
+#
+# Install: git config core.hooksPath .githooks
+set -uo pipefail
+
+readonly ROOT="$(git rev-parse --show-toplevel)"
+
+if ! command -v npx >/dev/null 2>&1; then
+  # Without the toolchain the hook cannot judge the message. CI still can, so
+  # stay out of the way rather than refuse work this hook cannot check.
+  exit 0
+fi
+
+npx --no-install tsx "${ROOT}/scripts/check-commit-attribution.ts" --message "$1" >/dev/null
+exit $?
