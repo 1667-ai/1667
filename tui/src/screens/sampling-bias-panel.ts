@@ -82,6 +82,23 @@ function resolvedTokensText(resolution: SamplingBiasRowResolution): string {
     const owners = samplingBiasShadowOwners(resolution.entry).map(samplingBiasShadowOwnerText);
     return `‹ — › shadowed by ${owners.join(" and ")}`;
   }
+  // "native" (issue #311): reachable only for a KoboldCpp bannedStrings row.
+  // No tokenization was attempted, so there are no token IDs or variant
+  // outcomes to show — the row instead says plainly that the literal text
+  // goes to the provider, not a token bias, matching the "unlikely, not
+  // impossible" promise every banned string keeps (see the field comment on
+  // SamplingSettingsV2.bannedStrings).
+  if (resolution.kind === "native") return "→ literal text (KoboldCpp anti-slop)";
+  // "blocked" (issue #311, second pass): the literal-text counterpart to
+  // "shadowed" — a same-scope entry claims the identical word this banned
+  // string names, so KoboldCpp would act on both at once. Reuses
+  // `samplingBiasShadowOwnerText`, the same owner-naming text a "shadowed"
+  // row's own conflict already uses, since the winner is not always a
+  // phraseBias entry (it can be another banned string, or an explicit
+  // numeric logit-bias entry).
+  if (resolution.kind === "blocked") {
+    return `‹ — › conflicts with ${samplingBiasShadowOwnerText(resolution.conflict)}`;
+  }
   // `SamplingBiasRowResolution` has no "overridden" member at all — the
   // settings overlay never combines a story, so `samplingBiasRowResolution`
   // (../sampling-bias-resolution.js) throws rather than producing one — so

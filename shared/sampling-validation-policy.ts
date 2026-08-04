@@ -97,6 +97,27 @@ export function maxResolvedLogitBiasEntries(preset: SettingsPresetV2): number {
     ?? SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries;
 }
 
+// KoboldCpp's `banned_tokens` carries no per-request count limit in its own
+// API document (see the field description quoted in
+// shared/sampling-capabilities.ts) — unlike logit_bias, there is no
+// server-documented ceiling to defer to here the way
+// SAMPLING_RESOLVED_LOGIT_BIAS_PRESET_OVERRIDES.koboldcpp does. There is also
+// no natural "resolved" step that bounds it the way tokenization and merging
+// bounds logit_bias: a native banned string (issue #311) reaches the wire
+// exactly once per configured entry, profile and story combined and
+// deduplicated, with nothing else contesting it. Left unbounded, the two
+// independent 256-entry per-scope caps (SAMPLING_BANNED_STRINGS_POLICY.maxEntries)
+// a writer can configure at once — one on the profile, one on the story —
+// could still combine into 512 literal strings on the wire in one request
+// (issue #311 review, second pass, "not required" item). Rather than invent a
+// new operational number, or leave it structurally unbounded, this reuses the
+// same generous ceiling 1667 already applies to the tokenized logit_bias path
+// on every preset but KoboldCpp: one bound, on whichever bias-family object
+// actually reaches the wire.
+export const SAMPLING_NATIVE_BANNED_STRINGS_POLICY = {
+  maxEntries: SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries
+} as const;
+
 // The JSON schema still needs a structural, preset-agnostic ceiling on the
 // raw wire object — ajv has no way to see which preset a document targets.
 // Reuses SAMPLING_RESOLVED_LOGIT_BIAS_POLICY.maxEntries as that ceiling
@@ -133,13 +154,18 @@ export const SAMPLING_PHRASE_BIAS_POLICY = {
   maximum: 100
 } as const;
 
-/** Banned strings are a negative-bias shortcut (see the field comment on
- * `SamplingSettingsV2.bannedStrings`), not a native provider field — none of
- * the endpoints 1667 calls documents one (checked against the llama.cpp
- * server README, the KoboldCpp API doc, LM Studio, and Ollama — the same
- * sources cited in shared/sampling-capabilities.ts). Sizing mirrors
- * SAMPLING_PHRASE_BIAS_POLICY for the same reason: the resolved bound binds
- * before the list length does. */
+/** Banned strings are a negative-bias shortcut on every preset but one (see
+ * the field comment on `SamplingSettingsV2.bannedStrings`) — not a native
+ * provider field on the llama.cpp server README, LM Studio, or Ollama (the
+ * same sources cited in shared/sampling-capabilities.ts). KoboldCpp is the
+ * documented exception (issue #311): its `banned_tokens` field is native,
+ * takes literal text, and carries no per-request count limit of its own in
+ * its API document — this list-length cap still applies there, as the
+ * structural bound on what a writer can configure, but it is not standing
+ * in for a provider-documented ceiling the way it is on every other preset.
+ * Sizing mirrors SAMPLING_PHRASE_BIAS_POLICY for the same reason: the
+ * resolved bound binds before the list length does, on the presets where a
+ * resolved bound applies at all. */
 export const SAMPLING_BANNED_STRINGS_POLICY = {
   maxEntries: 256,
   maxScalars: 64

@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
-import { probeContextWindow } from "../server/context-probe.js";
+import { probeContextWindow, probeKoboldCppTokenize } from "../server/context-probe.js";
 import { ownedLoopbackHttpSupported } from "../server/provider-fetch.js";
 import {
   attachProviderRuntime,
@@ -258,6 +258,74 @@ test("context probes return only durable positive token integers", async (t) => 
   contextLength = 1_000_000_000;
   maximumContextLength = Number.MAX_SAFE_INTEGER;
   assert.equal(await probeContextWindow(settings("custom")), 1_000_000_000);
+});
+
+test("KoboldCpp tokenize probes against the same server never overlap (issue #311 review, round five, blocker)", async (t) => {
+  // KoboldCpp's own upstream source documents `/api/extra/tokencount` as
+  // answering from a process-global buffer (`static std::vector<int> toks`,
+  // expose.cpp) it hands out through a raw pointer — two overlapping
+  // requests against the same server can therefore reallocate or overwrite
+  // the buffer the other is still reading, quietly returning wrong token
+  // ids (server/context-probe.ts, `withKoboldCppTokenCountLock`'s own
+  // comment cites the exact source lines). This fixture makes an overlap
+  // observable: every request holds `inFlight` up for a fixed delay before
+  // answering, so two truly concurrent requests would both be counted at
+  // once. The fixture asserts 1667's own assumption about what
+  // serialization must look like on the wire — one request in flight at a
+  // time against one server root — not a real KoboldCpp server's behavior.
+  const originalFetch = globalThis.fetch;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let calls = 0;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    assert.equal(input.url, "https://models.example/api/extra/tokencount");
+    calls += 1;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlight -= 1;
+    return Response.json({ value: 1, ids: [1] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const koboldCpp = settings("koboldcpp");
+  await Promise.all([
+    probeKoboldCppTokenize(koboldCpp, "alpha"),
+    probeKoboldCppTokenize(koboldCpp, "bravo"),
+    probeKoboldCppTokenize(koboldCpp, "charlie"),
+    probeKoboldCppTokenize(koboldCpp, "delta")
+  ]);
+
+  assert.equal(calls, 4);
+  assert.equal(maxInFlight, 1, "KoboldCpp tokenize probes against one server must never overlap");
+});
+
+test("KoboldCpp tokenize probe serialization is per server root, not global", async (t) => {
+  // The lock must not turn two unrelated KoboldCpp servers into one queue —
+  // that would slow down a writer running two local KoboldCpp instances (or
+  // any two settings values that happen to hit different roots) for no
+  // safety reason, since each root's buffer is that server's own process.
+  const originalFetch = globalThis.fetch;
+  let inFlightByRoot: Record<string, number> = { "https://alpha.example": 0, "https://bravo.example": 0 };
+  let overlapped = false;
+  globalThis.fetch = (async (input) => {
+    assert.ok(input instanceof Request);
+    const root = new URL(input.url).origin;
+    inFlightByRoot[root] = (inFlightByRoot[root] ?? 0) + 1;
+    if (Object.values(inFlightByRoot).every((count) => count > 0)) overlapped = true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlightByRoot[root] = (inFlightByRoot[root] ?? 0) - 1;
+    return Response.json({ value: 1, ids: [1] });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await Promise.all([
+    probeKoboldCppTokenize({ ...settings("koboldcpp"), baseUrl: "https://alpha.example/v1" }, "alpha"),
+    probeKoboldCppTokenize({ ...settings("koboldcpp"), baseUrl: "https://bravo.example/v1" }, "bravo")
+  ]);
+
+  assert.ok(overlapped, "two different KoboldCpp server roots must be free to probe concurrently");
 });
 
 function settings(preset: SettingsPresetV2): GenerationSettings {

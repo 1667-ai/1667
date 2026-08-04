@@ -10,25 +10,27 @@ import { invalidSettingsMutation } from "./settings-v2-mutation.js";
 import { resolveSamplingBiasForSettings } from "./sampling-phrase-bias.js";
 import { validateSamplingRoute } from "./settings-v2-sampling-validation.js";
 
-/** How long the whole llama-cpp bias-resolution phase of a save gets, across
- * every routed profile combined (see `assertSavedSamplingBiasResolves`
- * below) — issue #282 review round 3, finding 3. The check is fail-open, so
- * this only needs to be long enough for a live, reachable server to answer a
- * handful of small tokenize POSTs; it does not need to approach the 30
- * -second save budget (`shared/http-operation-protocol.ts`,
- * `HTTP_OPERATION_LIFETIME_MS.local`), because waiting longer can never
- * change a fail-open outcome, only delay it. */
+/** How long the whole live-tokenize-probe bias-resolution phase of a save
+ * gets, across every routed profile combined (see
+ * `assertSavedSamplingBiasResolves` below) — issue #282 review round 3,
+ * finding 3. The check is fail-open, so this only needs to be long enough
+ * for a live, reachable server to answer a handful of small tokenize POSTs;
+ * it does not need to approach the 30-second save budget
+ * (`shared/http-operation-protocol.ts`, `HTTP_OPERATION_LIFETIME_MS.local`),
+ * because waiting longer can never change a fail-open outcome, only delay
+ * it. */
 export const SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS = 5_000;
 
 /**
- * Closes the llama-cpp save-time hole issue #282 review round 2 flagged
- * (finding 6): `validateSamplingRoute` cannot resolve phraseBias/
- * bannedStrings for a live-tokenize preset without reaching its server,
- * and it must stay synchronous for every other caller — document decode
- * runs far more often than a save and must never make a network call. The
- * save path is async already, so it is the one place that can afford to
- * actually ask, and it is the only caller that supplies
- * `validateSamplingRoute` a real, network-resolved `precomputedResolution`.
+ * Closes the live-tokenize-probe save-time hole issue #282 review round 2
+ * flagged (finding 6), which issue #311 extended from llama-cpp to
+ * KoboldCpp: `validateSamplingRoute` cannot resolve phraseBias for a
+ * live-tokenize preset without reaching its server, and it must stay
+ * synchronous for every other caller — document decode runs far more often
+ * than a save and must never make a network call. The save path is async
+ * already, so it is the one place that can afford to actually ask, and it
+ * is the only caller that supplies `validateSamplingRoute` a real,
+ * network-resolved `precomputedResolution`.
  *
  * Bounded to the routed purposes (default/prose/utility, deduplicated —
  * the same three `assertRuntimeDocumentSupported` the caller runs first
@@ -41,17 +43,16 @@ export const SAMPLING_BIAS_SAVE_PROBE_DEADLINE_MS = 5_000;
  * profile in it, and `signal` (the caller's own, threaded from the HTTP
  * request) is folded into the same deadline (issue #282 review round 3,
  * finding 3): up to three distinct routed profiles can each reach a
- * different llama.cpp server, and each one that does can still fire
- * several POST /tokenize requests against it — one per distinct
- * surface-variant text (server/sampling-phrase-bias.ts,
- * llamaCppVariantTokenizer) — so the prior per-request timeout alone let a
- * single blackholed host (asleep, VPN dropped, stale address — not a
- * refused connection, which fails fast) consume the whole 30-second save
- * budget three times over. This check is fail-open — an unresolved
- * profile just skips its own bias validation, below — so a shorter
- * deadline or an earlier abort cannot change the verdict, only reach the
- * same verdict sooner: there is nothing this budget protects by running
- * longer.
+ * different llama.cpp or KoboldCpp server, and each one that does can still
+ * fire several tokenize POSTs against it — one per distinct surface-variant
+ * text (server/sampling-phrase-bias.ts, liveProbeVariantTokenizer) — so the
+ * prior per-request timeout alone let a single blackholed host (asleep, VPN
+ * dropped, stale address — not a refused connection, which fails fast)
+ * consume the whole 30-second save budget three times over. This check is
+ * fail-open — an unresolved profile just skips its own bias validation,
+ * below — so a shorter deadline or an earlier abort cannot change the
+ * verdict, only reach the same verdict sooner: there is nothing this budget
+ * protects by running longer.
  *
  * `environment` is the store's own resolved `NodeJS.ProcessEnv` snapshot,
  * passed through rather than read from `process.env` here, so this check

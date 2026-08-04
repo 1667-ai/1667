@@ -18,6 +18,7 @@ import {
   SAMPLING_BIAS_VARIANT_VALUES,
   TOKENIZER_UNAVAILABLE_CAUSE_VALUES,
   type SamplingBiasEntryResolution,
+  type SamplingBiasNativeBannedStringResolution,
   type SamplingBiasResolutionResult,
   type SamplingBiasScope,
   type SamplingBiasShadowOwner,
@@ -190,8 +191,36 @@ export function decodeSamplingBiasResolutionResponse(
     logitBias: decodeLogitBiasRecord(response.logitBias, label),
     phraseBias: decodeSamplingBiasEntryList(response.phraseBias, label),
     bannedStrings: decodeSamplingBiasEntryList(response.bannedStrings, label),
+    nativeBannedStrings: decodeNativeBannedStringList(response.nativeBannedStrings, label),
     resolvedEntryCount: nonNegativeIntegerField(response, "resolvedEntryCount", label)
   };
+}
+
+function decodeNativeBannedStringList(
+  value: unknown,
+  label: string
+): readonly SamplingBiasNativeBannedStringResolution[] {
+  if (!Array.isArray(value)) invalidField(label, "nativeBannedStrings");
+  return value.map((entry) => decodeNativeBannedString(entry, `${label} native banned string`));
+}
+
+function decodeNativeBannedString(
+  value: unknown,
+  label: string
+): SamplingBiasNativeBannedStringResolution {
+  const record = responseRecord(value, label);
+  const phrase = stringField(record, "phrase", label);
+  const scope = decodeSamplingBiasScope(record.scope, label);
+  if (record.kind === "native") return { kind: "native", phrase, scope };
+  // "blocked" (same-scope, issue #311 second pass) and "overridden"
+  // (cross-scope, issue #311 review, third pass, finding G) both name
+  // whoever actually won the contested token — reusing `decodeShadowOwner`,
+  // the same decoder a "shadowed"/"overridden" SamplingBiasEntryResolution's
+  // own conflicts already use, since the winner is not always a phraseBias
+  // entry (it can be another banned string, or an explicit numeric
+  // logitBias entry).
+  if (record.kind !== "blocked" && record.kind !== "overridden") invalidField(label, "kind");
+  return { kind: record.kind, phrase, scope, conflict: decodeShadowOwner(record.conflict, label) };
 }
 
 function decodeTokenizerUnavailableCause(value: unknown, label: string): TokenizerUnavailableCause {
@@ -226,6 +255,10 @@ function decodeSamplingBiasEntry(value: unknown, label: string): SamplingBiasEnt
   const record = responseRecord(value, label);
   const phrase = stringField(record, "phrase", label);
   const scope = decodeSamplingBiasScope(record.scope, label);
+  // A native banned string (issue #311) is never a member of this union —
+  // see `decodeNativeBannedStringList` above, and the doc comment on
+  // `SamplingBiasEntryResolution` (shared/sampling-phrase-resolution.ts) for
+  // why. Every kind reachable here carries variants unconditionally.
   const variants = decodeSamplingBiasVariantList(record.variants, label);
   if (record.kind === "rejected") return { kind: "rejected", phrase, scope, variants };
   if (record.kind === "shadowed" || record.kind === "overridden") {

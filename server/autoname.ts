@@ -1,7 +1,7 @@
 import type { PromptPlan, PromptTurn } from "../shared/prompt-plan.js";
 import type { Story, StoryNode } from "../shared/types.js";
 import { activePath } from "../shared/story-tree.js";
-import { factsSystemMessage } from "./story-facts.js";
+import { factsSystemMessage } from "../shared/fact-selection.js";
 
 export const MAX_STORY_CONTEXT_CHARS = 24_000;
 const MAX_AUTHOR_BRIEF_CHARS = 2_000;

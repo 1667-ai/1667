@@ -23,6 +23,7 @@ import type { SelectedSettingsRouteV2 } from "../shared/settings-route.js";
 import {
   maxResolvedLogitBiasEntries,
   SamplingValidationError,
+  SAMPLING_NATIVE_BANNED_STRINGS_POLICY,
   validateSamplingBannedStrings,
   validateSamplingDryBreakers,
   validateSamplingLogitBias,
@@ -34,8 +35,10 @@ import {
 import { closedRecord, closedShape } from "./story-wire-validation.js";
 import { SettingsFormatError } from "./settings-v2-scalars.js";
 import {
+  firstBlockedNativeBannedString,
   firstBlockingSamplingBiasEntry,
   samplingBiasEntryRejectionMessage,
+  samplingBiasNativeBlockedMessage,
   type SamplingBiasResolutionResult
 } from "../shared/sampling-capabilities.js";
 import { combineSamplingBiasSources, resolveSamplingLogitBiasForEncoding } from "./sampling-phrase-bias.js";
@@ -114,13 +117,20 @@ function samplingPolicy<T>(operation: () => T): T {
  * validation.ts, tui/src/api-response-decoders.ts) runs far more often than
  * a save and must never make a network call — so it falls back to a local,
  * synchronous resolution when nothing is supplied. That local fallback
- * cannot check "llama-cpp": its tokenizer is a live probe
- * (server/context-probe.ts, probeLlamaCppTokenize), not a local allow-list,
- * so those callers still skip the bias check for it, same as before. The
- * save path (server/settings-v2-store.ts) is async already, so it is the one
- * caller that resolves llama-cpp for real and supplies the result here —
- * one enforcement point for the whole logit-bias family, on every preset,
- * instead of a synchronous check for one preset and a bypass for another.
+ * cannot check "llama-cpp" or "koboldcpp" (issue #311): both resolve
+ * phraseBias through a live probe (server/context-probe.ts,
+ * probeLlamaCppTokenize / probeKoboldCppTokenize), not a local allow-list —
+ * KoboldCpp's bannedStrings needs no tokenizer at all and could in principle
+ * be checked synchronously even when phraseBias is empty, but this skips it
+ * unconditionally along with phraseBias rather than threading that
+ * narrower case through a synchronous fallback that has no live connection
+ * to ask in the first place — so those callers still skip the bias check
+ * for either preset, same as before. The save path
+ * (server/settings-v2-store.ts) is async already, so it is the one caller
+ * that resolves llama-cpp and koboldcpp for real and supplies the result
+ * here — one enforcement point for the whole logit-bias family, on every
+ * preset, instead of a synchronous check for one preset and a bypass for
+ * another.
  *
  * A resolution that comes back "tokenizer-unavailable" never blocks the
  * save: an unreachable llama.cpp server is indistinguishable here from
@@ -148,7 +158,7 @@ export function validateSamplingRoute(
   if (!configured.some(({ knob }) => isLogitBiasFamilyKnob(knob))) return;
   const preset = context.preset;
   const resolved = precomputedResolution ?? (
-    preset === "llama-cpp"
+    preset === "llama-cpp" || preset === "koboldcpp"
       ? undefined
       : resolveSamplingLogitBiasForEncoding(
           // No story is ever in play at settings-save time (issue #341
@@ -167,11 +177,40 @@ export function validateSamplingRoute(
       + samplingBiasEntryRejectionMessage(blocking)
     );
   }
+  // A native bannedStrings entry (KoboldCpp only) is never a member of
+  // `resolved.bannedStrings`, so the check above cannot see it lose to a
+  // same-scope phraseBias phrase the way a tokenized entry would (issue
+  // #311, second pass, finding B) — checked separately here, the save-time
+  // counterpart to the same check server/provider-sampling.ts runs before a
+  // request.
+  const blockedNative = firstBlockedNativeBannedString(resolved.nativeBannedStrings);
+  if (blockedNative !== undefined) {
+    throw new SettingsFormatError(
+      `profile ${profileId} cannot use ${JSON.stringify(blockedNative.phrase)} as configured: `
+      + samplingBiasNativeBlockedMessage(blockedNative)
+    );
+  }
   const bound = maxResolvedLogitBiasEntries(preset);
   if (resolved.resolvedEntryCount > bound) {
     throw new SettingsFormatError(
       `profile ${profileId} resolves to ${resolved.resolvedEntryCount} logit-bias entries, `
       + `exceeding the ${bound}-entry limit for preset ${preset}`
+    );
+  }
+  // The combined-scope cap on native bannedStrings itself (issue #311
+  // review, second pass, "not required" item) — see
+  // SAMPLING_NATIVE_BANNED_STRINGS_POLICY's own comment for why this is a
+  // separate bound from the one just above, which binds only `logitBias`.
+  // Counts only "native" entries — an "overridden" one (issue #311 review,
+  // third pass, finding G) never reaches `banned_tokens` at all, so it
+  // never counts against what the wire actually carries.
+  const nativeCount = new Set(
+    resolved.nativeBannedStrings.flatMap((entry) => entry.kind === "native" ? [entry.phrase] : [])
+  ).size;
+  if (nativeCount > SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries) {
+    throw new SettingsFormatError(
+      `profile ${profileId} resolves to ${nativeCount} banned-string entries, exceeding the `
+      + `${SAMPLING_NATIVE_BANNED_STRINGS_POLICY.maxEntries}-entry limit`
     );
   }
 }

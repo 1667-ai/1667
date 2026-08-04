@@ -1,30 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { ServiceError as HttpError } from "./errors.js";
-export {
-  activeBudgetedFacts,
-  activeBudgetedFactsForRewrite,
-  factsSystemMessage,
-  type FactsBudgetSource
-} from "../shared/fact-selection.js";
 import {
   FactActivationError,
   parseFactActivation,
   parseFactKeys,
   parseFactMetadata,
   parseFactPriority,
-  selectActiveFacts,
-  selectActiveFactsForRewrite,
-  type FactPriority,
-  type FactScanContext
+  type FactPriority
 } from "../shared/fact-activation.js";
-import {
-  FactBudgetError,
-  parseFactBudgetTokens,
-  selectFactsWithinBudget,
-  type FactBudgetSelection
-} from "../shared/fact-budget.js";
-import { formatFactsMessage } from "../shared/story-facts.js";
-import { activePath, isChapterSummary } from "../shared/story-tree.js";
+import { FactBudgetError, parseFactBudgetTokens } from "../shared/fact-budget.js";
+import { isChapterSummary } from "../shared/story-tree.js";
 import { hasUnpairedSurrogate } from "./story-format.js";
 import { hasDefinedProperty, requireRecord } from "./validation.js";
 import {

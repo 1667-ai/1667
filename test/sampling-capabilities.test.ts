@@ -204,14 +204,22 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
     })
   },
   {
+    // Issue #311: KoboldCpp's own /api/extra/tokencount probe clears
+    // phraseBias the same way llama.cpp's /tokenize does, so phraseBias
+    // reads "available" here regardless of model, matching the llama-cpp
+    // fixture above it. bannedStrings is available too, but resolves to its
+    // own field (`banned_tokens`, PRESET_WIRE_OVERRIDES) rather than sharing
+    // phraseBias's `logit_bias` — the one preset where the two diverge.
     name: "KoboldCpp subtraction and extension preset, mirostat off",
     context: samplingContext("openai-chat-completions", "koboldcpp"),
     sampling: EMPTY_SAMPLING_V2,
     expected: {
-      ...llamaCppOrKoboldcppExtensions("mirostat-off", "mirostat-off", {
-        kind: "unavailable",
-        reason: "preset-unsupported"
-      }),
+      ...llamaCppOrKoboldcppExtensions(
+        "mirostat-off",
+        "mirostat-off",
+        { kind: "available", wireField: "logit_bias" },
+        { kind: "available", wireField: "banned_tokens" }
+      ),
       frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" },
       // KoboldCpp's OpenAI-compatible adapter reads `mirostat_mode` and writes
       // the result over `mirostat`, so this one preset spells the field
@@ -227,7 +235,8 @@ const SAMPLING_CAPABILITY_FIXTURES: readonly SamplingCapabilityFixture[] = [
       ...llamaCppOrKoboldcppExtensions(
         { kind: "available", wireField: "mirostat_tau" },
         { kind: "available", wireField: "mirostat_eta" },
-        { kind: "unavailable", reason: "preset-unsupported" }
+        { kind: "available", wireField: "logit_bias" },
+        { kind: "available", wireField: "banned_tokens" }
       ),
       frequencyPenalty: { kind: "unavailable", reason: "preset-unsupported" },
       mirostat: { kind: "available", wireField: "mirostat_mode" }
@@ -480,7 +489,12 @@ function baselineOnly(
 function llamaCppOrKoboldcppExtensions(
   mirostatTauResolution: SamplingResolution | "mirostat-off",
   mirostatEtaResolution: SamplingResolution | "mirostat-off",
-  phraseBiasFamily: SamplingResolution
+  phraseBiasFamily: SamplingResolution,
+  // Only KoboldCpp's bannedStrings ever resolves to a field distinct from
+  // phraseBias's (`banned_tokens`, issue #311) — llama-cpp still shares
+  // phraseBiasFamily's own value for both, so every existing llama-cpp
+  // fixture call below needs no change.
+  bannedStringsResolution: SamplingResolution = phraseBiasFamily
 ): Readonly<Record<SamplingKnobV2, SamplingResolution>> {
   const tau = mirostatTauResolution === "mirostat-off"
     ? { kind: "unavailable" as const, reason: "mirostat-off" as const }
@@ -508,7 +522,7 @@ function llamaCppOrKoboldcppExtensions(
     stop: { kind: "available", wireField: "stop" },
     logitBias: { kind: "available", wireField: "logit_bias" },
     phraseBias: phraseBiasFamily,
-    bannedStrings: phraseBiasFamily,
+    bannedStrings: bannedStringsResolution,
     dryBreakers: { kind: "available", wireField: "dry_sequence_breakers" }
   };
 }
