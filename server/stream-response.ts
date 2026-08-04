@@ -7,6 +7,7 @@ import {
   failureWireFields
 } from "../shared/failure-envelope.js";
 import { GenerationStoppedError } from "./errors.js";
+import { DeltaBatcher } from "./delta-batcher.js";
 
 export async function streamResponse<T>(
   request: IncomingMessage,
@@ -32,15 +33,28 @@ export async function streamResponse<T>(
     : AbortSignal.any([operationSignal, abort.signal]);
   let session: ReturnType<typeof openSse> | null = null;
   const open = () => session ??= openSse(response, abort);
+  // Batches deltas at the same byte/time thresholds the embedded worker path
+  // uses (server/worker-delta-batcher.ts), over the same DeltaBatcher. An
+  // HTTP write already carries its own backpressure (openSse.send awaits
+  // "drain"), so this "send" needs no readiness gate of its own — it only
+  // has to deliver.
+  const deltas = new DeltaBatcher(
+    async (text) => { await open().send({ type: "delta", text }); }
+  );
   try {
     const value = await run(
-      async (text) => await open().send({ type: "delta", text }),
+      (text) => deltas.push(text),
       signal
     );
+    // A pending batch must reach the client before "done" or "error" — never
+    // delayed behind it, and never reordered around it — so every exit path
+    // flushes before it decides what terminal event (if any) to send.
+    await deltas.flush();
     if (value === null || signal.aborted) return void response.end();
     await open().send(done(value));
     response.end();
   } catch (error) {
+    await deltas.flush().catch(() => undefined);
     if (signal.aborted) {
       if (!isExpectedCancellation(error, signal)) {
         await errorReporter?.report(error, {
@@ -64,6 +78,8 @@ export async function streamResponse<T>(
       ...failureWireFields(reported.failure)
     });
     response.end();
+  } finally {
+    deltas.dispose();
   }
 }
 

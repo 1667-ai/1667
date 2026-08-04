@@ -25,7 +25,7 @@ export async function runHttpOperationMutation<
   signal: AbortSignal,
   transportOperationId: string,
   expectedAggregateVersion: StoryAggregateVersion,
-  onDelta: (text: string) => void = () => {}
+  onDelta: (text: string) => void | Promise<void> = () => {}
 ): Promise<WorkerOutput<M>> {
   let parsed: ReturnType<typeof parseWorkerMutation<M>> | undefined;
   const parse = () => parsed ??= parseWorkerMutation(

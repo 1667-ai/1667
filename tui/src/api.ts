@@ -984,14 +984,19 @@ async function streamSse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // Resumes each search where the last one left off (shared/sse.ts), so a
+  // large payload with no line break until its final byte costs one scan
+  // over the buffer, not one rescan per network chunk.
+  let searchFrom = 0;
   let completed: Record<string, unknown> | null = null;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const split = splitSseEvents(buffer);
+      const split = splitSseEvents(buffer, searchFrom);
       buffer = split.rest;
+      searchFrom = split.nextSearchFrom;
       for (const data of split.events) {
         const event = JSON.parse(data) as {
           type: string;
