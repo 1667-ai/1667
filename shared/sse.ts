@@ -16,6 +16,10 @@ const MAX_SEPARATOR_LENGTH = 4;
  * `MAX_SEPARATOR_LENGTH - 1` characters from the end of the unconsumed
  * remainder rather than resuming exactly where the search stopped — the
  * only region a newly arriving chunk could complete a separator over.
+ *
+ * Caller obligation: pass back this call's `rest` as the next call's
+ * `buffer`, and this call's `nextSearchFrom` as the next call's
+ * `searchFrom`. Skip this, and events go silently missing.
  */
 export function splitSseEvents(
   buffer: string,
