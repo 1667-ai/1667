@@ -213,7 +213,7 @@ async function handleApi(
   const mutate = <M extends MutatingWorkerMethod>(
     workerMethod: M,
     input: unknown,
-    onDelta?: (text: string) => void,
+    onDelta?: (text: string) => void | Promise<void>,
     signal = operation.signal
   ) => {
     if (operation.mutationId === null) {
