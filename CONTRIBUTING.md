@@ -76,6 +76,40 @@ feat|fix|refactor|build|ci|chore|docs|style|perf|test
 Write the body for someone who is reading it in a year with no memory of the
 conversation: what was wrong, and why this is the fix.
 
+### A tool is not a contributor
+
+Do not give an AI tool authorship or co-authorship of a commit.
+
+GitHub counts a `Co-Authored-By:` trailer as a contribution. It then shows the
+named account on the contributor list of the repository. A tool did not
+contribute, so the trailer makes the record wrong.
+
+CI refuses a commit that does one of these:
+
+- It has a `Co-Authored-By:` trailer that names a tool.
+- Its author or its committer names a tool.
+
+The gate runs on every pull request and on every push to `main`. You cannot
+bypass it. To see the same result before you push:
+
+```sh
+npx tsx scripts/check-commit-attribution.ts --range origin/main..HEAD
+```
+
+The `commit-msg` hook applies the same rules when you write the commit. The
+hook is optional, and `git commit --no-verify` skips it, so CI decides.
+
+If your tool adds the trailer, turn the behavior off. For Claude Code, put this
+in `~/.claude/settings.json`, then start a new session, because a session reads
+the setting one time when it starts:
+
+```json
+{ "attribution": { "commit": "", "pr": "" } }
+```
+
+A `Claude-Session:` trailer is different. It is not co-authorship, GitHub does
+not count it, and the gate permits it.
+
 ## Tests
 
 Fix a bug, add a regression test. Prefer a test that would have failed before

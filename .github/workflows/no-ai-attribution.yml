@@ -1,0 +1,61 @@
+name: No AI attribution
+
+# GitHub counts a Co-Authored-By trailer as a contribution and lists the named
+# account on the contributor graph. An AI tool is not a contributor. This gate
+# refuses any commit that gives a tool authorship or co-authorship.
+#
+# CI is the gate that decides. The commit-msg hook applies the same rules
+# earlier, but a hook is optional and `--no-verify` skips it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attribution-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.0
+
+      - name: Install runtime dependencies
+        run: npm ci
+
+      - name: Choose the range to check
+        id: range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -n "${BASE_SHA:-}" ]; then
+            echo "range=${BASE_SHA}..${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A new branch, or a force push, reports an all-zero "before".
+          case "${BEFORE:-}" in
+            ""|*[!0]*) ;;
+            *) echo "range=${AFTER}~1..${AFTER}" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          echo "range=${BEFORE}..${AFTER}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse AI authorship and co-authorship
+        run: npx tsx scripts/check-commit-attribution.ts --range "${{ steps.range.outputs.range }}"
