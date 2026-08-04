@@ -42,9 +42,10 @@ export class DeltaBatcher {
           this.timer = null;
           const flushing = this.flushBuffered();
           this.timedFlush = flushing;
-          void flushing.finally(() => {
+          const clearTimedFlush = () => {
             if (this.timedFlush === flushing) this.timedFlush = null;
-          });
+          };
+          flushing.then(clearTimedFlush, clearTimedFlush);
         }, DELTA_BATCH_WINDOW_MS);
       }
     }
@@ -77,19 +78,24 @@ export class DeltaBatcher {
   }
 
   dispose(): void {
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-    this.chunks = [];
-    this.bytes = 0;
+    this.takeBuffered();
   }
 
+  /** Flush the buffered batch, if any, through the send queue. The drain of
+   *  `chunks` happens inside the queued continuation, at the same step that
+   *  hands the batch to `send`. This keeps a batch either in `chunks` or
+   *  inside that one synchronous step — never in neither place, where
+   *  `takeBuffered` could not find it. */
   private async flushBuffered(): Promise<void> {
     if (this.chunks.length === 0) return;
-    const text = this.chunks.join("");
-    const bytes = this.bytes;
-    this.chunks = [];
-    this.bytes = 0;
-    const sent = this.sendQueue.then(() => this.send(text, bytes));
+    const sent = this.sendQueue.then(() => {
+      if (this.chunks.length === 0) return;
+      const text = this.chunks.join("");
+      const bytes = this.bytes;
+      this.chunks = [];
+      this.bytes = 0;
+      return this.send(text, bytes);
+    });
     this.sendQueue = sent.catch(() => undefined);
     await sent;
   }

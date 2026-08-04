@@ -21,10 +21,13 @@ export class WorkerDeltaBatcher {
   private readonly creditWaiters = new Set<() => void>();
   private disposed = false;
   /** The one batch currently past `DeltaBatcher` and waiting on
-   *  `waitForCredit`, if any. `DeltaBatcher`'s `sendQueue` admits only one
-   *  delivery at a time, so one slot is always enough. `takeUnsent` reclaims
-   *  it by clearing this field; `send` checks the field is still its own
-   *  text before it posts, so a reclaimed batch can never reach `post`. */
+   *  `waitForCredit`, if any. A batch is always in exactly one place: in
+   *  `DeltaBatcher`'s `chunks`, or here in `inFlight`. `DeltaBatcher` drains
+   *  a batch out of `chunks` inside its send queue, at the same step that
+   *  calls `send`, so no window exists between the two places.
+   *  `takeUnsent` reclaims the in-flight batch by clearing this field;
+   *  `send` checks the field is still its own text before it posts, so a
+   *  reclaimed batch can never reach `post`. */
   private inFlight: string | null = null;
 
   constructor(
