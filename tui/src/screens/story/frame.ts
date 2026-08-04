@@ -32,6 +32,11 @@ export interface FrameSegment {
     id: string;
     editable: boolean;
   };
+  /** Field ownership for context clicks, including empty editor fields. */
+  composerHitSource?: {
+    id: string;
+    editable: boolean;
+  };
   /** Raw story field at the first grapheme of this rendered text. */
   storySource?: {
     key: string;

@@ -4,6 +4,7 @@ import { hitAt } from "./hit.js";
 import type { ResolvedKey } from "./keys.js";
 import { generationBusy } from "./story-actions.js";
 import type { RuntimeState } from "./state.js";
+import { activeTextComposer } from "./text-actions.js";
 
 export type MouseGesture = Pick<
   MouseEvent,
@@ -16,8 +17,8 @@ export type MouseGesture = Pick<
  *  has to compare the row, not its index. */
 export type MouseActionState = Pick<RuntimeState,
   | "mode" | "focusIndex" | "hitRows" | "map" | "payload" | "stream" | "demo"
-  | "connection"
-  | "actions" | "library" | "facts" | "commands" | "chapters" | "settings"
+  | "connection" | "composer" | "editor"
+  | "actions" | "textActions" | "library" | "facts" | "commands" | "chapters" | "settings"
   | "search"
   | "request"
 > & {
@@ -185,6 +186,8 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
     payload: state.payload,
     stream: state.stream,
     demo: state.demo,
+    composer: state.composer,
+    editor: state.editor,
     // The palette's rows depend on both, so identifying one means seeing what
     // the frame that drew it saw.
     connection: state.connection,
@@ -195,6 +198,7 @@ export function captureMouseActionState(state: RuntimeState): MouseActionState {
       openedColdFolds: new Set(state.map.openedColdFolds)
     },
     actions: state.actions === null ? null : { ...state.actions },
+    textActions: state.textActions === null ? null : { ...state.textActions },
     library: state.library === null ? null : {
       ...state.library,
       prompt: state.library.prompt === null
@@ -256,7 +260,8 @@ function captureSamplingSettings(
 
 /** True while any panel or modal owns the screen. */
 export function overlayOpen(state: MouseActionState): boolean {
-  return state.mode !== "NAV" && state.mode !== "COMPOSE";
+  return state.textActions !== null
+    || state.mode !== "NAV" && state.mode !== "COMPOSE";
 }
 
 /** Translate a mouse gesture into the same action vocabulary the keyboard
@@ -268,9 +273,6 @@ export function mouseToAction(
   state: MouseActionState,
   resolveReleaseTarget = false
 ): ResolvedKey | null {
-  // Keep terminal clipboard gestures inside the composer. A right-click can
-  // open a terminal menu, and Shift+right-click commonly bypasses mouse mode.
-  if (state.mode === "COMPOSE" && event.type === "down" && event.button === 2) return null;
   // Shift-drag belongs to the terminal's own selection; never steal it.
   if (event.modifiers.shift) return null;
   if (event.type === "scroll") {
@@ -290,6 +292,27 @@ export function mouseToAction(
     target = hitAt(state.hitRows, event.x, event.y, false);
   }
   if (target === null) return null;
+
+  const selectedList = target.kind === "list"
+    && (target.selected ?? listCursor(state) === target.index);
+  if (state.textActions === null
+    && event.button === 2
+    && (target.kind === "composer"
+      && (target.composerSourceId !== undefined || activeTextComposer(state) !== null)
+      || state.mode === "SETTINGS" && selectedList && activeTextComposer(state) !== null)) {
+    return {
+      action: "open-text-actions",
+      ...(target.kind === "composer" && target.composerSourceId !== undefined
+        ? { composerSourceId: target.composerSourceId }
+        : {}),
+      ...(target.kind === "composer" && target.composerEditable !== undefined
+        ? { composerEditable: target.composerEditable }
+        : {})
+    };
+  }
+  // A terminal can own right-click clipboard behavior while Direct is open.
+  // Only the composer target above replaces that behavior with this app menu.
+  if (state.mode === "COMPOSE" && event.button === 2) return null;
 
   if (target.kind === "scrim") return { action: "cancel" };
   if (target.kind === "settings-row" && event.button === 0) {
@@ -348,6 +371,7 @@ export function mouseToAction(
 
 /** Where the open overlay's cursor sits, for click-again-to-run. */
 function listCursor(state: MouseActionState): number | null {
+  if (state.textActions !== null) return state.textActions.cursor;
   if (state.request !== null) return state.request.cursor;
   if (state.actions !== null) return state.actions.cursor;
   if (state.library !== null) return state.library.cursor;

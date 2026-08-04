@@ -45,11 +45,6 @@ const DECLARED_DIVERGENCES = [
     actions: ["toggle-compose-fullscreen", "cursor-right", "cursor-word-right"],
     shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "f"
       && event.ctrl === true && (event.meta === true || event.option === true) },
-  { label: "ctrl+cmd+a", event: key("a", { ctrl: true, super: true }),
-    actions: ["cursor-line-start", "select-all", "select-all"],
-    shadowsShared: (event: KeyEvent) => event.name.toLowerCase() === "a"
-      && event.super === true
-      && (event.ctrl === true || event.meta === true || event.option === true) },
   { label: "ctrl+f", event: key("f", { ctrl: true }),
     actions: ["toggle-compose-fullscreen", "cursor-right", "none"] },
   { label: "ctrl+b", event: key("b", { ctrl: true }),
@@ -80,8 +75,6 @@ const DECLARED_DIVERGENCES = [
     actions: ["paste-clipboard", "paste-clipboard", "paste-clipboard"] },
   { label: "cmd+v", event: key("v", { super: true }),
     actions: ["paste-clipboard", "paste-clipboard", "paste-clipboard"] },
-  { label: "cmd+a", event: key("a", { super: true }),
-    actions: ["input", "select-all", "select-all"] },
   { label: "ctrl+d", event: key("d", { ctrl: true }),
     actions: ["none", "delete-forward", "none"] },
   { label: "ctrl+shift+d", event: key("d", { ctrl: true, shift: true }),
@@ -397,7 +390,10 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("backspace", { meta: true }), "EDITOR").action).toBe("delete-word-left");
     expect(resolveKey(key("backspace", { ctrl: true }), "EDITOR").action).toBe("delete-word-left");
     expect(resolveKey(key("k", { ctrl: true }), "EDITOR").action).toBe("delete-line-end");
-    expect(resolveKey(key("a", { ctrl: true }), "EDITOR").action).toBe("cursor-line-start");
+    expect(resolveKey(key("a", { ctrl: true }), "EDITOR").action).toBe("select-all");
+    expect(resolveKey(key("a", { ctrl: true }), "COMPOSE").action).toBe("select-all");
+    expect(resolveKey(key("a", { ctrl: true }), "SETTINGS", { overlayTyping: true }).action)
+      .toBe("select-all");
     expect(resolveKey(key("home", { shift: true }), "EDITOR"))
       .toEqual({ action: "cursor-line-start", extendSelection: true });
     expect(resolveKey(key("home", { ctrl: true, shift: true }), "EDITOR"))

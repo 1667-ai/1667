@@ -55,7 +55,7 @@ export function renderFactEditorLayout(
   const tag = editor.focus === "tag"
     ? renderTextInput(editor.tag, true, "tag", "none", body.fieldWidth,
         FACT_TAG_COMPOSER_SOURCE)
-    : renderComposerChoiceRow({
+    : composerHitSource(renderComposerChoiceRow({
         indent: "",
         fieldWidth: body.fieldWidth,
         label: "tag",
@@ -63,8 +63,8 @@ export function renderFactEditorLayout(
         sourceId: FACT_TAG_COMPOSER_SOURCE,
         sourceStart: tagLabel === editor.tag.text ? 0 : null,
         focused: false
-      });
-  const activation = renderComposerChoiceRow({
+      }), FACT_TAG_COMPOSER_SOURCE, true);
+  const activation = composerHitSource(renderComposerChoiceRow({
     indent: "",
     fieldWidth: body.fieldWidth,
     label: "activation",
@@ -72,7 +72,7 @@ export function renderFactEditorLayout(
     sourceId: FACT_ACTIVATION_COMPOSER_SOURCE,
     sourceStart: null,
     focused: editor.focus === "activation"
-  });
+  }), FACT_ACTIVATION_COMPOSER_SOURCE, false);
   const keys = renderTextInput(
     editor.keys,
     editor.focus === "keys",
@@ -81,7 +81,7 @@ export function renderFactEditorLayout(
     body.fieldWidth,
     FACT_KEYS_COMPOSER_SOURCE
   );
-  const priority = renderComposerChoiceRow({
+  const priority = composerHitSource(renderComposerChoiceRow({
     indent: "",
     fieldWidth: body.fieldWidth,
     label: "priority",
@@ -89,7 +89,7 @@ export function renderFactEditorLayout(
     sourceId: FACT_PRIORITY_COMPOSER_SOURCE,
     sourceStart: null,
     focused: editor.focus === "priority"
-  });
+  }), FACT_PRIORITY_COMPOSER_SOURCE, false);
   const budget = renderTextInput(
     editor.budget,
     editor.focus === "budget",
@@ -107,8 +107,12 @@ export function renderFactEditorLayout(
       keys,
       priority,
       budget,
-      ...body.lines.slice(1).map((line) =>
-        composerSource(line, FACT_BODY_COMPOSER_SOURCE))
+      ...body.lines.slice(1).map((line, index) => {
+        const sourced = composerSource(line, FACT_BODY_COMPOSER_SOURCE);
+        return index < body.bodyRows
+          ? composerHitSource(sourced, FACT_BODY_COMPOSER_SOURCE, true)
+          : sourced;
+      })
     ],
     lineCount: body.lineCount + 5,
     bodyRows: body.bodyRows + 5,
@@ -143,7 +147,7 @@ function renderTextInput(
     fieldWidth - visibleWidth(prefix) - visibleWidth(label) - visibleWidth("[  ]")
   );
   const position = composerPosition(composer);
-  return composerSource(composerFieldLine("", fieldWidth, [
+  return composerHitSource(composerSource(composerFieldLine("", fieldWidth, [
     segment("┃ ", "compose accent"),
     segment(focused ? "▸ " : "  ", "focus / accent"),
     segment(label, focused ? "prose" : "chrome"),
@@ -158,7 +162,18 @@ function renderTextInput(
       placeholder
     ),
     segment(" ]", focused ? "focus / accent" : "chrome")
-  ]), sourceId);
+  ]), sourceId), sourceId, true);
+}
+
+function composerHitSource(
+  line: FrameLine,
+  sourceId: string,
+  editable: boolean
+): FrameLine {
+  return line.map((part) => ({
+    ...part,
+    composerHitSource: { id: sourceId, editable }
+  }));
 }
 
 function composerSource(

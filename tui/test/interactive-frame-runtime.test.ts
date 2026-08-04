@@ -150,6 +150,91 @@ describe("interactive frame runtime", () => {
     setup.renderer.destroy();
   });
 
+  test("keeps ordinary Settings in separate native selection buffers", async () => {
+    const setup = await createTestRenderer({ width: 160, height: 36 });
+    const source = demoAppSource(false);
+    const state = initialState(source, false);
+    state.mode = "SETTINGS";
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
+    const wrapCache = createWrapCache<ProseStyle>();
+    renderStoryScreen(state, { width: 160, height: 36, wrapCache });
+    const paintOptions: Parameters<StorySurface["paint"]>[4][] = [];
+    const surface: StorySurface = {
+      paint(_frame, _palette, _layout, _selectable, options) {
+        paintOptions.push(options);
+      },
+      setPageSelectable() {},
+      setBackground() {},
+      onMouse() {}
+    };
+    const runtime = createInteractiveFrameRuntime({
+      state,
+      renderer: setup.renderer,
+      surface,
+      palette: () => createPalette("lantern", "256"),
+      wrapCache,
+      onBuilt: () => undefined,
+      onError: (error) => { throw error; }
+    });
+
+    runtime.invalidate();
+    runtime.flush();
+
+    expect(paintOptions.at(-1)).toBe(undefined);
+    runtime.dispose();
+    setup.renderer.destroy();
+  });
+
+  test("paints a Sampling edit through one native selection buffer", async () => {
+    const setup = await createTestRenderer({ width: 160, height: 36 });
+    const source = demoAppSource(false);
+    const state = initialState(source, false);
+    state.mode = "SETTINGS";
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
+    state.settings.sampling = {
+      panel: "sampling",
+      cursor: 0,
+      logitBiasOrder: [],
+      edit: {
+        kind: "scalar",
+        index: 0,
+        knob: "topP",
+        composer: createComposer("0.7"),
+        initial: ""
+      },
+      result: null,
+      biasResolution: { kind: "idle" },
+      resolutionGeneration: 0
+    };
+    const wrapCache = createWrapCache<ProseStyle>();
+    renderStoryScreen(state, { width: 160, height: 36, wrapCache });
+    const paintOptions: Parameters<StorySurface["paint"]>[4][] = [];
+    const surface: StorySurface = {
+      paint(_frame, _palette, _layout, _selectable, options) {
+        paintOptions.push(options);
+      },
+      setPageSelectable() {},
+      setBackground() {},
+      onMouse() {}
+    };
+    const runtime = createInteractiveFrameRuntime({
+      state,
+      renderer: setup.renderer,
+      surface,
+      palette: () => createPalette("lantern", "256"),
+      wrapCache,
+      onBuilt: () => undefined,
+      onError: (error) => { throw error; }
+    });
+
+    runtime.invalidate();
+    runtime.flush();
+
+    expect(paintOptions.at(-1)).toEqual({ singleSelectionBuffer: true });
+    runtime.dispose();
+    setup.renderer.destroy();
+  });
+
   test("an older native frame cannot consume a newer app commit", () => {
     const controlled = createControlledRenderer(120, 36);
     const state = initialState(demoAppSource(false), false);

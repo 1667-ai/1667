@@ -18,6 +18,7 @@ import { canRewriteSelection } from "../selection-projection.js";
 import type { OverlayState, StoryScreenState, StreamView } from "../state.js";
 import { currentPartActions } from "../story-actions.js";
 import { generationBusy } from "../generation-action.js";
+import { availableTextActions, TEXT_ACTIONS } from "../text-actions.js";
 import { deriveSummaryProgress } from "../summary-model.js";
 import { chapterDisplayTitle,
   chapterListModel, chapterWindow } from "../chapter-model.js";
@@ -78,6 +79,10 @@ export const ACTIONS_FOOTER_ACTIONS = [
   { token: "↵ run", action: "apply" },
   { token: "esc close", action: "cancel" }
 ] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
+const TEXT_ACTIONS_FOOTER_ACTIONS = [
+  { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
+  { token: "↵", action: "apply" }, { token: "esc", action: "cancel" }
+] as const satisfies ReadonlyArray<{ token: string; action: KeyAction }>;
 export const TAGS_FOOTER_ACTIONS = [
   { token: "↑", action: "focus-previous" }, { token: "↓", action: "focus-next" },
   { token: "d delete", action: "delete-item" }, { token: "esc commands", action: "cancel" }
@@ -137,10 +142,42 @@ export function renderPanels(
   }
   else if (state.settings !== null) composition = renderSettingsPanel(base, local, width, height);
   else if (state.summary !== null) composition = renderSummary(dimPage(base), local, width, height);
+  if (state.textActions !== null) {
+    composition = renderTextActionsPanel(dimPage(composition.lines), local, width, height);
+  }
   if (state.connection.down) {
     composition = { ...composition, lines: renderConnectionBanner(composition.lines, local, width, deadlines) };
   }
   return composition;
+}
+
+export function renderTextActionsPanel(
+  base: FrameLine[],
+  state: Pick<OverlayState, "textActions" | "hitRows">,
+  width: number,
+  height: number
+): FrameComposition {
+  const overlay = state.textActions!;
+  const actions = availableTextActions(overlay);
+  const contentWidth = panelHorizontalGeometry(width, 48).contentWidth;
+  const leadWidth = Math.min(4, contentWidth);
+  const widestName = Math.max(...TEXT_ACTIONS.map((action) => visibleWidth(action.name)));
+  const nameWidth = Math.min(widestName + 2, Math.max(0, contentWidth - leadWidth));
+  const descriptionWidth = Math.max(0, contentWidth - leadWidth - nameWidth);
+  const content: FrameLine[] = actions.map((action, index): FrameLine => [
+    raisedSegment(cellPad(index === overlay.cursor ? "  ▸ " : "", leadWidth),
+      index === overlay.cursor ? "focus / accent" : "chrome"),
+    raisedSegment(cellPad(truncate(action.name, nameWidth), nameWidth),
+      index === overlay.cursor ? "prose" : "prose · dim"),
+    raisedSegment(truncate(action.description, descriptionWidth), "chrome")
+  ]);
+  return placePanel(base, "edit actions", content,
+    "↑ ↓ ↵ esc", width, height, 48,
+    {
+      rows: state.hitRows,
+      targets: actions.map((_, index): HitTarget => ({ kind: "list", index })),
+      footerActions: TEXT_ACTIONS_FOOTER_ACTIONS
+    });
 }
 
 /** OpenCode-style part menu: right-click a part, or press x. */

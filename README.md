@@ -81,6 +81,8 @@ Git manages this installation.
 | Open the composer | `Enter` or `i` |
 | Copy selected composer text | `Ctrl+C` |
 | Paste text into the composer | `Ctrl+V` |
+| Select all text in an editor | `Ctrl+A` or `Command+A` |
+| Open the editor action menu | Right-click an editor |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
 | Edit the Author's Note | `a` |

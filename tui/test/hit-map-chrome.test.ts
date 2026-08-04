@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import { dispatch, initialState } from "../src/app.js";
-import { createComposer } from "../src/composer-model.js";
+import { createComposer, setComposerText } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
+import { openFactEditor } from "../src/editor-action.js";
+import {
+  FACT_ACTIVATION_COMPOSER_SOURCE,
+  FACT_KEYS_COMPOSER_SOURCE,
+  FACT_TAG_COMPOSER_SOURCE,
+  setFactEditorFocus
+} from "../src/fact-editor-policy.js";
 import { hitAt, type HitTarget } from "../src/hit.js";
 import { GUTTER_VERBS } from "../src/screens/story/row-layout.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
@@ -22,6 +29,7 @@ import {
 } from "../src/screens/panels.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
+import type { FactEditorSession } from "../src/state.js";
 import { createWrapCache } from "../src/wrap.js";
 
 /** The hit map is rebuilt by rendering, so it has to be tested through a real
@@ -43,6 +51,11 @@ const key = (name: string): KeyEvent => ({
 type State = ReturnType<typeof initialState>;
 type Source = ReturnType<typeof demoAppSource>;
 type FooterActions = ReadonlyArray<{ token: string; action: KeyAction }>;
+
+function currentFactEditor(state: State): FactEditorSession {
+  if (state.editor?.kind !== "fact") throw new Error("Fact editor did not open");
+  return state.editor;
+}
 
 function showMap(state: State, view: "path" | "tree" | "mass" = "path", cursorId = "p12") {
   state.mode = "MAP";
@@ -919,7 +932,7 @@ describe("hit map clickable chrome", () => {
     }
   });
 
-  test("focused prose clicks only focus, and right-click keeps COMPOSE ownership", async () => {
+  test("focused prose clicks only focus, and right-click opens the composer menu", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.stream = null;
@@ -935,10 +948,158 @@ describe("hit map clickable chrome", () => {
       render(state);
       const composerRow = state.hitRows.findIndex((row) => row?.target.kind === "composer");
       expect(composerRow).toBeGreaterThan(-1);
-      expect(mouseToAction(click(2, composerRow, 2), state)).toBe(null);
+      const action = mouseToAction(click(2, composerRow, 2), state);
+      expect(action).toEqual({ action: "open-text-actions" });
+      await dispatch(
+        action!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+      );
       expect(state.mode).toBe("COMPOSE");
+      expect(state.textActions).not.toBe(null);
+      for (const width of [120, 40, 24]) {
+        render(state, width, 24);
+      }
+      await dispatch(
+        { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+      );
+      expect(state.textActions).toBe(null);
     }
+    state.composer.fullscreen = false;
+    render(state);
+    const composePartRow = state.hitRows.findIndex((row) => row?.target.kind === "part");
+    expect(composePartRow).toBeGreaterThan(-1);
+    expect(mouseToAction(click(2, composePartRow, 2), state)).toBe(null);
 
+    const node = state.payload.path.at(-1)!;
+    state.mode = "EDITOR";
+    state.editor = {
+      kind: "document",
+      target: {
+        kind: "part",
+        node,
+        pathIndex: state.payload.path.length - 1,
+        savedNode: null
+      },
+      title: "edit part",
+      placeholder: "",
+      composer: createComposer("editor text"),
+      initial: "editor text",
+      returnMode: "NAV",
+      conflict: null,
+      cutConfirmation: null
+    };
+    render(state);
+    const editorRow = state.hitRows.findIndex((row) => row?.target.kind === "composer");
+    expect(editorRow).toBeGreaterThan(-1);
+    const editorAction = mouseToAction(click(2, editorRow, 2), state);
+    expect(editorAction).toEqual({ action: "open-text-actions" });
+    await dispatch(
+      editorAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(render(state).some((line) => plainLine(line).includes("edit actions"))).toBeTrue();
+    await dispatch(
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+
+    openFactEditor(state, null);
+    expect(currentFactEditor(state).tag.text).toBe("");
+    render(state);
+    const emptyTagRow = state.hitRows.findIndex((row) => row?.target.kind === "composer"
+      && row.target.composerSourceId === FACT_TAG_COMPOSER_SOURCE);
+    expect(emptyTagRow).toBeGreaterThan(-1);
+    const emptyTagAction = mouseToAction(click(2, emptyTagRow, 2), state);
+    expect(emptyTagAction).toEqual({
+      action: "open-text-actions",
+      composerSourceId: FACT_TAG_COMPOSER_SOURCE,
+      composerEditable: true
+    });
+    await dispatch(
+      emptyTagAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(state.textActions?.owner === currentFactEditor(state).tag).toBeTrue();
+    await dispatch(
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    setComposerText(currentFactEditor(state).tag, "weather");
+    render(state);
+    const tagRow = state.hitRows.findIndex((row) => row?.target.kind === "composer"
+      && row.target.composerSourceId === FACT_TAG_COMPOSER_SOURCE);
+    expect(tagRow).toBeGreaterThan(-1);
+    const tagAction = mouseToAction(click(2, tagRow, 2), state);
+    expect(tagAction).toEqual({
+      action: "open-text-actions",
+      composerSourceId: FACT_TAG_COMPOSER_SOURCE,
+      composerEditable: true
+    });
+    await dispatch(
+      tagAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    const factEditor = currentFactEditor(state);
+    expect(factEditor.focus).toBe("tag");
+    expect(state.textActions?.owner === factEditor.tag).toBeTrue();
+    await dispatch(
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    render(state);
+    const keysRow = state.hitRows.findIndex((row) => row?.target.kind === "composer"
+      && row.target.composerSourceId === FACT_KEYS_COMPOSER_SOURCE);
+    expect(keysRow).toBeGreaterThan(-1);
+    const keysAction = mouseToAction(click(2, keysRow, 2), state);
+    expect(keysAction).toEqual({
+      action: "open-text-actions",
+      composerSourceId: FACT_KEYS_COMPOSER_SOURCE,
+      composerEditable: true
+    });
+    await dispatch(
+      keysAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(currentFactEditor(state).focus).toBe("keys");
+    await dispatch(
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    render(state);
+    const activationRow = state.hitRows.findIndex((row) => row?.target.kind === "composer"
+      && row.target.composerSourceId === FACT_ACTIVATION_COMPOSER_SOURCE);
+    expect(activationRow).toBeGreaterThan(-1);
+    const activationAction = mouseToAction(click(2, activationRow, 2), state);
+    expect(activationAction).toEqual({
+      action: "open-text-actions",
+      composerSourceId: FACT_ACTIVATION_COMPOSER_SOURCE,
+      composerEditable: false
+    });
+    await dispatch(
+      activationAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(state.textActions).toBe(null);
+    setFactEditorFocus(currentFactEditor(state), "activation");
+    render(state);
+    const editorChrome = state.hitRows.findIndex((row) => row?.target.kind === "composer"
+      && row.target.composerSourceId === undefined);
+    expect(editorChrome).toBeGreaterThan(-1);
+    expect(mouseToAction(click(2, editorChrome, 2), state)).toBe(null);
+
+    state.editor = null;
+    state.mode = "SETTINGS";
+    state.settings = initialSettingsOverlay(source.settingsView, state.config);
+    state.settings.cursor = SETTINGS_ROW_IDS.indexOf("model");
+    beginSettingsRowEdit(state.settings, state.config);
+    render(state);
+    const settingsRow = state.hitRows.findIndex((row) => row?.overrides?.some((region) =>
+      region.target.kind === "list" && region.target.index === state.settings!.cursor) === true);
+    expect(settingsRow).toBeGreaterThan(-1);
+    const settingsHit = state.hitRows[settingsRow]!.overrides!.find((region) =>
+      region.target.kind === "list" && region.target.index === state.settings!.cursor)!;
+    const settingsAction = mouseToAction(click(settingsHit.left + 2, settingsRow, 2), state);
+    expect(settingsAction).toEqual({ action: "open-text-actions" });
+    await dispatch(
+      settingsAction!, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+    expect(render(state).some((line) => plainLine(line).includes("edit actions"))).toBeTrue();
+    await dispatch(
+      { action: "cancel" }, state, source, createWrapCache(), () => {}, async () => {}, () => {}
+    );
+
+    state.settings = null;
+    state.mode = "COMPOSE";
     await dispatch(
       resolveKey({ ...key("space"), sequence: " " } as KeyEvent, state.mode),
       state,

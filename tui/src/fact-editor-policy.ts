@@ -265,6 +265,14 @@ export function factEditorComposerForSource(
   return spec.kind === "choice" ? null : spec.composer(editor);
 }
 
+/** Return only a composer that the focused Fact row can edit. */
+export function factEditorActiveTextComposer(
+  editor: FactEditorSession
+): ComposerState | null {
+  const spec = factEditorRowSpec(editor.focus);
+  return spec.kind === "text" ? spec.composer(editor) : null;
+}
+
 function factEditorRowSpec(row: FactEditorRow): FactEditorRowSpec {
   return FACT_EDITOR_ROW_TABLE[row];
 }

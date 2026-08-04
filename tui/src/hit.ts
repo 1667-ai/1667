@@ -30,7 +30,12 @@ export type HitTarget =
   | { kind: "inline-action"; action: KeyAction }
   /** A rendered part prompt; left-click toggles its inline expansion. */
   | { kind: "prompt"; index: number; rowId: string }
-  | { kind: "composer" }
+  | {
+      kind: "composer";
+      /** Exact field identity for multi-buffer editors. */
+      composerSourceId?: string;
+      composerEditable?: boolean;
+    }
   /** Page behind an open panel: a click there dismisses the panel. */
   | { kind: "scrim" }
   /** Panel chrome — titles, headers, rules: visible but not actionable. */

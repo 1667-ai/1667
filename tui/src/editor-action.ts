@@ -95,6 +95,7 @@ function closeInlineEditor(
   toast?: string
 ): void {
   if (state.editor !== editor) return;
+  state.textActions = null;
   state.editor = null;
   state.editorScrollTop = 0;
   if (editor.returnMode === "FACTS" && state.facts !== null) {
