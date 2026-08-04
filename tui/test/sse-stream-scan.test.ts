@@ -6,6 +6,7 @@ import {
 } from "./http-api-fixture.js";
 import { streamFake } from "../src/fake-stream.js";
 import {
+  CONSOLE_REPORT,
   assertWithinBudget,
   cpuBudget,
   startTiming
@@ -138,7 +139,7 @@ test("a large final payload with no line break until the end still parses in bou
     new AbortController().signal
   );
   assertWithinBudget(
-    { diagnostic: () => undefined },
+    CONSOLE_REPORT,
     "large single-line SSE payload parse",
     cpuBudget(2_000),
     read()
