@@ -919,7 +919,7 @@ describe("hit map clickable chrome", () => {
     }
   });
 
-  test("focused prose clicks only focus, and COMPOSE right-click cancels anywhere", async () => {
+  test("focused prose clicks only focus, and right-click keeps COMPOSE ownership", async () => {
     const source = demoAppSource();
     const state = initialState(source, false);
     state.stream = null;
@@ -930,11 +930,26 @@ describe("hit map clickable chrome", () => {
       .toMatchObject({ action: "focus-index", index: state.focusIndex });
     state.mode = "COMPOSE";
     state.composer = createComposer("draft stays");
-    const resolved = mouseToAction(click(999, 999, 2), state)!;
-    expect(resolved).toEqual({ action: "cancel" });
-    await dispatch(resolved, state, source, createWrapCache(), () => {}, async () => {}, () => {});
-    expect(state.mode).toBe("NAV");
-    expect(state.composer.text).toBe("draft stays");
+    for (const fullscreen of [false, true]) {
+      state.composer.fullscreen = fullscreen;
+      render(state);
+      const composerRow = state.hitRows.findIndex((row) => row?.target.kind === "composer");
+      expect(composerRow).toBeGreaterThan(-1);
+      expect(mouseToAction(click(2, composerRow, 2), state)).toBe(null);
+      expect(state.mode).toBe("COMPOSE");
+    }
+
+    await dispatch(
+      resolveKey({ ...key("space"), sequence: " " } as KeyEvent, state.mode),
+      state,
+      source,
+      createWrapCache(),
+      () => {},
+      async () => {},
+      () => {}
+    );
+    expect(state.mode).toBe("COMPOSE");
+    expect(state.composer.text).toBe("draft stays ");
   });
 
   test("every screen footer renders untruncated at wide and compact sizes", () => {

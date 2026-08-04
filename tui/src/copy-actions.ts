@@ -1,4 +1,4 @@
-import type { CliRenderer } from "@opentui/core";
+import type { CliRenderer, KeyEvent } from "@opentui/core";
 import { countWords } from "../../shared/story-text.js";
 import { copyToClipboard, type CopyOutcome } from "./clipboard.js";
 import {
@@ -57,6 +57,16 @@ export const EMPTY_NATIVE_SELECTION: NativeSelectionSnapshot = {
   range: null,
   backward: false
 };
+
+/** Terminals can report the platform copy key as Control or Command. */
+export function isCopyShortcut(key: KeyEvent): boolean {
+  return Boolean(key.ctrl || key.super) && key.name.toLowerCase() === "c";
+}
+
+/** Only Control+C has process-interrupt semantics when there is no selection. */
+export function isInterruptShortcut(key: KeyEvent): boolean {
+  return Boolean(key.ctrl) && key.name.toLowerCase() === "c";
+}
 
 /** Native selection objects are renderer-owned and keep changing while an
  * input waits. Copy the fields reducers need at event arrival. */

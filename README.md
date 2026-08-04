@@ -79,6 +79,8 @@ Git manages this installation.
 | Go to the previous or next chapter | `[` and `]` |
 | Continue the story | `Space` |
 | Open the composer | `Enter` or `i` |
+| Copy selected composer text | `Ctrl+C` |
+| Paste text into the composer | `Ctrl+V` |
 | Add a manual take | `w` |
 | Edit the selected story part | `e` |
 | Edit the Author's Note | `a` |

@@ -67,6 +67,8 @@ import {
   clearNativeSelectionIfMatches,
   consumesEmptyCopyShortcut,
   handleMainCopyShortcut,
+  isCopyShortcut,
+  isInterruptShortcut,
   mouseComposerSelectionMessage,
   syncMouseComposerSelection
 } from "./copy-actions.js";
@@ -352,15 +354,20 @@ export async function runInteractive(source: AppSource): Promise<void> {
   };
 
   renderer.keyInput.on("keypress", (key) => {
-    const controlCopy = key.ctrl && key.name === "c";
-    if (controlCopy && frames.failed) return requestQuit();
+    const copyShortcut = isCopyShortcut(key);
+    const interruptShortcut = isInterruptShortcut(key);
+    if (copyShortcut && frames.failed) {
+      if (interruptShortcut) requestQuit();
+      return;
+    }
     const queuedSelection = captureQueuedSelection();
     const copySurface = consumesEmptyCopyShortcut(state)
       || (presentedInteraction !== null
         && consumesEmptyCopyShortcut(presentedInteraction.state));
-    if (controlCopy && !hasCopyablePresentedSelection(queuedSelection) && !copySurface
+    if (copyShortcut && !hasCopyablePresentedSelection(queuedSelection) && !copySurface
       && inputs.shouldQuitImmediately(state.mode, false)) {
-      return requestQuit();
+      if (interruptShortcut) requestQuit();
+      return;
     }
     const queuedKey = { ...key } as KeyEvent;
     // Keyboard admission clears pending mouse click gestures at one site.
@@ -373,12 +380,12 @@ export async function runInteractive(source: AppSource): Promise<void> {
       const native = selection.kind === "captured"
         ? selection.native ?? EMPTY_NATIVE_SELECTION
         : EMPTY_NATIVE_SELECTION;
-      if (controlCopy) {
+      if (copyShortcut) {
         const copied = handleMainCopyShortcut(
           native,
           state,
           repaint,
-          requestQuit,
+          interruptShortcut ? requestQuit : () => undefined,
           selection.kind === "captured" ? selection : undefined
         );
         if (copied) {
@@ -436,7 +443,7 @@ export async function runInteractive(source: AppSource): Promise<void> {
       ), (work) => backend.observe(work));
     }, () => {
       retirePresentedSelection(renderer, queuedSelection);
-      if (controlCopy) requestQuit();
+      if (interruptShortcut) requestQuit();
     });
   });
   renderer.keyInput.on("paste", (event) => {
@@ -579,14 +586,15 @@ export async function handleKey(
   previewTheme: ActionContext["previewTheme"] = () => undefined,
   backend: ActionRunner = new ActionRuntime(state, repaint)
 ): Promise<void> {
-  if (key.ctrl && key.name === "c"
+  if (isCopyShortcut(key)
     && state.mode !== "EDITOR"
     && consumesEmptyCopyShortcut(state)) {
     return;
   }
-  if (key.ctrl && key.name === "c"
+  if (isCopyShortcut(key)
     && state.mode !== "EDITOR") {
-    return requestQuit();
+    if (isInterruptShortcut(key)) requestQuit();
+    return;
   }
   const resolved = resolveKey(key, state.mode, {
     confirmingPrune: state.prune !== null,
