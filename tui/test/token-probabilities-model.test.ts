@@ -204,7 +204,9 @@ describe("resolveTokenProbabilityEmptyReason", () => {
     // reports available — this is the "off for this take" case, not a
     // capability gate, so it carries no reason from the shared module.
     const reason = resolveTokenProbabilityEmptyReason(DEMO_SETTINGS_VIEW);
-    expect(reason.text).toBe("This take has no token probabilities. Turn the setting on, then generate again.");
+    expect(reason.text).toBe(
+      "Press , for Settings. Set alt count (alternatives per token) to 1–20. Save, then generate again."
+    );
     expect(reason.supportedPresets).toBe(undefined);
   });
 });

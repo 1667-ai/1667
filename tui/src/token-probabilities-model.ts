@@ -176,7 +176,9 @@ export function resolveTokenProbabilityEmptyReason(view: SettingsView): TokenPro
   const route = selectSettingsRoute(view.document, "prose");
   const resolution = resolveTokenProbabilities(samplingContextForRoute(route));
   if (resolution.kind === "available") {
-    return { text: "This take has no token probabilities. Turn the setting on, then generate again." };
+    return {
+      text: "Press , for Settings. Set alt count (alternatives per token) to 1–20. Save, then generate again."
+    };
   }
   const text = tokenProbabilityUnavailableReason(resolution.reason);
   return resolution.reason === "protocol" || resolution.reason === "preset-unknown"

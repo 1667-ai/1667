@@ -715,7 +715,9 @@ describe("token probability viewer", () => {
     const frame = await renderOnce(demoAppSource(), 120, 36, "l");
     expect(frame).toContain("PROBS");
     expect(frame).toContain("token probabilities");
-    expect(frame).toContain("This take has no token probabilities. Turn the setting on, then generate again.");
+    expect(frame).toContain(
+      "Press , for Settings. Set alt count (alternatives per token) to 1–20. Save, then generate again."
+    );
     expect(frame).toContain("esc back");
   });
 

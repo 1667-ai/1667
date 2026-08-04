@@ -177,6 +177,8 @@ describe("token probability viewer: end-to-end dry-run generation", () => {
     expect(state.mode).toBe("PROBS");
     expect(state.probs?.record).toBe(null);
     const frame = frameText(renderStoryScreen(state, { width: 120, height: 36, wrapCache: cache }).lines);
-    expect(frame).toContain("This take has no token probabilities. Turn the setting on, then generate again.");
+    expect(frame).toContain(
+      "Press , for Settings. Set alt count (alternatives per token) to 1–20. Save, then generate again."
+    );
   }, 30_000);
 });
