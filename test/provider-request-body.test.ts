@@ -438,7 +438,16 @@ test("explicit supported effort lowers through each protocol adapter", async () 
       PROMPT,
       OMIT_PLANS[0]!
     ),
-    /does not define a generation-effort mapping for off/
+    /Anthropic does not support generation effort set to off\./
+  );
+
+  await assert.rejects(
+    () => buildOpenAiChatRequestBody(
+      withEffort(settings("openai-compatible"), "high", "unknown"),
+      PROMPT,
+      OMIT_PLANS[0]!
+    ),
+    /Generation effort is not supported by the selected model\./
   );
 });
 
@@ -1601,7 +1610,8 @@ function settings(provider: GenerationSettings["provider"]): GenerationSettings 
 
 function withEffort(
   value: GenerationSettings,
-  effort: ProviderRuntime["effort"]
+  effort: ProviderRuntime["effort"],
+  reasoningEffort: ProviderRuntime["capabilities"]["reasoningEffort"] = "supported"
 ): GenerationSettings {
   return attachProviderRuntime(value, {
     preset: "custom",
@@ -1620,7 +1630,7 @@ function withEffort(
     capabilities: {
       temperature: "supported",
       assistantPrefill: "unknown",
-      reasoningEffort: "supported",
+      reasoningEffort,
       promptCaching: "unknown"
     }
   }, true);

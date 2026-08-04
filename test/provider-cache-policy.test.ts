@@ -15,6 +15,7 @@ import {
   effectiveGenerationSettings,
   effectivePromptCacheContext
 } from "../server/settings-v2-conversion.js";
+import { promptCachePolicyPresentation } from "../shared/prompt-cache-capabilities.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
 import type {
   FeatureSupportV2,
@@ -163,6 +164,28 @@ test("capability lowering is conservative and never silently downgrades opt-in p
   );
 });
 
+test("unavailable cache policies use provider and model language", () => {
+  const provider = promptCachePolicyPresentation(
+    context("compatible", "supported", "auto"),
+    "auto"
+  );
+  assert.equal(provider.available, false);
+  if (!provider.available) {
+    assert.equal(provider.unavailableReason, "Prompt caching is not supported by this provider.");
+    assert.equal(provider.unavailableReasonCompact, "Not supported.");
+  }
+
+  const model = promptCachePolicyPresentation(
+    context("anthropic-official", "unknown", "auto", "unknown-model"),
+    "auto"
+  );
+  assert.equal(model.available, false);
+  if (!model.available) {
+    assert.equal(model.unavailableReason, "Prompt-cache support is unknown for this model.");
+    assert.equal(model.unavailableReasonCompact, "Support unknown.");
+  }
+});
+
 test("runtime plans cache only stable boundaries and commit rolling state after dispatch", () => {
   const prompt = {
     operation: "continue" as const,
@@ -257,7 +280,7 @@ test("runtime admission accepts exact contracts and rejects unsupported policy p
     () => effectiveGenerationSettings(
       cacheDocument("openai-compatible", "custom", "supported", "auto", "gpt-5.4")
     ),
-    /compatible and custom endpoints/
+    /Prompt caching is not supported by the selected provider/
   );
   assert.throws(
     () => new PromptCacheRuntime().prepare(

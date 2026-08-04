@@ -235,7 +235,7 @@ test("an LM Studio route with DRY configured refuses to save, naming the reason"
   const before = (await store.loadView()).document;
   await assert.rejects(
     () => store.save(saveCommand(`m1.1767225600005.${"5".repeat(32)}`, 1, candidate)),
-    /dry multiplier.*endpoint with undocumented extension fields/u
+    /dry multiplier.*support is unknown for this provider/u
   );
   assert.deepEqual((await store.loadView()).document, before);
 });
@@ -588,7 +588,7 @@ test("Ollama rejects logit bias at save time without changing the active documen
   });
   await assert.rejects(
     () => store.save(saveCommand(MUTATION_C, 1, candidate)),
-    /logit bias.*preset/u
+    /logit bias.*because this provider does not support it/u
   );
   assert.deepEqual((await store.loadView()).document, before);
 });
@@ -628,7 +628,7 @@ test("Anthropic Messages rejects seed at save time without changing the active d
   }, "anthropic");
   await assert.rejects(
     () => store.save(saveCommand(MUTATION_C, 1, candidate)),
-    /seed.*protocol/u
+    /seed.*because this provider does not support it/u
   );
   assert.deepEqual((await store.loadView()).document, before);
 });

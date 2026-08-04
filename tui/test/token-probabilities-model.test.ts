@@ -189,13 +189,13 @@ describe("resolveTokenProbabilityEmptyReason", () => {
 
   test("an Anthropic Messages route resolves protocol, naming the presets that do work", () => {
     const reason = resolveTokenProbabilityEmptyReason(routeView("anthropic", "anthropic-messages"));
-    expect(reason.text).toBe("This protocol does not document token probabilities.");
+    expect(reason.text).toBe("This provider does not support token probabilities.");
     expect(reason.supportedPresets).toEqual(["OpenAI", "OpenRouter", "llama.cpp", "KoboldCpp", "LM Studio"]);
   });
 
   test("an unlisted OpenAI-compatible preset resolves preset-unknown, naming the presets that do work", () => {
     const reason = resolveTokenProbabilityEmptyReason(routeView("ollama", "openai-chat-completions"));
-    expect(reason.text).toBe("This endpoint does not document token probabilities.");
+    expect(reason.text).toBe("Token probability support is unknown for this provider.");
     expect(reason.supportedPresets).toEqual(["OpenAI", "OpenRouter", "llama.cpp", "KoboldCpp", "LM Studio"]);
   });
 

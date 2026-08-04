@@ -212,14 +212,14 @@ function applyGenerationEffort(
   const runtime = providerRuntimeFor(settings);
   if (runtime.effort === "default") return;
   if (runtime.capabilities.reasoningEffort !== "supported") {
-    throw new ProviderError("The selected model does not declare generation-effort support.");
+    throw new ProviderError("Generation effort is not supported by the selected model.");
   }
   if (adapter === "openai") {
     body.reasoning_effort = runtime.effort === "off" ? "none" : runtime.effort;
     return;
   }
   if (runtime.effort === "off") {
-    throw new ProviderError("Anthropic does not define a generation-effort mapping for off.");
+    throw new ProviderError("Anthropic does not support generation effort set to off.");
   }
   body.output_config = { effort: runtime.effort };
 }

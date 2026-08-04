@@ -294,7 +294,7 @@ export function promptCachePolicyPresentation(
     return {
       policy,
       available: false,
-      behavior: "This model has no distinct extended-retention mapping.",
+      behavior: "This model does not support a separate long-retention mode.",
       ttl: "Unavailable",
       compactTtl: "n/a",
       writeMultiplier: null,
@@ -389,15 +389,15 @@ function unavailablePresentation(
     "legacy-v1": "Cache policy requires editable format-2 settings.",
     "dry-run": "Dry run never calls a model provider.",
     "unsupported": "Prompt caching is explicitly disabled for this model.",
-    "compatible-endpoint": "Only exact official provider presets receive cache fields.",
-    "unknown-model": "No exact prompt-cache contract is declared for this model ID."
+    "compatible-endpoint": "Prompt caching is not supported by this provider.",
+    "unknown-model": "Prompt-cache support is unknown for this model."
   };
   const compactExplanation: Record<PromptCacheCapabilityReason, string> = {
     "legacy-v1": "Use format 2.",
     "dry-run": "No dry-run cache.",
     "unsupported": "Cache disabled.",
-    "compatible-endpoint": "Official API only.",
-    "unknown-model": "Set model ID."
+    "compatible-endpoint": "Not supported.",
+    "unknown-model": "Support unknown."
   };
   return {
     policy,

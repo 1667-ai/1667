@@ -112,12 +112,12 @@ const UNAVAILABLE_REASON_TEXT: Readonly<Record<TokenProbabilityUnavailableReason
     compact: "read-only"
   },
   protocol: {
-    reason: "This protocol does not document token probabilities.",
-    compact: "not in protocol"
+    reason: "This provider does not support token probabilities.",
+    compact: "not supported by provider"
   },
   "preset-unknown": {
-    reason: "This endpoint does not document token probabilities.",
-    compact: "unknown endpoint"
+    reason: "Token probability support is unknown for this provider.",
+    compact: "support unknown"
   },
   "model-refused": {
     reason: "This model refused token probabilities.",

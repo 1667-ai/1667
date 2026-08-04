@@ -728,13 +728,13 @@ describe("token probability viewer", () => {
 
   test("empty state: Anthropic Messages names the presets that do document it", async () => {
     const frame = await renderOnce(routeSource("anthropic", "anthropic-messages"), 120, 36, "l");
-    expect(frame).toContain("This protocol does not document token probabilities.");
+    expect(frame).toContain("This provider does not support token probabilities.");
     expect(frame).toContain("OpenAI, OpenRouter, llama.cpp, KoboldCpp, LM Studio");
   });
 
   test("empty state: an endpoint outside the allow-list names the presets that do document it", async () => {
     const frame = await renderOnce(routeSource("ollama", "openai-chat-completions"), 120, 36, "l");
-    expect(frame).toContain("This endpoint does not document token probabilities.");
+    expect(frame).toContain("Token probability support is unknown for this provider.");
     expect(frame).toContain("OpenAI, OpenRouter, llama.cpp, KoboldCpp, LM Studio");
   });
 

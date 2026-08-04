@@ -94,16 +94,19 @@ test("the exported supported-preset list agrees with every allow-listed fixture"
   assert.deepEqual([...TOKEN_PROBABILITY_SUPPORTED_PRESETS].sort(), allowListed);
 });
 
-test("presentation text matches the documented wording for every unavailable reason", () => {
+test("presentation text uses user-facing wording for every unavailable reason", () => {
   assert.equal(tokenProbabilityUnavailableReason("legacy-v1"), "Format 1 settings are read-only.");
   assert.equal(tokenProbabilityUnavailableReasonCompact("legacy-v1"), "read-only");
-  assert.equal(tokenProbabilityUnavailableReason("protocol"), "This protocol does not document token probabilities.");
-  assert.equal(tokenProbabilityUnavailableReasonCompact("protocol"), "not in protocol");
+  assert.equal(
+    tokenProbabilityUnavailableReason("protocol"),
+    "This provider does not support token probabilities."
+  );
+  assert.equal(tokenProbabilityUnavailableReasonCompact("protocol"), "not supported by provider");
   assert.equal(
     tokenProbabilityUnavailableReason("preset-unknown"),
-    "This endpoint does not document token probabilities."
+    "Token probability support is unknown for this provider."
   );
-  assert.equal(tokenProbabilityUnavailableReasonCompact("preset-unknown"), "unknown endpoint");
+  assert.equal(tokenProbabilityUnavailableReasonCompact("preset-unknown"), "support unknown");
   assert.equal(tokenProbabilityUnavailableReason("model-refused"), "This model refused token probabilities.");
   assert.equal(tokenProbabilityUnavailableReasonCompact("model-refused"), "model refused");
 });

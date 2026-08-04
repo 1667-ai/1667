@@ -117,7 +117,7 @@ export function effectiveGenerationRuntime(
   const provider = providerForProtocol(connection.protocol);
   if (provider === "anthropic" && profile.effort === "off") {
     throw new SettingsFormatError(
-      "Anthropic does not define a generation-effort mapping for off"
+      "Anthropic does not support generation effort set to off."
     );
   }
   const remoteId = effectiveRemoteId(

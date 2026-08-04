@@ -447,7 +447,10 @@ test("save-time sampling validation refuses unavailable preset and model cells",
       }
     }
   };
-  assert.throws(() => parseSettingsDocumentV2(ollama), /logit bias.*preset/);
+  assert.throws(
+    () => parseSettingsDocumentV2(ollama),
+    /logit bias.*because this provider does not support it/
+  );
 
   const anthropic = convertGenerationSettingsV1(legacy(
     "anthropic",
@@ -815,7 +818,7 @@ test("Anthropic runtime lowering rejects normalized effort off without a wire ma
 
   assert.throws(
     () => effectiveGenerationSettings(document),
-    /does not define a generation-effort mapping for off/
+    /Anthropic does not support generation effort set to off\./
   );
 });
 

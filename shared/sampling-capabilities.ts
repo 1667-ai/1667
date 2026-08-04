@@ -340,7 +340,7 @@ export function samplingUnavailableReasonCompact(reason: SamplingUnavailableReas
 }
 
 /** The same fact again, phrased as a clause that follows a knob's name — e.g.
- *  `dry multiplier` + `for a protocol that does not document it`. Used only
+ *  `dry multiplier` + `because this provider does not support it`. Used only
  *  by the server's route-validation error, which names the offending knob
  *  itself before this text. */
 export function samplingUnavailableReasonClause(reason: SamplingUnavailableReason): string {
@@ -580,29 +580,29 @@ const UNAVAILABLE_REASON_TEXT: Readonly<Record<SamplingUnavailableReason, {
     clause: "for a dry-run connection"
   },
   protocol: {
-    reason: "This protocol does not document this parameter.",
-    compact: "not in protocol",
-    clause: "for a protocol that does not document it"
+    reason: "Not supported by this provider.",
+    compact: "not supported by provider",
+    clause: "because this provider does not support it"
   },
   "preset-unsupported": {
-    reason: "This preset does not document this parameter.",
-    compact: "not in preset",
-    clause: "for a preset that does not document it"
+    reason: "Not supported by this provider.",
+    compact: "not supported by provider",
+    clause: "because this provider does not support it"
   },
   "preset-unknown": {
-    reason: "This endpoint does not document extension parameters.",
-    compact: "unknown endpoint",
-    clause: "for an endpoint with undocumented extension fields"
+    reason: "Provider support is unknown.",
+    compact: "support unknown",
+    clause: "because support is unknown for this provider"
   },
   "model-unsupported": {
-    reason: "This model does not declare sampling support.",
-    compact: "model unsupported",
-    clause: "for a model that does not declare sampling support"
+    reason: "Not supported by this model.",
+    compact: "not supported by model",
+    clause: "because this model does not support sampling settings"
   },
   "model-unknown": {
-    reason: "This model has no documented support for this parameter.",
-    compact: "model unknown",
-    clause: "for a model without a documented sampling contract"
+    reason: "Model support is unknown.",
+    compact: "model support unknown",
+    clause: "because support is unknown for this model"
   },
   "no-exact-tokenizer": {
     reason: "1667 has no exact tokenizer for this model, so it cannot resolve text to token IDs.",
