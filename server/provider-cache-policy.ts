@@ -239,9 +239,9 @@ export function promptCacheBlockMessage(reason: PromptCacheBlockReason): string 
     case "unsupported":
       return "Prompt caching is unsupported for the selected provider or model.";
     case "unknown-model":
-      return "No exact prompt-cache request contract is declared for the selected model ID.";
+      return "Prompt-cache support is unknown for the selected model.";
     case "compatible-endpoint":
-      return "Prompt-cache controls are disabled for compatible and custom endpoints.";
+      return "Prompt caching is not supported by the selected provider.";
     case "long-unsupported":
       return "Long prompt-cache retention is unavailable for the selected exact model.";
   }

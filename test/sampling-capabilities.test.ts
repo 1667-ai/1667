@@ -398,7 +398,7 @@ test("an unsupported route reports its own reason for mirostat tau/eta even with
   );
 });
 
-test("sampling presentation exposes a stable label and a reason for disabled cells", () => {
+test("sampling presentation exposes a stable label and a provider-facing reason", () => {
   const presentation = samplingKnobPresentation(
     samplingContext("openai-chat-completions", "ollama"),
     EMPTY_SAMPLING_V2,
@@ -407,9 +407,60 @@ test("sampling presentation exposes a stable label and a reason for disabled cel
   assert.deepEqual(presentation, {
     label: "logit bias",
     available: false,
-    reason: "This preset does not document this parameter.",
-    reasonCompact: "not in preset"
+    reason: "Not supported by this provider.",
+    reasonCompact: "not supported by provider"
   });
+});
+
+test("sampling presentation keeps internal routing terms out of unavailable reasons", () => {
+  const cases: readonly {
+    context: SamplingContext;
+    knob: SamplingKnobV2;
+    label: string;
+    reason: string;
+    reasonCompact: string;
+  }[] = [
+    {
+      context: samplingContext("anthropic-messages", "anthropic", "claude-opus-4-5"),
+      knob: "seed",
+      label: "seed",
+      reason: "Not supported by this provider.",
+      reasonCompact: "not supported by provider"
+    },
+    {
+      context: samplingContext("openai-chat-completions", "lm-studio"),
+      knob: "dryMultiplier",
+      label: "dry multiplier",
+      reason: "Provider support is unknown.",
+      reasonCompact: "support unknown"
+    },
+    {
+      context: samplingContext("openai-chat-completions", "openai", "fixture-model", "unsupported"),
+      knob: "topP",
+      label: "top p",
+      reason: "Not supported by this model.",
+      reasonCompact: "not supported by model"
+    },
+    {
+      context: samplingContext("anthropic-messages", "anthropic"),
+      knob: "topP",
+      label: "top p",
+      reason: "Model support is unknown.",
+      reasonCompact: "model support unknown"
+    }
+  ];
+
+  for (const fixture of cases) {
+    assert.deepEqual(
+      samplingKnobPresentation(fixture.context, EMPTY_SAMPLING_V2, fixture.knob),
+      {
+        label: fixture.label,
+        available: false,
+        reason: fixture.reason,
+        reasonCompact: fixture.reasonCompact
+      }
+    );
+  }
 });
 
 test("sampling presentation reports mirostat-off for tau/eta when mirostat is unset", () => {

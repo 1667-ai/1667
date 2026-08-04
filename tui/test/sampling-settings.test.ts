@@ -209,7 +209,7 @@ describe("Sampling Settings user flow", () => {
     expect(state.settings?.draft.sampling.seed).toBe(42);
   });
 
-  test("seed is disabled for Anthropic with the same protocol reason as other OpenAI-only scalars", async () => {
+  test("seed is disabled for Anthropic with a provider-facing reason", async () => {
     const { source, state, press } = settingsHarness();
     useAnthropicSettings(source);
     await enterSampling(state, press);
@@ -220,7 +220,7 @@ describe("Sampling Settings user flow", () => {
     expect(seedLine).toContain("‹ — ›");
 
     await press(key("return"));
-    expect(state.settings?.sampling?.result).toBe("seed disabled · not in protocol");
+    expect(state.settings?.sampling?.result).toBe("seed disabled · not supported by provider");
     expect(state.settings?.draft.sampling.seed).toBe(null);
   });
 
@@ -383,7 +383,20 @@ describe("Sampling Settings user flow", () => {
     await moveLayer2Cursor(press, samplingLayerRowIndex("phrase-bias"));
     await press(key("return"));
     expect(state.settings?.sampling?.panel).toBe("sampling");
-    expect(state.settings?.sampling?.result).toContain("not in preset");
+    expect(state.settings?.sampling?.result).toContain("not supported by provider");
+  });
+
+  test("an unavailable frequency penalty names the provider limitation", async () => {
+    const { source, state, press } = settingsHarness();
+    useKoboldcppSettings(source);
+    await enterSampling(state, press);
+    await moveLayer2Cursor(press, samplingLayerRowIndex("frequencyPenalty"));
+
+    expect(render(state, 120, 36)).toContain("Not supported by this provider.");
+
+    await press(key("return"));
+    expect(state.settings?.sampling?.result)
+      .toBe("frequency penalty disabled · not supported by provider");
   });
 
   // Issue #282 stage 1, point 5: llama.cpp is no longer subtracted — it
@@ -921,7 +934,7 @@ describe("Sampling Settings user flow", () => {
     expect(profile.sampling?.mirostatTau).toBe(6);
   });
 
-  test("an LM Studio route hides the extended samplers behind the preset reason", async () => {
+  test("an LM Studio route explains that extended sampler support is unknown", async () => {
     const { source, state, press } = settingsHarness();
     useSupportedSettings(source, "http://127.0.0.1:1234/v1");
     await enterSampling(state, press);
@@ -929,7 +942,7 @@ describe("Sampling Settings user flow", () => {
 
     const dryLine = lines.find((line) => line.includes("dry multiplier"));
     expect(dryLine).toContain("‹ — ›");
-    expect(dryLine).toContain("This endpoint does not document");
+    expect(dryLine).toContain("Provider support is unknown.");
     // A baseline OpenAI field stays available on the same route.
     const topPLine = lines.find((line) => line.includes("top p"));
     expect(topPLine).toContain("‹ default ›");

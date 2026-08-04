@@ -73,7 +73,7 @@ test("an LM Studio route with DRY configured fails with the ProviderError naming
   });
   await assert.rejects(
     () => applySamplingFields({}, settings, "openai-chat-completions"),
-    /Configured sampling parameter dry multiplier is unavailable: This endpoint does not document extension parameters\./u
+    /Configured sampling parameter dry multiplier is unavailable: Provider support is unknown\./u
   );
 });
 

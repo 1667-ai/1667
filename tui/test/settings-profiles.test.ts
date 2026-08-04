@@ -385,7 +385,7 @@ describe("Generation Profile settings", () => {
     await selectRow(press, state, "token-probabilities");
     const frame = frameText(renderStoryScreen(state, { width: 80, height: 24, wrapCache: cache }).lines);
     expect(frame).toContain("‹ — ›");
-    expect(frame).toContain("unknown endpoint");
+    expect(frame).toContain("support unknown");
 
     // Cycling an unavailable row is a no-op: it never writes a count the
     // request was never going to carry.
