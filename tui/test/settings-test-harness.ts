@@ -15,14 +15,21 @@ import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 
 export function key(
   name: string,
-  options: { sequence?: string; ctrl?: boolean; shift?: boolean; meta?: boolean } = {}
+  options: {
+    sequence?: string;
+    ctrl?: boolean;
+    shift?: boolean;
+    meta?: boolean;
+    super?: boolean;
+  } = {}
 ): KeyEvent {
   return {
     name,
     sequence: options.sequence ?? name,
     shift: options.shift ?? false,
     ctrl: options.ctrl ?? false,
-    meta: options.meta ?? false
+    meta: options.meta ?? false,
+    super: options.super ?? false
   } as KeyEvent;
 }
 
@@ -40,7 +47,7 @@ export function generationFromProbeTarget(target: ProviderProbeTarget) {
     : target;
 }
 
-export function settingsHarness() {
+export function settingsHarness(requestQuit: () => void = () => undefined) {
   const source = demoAppSource();
   const state = initialState(source, false);
   const cache = createWrapCache<ProseStyle>();
@@ -59,7 +66,7 @@ export function settingsHarness() {
     cache,
     repaint,
     async () => undefined,
-    () => undefined,
+    requestQuit,
     null,
     (theme) => {
       state.config = { ...state.config, theme };

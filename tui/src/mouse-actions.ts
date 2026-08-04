@@ -268,8 +268,9 @@ export function mouseToAction(
   state: MouseActionState,
   resolveReleaseTarget = false
 ): ResolvedKey | null {
-  // Right-click leaves the composer rather than acting on what is under it.
-  if (state.mode === "COMPOSE" && event.type === "down" && event.button === 2) return { action: "cancel" };
+  // Keep terminal clipboard gestures inside the composer. A right-click can
+  // open a terminal menu, and Shift+right-click commonly bypasses mouse mode.
+  if (state.mode === "COMPOSE" && event.type === "down" && event.button === 2) return null;
   // Shift-drag belongs to the terminal's own selection; never steal it.
   if (event.modifiers.shift) return null;
   if (event.type === "scroll") {

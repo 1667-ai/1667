@@ -77,9 +77,9 @@ const DECLARED_DIVERGENCES = [
   { label: "ctrl+x", event: key("x", { ctrl: true }),
     actions: ["none", "cut-selection", "none"] },
   { label: "ctrl+v", event: key("v", { ctrl: true }),
-    actions: ["none", "paste-clipboard", "paste-clipboard"] },
+    actions: ["paste-clipboard", "paste-clipboard", "paste-clipboard"] },
   { label: "cmd+v", event: key("v", { super: true }),
-    actions: ["input", "input", "paste-clipboard"] },
+    actions: ["paste-clipboard", "paste-clipboard", "paste-clipboard"] },
   { label: "cmd+a", event: key("a", { super: true }),
     actions: ["input", "select-all", "select-all"] },
   { label: "ctrl+d", event: key("d", { ctrl: true }),
@@ -282,6 +282,8 @@ describe("text surfaces and palette", () => {
     expect(resolveKey(key("f", { ctrl: true }), "COMPOSE").action).toBe("toggle-compose-fullscreen");
     expect(resolveKey(key("up", { ctrl: true }), "COMPOSE").action).toBe("history-previous");
     expect(resolveKey(key("down", { ctrl: true }), "COMPOSE").action).toBe("history-next");
+    expect(resolveKey(key("v", { ctrl: true }), "COMPOSE").action).toBe("paste-clipboard");
+    expect(resolveKey(key("v", { super: true }), "COMPOSE").action).toBe("paste-clipboard");
     expect(resolveKey(key("?"), "COMPOSE")).toEqual({ action: "input", text: "?" });
   });
 

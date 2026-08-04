@@ -4,6 +4,7 @@ import type { AppSource } from "./app.js";
 import { openFactFromSelection, openPartEditor } from "./editor-action.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
 import { copyToClipboard } from "./clipboard.js";
+import { pasteClipboardIntoComposer } from "./compose-clipboard.js";
 import { applyComposerEdit } from "./composer-editing.js";
 import { copyStoryText } from "./copy-actions.js";
 import { recordHumanWords, saveConfig } from "./config.js";
@@ -405,6 +406,10 @@ export async function composeAction(
   }
   if (resolved.action === "toggle-compose-fullscreen") {
     state.composer.fullscreen = !state.composer.fullscreen;
+    return;
+  }
+  if (resolved.action === "paste-clipboard") {
+    await pasteClipboardIntoComposer(state);
     return;
   }
   if (resolved.action === "newline") { insertComposerText(state.composer, "\n"); return; }

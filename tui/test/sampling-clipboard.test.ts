@@ -7,6 +7,7 @@ import type { SettingsView } from "../../shared/settings-v2-types.js";
 import { setComposerText } from "../src/composer-model.js";
 
 type ClipboardReader = () => Promise<string | null>;
+type ClipboardWriter = (text: string) => Promise<"internal">;
 
 const bunTest = await import("bun:test") as unknown as {
   mock: {
@@ -14,9 +15,10 @@ const bunTest = await import("bun:test") as unknown as {
   };
 };
 let clipboardReader: ClipboardReader = async () => null;
+let clipboardWriter: ClipboardWriter = async () => "internal";
 bunTest.mock.module("../src/clipboard.js", () => ({
   readFromClipboard: () => clipboardReader(),
-  copyToClipboard: async () => "internal"
+  copyToClipboard: (text: string) => clipboardWriter(text)
 }));
 
 const {
@@ -26,6 +28,86 @@ const {
   selectRow,
   settingsHarness
 } = await import("./settings-test-harness.js");
+const { EMPTY_NATIVE_SELECTION, handleMainCopyShortcut } = await import("../src/copy-actions.js");
+
+describe("Direct clipboard ownership", () => {
+  test("Command+C without a selection does not quit", async () => {
+    let quits = 0;
+    const { state, press } = settingsHarness(() => { quits += 1; });
+
+    await press(key("c", { super: true }));
+
+    expect(state.mode).toBe("NAV");
+    expect(quits).toBe(0);
+  });
+
+  test("pastes into inline and fullscreen drafts with Control or Command", async () => {
+    const cases = [
+      { fullscreen: false, key: key("v", { ctrl: true }) },
+      { fullscreen: true, key: key("v", { super: true }) }
+    ];
+    for (const clipboardCase of cases) {
+      const { state, press } = settingsHarness();
+      state.mode = "COMPOSE";
+      setComposerText(state.composer, "before after");
+      state.composer.cursor = 7;
+      state.composer.fullscreen = clipboardCase.fullscreen;
+      clipboardReader = async () => "pasted\ntext";
+
+      await press(clipboardCase.key);
+
+      expect(state.composer.text).toBe("before pasted\ntextafter");
+      expect(state.composer.fullscreen).toBe(clipboardCase.fullscreen);
+    }
+  });
+
+  test("copies selected text from inline and fullscreen drafts", async () => {
+    for (const fullscreen of [false, true]) {
+      const { state } = settingsHarness();
+      state.mode = "COMPOSE";
+      setComposerText(state.composer, "copy this draft");
+      state.composer.anchor = 5;
+      state.composer.fullscreen = fullscreen;
+      const copied: string[] = [];
+      clipboardWriter = async (text) => {
+        copied.push(text);
+        return "internal";
+      };
+
+      expect(handleMainCopyShortcut(
+        EMPTY_NATIVE_SELECTION,
+        state,
+        () => undefined,
+        () => { throw new Error("copy must not quit"); }
+      )).toBeTrue();
+      await Promise.resolve();
+
+      expect(copied).toEqual(["this draft"]);
+      expect(state.composer.fullscreen).toBe(fullscreen);
+    }
+  });
+
+  test("ignores a clipboard read after the draft changes", async () => {
+    const { state, press } = settingsHarness();
+    state.mode = "COMPOSE";
+    setComposerText(state.composer, "seed");
+    const read = deferred<string | null>();
+    const started = deferred<void>();
+    clipboardReader = async () => {
+      started.resolve();
+      return read.promise;
+    };
+
+    const paste = press(key("v", { ctrl: true }));
+    await started.promise;
+    await press(key("x"));
+    read.resolve("late clipboard text");
+    await paste;
+
+    expect(state.composer.text).toBe("seedx");
+    expect(state.toast).toBe(null);
+  });
+});
 
 describe("nested Sampling clipboard ownership", () => {
   test("ignores a late read after every owner-changing action and applies a current paste", async () => {

@@ -394,9 +394,11 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   const navChord = resolveReferenceBinding("nav-chord", key, mode, mapView);
   if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
+    const name = key.name.toLowerCase();
     const composeChord = resolveReferenceBinding("compose-chord", key, mode, mapView);
     if (composeChord !== null) return { action: composeChord.action };
-    if (key.ctrl && key.name.toLowerCase() === "f") return { action: "toggle-compose-fullscreen" };
+    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
+    if (key.ctrl && name === "f") return { action: "toggle-compose-fullscreen" };
     // The rewrite composer's second fixed destination (issue #319, and
     // docs/generation-boundaries.md): plain `enter` always replaces in
     // place, `⌃s` always sends the result as a new take instead — the exact
@@ -404,7 +406,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     // EDITOR, above), just with the opposite default here. Outside a
     // rewrite composer it resolves but does nothing (story-actions.ts's
     // composeAction), same as an unbound chord elsewhere.
-    if (key.ctrl && key.name.toLowerCase() === "s") return { action: "send-as-take" };
+    if (key.ctrl && name === "s") return { action: "send-as-take" };
     if (key.name === "return") return { action: key.shift ? "newline" : "send" };
     // LF / Ctrl+J inserts a line; it never sends the draft.
     if (isLinefeedKey(key)) return { action: "newline" };
@@ -436,9 +438,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     if (key.ctrl && name === "o") return { action: "save-edit-inplace" };
     if (key.ctrl && key.shift && name === "s") return { action: "save-edit-inplace" };
     if (key.ctrl && name === "s") return { action: "save-edit" };
-    if (key.ctrl && name === "c") return { action: "copy-selection" };
-    if (key.ctrl && name === "x") return { action: "cut-selection" };
-    if (key.ctrl && name === "v") return { action: "paste-clipboard" };
+    if ((key.ctrl || key.super) && name === "c") return { action: "copy-selection" };
+    if ((key.ctrl || key.super) && name === "x") return { action: "cut-selection" };
+    if ((key.ctrl || key.super) && name === "v") return { action: "paste-clipboard" };
     if ((key.ctrl && name === "z" && !key.shift) || key.ctrl && name === "-"
       || key.super && name === "z" && !key.shift) return { action: "undo-edit" };
     if ((key.ctrl && name === "z" && key.shift) || key.ctrl && (name === "y" || name === ".")
