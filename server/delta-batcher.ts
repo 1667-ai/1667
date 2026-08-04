@@ -119,7 +119,7 @@ export class DeltaBatcher {
 }
 
 function byteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
+  return Buffer.byteLength(value, "utf8");
 }
 
 function splitUtf8(value: string, maxBytes: number): string[] {
