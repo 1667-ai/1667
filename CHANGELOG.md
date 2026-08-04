@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **Editors now have standard clipboard actions.** Right-click an editable
+  text field to open Copy, Paste, and Select all. Press `Ctrl+A` or
+  `Command+A` to select all text. Direct supports these actions in its inline
+  and full-screen forms. Thanks @10fra for the request.
 - **A token probability viewer shows the alternative tokens the model
   weighed.** Press `l` on a story part to open it. The viewer shows the
   take's prose with the selected token marked, and below it the alternative

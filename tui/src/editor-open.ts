@@ -169,6 +169,7 @@ function openInlineEditor(
   state: RuntimeState,
   editor: Omit<InlineEditorSession, "kind">
 ): void {
+  state.textActions = null;
   state.editor = { kind: "document", ...editor };
   state.editorScrollTop = 0;
   state.mode = "EDITOR";
@@ -178,6 +179,7 @@ function openFactSession(
   state: RuntimeState,
   editor: Omit<FactEditorSession, "kind">
 ): void {
+  state.textActions = null;
   state.editor = { kind: "fact", ...editor };
   state.editorScrollTop = 0;
   state.mode = "EDITOR";

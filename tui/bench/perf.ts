@@ -25,6 +25,7 @@ import {
   type StoryWrapBuildStats
 } from "../src/story-wrap-build.js";
 import { appendStreamText, emptyStreamText } from "../src/stream-text.js";
+import { createNoticeLog } from "../src/notice-log.js";
 
 const SENTENCE_WORDS = "The lantern held its flame while the storm counted windows, and nobody in the inn below said the traveler's name aloud."
   .split(" ");
@@ -143,15 +144,21 @@ function stateFor(payload: StoryPayload): StoryScreenState {
   return {
     payload, focusIndex: payload.path.length - 1, mode: "NAV", showInstructions: true,
     expandedPromptIds: new Set(),
-    composer: createComposer(), toast: null, stream: null, abort: null, backendTask: null,
-    retakePrompt: null,
+    composer: createComposer(), editor: null, retakePrompt: null, request: null, probs: null,
+    toast: null, notices: createNoticeLog(), stream: null, abort: null, backendTask: null,
     freshLandedAt: new Map(), now: 1_667_000_000_000,
     model: "bench", systemPrompt: "Continue the story.", assistantPrefill: true,
-    map: null, contextMeterExpanded: false, prune: null, tag: null, typewriter: false,
+    contextWindow: 32768, maxTokens: 1024,
+    map: null, search: null, contextMeterExpanded: false, prune: null, tag: null, typewriter: false,
     expandedChapterSummaryIds: new Set(), chapterDeleteArmedId: null,
-    demo: true, storyFolder: "", library: null, facts: null, commands: null, chapters: null, settings: null,
-    summary: null, actions: null, hitRows: [], contextWindow: 32768,
+    demo: true, storyFolder: "", readingPositions: {},
+    library: null, facts: null, commands: null, card: null, archive: null,
+    chapters: null, settings: null, summary: null,
+    actions: null, textActions: null, hitRows: [],
     viewScroll: null, viewScrollDelta: 0, lastViewportStart: 0,
+    composerScrollTop: 0, editorScrollTop: 0, keysScrollTop: 0,
+    composerSelectionProjection: null, storySelectionProjection: null,
+    promptTokenCount: null, generationRoute: "bench",
     config: {
       theme: "lantern", factsRail: "auto", composeFocus: "off", composeMaxHeight: null,
       quota: { date: "", words: 0 },

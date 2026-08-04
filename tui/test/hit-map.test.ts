@@ -4,6 +4,7 @@ import { dispatch, initialState } from "../src/app.js";
 import { commandContext, commandMatches } from "../src/command-model.js";
 import { setComposerText } from "../src/composer-model.js";
 import { demoAppSource } from "../src/demo.js";
+import { openPartEditor } from "../src/editor-action.js";
 import { hitAt } from "../src/hit.js";
 import { resolveKey, type AppMode, type KeyAction, type ResolveOptions } from "../src/keys.js";
 import {
@@ -23,6 +24,7 @@ import {
 import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import { createWrapCache } from "../src/wrap.js";
+import { openTextActions } from "../src/text-actions.js";
 
 const STREAM_STARTED_AT = "2026-07-22T00:00:00.000Z";
 
@@ -345,10 +347,13 @@ describe("hit map from rendered frames", () => {
     settings.mode = "SETTINGS";
     settings.settings = initialSettingsOverlay(source.settingsView, settings.config);
     beginSettingsRowEdit(settings.settings, settings.config);
+    const editor = initialState(source, false);
+    openPartEditor(editor, false);
 
-    for (const state of [compose, settings]) {
+    for (const state of [compose, settings, editor]) {
       state.stream = null;
       state.connection = { ...state.connection, down: true };
+      openTextActions(state);
       const frame = render(state);
       const banner = plainLine(frame[0]!);
       expect(banner).toContain("retry now");

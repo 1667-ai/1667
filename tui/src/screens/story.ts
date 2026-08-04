@@ -43,7 +43,7 @@ import { renderRequestViewerScreen } from "./request-viewer.js";
 import { renderTokenProbabilitiesScreen } from "./token-probabilities.js";
 import { renderLogScreen } from "./log.js";
 import { wrapFeedback } from "./feedback-wrap.js";
-import { renderPanels } from "./panels.js";
+import { renderPanels, renderTextActionsPanel } from "./panels.js";
 import { renderConnectionBanner } from "./connection-banner.js";
 import {
   fitLine,
@@ -761,6 +761,23 @@ function renderInlineEditor(
   return renderEditorLayoutFrame(state, view, width, height, estimate, layout, deadlines);
 }
 
+function composerHitTarget(line: FrameLine | undefined): HitTarget {
+  const sources = new Map<string, boolean>();
+  for (const part of line ?? []) {
+    if (part.composerHitSource !== undefined) {
+      sources.set(part.composerHitSource.id, part.composerHitSource.editable);
+    }
+  }
+  if (sources.size !== 1) return { kind: "composer" };
+  const source = sources.entries().next().value;
+  if (source === undefined) return { kind: "composer" };
+  return {
+    kind: "composer",
+    composerSourceId: source[0],
+    composerEditable: source[1]
+  };
+}
+
 function authorNoteStatus(
   host: DocumentEditorSession,
   width: number
@@ -797,14 +814,17 @@ function renderEditorLayoutFrame(
     .slice(0, height)
     .map((line) => fitLine(line, width));
   const hitRows: HitRows = Array.from({ length: height }, (_, row): HitRow | null => row < height - 1
-    ? { target: { kind: "composer" }, left: 0, right: width }
+    ? { target: composerHitTarget(base[row]), left: 0, right: width }
     : null);
+  const composition = state.textActions === null
+    ? { lines: base, selectable: null }
+    : renderTextActionsPanel(dimPage(base), { ...state, hitRows }, width, height);
   const lines = state.connection.down
-    ? renderConnectionBanner(base, { ...state, hitRows }, width, deadlines)
-    : base;
+    ? renderConnectionBanner(composition.lines, { ...state, hitRows }, width, deadlines)
+    : composition.lines;
   return {
     lines,
-    selectable: null,
+    selectable: composition.selectable,
     derived: {
       hitRows,
       viewScroll: state.viewScroll,

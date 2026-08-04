@@ -52,8 +52,9 @@ export function textSurfaceKey(key: KeyEvent): ResolvedKey | null {
   if (key.ctrl && name === "k") return { action: "delete-line-end" };
   if (key.ctrl && name === "u") return { action: "delete-line-start" };
 
-  // Emacs line motion, which the full-screen editor has always answered.
-  if (key.ctrl && name === "a") return { action: "cursor-line-start", ...extend };
+  // Ctrl+A and Command+A use the platform-wide Select All convention.
+  if ((key.ctrl || key.super) && name === "a") return { action: "select-all" };
+  // Alt+A keeps a terminal-safe line-start chord for Emacs-style motion.
   if (key.ctrl && name === "e") return { action: "cursor-line-end", ...extend };
   if (alt && name === "a") return { action: "cursor-line-start", ...extend };
   if (alt && name === "e") return { action: "cursor-line-end", ...extend };

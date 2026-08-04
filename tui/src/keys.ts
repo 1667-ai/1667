@@ -14,7 +14,10 @@ import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
 import { resolveReferenceBinding } from "./reference-bindings.js";
-import type { StorySelectionSpan } from "./selection-projection.js";
+import type {
+  ComposerSelectionProjection,
+  StorySelectionSpan
+} from "./selection-projection.js";
 import type {
   DocumentEditorSession,
   PendingGenerationDraft,
@@ -57,7 +60,7 @@ export type KeyAction =
   | "open-chapters" | "create-chapter" | "summarize-chapter" | "chapter-previous" | "chapter-next"
   | "toggle-context-meter" | "open-search" | "toggle-search-case" | "open-request"
   | "complete" | "open-log" | "clear-log" | "row-action"
-  | "open-probs" | "next-part";
+  | "open-probs" | "next-part" | "open-text-actions";
 
 export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
@@ -70,6 +73,18 @@ export interface ResolvedKey {
   selectionText?: string;
   /** Story-source selection retained without tinting the menu overlay. */
   selectionSpans?: readonly StorySelectionSpan[];
+  /** Native editor selection captured before a context-menu repaint. */
+  nativeSelection?: {
+    identity: object | null;
+    text: string;
+    range: { start: number; end: number } | null;
+    backward: boolean;
+  };
+  /** Projection paired with nativeSelection at event arrival. */
+  composerSelectionProjection?: ComposerSelectionProjection;
+  /** Exact field under a context-menu click in a multi-buffer editor. */
+  composerSourceId?: string;
+  composerEditable?: boolean;
   /** Extend an editor/composer selection instead of only moving its caret. */
   extendSelection?: boolean;
   /** Absolute cursor placement (mouse clicks). */
@@ -327,6 +342,8 @@ export interface ResolveOptions {
   /** The open document editor targets the Author's Note, so its depth chord
    *  applies. No other editor target binds `⌥-`/`⌥=`. */
   authorsNoteEditor?: boolean;
+  /** The editor context menu owns all keys until it closes. */
+  textActionsOpen?: boolean;
   mapView?: MapView;
 }
 
@@ -365,10 +382,17 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   const { confirmingPrune = false, tagChoosingStatus = false, connectionDown = false,
     overlayTyping = false, settingsSampling = false, commandsTags = false,
     factEditor = false, authorsNoteEditor = false, settingsPicker = false,
+    textActionsOpen = false,
     mapView = "path" } = options;
   const globalReference = resolveReferenceBinding("global", key, mode, mapView);
   if (globalReference !== null || key.name === "escape") {
     return { action: "cancel" };
+  }
+  if (textActionsOpen) {
+    if (key.name === "down") return { action: "focus-next" };
+    if (key.name === "up") return { action: "focus-previous" };
+    if (key.name === "return") return { action: "apply" };
+    return { action: "none" };
   }
   const ownsText = textOwnsKeyboard(mode, {
     overlayTyping, commandsTags, tagChoosingStatus
