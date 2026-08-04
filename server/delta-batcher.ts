@@ -24,8 +24,6 @@ export class DeltaBatcher {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private sendQueue = Promise.resolve();
   private timedFlush: Promise<void> | null = null;
-  private unsentText = "";
-  private disposed = false;
 
   constructor(
     private readonly send: (text: string, bytes: number) => Promise<void>
@@ -34,12 +32,10 @@ export class DeltaBatcher {
   async push(text: string): Promise<void> {
     for (const chunk of splitUtf8(text, MAX_DELTA_BATCH_BYTES)) {
       await this.waitForTimedFlush();
-      if (this.disposed) return;
       const bytes = byteLength(chunk);
       if (this.bytes > 0 && this.bytes + bytes > MAX_DELTA_BATCH_BYTES) await this.flush();
       this.chunks.push(chunk);
       this.bytes += bytes;
-      this.unsentText += chunk;
       if (this.bytes >= MAX_DELTA_BATCH_BYTES) await this.flush();
       else if (this.timer === null) {
         this.timer = setTimeout(() => {
@@ -66,55 +62,40 @@ export class DeltaBatcher {
     await this.sendQueue;
   }
 
-  /** Remove all accepted text that has not yet been handed to `send`. */
-  takeUnsent(): string {
-    if (this.disposed || this.unsentText.length === 0) return "";
+  /** Remove all text that has been accepted but not yet handed to `send`.
+   *  A batch already handed to `send` is not buffered here any more — a
+   *  caller that also needs to reclaim a batch `send` has not committed to
+   *  yet (for example a credit wait) must track that itself; see
+   *  `WorkerDeltaBatcher.takeUnsent`. */
+  takeBuffered(): string {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
-    const text = this.unsentText;
-    this.unsentText = "";
+    const text = this.chunks.join("");
     this.chunks = [];
     this.bytes = 0;
     return text;
   }
 
   dispose(): void {
-    this.disposed = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.chunks = [];
     this.bytes = 0;
-    this.unsentText = "";
   }
 
   private async flushBuffered(): Promise<void> {
-    if (this.chunks.length === 0 || this.disposed) return;
+    if (this.chunks.length === 0) return;
     const text = this.chunks.join("");
     const bytes = this.bytes;
     this.chunks = [];
     this.bytes = 0;
-    const sent = this.sendQueue.then(() => this.deliver(text, bytes));
+    const sent = this.sendQueue.then(() => this.send(text, bytes));
     this.sendQueue = sent.catch(() => undefined);
     await sent;
   }
 
   private async waitForTimedFlush(): Promise<void> {
     if (this.timedFlush !== null) await this.timedFlush;
-  }
-
-  /** `send` may wait arbitrarily long before it actually delivers (or, for
-   *  `WorkerDeltaBatcher`, silently drops a batch it was disposed out from
-   *  under). `unsentText` must stay untouched for the whole wait, so a
-   *  concurrent `takeUnsent()` still sees text `send` never committed to —
-   *  it is only removed once `send` has returned and this batch is no
-   *  longer eligible to be reclaimed. */
-  private async deliver(text: string, bytes: number): Promise<void> {
-    await this.send(text, bytes);
-    if (this.disposed) return;
-    if (!this.unsentText.startsWith(text)) {
-      throw new Error("Delta batch queue lost its accepted-text prefix");
-    }
-    this.unsentText = this.unsentText.slice(text.length);
   }
 }
 

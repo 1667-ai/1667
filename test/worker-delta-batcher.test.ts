@@ -103,6 +103,36 @@ test("cancellation transfers text already waiting for transport credit", async (
   await blocked;
 });
 
+test("a batch reclaimed while blocked on credit is never posted once credit arrives", async () => {
+  const sent: DeltaMessage[] = [];
+  const batcher = new WorkerDeltaBatcher(
+    OPERATION_ID,
+    (message) => sent.push(message)
+  );
+  const fullBatch = "x".repeat(MAX_DELTA_BATCH_BYTES);
+  for (let index = 0; index < MAX_UNACKNOWLEDGED_DELTA_BATCHES; index += 1) {
+    await batcher.push(fullBatch);
+  }
+  const blockedText = "queued".padEnd(MAX_DELTA_BATCH_BYTES, "q");
+  const blocked = batcher.push(blockedText);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(batcher.takeUnsent(), blockedText);
+
+  // No dispose() here: acknowledging credit for an earlier batch, without
+  // disposing, is the hazard case — the reclaimed batch's `send` call is
+  // still blocked in `waitForCredit` and must not post once it unblocks.
+  batcher.acknowledge(0);
+
+  await assert.doesNotReject(blocked);
+  assert.ok(
+    sent.every((message) => message.text !== blockedText),
+    "reclaimed text must never reach post()"
+  );
+  assert.equal(sent.length, MAX_UNACKNOWLEDGED_DELTA_BATCHES);
+  batcher.dispose();
+});
+
 test("timed flushes apply backpressure and the final flush awaits their queue", async () => {
   const sent: DeltaMessage[] = [];
   const batcher = new WorkerDeltaBatcher(OPERATION_ID, (message) => sent.push(message));

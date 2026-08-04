@@ -20,6 +20,12 @@ export class WorkerDeltaBatcher {
   private unacknowledgedBytes = 0;
   private readonly creditWaiters = new Set<() => void>();
   private disposed = false;
+  /** The one batch currently past `DeltaBatcher` and waiting on
+   *  `waitForCredit`, if any. `DeltaBatcher`'s `sendQueue` admits only one
+   *  delivery at a time, so one slot is always enough. `takeUnsent` reclaims
+   *  it by clearing this field; `send` checks the field is still its own
+   *  text before it posts, so a reclaimed batch can never reach `post`. */
+  private inFlight: string | null = null;
 
   constructor(
     private readonly id: WorkerOperationId,
@@ -38,9 +44,14 @@ export class WorkerDeltaBatcher {
     await this.batcher.flush();
   }
 
-  /** Remove all accepted text that has not entered the main-thread queue. */
+  /** Remove all accepted text that has not entered the main-thread queue:
+   *  the batch currently waiting on transport credit (if any), followed by
+   *  whatever is still buffered behind it. The in-flight batch is always
+   *  the earliest unconsumed text, so this order matches acceptance order. */
   takeUnsent(): string {
-    return this.batcher.takeUnsent();
+    const text = (this.inFlight ?? "") + this.batcher.takeBuffered();
+    this.inFlight = null;
+    return text;
   }
 
   acknowledge(sequence: number): void {
@@ -54,6 +65,7 @@ export class WorkerDeltaBatcher {
 
   dispose(): void {
     this.disposed = true;
+    this.inFlight = null;
     this.batcher.dispose();
     this.unacknowledged.clear();
     this.unacknowledgedBytes = 0;
@@ -61,8 +73,11 @@ export class WorkerDeltaBatcher {
   }
 
   private async send(text: string, bytes: number): Promise<void> {
+    this.inFlight = text;
     await this.waitForCredit(bytes);
-    if (this.disposed) return;
+    // Reclaimed by takeUnsent(), or disposed, while this waited: never post.
+    if (this.disposed || this.inFlight !== text) return;
+    this.inFlight = null;
     const sequence = this.sequence++;
     this.unacknowledged.set(sequence, bytes);
     this.unacknowledgedBytes += bytes;
