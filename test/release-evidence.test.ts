@@ -171,7 +171,7 @@ test("evidence from an annotated tag on a protected branch satisfies the release
   // Producer and validator cannot drift: the emitted document is exactly what a
   // release build consumes.
   const identities = createReleaseIdentitySet(JSON.parse(canonicalJson(evidence)) as unknown);
-  assert.deepEqual(identities.evidence, evidence);
+  assert.deepEqual(identities.source, evidence);
 });
 
 test("evidence from a lightweight tag on a protected branch satisfies the release validator", async (t) => {
@@ -182,7 +182,7 @@ test("evidence from a lightweight tag on a protected branch satisfies the releas
   assert.equal(evidence.tagTargetCommit, evidence.sourceCommit);
 
   const identities = createReleaseIdentitySet(JSON.parse(canonicalJson(evidence)) as unknown);
-  assert.deepEqual(identities.evidence, evidence);
+  assert.deepEqual(identities.source, evidence);
 });
 
 test("evidence refuses a dirty working tree", async (t) => {
@@ -284,7 +284,7 @@ test("the evidence CLI emits canonical JSON the release validator accepts", asyn
   ], { cwd: REPOSITORY_ROOT, encoding: "utf8" });
   const evidence: unknown = JSON.parse(stdout);
   assert.equal(canonicalJson(evidence), stdout.trim());
-  assert.equal(createReleaseIdentitySet(evidence).evidence.tagName, TAG);
+  assert.equal(createReleaseIdentitySet(evidence).source.tagName, TAG);
   assert.match(stderr, new RegExp(`release-tag ${TAG} annotated unsigned`));
 });
 

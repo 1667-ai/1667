@@ -55,15 +55,15 @@ type ReleaseTagEvidence =
 
 export type ReleaseSourceEvidence = ReleaseSourceEvidenceBase & ReleaseTagEvidence;
 
-export interface ReleaseBuildIdentitySet {
+export interface ReleaseBuildIdentitySet<
+  Source extends PackageBuildEvidence = PackageBuildEvidence
+> {
   schemaVersion: 1;
-  source: PackageBuildEvidence;
+  source: Source;
   identities: readonly ReleaseBuildIdentity[];
 }
 
-export interface ReleaseIdentitySet extends ReleaseBuildIdentitySet {
-  evidence: ReleaseSourceEvidence;
-}
+export type ReleaseIdentitySet = ReleaseBuildIdentitySet<ReleaseSourceEvidence>;
 
 const EVIDENCE_KEYS = new Set([
   "schemaVersion",
@@ -90,12 +90,7 @@ const PACKAGE_VERSION_KEYS = new Set([
  * `tagSignature: "verified"` from a trusted `git verify-tag` invocation.
  */
 export function createReleaseIdentitySet(value: unknown): ReleaseIdentitySet {
-  const evidence = parseSourceEvidence(value);
-  const build = createReleaseBuildIdentitySet(evidence);
-  return Object.freeze({
-    ...build,
-    evidence
-  });
+  return createIdentitySet(parseSourceEvidence(value));
 }
 
 /** Builds release identities from facts that make no tag-authorization claim. */
@@ -107,6 +102,12 @@ export function createReleaseBuildIdentitySet(
     sourceCommit: value.sourceCommit,
     buildTimestamp: value.buildTimestamp
   });
+  return createIdentitySet(source);
+}
+
+function createIdentitySet<Source extends PackageBuildEvidence>(
+  source: Source
+): ReleaseBuildIdentitySet<Source> {
   const identities = BUILT_ARTIFACT_TARGETS.map((artifactTarget) => {
     return releaseBuildIdentity(source, artifactTarget);
   });

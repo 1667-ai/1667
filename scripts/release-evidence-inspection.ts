@@ -109,7 +109,7 @@ export function assembleReleaseSourceEvidence(
     buildTimestamp,
     packageVersions
   });
-  return identities.evidence;
+  return identities.source;
 }
 
 function inspectReleaseTag(

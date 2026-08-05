@@ -57,12 +57,9 @@ test("annotated clean tag evidence produces one immutable release identity per t
     assert.ok(Object.isFrozen(identity));
   }
   assert.ok(Object.isFrozen(release.identities));
-  assert.deepEqual(release.source, {
-    productVersion: evidence.productVersion,
-    sourceCommit: evidence.sourceCommit,
-    buildTimestamp: evidence.buildTimestamp
-  });
-  assert.ok(Object.isFrozen(release.evidence.packageVersions));
+  assert.equal("evidence" in release, false);
+  assert.deepEqual(release.source, evidence);
+  assert.ok(Object.isFrozen(release.source.packageVersions));
 });
 
 test("an unsigned lightweight tag produces a release identity too", () => {
@@ -78,8 +75,8 @@ test("an unsigned lightweight tag produces a release identity too", () => {
     release.identities.map((identity) => identity.artifactTarget),
     BUILT_ARTIFACT_TARGETS
   );
-  assert.equal(release.evidence.tagObjectType, "lightweight");
-  assert.equal(release.evidence.tagSignature, "unsigned");
+  assert.equal(release.source.tagObjectType, "lightweight");
+  assert.equal(release.source.tagSignature, "unsigned");
 });
 
 test("release identity rejects mutable, detached, or version-skewed inputs", () => {
